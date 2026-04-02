@@ -81,6 +81,26 @@ HEAD_WIDTH_THRESHOLD    = 0.55      # head wider than this = headphones
 
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
+# ── CONFIDENCE SCORES PER VIOLATION TYPE ─────────────────────────
+CONFIDENCE_SCORES = {
+    "face_missing":         0.95,  # very reliable
+    "multiple_faces":       0.92,  # very reliable
+    "wrong_person":         0.78,  # depends on lighting
+    "eyes_closed":          0.88,  # reliable
+    "earphone_detected":    0.72,  # moderate
+    "cheat_object_detected":0.85,  # reliable for phones
+    "gaze_away":            0.70,  # moderate
+    "head_away":            0.80,  # reliable
+    "voice_detected":       0.75,  # moderate
+    "window_focus_lost":    0.99,  # near certain
+    "tab_hidden":           0.99,  # near certain
+    "lighting_issue":       0.90,  # reliable
+}
+
+violation_log    = []   # track all violations with confidence
+session_start    = time.time()
+
+
 # ─── MEDIAPIPE INIT ───────────────────────────────────────────────────────────
 face_mesh = mp.solutions.face_mesh.FaceMesh(
     max_num_faces            = 2,
@@ -176,12 +196,34 @@ def tick_grace(key, condition):
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 def log_event(etype, severity, details):
+    conf = CONFIDENCE_SCORES.get(etype, 0.75)
+    # Clean any existing conf: from details first
+    clean_details = str(details or "")
+    if "conf:" in clean_details:
+        # Extract actual confidence from AI score
+        try:
+            ai_conf = float(clean_details.split("conf:")[1].split(" ")[0].strip())
+            if ai_conf > 1:
+                conf = min(ai_conf / 100, 1.0)
+            else:
+                conf = ai_conf
+            clean_details = clean_details.split(" conf:")[0].strip()
+        except:
+            pass
+    details_with_conf = f"{clean_details} | confidence:{int(conf*100)}%"
+    violation_log.append({
+        "type":       etype,
+        "severity":   severity,
+        "details":    details,
+        "confidence": conf,
+        "timestamp":  datetime.now().isoformat(),
+    })
     try:
         requests.post(SERVER_URL, json=dict(
             session_id=SESSION_ID,
             event_type=etype,
             severity=severity,
-            details=details), timeout=2)
+            details=details_with_conf), timeout=2)
     except Exception as e:
         print(f"[Server] {e}")
 
@@ -667,8 +709,6 @@ def lighting_gate():
         cv2.imshow("AI Proctor", frame)
         key = cv2.waitKey(1)
         if key == ord(' ') and ok: break
-        if key == ord('q'):
-            video_cap.release(); cv2.destroyAllWindows(); exit()
     print("[LIGHTING] ✅ Good.\n")
 
 
@@ -724,8 +764,7 @@ def enroll_user():
                 put(frame,"No face — move closer",
                     (15,140),(0,0,255),scale=0.55)
             cv2.imshow("AI Proctor", frame)
-            if cv2.waitKey(1) == ord("q"):
-                video_cap.release(); cv2.destroyAllWindows(); exit()
+            cv2.waitKey(1)
         time.sleep(0.3)
     print("\n[ENROLLMENT] Training recognizer...")
     recognizer.train(samples, np.array(labels))
@@ -1087,15 +1126,28 @@ def proctor():
             log_event("lighting_issue","low",lit_msg)
 
         cv2.imshow("AI Proctor", frame)
-        if cv2.waitKey(1) == ord("q"):
-            break
+        # Only exit via SIGTERM from Electron - not keyboard
+        cv2.waitKey(1)
 
     if audio_stream:
         audio_stream.stop()
         audio_stream.close()
     video_cap.release()
     cv2.destroyAllWindows()
-    log_event("session_ended","low","Session ended")
+    # Calculate overall confidence score
+    if violation_log:
+        avg_conf = sum(v["confidence"] for v in violation_log) / len(violation_log)
+        high_conf = [v for v in violation_log if v["confidence"] >= 0.85]
+        print(f"\n[REPORT] Session Summary:")
+        print(f"  Total violations: {len(violation_log)}")
+        print(f"  High confidence:  {len(high_conf)}")
+        print(f"  Avg confidence:   {avg_conf:.0%}")
+        log_event("session_ended","low",
+                  f"Session ended | violations:{len(violation_log)} "
+                  f"| avg_confidence:{avg_conf:.0%} "
+                  f"| duration:{int(time.time()-session_start)}s")
+    else:
+        log_event("session_ended","low","Session ended | no violations")
     print("\n[DONE] Session ended.")
 
 

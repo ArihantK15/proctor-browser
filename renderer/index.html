@@ -329,6 +329,29 @@ async function startExam(){
     });
     showScreen('exam');
 
+    // Poll for force-submit from admin dashboard
+    setInterval(async()=>{
+      if(!sessionId) return;
+      try{
+        const r=await fetch(`${SERVER}/events/${sessionId}`);
+        const d=await r.json();
+        const forceSubmit=(d.events||[]).find(e=>
+          e.type==='exam_submitted');
+        if(forceSubmit){
+          clearInterval(timerInt);
+          if(typeof detectionTimer!=='undefined')
+            clearInterval(detectionTimer);
+          document.getElementById('final-score').textContent='Submitted';
+          showScreen('done');
+          document.getElementById('countdown').textContent=
+            'Submitted by examiner. Closing in 3 seconds...';
+          setTimeout(()=>{
+            if(window.proctor) window.proctor.adminExit('AUTO_CLOSE');
+          },3000);
+        }
+      }catch(e){}
+    },3000);
+
     // Anti-cheat listeners
     window.addEventListener('blur', ()=>{
       logV('window_focus_lost','Student switched away from exam');
@@ -443,7 +466,18 @@ function renderQ(){
   });
 }
 
-function selAns(l){ answers[questions[curQ].id]=l; renderQ(); }
+function selAns(l){
+  answers[questions[curQ].id]=l;
+  renderQ();
+  if(window.proctor&&sessionId){
+    window.proctor.logEvent({
+      session_id:sessionId,
+      event_type:'answer_selected',
+      severity:'low',
+      details:`q:${questions[curQ].id}|a:${l}|correct:${questions[curQ].correct}`
+    });
+  }
+}
 function goQ(i)   { curQ=i; renderQ(); }
 function prevQ()  { if(curQ>0){ curQ--; renderQ(); } }
 function nextQ()  { if(curQ<questions.length-1){ curQ++; renderQ(); } }

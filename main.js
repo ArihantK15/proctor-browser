@@ -4,7 +4,7 @@ const {
 } = require('electron');
 const path = require('path');
 
-const SERVER_URL = 'https://trance-expertise-dec-egg.trycloudflare.com';
+const SERVER_URL = 'https://aiproc.ngrok.dev';
 const ADMIN_CODE = 'EXIT2026';
 
 let mainWindow   = null;

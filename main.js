@@ -3,61 +3,82 @@ const {
   globalShortcut, powerSaveBlocker
 } = require('electron');
 const path    = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync, exec } = require('child_process');
 const os      = require('os');
 const fs      = require('fs');
+const https   = require('https');
 
 const SERVER_URL = 'https://aiproc.ngrok.dev';
 const ADMIN_CODE = 'EXIT2026';
 
 let mainWindow    = null;
+let setupWindow   = null;
 let pythonProcess = null;
 let powerBlockId  = null;
 let pollInterval  = null;
-let isKiosk       = true;  // PRODUCTION MODE
+let isKiosk       = true;
 
-// ── FIND PYTHON ───────────────────────────────────────────────────
-function findPython() {
-  const candidates = [];
+// ── PYTHON SETUP ──────────────────────────────────────────────────
+const REQUIRED_PACKAGES = [
+  'mediapipe',
+  'opencv-python',
+  'ultralytics',
+  'requests',
+  'sounddevice',
+  'numpy',
+  'scipy',
+];
 
-  if (process.platform === 'darwin') {
-    // Mac - try bundled venv first, then system
-    candidates.push(
-      path.join(process.resourcesPath, 'venv', 'bin', 'python3'),
-      path.join(__dirname, 'venv', 'bin', 'python3'),
-      '/usr/local/bin/python3',
-      '/usr/bin/python3',
-      'python3',
-    );
-  } else if (process.platform === 'win32') {
-    // Windows
-    candidates.push(
-      path.join(process.resourcesPath, 'venv', 'Scripts', 'python.exe'),
-      path.join(__dirname, 'venv', 'Scripts', 'python.exe'),
+const PYTHON_INSTALLER_URL =
+  'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe';
+
+function getPythonPath() {
+  if (process.platform === 'win32') {
+    const candidates = [
+      path.join(os.homedir(), 'AppData', 'Local',
+                'Programs', 'Python', 'Python311', 'python.exe'),
+      path.join(os.homedir(), 'AppData', 'Local',
+                'Programs', 'Python', 'Python310', 'python.exe'),
       'C:\\Python311\\python.exe',
       'C:\\Python310\\python.exe',
       'python',
-      'python3',
-    );
-  }
-
-  for (const p of candidates) {
-    try {
-      if (p.includes('python3') || p.includes('python')) {
-        if (!p.includes('/') && !p.includes('\\')) return p; // system cmd
+    ];
+    for (const p of candidates) {
+      try {
+        if (p === 'python') {
+          execSync('python --version', {stdio:'ignore'});
+          return p;
+        }
         if (fs.existsSync(p)) return p;
-      }
-    } catch(e) {}
+      } catch(e) {}
+    }
+    return null;
+  } else {
+    // Mac/Linux
+    const candidates = [
+      path.join(__dirname, 'venv', 'bin', 'python3'),
+      path.join(process.resourcesPath, 'venv', 'bin', 'python3'),
+      '/usr/local/bin/python3',
+      '/usr/bin/python3',
+      'python3',
+    ];
+    for (const p of candidates) {
+      try {
+        if (!p.includes('/')) {
+          execSync('python3 --version', {stdio:'ignore'});
+          return p;
+        }
+        if (fs.existsSync(p)) return p;
+      } catch(e) {}
+    }
+    return 'python3';
   }
-  return 'python3'; // fallback
 }
 
-// ── FIND PROCTOR SCRIPT ───────────────────────────────────────────
-function findScript() {
+function getScriptPath() {
   const candidates = [
     path.join(process.resourcesPath, 'proctor.py'),
     path.join(__dirname, 'proctor.py'),
-    path.join(app.getAppPath(), 'proctor.py'),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
@@ -65,18 +86,143 @@ function findScript() {
   return path.join(__dirname, 'proctor.py');
 }
 
+async function checkPythonReady() {
+  const python = getPythonPath();
+  if (!python) return false;
+  try {
+    execSync(`"${python}" -c "import mediapipe, cv2, ultralytics"`,
+             {stdio:'ignore', timeout: 10000});
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
+function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+    https.get(url, res => {
+      res.pipe(file);
+      file.on('finish', () => { file.close(); resolve(); });
+    }).on('error', err => {
+      fs.unlink(dest, () => {});
+      reject(err);
+    });
+  });
+}
+
+async function setupPython(sendStatus) {
+  const python = getPythonPath();
+
+  if (!python) {
+    // Download and install Python silently
+    sendStatus('Downloading Python 3.11...');
+    const installerPath = path.join(os.tmpdir(), 'python_installer.exe');
+    await downloadFile(PYTHON_INSTALLER_URL, installerPath);
+
+    sendStatus('Installing Python 3.11 (this takes 2-3 minutes)...');
+    await new Promise((resolve, reject) => {
+      const proc = spawn(installerPath, [
+        '/quiet',
+        'InstallAllUsers=0',
+        'PrependPath=1',
+        'Include_pip=1',
+      ]);
+      proc.on('close', code => {
+        if (code === 0) resolve();
+        else reject(new Error(`Python install failed: ${code}`));
+      });
+    });
+    sendStatus('Python installed ✅');
+  }
+
+  // Install packages
+  const py = getPythonPath() || 'python';
+  sendStatus('Installing AI packages (first time only, ~2 mins)...');
+
+  for (const pkg of REQUIRED_PACKAGES) {
+    try {
+      execSync(`"${py}" -c "import ${pkg.replace('-python','').replace('-','_')}"`,
+               {stdio:'ignore', timeout:5000});
+      sendStatus(`✅ ${pkg} ready`);
+    } catch(e) {
+      sendStatus(`Installing ${pkg}...`);
+      try {
+        execSync(
+          `"${py}" -m pip install ${pkg} --quiet --no-warn-script-location`,
+          {stdio:'ignore', timeout:120000});
+        sendStatus(`✅ ${pkg} installed`);
+      } catch(err) {
+        sendStatus(`⚠️ ${pkg} failed — continuing...`);
+      }
+    }
+  }
+
+  sendStatus('All packages ready ✅');
+  return true;
+}
+
+// ── SETUP WINDOW (shown on Windows first run) ─────────────────────
+function createSetupWindow() {
+  setupWindow = new BrowserWindow({
+    width:  500,
+    height: 400,
+    frame:  true,
+    resizable: false,
+    alwaysOnTop: true,
+    webPreferences: { nodeIntegration: false, contextIsolation: true }
+  });
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: -apple-system, sans-serif;
+           background:#0d1117; color:#c9d1d9;
+           display:flex; align-items:center;
+           justify-content:center; height:100vh;
+           flex-direction:column; text-align:center;
+           padding:40px; }
+    h2 { color:#58a6ff; margin-bottom:8px; font-size:20px; }
+    p  { color:#8b949e; font-size:13px; margin-bottom:24px; }
+    .log { background:#161b22; border:1px solid #30363d;
+           border-radius:8px; padding:16px; width:100%;
+           max-height:180px; overflow-y:auto;
+           font-size:12px; font-family:monospace;
+           color:#3fb950; text-align:left; }
+    .spinner { width:40px; height:40px; border:3px solid #30363d;
+               border-top-color:#58a6ff; border-radius:50%;
+               animation:spin 1s linear infinite; margin:0 auto 20px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <h2>Setting Up Exam Environment</h2>
+  <p>Please wait while we prepare your exam browser.<br>
+     This only happens once.</p>
+  <div class="log" id="log">Starting setup...<br></div>
+  <script>
+    const { ipcRenderer } = require('electron');
+  </script>
+</body>
+</html>`;
+
+  const tmpHtml = path.join(os.tmpdir(), 'proctor_setup.html');
+  fs.writeFileSync(tmpHtml, html);
+  setupWindow.loadFile(tmpHtml);
+  setupWindow.setMenuBarVisibility(false);
+}
+
 // ── PYTHON AI PROCTOR ─────────────────────────────────────────────
 function startPython(sessionId) {
-  const pythonPath = findPython();
-  const scriptPath = findScript();
+  const pythonPath = getPythonPath();
+  const scriptPath = getScriptPath();
   const evidenceDir = path.join(app.getPath('userData'), 'evidence');
 
-  console.log('[AI] Python:', pythonPath);
-  console.log('[AI] Script:', scriptPath);
-  console.log('[AI] Session:', sessionId);
-
-  if (!fs.existsSync(scriptPath)) {
-    console.error('[AI] proctor.py not found at:', scriptPath);
+  if (!pythonPath || !fs.existsSync(scriptPath)) {
+    console.error('[AI] Python or script not found');
     return;
   }
 
@@ -140,7 +286,7 @@ function stopPolling() {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
 }
 
-// ── WINDOW ────────────────────────────────────────────────────────
+// ── MAIN WINDOW ───────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
     fullscreen:      isKiosk,
@@ -166,9 +312,7 @@ function createWindow() {
   mainWindow.loadFile(
     path.join(__dirname, 'renderer', 'index.html'));
 
-  if (!isKiosk) {
-    mainWindow.webContents.openDevTools();
-  }
+  if (!isKiosk) mainWindow.webContents.openDevTools();
 
   mainWindow.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith(SERVER_URL) && !url.startsWith('file://'))
@@ -187,7 +331,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+// ── APP START ─────────────────────────────────────────────────────
+app.whenReady().then(async () => {
   if (isKiosk) {
     globalShortcut.registerAll([
       'Alt+F4','Cmd+Q','Cmd+W','Cmd+M','Cmd+H',
@@ -199,6 +344,40 @@ app.whenReady().then(() => {
       'Ctrl+C','Ctrl+V','Ctrl+X',
     ], () => false);
   }
+
+  // On Windows - check Python and auto-setup if needed
+  if (process.platform === 'win32') {
+    const ready = await checkPythonReady();
+    if (!ready) {
+      createSetupWindow();
+
+      const sendStatus = (msg) => {
+        console.log('[Setup]', msg);
+        if (setupWindow && !setupWindow.isDestroyed()) {
+          setupWindow.webContents.executeJavaScript(`
+            document.getElementById('log').innerHTML +=
+              '${msg.replace(/'/g,"\\'")}\\n';
+            document.getElementById('log').scrollTop = 99999;
+          `).catch(()=>{});
+        }
+      };
+
+      try {
+        await setupPython(sendStatus);
+        sendStatus('✅ Setup complete! Starting exam...');
+        await new Promise(r => setTimeout(r, 2000));
+      } catch(e) {
+        sendStatus(`❌ Setup failed: ${e.message}`);
+        sendStatus('Please install Python from python.org and retry.');
+        await new Promise(r => setTimeout(r, 5000));
+      }
+
+      if (setupWindow && !setupWindow.isDestroyed()) {
+        setupWindow.close();
+      }
+    }
+  }
+
   createWindow();
 });
 

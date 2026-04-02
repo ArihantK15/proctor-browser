@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AI Proctored Exam</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;user-select:none}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+         background:#0d1117;color:#c9d1d9;height:100vh;overflow:hidden}
+    .screen{position:absolute;inset:0;display:none;
+            align-items:center;justify-content:center}
+    .screen.active{display:flex}
+    #screen-login{flex-direction:column}
+    .card{background:#161b22;border:1px solid #30363d;
+          border-radius:12px;padding:48px;width:420px;text-align:center}
+    .logo{font-size:48px;margin-bottom:16px}
+    .card h1{color:#58a6ff;font-size:22px;margin-bottom:6px}
+    .card p{color:#8b949e;font-size:13px;margin-bottom:28px}
+    .fg{text-align:left;margin-bottom:16px}
+    .fg label{display:block;font-size:12px;color:#8b949e;
+              margin-bottom:6px;font-weight:500}
+    .fg input{width:100%;background:#0d1117;border:1px solid #30363d;
+              border-radius:6px;padding:11px 14px;color:#c9d1d9;font-size:14px}
+    .fg input:focus{outline:none;border-color:#58a6ff}
+    .btn{width:100%;padding:13px;border-radius:6px;border:none;
+         font-size:14px;font-weight:600;cursor:pointer;
+         background:#238636;color:#fff}
+    .btn:hover{background:#2ea043}
+    .btn:disabled{background:#2d333b;color:#484f58;cursor:not-allowed}
+    .err{color:#ff7b72;font-size:12px;margin-top:10px;min-height:18px}
+    .ldr{color:#8b949e;font-size:12px;margin-top:8px}
+    #screen-enroll{flex-direction:column}
+    .econt{text-align:center;max-width:700px;width:90%}
+    .econt h2{color:#58a6ff;font-size:20px;margin-bottom:6px}
+    .econt p{color:#8b949e;font-size:13px;margin-bottom:20px}
+    #cam{width:640px;max-width:100%;border-radius:12px;
+         border:2px solid #30363d;background:#000;display:block;margin:0 auto}
+    .est{margin-top:16px;font-size:14px;color:#c9d1d9;min-height:24px}
+    .pb{background:#21262d;border-radius:20px;height:8px;
+        margin-top:12px;overflow:hidden}
+    .pf{background:#58a6ff;height:100%;border-radius:20px;transition:width 0.3s}
+    #screen-exam{flex-direction:column;align-items:stretch}
+    .ehdr{background:#161b22;border-bottom:1px solid #30363d;
+          padding:12px 24px;display:flex;align-items:center;
+          justify-content:space-between;flex-shrink:0}
+    .etitle{font-size:16px;font-weight:600;color:#c9d1d9}
+    .estu{font-size:12px;color:#8b949e}
+    .etimer{font-family:monospace;font-size:20px;color:#58a6ff;font-weight:700}
+    .etimer.warn{color:#e3b341}
+    .etimer.dang{color:#ff7b72;animation:blink 1s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+    .ebody{display:flex;flex:1;overflow:hidden}
+    .esidebar{width:200px;background:#161b22;border-right:1px solid #30363d;
+              padding:16px;overflow-y:auto;flex-shrink:0}
+    .stitle{font-size:11px;color:#8b949e;font-weight:600;
+            text-transform:uppercase;margin-bottom:12px}
+    .qgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+    .qdot{width:36px;height:36px;border-radius:6px;border:none;
+          font-size:12px;font-weight:600;cursor:pointer;
+          background:#21262d;color:#8b949e}
+    .qdot.cur{background:#1f6feb;color:#fff}
+    .qdot.ans{background:#238636;color:#fff}
+    .emain{flex:1;padding:32px;overflow-y:auto;
+           display:flex;flex-direction:column;gap:24px}
+    .qnum{font-size:13px;color:#8b949e;font-weight:500}
+    .qtxt{font-size:18px;color:#e6edf3;line-height:1.6;font-weight:500}
+    .opts{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+    .opt{background:#161b22;border:2px solid #30363d;border-radius:8px;
+         padding:14px 18px;cursor:pointer;display:flex;
+         align-items:center;gap:14px;font-size:14px}
+    .opt:hover{border-color:#58a6ff;background:#1c2128}
+    .opt.sel{border-color:#238636;background:#1a2d1a;color:#3fb950}
+    .oltr{width:28px;height:28px;border-radius:6px;background:#21262d;
+          display:flex;align-items:center;justify-content:center;
+          font-weight:700;font-size:12px;flex-shrink:0}
+    .opt.sel .oltr{background:#238636;color:#fff}
+    .enav{display:flex;gap:10px;justify-content:space-between;margin-top:16px}
+    .bnav{padding:10px 24px;border-radius:6px;border:none;
+          font-size:13px;font-weight:600;cursor:pointer}
+    .bprev{background:#21262d;color:#c9d1d9}
+    .bnext{background:#1f6feb;color:#fff}
+    .bsub{background:#238636;color:#fff}
+    .bnav:disabled{opacity:.4;cursor:not-allowed}
+    .camini{position:fixed;bottom:20px;right:20px;width:160px;
+            border-radius:8px;border:2px solid #30363d;background:#000}
+    #screen-done{flex-direction:column;text-align:center}
+    .dcard{background:#161b22;border:1px solid #30363d;
+           border-radius:12px;padding:48px;max-width:480px;width:90%}
+    .dcard h2{color:#3fb950;font-size:24px;margin-bottom:8px}
+    .dcard p{color:#8b949e;font-size:14px}
+    .score{font-size:48px;font-weight:700;color:#58a6ff;margin:16px 0}
+    .countdown{font-size:13px;color:#8b949e;margin-top:16px}
+    .vbanner{position:fixed;top:70px;left:50%;transform:translateX(-50%);
+             padding:10px 24px;border-radius:8px;font-size:14px;
+             font-weight:600;z-index:9999;color:#fff;
+             animation:fadeout 3s forwards;pointer-events:none}
+    @keyframes fadeout{0%{opacity:1}70%{opacity:1}100%{opacity:0}}
+    .axit{position:fixed;bottom:12px;left:12px;font-size:11px;
+          color:#21262d;cursor:pointer;padding:8px;border-radius:4px}
+    .axit:hover{color:#58a6ff;background:#161b22}
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="screen active" id="screen-login">
+  <div class="card">
+    <div class="logo">🎓</div>
+    <h1>AI Proctored Exam</h1>
+    <p>Enter your Roll Number to begin</p>
+    <div class="fg">
+      <label>Roll Number</label>
+      <input type="text" id="roll-input"
+             placeholder="e.g. CS2024001"
+             onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn" id="login-btn" onclick="doLogin()">
+      Verify & Continue
+    </button>
+    <div class="err" id="login-err"></div>
+    <div class="ldr" id="login-ldr"></div>
+  </div>
+</div>
+
+<!-- ENROLL -->
+<div class="screen" id="screen-enroll">
+  <div class="econt">
+    <h2>Face Enrollment</h2>
+    <p id="enroll-dir">Look straight at the camera</p>
+    <video id="cam" autoplay muted playsinline></video>
+    <canvas id="canvas" style="display:none" width="640" height="480"></canvas>
+    <div class="est" id="enroll-st">Starting camera...</div>
+    <div class="pb"><div class="pf" id="enroll-pf" style="width:0%"></div></div>
+  </div>
+</div>
+
+<!-- EXAM -->
+<div class="screen" id="screen-exam">
+  <div class="ehdr">
+    <div>
+      <div class="etitle" id="exam-title">Exam</div>
+      <div class="estu"   id="exam-stu"></div>
+    </div>
+    <div class="etimer" id="exam-timer">--:--</div>
+  </div>
+  <div class="ebody">
+    <div class="esidebar">
+      <div class="stitle">Questions</div>
+      <div class="qgrid" id="qgrid"></div>
+      <div style="margin-top:20px;font-size:11px;color:#8b949e;line-height:2.2">
+        <div>🟦 Current</div>
+        <div>🟩 Answered</div>
+        <div>⬜ Unanswered</div>
+      </div>
+    </div>
+    <div class="emain">
+      <div class="qnum" id="qnum">Question 1 of 1</div>
+      <div class="qtxt" id="qtxt">Loading...</div>
+      <div class="opts" id="qopts"></div>
+      <div class="enav">
+        <button class="bnav bprev" id="btn-prev"
+                onclick="prevQ()">← Previous</button>
+        <button class="bnav bnext" id="btn-next"
+                onclick="nextQ()">Next →</button>
+        <button class="bnav bsub"  id="btn-sub"
+                onclick="confirmSub()"
+                style="display:none">Submit Exam ✓</button>
+      </div>
+    </div>
+  </div>
+  <video class="camini" id="cam-mini" autoplay muted playsinline></video>
+</div>
+
+<!-- DONE -->
+<div class="screen" id="screen-done">
+  <div class="dcard">
+    <h2>✅ Exam Submitted</h2>
+    <p>Your answers have been recorded.</p>
+    <div class="score" id="final-score">-/-</div>
+    <p style="margin-top:20px;font-size:13px">
+      Results will be sent to your registered email.
+    </p>
+    <div class="countdown" id="countdown">
+      Closing in 5 seconds...
+    </div>
+  </div>
+</div>
+
+<div class="axit" onclick="adminExit()">⚙</div>
+
+<script>
+const SERVER = 'https://trance-expertise-dec-egg.trycloudflare.com';
+
+let student=null, sessionId=null, questions=[], answers={};
+let curQ=0, timerSecs=0, timerInt=null;
+let startTime=null, violations=[], stream=null;
+let detectionTimer=null;
+
+function showScreen(id){
+  document.querySelectorAll('.screen')
+    .forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+id).classList.add('active');
+}
+
+function showBanner(msg, color){
+  const b=document.createElement('div');
+  b.className='vbanner';
+  b.style.background=color;
+  b.textContent=msg;
+  document.body.appendChild(b);
+  setTimeout(()=>b.remove(), 3000);
+}
+
+function logV(type, details){
+  violations.push({type, details, timestamp:new Date().toISOString()});
+  if(window.proctor) window.proctor.logEvent({
+    session_id:sessionId, event_type:type,
+    severity:'high', details
+  });
+}
+
+// ── LOGIN ──────────────────────────────────────────────────────────
+async function doLogin(){
+  const roll=document.getElementById('roll-input').value.trim();
+  if(!roll){
+    document.getElementById('login-err').textContent=
+      'Enter your Roll Number';
+    return;
+  }
+  const btn=document.getElementById('login-btn');
+  btn.disabled=true;
+  document.getElementById('login-err').textContent='';
+  document.getElementById('login-ldr').textContent='Verifying...';
+  try{
+    student   = await window.proctor.validateStudent(roll);
+    sessionId = `${roll}_${Date.now()}`;
+    document.getElementById('login-ldr').textContent='';
+    startEnroll();
+  }catch(e){
+    document.getElementById('login-err').textContent=
+      e.message||'Verification failed. Check your Roll Number.';
+    document.getElementById('login-ldr').textContent='';
+    btn.disabled=false;
+  }
+}
+
+// ── ENROLL ─────────────────────────────────────────────────────────
+const DIRS=[
+  'Look STRAIGHT at the camera',
+  'Turn slightly LEFT',
+  'Turn slightly RIGHT',
+  'Tilt slightly UP',
+  'Tilt slightly DOWN'
+];
+let eDir=0, eSamp=0, eInt=null;
+const SAMP=20;
+
+async function startEnroll(){
+  showScreen('enroll');
+  try{
+    stream=await navigator.mediaDevices.getUserMedia(
+      {video:{width:640,height:480,facingMode:'user'},audio:true});
+    document.getElementById('cam').srcObject=stream;
+    document.getElementById('cam-mini').srcObject=stream;
+  }catch(e){
+    document.getElementById('enroll-st').textContent=
+      'Camera denied. Allow access and restart.';
+    return;
+  }
+  if(window.proctor){
+    await window.proctor.logEvent({
+      session_id:sessionId, event_type:'enrollment_started',
+      severity:'low',
+      details:`Student: ${student.full_name} (${student.roll_number})`
+    });
+    await window.proctor.startProctor({sessionId});
+  }
+  updateEnroll();
+  eInt=setInterval(captureEnroll, 200);
+}
+
+function updateEnroll(){
+  document.getElementById('enroll-dir').textContent=DIRS[eDir];
+  const pct=((eDir*SAMP+eSamp)/(DIRS.length*SAMP))*100;
+  document.getElementById('enroll-pf').style.width=pct+'%';
+  document.getElementById('enroll-st').textContent=
+    `Direction ${eDir+1}/${DIRS.length} — Samples: ${eSamp}/${SAMP}`;
+}
+
+function captureEnroll(){
+  eSamp++;
+  updateEnroll();
+  if(eSamp>=SAMP){
+    eSamp=0; eDir++;
+    if(eDir>=DIRS.length){ clearInterval(eInt); finishEnroll(); }
+  }
+}
+
+async function finishEnroll(){
+  document.getElementById('enroll-st').textContent=
+    'Enrollment complete! Starting exam...';
+  document.getElementById('enroll-pf').style.width='100%';
+  if(window.proctor) await window.proctor.logEvent({
+    session_id:sessionId, event_type:'enrollment_complete',
+    severity:'low', details:`Enrolled: ${student.full_name}`
+  });
+  setTimeout(startExam, 1500);
+}
+
+// ── EXAM ───────────────────────────────────────────────────────────
+async function startExam(){
+  try{
+    const data=await window.proctor.getQuestions();
+    questions=data.questions||[];
+    if(!questions.length){
+      alert('No questions found. Contact examiner.'); return;
+    }
+    timerSecs=questions.length*150;
+    startTime=Date.now();
+    document.getElementById('exam-title').textContent=
+      data.exam_title||'Exam';
+    document.getElementById('exam-stu').textContent=
+      `${student.full_name} — ${student.roll_number}`;
+    buildGrid(); renderQ(); startTimer();
+    if(window.proctor) await window.proctor.logEvent({
+      session_id:sessionId, event_type:'exam_started',
+      severity:'low',
+      details:`Questions:${questions.length} Time:${timerSecs}s`
+    });
+    showScreen('exam');
+
+    // Anti-cheat listeners
+    window.addEventListener('blur', ()=>{
+      logV('window_focus_lost','Student switched away from exam');
+      showBanner('⚠️ Focus lost — return to exam!','#c0392b');
+    });
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.hidden){
+        logV('tab_hidden','Exam tab hidden');
+        showBanner('⚠️ Tab switch detected!','#c0392b');
+      }
+    });
+    document.addEventListener('contextmenu', e=>e.preventDefault());
+    document.addEventListener('keydown', e=>{
+      if(['F12','F11','F5','PrintScreen'].includes(e.key))
+        e.preventDefault();
+      if((e.ctrlKey||e.metaKey)&&
+         ['c','v','x','a','u','s','p'].includes(e.key.toLowerCase())){
+        e.preventDefault();
+        logV('shortcut_blocked',`Blocked: ${e.key}`);
+      }
+    });
+
+    // Start periodic frame capture
+    startFrameCapture();
+
+  }catch(e){
+    console.error('startExam:', e);
+    alert('Could not load exam. Contact examiner.');
+  }
+}
+
+// ── FRAME CAPTURE (sends screenshots to server) ────────────────────
+let frameCanvas=document.createElement('canvas');
+let frameCtx=frameCanvas.getContext('2d');
+frameCanvas.width=320; frameCanvas.height=240;
+
+function startFrameCapture(){
+  detectionTimer=setInterval(captureFrame, 5000);
+}
+
+function captureFrame(){
+  const video=document.getElementById('cam-mini');
+  if(!video||!video.srcObject||!sessionId) return;
+  try{
+    frameCtx.drawImage(video,0,0,320,240);
+
+    // Brightness check
+    const imgData=frameCtx.getImageData(0,0,320,240).data;
+    let brightness=0;
+    for(let i=0;i<imgData.length;i+=4)
+      brightness+=(imgData[i]+imgData[i+1]+imgData[i+2])/3;
+    brightness/=(imgData.length/4);
+
+    if(brightness<15){
+      logV('camera_covered',`Camera covered (brightness:${brightness.toFixed(1)})`);
+      showBanner('⚠️ Camera covered!','#c0392b');
+    } else if(brightness<40){
+      logV('lighting_poor',`Poor lighting (brightness:${brightness.toFixed(1)})`);
+      showBanner('⚠️ Improve lighting!','#e67e22');
+    }
+
+    // Send frame to server
+    const b64=frameCanvas.toDataURL('image/jpeg',0.6).split(',')[1];
+    fetch(`${SERVER}/api/analyze-frame`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        session_id:sessionId,
+        frame:b64,
+        timestamp:new Date().toISOString()
+      })
+    }).catch(()=>{});
+
+  }catch(e){ console.error('captureFrame:',e); }
+}
+
+// ── GRID & RENDER ──────────────────────────────────────────────────
+function buildGrid(){
+  const g=document.getElementById('qgrid');
+  g.innerHTML='';
+  questions.forEach((_,i)=>{
+    const b=document.createElement('button');
+    b.className='qdot'+(i===0?' cur':'');
+    b.textContent=i+1; b.id=`qd-${i}`;
+    b.onclick=()=>goQ(i); g.appendChild(b);
+  });
+}
+
+function renderQ(){
+  const q=questions[curQ];
+  document.getElementById('qnum').textContent=
+    `Question ${curQ+1} of ${questions.length}`;
+  document.getElementById('qtxt').textContent=q.question;
+  const o=document.getElementById('qopts'); o.innerHTML='';
+  Object.entries(q.options).forEach(([l,t])=>{
+    const d=document.createElement('div');
+    d.className='opt'+(answers[q.id]===l?' sel':'');
+    d.onclick=()=>selAns(l);
+    d.innerHTML=`<div class="oltr">${l}</div><span>${t}</span>`;
+    o.appendChild(d);
+  });
+  document.getElementById('btn-prev').disabled=curQ===0;
+  const last=curQ===questions.length-1;
+  document.getElementById('btn-next').style.display=
+    last?'none':'inline-block';
+  document.getElementById('btn-sub').style.display=
+    last?'inline-block':'none';
+  questions.forEach((qq,i)=>{
+    const d=document.getElementById(`qd-${i}`);
+    if(d) d.className=
+      'qdot'+(i===curQ?' cur':answers[qq.id]?' ans':'');
+  });
+}
+
+function selAns(l){ answers[questions[curQ].id]=l; renderQ(); }
+function goQ(i)   { curQ=i; renderQ(); }
+function prevQ()  { if(curQ>0){ curQ--; renderQ(); } }
+function nextQ()  { if(curQ<questions.length-1){ curQ++; renderQ(); } }
+
+// ── TIMER ──────────────────────────────────────────────────────────
+function startTimer(){
+  updateTimer();
+  timerInt=setInterval(()=>{
+    timerSecs--; updateTimer();
+    if(timerSecs<=0){ clearInterval(timerInt); submitExam(true); }
+  }, 1000);
+}
+
+function updateTimer(){
+  const m=Math.floor(timerSecs/60).toString().padStart(2,'0');
+  const s=(timerSecs%60).toString().padStart(2,'0');
+  const el=document.getElementById('exam-timer');
+  el.textContent=`${m}:${s}`;
+  el.className='etimer'+
+    (timerSecs<60?' dang':timerSecs<300?' warn':'');
+}
+
+function confirmSub(){
+  const u=questions.filter(q=>!answers[q.id]).length;
+  const msg=u>0?
+    `${u} unanswered question(s). Submit anyway?`:
+    'Submit your exam?';
+  if(confirm(msg)) submitExam(false);
+}
+
+// ── SUBMIT ─────────────────────────────────────────────────────────
+async function submitExam(timeUp=false){
+  clearInterval(timerInt);
+  if(detectionTimer) clearInterval(detectionTimer);
+
+  let score=0;
+  questions.forEach(q=>{
+    if(answers[q.id]===q.correct) score++;
+  });
+  const taken=Math.floor((Date.now()-startTime)/1000);
+
+  // Fetch server-side violations for this session
+  let allViolations=[...violations];
+  try{
+    const evRes=await fetch(`${SERVER}/events/${sessionId}`);
+    const evData=await evRes.json();
+    const serverEvents=(evData.events||[])
+      .filter(e=>e.severity==='high'||e.severity==='medium')
+      .map(e=>({
+        type:e.type, details:e.details,
+        timestamp:e.timestamp, severity:e.severity
+      }));
+    // Merge and deduplicate
+    const seen=new Set();
+    allViolations=[...violations,...serverEvents].filter(v=>{
+      const k=`${v.type}_${v.timestamp}`;
+      if(seen.has(k)) return false;
+      seen.add(k); return true;
+    });
+  }catch(e){ console.error('fetch violations:',e); }
+
+  try{
+    if(window.proctor) await window.proctor.submitExam({
+      session_id:sessionId,
+      roll_number:student.roll_number,
+      full_name:student.full_name,
+      email:student.email,
+      answers, score,
+      total:questions.length,
+      time_taken_secs:taken,
+      violations:allViolations
+    });
+  }catch(e){ console.error('Submit failed:',e); }
+
+  document.getElementById('final-score').textContent=
+    `${score}/${questions.length}`;
+  showScreen('done');
+  if(window.proctor) window.proctor.stopProctor();
+
+  // Auto close countdown
+  let count=5;
+  const cd=document.getElementById('countdown');
+  const cInt=setInterval(()=>{
+    count--;
+    cd.textContent=`Closing in ${count} seconds...`;
+    if(count<=0){
+      clearInterval(cInt);
+      if(window.proctor) window.proctor.adminExit('AUTO_CLOSE');
+    }
+  }, 1000);
+}
+
+// ── ADMIN EXIT ─────────────────────────────────────────────────────
+async function adminExit(){
+  const code=prompt('Admin exit code:');
+  if(!code) return;
+  const r=await window.proctor.adminExit(code);
+  if(!r||!r.success) alert('Wrong code');
+}
+</script>
+</body>
+</html>

@@ -1,5 +1,9 @@
 import cv2
 import numpy as np
+import platform
+
+# Run headless on Windows (no display window)
+HEADLESS = platform.system() == 'Windows' or            os.environ.get('PROCTOR_HEADLESS', '0') == '1' 
 import requests
 import uuid
 import time
@@ -37,9 +41,9 @@ PHONE_DOWN_FRAMES     = 30
 GLANCE_HISTORY_SIZE   = 300
 
 # ─── OBJECT DETECTION ─────────────────────────────────────────────────────────
-YOLO_CONFIDENCE       = 0.60
-YOLO_MIN_FRAMES       = 5
-YOLO_EVERY_N          = 10
+YOLO_CONFIDENCE       = 0.40
+YOLO_MIN_FRAMES       = 2
+YOLO_EVERY_N          = 5
 EAR_EVERY_N           = 15
 OBJECT_GRACE_FRAMES   = 30
 PAUSE_LINGER_FRAMES   = 20
@@ -706,7 +710,7 @@ def lighting_gate():
         else:
             put(frame,"Adjust lighting",
                 (15,90),(100,100,255),scale=0.55)
-        cv2.imshow("AI Proctor", frame)
+        if not HEADLESS: cv2.imshow("AI Proctor", frame)
         key = cv2.waitKey(1)
         if key == ord(' ') and ok: break
     print("[LIGHTING] ✅ Good.\n")
@@ -763,7 +767,7 @@ def enroll_user():
             else:
                 put(frame,"No face — move closer",
                     (15,140),(0,0,255),scale=0.55)
-            cv2.imshow("AI Proctor", frame)
+            if not HEADLESS: cv2.imshow("AI Proctor", frame)
             cv2.waitKey(1)
         time.sleep(0.3)
     print("\n[ENROLLMENT] Training recognizer...")
@@ -915,7 +919,7 @@ def proctor():
                 f"Obj:{object_grace}/{OBJECT_GRACE_FRAMES} "
                 f"Linger:{pause_linger} FPS:{fps:.0f}",
                 (10,H-10),(150,150,150),scale=0.38,thick=1)
-            cv2.imshow("AI Proctor", frame)
+            if not HEADLESS: cv2.imshow("AI Proctor", frame)
             if cv2.waitKey(1) == ord("q"): break
             continue
 
@@ -1125,7 +1129,7 @@ def proctor():
         if not lit_ok and cooldown("lighting",secs=15):
             log_event("lighting_issue","low",lit_msg)
 
-        cv2.imshow("AI Proctor", frame)
+        if not HEADLESS: cv2.imshow("AI Proctor", frame)
         # Only exit via SIGTERM from Electron - not keyboard
         cv2.waitKey(1)
 
@@ -1133,7 +1137,7 @@ def proctor():
         audio_stream.stop()
         audio_stream.close()
     video_cap.release()
-    cv2.destroyAllWindows()
+    if not HEADLESS: cv2.destroyAllWindows()
     # Calculate overall confidence score
     if violation_log:
         avg_conf = sum(v["confidence"] for v in violation_log) / len(violation_log)

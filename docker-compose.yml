@@ -11,6 +11,7 @@ services:
       - .env
     volumes:
       - ./screenshots:/app/screenshots
+      - ./questions.json:/app/questions.json
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

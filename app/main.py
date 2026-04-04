@@ -88,7 +88,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://procta.net"],
+    allow_origins=["*"],  # JWT auth provides security; CORS can't help with file:// origin
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -201,7 +201,7 @@ def health():
 def validate_student(request: Request, body: ValidateIn):
     result = supabase.table("students")\
         .select("*")\
-        .eq("roll_number", body.roll_number.strip())\
+        .eq("roll_number", body.roll_number.strip().upper())\
         .execute()
     if not result.data:
         raise HTTPException(
@@ -772,7 +772,7 @@ def admin_cleanup(request: Request):
     """Delete screenshots older than 7 days."""
     require_admin(request)
     deleted = 0
-    cutoff  = datetime.now() - timedelta(days=7)
+    cutoff  = now_ist() - timedelta(days=7)
     try:
         for student_dir in Path(SCREENSHOTS_DIR).iterdir():
             if student_dir.is_dir():

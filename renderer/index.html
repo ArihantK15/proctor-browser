@@ -366,6 +366,7 @@ async function finishEnroll(){
         showBanner(`⚠️ ${type.replace(/_/g,' ')}: ${details}`, color);
       });
       window.proctor.onForceSubmit(()=>{
+        examActive=false;
         clearInterval(timerInt);
         document.getElementById('final-score').textContent='Submitted';
         showScreen('done');

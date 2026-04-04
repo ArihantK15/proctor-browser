@@ -553,6 +553,12 @@ ipcMain.handle('admin-exit', (_, code) => {
     stopPolling();
     globalShortcut.unregisterAll();
     if (powerBlockId !== null) powerSaveBlocker.stop(powerBlockId);
+    // Remove the kiosk close-prevention listener before quitting,
+    // otherwise app.quit() triggers 'close', preventDefault() runs, and quit is cancelled
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.removeAllListeners('close');
+      mainWindow.removeAllListeners('blur');
+    }
     app.quit();
     return { success: true };
   }

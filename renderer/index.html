@@ -175,10 +175,10 @@
 <div class="screen" id="screen-done">
   <div class="dcard">
     <h2>✅ Exam Submitted</h2>
-    <p>Your answers have been recorded.</p>
+    <p>Your answers have been saved securely.</p>
     <div class="score" id="final-score">-/-</div>
     <p style="margin-top:20px;font-size:13px">
-      Results will be sent to your registered email.
+      Your examiner will share results with you directly.
     </p>
     <div class="countdown" id="countdown">
       Closing in 5 seconds...
@@ -286,6 +286,8 @@ let eDir=0, eSamp=0, eInt=null;
 const SAMP=20;
 
 async function startEnroll(){
+  // Reset enrollment state in case this is a retry or resume
+  eDir=0; eSamp=0;
   showScreen('enroll');
   try{
     stream=await navigator.mediaDevices.getUserMedia(
@@ -300,11 +302,13 @@ async function startEnroll(){
     return;
   }
   if(window.proctor){
-    await window.proctor.logEvent({
-      session_id:sessionId, event_type:'enrollment_started',
-      severity:'low',
-      details:`Student: ${student.full_name} (${student.roll_number})`
-    });
+    try{
+      await window.proctor.logEvent({
+        session_id:sessionId, event_type:'enrollment_started',
+        severity:'low',
+        details:`Student: ${student.full_name} (${student.roll_number})`
+      });
+    }catch(e){ console.warn('[Enroll] logEvent failed:', e); }
   }
   updateEnroll();
   eInt=setInterval(captureEnroll, 200);
@@ -382,13 +386,20 @@ async function startExam(){
       data.exam_title||'Exam';
     document.getElementById('exam-stu').textContent=
       `${student.full_name} — ${student.roll_number}`;
-    buildGrid(); renderQ(); startTimer();
-    if(window.proctor) await window.proctor.logEvent({
-      session_id:sessionId, event_type:'exam_started',
-      severity:'low',
-      details:`Questions:${questions.length} Time:${timerSecs}s`
-    });
+    buildGrid(); renderQ();
+    if(window.proctor){
+      try{
+        await window.proctor.logEvent({
+          session_id:sessionId, event_type:'exam_started',
+          severity:'low',
+          details:`Questions:${questions.length} Time:${timerSecs}s`
+        });
+      }catch(e){ console.warn('[Exam] logEvent failed:', e); }
+    }
+    // Hide cam-mini — camera is owned by proctor.py during exam
+    document.getElementById('cam-mini').style.display='none';
     showScreen('exam');
+    startTimer(); // start AFTER screen is shown so student sees full time
 
     // Poll for force-submit from admin dashboard
     forceSubmitPoll=setInterval(async()=>{
@@ -536,20 +547,22 @@ function selAns(l){
       session_id:sessionId,
       event_type:'answer_selected',
       severity:'low',
-      details:`q:${questions[curQ].id}|a:${l}|correct:${questions[curQ].correct}`
+      details:`q:${questions[curQ].id}|a:${l}`
     });
   }
-  // Autosave answer to server immediately (fire-and-forget)
+  // Autosave answer — retry once on failure
   if(sessionId){
-    fetch(`${SERVER}/api/save-answer`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})},
-      body:JSON.stringify({
-        session_id:sessionId,
-        question_id:String(questions[curQ].id),
-        answer:l
-      })
-    }).catch(()=>{});
+    const savePayload={
+      session_id:sessionId,
+      question_id:String(questions[curQ].id),
+      answer:l
+    };
+    const saveHeaders={'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
+    fetch(`${SERVER}/api/save-answer`,{method:'POST',headers:saveHeaders,body:JSON.stringify(savePayload)})
+      .catch(()=>setTimeout(()=>
+        fetch(`${SERVER}/api/save-answer`,{method:'POST',headers:saveHeaders,body:JSON.stringify(savePayload)})
+          .catch(()=>{}),
+      2000));
   }
 }
 function goQ(i)   { curQ=i; renderQ(); }
@@ -609,11 +622,13 @@ async function submitExam(timeUp=false){
   let submitted=false;
   let finalScore=null;
   let finalTotal=questions.length;
+  const submitStart=Date.now();
 
   // Try 3 times with IPC → direct fetch fallback
   for(let attempt=1;attempt<=3;attempt++){
+    const elapsed=Math.round((Date.now()-submitStart)/1000);
     document.getElementById('countdown').textContent=
-      `Submitting... (${attempt}/3)`;
+      `Submitting... (attempt ${attempt}/3, ${elapsed}s)`;
     try{
       // Method 1: IPC (Electron main process)
       if(window.proctor){

@@ -197,6 +197,7 @@ let curQ=0, timerSecs=0, timerInt=null;
 let startTime=null, stream=null;
 let resumedStartedAt=null; // IST ISO string from server when resuming
 let lastFocusLost=0; // debounce window_focus_lost spam
+let examActive=false; // gates anti-cheat listeners; cleared on submit
 
 function showScreen(id){
   document.querySelectorAll('.screen')
@@ -365,6 +366,7 @@ async function finishEnroll(){
         showBanner(`⚠️ ${type.replace(/_/g,' ')}: ${details}`, color);
       });
       window.proctor.onForceSubmit(()=>{
+        examActive=false;
         clearInterval(timerInt);
         document.getElementById('final-score').textContent='Submitted';
         showScreen('done');
@@ -416,10 +418,11 @@ async function startExam(){
     document.getElementById('cam-mini').style.display='none';
     showScreen('exam');
     startTimer(); // start AFTER screen is shown so student sees full time
+    examActive=true;
 
-    // Anti-cheat listeners
-
+    // Anti-cheat listeners — all gated on examActive so they stop after submit
     window.addEventListener('blur', ()=>{
+      if(!examActive) return;
       // Debounce — kiosk auto-refocus causes rapid blur/focus cycles
       const now=Date.now();
       if(now-lastFocusLost < 2000) return;
@@ -428,6 +431,7 @@ async function startExam(){
       showBanner('⚠️ Focus lost — return to exam!','#c0392b');
     });
     document.addEventListener('visibilitychange', ()=>{
+      if(!examActive) return;
       if(document.hidden){
         logV('tab_hidden','Exam tab hidden');
         showBanner('⚠️ Tab switch detected!','#c0392b');
@@ -437,6 +441,7 @@ async function startExam(){
     document.addEventListener('keydown', e=>{
       if(['F12','F11','F5','PrintScreen'].includes(e.key))
         e.preventDefault();
+      if(!examActive) return;
       if((e.ctrlKey||e.metaKey)&&
          ['c','v','x','a','u','s','p'].includes(e.key.toLowerCase())){
         e.preventDefault();
@@ -448,8 +453,6 @@ async function startExam(){
     console.error('startExam:', e);
     alert('Could not load exam. Contact examiner.');
   }
-}
-
 }
 
 // ── GRID & RENDER ──────────────────────────────────────────────────
@@ -548,6 +551,7 @@ function confirmSub(){
 
 // ── SUBMIT ─────────────────────────────────────────────────────────
 async function submitExam(timeUp=false){
+  examActive=false;
   clearInterval(timerInt);
 
   const taken=startTime ? Math.floor((Date.now()-startTime)/1000) : 0;

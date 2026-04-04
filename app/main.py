@@ -367,28 +367,6 @@ def submit_exam(result: ResultIn, request: Request):
         "submitted_at":    now.isoformat(),
     }).execute()
 
-    # Upsert final answers
-    for qid, ans in result.answers.items():
-        supabase.table("answers").upsert({
-            "session_key":  result.session_id,
-            "question_id":  str(qid),
-            "answer":       str(ans),
-        }).execute()
-
-    # Save client-side violations
-    saved_keys: set = set()
-    for v in (result.violations or []):
-        key = f"{v.get('type','')}_{v.get('timestamp','')}"
-        if key in saved_keys:
-            continue
-        saved_keys.add(key)
-        supabase.table("violations").upsert({
-            "session_key":    result.session_id,
-            "violation_type": v.get("type", "unknown"),
-            "severity":       v.get("severity", "high"),
-            "details":        str(v.get("details", ""))[:500],
-        }).execute()
-
     # Check time exceeded
     try:
         with open(QUESTIONS_FILE) as f:
@@ -467,7 +445,8 @@ def get_all_sessions(request: Request):
         .execute()
     events = evts_result.data or []
 
-    sub_result = supabase.table("exam_sessions").select("session_key").execute()
+    sub_result = supabase.table("exam_sessions").select("session_key")\
+        .eq("status", "completed").execute()
     submitted  = {r["session_key"] for r in (sub_result.data or [])}
 
     sessions: dict = {}

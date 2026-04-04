@@ -348,6 +348,11 @@ async function finishEnroll(){
   if(window.proctor){
     await new Promise(r=>setTimeout(r,800));
     await window.proctor.startProctor({sessionId});
+    await window.proctor.startPolling({sessionId});
+    window.proctor.onViolation(({type, details, severity})=>{
+      const color = severity==='high' ? '#c0392b' : '#e67e22';
+      showBanner(`⚠️ ${type.replace(/_/g,' ')}: ${details}`, color);
+    });
   }
 
   setTimeout(startExam, 500);
@@ -363,13 +368,16 @@ async function startExam(){
     }
     const durationMins = data.duration_minutes || questions.length * 2.5;
     timerSecs = Math.round(durationMins * 60);
-    // If resuming, subtract time already elapsed (server stores started_at in IST)
     if(resumedStartedAt){
-      const elapsedSecs = Math.floor((Date.now() - new Date(resumedStartedAt)) / 1000);
+      // Restore original start time so time_taken_secs counts total elapsed
+      const originalStart = new Date(resumedStartedAt).getTime();
+      startTime = originalStart;
+      const elapsedSecs = Math.floor((Date.now() - originalStart) / 1000);
       timerSecs = Math.max(0, timerSecs - elapsedSecs);
       resumedStartedAt = null;
+    } else {
+      startTime = Date.now();
     }
-    startTime=Date.now();
     document.getElementById('exam-title').textContent=
       data.exam_title||'Exam';
     document.getElementById('exam-stu').textContent=
@@ -619,6 +627,7 @@ async function submitExam(timeUp=false){
         submitted=true;
         break;
       }
+      throw new Error('No IPC'); // triggers fetch fallback
     }catch(e){
       console.error(`[Submit] IPC attempt ${attempt} failed:`,e);
       // Method 2: Direct fetch fallback

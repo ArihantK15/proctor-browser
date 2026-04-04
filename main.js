@@ -11,12 +11,13 @@ const https   = require('https');
 const SERVER_URL = 'https://procta.net';
 const ADMIN_CODE = 'EXIT2026';
 
-let mainWindow    = null;
-let setupWindow   = null;
-let pythonProcess = null;
-let powerBlockId  = null;
-let pollInterval  = null;
-let studentToken  = null; // JWT issued after validate-student
+let mainWindow      = null;
+let setupWindow     = null;
+let pythonProcess   = null;
+let pythonShouldRun = false; // guard against restart after intentional stop
+let powerBlockId    = null;
+let pollInterval    = null;
+let studentToken    = null; // JWT issued after validate-student
 let isKiosk       = !process.argv.includes('--no-kiosk') &&
                     process.env.PROCTOR_DEBUG !== '1';
 let resolvedPython = null;
@@ -278,6 +279,7 @@ function startPython(sessionId) {
   const evidenceDir = path.join(app.getPath('userData'), 'evidence');
   try { fs.mkdirSync(evidenceDir, { recursive: true }); } catch(e) {}
 
+  pythonShouldRun = true;
   pythonProcess = spawn(python, [script], {
     env: {
       ...process.env,
@@ -296,7 +298,7 @@ function startPython(sessionId) {
     console.error('[AI]', d.toString().trim()));
   pythonProcess.on('close', code => {
     console.log('[AI] Exited:', code);
-    if (code !== 0 && code !== null && pythonProcess !== null) {
+    if (code !== 0 && code !== null && pythonShouldRun) {
       console.log('[AI] Unexpected exit — restarting in 3s');
       setTimeout(() => startPython(sessionId), 3000);
     }
@@ -306,6 +308,7 @@ function startPython(sessionId) {
 }
 
 function stopPython() {
+  pythonShouldRun = false;
   if (pythonProcess) {
     try {
       if (process.platform === 'win32') {

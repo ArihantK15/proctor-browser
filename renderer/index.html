@@ -195,7 +195,8 @@ let student=null, sessionId=null, questions=[], answers={};
 let studentToken=null; // JWT from validate-student; included in all server calls
 let curQ=0, timerSecs=0, timerInt=null;
 let startTime=null, violations=[], stream=null;
-let detectionTimer=null;
+let detectionTimer=null, forceSubmitPoll=null;
+let resumedStartedAt=null; // IST ISO string from server when resuming
 
 function showScreen(id){
   document.querySelectorAll('.screen')
@@ -255,8 +256,9 @@ async function doLogin(){
         `You have an in-progress exam (${existing.answer_count} answer(s) saved).\nResume where you left off?`
       );
       if(resume){
-        sessionId = existing.session_key;
-        answers   = existing.answers || {};
+        sessionId        = existing.session_key;
+        answers          = existing.answers || {};
+        resumedStartedAt = existing.started_at || null;
         startEnroll(); // still need to re-acquire camera and start proctor
         return;
       }
@@ -359,7 +361,14 @@ async function startExam(){
     if(!questions.length){
       alert('No questions found. Contact examiner.'); return;
     }
-    timerSecs=questions.length*150;
+    const durationMins = data.duration_minutes || questions.length * 2.5;
+    timerSecs = Math.round(durationMins * 60);
+    // If resuming, subtract time already elapsed (server stores started_at in IST)
+    if(resumedStartedAt){
+      const elapsedSecs = Math.floor((Date.now() - new Date(resumedStartedAt)) / 1000);
+      timerSecs = Math.max(0, timerSecs - elapsedSecs);
+      resumedStartedAt = null;
+    }
     startTime=Date.now();
     document.getElementById('exam-title').textContent=
       data.exam_title||'Exam';
@@ -374,17 +383,18 @@ async function startExam(){
     showScreen('exam');
 
     // Poll for force-submit from admin dashboard
-    setInterval(async()=>{
+    forceSubmitPoll=setInterval(async()=>{
       if(!sessionId) return;
       try{
-        const r=await fetch(`${SERVER}/events/${sessionId}`);
+        const r=await fetch(`${SERVER}/events/${sessionId}`,
+          {headers:{'Authorization':'Bearer '+studentToken}});
         const d=await r.json();
         const forceSubmit=(d.events||[]).find(e=>
           e.type==='exam_submitted');
         if(forceSubmit){
           clearInterval(timerInt);
-          if(typeof detectionTimer!=='undefined')
-            clearInterval(detectionTimer);
+          clearInterval(forceSubmitPoll);
+          if(detectionTimer) clearInterval(detectionTimer);
           document.getElementById('final-score').textContent='Submitted';
           showScreen('done');
           document.getElementById('countdown').textContent=
@@ -567,10 +577,8 @@ function confirmSub(){
 // ── SUBMIT ─────────────────────────────────────────────────────────
 async function submitExam(timeUp=false){
   clearInterval(timerInt);
-  if(typeof detectionTimer!=='undefined'&&detectionTimer)
-    clearInterval(detectionTimer);
-  if(typeof pauseTimer!=='undefined'&&pauseTimer)
-    clearInterval(pauseTimer);
+  if(detectionTimer)  clearInterval(detectionTimer);
+  if(forceSubmitPoll) clearInterval(forceSubmitPoll);
 
   const taken=Math.floor((Date.now()-startTime)/1000);
 

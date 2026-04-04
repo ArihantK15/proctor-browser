@@ -3,7 +3,10 @@ import csv
 import io
 import json
 import base64
+import threading
+import time
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException
@@ -11,6 +14,9 @@ from fastapi.responses import StreamingResponse, RedirectResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import jwt, JWTError
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from database import supabase
 from logger import get_logger
@@ -39,7 +45,7 @@ SECRET_KEY       = os.environ["SUPABASE_JWT_SECRET"]
 ADMIN_PASSWORD   = os.getenv("ADMIN_PASSWORD", "ProctorAdmin2026!")
 QUESTIONS_FILE   = "/app/questions.json"
 SCREENSHOTS_DIR  = os.getenv("SCREENSHOTS_DIR", "/app/screenshots")
-TUNNEL_URL       = os.getenv("APP_URL", "https://aiproc.yourdomain.com")
+TUNNEL_URL       = os.getenv("APP_URL", "https://procta.net")
 DOWNLOAD_MAC_ARM = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN     = os.getenv("DOWNLOAD_WIN", "")
@@ -49,15 +55,16 @@ os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 
 # ─── JWT ──────────────────────────────────────────────────────────
 def create_token(roll_number: str) -> str:
+    now = datetime.now(timezone.utc)
     payload = {
-        "sub": roll_number,
         "roll": roll_number,
-        "exp": datetime.utcnow() + timedelta(hours=TOKEN_TTL_HOURS),
-        "iat": datetime.utcnow(),
+        "exp":  now + timedelta(hours=TOKEN_TTL_HOURS),
+        "iat":  now,
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 def require_auth(request: Request) -> dict:
+    """Student JWT auth — required for all exam endpoints."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Authorization header")
@@ -66,14 +73,41 @@ def require_auth(request: Request) -> dict:
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
+def require_admin(request: Request):
+    """Admin password auth — required for all admin endpoints."""
+    pwd = request.headers.get("X-Admin-Password", "")
+    if pwd != ADMIN_PASSWORD:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+# ─── RATE LIMITER ─────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+
 # ─── APP ──────────────────────────────────────────────────────────
 app = FastAPI(title="AI Proctor Server")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://procta.net"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── BACKGROUND: SCREENSHOT CLEANUP ──────────────────────────────
+def _cleanup_screenshots():
+    while True:
+        time.sleep(3600)
+        cutoff = now_ist() - timedelta(days=7)
+        try:
+            for student_dir in Path(SCREENSHOTS_DIR).iterdir():
+                if student_dir.is_dir():
+                    for f in student_dir.iterdir():
+                        if f.is_file() and f.stat().st_mtime < cutoff.timestamp():
+                            f.unlink()
+        except Exception as e:
+            print(f"[Cleanup] {e}")
+
+threading.Thread(target=_cleanup_screenshots, daemon=True).start()
 
 # ─── MODELS ───────────────────────────────────────────────────────
 class EventIn(BaseModel):
@@ -90,11 +124,11 @@ class ResultIn(BaseModel):
     roll_number:     str
     full_name:       str
     email:           str
-    answers:         dict
-    score:           int
-    total:           int
     time_taken_secs: int
-    violations:      list
+    answers:         dict = {}
+    score:           int  = 0
+    total:           int  = 0
+    violations:      list = []
 
 class AnswerIn(BaseModel):
     session_id:  str
@@ -108,7 +142,6 @@ class FrameIn(BaseModel):
 
 # ─── HELPERS ──────────────────────────────────────────────────────
 def ts_to_id(ts_str: str) -> int:
-    """Convert ISO timestamp → ms epoch (for main.js polling cursor e.id > lastEventId)."""
     try:
         dt = datetime.fromisoformat(str(ts_str).replace('Z', '+00:00'))
         return int(dt.timestamp() * 1000)
@@ -118,24 +151,54 @@ def ts_to_id(ts_str: str) -> int:
 _NON_VIOLATION_TYPES = {
     "exam_submitted", "enrollment_started", "enrollment_complete",
     "exam_started", "submit_failed", "answer_selected", "session_ended",
-    "face_enrolled",
+    "face_enrolled", "heartbeat",
 }
 
 def _is_violation(vtype: str) -> bool:
     return vtype not in _NON_VIOLATION_TYPES
 
-# ─── ENDPOINTS ────────────────────────────────────────────────────
+def _recalculate_score(session_id: str, payload_answers: dict) -> tuple[int, int]:
+    """Calculate score server-side from questions.json + saved answers."""
+    try:
+        with open(QUESTIONS_FILE) as f:
+            qdata = json.load(f)
+        questions = qdata.get("questions", [])
+        total = len(questions)
+        # Merge DB answers with payload answers (payload takes precedence)
+        saved = supabase.table("answers").select("question_id,answer")\
+            .eq("session_key", session_id).execute()
+        ans_map = {r["question_id"]: r["answer"] for r in (saved.data or [])}
+        for qid, ans in payload_answers.items():
+            ans_map[str(qid)] = str(ans)
+        score = sum(1 for q in questions
+                    if ans_map.get(str(q["id"])) == q.get("correct"))
+        return score, total
+    except Exception as e:
+        print(f"[Score] Recalculation failed: {e}")
+        return -1, -1  # signals fallback to client score
+
+# ─── PUBLIC ENDPOINTS ─────────────────────────────────────────────
 @app.get("/")
 def root():
     return {"status": "AI Proctor Server running"}
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        return {
+            "ok": True,
+            "memory_used_mb":  round(mem.used / 1024 / 1024),
+            "memory_total_mb": round(mem.total / 1024 / 1024),
+            "memory_percent":  mem.percent,
+        }
+    except ImportError:
+        return {"ok": True}
 
-# ── Public: student validation + token issuance ───────────────────
 @app.post("/api/validate-student")
-def validate_student(body: ValidateIn):
+@limiter.limit("10/minute")
+def validate_student(request: Request, body: ValidateIn):
     result = supabase.table("students")\
         .select("*")\
         .eq("roll_number", body.roll_number.strip())\
@@ -145,6 +208,14 @@ def validate_student(body: ValidateIn):
             status_code=404,
             detail="Roll number not found. Please complete registration first.")
     student = result.data[0]
+    completed = supabase.table("exam_sessions").select("session_key")\
+        .eq("roll_number", student["roll_number"])\
+        .eq("status", "completed")\
+        .execute()
+    if completed.data:
+        raise HTTPException(
+            status_code=403,
+            detail="You have already submitted this exam.")
     return {
         "valid":       True,
         "full_name":   student["full_name"],
@@ -154,7 +225,7 @@ def validate_student(body: ValidateIn):
         "token":       create_token(student["roll_number"]),
     }
 
-# ── Public: installer downloads ───────────────────────────────────
+# ─── PUBLIC: INSTALLER DOWNLOADS ─────────────────────────────────
 @app.get("/download/mac")
 def download_mac():
     if DOWNLOAD_MAC_ARM:
@@ -185,7 +256,7 @@ def download_win():
     return FileResponse(path, filename="ProctorBrowser-Setup.exe",
                         media_type="application/octet-stream")
 
-# ── Protected endpoints ───────────────────────────────────────────
+# ─── STUDENT ENDPOINTS (require JWT) ─────────────────────────────
 @app.get("/api/questions")
 def get_questions(request: Request):
     require_auth(request)
@@ -194,11 +265,51 @@ def get_questions(request: Request):
     with open(QUESTIONS_FILE) as f:
         return json.load(f)
 
+@app.get("/api/check-session/{roll_number}")
+def check_session(roll_number: str, request: Request):
+    """Check if student has an in-progress session to resume."""
+    claims = require_auth(request)
+    if claims.get("roll") != roll_number:
+        raise HTTPException(status_code=403, detail="Access denied")
+    result = supabase.table("exam_sessions").select("*")\
+        .eq("roll_number", roll_number)\
+        .eq("status", "in_progress")\
+        .order("started_at", desc=True)\
+        .limit(1).execute()
+    if not result.data:
+        return {"exists": False}
+    session = result.data[0]
+    answers = supabase.table("answers").select("*")\
+        .eq("session_key", session["session_key"]).execute()
+    return {
+        "exists":      True,
+        "session_key": session["session_key"],
+        "answer_count": len(answers.data or []),
+        "answers":     {r["question_id"]: r["answer"] for r in (answers.data or [])},
+        "started_at":  session.get("started_at"),
+    }
+
 @app.post("/event")
+@limiter.limit("120/minute")
 def log_event(event: EventIn, request: Request):
     require_auth(request)
     get_logger(event.session_id).info(
         f"[{event.severity.upper()}] {event.event_type} | {event.details}")
+
+    # When exam starts, create in-progress session record
+    if event.event_type == "exam_started":
+        supabase.table("exam_sessions").upsert({
+            "session_key": event.session_id,
+            "roll_number": event.session_id.split("_")[0],
+            "status":      "in_progress",
+            "started_at":  now_ist().isoformat(),
+        }).execute()
+
+    # Alert on submission failure
+    if event.event_type == "submit_failed":
+        print(f"[ALERT] SUBMIT FAILED for session {event.session_id} "
+              f"— use /api/admin-submit/{event.session_id} to recover")
+
     supabase.table("violations").insert({
         "session_key":    event.session_id,
         "violation_type": event.event_type,
@@ -206,6 +317,17 @@ def log_event(event: EventIn, request: Request):
         "details":        event.details,
     }).execute()
     return {"status": "logged"}
+
+@app.post("/heartbeat")
+def heartbeat(event: EventIn, request: Request):
+    require_auth(request)
+    supabase.table("exam_sessions").upsert({
+        "session_key":    event.session_id,
+        "roll_number":    event.session_id.split("_")[0],
+        "last_heartbeat": now_ist().isoformat(),
+        "status":         "in_progress",
+    }).execute()
+    return {"ok": True}
 
 @app.post("/api/save-answer")
 def save_answer(body: AnswerIn, request: Request):
@@ -218,18 +340,27 @@ def save_answer(body: AnswerIn, request: Request):
     return {"status": "saved"}
 
 @app.post("/api/submit-exam")
+@limiter.limit("10/minute")
 def submit_exam(result: ResultIn, request: Request):
     require_auth(request)
-    now  = now_ist()
-    pct  = round((result.score / max(result.total, 1)) * 100, 1)
+    now = now_ist()
+
+    # Server-side scoring — never trust client score
+    server_score, server_total = _recalculate_score(result.session_id, result.answers)
+    if server_score == -1:
+        # questions.json failed to load — fallback to client score
+        server_score = result.score
+        server_total = result.total
+
+    pct = round((server_score / max(server_total, 1)) * 100, 1)
 
     supabase.table("exam_sessions").upsert({
         "session_key":     result.session_id,
         "roll_number":     result.roll_number,
         "full_name":       result.full_name,
         "email":           result.email,
-        "score":           result.score,
-        "total":           result.total,
+        "score":           server_score,
+        "total":           server_total,
         "percentage":      pct,
         "time_taken_secs": result.time_taken_secs,
         "status":          "completed",
@@ -244,7 +375,7 @@ def submit_exam(result: ResultIn, request: Request):
             "answer":       str(ans),
         }).execute()
 
-    # Save client-side violations (browser events)
+    # Save client-side violations
     saved_keys: set = set()
     for v in (result.violations or []):
         key = f"{v.get('type','')}_{v.get('timestamp','')}"
@@ -258,18 +389,33 @@ def submit_exam(result: ResultIn, request: Request):
             "details":        str(v.get("details", ""))[:500],
         }).execute()
 
-    # Log submission event
+    # Check time exceeded
+    try:
+        with open(QUESTIONS_FILE) as f:
+            qdata = json.load(f)
+        allowed_secs = qdata.get("duration_minutes", 60) * 60
+        if result.time_taken_secs > allowed_secs + 120:  # 2 min grace
+            supabase.table("violations").insert({
+                "session_key":    result.session_id,
+                "violation_type": "time_exceeded",
+                "severity":       "high",
+                "details":        f"Submitted {result.time_taken_secs - allowed_secs}s past time limit",
+            }).execute()
+    except Exception as e:
+        print(f"[TimeCheck] {e}")
+
+    # Log submission
     supabase.table("violations").insert({
         "session_key":    result.session_id,
         "violation_type": "exam_submitted",
         "severity":       "low",
-        "details":        f"Score:{result.score}/{result.total} ({pct}%)",
+        "details":        f"Score:{server_score}/{server_total} ({pct}%)",
     }).execute()
 
     get_logger(result.session_id).info(
-        f"[SUBMIT] {result.roll_number} score:{result.score}/{result.total}")
-    return {"status": "submitted", "score": result.score,
-            "total": result.total, "percentage": pct}
+        f"[SUBMIT] {result.roll_number} score:{server_score}/{server_total}")
+    return {"status": "submitted", "score": server_score,
+            "total": server_total, "percentage": pct}
 
 @app.post("/api/analyze-frame")
 def analyze_frame(data: FrameIn, request: Request):
@@ -279,7 +425,7 @@ def analyze_frame(data: FrameIn, request: Request):
                else data.session_id[:20]
         student_dir = os.path.join(SCREENSHOTS_DIR, roll)
         os.makedirs(student_dir, exist_ok=True)
-        ts   = now_ist().strftime("%Y%m%d_%H%M%S")
+        ts    = now_ist().strftime("%Y%m%d_%H%M%S")
         fpath = os.path.join(student_dir, f"frame_{ts}.jpg")
         with open(fpath, "wb") as f:
             f.write(base64.b64decode(data.frame))
@@ -301,7 +447,7 @@ def get_events(session_id: str, request: Request):
         "total":      len(events),
         "events": [
             {
-                "id":        ts_to_id(e.get("created_at", "")),
+                "id":        e.get("id") or ts_to_id(e.get("created_at", "")),
                 "type":      e["violation_type"],
                 "severity":  e["severity"],
                 "timestamp": fmt_ist(e.get("created_at", "")),
@@ -311,9 +457,10 @@ def get_events(session_id: str, request: Request):
         ],
     }
 
+# ─── ADMIN ENDPOINTS (require X-Admin-Password header) ───────────
 @app.get("/sessions")
 def get_all_sessions(request: Request):
-    require_auth(request)
+    require_admin(request)
     evts_result = supabase.table("violations")\
         .select("session_key,violation_type,severity,created_at,details")\
         .order("created_at", desc=True)\
@@ -341,7 +488,7 @@ def get_all_sessions(request: Request):
 
 @app.get("/api/results")
 def get_all_results(request: Request):
-    require_auth(request)
+    require_admin(request)
     sess_result = supabase.table("exam_sessions")\
         .select("*")\
         .order("submitted_at", desc=True)\
@@ -354,7 +501,6 @@ def get_all_results(request: Request):
             .select("violation_type,severity", count="exact")\
             .eq("session_key", s["session_key"])\
             .execute()
-        # Count only real violations (not system events)
         vcount = sum(
             1 for v in (vcount_result.data or [])
             if v["severity"] in ("high", "medium") and _is_violation(v["violation_type"])
@@ -375,7 +521,7 @@ def get_all_results(request: Request):
 
 @app.get("/api/export-csv")
 def export_csv(request: Request):
-    require_auth(request)
+    require_admin(request)
     sess_result = supabase.table("exam_sessions")\
         .select("*")\
         .order("submitted_at", desc=True)\
@@ -415,7 +561,7 @@ def export_csv(request: Request):
 
 @app.get("/api/export-pdf/{session_id:path}")
 def export_pdf(session_id: str, request: Request):
-    require_auth(request)
+    require_admin(request)
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
@@ -424,27 +570,20 @@ def export_pdf(session_id: str, request: Request):
         from reportlab.lib.styles import getSampleStyleSheet
 
         sess_result = supabase.table("exam_sessions")\
-            .select("*")\
-            .eq("session_key", session_id)\
-            .execute()
+            .select("*").eq("session_key", session_id).execute()
         if not sess_result.data:
             raise HTTPException(status_code=404, detail="Result not found")
         exam = sess_result.data[0]
 
         viol_result = supabase.table("violations")\
-            .select("*")\
-            .eq("session_key", session_id)\
-            .order("created_at")\
-            .execute()
+            .select("*").eq("session_key", session_id).order("created_at").execute()
         raw_violations = [
             v for v in (viol_result.data or [])
             if v["severity"] in ("high", "medium") and _is_violation(v["violation_type"])
         ]
 
         ans_result = supabase.table("answers")\
-            .select("*")\
-            .eq("session_key", session_id)\
-            .execute()
+            .select("*").eq("session_key", session_id).execute()
         answers = ans_result.data or []
 
         buf    = io.BytesIO()
@@ -527,11 +666,15 @@ def export_pdf(session_id: str, request: Request):
                     total_conf_vals.append(float(conf_str.strip("%")) / 100)
                 except Exception:
                     pass
+                ts_part = ""
+                if v.get("created_at"):
+                    ts_parts = fmt_ist(v["created_at"]).split(" ")
+                    ts_part  = ts_parts[1].replace(" IST", "") if len(ts_parts) > 1 else ""
                 vd.append([
                     str(i),
                     v["violation_type"].replace("_", " ").title()[:22],
                     v["severity"].upper(),
-                    fmt_ist(v.get("created_at", "")).split(" ")[1].replace(" IST", "") if v.get("created_at") else "",
+                    ts_part,
                     conf_str,
                     clean_details(v.get("details"))[:35],
                 ])
@@ -612,30 +755,61 @@ def export_pdf(session_id: str, request: Request):
         print(f"[PDF] {e}")
         raise HTTPException(status_code=500, detail=f"PDF error: {e}")
 
+@app.get("/api/admin-failed-sessions")
+def failed_sessions(request: Request):
+    """Returns sessions with submit_failed events that never completed."""
+    require_admin(request)
+    failed = supabase.table("violations").select("session_key")\
+        .eq("violation_type", "submit_failed").execute()
+    failed_keys = {r["session_key"] for r in (failed.data or [])}
+    submitted   = supabase.table("exam_sessions").select("session_key").execute()
+    submitted_keys = {r["session_key"] for r in (submitted.data or [])}
+    unrecovered = [k for k in failed_keys if k not in submitted_keys]
+    return {"failed_sessions": unrecovered, "count": len(unrecovered)}
+
+@app.post("/api/admin-cleanup")
+def admin_cleanup(request: Request):
+    """Delete screenshots older than 7 days."""
+    require_admin(request)
+    deleted = 0
+    cutoff  = datetime.now() - timedelta(days=7)
+    try:
+        for student_dir in Path(SCREENSHOTS_DIR).iterdir():
+            if student_dir.is_dir():
+                for f in student_dir.iterdir():
+                    if f.is_file() and f.stat().st_mtime < cutoff.timestamp():
+                        f.unlink()
+                        deleted += 1
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"deleted": deleted}
+
+@app.post("/api/admin/questions")
+def update_questions(request: Request, body: dict):
+    """Update questions.json without rebuilding Docker image."""
+    require_admin(request)
+    if "questions" not in body:
+        raise HTTPException(status_code=400, detail="Missing 'questions' key")
+    with open(QUESTIONS_FILE, "w") as f:
+        json.dump(body, f, indent=2)
+    return {"status": "updated", "count": len(body["questions"])}
+
 @app.post("/api/admin-submit/{session_id}")
 def admin_submit(session_id: str, request: Request):
     """Force-submit a session that failed to submit properly."""
-    require_auth(request)
+    require_admin(request)
 
-    # Check if already submitted
     existing = supabase.table("exam_sessions")\
-        .select("session_key")\
-        .eq("session_key", session_id)\
-        .execute()
+        .select("session_key").eq("session_key", session_id).execute()
     if existing.data:
         return {"status": "already_submitted"}
 
-    # Get all events for this session
     ev_result = supabase.table("violations")\
-        .select("*")\
-        .eq("session_key", session_id)\
-        .order("created_at")\
-        .execute()
+        .select("*").eq("session_key", session_id).order("created_at").execute()
     events = ev_result.data or []
     if not events:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Extract student info from enrollment event
     roll_number = session_id.split("_")[0]
     full_name   = "Unknown"
     email       = "unknown@exam.com"
@@ -649,41 +823,33 @@ def admin_submit(session_id: str, request: Request):
             except Exception:
                 pass
 
-    # Try to look up student in Supabase
     try:
-        s_result = supabase.table("students")\
-            .select("*")\
-            .eq("roll_number", roll_number)\
-            .execute()
+        s_result = supabase.table("students").select("*")\
+            .eq("roll_number", roll_number).execute()
         if s_result.data:
             full_name = s_result.data[0].get("full_name", full_name)
             email     = s_result.data[0].get("email", email)
     except Exception:
         pass
 
-    # Reconstruct answers from answer_selected events
     answers_map: dict = {}
     for e in events:
         if e["violation_type"] == "answer_selected" and e.get("details"):
             try:
-                parts = dict(p.split(":") for p in e["details"].split("|"))
-                answers_map[parts["q"]] = parts["a"]
+                # format: "q:1|a:B|correct:C" — split on | then on first : only
+                parts = {}
+                for segment in e["details"].split("|"):
+                    k, _, v = segment.partition(":")
+                    parts[k.strip()] = v.strip()
+                if "q" in parts and "a" in parts:
+                    answers_map[parts["q"]] = parts["a"]
             except Exception:
                 pass
 
-    # Calculate score from questions.json
-    score = 0
-    total = 0
-    try:
-        with open(QUESTIONS_FILE) as f:
-            qdata = json.load(f)
-        questions = qdata.get("questions", [])
-        total = len(questions)
-        for q in questions:
-            if answers_map.get(str(q["id"])) == q.get("correct"):
-                score += 1
-    except Exception as e:
-        print(f"[ForceSubmit] Score calc error: {e}")
+    score, total = _recalculate_score(session_id, answers_map)
+    if score == -1:
+        score = 0
+        total = 0
 
     pct        = round((score / max(total, 1)) * 100, 1)
     now        = now_ist()
@@ -718,11 +884,11 @@ def admin_submit(session_id: str, request: Request):
         "details":        f"Admin force-submitted | Violations:{len(violations)}",
     }).execute()
 
-    print(f"[ForceSubmit] {session_id} score:{score}/{total} violations:{len(violations)}")
+    print(f"[ForceSubmit] {session_id} score:{score}/{total}")
     return {
-        "status":       "force_submitted",
-        "session_id":   session_id,
-        "score":        score,
-        "total":        total,
+        "status":          "force_submitted",
+        "session_id":      session_id,
+        "score":           score,
+        "total":           total,
         "violation_count": len(violations),
     }

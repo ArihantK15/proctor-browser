@@ -11,10 +11,26 @@ from datetime import datetime
 from collections import deque
 from ultralytics import YOLO
 
+# InsightFace for face-embedding wrong-person detection
+try:
+    from insightface.app import FaceAnalysis as _FaceAnalysis
+    _insight_app = _FaceAnalysis(
+        name='buffalo_sc',
+        providers=['CPUExecutionProvider'],
+    )
+    _insight_app.prepare(ctx_id=-1, det_size=(320, 320))
+    INSIGHT_AVAILABLE = True
+    print("[InsightFace] ✅ Ready")
+except Exception as _ie:
+    print(f"[InsightFace] ❌ Not available: {_ie} — wrong-person detection disabled")
+    INSIGHT_AVAILABLE = False
+    _insight_app = None
+
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 SESSION_ID   = os.getenv("PROCTOR_SESSION_ID",  "test-session")
 SERVER_URL   = os.getenv("PROCTOR_SERVER_URL",  "http://localhost:8000/event")
 EVIDENCE_DIR = os.getenv("PROCTOR_EVIDENCE_DIR", "/tmp/evidence")
+JWT_TOKEN    = os.getenv("PROCTOR_JWT_TOKEN",   "")
 HEADLESS     = platform.system() == "Windows" or \
                os.environ.get("PROCTOR_HEADLESS","0") == "1"
 
@@ -40,11 +56,12 @@ HEAD_FRAMES_NEEDED  = 8
 FACE_MISSING_FRAMES = 10     # frames without face before logging
 EYES_CLOSED_FRAMES  = 12
 MULTI_FACE_FRAMES   = 3
-YOLO_CONFIDENCE     = 0.40
+YOLO_CONFIDENCE     = 0.35   # raised slightly — reduces false positives
 YOLO_MIN_FRAMES     = 2
 YOLO_EVERY_N        = 5
-VOICE_THRESHOLD     = 0.025  # RMS threshold
-VOICE_FRAMES_NEEDED = 15
+VOICE_THRESHOLD     = float(os.getenv("PROCTOR_VOICE_THRESHOLD", "0.035"))
+VOICE_FRAMES_NEEDED = 15     # kept for backward compat (not used in new logic)
+WRONG_PERSON_THRESHOLD = float(os.getenv("PROCTOR_WRONG_PERSON_THRESHOLD", "0.25"))
 
 # ─── CHEAT OBJECTS ────────────────────────────────────────────────────────────
 CHEAT_IDS = {
@@ -56,24 +73,44 @@ CHEAT_IDS = {
 }
 
 # ─── SERVER LOGGING ───────────────────────────────────────────────────────────
-violation_log = []
 session_start = time.time()
+violation_count = 0  # lightweight counter only
+
+HEADERS = {
+    "Content-Type": "application/json",
+    **({"Authorization": f"Bearer {JWT_TOKEN}"} if JWT_TOKEN else {}),
+}
+
+HEARTBEAT_URL = SERVER_URL.replace("/event", "/heartbeat")
+
+def _heartbeat_loop():
+    while True:
+        time.sleep(30)
+        try:
+            requests.post(
+                HEARTBEAT_URL,
+                json={"session_id": SESSION_ID, "event_type": "heartbeat",
+                      "severity": "low", "details": "alive"},
+                timeout=5, headers=HEADERS
+            )
+        except Exception:
+            pass
+
+threading.Thread(target=_heartbeat_loop, daemon=True).start()
 
 def log_event(etype, severity, details):
+    global violation_count
     conf = CONFIDENCE.get(etype, 0.75)
     full_details = f"{details} | confidence:{int(conf*100)}%"
-    violation_log.append({
-        "type": etype, "severity": severity,
-        "details": details, "confidence": conf,
-        "timestamp": datetime.now().isoformat()
-    })
+    if severity in ("high", "medium"):
+        violation_count += 1
     try:
         requests.post(SERVER_URL, json=dict(
             session_id = SESSION_ID,
             event_type = etype,
             severity   = severity,
             details    = full_details
-        ), timeout=2)
+        ), timeout=3, headers=HEADERS)
         print(f"[VIOLATION] {etype}: {details}")
     except Exception as e:
         print(f"[Server Error] {e}")
@@ -186,6 +223,21 @@ def get_head_yaw(landmarks, W, H):
     except:
         return 0
 
+# ─── FACE EMBEDDING ───────────────────────────────────────────────────────────
+enrolled_embedding = None  # set during enrollment; used in proctoring loop
+
+def get_face_embedding(frame):
+    """Return normed InsightFace embedding for the largest face, or None."""
+    if not INSIGHT_AVAILABLE:
+        return None
+    try:
+        faces = _insight_app.get(frame)
+        if faces:
+            return faces[0].normed_embedding
+    except Exception:
+        pass
+    return None
+
 # ─── ENROLLMENT ───────────────────────────────────────────────────────────────
 def run_enrollment(cap, W, H):
     print("\n[ENROLLMENT] Starting face enrollment...")
@@ -199,15 +251,23 @@ def run_enrollment(cap, W, H):
         "Tilt slightly UP",
         "Tilt slightly DOWN",
     ]
-    SAMPLES_PER = 15
-    samples     = []
-    direction   = 0
-    count       = 0
-    enrolled_face = None
+    SAMPLES_PER    = 15
+    MAX_FRAMES     = 900   # ~30s timeout — bail out if camera/face issues
+    samples        = []
+    direction      = 0
+    count          = 0
+    total_frames   = 0
+    enrolled_face  = None
 
     while direction < len(DIRECTIONS):
+        total_frames += 1
+        if total_frames > MAX_FRAMES:
+            print("[ENROLLMENT] ⚠️ Timeout — skipping remaining directions")
+            break
+
         ret, frame = cap.read()
         if not ret:
+            print("[ENROLLMENT] ⚠️ Camera frame failed — skipping enrollment")
             break
 
         rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -239,6 +299,18 @@ def run_enrollment(cap, W, H):
             count += 1
             if count == 1 and direction == 0:
                 enrolled_face = results.multi_face_landmarks[0]
+
+            # Capture face embedding at the midpoint of direction 0 (straight shot)
+            global enrolled_embedding
+            if direction == 0 and count == SAMPLES_PER // 2 and \
+               enrolled_embedding is None and INSIGHT_AVAILABLE:
+                emb = get_face_embedding(frame)
+                if emb is not None:
+                    enrolled_embedding = emb
+                    print("[ENROLLMENT] ✅ InsightFace embedding captured")
+                    log_event("face_enrolled", "low",
+                              "InsightFace embedding stored")
+
             if count >= SAMPLES_PER:
                 print(f"[ENROLLMENT] ✅ Direction {direction+1} done")
                 direction += 1
@@ -264,9 +336,9 @@ def run_proctoring(cap, W, H):
     gaze_away_count     = 0
     head_away_count     = 0
     eyes_closed_count   = 0
-    voice_count         = 0
     object_history      = {}
     frame_count         = 0
+    voice_start_time    = None  # time when RMS first exceeded threshold
 
     # Cooldowns (prevent spam)
     last_logged         = {}
@@ -279,11 +351,20 @@ def run_proctoring(cap, W, H):
             return True
         return False
 
+    consecutive_failures = 0
+    MAX_FAILURES = 30  # allow up to 30 bad frames before giving up
+
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("[PROCTOR] Camera lost!")
-            break
+            consecutive_failures += 1
+            print(f"[PROCTOR] Frame read failed ({consecutive_failures}/{MAX_FAILURES})")
+            if consecutive_failures >= MAX_FAILURES:
+                print("[PROCTOR] Camera lost — too many failures!")
+                break
+            time.sleep(0.05)
+            continue
+        consecutive_failures = 0
 
         frame_count += 1
         rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -325,7 +406,7 @@ def run_proctoring(cap, W, H):
             if gaze < GAZE_THRESHOLD or gaze > (1 - GAZE_THRESHOLD):
                 gaze_away_count += 1
             else:
-                gaze_away_count = max(0, gaze_away_count - 1)
+                gaze_away_count = 0
 
             if gaze_away_count >= GAZE_FRAMES_NEEDED and \
                can_log("gaze_away"):
@@ -333,13 +414,14 @@ def run_proctoring(cap, W, H):
                 log_event("gaze_away", "high",
                           f"Looking {direction} (ratio:{gaze:.2f})")
                 save_evidence(frame, "gaze_away")
+                gaze_away_count = 0
 
             # ── HEAD POSE ─────────────────────────────────────────────────────
             yaw = get_head_yaw(lm, W, H)
             if abs(yaw) > HEAD_YAW_THRESHOLD:
                 head_away_count += 1
             else:
-                head_away_count = max(0, head_away_count - 1)
+                head_away_count = 0
 
             if head_away_count >= HEAD_FRAMES_NEEDED and \
                can_log("head_turned"):
@@ -347,6 +429,7 @@ def run_proctoring(cap, W, H):
                 log_event("head_turned", "high",
                           f"Head turned {direction} ({yaw:.0f}°)")
                 save_evidence(frame, "head_turned")
+                head_away_count = 0
 
             # ── EYES CLOSED ───────────────────────────────────────────────────
             eyes_open = get_eye_openness(lm, W, H)
@@ -373,8 +456,8 @@ def run_proctoring(cap, W, H):
         # ── YOLO OBJECT DETECTION ─────────────────────────────────────────────
         if YOLO_AVAILABLE and frame_count % YOLO_EVERY_N == 0:
             try:
-                small  = cv2.resize(frame, (320, 320))
-                sx, sy = W/320, H/320
+                small  = cv2.resize(frame, (416, 416))
+                sx, sy = W/416, H/416
                 res    = yolo_model(small, verbose=False,
                                     conf=YOLO_CONFIDENCE)[0]
                 detected = []
@@ -405,33 +488,52 @@ def run_proctoring(cap, W, H):
                         log_event("cheat_object_detected", "high",
                                   f"{name} detected (conf:{conf:.0%})")
                         save_evidence(frame, f"cheat_{name}")
+                        object_history[name] = 0  # reset so re-detection needs full build-up
 
             except Exception as e:
                 print(f"[YOLO Error] {e}")
 
         # ── VOICE DETECTION ───────────────────────────────────────────────────
+        # Sustained-time approach: only log if RMS stays above threshold for
+        # the full COOLDOWN window continuously. Eliminates double-logging.
         if AUDIO_AVAILABLE:
             with audio_lock:
                 rms = audio_rms
             if rms > VOICE_THRESHOLD:
-                voice_count += 1
+                if voice_start_time is None:
+                    voice_start_time = time.time()
+                elif time.time() - voice_start_time >= COOLDOWN:
+                    if can_log("voice_detected"):
+                        log_event("voice_detected", "medium",
+                                  f"Voice sustained (rms:{rms:.3f})")
+                    voice_start_time = time.time()  # reset — require another full window
             else:
-                voice_count = max(0, voice_count - 1)
+                voice_start_time = None  # gap in audio resets the timer
 
-            if voice_count >= VOICE_FRAMES_NEEDED and \
-               can_log("voice_detected"):
-                log_event("voice_detected", "medium",
-                          f"Voice/sound detected (rms:{rms:.3f})")
+        # ── WRONG PERSON CHECK ────────────────────────────────────────────────
+        if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
+           frame_count % 30 == 0:
+            current_emb = get_face_embedding(frame)
+            if current_emb is not None:
+                similarity = float(np.dot(enrolled_embedding, current_emb))
+                if similarity < WRONG_PERSON_THRESHOLD and \
+                   can_log("wrong_person"):
+                    log_event("wrong_person", "medium",
+                              f"Different person detected "
+                              f"(cosine similarity: {similarity:.2f})")
+                    save_evidence(frame, "wrong_person")
 
         # ── HUD DISPLAY ───────────────────────────────────────────────────────
         if not HEADLESS:
             # Status bar
             status_color = (0,200,0) if num_faces == 1 else (0,0,200)
             cv2.rectangle(frame, (0,0), (W,35), (20,20,20), -1)
+            voice_secs = int(time.time() - voice_start_time) \
+                if voice_start_time else 0
             status = f"Faces:{num_faces} | " \
                      f"Gaze:{gaze_away_count}/{GAZE_FRAMES_NEEDED} | " \
                      f"Head:{head_away_count}/{HEAD_FRAMES_NEEDED} | " \
-                     f"Voice:{voice_count}/{VOICE_FRAMES_NEEDED}"
+                     f"Voice:{voice_secs:.0f}s/{COOLDOWN:.0f}s"
             cv2.putText(frame, status, (8,22),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                         (200,200,200), 1)
@@ -452,8 +554,25 @@ def main():
     print(f"[PROCTOR] Server:  {SERVER_URL}")
     print(f"[PROCTOR] Headless: {HEADLESS}")
 
+    # Try default backend first (MSMF on Windows — allows sharing with browser)
+    # Fallback to CAP_DSHOW only if default fails
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) \
+              if platform.system() == "Windows" \
+              else cv2.VideoCapture(1)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(1)  # try second camera
+    if not cap.isOpened():
+        try:
+            requests.post(SERVER_URL, json=dict(
+                session_id = SESSION_ID,
+                event_type = "proctor_camera_failed",
+                severity   = "high",
+                details    = "Cannot open any camera — proctoring disabled"
+            ), timeout=3, headers=HEADERS)
+        except Exception:
+            pass
         print("[PROCTOR] ❌ Cannot open camera!")
         sys.exit(1)
 
@@ -461,11 +580,22 @@ def main():
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[PROCTOR] Camera: {W}x{H}")
 
+    # Warm up camera — first frames on Windows are often blank
+    print("[PROCTOR] Warming up camera...")
+    for _ in range(10):
+        cap.read()
+    time.sleep(0.5)
+
     # Wait for audio thread
     time.sleep(1)
 
-    # Enrollment phase
-    run_enrollment(cap, W, H)
+    # Skip enrollment in headless mode — no window to show guidance,
+    # and it can hang forever if face isn't detected
+    if HEADLESS:
+        print("[ENROLLMENT] Headless mode — skipping enrollment")
+        log_event("enrollment_complete", "low", "Headless mode — enrollment skipped")
+    else:
+        run_enrollment(cap, W, H)
 
     # Main proctoring
     try:
@@ -475,16 +605,8 @@ def main():
     finally:
         # Session summary
         duration = int(time.time() - session_start)
-        if violation_log:
-            avg_conf = sum(v["confidence"] for v in violation_log) / \
-                       len(violation_log)
-            log_event("session_ended", "low",
-                      f"violations:{len(violation_log)} "
-                      f"avg_confidence:{avg_conf:.0%} "
-                      f"duration:{duration}s")
-        else:
-            log_event("session_ended", "low",
-                      f"no violations | duration:{duration}s")
+        log_event("session_ended", "low",
+                  f"violations:{violation_count} | duration:{duration}s")
         cap.release()
         if not HEADLESS:
             cv2.destroyAllWindows()

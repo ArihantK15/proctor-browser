@@ -1,8 +1,12 @@
-name: Build Electron App
+name: Build & Release Electron App
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build-mac:
@@ -13,13 +17,9 @@ jobs:
         with:
           node-version: 18
       - run: npm install
-      - run: npm run build:mac
+      - run: npx electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mac-installers
-          path: dist/*.dmg
 
   build-win:
     runs-on: windows-latest
@@ -29,10 +29,6 @@ jobs:
         with:
           node-version: 18
       - run: npm install
-      - run: npm run build:win
+      - run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: dist/*.exe

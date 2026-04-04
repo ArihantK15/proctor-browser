@@ -6,11 +6,13 @@
   "scripts": {
     "start": "electron . --no-sandbox",
     "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win"
+    "build:win": "electron-builder --win",
+    "bundle-python": "node bundle-python.js"
   },
   "devDependencies": {
     "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "https-proxy-agent": "^9.0.0"
   },
   "build": {
     "appId": "com.proctor.browser",
@@ -28,9 +30,20 @@
         "to": "proctor.py"
       }
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "ArihantK15",
+      "repo": "proctor-browser"
+    },
     "mac": {
       "target": [
-        {"target": "dmg", "arch": ["arm64", "x64"]}
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.education",
       "hardenedRuntime": false,
@@ -38,7 +51,12 @@
     },
     "win": {
       "target": [
-        {"target": "nsis", "arch": ["x64"]}
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {

@@ -8,7 +8,7 @@ const os      = require('os');
 const fs      = require('fs');
 const https   = require('https');
 
-const SERVER_URL = 'https://aiproc.ngrok.dev';
+const SERVER_URL = 'https://procta.net';
 const ADMIN_CODE = 'EXIT2026';
 
 let mainWindow    = null;
@@ -16,7 +16,9 @@ let setupWindow   = null;
 let pythonProcess = null;
 let powerBlockId  = null;
 let pollInterval  = null;
-let isKiosk       = true;
+let studentToken  = null; // JWT issued after validate-student
+let isKiosk       = !process.argv.includes('--no-kiosk') &&
+                    process.env.PROCTOR_DEBUG !== '1';
 let resolvedPython = null;
 
 // ── PYTHON FINDER ─────────────────────────────────────────────────
@@ -25,6 +27,10 @@ function findPython() {
 
   const isWin = process.platform === 'win32';
   const candidates = isWin ? [
+    // 1. Bundled embeddable Python shipped inside the .exe (highest priority)
+    path.join(process.resourcesPath || __dirname, 'python', 'python.exe'),
+    path.join(__dirname, 'resources', 'python', 'python.exe'),
+    // 2. User-installed Python
     path.join(os.homedir(),'AppData','Local','Programs','Python','Python311','python.exe'),
     path.join(os.homedir(),'AppData','Local','Programs','Python','Python312','python.exe'),
     path.join(os.homedir(),'AppData','Local','Programs','Python','Python310','python.exe'),
@@ -215,7 +221,6 @@ async function runWindowsSetup() {
   }
 
   // Install packages
-  sendSetupStatus('Installing AI packages (this takes 2-3 mins)...');
   const packages = [
     'opencv-python',
     'mediapipe',
@@ -225,9 +230,13 @@ async function runWindowsSetup() {
     'scipy',
     'requests',
   ];
+  sendSetupStatus(`Installing AI packages (~3 mins, one-time only). Do NOT close this window.`);
+  const setupStart = Date.now();
 
-  for (const pkg of packages) {
-    sendSetupStatus(`  Installing ${pkg}...`);
+  for (let idx = 0; idx < packages.length; idx++) {
+    const pkg = packages[idx];
+    const elapsed = Math.round((Date.now() - setupStart) / 1000);
+    sendSetupStatus(`  [${idx+1}/${packages.length}] Installing ${pkg}... (${elapsed}s elapsed)`);
     try {
       const r = spawnSync(python,
         ['-m', 'pip', 'install', pkg,
@@ -238,6 +247,8 @@ async function runWindowsSetup() {
       sendSetupStatus(`  ⚠️ ${pkg} error`);
     }
   }
+  const totalSecs = Math.round((Date.now() - setupStart) / 1000);
+  sendSetupStatus(`Setup complete in ${totalSecs}s.`);
 
   const ready = checkPackagesReady(python);
   sendSetupStatus(ready ?
@@ -270,9 +281,12 @@ function startPython(sessionId) {
   pythonProcess = spawn(python, [script], {
     env: {
       ...process.env,
-      PROCTOR_SESSION_ID:   sessionId,
-      PROCTOR_SERVER_URL:   `${SERVER_URL}/event`,
-      PROCTOR_EVIDENCE_DIR: evidenceDir,
+      PROCTOR_SESSION_ID:              sessionId,
+      PROCTOR_SERVER_URL:              `${SERVER_URL}/event`,
+      PROCTOR_EVIDENCE_DIR:            evidenceDir,
+      PROCTOR_JWT_TOKEN:               studentToken || '',
+      PROCTOR_WRONG_PERSON_THRESHOLD:  '0.25',
+      PROCTOR_VOICE_THRESHOLD:         '0.035',
     }
   });
 
@@ -280,17 +294,39 @@ function startPython(sessionId) {
     console.log('[AI]', d.toString().trim()));
   pythonProcess.stderr.on('data', d =>
     console.error('[AI]', d.toString().trim()));
-  pythonProcess.on('close', code =>
-    console.log('[AI] Exited:', code));
+  pythonProcess.on('close', code => {
+    console.log('[AI] Exited:', code);
+    if (code !== 0 && code !== null && pythonProcess !== null) {
+      console.log('[AI] Unexpected exit — restarting in 3s');
+      setTimeout(() => startPython(sessionId), 3000);
+    }
+  });
   pythonProcess.on('error', err =>
     console.error('[AI] Spawn error:', err.message));
 }
 
 function stopPython() {
   if (pythonProcess) {
-    pythonProcess.kill('SIGTERM');
+    try {
+      if (process.platform === 'win32') {
+        // SIGTERM is ignored on Windows — use taskkill to force kill the
+        // entire process tree (Python + any child cv2/mediapipe threads)
+        spawnSync('taskkill', ['/pid', String(pythonProcess.pid), '/f', '/t'],
+          { timeout: 5000 });
+      } else {
+        pythonProcess.kill('SIGTERM');
+      }
+    } catch(e) { console.error('[AI] Stop error:', e.message); }
     pythonProcess = null;
   }
+}
+
+// ── AUTH HEADERS ─────────────────────────────────────────────────
+function authHeaders() {
+  const base = { 'Content-Type': 'application/json' };
+  return studentToken
+    ? { ...base, 'Authorization': `Bearer ${studentToken}` }
+    : base;
 }
 
 // ── POLLING ───────────────────────────────────────────────────────
@@ -298,7 +334,8 @@ function startPolling(sessionId) {
   let lastEventId = 0;
   pollInterval = setInterval(async () => {
     try {
-      const r    = await fetch(`${SERVER_URL}/events/${sessionId}`);
+      const r    = await fetch(`${SERVER_URL}/events/${sessionId}`,
+                               { headers: authHeaders() });
       const data = await r.json();
       const newV = (data.events || []).filter(e =>
         e.id > lastEventId &&
@@ -364,6 +401,11 @@ function createWindow() {
     if (isKiosk) mainWindow.webContents.closeDevTools();
   });
 
+  mainWindow.webContents.on('render-process-gone', (_, details) => {
+    console.log('[App] Renderer gone:', details.reason, '— reloading');
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
+  });
+
   if (isKiosk) {
     mainWindow.on('blur',  () => mainWindow.focus());
     mainWindow.on('close', e  => e.preventDefault());
@@ -384,6 +426,18 @@ app.whenReady().then(async () => {
       'Ctrl+C','Ctrl+V','Ctrl+X',
     ], () => false);
   }
+
+  // Emergency escape — works even in kiosk, requires admin code
+  globalShortcut.register('CommandOrControl+Shift+Alt+E', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.executeJavaScript(`
+        (function() {
+          const code = prompt('Emergency exit — enter admin code:');
+          window.proctor && window.proctor.adminExit(code);
+        })()
+      `);
+    }
+  });
 
   // Windows: auto-setup Python if needed
   if (process.platform === 'win32') {
@@ -431,11 +485,14 @@ ipcMain.handle('validate-student', async (_, roll) => {
     body:    JSON.stringify({roll_number: roll})
   });
   if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
-  return r.json();
+  const data = await r.json();
+  studentToken = data.token || null; // store JWT for all subsequent requests
+  return data;
 });
 
 ipcMain.handle('get-questions', async () => {
-  const r = await fetch(`${SERVER_URL}/api/questions`);
+  const r = await fetch(`${SERVER_URL}/api/questions`,
+                        { headers: authHeaders() });
   if (!r.ok) throw new Error('Could not load questions');
   return r.json();
 });
@@ -444,7 +501,7 @@ ipcMain.handle('log-event', async (_, data) => {
   try {
     await fetch(`${SERVER_URL}/event`, {
       method:  'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: authHeaders(),
       body:    JSON.stringify(data)
     });
   } catch(e) { console.error('[log-event]', e.message); }
@@ -453,15 +510,20 @@ ipcMain.handle('log-event', async (_, data) => {
 ipcMain.handle('submit-exam', async (_, data) => {
   const r = await fetch(`${SERVER_URL}/api/submit-exam`, {
     method:  'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: authHeaders(),
     body:    JSON.stringify(data)
   });
-  if (!r.ok) throw new Error('Submission failed');
+  if (!r.ok) {
+    const errText = await r.text();
+    console.error('[Submit] Server error:', r.status, errText);
+    throw new Error(`Submission failed: ${r.status} ${errText}`);
+  }
   return r.json();
 });
 
 ipcMain.handle('get-events', async (_, sessionId) => {
-  const r = await fetch(`${SERVER_URL}/events/${sessionId}`);
+  const r = await fetch(`${SERVER_URL}/events/${sessionId}`,
+                        { headers: authHeaders() });
   return r.json();
 });
 

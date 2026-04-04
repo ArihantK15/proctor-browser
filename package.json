@@ -1,0 +1,50 @@
+{
+  "name": "proctor-browser",
+  "version": "1.0.0",
+  "description": "AI Proctored Exam Browser",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --no-sandbox",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.proctor.browser",
+    "productName": "Proctor Browser",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "proctor.py"
+    ],
+    "extraResources": [
+      {
+        "from": "proctor.py",
+        "to": "proctor.py"
+      }
+    ],
+    "mac": {
+      "target": [
+        {"target": "dmg", "arch": ["arm64", "x64"]}
+      ],
+      "category": "public.app-category.education",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [
+        {"target": "nsis", "arch": ["x64"]}
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true
+    }
+  }
+}

@@ -194,9 +194,10 @@ const SERVER = 'https://procta.net';
 let student=null, sessionId=null, questions=[], answers={};
 let studentToken=null; // JWT from validate-student; included in all server calls
 let curQ=0, timerSecs=0, timerInt=null;
-let startTime=null, violations=[], stream=null;
+let startTime=null, stream=null;
 let detectionTimer=null, forceSubmitPoll=null;
 let resumedStartedAt=null; // IST ISO string from server when resuming
+let lastFocusLost=0; // debounce window_focus_lost spam
 
 function showScreen(id){
   document.querySelectorAll('.screen')
@@ -214,7 +215,6 @@ function showBanner(msg, color){
 }
 
 function logV(type, details){
-  violations.push({type, details, timestamp:new Date().toISOString()});
   if(window.proctor) window.proctor.logEvent({
     session_id:sessionId, event_type:type,
     severity:'high', details
@@ -238,10 +238,13 @@ async function doLogin(){
     studentToken = student.token || null;
     document.getElementById('login-ldr').textContent='Checking for existing session...';
 
+    // Use normalized roll_number from DB (may differ in case from raw input)
+    const normalizedRoll = student.roll_number;
+
     // Check for in-progress session (crash recovery)
     let existing = null;
     try{
-      const cr = await fetch(`${SERVER}/api/check-session/${encodeURIComponent(roll)}`,
+      const cr = await fetch(`${SERVER}/api/check-session/${encodeURIComponent(normalizedRoll)}`,
         {headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentToken}});
       if(cr.ok){
         const cd = await cr.json();
@@ -259,12 +262,12 @@ async function doLogin(){
         sessionId        = existing.session_key;
         answers          = existing.answers || {};
         resumedStartedAt = existing.started_at || null;
-        startEnroll(); // still need to re-acquire camera and start proctor
+        startEnroll();
         return;
       }
     }
 
-    sessionId = `${roll}_${Date.now()}`;
+    sessionId = `${normalizedRoll}_${Date.now()}`;
     startEnroll();
   }catch(e){
     document.getElementById('login-err').textContent=
@@ -335,10 +338,14 @@ async function finishEnroll(){
   document.getElementById('enroll-st').textContent=
     'Enrollment complete! Starting exam...';
   document.getElementById('enroll-pf').style.width='100%';
-  if(window.proctor) await window.proctor.logEvent({
-    session_id:sessionId, event_type:'enrollment_complete',
-    severity:'low', details:`Enrolled: ${student.full_name}`
-  });
+  if(window.proctor){
+    try{
+      await window.proctor.logEvent({
+        session_id:sessionId, event_type:'enrollment_complete',
+        severity:'low', details:`Enrolled: ${student.full_name}`
+      });
+    }catch(e){ console.warn('[Enroll] completion logEvent failed:', e); }
+  }
 
   // Release camera so proctor.py can open it exclusively
   if(stream){
@@ -427,6 +434,10 @@ async function startExam(){
 
     // Anti-cheat listeners
     window.addEventListener('blur', ()=>{
+      // Debounce — kiosk auto-refocus causes rapid blur/focus cycles
+      const now=Date.now();
+      if(now-lastFocusLost < 2000) return;
+      lastFocusLost=now;
       logV('window_focus_lost','Student switched away from exam');
       showBanner('⚠️ Focus lost — return to exam!','#c0392b');
     });
@@ -695,9 +706,10 @@ async function submitExam(timeUp=false){
   // Auto close countdown
   let count=5;
   const cd=document.getElementById('countdown');
+  cd.textContent=`Closing in ${count} seconds...`;
   const cInt=setInterval(()=>{
     count--;
-    cd.textContent=`Closing in ${count} seconds...`;
+    cd.textContent=`Closing in ${count} ${count===1?'second':'seconds'}...`;
     if(count<=0){
       clearInterval(cInt);
       if(window.proctor) window.proctor.adminExit('AUTO_CLOSE');

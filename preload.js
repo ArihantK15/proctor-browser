@@ -13,4 +13,7 @@ contextBridge.exposeInMainWorld('proctor', {
   onViolation:     (cb)   => {
     ipcRenderer.on('violation-detected', (_, data) => cb(data));
   },
+  onForceSubmit:   (cb)   => {
+    ipcRenderer.once('force-submit', () => cb());
+  },
 });

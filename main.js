@@ -335,18 +335,29 @@ function authHeaders() {
 // ── POLLING ───────────────────────────────────────────────────────
 function startPolling(sessionId) {
   let lastEventId = 0;
+  let forceSubmitSent = false;
   pollInterval = setInterval(async () => {
     try {
       const r    = await fetch(`${SERVER_URL}/events/${sessionId}`,
                                { headers: authHeaders() });
       const data = await r.json();
-      const newV = (data.events || []).filter(e =>
+      const events = data.events || [];
+
+      // Check for admin force-submit (only once)
+      if (!forceSubmitSent && events.some(e => e.type === 'exam_submitted')) {
+        forceSubmitSent = true;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('force-submit');
+        }
+      }
+
+      // Send violation banners for new high/medium events
+      const IGNORED = ['screenshot','enrollment','started','submitted',
+                       'resumed','complete','session_ended','answer_selected'];
+      const newV = events.filter(e =>
         e.id > lastEventId &&
         (e.severity === 'high' || e.severity === 'medium') &&
-        !['screenshot','enrollment','started',
-          'submitted','resumed','complete',
-          'session_ended','answer_selected'].some(x =>
-          e.type.includes(x))
+        !IGNORED.some(x => e.type.includes(x))
       );
       if (newV.length > 0) {
         lastEventId = Math.max(...newV.map(e => e.id));

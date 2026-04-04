@@ -195,7 +195,6 @@ let student=null, sessionId=null, questions=[], answers={};
 let studentToken=null; // JWT from validate-student; included in all server calls
 let curQ=0, timerSecs=0, timerInt=null;
 let startTime=null, stream=null;
-let detectionTimer=null, forceSubmitPoll=null;
 let resumedStartedAt=null; // IST ISO string from server when resuming
 let lastFocusLost=0; // debounce window_focus_lost spam
 
@@ -357,13 +356,23 @@ async function finishEnroll(){
 
   // Start proctor AFTER releasing camera — gives OS ~800ms to free the device
   if(window.proctor){
-    await new Promise(r=>setTimeout(r,800));
-    await window.proctor.startProctor({sessionId});
-    await window.proctor.startPolling({sessionId});
-    window.proctor.onViolation(({type, details, severity})=>{
-      const color = severity==='high' ? '#c0392b' : '#e67e22';
-      showBanner(`⚠️ ${type.replace(/_/g,' ')}: ${details}`, color);
-    });
+    try{
+      await new Promise(r=>setTimeout(r,800));
+      await window.proctor.startProctor({sessionId});
+      await window.proctor.startPolling({sessionId});
+      window.proctor.onViolation(({type, details, severity})=>{
+        const color = severity==='high' ? '#c0392b' : '#e67e22';
+        showBanner(`⚠️ ${type.replace(/_/g,' ')}: ${details}`, color);
+      });
+      window.proctor.onForceSubmit(()=>{
+        clearInterval(timerInt);
+        document.getElementById('final-score').textContent='Submitted';
+        showScreen('done');
+        document.getElementById('countdown').textContent=
+          'Submitted by examiner. Closing in 3 seconds...';
+        setTimeout(()=>{ if(window.proctor) window.proctor.adminExit('AUTO_CLOSE'); },3000);
+      });
+    }catch(e){ console.error('[Enroll] startProctor/startPolling failed:', e); }
   }
 
   setTimeout(startExam, 500);
@@ -408,31 +417,8 @@ async function startExam(){
     showScreen('exam');
     startTimer(); // start AFTER screen is shown so student sees full time
 
-    // Poll for force-submit from admin dashboard
-    forceSubmitPoll=setInterval(async()=>{
-      if(!sessionId) return;
-      try{
-        const r=await fetch(`${SERVER}/events/${sessionId}`,
-          {headers:{'Authorization':'Bearer '+studentToken}});
-        const d=await r.json();
-        const forceSubmit=(d.events||[]).find(e=>
-          e.type==='exam_submitted');
-        if(forceSubmit){
-          clearInterval(timerInt);
-          clearInterval(forceSubmitPoll);
-          if(detectionTimer) clearInterval(detectionTimer);
-          document.getElementById('final-score').textContent='Submitted';
-          showScreen('done');
-          document.getElementById('countdown').textContent=
-            'Submitted by examiner. Closing in 3 seconds...';
-          setTimeout(()=>{
-            if(window.proctor) window.proctor.adminExit('AUTO_CLOSE');
-          },3000);
-        }
-      }catch(e){}
-    },3000);
-
     // Anti-cheat listeners
+
     window.addEventListener('blur', ()=>{
       // Debounce — kiosk auto-refocus causes rapid blur/focus cycles
       const now=Date.now();
@@ -458,58 +444,12 @@ async function startExam(){
       }
     });
 
-    // Start periodic frame capture
-    startFrameCapture();
-
   }catch(e){
     console.error('startExam:', e);
     alert('Could not load exam. Contact examiner.');
   }
 }
 
-// ── FRAME CAPTURE (sends screenshots to server) ────────────────────
-let frameCanvas=document.createElement('canvas');
-let frameCtx=frameCanvas.getContext('2d');
-frameCanvas.width=320; frameCanvas.height=240;
-
-function startFrameCapture(){
-  detectionTimer=setInterval(captureFrame, 5000);
-}
-
-function captureFrame(){
-  const video=document.getElementById('cam-mini');
-  if(!video||!video.srcObject||!sessionId) return;
-  try{
-    frameCtx.drawImage(video,0,0,320,240);
-
-    // Brightness check
-    const imgData=frameCtx.getImageData(0,0,320,240).data;
-    let brightness=0;
-    for(let i=0;i<imgData.length;i+=4)
-      brightness+=(imgData[i]+imgData[i+1]+imgData[i+2])/3;
-    brightness/=(imgData.length/4);
-
-    if(brightness<15){
-      logV('camera_covered',`Camera covered (brightness:${brightness.toFixed(1)})`);
-      showBanner('⚠️ Camera covered!','#c0392b');
-    } else if(brightness<40){
-      logV('lighting_poor',`Poor lighting (brightness:${brightness.toFixed(1)})`);
-      showBanner('⚠️ Improve lighting!','#e67e22');
-    }
-
-    // Send frame to server
-    const b64=frameCanvas.toDataURL('image/jpeg',0.6).split(',')[1];
-    fetch(`${SERVER}/api/analyze-frame`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})},
-      body:JSON.stringify({
-        session_id:sessionId,
-        frame:b64,
-        timestamp:new Date().toISOString()
-      })
-    }).catch(()=>{});
-
-  }catch(e){ console.error('captureFrame:',e); }
 }
 
 // ── GRID & RENDER ──────────────────────────────────────────────────
@@ -609,10 +549,8 @@ function confirmSub(){
 // ── SUBMIT ─────────────────────────────────────────────────────────
 async function submitExam(timeUp=false){
   clearInterval(timerInt);
-  if(detectionTimer)  clearInterval(detectionTimer);
-  if(forceSubmitPoll) clearInterval(forceSubmitPoll);
 
-  const taken=Math.floor((Date.now()-startTime)/1000);
+  const taken=startTime ? Math.floor((Date.now()-startTime)/1000) : 0;
 
   // Show submitting screen immediately
   showScreen('done');

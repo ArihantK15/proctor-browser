@@ -73,8 +73,8 @@ CHEAT_IDS = {
 }
 
 # ─── SERVER LOGGING ───────────────────────────────────────────────────────────
-violation_log = []
 session_start = time.time()
+violation_count = 0  # lightweight counter only
 
 HEADERS = {
     "Content-Type": "application/json",
@@ -99,13 +99,11 @@ def _heartbeat_loop():
 threading.Thread(target=_heartbeat_loop, daemon=True).start()
 
 def log_event(etype, severity, details):
+    global violation_count
     conf = CONFIDENCE.get(etype, 0.75)
     full_details = f"{details} | confidence:{int(conf*100)}%"
-    violation_log.append({
-        "type": etype, "severity": severity,
-        "details": details, "confidence": conf,
-        "timestamp": datetime.now().isoformat()
-    })
+    if severity in ("high", "medium"):
+        violation_count += 1
     try:
         requests.post(SERVER_URL, json=dict(
             session_id = SESSION_ID,
@@ -607,16 +605,8 @@ def main():
     finally:
         # Session summary
         duration = int(time.time() - session_start)
-        if violation_log:
-            avg_conf = sum(v["confidence"] for v in violation_log) / \
-                       len(violation_log)
-            log_event("session_ended", "low",
-                      f"violations:{len(violation_log)} "
-                      f"avg_confidence:{avg_conf:.0%} "
-                      f"duration:{duration}s")
-        else:
-            log_event("session_ended", "low",
-                      f"no violations | duration:{duration}s")
+        log_event("session_ended", "low",
+                  f"violations:{violation_count} | duration:{duration}s")
         cap.release()
         if not HEADLESS:
             cv2.destroyAllWindows()

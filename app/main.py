@@ -3,6 +3,7 @@ import csv
 import io
 import json
 import base64
+import math
 import threading
 import time
 from datetime import datetime, timezone, timedelta
@@ -10,7 +11,8 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import StreamingResponse, RedirectResponse, FileResponse
+from fastapi.responses import StreamingResponse, RedirectResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import jwt, JWTError
@@ -45,7 +47,6 @@ SECRET_KEY       = os.environ["SUPABASE_JWT_SECRET"]
 ADMIN_PASSWORD   = os.getenv("ADMIN_PASSWORD", "ProctorAdmin2026!")
 QUESTIONS_FILE   = "/app/questions.json"
 SCREENSHOTS_DIR  = os.getenv("SCREENSHOTS_DIR", "/app/screenshots")
-TUNNEL_URL       = os.getenv("APP_URL", "https://procta.net")
 DOWNLOAD_MAC_ARM = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN     = os.getenv("DOWNLOAD_WIN", "")
@@ -92,6 +93,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── ADMIN DASHBOARD ─────────────────────────────────────────────
+STATIC_DIR = Path(__file__).parent / "static"
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def admin_dashboard():
+    html_path = STATIC_DIR / "dashboard.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    return HTMLResponse(html_path.read_text())
+
 
 # ─── BACKGROUND: SCREENSHOT CLEANUP ──────────────────────────────
 def _cleanup_screenshots():
@@ -171,11 +183,133 @@ def _recalculate_score(session_id: str, payload_answers: dict) -> tuple[int, int
         for qid, ans in payload_answers.items():
             ans_map[str(qid)] = str(ans)
         score = sum(1 for q in questions
-                    if ans_map.get(str(q["id"])) == q.get("correct"))
+                    if ans_map.get(str(q["id"])) == str(q.get("correct", "")))
         return score, total
     except Exception as e:
         print(f"[Score] Recalculation failed: {e}")
         return -1, -1  # signals fallback to client score
+
+# ─── BEHAVIORAL RISK SCORING ─────────────────────────────────────
+# Computes a 0–100 risk score from violation history.
+# Formula: log-saturating per-type weights, duration-normalized.
+
+VIOLATION_WEIGHTS: dict[str, float] = {
+    # Identity violations — highest weights
+    "wrong_person":           30,
+    "multiple_faces":         20,
+    "face_missing":           15,
+    # Cheating aids
+    "cheat_object_detected":  25,
+    # App evasion
+    "window_focus_lost":      18,
+    "tab_hidden":             15,
+    "shortcut_blocked":       12,
+    # Attention drift
+    "gaze_away":               8,
+    "head_turned":             8,
+    "eyes_closed":             5,
+    # Communication
+    "voice_detected":         10,
+    # Procedural
+    "time_exceeded":          15,
+    # Integrity (VM/environment)
+    "vm_detected":            20,
+    "remote_desktop_detected": 22,
+    "screen_share_detected":  12,
+    "multiple_monitors":       8,
+}
+_SATURATION_K = 5           # 5 occurrences ≈ full weight for that type
+_BASELINE_DURATION_MINS = 30  # normalization baseline
+_DEFAULT_WEIGHT_HIGH = 10   # fallback for unknown high-severity types
+_DEFAULT_WEIGHT_MED  = 5    # fallback for unknown medium-severity types
+
+RISK_LABELS = [
+    (15,  "Low Risk"),
+    (40,  "Moderate Risk"),
+    (70,  "High Risk"),
+    (100, "Critical Risk"),
+]
+
+def _risk_label(score: int) -> str:
+    for threshold, label in RISK_LABELS:
+        if score <= threshold:
+            return label
+    return "Critical Risk"
+
+
+def compute_risk_score(session_id: str) -> dict:
+    """Compute behavioral risk score (0–100) from the violations table.
+
+    Returns dict with risk_score, label, duration_minutes, and per-type
+    breakdown.  Safe to call for in-progress or completed sessions.
+    """
+    viol_result = supabase.table("violations")\
+        .select("violation_type,severity,created_at")\
+        .eq("session_key", session_id)\
+        .order("created_at")\
+        .execute()
+    rows = viol_result.data or []
+
+    # Filter to actual scorable violations
+    scored = [r for r in rows
+              if _is_violation(r["violation_type"])
+              and r["severity"] in ("high", "medium")]
+
+    if not scored:
+        return {"risk_score": 0, "label": "Low Risk",
+                "duration_minutes": 0, "breakdown": {}}
+
+    # ── Duration from first to last event ────────────────────────────
+    def _parse_ts(ts_str):
+        try:
+            return datetime.fromisoformat(
+                str(ts_str).replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return 0
+
+    timestamps = [_parse_ts(r["created_at"]) for r in rows if r.get("created_at")]
+    timestamps = [t for t in timestamps if t > 0]
+    if len(timestamps) >= 2:
+        duration_mins = (max(timestamps) - min(timestamps)) / 60.0
+    else:
+        duration_mins = 1.0  # single event — assume minimal duration
+
+    # ── Count occurrences per type ───────────────────────────────────
+    counts: dict[str, int] = {}
+    severities: dict[str, str] = {}
+    for r in scored:
+        vtype = r["violation_type"]
+        counts[vtype] = counts.get(vtype, 0) + 1
+        severities.setdefault(vtype, r["severity"])
+
+    # ── Compute per-type contribution with log saturation ────────────
+    breakdown: dict[str, dict] = {}
+    raw_sum = 0.0
+    log_sat = math.log(1 + _SATURATION_K)
+
+    for vtype, n in counts.items():
+        weight = VIOLATION_WEIGHTS.get(vtype)
+        if weight is None:
+            # Unknown type — use severity-based default
+            weight = (_DEFAULT_WEIGHT_HIGH
+                      if severities.get(vtype) == "high"
+                      else _DEFAULT_WEIGHT_MED)
+        contribution = weight * min(1.0, math.log(1 + n) / log_sat)
+        raw_sum += contribution
+        breakdown[vtype] = {"count": n, "contribution": round(contribution, 1)}
+
+    # ── Duration normalization ───────────────────────────────────────
+    duration_factor = _BASELINE_DURATION_MINS / max(duration_mins, 5.0)
+    normalized = raw_sum * duration_factor
+    risk_score = min(100, round(normalized))
+
+    return {
+        "risk_score":       risk_score,
+        "label":            _risk_label(risk_score),
+        "duration_minutes": round(duration_mins, 1),
+        "breakdown":        breakdown,
+    }
+
 
 # ─── PUBLIC ENDPOINTS ─────────────────────────────────────────────
 @app.get("/")
@@ -263,7 +397,17 @@ def get_questions(request: Request):
     if not os.path.exists(QUESTIONS_FILE):
         raise HTTPException(status_code=404, detail="Questions not found")
     with open(QUESTIONS_FILE) as f:
-        return json.load(f)
+        data = json.load(f)
+    # Strip correct answers — students must never see them
+    safe_questions = []
+    for q in data.get("questions", []):
+        sq = {k: v for k, v in q.items() if k != "correct"}
+        safe_questions.append(sq)
+    return {
+        "exam_title": data.get("exam_title", "Exam"),
+        "duration_minutes": data.get("duration_minutes"),
+        "questions": safe_questions,
+    }
 
 @app.get("/api/check-session/{roll_number}")
 def check_session(roll_number: str, request: Request):
@@ -289,10 +433,18 @@ def check_session(roll_number: str, request: Request):
         "started_at":  session.get("started_at"),
     }
 
+def _check_session_ownership(claims: dict, session_id: str):
+    """Raise 403 if the JWT roll doesn't match the session's roll prefix."""
+    session_roll = session_id.rsplit("_", 1)[0].upper()
+    if claims.get("roll", "").upper() != session_roll:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
 @app.post("/event")
 @limiter.limit("120/minute")
 def log_event(event: EventIn, request: Request):
-    require_auth(request)
+    claims = require_auth(request)
+    _check_session_ownership(claims, event.session_id)
     get_logger(event.session_id).info(
         f"[{event.severity.upper()}] {event.event_type} | {event.details}")
 
@@ -300,7 +452,7 @@ def log_event(event: EventIn, request: Request):
     if event.event_type == "exam_started":
         supabase.table("exam_sessions").upsert({
             "session_key": event.session_id,
-            "roll_number": event.session_id.split("_")[0],
+            "roll_number": event.session_id.rsplit("_", 1)[0],
             "status":      "in_progress",
             "started_at":  now_ist().isoformat(),
         }).execute()
@@ -320,10 +472,11 @@ def log_event(event: EventIn, request: Request):
 
 @app.post("/heartbeat")
 def heartbeat(event: EventIn, request: Request):
-    require_auth(request)
+    claims = require_auth(request)
+    _check_session_ownership(claims, event.session_id)
     supabase.table("exam_sessions").upsert({
         "session_key":    event.session_id,
-        "roll_number":    event.session_id.split("_")[0],
+        "roll_number":    event.session_id.rsplit("_", 1)[0],
         "last_heartbeat": now_ist().isoformat(),
         "status":         "in_progress",
     }).execute()
@@ -331,7 +484,8 @@ def heartbeat(event: EventIn, request: Request):
 
 @app.post("/api/save-answer")
 def save_answer(body: AnswerIn, request: Request):
-    require_auth(request)
+    claims = require_auth(request)
+    _check_session_ownership(claims, body.session_id)
     supabase.table("answers").upsert({
         "session_key":  body.session_id,
         "question_id":  body.question_id,
@@ -342,7 +496,8 @@ def save_answer(body: AnswerIn, request: Request):
 @app.post("/api/submit-exam")
 @limiter.limit("10/minute")
 def submit_exam(result: ResultIn, request: Request):
-    require_auth(request)
+    claims = require_auth(request)
+    _check_session_ownership(claims, result.session_id)
     now = now_ist()
 
     # Server-side scoring — never trust client score
@@ -390,16 +545,25 @@ def submit_exam(result: ResultIn, request: Request):
         "details":        f"Score:{server_score}/{server_total} ({pct}%)",
     }).execute()
 
+    # Cache behavioral risk score
+    risk = compute_risk_score(result.session_id)
+    supabase.table("exam_sessions").update(
+        {"risk_score": risk["risk_score"]}
+    ).eq("session_key", result.session_id).execute()
+
     get_logger(result.session_id).info(
-        f"[SUBMIT] {result.roll_number} score:{server_score}/{server_total}")
+        f"[SUBMIT] {result.roll_number} score:{server_score}/{server_total} "
+        f"risk:{risk['risk_score']}/100")
     return {"status": "submitted", "score": server_score,
-            "total": server_total, "percentage": pct}
+            "total": server_total, "percentage": pct,
+            "risk_score": risk["risk_score"], "risk_label": risk["label"]}
 
 @app.post("/api/analyze-frame")
 def analyze_frame(data: FrameIn, request: Request):
-    require_auth(request)
+    claims = require_auth(request)
+    _check_session_ownership(claims, data.session_id)
     try:
-        roll = data.session_id.split("_")[0] if "_" in data.session_id \
+        roll = data.session_id.rsplit("_", 1)[0] if "_" in data.session_id \
                else data.session_id[:20]
         student_dir = os.path.join(SCREENSHOTS_DIR, roll)
         os.makedirs(student_dir, exist_ok=True)
@@ -413,7 +577,12 @@ def analyze_frame(data: FrameIn, request: Request):
 
 @app.get("/events/{session_id}")
 def get_events(session_id: str, request: Request):
-    require_auth(request)
+    claims = require_auth(request)
+    # Ownership check: session_id is "{roll_number}_..." — student may only
+    # read their own events. Admins use the admin endpoints instead.
+    session_roll = session_id.rsplit("_", 1)[0].upper()
+    if claims.get("roll", "").upper() != session_roll:
+        raise HTTPException(status_code=403, detail="Access denied")
     result = supabase.table("violations")\
         .select("*")\
         .eq("session_key", session_id)\
@@ -436,11 +605,24 @@ def get_events(session_id: str, request: Request):
     }
 
 # ─── ADMIN ENDPOINTS (require X-Admin-Password header) ───────────
+
+@app.get("/api/risk-score/{session_id:path}")
+def get_risk_score(session_id: str, request: Request):
+    """Compute behavioral risk score for any session (live or completed)."""
+    require_admin(request)
+    result = compute_risk_score(session_id)
+    result["session_id"] = session_id
+    return result
+
+
 @app.get("/sessions")
 def get_all_sessions(request: Request):
     require_admin(request)
+    # Limit to last 48h so this never scans the entire violations table
+    cutoff = (now_ist() - timedelta(hours=48)).isoformat()
     evts_result = supabase.table("violations")\
         .select("session_key,violation_type,severity,created_at,details")\
+        .gte("created_at", cutoff)\
         .order("created_at", desc=True)\
         .execute()
     events = evts_result.data or []
@@ -465,26 +647,39 @@ def get_all_sessions(request: Request):
     active = [s for s in sessions.values() if not s["submitted"]]
     return {"sessions": active, "all_sessions": list(sessions.values())}
 
-@app.get("/api/results")
-def get_all_results(request: Request):
-    require_admin(request)
+def _violation_counts_by_session(session_keys: list[str]) -> dict[str, int]:
+    """Bulk-fetch violations for all sessions and return a count map.
+
+    Supabase/PostgREST encodes .in_() values as a query string; large arrays
+    can exceed the URL limit (~8 KB). Chunk to 200 keys per request.
+    """
+    if not session_keys:
+        return {}
+    counts: dict[str, int] = {}
+    chunk_size = 200
+    for i in range(0, len(session_keys), chunk_size):
+        chunk = session_keys[i : i + chunk_size]
+        viol_result = supabase.table("violations")\
+            .select("session_key,violation_type,severity")\
+            .in_("session_key", chunk)\
+            .execute()
+        for v in (viol_result.data or []):
+            if v["severity"] in ("high", "medium") and _is_violation(v["violation_type"]):
+                counts[v["session_key"]] = counts.get(v["session_key"], 0) + 1
+    return counts
+
+
+def _fetch_all_results() -> list[dict]:
+    """Shared: fetch all exam sessions with violation counts."""
     sess_result = supabase.table("exam_sessions")\
         .select("*")\
+        .eq("status", "completed")\
         .order("submitted_at", desc=True)\
         .execute()
     sessions = sess_result.data or []
-
-    out = []
-    for s in sessions:
-        vcount_result = supabase.table("violations")\
-            .select("violation_type,severity", count="exact")\
-            .eq("session_key", s["session_key"])\
-            .execute()
-        vcount = sum(
-            1 for v in (vcount_result.data or [])
-            if v["severity"] in ("high", "medium") and _is_violation(v["violation_type"])
-        )
-        out.append({
+    vcounts = _violation_counts_by_session([s["session_key"] for s in sessions])
+    return [
+        {
             "session_id":      s["session_key"],
             "roll_number":     s["roll_number"],
             "full_name":       s["full_name"],
@@ -494,43 +689,41 @@ def get_all_results(request: Request):
             "percentage":      s.get("percentage", 0.0),
             "time_taken_secs": s.get("time_taken_secs", 0),
             "submitted_at":    fmt_ist(s.get("submitted_at", "")),
-            "violation_count": vcount,
-        })
-    return {"results": out}
+            "violation_count": vcounts.get(s["session_key"], 0),
+            "risk_score":      s.get("risk_score"),
+            "risk_label":      _risk_label(s["risk_score"]) if s.get("risk_score") is not None else None,
+        }
+        for s in sessions
+    ]
+
+
+@app.get("/api/results")
+def get_all_results(request: Request):
+    require_admin(request)
+    return {"results": _fetch_all_results()}
 
 @app.get("/api/export-csv")
 def export_csv(request: Request):
     require_admin(request)
-    sess_result = supabase.table("exam_sessions")\
-        .select("*")\
-        .order("submitted_at", desc=True)\
-        .execute()
-    sessions = sess_result.data or []
-
+    results = _fetch_all_results()
     buf = io.StringIO()
     w   = csv.writer(buf)
     w.writerow(["Timestamp","SessionID","RollNumber","FullName","Email",
-                "Score","Total","Percentage","TimeTaken","Violations"])
-    for s in sessions:
-        vcount_result = supabase.table("violations")\
-            .select("violation_type,severity", count="exact")\
-            .eq("session_key", s["session_key"])\
-            .execute()
-        vcount = sum(
-            1 for v in (vcount_result.data or [])
-            if v["severity"] in ("high", "medium") and _is_violation(v["violation_type"])
-        )
+                "Score","Total","Percentage","TimeTaken","Violations","RiskScore","RiskLabel"])
+    for s in results:
         w.writerow([
-            fmt_ist(s.get("submitted_at", "")),
-            s["session_key"],
+            s["submitted_at"],
+            s["session_id"],
             s["roll_number"],
             s["full_name"],
-            s.get("email", ""),
-            s.get("score", 0),
-            s.get("total", 0),
-            f"{s.get('percentage', 0)}%",
-            f"{s.get('time_taken_secs', 0)}s",
-            vcount,
+            s["email"],
+            s["score"],
+            s["total"],
+            f"{s['percentage']}%",
+            f"{s['time_taken_secs']}s",
+            s["violation_count"],
+            s.get("risk_score", ""),
+            s.get("risk_label", ""),
         ])
     buf.seek(0)
     return StreamingResponse(
@@ -586,6 +779,10 @@ def export_pdf(session_id: str, request: Request):
                                f"{exam.get('time_taken_secs',0)%60}s)"],
             ["Total Violations", str(len(raw_violations))],
         ]
+        # Compute risk score for the PDF report
+        risk = compute_risk_score(session_id)
+        info.append(["Behavioral Risk Score",
+                      f"{risk['risk_score']}/100 — {risk['label']}"])
         t = Table(info, colWidths=[160, 310])
         t.setStyle(TableStyle([
             ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
@@ -741,7 +938,11 @@ def failed_sessions(request: Request):
     failed = supabase.table("violations").select("session_key")\
         .eq("violation_type", "submit_failed").execute()
     failed_keys = {r["session_key"] for r in (failed.data or [])}
-    submitted   = supabase.table("exam_sessions").select("session_key").execute()
+    # Only scan sessions that could match (status != completed) — avoids full table scan
+    submitted = supabase.table("exam_sessions").select("session_key")\
+        .eq("status", "completed")\
+        .in_("session_key", list(failed_keys) or ["__none__"])\
+        .execute()
     submitted_keys = {r["session_key"] for r in (submitted.data or [])}
     unrecovered = [k for k in failed_keys if k not in submitted_keys]
     return {"failed_sessions": unrecovered, "count": len(unrecovered)}
@@ -763,15 +964,60 @@ def admin_cleanup(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
     return {"deleted": deleted}
 
+@app.post("/api/admin/backfill-risk-scores")
+def backfill_risk_scores(request: Request):
+    """Recompute and cache risk scores for all completed sessions."""
+    require_admin(request)
+    sessions = supabase.table("exam_sessions").select("session_key")\
+        .eq("status", "completed").execute()
+    count = 0
+    for s in (sessions.data or []):
+        risk = compute_risk_score(s["session_key"])
+        supabase.table("exam_sessions").update(
+            {"risk_score": risk["risk_score"]}
+        ).eq("session_key", s["session_key"]).execute()
+        count += 1
+    return {"backfilled": count}
+
+@app.get("/api/admin/questions")
+def get_admin_questions(request: Request):
+    """Return full questions.json including correct answers (admin only)."""
+    require_admin(request)
+    if not os.path.exists(QUESTIONS_FILE):
+        return {"exam_title": "", "duration_minutes": 60, "questions": []}
+    with open(QUESTIONS_FILE) as f:
+        return json.load(f)
+
 @app.post("/api/admin/questions")
 def update_questions(request: Request, body: dict):
     """Update questions.json without rebuilding Docker image."""
     require_admin(request)
     if "questions" not in body:
         raise HTTPException(status_code=400, detail="Missing 'questions' key")
+    questions = body["questions"]
+    if not isinstance(questions, list) or len(questions) == 0:
+        raise HTTPException(status_code=400, detail="'questions' must be a non-empty list")
+    required_fields = {"id", "question", "options", "correct"}
+    for i, q in enumerate(questions):
+        missing = required_fields - set(q.keys())
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Question {i+1} missing fields: {', '.join(sorted(missing))}"
+            )
+        if not isinstance(q["options"], dict) or len(q["options"]) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Question {i+1}: 'options' must be a dict with at least 2 entries"
+            )
+        if str(q["correct"]) not in {str(k) for k in q["options"].keys()}:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Question {i+1}: 'correct' value '{q['correct']}' not in options"
+            )
     with open(QUESTIONS_FILE, "w") as f:
         json.dump(body, f, indent=2)
-    return {"status": "updated", "count": len(body["questions"])}
+    return {"status": "updated", "count": len(questions)}
 
 @app.post("/api/admin-submit/{session_id}")
 def admin_submit(session_id: str, request: Request):
@@ -779,8 +1025,8 @@ def admin_submit(session_id: str, request: Request):
     require_admin(request)
 
     existing = supabase.table("exam_sessions")\
-        .select("session_key").eq("session_key", session_id).execute()
-    if existing.data:
+        .select("session_key,status").eq("session_key", session_id).execute()
+    if existing.data and existing.data[0].get("status") == "completed":
         return {"status": "already_submitted"}
 
     ev_result = supabase.table("violations")\
@@ -789,7 +1035,7 @@ def admin_submit(session_id: str, request: Request):
     if not events:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    roll_number = session_id.split("_")[0]
+    roll_number = session_id.rsplit("_", 1)[0]
     full_name   = "Unknown"
     email       = "unknown@exam.com"
     for e in events:
@@ -836,7 +1082,9 @@ def admin_submit(session_id: str, request: Request):
                   if e["severity"] in ("high", "medium")
                   and _is_violation(e["violation_type"])]
 
-    supabase.table("exam_sessions").insert({
+    risk = compute_risk_score(session_id)
+
+    supabase.table("exam_sessions").upsert({
         "session_key":     session_id,
         "roll_number":     roll_number,
         "full_name":       full_name,
@@ -847,27 +1095,29 @@ def admin_submit(session_id: str, request: Request):
         "time_taken_secs": 0,
         "status":          "completed",
         "submitted_at":    now.isoformat(),
+        "risk_score":      risk["risk_score"],
     }).execute()
 
-    for qid, ans in answers_map.items():
-        supabase.table("answers").upsert({
-            "session_key":  session_id,
-            "question_id":  qid,
-            "answer":       ans,
-        }).execute()
+    if answers_map:
+        supabase.table("answers").upsert([
+            {"session_key": session_id, "question_id": qid, "answer": ans}
+            for qid, ans in answers_map.items()
+        ]).execute()
 
     supabase.table("violations").insert({
         "session_key":    session_id,
         "violation_type": "exam_submitted",
         "severity":       "low",
-        "details":        f"Admin force-submitted | Violations:{len(violations)}",
+        "details":        f"Admin force-submitted | Violations:{len(violations)} | Risk:{risk['risk_score']}/100",
     }).execute()
 
-    print(f"[ForceSubmit] {session_id} score:{score}/{total}")
+    print(f"[ForceSubmit] {session_id} score:{score}/{total} risk:{risk['risk_score']}/100")
     return {
         "status":          "force_submitted",
         "session_id":      session_id,
         "score":           score,
         "total":           total,
         "violation_count": len(violations),
+        "risk_score":      risk["risk_score"],
+        "risk_label":      risk["label"],
     }

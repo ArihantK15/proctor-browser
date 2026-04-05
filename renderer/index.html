@@ -33,8 +33,17 @@
     .econt{text-align:center;max-width:700px;width:90%}
     .econt h2{color:#58a6ff;font-size:20px;margin-bottom:6px}
     .econt p{color:#8b949e;font-size:13px;margin-bottom:20px}
-    #cam{width:640px;max-width:100%;border-radius:12px;
-         border:2px solid #30363d;background:#000;display:block;margin:0 auto}
+    .cam-wrap{position:relative;display:inline-block;margin:0 auto;
+              border-radius:12px;overflow:hidden;border:2px solid #30363d;
+              background:#000;line-height:0}
+    #cam{width:640px;max-width:100%;display:block}
+    #canvas{position:absolute;top:0;left:0;width:100%;height:100%;
+            pointer-events:none}
+    .face-badge{position:absolute;top:10px;left:50%;
+                transform:translateX(-50%);
+                background:rgba(0,0,0,.65);border-radius:20px;
+                padding:4px 14px;font-size:13px;font-weight:600;
+                pointer-events:none;white-space:nowrap}
     .est{margin-top:16px;font-size:14px;color:#c9d1d9;min-height:24px}
     .pb{background:#21262d;border-radius:20px;height:8px;
         margin-top:12px;overflow:hidden}
@@ -86,7 +95,10 @@
     #screen-done{flex-direction:column;text-align:center}
     .dcard{background:#161b22;border:1px solid #30363d;
            border-radius:12px;padding:48px;max-width:480px;width:90%}
-    .dcard h2{color:#3fb950;font-size:24px;margin-bottom:8px}
+    .dcard h2{font-size:24px;margin-bottom:8px}
+    .dcard h2.ok{color:#3fb950}
+    .dcard h2.fail{color:#ff7b72}
+    .dcard h2.info{color:#58a6ff}
     .dcard p{color:#8b949e;font-size:14px}
     .score{font-size:48px;font-weight:700;color:#58a6ff;margin:16px 0}
     .countdown{font-size:13px;color:#8b949e;margin-top:16px}
@@ -112,6 +124,8 @@
       <label>Roll Number</label>
       <input type="text" id="roll-input"
              placeholder="e.g. CS2024001"
+             autocomplete="off" spellcheck="false"
+             oninput="this.value=this.value.toUpperCase().trim();clearLoginErr()"
              onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="btn" id="login-btn" onclick="doLogin()">
@@ -125,12 +139,22 @@
 <!-- ENROLL -->
 <div class="screen" id="screen-enroll">
   <div class="econt">
-    <h2>Face Enrollment</h2>
-    <p id="enroll-dir">Look straight at the camera</p>
-    <video id="cam" autoplay muted playsinline></video>
-    <canvas id="canvas" style="display:none" width="640" height="480"></canvas>
+    <h2>Face Calibration</h2>
+    <p id="enroll-dir">Position your face in the frame</p>
+    <div class="cam-wrap">
+      <video id="cam" autoplay muted playsinline width="640" height="480"></video>
+      <canvas id="canvas" width="640" height="480"></canvas>
+      <div class="face-badge" id="face-badge" style="color:#8b949e">
+        Waiting for camera...
+      </div>
+    </div>
     <div class="est" id="enroll-st">Starting camera...</div>
-    <div class="pb"><div class="pf" id="enroll-pf" style="width:0%"></div></div>
+    <div class="pb" style="margin-top:10px">
+      <div class="pf" id="enroll-pf" style="width:0%"></div>
+    </div>
+    <button class="btn" id="cam-retry-btn"
+            style="display:none;margin-top:16px;width:auto;padding:10px 28px"
+            onclick="retryCam()">Retry Camera</button>
   </div>
 </div>
 
@@ -174,12 +198,15 @@
 <!-- DONE -->
 <div class="screen" id="screen-done">
   <div class="dcard">
-    <h2>✅ Exam Submitted</h2>
-    <p>Your answers have been saved securely.</p>
+    <h2 id="done-heading" class="ok">Exam Submitted</h2>
+    <p id="done-subtext">Your answers have been saved securely.</p>
     <div class="score" id="final-score">-/-</div>
-    <p style="margin-top:20px;font-size:13px">
+    <p id="done-note" style="margin-top:20px;font-size:13px">
       Your examiner will share results with you directly.
     </p>
+    <button class="btn" id="retry-submit-btn"
+            style="display:none;margin-top:16px"
+            onclick="retrySubmit()">Retry Submission</button>
     <div class="countdown" id="countdown">
       Closing in 5 seconds...
     </div>
@@ -192,12 +219,15 @@
 const SERVER = 'https://procta.net';
 
 let student=null, sessionId=null, questions=[], answers={};
-let studentToken=null; // JWT from validate-student; included in all server calls
+let studentToken=null;
 let curQ=0, timerSecs=0, timerInt=null;
 let startTime=null, stream=null;
-let resumedStartedAt=null; // IST ISO string from server when resuming
-let lastFocusLost=0; // debounce window_focus_lost spam
-let examActive=false; // gates anti-cheat listeners; cleared on submit
+let resumedStartedAt=null;
+let lastFocusLost=0;
+let examActive=false;
+let submitInFlight=false;
+let antiCheatBound=false; // prevents stacking blur/visibility listeners
+let lastSubmitPayload=null; // stored for retry
 
 function showScreen(id){
   document.querySelectorAll('.screen')
@@ -221,12 +251,32 @@ function logV(type, details){
   });
 }
 
+async function reportIntegrityFlags(){
+  if(!window.proctor||!sessionId) return;
+  try{
+    const flags = await window.proctor.getIntegrityFlags();
+    if(!flags||!flags.length) return;
+    for(const f of flags){
+      window.proctor.logEvent({
+        session_id:sessionId,
+        event_type:f.type,
+        severity:f.severity,
+        details:f.details
+      });
+    }
+    console.log(`[Integrity] Reported ${flags.length} flag(s) to server`);
+  }catch(e){ console.warn('[Integrity] report failed:', e); }
+}
+
+function clearLoginErr(){
+  document.getElementById('login-err').textContent='';
+}
+
 // ── LOGIN ──────────────────────────────────────────────────────────
 async function doLogin(){
-  const roll=document.getElementById('roll-input').value.trim();
+  const roll=document.getElementById('roll-input').value.trim().toUpperCase();
   if(!roll){
-    document.getElementById('login-err').textContent=
-      'Enter your Roll Number';
+    document.getElementById('login-err').textContent='Enter your Roll Number';
     return;
   }
   const btn=document.getElementById('login-btn');
@@ -238,10 +288,7 @@ async function doLogin(){
     studentToken = student.token || null;
     document.getElementById('login-ldr').textContent='Checking for existing session...';
 
-    // Use normalized roll_number from DB (may differ in case from raw input)
     const normalizedRoll = student.roll_number;
-
-    // Check for in-progress session (crash recovery)
     let existing = null;
     try{
       const cr = await fetch(`${SERVER}/api/check-session/${encodeURIComponent(normalizedRoll)}`,
@@ -262,81 +309,288 @@ async function doLogin(){
         sessionId        = existing.session_key;
         answers          = existing.answers || {};
         resumedStartedAt = existing.started_at || null;
+        reportIntegrityFlags();
         startEnroll();
         return;
       }
     }
 
     sessionId = `${normalizedRoll}_${Date.now()}`;
+    reportIntegrityFlags();
     startEnroll();
   }catch(e){
     document.getElementById('login-err').textContent=
-      e.message||'Verification failed. Check your Roll Number.';
+      e.message||'Roll number not found. Check and try again.';
     document.getElementById('login-ldr').textContent='';
     btn.disabled=false;
   }
 }
 
 // ── ENROLL ─────────────────────────────────────────────────────────
+// Real face detection using the browser FaceDetector API (Chromium built-in).
+// Falls back to skin-tone pixel analysis if FaceDetector is unavailable.
+// Only advances when exactly 1 face is confirmed in frame.
 const DIRS=[
   'Look STRAIGHT at the camera',
   'Turn slightly LEFT',
   'Turn slightly RIGHT',
-  'Tilt slightly UP',
-  'Tilt slightly DOWN'
 ];
-let eDir=0, eSamp=0, eInt=null;
-const SAMP=20;
+const SAMP=20;           // confirmed-face frames needed per direction
+const DETECT_MS=120;     // detection interval (~8 fps — fast enough, CPU-light)
 
+let eDir=0, eSamp=0;
+let enrollRunning=false; // loop guard
+let faceDetector=null;
+let refFrameCaptured=false;
+
+// ── Face detector init ─────────────────────────────────────────────
+async function initFaceDetector(){
+  if(typeof FaceDetector==='undefined') return false;
+  try{
+    faceDetector=new FaceDetector({fastMode:false, maxDetectedFaces:4});
+    return true;
+  }catch(e){ faceDetector=null; return false; }
+}
+
+// ── Fallback: skin-tone pixel count using a small offscreen canvas ──
+// We never draw the video feed onto the visible overlay canvas — that
+// would create a double-image on top of the <video> element.
+const _offscreen = document.createElement('canvas');
+_offscreen.width=160; _offscreen.height=120; // small for speed
+const _offCtx = _offscreen.getContext('2d');
+
+function skinToneFacePresent(vid){
+  _offCtx.drawImage(vid, 0, 0, _offscreen.width, _offscreen.height);
+  const d=_offCtx.getImageData(
+    _offscreen.width/4, _offscreen.height/4,
+    _offscreen.width/2, _offscreen.height/2
+  ).data;
+  let skin=0;
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2];
+    if(r>80 && g>40 && b>20 && r>g && r>b &&
+       r-Math.min(g,b)>15 && Math.abs(r-g)<50) skin++;
+  }
+  return (skin/(d.length/4)) > 0.08;
+}
+
+// ── Badge helper ───────────────────────────────────────────────────
+function setBadge(text, color){
+  const el=document.getElementById('face-badge');
+  el.textContent=text; el.style.color=color;
+}
+
+// ── Reference frame upload (straight-ahead, mid-enrollment) ────────
+async function uploadRefFrame(){
+  if(refFrameCaptured||!sessionId) return;
+  refFrameCaptured=true;
+  try{
+    // Draw the actual video frame onto a temp canvas (not the overlay canvas
+    // which only contains transparent bounding-box strokes)
+    const vid=document.getElementById('cam');
+    const tmp=document.createElement('canvas');
+    tmp.width=vid.videoWidth; tmp.height=vid.videoHeight;
+    tmp.getContext('2d').drawImage(vid,0,0);
+    const b64=tmp.toDataURL('image/jpeg',0.75).split(',')[1];
+    const hdr={'Content-Type':'application/json',
+                ...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
+    await fetch(`${SERVER}/api/analyze-frame`,{
+      method:'POST', headers:hdr,
+      body:JSON.stringify({
+        session_id:sessionId,
+        frame:b64,
+        timestamp:new Date().toISOString()
+      })
+    });
+    console.log('[Enroll] Reference frame uploaded');
+  }catch(e){ console.warn('[Enroll] ref frame upload failed:',e.message); }
+}
+
+// ── Main enrollment detection loop ────────────────────────────────
+async function enrollLoop(){
+  if(!enrollRunning||!stream) return;
+
+  const vid=document.getElementById('cam');
+  const cvs=document.getElementById('canvas');
+  const ctx=cvs.getContext('2d');
+
+  if(vid.videoWidth&&vid.videoHeight){
+    // Sync canvas resolution to video — overlay only, never draw video here
+    if(cvs.width!==vid.videoWidth){
+      cvs.width=vid.videoWidth; cvs.height=vid.videoHeight;
+    }
+    // Clear overlay (transparent — the <video> element behind it shows through)
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+
+    let faceCount=0;
+    let boxes=[];
+
+    if(faceDetector){
+      try{
+        const faces=await faceDetector.detect(vid);
+        faceCount=faces.length;
+        // FaceDetector returns coords in the video's natural pixel space
+        const sx=cvs.width/vid.videoWidth;
+        const sy=cvs.height/vid.videoHeight;
+        boxes=faces.map(f=>({
+          x:f.boundingBox.x*sx, y:f.boundingBox.y*sy,
+          w:f.boundingBox.width*sx, h:f.boundingBox.height*sy
+        }));
+      }catch(e){}
+    } else {
+      // Fallback: use offscreen canvas for pixel sampling (not the visible one)
+      faceCount = skinToneFacePresent(vid) ? 1 : 0;
+    }
+
+    // ── Draw overlay bounding boxes only ──────────────────────────
+    ctx.lineWidth=3;
+    for(const b of boxes){
+      const ok=faceCount===1;
+      ctx.strokeStyle=ok?'#3fb950':'#ff7b72';
+      ctx.strokeRect(b.x,b.y,b.w,b.h);
+      if(ok){
+        // Progress arc inside the box — guard radius so it's always ≥1
+        const radius=Math.max(Math.min(b.w,b.h)/2-6, 1);
+        const filled=eSamp/SAMP;
+        ctx.strokeStyle='rgba(63,185,80,0.5)';
+        ctx.lineWidth=4;
+        ctx.beginPath();
+        ctx.arc(b.x+b.w/2, b.y+b.h/2, radius,
+                -Math.PI/2, -Math.PI/2+filled*2*Math.PI);
+        ctx.stroke();
+        ctx.lineWidth=3;
+      }
+    }
+
+    // ── Badge & status ─────────────────────────────────────────────
+    if(faceCount===0){
+      setBadge('No face detected — move closer','#ff7b72');
+      document.getElementById('enroll-st').textContent=
+        eDir===0
+          ? 'Centre your face in the frame and look at the camera.'
+          : `${DIRS[eDir]} — hold still until the bar fills.`;
+    } else if(faceCount>1){
+      setBadge(`${faceCount} faces detected — please be alone`,'#e3b341');
+      document.getElementById('enroll-st').textContent=
+        'Only one person should be visible in the camera.';
+    } else {
+      setBadge('Face detected ✓','#3fb950');
+
+      // ── Advance progress ─────────────────────────────────────────
+      eSamp++;
+      const pct=((eDir*SAMP+eSamp)/(DIRS.length*SAMP))*100;
+      document.getElementById('enroll-pf').style.width=pct+'%';
+      document.getElementById('enroll-dir').textContent=DIRS[eDir];
+      document.getElementById('enroll-st').textContent=
+        `Step ${eDir+1} of ${DIRS.length} — hold position (${eSamp}/${SAMP})`;
+
+      // Capture reference frame at midpoint of direction 0 (best straight shot)
+      if(eDir===0 && eSamp===Math.floor(SAMP/2)){
+        uploadRefFrame();
+      }
+
+      if(eSamp>=SAMP){
+        eSamp=0; eDir++;
+        if(eDir>=DIRS.length){
+          enrollRunning=false;
+          finishEnroll();
+          return;
+        }
+        // Brief pause between directions so student can reposition
+        // eDir already incremented: eDir-1 = completed step, eDir = next step
+        setBadge(`Step ${eDir} of ${DIRS.length} — now: ${DIRS[eDir]}`,'#58a6ff');
+        document.getElementById('enroll-st').textContent=
+          `Step ${eDir} done. Now: ${DIRS[eDir]}`;
+        await new Promise(r=>setTimeout(r,900));
+      }
+    }
+  }
+
+  if(enrollRunning) setTimeout(enrollLoop, DETECT_MS);
+}
+
+// ── Retry camera ────────────────────────────────────────────────────
+async function retryCam(){
+  document.getElementById('cam-retry-btn').style.display='none';
+  eDir=0; eSamp=0; refFrameCaptured=false;
+  document.getElementById('enroll-pf').style.width='0%';
+  try{
+    stream=await navigator.mediaDevices.getUserMedia(
+      {video:{width:640,height:480,facingMode:'user'},audio:true});
+    document.getElementById('cam').srcObject=stream;
+    document.getElementById('cam-mini').srcObject=stream;
+    setBadge('Camera ready','#3fb950');
+    document.getElementById('enroll-st').textContent=
+      'Camera ready. Face the camera to begin.';
+    await initFaceDetector();
+    enrollRunning=true;
+    enrollLoop();
+  }catch(e){
+    document.getElementById('enroll-st').textContent=
+      'Camera still unavailable: '+e.message;
+    document.getElementById('cam-retry-btn').style.display='inline-block';
+  }
+}
+
+// ── Start enrollment ────────────────────────────────────────────────
 async function startEnroll(){
-  // Reset enrollment state in case this is a retry or resume
-  eDir=0; eSamp=0;
+  eDir=0; eSamp=0; enrollRunning=false; refFrameCaptured=false;
   showScreen('enroll');
+  document.getElementById('cam-retry-btn').style.display='none';
+  document.getElementById('enroll-dir').textContent=DIRS[0];
+  document.getElementById('enroll-st').textContent='Starting camera...';
+  document.getElementById('enroll-pf').style.width='0%';
+  setBadge('Waiting for camera...','#8b949e');
+
   try{
     stream=await navigator.mediaDevices.getUserMedia(
       {video:{width:640,height:480,facingMode:'user'},audio:true});
     document.getElementById('cam').srcObject=stream;
     document.getElementById('cam-mini').srcObject=stream;
   }catch(e){
-    const msg = e.name==='NotAllowedError'
-      ? 'Camera access denied.\n\nTo fix:\n• Mac: System Settings → Privacy & Security → Camera → enable Proctor Browser\n• Windows: Settings → Privacy → Camera → allow desktop apps\n\nThen restart the app.'
-      : 'Camera error: ' + e.message;
-    document.getElementById('enroll-st').textContent = msg;
+    const msg=e.name==='NotAllowedError'
+      ? 'Camera access denied. Open System Settings → Privacy → Camera, enable this app, then click Retry.'
+      : 'Camera error: '+e.message+'. Click Retry to try again.';
+    document.getElementById('enroll-st').textContent=msg;
+    document.getElementById('cam-retry-btn').style.display='inline-block';
+    setBadge('Camera unavailable','#ff7b72');
     return;
   }
+
   if(window.proctor){
-    try{
-      await window.proctor.logEvent({
-        session_id:sessionId, event_type:'enrollment_started',
-        severity:'low',
-        details:`Student: ${student.full_name} (${student.roll_number})`
-      });
-    }catch(e){ console.warn('[Enroll] logEvent failed:', e); }
+    window.proctor.logEvent({
+      session_id:sessionId, event_type:'enrollment_started',
+      severity:'low',
+      details:`Student: ${student.full_name} (${student.roll_number})`
+    }).catch(()=>{});
   }
-  updateEnroll();
-  eInt=setInterval(captureEnroll, 200);
-}
 
-function updateEnroll(){
-  document.getElementById('enroll-dir').textContent=DIRS[eDir];
-  const pct=((eDir*SAMP+eSamp)/(DIRS.length*SAMP))*100;
-  document.getElementById('enroll-pf').style.width=pct+'%';
+  // Init FaceDetector — runs in parallel with camera warmup
+  const fdReady=await initFaceDetector();
+  console.log('[Enroll] FaceDetector available:', fdReady);
+  if(!fdReady){
+    document.getElementById('enroll-st').textContent=
+      'Face detection running via fallback — keep your face centred.';
+  }
+
+  // Wait for first video frame before starting loop
+  await new Promise(r=>{
+    const vid=document.getElementById('cam');
+    if(vid.videoWidth) return r();
+    vid.addEventListener('loadeddata', r, {once:true});
+    setTimeout(r, 2000); // safety timeout
+  });
+
   document.getElementById('enroll-st').textContent=
-    `Direction ${eDir+1}/${DIRS.length} — Samples: ${eSamp}/${SAMP}`;
-}
-
-function captureEnroll(){
-  eSamp++;
-  updateEnroll();
-  if(eSamp>=SAMP){
-    eSamp=0; eDir++;
-    if(eDir>=DIRS.length){ clearInterval(eInt); finishEnroll(); }
-  }
+    'Face the camera and hold each position until the bar fills.';
+  enrollRunning=true;
+  enrollLoop();
 }
 
 async function finishEnroll(){
-  document.getElementById('enroll-st').textContent=
-    'Enrollment complete! Starting exam...';
+  enrollRunning=false;
+  setBadge('Calibration complete ✓','#3fb950');
+  document.getElementById('enroll-st').textContent='Calibration complete! Starting exam...';
   document.getElementById('enroll-pf').style.width='100%';
   if(window.proctor){
     try{
@@ -347,7 +601,6 @@ async function finishEnroll(){
     }catch(e){ console.warn('[Enroll] completion logEvent failed:', e); }
   }
 
-  // Release camera so proctor.py can open it exclusively
   if(stream){
     stream.getTracks().forEach(t=>t.stop());
     stream=null;
@@ -355,7 +608,6 @@ async function finishEnroll(){
     document.getElementById('cam-mini').srcObject=null;
   }
 
-  // Start proctor AFTER releasing camera — gives OS ~800ms to free the device
   if(window.proctor){
     try{
       await new Promise(r=>setTimeout(r,800));
@@ -363,15 +615,17 @@ async function finishEnroll(){
       await window.proctor.startPolling({sessionId});
       window.proctor.onViolation(({type, details, severity})=>{
         const color = severity==='high' ? '#c0392b' : '#e67e22';
-        showBanner(`⚠️ ${type.replace(/_/g,' ')}: ${details}`, color);
+        showBanner(`⚠ ${type.replace(/_/g,' ')}: ${details}`, color);
       });
       window.proctor.onForceSubmit(()=>{
         examActive=false;
         clearInterval(timerInt);
+        const _dh=document.getElementById('done-heading');_dh.className='info';_dh.textContent='Exam Closed';
+        document.getElementById('done-subtext').textContent='Your examiner has ended this session.';
         document.getElementById('final-score').textContent='Submitted';
+        document.getElementById('done-note').style.display='none';
         showScreen('done');
-        document.getElementById('countdown').textContent=
-          'Submitted by examiner. Closing in 3 seconds...';
+        document.getElementById('countdown').textContent='Closing in 3 seconds...';
         setTimeout(()=>{ if(window.proctor) window.proctor.adminExit('AUTO_CLOSE'); },3000);
       });
     }catch(e){ console.error('[Enroll] startProctor/startPolling failed:', e); }
@@ -388,14 +642,17 @@ async function startExam(){
     if(!questions.length){
       alert('No questions found. Contact examiner.'); return;
     }
-    const durationMins = data.duration_minutes || questions.length * 2.5;
+    const durationMins = data.duration_minutes || questions.length * 2;
     timerSecs = Math.round(durationMins * 60);
     if(resumedStartedAt){
-      // Restore original start time so time_taken_secs counts total elapsed
-      const originalStart = new Date(resumedStartedAt).getTime();
-      startTime = originalStart;
-      const elapsedSecs = Math.floor((Date.now() - originalStart) / 1000);
-      timerSecs = Math.max(0, timerSecs - elapsedSecs);
+      const ts = new Date(resumedStartedAt).getTime();
+      if(!isNaN(ts)){
+        startTime = ts;
+        const elapsedSecs = Math.floor((Date.now() - ts) / 1000);
+        timerSecs = Math.max(30, timerSecs - elapsedSecs); // at least 30s if resuming very late
+      } else {
+        startTime = Date.now(); // bad timestamp from server — start fresh
+      }
       resumedStartedAt = null;
     } else {
       startTime = Date.now();
@@ -420,34 +677,36 @@ async function startExam(){
     startTimer(); // start AFTER screen is shown so student sees full time
     examActive=true;
 
-    // Anti-cheat listeners — all gated on examActive so they stop after submit
-    window.addEventListener('blur', ()=>{
-      if(!examActive) return;
-      // Debounce — kiosk auto-refocus causes rapid blur/focus cycles
-      const now=Date.now();
-      if(now-lastFocusLost < 2000) return;
-      lastFocusLost=now;
-      logV('window_focus_lost','Student switched away from exam');
-      showBanner('⚠️ Focus lost — return to exam!','#c0392b');
-    });
-    document.addEventListener('visibilitychange', ()=>{
-      if(!examActive) return;
-      if(document.hidden){
-        logV('tab_hidden','Exam tab hidden');
-        showBanner('⚠️ Tab switch detected!','#c0392b');
-      }
-    });
-    document.addEventListener('contextmenu', e=>e.preventDefault());
-    document.addEventListener('keydown', e=>{
-      if(['F12','F11','F5','PrintScreen'].includes(e.key))
-        e.preventDefault();
-      if(!examActive) return;
-      if((e.ctrlKey||e.metaKey)&&
-         ['c','v','x','a','u','s','p'].includes(e.key.toLowerCase())){
-        e.preventDefault();
-        logV('shortcut_blocked',`Blocked: ${e.key}`);
-      }
-    });
+    // Anti-cheat listeners — bound once per page load, gated by examActive flag
+    if(!antiCheatBound){
+      antiCheatBound=true;
+      window.addEventListener('blur', ()=>{
+        if(!examActive) return;
+        const now=Date.now();
+        if(now-lastFocusLost < 2000) return;
+        lastFocusLost=now;
+        logV('window_focus_lost','Student switched away from exam');
+        showBanner('⚠ Focus lost — return to exam!','#c0392b');
+      });
+      document.addEventListener('visibilitychange', ()=>{
+        if(!examActive) return;
+        if(document.hidden){
+          logV('tab_hidden','Exam tab hidden');
+          showBanner('⚠ Tab switch detected!','#c0392b');
+        }
+      });
+      document.addEventListener('contextmenu', e=>e.preventDefault());
+      document.addEventListener('keydown', e=>{
+        if(['F12','F11','F5','PrintScreen'].includes(e.key))
+          e.preventDefault();
+        if(!examActive) return;
+        if((e.ctrlKey||e.metaKey)&&
+           ['c','v','x','a','u','s','p'].includes(e.key.toLowerCase())){
+          e.preventDefault();
+          logV('shortcut_blocked',`Blocked: ${e.key}`);
+        }
+      });
+    }
 
   }catch(e){
     console.error('startExam:', e);
@@ -468,6 +727,7 @@ function buildGrid(){
 }
 
 function renderQ(){
+  if(curQ<0||curQ>=questions.length) return;
   const q=questions[curQ];
   document.getElementById('qnum').textContent=
     `Question ${curQ+1} of ${questions.length}`;
@@ -477,7 +737,14 @@ function renderQ(){
     const d=document.createElement('div');
     d.className='opt'+(answers[q.id]===l?' sel':'');
     d.onclick=()=>selAns(l);
-    d.innerHTML=`<div class="oltr">${l}</div><span>${t}</span>`;
+    // Use textContent to prevent XSS from injected option text
+    const lbl=document.createElement('div');
+    lbl.className='oltr';
+    lbl.textContent=l;
+    const txt=document.createElement('span');
+    txt.textContent=t;
+    d.appendChild(lbl);
+    d.appendChild(txt);
     o.appendChild(d);
   });
   document.getElementById('btn-prev').disabled=curQ===0;
@@ -550,21 +817,63 @@ function confirmSub(){
 }
 
 // ── SUBMIT ─────────────────────────────────────────────────────────
+function authHdr(){
+  return {'Content-Type':'application/json',
+          ...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
+}
+
+async function _doSubmit(payload){
+  // Try IPC first (Electron main process), then direct fetch, up to 3 attempts
+  const submitStart=Date.now();
+  for(let attempt=1;attempt<=3;attempt++){
+    const elapsed=Math.round((Date.now()-submitStart)/1000);
+    document.getElementById('countdown').textContent=
+      `Submitting... (attempt ${attempt}/3, ${elapsed}s elapsed)`;
+    try{
+      if(window.proctor){
+        const result=await Promise.race([
+          window.proctor.submitExam(payload),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout')),12000))
+        ]);
+        return result;
+      }
+      throw new Error('No IPC');
+    }catch(e){
+      console.warn(`[Submit] IPC attempt ${attempt} failed:`,e.message);
+      try{
+        const r=await fetch(`${SERVER}/api/submit-exam`,{
+          method:'POST', headers:authHdr(), body:JSON.stringify(payload)
+        });
+        if(r.ok) return r.json();
+        const body=await r.text();
+        console.warn('[Submit] Server error:',r.status,body);
+      }catch(fe){
+        console.warn('[Submit] Fetch attempt failed:',fe.message);
+      }
+    }
+    if(attempt<3) await new Promise(r=>setTimeout(r,3000));
+  }
+  return null; // all attempts failed
+}
+
 async function submitExam(timeUp=false){
+  if(submitInFlight) return;
+  submitInFlight=true;
   examActive=false;
   clearInterval(timerInt);
 
   const taken=startTime ? Math.floor((Date.now()-startTime)/1000) : 0;
 
-  // Show submitting screen immediately
   showScreen('done');
-  document.getElementById('final-score').textContent='Submitting...';
-  document.getElementById('countdown').textContent='Please wait...';
+  const dh=document.getElementById('done-heading');
+  dh.className='info'; dh.textContent='Submitting...';
+  document.getElementById('done-subtext').textContent='Please wait — do not close this window.';
+  document.getElementById('final-score').textContent='...';
+  document.getElementById('done-note').style.display='none';
+  document.getElementById('retry-submit-btn').style.display='none';
+  document.getElementById('countdown').textContent='';
 
-  // Minimal payload — server calculates score from saved_answers + questions.
-  // Violations are already in the events table from proctor.py.
-  // Client does NOT send answers or violations.
-  const payload={
+  lastSubmitPayload={
     session_id:sessionId,
     roll_number:student.roll_number,
     full_name:student.full_name,
@@ -572,80 +881,41 @@ async function submitExam(timeUp=false){
     time_taken_secs:taken
   };
 
-  let submitted=false;
-  let finalScore=null;
-  let finalTotal=questions.length;
-  const submitStart=Date.now();
+  const result=await _doSubmit(lastSubmitPayload);
 
-  // Try 3 times with IPC → direct fetch fallback
-  for(let attempt=1;attempt<=3;attempt++){
-    const elapsed=Math.round((Date.now()-submitStart)/1000);
-    document.getElementById('countdown').textContent=
-      `Submitting... (attempt ${attempt}/3, ${elapsed}s)`;
-    try{
-      // Method 1: IPC (Electron main process)
-      if(window.proctor){
-        const result=await Promise.race([
-          window.proctor.submitExam(payload),
-          new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout')),10000))
-        ]);
-        console.log('[Submit] IPC success:',result);
-        finalScore=result.score;
-        finalTotal=result.total||questions.length;
-        submitted=true;
-        break;
-      }
-      throw new Error('No IPC'); // triggers fetch fallback
-    }catch(e){
-      console.error(`[Submit] IPC attempt ${attempt} failed:`,e);
-      // Method 2: Direct fetch fallback
-      try{
-        const r=await fetch(`${SERVER}/api/submit-exam`,{
-          method:'POST',
-          headers:{'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})},
-          body:JSON.stringify(payload)
-        });
-        if(r.ok){
-          const result=await r.json();
-          console.log('[Submit] Direct fetch success:',result);
-          finalScore=result.score;
-          finalTotal=result.total||questions.length;
-          submitted=true;
-          break;
-        }
-      }catch(fe){
-        console.error(`[Submit] Direct fetch failed:`,fe);
-      }
-    }
-    await new Promise(r=>setTimeout(r,2000));
-  }
-
-  if(!submitted){
-    // Log failure so admin can force-submit from dashboard
+  if(!result){
+    // Notify server so admin can force-submit
     try{
       await fetch(`${SERVER}/event`,{
-        method:'POST',
-        headers:{'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})},
+        method:'POST', headers:authHdr(),
         body:JSON.stringify({
-          session_id:sessionId,
-          event_type:'submit_failed',
-          severity:'high',
-          details:'Client submit failed after 3 attempts'
+          session_id:sessionId, event_type:'submit_failed',
+          severity:'high', details:'Client submit failed after 3 attempts'
         })
       });
     }catch(e){}
-    document.getElementById('final-score').textContent='⚠️ Failed';
-    document.getElementById('countdown').textContent=
-      'Submission failed. Your examiner has been notified.';
+    const dh2=document.getElementById('done-heading');
+    dh2.className='fail'; dh2.textContent='Submission Failed';
+    document.getElementById('done-subtext').textContent=
+      'Network error. Your answers are saved. Tap Retry or contact the examiner.';
+    document.getElementById('final-score').textContent='⚠';
+    document.getElementById('retry-submit-btn').style.display='block';
+    document.getElementById('countdown').textContent='';
+    submitInFlight=false; // allow retry
     return;
   }
 
+  // Success
+  const dh3=document.getElementById('done-heading');
+  dh3.className='ok'; dh3.textContent='Exam Submitted';
+  document.getElementById('done-subtext').textContent='Your answers have been saved securely.';
+  const finalScore=result.score, finalTotal=result.total||questions.length;
   document.getElementById('final-score').textContent=
-    finalScore!=null?`${finalScore}/${finalTotal}`:'Submitted';
+    finalScore!=null ? `${finalScore}/${finalTotal}` : 'Submitted';
+  document.getElementById('done-note').style.display='block';
 
   if(window.proctor) window.proctor.stopProctor();
 
-  // Auto close countdown
   let count=5;
   const cd=document.getElementById('countdown');
   cd.textContent=`Closing in ${count} seconds...`;
@@ -656,6 +926,49 @@ async function submitExam(timeUp=false){
       clearInterval(cInt);
       if(window.proctor) window.proctor.adminExit('AUTO_CLOSE');
     }
+  },1000);
+}
+
+async function retrySubmit(){
+  if(!lastSubmitPayload) return;
+  document.getElementById('retry-submit-btn').style.display='none';
+  const dh4=document.getElementById('done-heading');
+  dh4.className='info'; dh4.textContent='Retrying...';
+  document.getElementById('done-subtext').textContent='Please wait...';
+  document.getElementById('final-score').textContent='...';
+  submitInFlight=true;
+
+  // Refresh time_taken_secs since time has passed
+  lastSubmitPayload.time_taken_secs=
+    startTime ? Math.floor((Date.now()-startTime)/1000) : 0;
+
+  const result=await _doSubmit(lastSubmitPayload);
+  if(!result){
+    const dh5=document.getElementById('done-heading');
+    dh5.className='fail'; dh5.textContent='Still Failed';
+    document.getElementById('done-subtext').textContent=
+      'Please contact the examiner. Your answers are saved on the server.';
+    document.getElementById('final-score').textContent='⚠';
+    document.getElementById('retry-submit-btn').style.display='block';
+    submitInFlight=false;
+    return;
+  }
+  lastSubmitPayload=null; // prevent further retries
+  const finalScore=result.score, finalTotal=result.total||questions.length;
+  const dh6=document.getElementById('done-heading');
+  dh6.className='ok'; dh6.textContent='Exam Submitted';
+  document.getElementById('done-subtext').textContent='Your answers have been saved securely.';
+  document.getElementById('final-score').textContent=
+    finalScore!=null ? `${finalScore}/${finalTotal}` : 'Submitted';
+  document.getElementById('done-note').style.display='block';
+  if(window.proctor) window.proctor.stopProctor();
+  let count=5;
+  const cd=document.getElementById('countdown');
+  cd.textContent=`Closing in ${count} seconds...`;
+  const cInt=setInterval(()=>{
+    count--;
+    cd.textContent=`Closing in ${count} ${count===1?'second':'seconds'}...`;
+    if(count<=0){ clearInterval(cInt); if(window.proctor) window.proctor.adminExit('AUTO_CLOSE'); }
   },1000);
 }
 

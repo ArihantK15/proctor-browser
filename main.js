@@ -1,9 +1,9 @@
 const {
-  app, BrowserWindow, ipcMain,
+  app, BrowserWindow, ipcMain, screen,
   globalShortcut, powerSaveBlocker
 } = require('electron');
 const path    = require('path');
-const { spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync, execSync } = require('child_process');
 const os      = require('os');
 const fs      = require('fs');
 const https   = require('https');
@@ -21,6 +21,200 @@ let studentToken    = null; // JWT issued after validate-student
 let isKiosk       = !process.argv.includes('--no-kiosk') &&
                     process.env.PROCTOR_DEBUG !== '1';
 let resolvedPython = null;
+let integrityFlags = []; // populated at startup, sent to renderer
+
+// ── VM / INTEGRITY CHECKS ────────────────────────────────────────
+function runIntegrityChecks() {
+  const flags = [];
+  const isWin = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+
+  // 1. VM Detection — GPU renderer string
+  //    Checked after app is ready via webContents GPU info
+  //    (deferred to after window creation — see _checkGPU)
+
+  // 2. VM Detection — MAC address prefixes (common VM vendors)
+  const VM_MAC_PREFIXES = [
+    '00:05:69', '00:0c:29', '00:1c:14', '00:50:56',           // VMware
+    '08:00:27',                                                  // VirtualBox
+    '00:15:5d',                                                  // Hyper-V
+    '00:16:3e',                                                  // Xen
+    '52:54:00',                                                  // QEMU/KVM
+    '00:1a:4a',                                                  // Parallels
+  ];
+  try {
+    const nets = os.networkInterfaces();
+    for (const [name, addrs] of Object.entries(nets)) {
+      for (const a of addrs) {
+        if (a.mac && a.mac !== '00:00:00:00:00:00') {
+          const prefix = a.mac.substring(0, 8).toLowerCase();
+          if (VM_MAC_PREFIXES.includes(prefix)) {
+            flags.push({
+              type: 'vm_detected',
+              severity: 'high',
+              details: `VM MAC address detected (${a.mac}, interface: ${name})`
+            });
+          }
+        }
+      }
+    }
+  } catch(e) { console.error('[Integrity] MAC check error:', e.message); }
+
+  // 3. VM Detection — platform-specific checks
+  if (isWin) {
+    try {
+      // Check for VM-related services/drivers in systeminfo
+      const info = execSync('systeminfo', { encoding: 'utf8', timeout: 10000 });
+      const vmKeywords = ['vmware', 'virtualbox', 'hyper-v', 'qemu', 'xen', 'parallels'];
+      const lower = info.toLowerCase();
+      for (const kw of vmKeywords) {
+        if (lower.includes(kw)) {
+          flags.push({
+            type: 'vm_detected',
+            severity: 'high',
+            details: `VM indicator in system info: ${kw}`
+          });
+          break; // one flag is enough
+        }
+      }
+    } catch(e) {}
+
+    // Check for VM-related processes
+    try {
+      const tasks = execSync('tasklist /fo csv /nh', { encoding: 'utf8', timeout: 8000 });
+      const vmProcesses = [
+        'vmtoolsd.exe', 'vmwaretray.exe', 'VBoxService.exe', 'VBoxTray.exe',
+        'vmcompute.exe', 'xenservice.exe',
+      ];
+      const remoteProcesses = [
+        'TeamViewer.exe', 'AnyDesk.exe', 'mstsc.exe', 'vncviewer.exe',
+        'Chrome Remote Desktop Host', 'rustdesk.exe', 'parsec.exe',
+        'ScreenConnect', 'LogMeIn',
+      ];
+      const screenShareProcesses = [
+        'obs64.exe', 'obs32.exe', 'OBS Studio',
+        'DiscordPTB.exe', 'Discord.exe',
+      ];
+      const tasksLower = tasks.toLowerCase();
+
+      for (const p of vmProcesses) {
+        if (tasksLower.includes(p.toLowerCase())) {
+          flags.push({
+            type: 'vm_detected',
+            severity: 'high',
+            details: `VM process running: ${p}`
+          });
+        }
+      }
+      for (const p of remoteProcesses) {
+        if (tasksLower.includes(p.toLowerCase())) {
+          flags.push({
+            type: 'remote_desktop_detected',
+            severity: 'high',
+            details: `Remote desktop software detected: ${p}`
+          });
+        }
+      }
+      for (const p of screenShareProcesses) {
+        if (tasksLower.includes(p.toLowerCase())) {
+          flags.push({
+            type: 'screen_share_detected',
+            severity: 'medium',
+            details: `Screen sharing software detected: ${p}`
+          });
+        }
+      }
+    } catch(e) {}
+  }
+
+  if (isMac) {
+    try {
+      const procs = execSync('ps -eo comm', { encoding: 'utf8', timeout: 5000 });
+      const procsLower = procs.toLowerCase();
+      const macChecks = [
+        { proc: 'vmware', type: 'vm_detected', sev: 'high' },
+        { proc: 'VBoxHeadless', type: 'vm_detected', sev: 'high' },
+        { proc: 'parallels', type: 'vm_detected', sev: 'high' },
+        { proc: 'TeamViewer', type: 'remote_desktop_detected', sev: 'high' },
+        { proc: 'AnyDesk', type: 'remote_desktop_detected', sev: 'high' },
+        { proc: 'screensharingd', type: 'screen_share_detected', sev: 'medium' },
+        { proc: 'obs', type: 'screen_share_detected', sev: 'medium' },
+      ];
+      for (const { proc, type, sev } of macChecks) {
+        if (procsLower.includes(proc.toLowerCase())) {
+          flags.push({
+            type, severity: sev,
+            details: `Detected: ${proc}`
+          });
+        }
+      }
+    } catch(e) {}
+
+    // Check for VM via sysctl (macOS-specific)
+    try {
+      const hw = execSync('sysctl -n machdep.cpu.brand_string', { encoding: 'utf8', timeout: 3000 });
+      if (hw.toLowerCase().includes('qemu') || hw.toLowerCase().includes('virtual')) {
+        flags.push({
+          type: 'vm_detected', severity: 'high',
+          details: `Virtual CPU detected: ${hw.trim()}`
+        });
+      }
+    } catch(e) {}
+  }
+
+  // 4. Multiple monitors check
+  try {
+    const displays = screen.getAllDisplays();
+    if (displays.length > 1) {
+      flags.push({
+        type: 'multiple_monitors',
+        severity: 'medium',
+        details: `${displays.length} displays detected — potential screen sharing setup`
+      });
+    }
+  } catch(e) {}
+
+  console.log(`[Integrity] ${flags.length} flag(s) found`);
+  for (const f of flags) {
+    console.log(`  [${f.severity.toUpperCase()}] ${f.type}: ${f.details}`);
+  }
+  return flags;
+}
+
+// GPU-based VM check — must run after BrowserWindow is created
+async function _checkGPU(win) {
+  try {
+    const renderer = await win.webContents.executeJavaScript(`
+      (function() {
+        try {
+          const c = document.createElement('canvas');
+          const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+          if (!gl) return '';
+          const ext = gl.getExtension('WEBGL_debug_renderer_info');
+          return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '';
+        } catch(e) { return ''; }
+      })()
+    `);
+    if (renderer) {
+      const lower = renderer.toLowerCase();
+      const vmRenderers = [
+        'vmware', 'virtualbox', 'llvmpipe', 'swiftshader',
+        'microsoft basic render', 'chromium', 'virgl',
+      ];
+      for (const vr of vmRenderers) {
+        if (lower.includes(vr)) {
+          integrityFlags.push({
+            type: 'vm_detected',
+            severity: 'high',
+            details: `Virtual GPU renderer: ${renderer}`
+          });
+          console.log(`[Integrity] VM GPU detected: ${renderer}`);
+          break;
+        }
+      }
+    }
+  } catch(e) { console.error('[Integrity] GPU check error:', e.message); }
+}
 
 // ── PYTHON FINDER ─────────────────────────────────────────────────
 function findPython() {
@@ -101,8 +295,16 @@ function downloadFile(url, dest) {
     const req  = https.get(url, res => {
       if (res.statusCode === 302 || res.statusCode === 301) {
         file.close();
+        fs.unlink(dest, () => {});
         downloadFile(res.headers.location, dest)
           .then(resolve).catch(reject);
+        return;
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        file.close();
+        fs.unlink(dest, () => {});
+        reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+        res.resume(); // drain the response so the socket closes
         return;
       }
       res.pipe(file);
@@ -164,7 +366,7 @@ function createSetupWindow() {
     const { ipcRenderer } = require('electron');
     ipcRenderer.on('setup-status', (_, msg) => {
       const log = document.getElementById('log');
-      log.innerHTML += msg + '\n';
+      log.appendChild(document.createTextNode(msg + '\n'));
       log.scrollTop = log.scrollHeight;
     });
   </script>
@@ -260,6 +462,8 @@ async function runWindowsSetup() {
 
 // ── START/STOP PYTHON ─────────────────────────────────────────────
 function startPython(sessionId) {
+  pythonShouldRun = true; // mark intent; stopPython() sets this to false
+
   const python = findPython();
   const script = getScriptPath();
 
@@ -279,7 +483,6 @@ function startPython(sessionId) {
   const evidenceDir = path.join(app.getPath('userData'), 'evidence');
   try { fs.mkdirSync(evidenceDir, { recursive: true }); } catch(e) {}
 
-  pythonShouldRun = true;
   pythonProcess = spawn(python, [script], {
     env: {
       ...process.env,
@@ -287,6 +490,7 @@ function startPython(sessionId) {
       PROCTOR_SERVER_URL:              `${SERVER_URL}/event`,
       PROCTOR_EVIDENCE_DIR:            evidenceDir,
       PROCTOR_JWT_TOKEN:               studentToken || '',
+      PROCTOR_SKIP_ENROLLMENT:         '1',  // renderer handled the UI phase
       PROCTOR_WRONG_PERSON_THRESHOLD:  '0.25',
       PROCTOR_VOICE_THRESHOLD:         '0.035',
     }
@@ -334,6 +538,7 @@ function authHeaders() {
 
 // ── POLLING ───────────────────────────────────────────────────────
 function startPolling(sessionId) {
+  if (pollInterval) return; // already polling — don't stack a second loop
   let lastEventId = 0;
   let forceSubmitSent = false;
   pollInterval = setInterval(async () => {
@@ -453,6 +658,9 @@ app.whenReady().then(async () => {
     }
   });
 
+  // Run integrity checks before window creation
+  integrityFlags = runIntegrityChecks();
+
   // Windows: auto-setup Python if needed
   if (process.platform === 'win32') {
     const python = findPython();
@@ -475,6 +683,11 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+
+  // Deferred GPU-based VM check (needs a window)
+  mainWindow.webContents.on('did-finish-load', () => {
+    _checkGPU(mainWindow);
+  });
 });
 
 app.on('before-quit', () => {
@@ -492,6 +705,10 @@ app.on('window-all-closed', () => {
 });
 
 // ── IPC ───────────────────────────────────────────────────────────
+ipcMain.handle('get-integrity-flags', () => {
+  return integrityFlags;
+});
+
 ipcMain.handle('validate-student', async (_, roll) => {
   const r = await fetch(`${SERVER_URL}/api/validate-student`, {
     method:  'POST',
@@ -538,6 +755,7 @@ ipcMain.handle('submit-exam', async (_, data) => {
 ipcMain.handle('get-events', async (_, sessionId) => {
   const r = await fetch(`${SERVER_URL}/events/${sessionId}`,
                         { headers: authHeaders() });
+  if (!r.ok) return { events: [] };
   return r.json();
 });
 

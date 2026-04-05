@@ -31,8 +31,10 @@ SESSION_ID   = os.getenv("PROCTOR_SESSION_ID",  "test-session")
 SERVER_URL   = os.getenv("PROCTOR_SERVER_URL",  "http://localhost:8000/event")
 EVIDENCE_DIR = os.getenv("PROCTOR_EVIDENCE_DIR", "/tmp/evidence")
 JWT_TOKEN    = os.getenv("PROCTOR_JWT_TOKEN",   "")
-HEADLESS     = platform.system() == "Windows" or \
-               os.environ.get("PROCTOR_HEADLESS","0") == "1"
+HEADLESS          = platform.system() == "Windows" or \
+                    os.environ.get("PROCTOR_HEADLESS","0") == "1"
+# Renderer handles the UI enrollment phase; proctor.py only needs the embedding.
+SKIP_ENROLLMENT   = os.environ.get("PROCTOR_SKIP_ENROLLMENT","0") == "1"
 
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
@@ -60,7 +62,7 @@ YOLO_CONFIDENCE     = 0.35   # raised slightly — reduces false positives
 YOLO_MIN_FRAMES     = 2
 YOLO_EVERY_N        = 5
 VOICE_THRESHOLD     = float(os.getenv("PROCTOR_VOICE_THRESHOLD", "0.035"))
-VOICE_FRAMES_NEEDED = 15     # kept for backward compat (not used in new logic)
+VOICE_SUSTAINED_SECS = 8.0   # seconds of continuous voice before logging
 WRONG_PERSON_THRESHOLD = float(os.getenv("PROCTOR_WRONG_PERSON_THRESHOLD", "0.25"))
 
 # ─── CHEAT OBJECTS ────────────────────────────────────────────────────────────
@@ -186,7 +188,7 @@ def get_gaze_ratio(landmarks):
         l_ratio = (l_iris - l_left)  / max(l_right - l_left,  0.001)
         r_ratio = (r_iris - r_left)  / max(r_right - r_left, 0.001)
         return (l_ratio + r_ratio) / 2
-    except:
+    except Exception:
         return 0.5
 
 def get_eye_openness(landmarks, W, H):
@@ -202,7 +204,7 @@ def get_eye_openness(landmarks, W, H):
         r_open   = abs(r_bottom - r_top)
         avg = (l_open + r_open) / 2
         return avg > 4.0  # pixels
-    except:
+    except Exception:
         return True
 
 def get_head_yaw(landmarks, W, H):
@@ -220,7 +222,7 @@ def get_head_yaw(landmarks, W, H):
             return 0
         offset  = (nose_x - center) / face_w
         return offset * 90
-    except:
+    except Exception:
         return 0
 
 # ─── FACE EMBEDDING ───────────────────────────────────────────────────────────
@@ -338,11 +340,18 @@ def run_proctoring(cap, W, H):
     eyes_closed_count   = 0
     object_history      = {}
     frame_count         = 0
-    voice_start_time    = None  # time when RMS first exceeded threshold
+    voice_start_time    = None
+
+    # Lazy enrollment: when SKIP_ENROLLMENT is set the renderer handled the UI
+    # phase, but we still need to capture an InsightFace embedding.
+    # We attempt it on each of the first LAZY_ENROLL_WINDOW frames until we
+    # get a clean capture, then stop trying.
+    LAZY_ENROLL_WINDOW  = 60   # ~2 seconds at 30 fps
+    lazy_enroll_done    = not SKIP_ENROLLMENT  # skip if we did real enrollment
 
     # Cooldowns (prevent spam)
     last_logged         = {}
-    COOLDOWN            = 8.0  # seconds between same violation
+    COOLDOWN            = 8.0
 
     def can_log(etype):
         now = time.time()
@@ -352,7 +361,7 @@ def run_proctoring(cap, W, H):
         return False
 
     consecutive_failures = 0
-    MAX_FAILURES = 30  # allow up to 30 bad frames before giving up
+    MAX_FAILURES = 30
 
     while True:
         ret, frame = cap.read()
@@ -369,6 +378,22 @@ def run_proctoring(cap, W, H):
         frame_count += 1
         rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb)
+
+        # ── LAZY ENROLLMENT (renderer skipped proctor.py enrollment phase) ────
+        if not lazy_enroll_done and INSIGHT_AVAILABLE:
+            if frame_count <= LAZY_ENROLL_WINDOW:
+                emb = get_face_embedding(frame)
+                if emb is not None:
+                    global enrolled_embedding
+                    enrolled_embedding = emb
+                    lazy_enroll_done   = True
+                    print("[PROCTOR] ✅ Face embedding captured (lazy enrollment)")
+                    log_event("face_enrolled", "low",
+                              f"Lazy embedding at frame {frame_count}")
+            else:
+                lazy_enroll_done = True  # give up — proctoring continues without it
+                print("[PROCTOR] ⚠ Could not capture face embedding in first "
+                      f"{LAZY_ENROLL_WINDOW} frames — wrong-person check disabled")
 
         # ── FACE DETECTION ────────────────────────────────────────────────────
         faces = results.multi_face_landmarks or []
@@ -399,7 +424,7 @@ def run_proctoring(cap, W, H):
         else:
             face_missing_count = 0
             multi_face_count   = 0
-            lm = faces[0].landmark
+            lm = faces[0].landmarks
 
             # ── GAZE ──────────────────────────────────────────────────────────
             gaze = get_gaze_ratio(lm)
@@ -457,38 +482,32 @@ def run_proctoring(cap, W, H):
         if YOLO_AVAILABLE and frame_count % YOLO_EVERY_N == 0:
             try:
                 small  = cv2.resize(frame, (416, 416))
-                sx, sy = W/416, H/416
                 res    = yolo_model(small, verbose=False,
                                     conf=YOLO_CONFIDENCE)[0]
+                # Single pass: collect seen cheat objects and build detections
+                seen_names = set()
                 detected = []
                 for box in res.boxes:
                     cls_id = int(box.cls[0])
-                    conf   = float(box.conf[0])
-                    if cls_id in CHEAT_IDS:
-                        name = CHEAT_IDS[cls_id]
-                        object_history[name] = \
-                            object_history.get(name, 0) + 1
-                        if object_history[name] >= YOLO_MIN_FRAMES:
-                            detected.append((name, conf))
-                    else:
-                        # Decay unseen objects
-                        pass
+                    if cls_id not in CHEAT_IDS:
+                        continue
+                    name = CHEAT_IDS[cls_id]
+                    seen_names.add(name)
+                    object_history[name] = object_history.get(name, 0) + 1
+                    if object_history[name] >= YOLO_MIN_FRAMES:
+                        detected.append((name, float(box.conf[0])))
 
                 # Decay objects not seen this frame
-                seen_names = {CHEAT_IDS[int(b.cls[0])]
-                              for b in res.boxes
-                              if int(b.cls[0]) in CHEAT_IDS}
-                for name in list(object_history.keys()):
+                for name in list(object_history):
                     if name not in seen_names:
-                        object_history[name] = max(
-                            0, object_history[name] - 1)
+                        object_history[name] = max(0, object_history[name] - 1)
 
                 for name, conf in detected:
                     if can_log(f"cheat_{name}"):
                         log_event("cheat_object_detected", "high",
                                   f"{name} detected (conf:{conf:.0%})")
                         save_evidence(frame, f"cheat_{name}")
-                        object_history[name] = 0  # reset so re-detection needs full build-up
+                        object_history[name] = 0
 
             except Exception as e:
                 print(f"[YOLO Error] {e}")
@@ -502,7 +521,7 @@ def run_proctoring(cap, W, H):
             if rms > VOICE_THRESHOLD:
                 if voice_start_time is None:
                     voice_start_time = time.time()
-                elif time.time() - voice_start_time >= COOLDOWN:
+                elif time.time() - voice_start_time >= VOICE_SUSTAINED_SECS:
                     if can_log("voice_detected"):
                         log_event("voice_detected", "medium",
                                   f"Voice sustained (rms:{rms:.3f})")
@@ -544,9 +563,7 @@ def run_proctoring(cap, W, H):
             cv2.imshow("AI Proctor", frame)
             cv2.waitKey(1)
 
-    cap.release()
-    if not HEADLESS:
-        cv2.destroyAllWindows()
+    # cap.release() is handled by main() in the finally block
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
@@ -584,16 +601,16 @@ def main():
     print("[PROCTOR] Warming up camera...")
     for _ in range(10):
         cap.read()
-    time.sleep(0.5)
+    time.sleep(0.5)  # let audio thread stabilize
 
-    # Wait for audio thread
-    time.sleep(1)
-
-    # Skip enrollment in headless mode — no window to show guidance,
-    # and it can hang forever if face isn't detected
-    if HEADLESS:
-        print("[ENROLLMENT] Headless mode — skipping enrollment")
-        log_event("enrollment_complete", "low", "Headless mode — enrollment skipped")
+    # Renderer handles the UI enrollment phase and uploads a reference frame.
+    # proctor.py only needs to run its own enrollment when neither flag is set
+    # (i.e. standalone / debug mode without the Electron shell).
+    if HEADLESS or SKIP_ENROLLMENT:
+        reason = "headless mode" if HEADLESS else "renderer handled enrollment"
+        print(f"[ENROLLMENT] Skipping UI phase — {reason}")
+        print("[ENROLLMENT] Face embedding will be captured on first clear frame.")
+        log_event("enrollment_complete", "low", f"Skipped: {reason}")
     else:
         run_enrollment(cap, W, H)
 

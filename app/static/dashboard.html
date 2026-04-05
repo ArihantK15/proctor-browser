@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Proctor — Admin Dashboard</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;
+        --muted:#8b949e;--blue:#58a6ff;--green:#3fb950;--red:#ff7b72;
+        --yellow:#e3b341;--orange:#e67e22}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       background:var(--bg);color:var(--text);min-height:100vh}
+
+  /* ── Auth overlay ─────────────────────────────────────────────── */
+  #auth-overlay{position:fixed;inset:0;background:var(--bg);z-index:9999;
+    display:flex;align-items:center;justify-content:center}
+  #auth-overlay.hidden{display:none}
+  .auth-card{background:var(--card);border:1px solid var(--border);
+    border-radius:12px;padding:40px;width:380px;text-align:center}
+  .auth-card h2{color:var(--blue);margin-bottom:8px}
+  .auth-card p{color:var(--muted);font-size:13px;margin-bottom:20px}
+  .auth-card input{width:100%;background:var(--bg);border:1px solid var(--border);
+    border-radius:6px;padding:10px 14px;color:var(--text);font-size:14px;
+    margin-bottom:12px}
+  .auth-card input:focus{outline:none;border-color:var(--blue)}
+  .auth-card button{width:100%;padding:12px;border-radius:6px;border:none;
+    background:#238636;color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+  .auth-card button:hover{background:#2ea043}
+  .auth-err{color:var(--red);font-size:12px;min-height:18px;margin-top:8px}
+
+  /* ── Layout ───────────────────────────────────────────────────── */
+  .topbar{background:var(--card);border-bottom:1px solid var(--border);
+    padding:12px 24px;display:flex;align-items:center;justify-content:space-between}
+  .topbar h1{font-size:18px;color:var(--blue)}
+  .topbar .meta{font-size:12px;color:var(--muted)}
+  .tabs{display:flex;gap:0;background:var(--card);border-bottom:1px solid var(--border);
+    padding:0 24px}
+  .tab{padding:12px 20px;font-size:13px;font-weight:600;cursor:pointer;
+    color:var(--muted);border-bottom:2px solid transparent;transition:.2s}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+  .container{padding:24px;max-width:1400px;margin:0 auto}
+  .panel{display:none}
+  .panel.active{display:block}
+
+  /* ── Stats bar ────────────────────────────────────────────────── */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:16px;margin-bottom:24px}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:8px;
+    padding:16px}
+  .stat .label{font-size:11px;color:var(--muted);text-transform:uppercase;
+    font-weight:600;margin-bottom:4px}
+  .stat .value{font-size:28px;font-weight:700}
+  .stat .value.green{color:var(--green)}
+  .stat .value.red{color:var(--red)}
+  .stat .value.blue{color:var(--blue)}
+  .stat .value.yellow{color:var(--yellow)}
+
+  /* ── Tables ───────────────────────────────────────────────────── */
+  .toolbar{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+  .toolbar input{background:var(--bg);border:1px solid var(--border);
+    border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;width:260px}
+  .toolbar input:focus{outline:none;border-color:var(--blue)}
+  .toolbar button,.action-btn{background:var(--card);border:1px solid var(--border);
+    border-radius:6px;padding:8px 16px;color:var(--text);font-size:12px;
+    font-weight:600;cursor:pointer;white-space:nowrap}
+  .toolbar button:hover,.action-btn:hover{border-color:var(--blue);color:var(--blue)}
+  .action-btn.primary{background:#238636;border-color:#238636;color:#fff}
+  .action-btn.primary:hover{background:#2ea043}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead{position:sticky;top:0;z-index:10}
+  th{background:var(--card);color:var(--muted);text-align:left;padding:10px 12px;
+    border-bottom:1px solid var(--border);font-weight:600;font-size:11px;
+    text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap}
+  th:hover{color:var(--blue)}
+  th .arrow{font-size:10px;margin-left:4px}
+  td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:hover td{background:rgba(88,166,255,.04)}
+  .table-wrap{overflow-x:auto;background:var(--card);border:1px solid var(--border);
+    border-radius:8px;max-height:65vh;overflow-y:auto}
+
+  /* ── Risk badge ───────────────────────────────────────────────── */
+  .risk-badge{display:inline-block;padding:3px 10px;border-radius:12px;
+    font-size:11px;font-weight:700;white-space:nowrap}
+  .risk-low{background:rgba(63,185,80,.15);color:var(--green)}
+  .risk-moderate{background:rgba(227,179,65,.15);color:var(--yellow)}
+  .risk-high{background:rgba(230,126,34,.15);color:var(--orange)}
+  .risk-critical{background:rgba(255,123,114,.15);color:var(--red)}
+  .risk-na{background:rgba(139,148,158,.1);color:var(--muted)}
+
+  /* ── Status badge ─────────────────────────────────────────────── */
+  .status-badge{display:inline-block;padding:2px 8px;border-radius:10px;
+    font-size:11px;font-weight:600}
+  .status-live{background:rgba(63,185,80,.15);color:var(--green)}
+  .status-submitted{background:rgba(88,166,255,.15);color:var(--blue)}
+  .status-stale{background:rgba(139,148,158,.1);color:var(--muted)}
+
+  /* ── Modal ────────────────────────────────────────────────────── */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;
+    display:none;align-items:center;justify-content:center}
+  .modal-bg.open{display:flex}
+  .modal{background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:32px;width:700px;max-width:95vw;max-height:85vh;overflow-y:auto;
+    position:relative}
+  .modal h3{color:var(--blue);margin-bottom:16px;font-size:18px}
+  .modal .close{position:absolute;top:16px;right:16px;background:none;
+    border:none;color:var(--muted);font-size:20px;cursor:pointer}
+  .modal .close:hover{color:var(--text)}
+  .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+  .detail-item{background:var(--bg);border-radius:6px;padding:12px}
+  .detail-item .dlbl{font-size:10px;color:var(--muted);text-transform:uppercase;
+    font-weight:600;margin-bottom:2px}
+  .detail-item .dval{font-size:16px;font-weight:600}
+
+  /* ── Risk breakdown bar chart ─────────────────────────────────── */
+  .breakdown{margin-top:16px}
+  .breakdown h4{font-size:13px;color:var(--muted);margin-bottom:10px;
+    text-transform:uppercase;font-weight:600}
+  .bd-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .bd-label{width:160px;font-size:12px;color:var(--text);text-align:right;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+  .bd-bar-bg{flex:1;background:var(--bg);border-radius:4px;height:18px;
+    overflow:hidden;position:relative}
+  .bd-bar{height:100%;border-radius:4px;transition:width .5s ease}
+  .bd-count{width:50px;font-size:11px;color:var(--muted);text-align:right;flex-shrink:0}
+
+  /* ── Responsive ───────────────────────────────────────────────── */
+  @media(max-width:768px){
+    .container{padding:12px}
+    .detail-grid{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr 1fr}
+  }
+
+  /* ── Loading ──────────────────────────────────────────────────── */
+  .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--border);
+    border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading-msg{text-align:center;padding:40px;color:var(--muted);font-size:14px}
+
+  /* ── Question editor ─────────────────────────────────────────── */
+  .q-card{background:var(--card);border:1px solid var(--border);border-radius:8px;
+    padding:20px;margin-bottom:12px;position:relative}
+  .q-card.q-error{border-color:var(--red)}
+  .q-card-hdr{display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:12px}
+  .q-card-hdr .q-num{font-size:14px;font-weight:700;color:var(--blue)}
+  .q-card-hdr .q-del{background:none;border:1px solid var(--border);border-radius:6px;
+    color:var(--red);cursor:pointer;padding:4px 10px;font-size:12px;font-weight:600}
+  .q-card-hdr .q-del:hover{background:rgba(255,123,114,.1);border-color:var(--red)}
+  .q-field{margin-bottom:10px}
+  .q-field label{display:block;font-size:11px;color:var(--muted);font-weight:600;
+    text-transform:uppercase;margin-bottom:4px}
+  .q-field input,.q-field textarea{width:100%;background:var(--bg);border:1px solid var(--border);
+    border-radius:6px;padding:10px 12px;color:var(--text);font-size:13px;font-family:inherit}
+  .q-field textarea{resize:vertical;min-height:60px}
+  .q-field input:focus,.q-field textarea:focus{outline:none;border-color:var(--blue)}
+  .q-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .q-opt{display:flex;align-items:center;gap:8px}
+  .q-opt-key{width:32px;height:32px;border-radius:6px;background:var(--bg);
+    border:1px solid var(--border);display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:12px;color:var(--muted);flex-shrink:0}
+  .q-opt-key.correct{background:#238636;border-color:#238636;color:#fff}
+  .q-opt input{flex:1}
+  .q-correct-row{margin-top:10px;display:flex;align-items:center;gap:8px}
+  .q-correct-row label{font-size:11px;color:var(--muted);font-weight:600;margin:0}
+  .q-correct-row select{background:var(--bg);border:1px solid var(--border);border-radius:6px;
+    padding:6px 10px;color:var(--text);font-size:13px}
+  .q-correct-row select:focus{outline:none;border-color:var(--blue)}
+  .q-add-opt{background:none;border:1px dashed var(--border);border-radius:6px;
+    color:var(--muted);cursor:pointer;padding:6px 12px;font-size:12px;margin-top:8px}
+  .q-add-opt:hover{border-color:var(--blue);color:var(--blue)}
+  .q-move{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;
+    padding:2px 6px}
+  .q-move:hover{color:var(--blue)}
+  .preview-q{margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+  .preview-q:last-child{border-bottom:none}
+  .preview-q .pq-num{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px}
+  .preview-q .pq-text{font-size:15px;color:var(--text);margin-bottom:10px;line-height:1.5}
+  .preview-q .pq-opts{display:flex;flex-direction:column;gap:6px}
+  .preview-q .pq-opt{background:var(--bg);border:1px solid var(--border);border-radius:6px;
+    padding:10px 14px;font-size:13px;display:flex;align-items:center;gap:10px}
+  .preview-q .pq-opt.pq-correct{border-color:#238636;background:rgba(35,134,54,.1)}
+  .preview-q .pq-opt .pq-key{width:24px;height:24px;border-radius:4px;background:var(--card);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;
+    flex-shrink:0;color:var(--muted)}
+  .preview-q .pq-opt.pq-correct .pq-key{background:#238636;color:#fff}
+</style>
+</head>
+<body>
+
+<!-- AUTH OVERLAY -->
+<div id="auth-overlay">
+  <div class="auth-card">
+    <h2>Admin Dashboard</h2>
+    <p>Enter the admin password to continue</p>
+    <input type="password" id="auth-pwd" placeholder="Admin password"
+           onkeydown="if(event.key==='Enter')doAuth()">
+    <button onclick="doAuth()">Login</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <h1>AI Proctor Dashboard</h1>
+  <div class="meta">
+    <span id="last-refresh">--</span> |
+    <span class="spinner" id="refresh-spin" style="display:none"></span>
+    <button class="action-btn" onclick="refreshAll()" style="padding:4px 12px">Refresh</button>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <div class="tab active" data-tab="live" onclick="switchTab('live')">Live Sessions</div>
+  <div class="tab" data-tab="results" onclick="switchTab('results')">Results</div>
+  <div class="tab" data-tab="questions" onclick="switchTab('questions')">Questions</div>
+  <div class="tab" data-tab="tools" onclick="switchTab('tools')">Tools</div>
+</div>
+
+<!-- PANELS -->
+<div class="container">
+
+  <!-- LIVE SESSIONS -->
+  <div class="panel active" id="panel-live">
+    <div class="stats" id="live-stats"></div>
+    <div class="toolbar">
+      <input type="text" id="live-search" placeholder="Search sessions..."
+             oninput="filterLive()">
+      <button onclick="refreshLive()">Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th onclick="sortLive('session_id')">Session <span class="arrow"></span></th>
+          <th onclick="sortLive('last_event')">Last Event <span class="arrow"></span></th>
+          <th onclick="sortLive('last_severity')">Severity <span class="arrow"></span></th>
+          <th onclick="sortLive('last_seen')">Last Seen <span class="arrow"></span></th>
+          <th onclick="sortLive('submitted')">Status <span class="arrow"></span></th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody id="live-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="panel" id="panel-results">
+    <div class="stats" id="results-stats"></div>
+    <div class="toolbar">
+      <input type="text" id="results-search" placeholder="Search by name, roll, email..."
+             oninput="filterResults()">
+      <button onclick="exportCSV()">Export CSV</button>
+      <button onclick="refreshResults()">Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th onclick="sortResults('roll_number')">Roll # <span class="arrow"></span></th>
+          <th onclick="sortResults('full_name')">Name <span class="arrow"></span></th>
+          <th onclick="sortResults('score')">Score <span class="arrow"></span></th>
+          <th onclick="sortResults('percentage')">% <span class="arrow"></span></th>
+          <th onclick="sortResults('violation_count')">Violations <span class="arrow"></span></th>
+          <th onclick="sortResults('risk_score')">Risk Score <span class="arrow"></span></th>
+          <th onclick="sortResults('time_taken_secs')">Time <span class="arrow"></span></th>
+          <th onclick="sortResults('submitted_at')">Submitted <span class="arrow"></span></th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- QUESTIONS -->
+  <div class="panel" id="panel-questions">
+    <div class="stats" id="q-stats"></div>
+    <div class="toolbar">
+      <input type="text" id="q-title" placeholder="Exam title" style="width:300px">
+      <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px">
+        Duration (min):
+        <input type="number" id="q-duration" min="1" max="600" value="60"
+               style="width:80px;background:var(--bg);border:1px solid var(--border);
+                      border-radius:6px;padding:8px;color:var(--text);font-size:13px">
+      </label>
+      <button onclick="addQuestion()">+ Add Question</button>
+      <button onclick="togglePreview()">Preview</button>
+      <button class="action-btn primary" onclick="saveQuestions()">Save All</button>
+      <button onclick="loadQuestions()">Reload</button>
+    </div>
+    <div id="q-save-msg" style="font-size:13px;min-height:22px;margin-bottom:8px"></div>
+
+    <!-- EDITOR VIEW -->
+    <div id="q-editor"></div>
+
+    <!-- PREVIEW VIEW -->
+    <div id="q-preview" style="display:none">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:24px;max-width:800px">
+        <h3 style="color:var(--blue);margin-bottom:16px" id="preview-title">Preview</h3>
+        <div id="preview-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOOLS -->
+  <div class="panel" id="panel-tools">
+    <div class="stats">
+      <div class="stat">
+        <div class="label">Failed Submissions</div>
+        <div class="value red" id="tools-failed">--</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:16px">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:24px;flex:1;min-width:280px">
+        <h3 style="font-size:15px;color:var(--blue);margin-bottom:8px">Backfill Risk Scores</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+          Recompute risk scores for all completed sessions.
+          Use after first deployment or formula update.
+        </p>
+        <button class="action-btn primary" id="btn-backfill" onclick="doBackfill()">Run Backfill</button>
+        <div id="backfill-result" style="margin-top:10px;font-size:13px;color:var(--green)"></div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:24px;flex:1;min-width:280px">
+        <h3 style="font-size:15px;color:var(--blue);margin-bottom:8px">Cleanup Screenshots</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+          Delete screenshots older than 7 days to free disk space.
+        </p>
+        <button class="action-btn" onclick="doCleanup()">Run Cleanup</button>
+        <div id="cleanup-result" style="margin-top:10px;font-size:13px;color:var(--green)"></div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:24px;flex:1;min-width:280px">
+        <h3 style="font-size:15px;color:var(--blue);margin-bottom:8px">Failed Sessions</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+          View sessions where submission failed and may need admin force-submit.
+        </p>
+        <button class="action-btn" onclick="loadFailed()">Check Failed</button>
+        <div id="failed-result" style="margin-top:10px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="modal-bg" id="detail-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h3 id="modal-title">Session Detail</h3>
+    <div class="detail-grid" id="modal-info"></div>
+    <div class="breakdown" id="modal-breakdown"></div>
+    <div style="margin-top:20px;display:flex;gap:10px">
+      <button class="action-btn" id="modal-pdf" onclick="downloadPDF()">Download PDF</button>
+      <button class="action-btn" id="modal-risk" onclick="viewRiskDetail()">Full Risk Breakdown</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = location.origin;
+let adminPwd = '';
+let liveData = [], resultsData = [];
+let liveSortKey = 'last_seen', liveSortAsc = false;
+let resSortKey = 'submitted_at', resSortAsc = false;
+let currentSessionId = null;
+let autoRefreshTimer = null;
+
+// ── AUTH ─────────────────────────────────────────────────────────
+async function doAuth(){
+  const pwd = document.getElementById('auth-pwd').value;
+  if(!pwd){ document.getElementById('auth-err').textContent='Enter password'; return; }
+  try{
+    const r = await fetch(`${BASE}/sessions`,{headers:{'X-Admin-Password':pwd}});
+    if(!r.ok) throw new Error('Invalid password');
+    adminPwd = pwd;
+    document.getElementById('auth-overlay').classList.add('hidden');
+    refreshAll();
+    // Auto-refresh every 15 seconds
+    autoRefreshTimer = setInterval(refreshLive, 15000);
+  }catch(e){
+    document.getElementById('auth-err').textContent = e.message || 'Authentication failed';
+  }
+}
+
+function hdr(){
+  return {'Content-Type':'application/json','X-Admin-Password':adminPwd};
+}
+
+// ── TABS ────────────────────────────────────────────────────────
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
+  if(tab==='results' && resultsData.length===0) refreshResults();
+  if(tab==='questions' && qData.length===0) loadQuestions();
+}
+
+// ── REFRESH ─────────────────────────────────────────────────────
+async function refreshAll(){
+  document.getElementById('refresh-spin').style.display='inline-block';
+  await Promise.all([refreshLive(), refreshResults(), loadFailedCount()]);
+  document.getElementById('refresh-spin').style.display='none';
+  document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString();
+}
+
+// ── LIVE SESSIONS ───────────────────────────────────────────────
+async function refreshLive(){
+  try{
+    const r = await fetch(`${BASE}/sessions`,{headers:hdr()});
+    const d = await r.json();
+    liveData = d.all_sessions || [];
+    renderLiveStats(d.sessions||[], liveData);
+    renderLive();
+  }catch(e){ console.error('refreshLive',e); }
+}
+
+function renderLiveStats(active, all){
+  const el = document.getElementById('live-stats');
+  const submitted = all.filter(s=>s.submitted).length;
+  el.innerHTML=`
+    <div class="stat"><div class="label">Active Now</div><div class="value green">${active.length}</div></div>
+    <div class="stat"><div class="label">Submitted</div><div class="value blue">${submitted}</div></div>
+    <div class="stat"><div class="label">Total Sessions</div><div class="value">${all.length}</div></div>
+  `;
+}
+
+function renderLive(){
+  const q = document.getElementById('live-search').value.toLowerCase();
+  let rows = liveData.filter(s=>!q||s.session_id.toLowerCase().includes(q)
+    ||s.last_event.toLowerCase().includes(q));
+  rows.sort((a,b)=>{
+    let va=a[liveSortKey]||'', vb=b[liveSortKey]||'';
+    if(typeof va==='boolean'){va=va?1:0;vb=vb?1:0;}
+    return liveSortAsc?(va>vb?1:-1):(va<vb?1:-1);
+  });
+  const tb = document.getElementById('live-body');
+  tb.innerHTML = rows.map(s=>{
+    const statusCls = s.submitted?'status-submitted':'status-live';
+    const statusTxt = s.submitted?'Submitted':'Live';
+    const sevColor = s.last_severity==='high'?'var(--red)':s.last_severity==='medium'?'var(--yellow)':'var(--muted)';
+    const roll = s.session_id.split('_')[0];
+    return `<tr>
+      <td><strong>${roll}</strong><br><span style="font-size:11px;color:var(--muted)">${s.session_id.substring(0,30)}...</span></td>
+      <td>${s.last_event.replace(/_/g,' ')}</td>
+      <td style="color:${sevColor};font-weight:600">${s.last_severity.toUpperCase()}</td>
+      <td style="font-size:12px">${s.last_seen}</td>
+      <td><span class="status-badge ${statusCls}">${statusTxt}</span></td>
+      <td><button class="action-btn" onclick="viewRisk('${s.session_id}')" style="padding:4px 10px;font-size:11px">Risk</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function sortLive(key){
+  if(liveSortKey===key) liveSortAsc=!liveSortAsc;
+  else{liveSortKey=key;liveSortAsc=true;}
+  renderLive();
+}
+function filterLive(){renderLive();}
+
+// ── RESULTS ─────────────────────────────────────────────────────
+async function refreshResults(){
+  try{
+    const r = await fetch(`${BASE}/api/results`,{headers:hdr()});
+    const d = await r.json();
+    resultsData = d.results || [];
+    renderResultsStats();
+    renderResults();
+  }catch(e){ console.error('refreshResults',e); }
+}
+
+function renderResultsStats(){
+  const el = document.getElementById('results-stats');
+  const total = resultsData.length;
+  const avgScore = total?Math.round(resultsData.reduce((s,r)=>s+(r.percentage||0),0)/total):0;
+  const scored = resultsData.filter(r=>r.risk_score!=null);
+  const avgRisk = scored.length?Math.round(scored.reduce((s,r)=>s+r.risk_score,0)/scored.length):0;
+  const highRisk = scored.filter(r=>r.risk_score>=41).length;
+  el.innerHTML=`
+    <div class="stat"><div class="label">Total Results</div><div class="value blue">${total}</div></div>
+    <div class="stat"><div class="label">Avg Score</div><div class="value green">${avgScore}%</div></div>
+    <div class="stat"><div class="label">Avg Risk</div><div class="value ${avgRisk>=41?'red':avgRisk>=16?'yellow':'green'}">${avgRisk}/100</div></div>
+    <div class="stat"><div class="label">High/Critical Risk</div><div class="value red">${highRisk}</div></div>
+  `;
+}
+
+function riskBadge(score, label){
+  if(score==null) return '<span class="risk-badge risk-na">N/A</span>';
+  const cls = score<=15?'risk-low':score<=40?'risk-moderate':score<=70?'risk-high':'risk-critical';
+  return `<span class="risk-badge ${cls}">${score} — ${label||''}</span>`;
+}
+
+function renderResults(){
+  const q = document.getElementById('results-search').value.toLowerCase();
+  let rows = resultsData.filter(r=>!q
+    ||r.roll_number.toLowerCase().includes(q)
+    ||r.full_name.toLowerCase().includes(q)
+    ||(r.email||'').toLowerCase().includes(q));
+  rows.sort((a,b)=>{
+    let va=a[resSortKey]??'', vb=b[resSortKey]??'';
+    if(typeof va==='number'&&typeof vb==='number') return resSortAsc?va-vb:vb-va;
+    va=String(va);vb=String(vb);
+    return resSortAsc?va.localeCompare(vb):vb.localeCompare(va);
+  });
+  const tb = document.getElementById('results-body');
+  tb.innerHTML = rows.map(r=>{
+    const mins = Math.floor((r.time_taken_secs||0)/60);
+    const secs = (r.time_taken_secs||0)%60;
+    return `<tr>
+      <td><strong>${r.roll_number}</strong></td>
+      <td>${esc(r.full_name)}</td>
+      <td>${r.score}/${r.total}</td>
+      <td>${r.percentage}%</td>
+      <td style="color:${r.violation_count>5?'var(--red)':r.violation_count>0?'var(--yellow)':'var(--green)'}">${r.violation_count}</td>
+      <td>${riskBadge(r.risk_score, r.risk_label)}</td>
+      <td>${mins}m ${secs}s</td>
+      <td style="font-size:11px;color:var(--muted)">${r.submitted_at||'—'}</td>
+      <td>
+        <button class="action-btn" onclick="openDetail('${r.session_id}')" style="padding:4px 10px;font-size:11px">Detail</button>
+        <button class="action-btn" onclick="dlPDF('${r.session_id}')" style="padding:4px 10px;font-size:11px">PDF</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function sortResults(key){
+  if(resSortKey===key) resSortAsc=!resSortAsc;
+  else{resSortKey=key;resSortAsc=key==='roll_number'||key==='full_name';}
+  renderResults();
+}
+function filterResults(){renderResults();}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+// ── DETAIL MODAL ────────────────────────────────────────────────
+async function openDetail(sid){
+  currentSessionId = sid;
+  const r = resultsData.find(r=>r.session_id===sid);
+  if(!r) return;
+  document.getElementById('modal-title').textContent=`${r.full_name} — ${r.roll_number}`;
+  const mins=Math.floor((r.time_taken_secs||0)/60), secs=(r.time_taken_secs||0)%60;
+  document.getElementById('modal-info').innerHTML=`
+    <div class="detail-item"><div class="dlbl">Score</div><div class="dval" style="color:var(--green)">${r.score}/${r.total} (${r.percentage}%)</div></div>
+    <div class="detail-item"><div class="dlbl">Risk Score</div><div class="dval">${riskBadge(r.risk_score,r.risk_label)}</div></div>
+    <div class="detail-item"><div class="dlbl">Time Taken</div><div class="dval">${mins}m ${secs}s</div></div>
+    <div class="detail-item"><div class="dlbl">Violations</div><div class="dval" style="color:${r.violation_count>5?'var(--red)':'var(--yellow)'}">${r.violation_count}</div></div>
+    <div class="detail-item"><div class="dlbl">Session</div><div class="dval" style="font-size:12px;word-break:break-all">${sid}</div></div>
+    <div class="detail-item"><div class="dlbl">Submitted</div><div class="dval" style="font-size:13px">${r.submitted_at||'—'}</div></div>
+  `;
+  // Load risk breakdown
+  const bd = document.getElementById('modal-breakdown');
+  bd.innerHTML='<div class="loading-msg"><span class="spinner"></span> Loading breakdown...</div>';
+  document.getElementById('detail-modal').classList.add('open');
+  try{
+    const resp = await fetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`,{headers:hdr()});
+    const risk = await resp.json();
+    renderBreakdown(risk);
+  }catch(e){
+    bd.innerHTML='<p style="color:var(--muted)">Could not load breakdown.</p>';
+  }
+}
+
+function renderBreakdown(risk){
+  const bd = document.getElementById('modal-breakdown');
+  const entries = Object.entries(risk.breakdown||{}).sort((a,b)=>b[1].contribution-a[1].contribution);
+  if(!entries.length){
+    bd.innerHTML='<h4>Risk Breakdown</h4><p style="color:var(--muted);font-size:13px">No violations recorded.</p>';
+    return;
+  }
+  const maxContrib = Math.max(...entries.map(e=>e[1].contribution));
+  const colors = {
+    wrong_person:'var(--red)',multiple_faces:'var(--red)',face_missing:'var(--orange)',
+    cheat_object_detected:'var(--red)',window_focus_lost:'var(--yellow)',tab_hidden:'var(--yellow)',
+    shortcut_blocked:'var(--yellow)',gaze_away:'var(--blue)',head_turned:'var(--blue)',
+    eyes_closed:'var(--muted)',voice_detected:'var(--orange)',time_exceeded:'var(--red)',
+    vm_detected:'var(--red)',remote_desktop_detected:'var(--red)',
+    screen_share_detected:'var(--orange)',multiple_monitors:'var(--yellow)'
+  };
+  bd.innerHTML=`
+    <h4>Risk Breakdown (${risk.risk_score}/100 — ${risk.label})</h4>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Duration: ${risk.duration_minutes} min</p>
+    ${entries.map(([type,data])=>{
+      const pct = maxContrib>0?Math.round(data.contribution/maxContrib*100):0;
+      const color = colors[type]||'var(--blue)';
+      return `<div class="bd-row">
+        <div class="bd-label">${type.replace(/_/g,' ')}</div>
+        <div class="bd-bar-bg"><div class="bd-bar" style="width:${pct}%;background:${color}"></div></div>
+        <div class="bd-count">${data.count}x (+${data.contribution})</div>
+      </div>`;
+    }).join('')}
+  `;
+}
+
+function closeModal(){
+  document.getElementById('detail-modal').classList.remove('open');
+  currentSessionId=null;
+}
+
+async function viewRisk(sid){
+  // Open detail for a live session (may not be in resultsData)
+  currentSessionId = sid;
+  const roll = sid.split('_')[0];
+  document.getElementById('modal-title').textContent=`Live Session — ${roll}`;
+  document.getElementById('modal-info').innerHTML=`
+    <div class="detail-item"><div class="dlbl">Session</div><div class="dval" style="font-size:12px;word-break:break-all">${sid}</div></div>
+    <div class="detail-item"><div class="dlbl">Status</div><div class="dval"><span class="status-badge status-live">Live</span></div></div>
+  `;
+  const bd = document.getElementById('modal-breakdown');
+  bd.innerHTML='<div class="loading-msg"><span class="spinner"></span> Computing live risk...</div>';
+  document.getElementById('detail-modal').classList.add('open');
+  try{
+    const resp = await fetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`,{headers:hdr()});
+    const risk = await resp.json();
+    // Update info with live risk
+    document.getElementById('modal-info').innerHTML=`
+      <div class="detail-item"><div class="dlbl">Live Risk Score</div><div class="dval">${riskBadge(risk.risk_score,risk.label)}</div></div>
+      <div class="detail-item"><div class="dlbl">Duration</div><div class="dval">${risk.duration_minutes} min</div></div>
+      <div class="detail-item"><div class="dlbl">Session</div><div class="dval" style="font-size:12px;word-break:break-all">${sid}</div></div>
+      <div class="detail-item"><div class="dlbl">Status</div><div class="dval"><span class="status-badge status-live">Live</span></div></div>
+    `;
+    renderBreakdown(risk);
+  }catch(e){
+    bd.innerHTML='<p style="color:var(--red)">Failed to compute risk.</p>';
+  }
+}
+
+function viewRiskDetail(){
+  if(currentSessionId) viewRisk(currentSessionId);
+}
+
+// ── EXPORTS ─────────────────────────────────────────────────────
+function exportCSV(){
+  fetchBlob(`${BASE}/api/export-csv`,'results.csv');
+}
+async function fetchBlob(url,filename){
+  const r = await fetch(url,{headers:hdr()});
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function dlPDF(sid){
+  fetchBlob(`${BASE}/api/export-pdf/${encodeURIComponent(sid)}`,`report_${sid.split('_')[0]}.pdf`);
+}
+function downloadPDF(){
+  if(currentSessionId) dlPDF(currentSessionId);
+}
+
+// ── TOOLS ───────────────────────────────────────────────────────
+async function doBackfill(){
+  const btn=document.getElementById('btn-backfill');
+  btn.disabled=true; btn.textContent='Running...';
+  const el=document.getElementById('backfill-result');
+  try{
+    const r=await fetch(`${BASE}/api/admin/backfill-risk-scores`,{method:'POST',headers:hdr()});
+    const d=await r.json();
+    el.style.color='var(--green)';
+    el.textContent=`Done! Backfilled ${d.backfilled} sessions.`;
+    refreshResults();
+  }catch(e){
+    el.style.color='var(--red)';
+    el.textContent='Failed: '+e.message;
+  }
+  btn.disabled=false; btn.textContent='Run Backfill';
+}
+
+async function doCleanup(){
+  const el=document.getElementById('cleanup-result');
+  try{
+    const r=await fetch(`${BASE}/api/admin-cleanup`,{method:'POST',headers:hdr()});
+    const d=await r.json();
+    el.style.color='var(--green)';
+    el.textContent=`Deleted ${d.deleted} old files.`;
+  }catch(e){
+    el.style.color='var(--red)';
+    el.textContent='Failed: '+e.message;
+  }
+}
+
+async function loadFailed(){
+  const el=document.getElementById('failed-result');
+  try{
+    const r=await fetch(`${BASE}/api/admin-failed-sessions`,{headers:hdr()});
+    const d=await r.json();
+    if(d.count===0){
+      el.innerHTML='<span style="color:var(--green)">No failed sessions!</span>';
+    } else {
+      el.innerHTML=d.failed_sessions.map(s=>`
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:12px;color:var(--text)">${s}</span>
+          <button class="action-btn" onclick="forceSubmit('${s}')" style="padding:2px 8px;font-size:11px">Force Submit</button>
+        </div>
+      `).join('');
+    }
+  }catch(e){
+    el.innerHTML='<span style="color:var(--red)">Failed to load.</span>';
+  }
+}
+
+async function loadFailedCount(){
+  try{
+    const r=await fetch(`${BASE}/api/admin-failed-sessions`,{headers:hdr()});
+    const d=await r.json();
+    document.getElementById('tools-failed').textContent=d.count;
+  }catch(e){}
+}
+
+async function forceSubmit(sid){
+  if(!confirm(`Force-submit session ${sid}?`)) return;
+  try{
+    const r=await fetch(`${BASE}/api/admin-submit/${encodeURIComponent(sid)}`,{method:'POST',headers:hdr()});
+    const d=await r.json();
+    alert(`Force-submitted! Score: ${d.score}/${d.total}, Risk: ${d.risk_score}/100`);
+    loadFailed();
+    refreshResults();
+  }catch(e){alert('Failed: '+e.message);}
+}
+
+// ── QUESTIONS EDITOR ────────────────────────────────────────────
+let qData = [];       // array of question objects (with correct answers)
+let qPreviewMode = false;
+let qDirty = false;   // unsaved changes flag
+
+async function loadQuestions(){
+  const el = document.getElementById('q-editor');
+  el.innerHTML='<div class="loading-msg"><span class="spinner"></span> Loading questions...</div>';
+  document.getElementById('q-save-msg').textContent='';
+  try{
+    const r = await fetch(`${BASE}/api/admin/questions`,{headers:hdr()});
+    const d = await r.json();
+    qData = d.questions || [];
+    document.getElementById('q-title').value = d.exam_title || '';
+    document.getElementById('q-duration').value = d.duration_minutes || 60;
+    qDirty = false;
+    renderQEditor();
+    renderQStats();
+  }catch(e){
+    el.innerHTML='<p style="color:var(--red)">Failed to load questions.</p>';
+  }
+}
+
+function renderQStats(){
+  const el = document.getElementById('q-stats');
+  const total = qData.length;
+  const optCounts = qData.map(q=>Object.keys(q.options||{}).length);
+  const avgOpts = total ? Math.round(optCounts.reduce((a,b)=>a+b,0)/total*10)/10 : 0;
+  const noCorrect = qData.filter(q=>!q.correct).length;
+  const dur = parseInt(document.getElementById('q-duration').value)||60;
+  el.innerHTML=`
+    <div class="stat"><div class="label">Total Questions</div><div class="value blue">${total}</div></div>
+    <div class="stat"><div class="label">Avg Options</div><div class="value">${avgOpts}</div></div>
+    <div class="stat"><div class="label">Duration</div><div class="value green">${dur} min</div></div>
+    <div class="stat"><div class="label">Missing Answer</div><div class="value ${noCorrect?'red':'green'}">${noCorrect}</div></div>
+  `;
+}
+
+function markQDirty(){
+  qDirty = true;
+  document.getElementById('q-save-msg').innerHTML=
+    '<span style="color:var(--yellow)">Unsaved changes</span>';
+}
+
+function renderQEditor(){
+  if(qPreviewMode){ renderQPreview(); return; }
+  document.getElementById('q-preview').style.display='none';
+  const el = document.getElementById('q-editor');
+  el.style.display='block';
+  if(!qData.length){
+    el.innerHTML='<div class="loading-msg">No questions yet. Click "+ Add Question" to start.</div>';
+    return;
+  }
+  el.innerHTML = qData.map((q,i)=>{
+    const optKeys = Object.keys(q.options||{});
+    return `<div class="q-card" id="qcard-${i}">
+      <div class="q-card-hdr">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="q-num">Q${i+1}</span>
+          <button class="q-move" onclick="moveQ(${i},-1)" title="Move up" ${i===0?'disabled style="opacity:.3"':''}>&#9650;</button>
+          <button class="q-move" onclick="moveQ(${i},1)" title="Move down" ${i===qData.length-1?'disabled style="opacity:.3"':''}>&#9660;</button>
+        </div>
+        <button class="q-del" onclick="deleteQ(${i})">Delete</button>
+      </div>
+      <div class="q-field">
+        <label>Question Text</label>
+        <textarea oninput="qData[${i}].question=this.value;markQDirty()">${escAttr(q.question||'')}</textarea>
+      </div>
+      <div class="q-field">
+        <label>Options</label>
+        <div class="q-opts">
+          ${optKeys.map(k=>`
+            <div class="q-opt">
+              <div class="q-opt-key ${q.correct===k?'correct':''}"
+                   onclick="setCorrect(${i},'${escAttr(k)}')" title="Click to set as correct answer"
+                   style="cursor:pointer">${escAttr(k)}</div>
+              <input value="${escAttr(q.options[k])}"
+                     oninput="qData[${i}].options['${escAttr(k)}']=this.value;markQDirty()"
+                     placeholder="Option ${escAttr(k)}">
+              ${optKeys.length>2?`<button class="q-move" onclick="removeOpt(${i},'${escAttr(k)}')" title="Remove option" style="color:var(--red)">&times;</button>`:''}
+            </div>
+          `).join('')}
+        </div>
+        <button class="q-add-opt" onclick="addOpt(${i})">+ Add Option</button>
+      </div>
+      <div class="q-correct-row">
+        <label>Correct Answer:</label>
+        <select onchange="qData[${i}].correct=this.value;markQDirty();renderQEditor()">
+          ${optKeys.map(k=>`<option value="${escAttr(k)}" ${q.correct===k?'selected':''}>${escAttr(k)}</option>`).join('')}
+        </select>
+        <span style="font-size:12px;color:${q.correct?'var(--green)':'var(--red)'}">
+          ${q.correct ? q.correct+' = '+escAttr(q.options[q.correct]||'?') : 'Not set!'}
+        </span>
+      </div>
+    </div>`;
+  }).join('');
+  renderQStats();
+}
+
+function escAttr(s){
+  const d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML;
+}
+
+function setCorrect(idx,key){
+  qData[idx].correct=key;
+  markQDirty();
+  renderQEditor();
+}
+
+function addOpt(idx){
+  const opts=qData[idx].options||{};
+  const keys=Object.keys(opts);
+  // Next letter: A,B,C,D,E,F...
+  const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let nextKey='A';
+  for(const ch of alphabet){
+    if(!opts.hasOwnProperty(ch)){nextKey=ch;break;}
+  }
+  opts[nextKey]='';
+  qData[idx].options=opts;
+  markQDirty();
+  renderQEditor();
+}
+
+function removeOpt(idx,key){
+  const opts=qData[idx].options;
+  if(Object.keys(opts).length<=2){alert('Minimum 2 options required.');return;}
+  delete opts[key];
+  // If we removed the correct answer, clear it
+  if(qData[idx].correct===key) qData[idx].correct='';
+  markQDirty();
+  renderQEditor();
+}
+
+function deleteQ(idx){
+  if(!confirm(`Delete question ${idx+1}?`)) return;
+  qData.splice(idx,1);
+  // Re-number IDs
+  qData.forEach((q,i)=>q.id=i+1);
+  markQDirty();
+  renderQEditor();
+}
+
+function moveQ(idx,dir){
+  const newIdx=idx+dir;
+  if(newIdx<0||newIdx>=qData.length) return;
+  [qData[idx],qData[newIdx]]=[qData[newIdx],qData[idx]];
+  qData.forEach((q,i)=>q.id=i+1);
+  markQDirty();
+  renderQEditor();
+}
+
+function addQuestion(){
+  const nextId=qData.length+1;
+  qData.push({
+    id:nextId,
+    question:'',
+    options:{A:'',B:'',C:'',D:''},
+    correct:'A'
+  });
+  markQDirty();
+  renderQEditor();
+  // Scroll to new question
+  setTimeout(()=>{
+    const card=document.getElementById(`qcard-${qData.length-1}`);
+    if(card) card.scrollIntoView({behavior:'smooth',block:'center'});
+  },100);
+}
+
+function togglePreview(){
+  qPreviewMode=!qPreviewMode;
+  if(qPreviewMode) renderQPreview();
+  else renderQEditor();
+}
+
+function renderQPreview(){
+  document.getElementById('q-editor').style.display='none';
+  const wrap=document.getElementById('q-preview');
+  wrap.style.display='block';
+  const title=document.getElementById('q-title').value||'Exam';
+  document.getElementById('preview-title').textContent=title+' — Preview';
+  const body=document.getElementById('preview-body');
+  if(!qData.length){
+    body.innerHTML='<p style="color:var(--muted)">No questions to preview.</p>';
+    return;
+  }
+  body.innerHTML=qData.map((q,i)=>{
+    const optKeys=Object.keys(q.options||{});
+    return `<div class="preview-q">
+      <div class="pq-num">Question ${i+1} of ${qData.length}</div>
+      <div class="pq-text">${escAttr(q.question||'(empty)')}</div>
+      <div class="pq-opts">
+        ${optKeys.map(k=>`
+          <div class="pq-opt ${q.correct===k?'pq-correct':''}">
+            <div class="pq-key">${escAttr(k)}</div>
+            <span>${escAttr(q.options[k]||'(empty)')}</span>
+            ${q.correct===k?'<span style="margin-left:auto;font-size:11px;color:var(--green);font-weight:600">CORRECT</span>':''}
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function saveQuestions(){
+  // Validate before saving
+  const errors=[];
+  qData.forEach((q,i)=>{
+    if(!q.question||!q.question.trim()) errors.push(`Q${i+1}: empty question text`);
+    const optKeys=Object.keys(q.options||{});
+    if(optKeys.length<2) errors.push(`Q${i+1}: needs at least 2 options`);
+    const emptyOpts=optKeys.filter(k=>!q.options[k]||!q.options[k].trim());
+    if(emptyOpts.length) errors.push(`Q${i+1}: empty option(s): ${emptyOpts.join(', ')}`);
+    if(!q.correct||!q.options.hasOwnProperty(q.correct))
+      errors.push(`Q${i+1}: no valid correct answer set`);
+  });
+  if(!qData.length) errors.push('No questions to save');
+
+  const msgEl=document.getElementById('q-save-msg');
+  if(errors.length){
+    msgEl.innerHTML=`<span style="color:var(--red)">Validation errors:<br>${errors.map(e=>'&bull; '+escAttr(e)).join('<br>')}</span>`;
+    // Highlight first errored card
+    const firstIdx=parseInt((errors[0].match(/Q(\d+)/)||[])[1]||'1')-1;
+    const card=document.getElementById(`qcard-${firstIdx}`);
+    if(card){card.classList.add('q-error');card.scrollIntoView({behavior:'smooth',block:'center'});
+      setTimeout(()=>card.classList.remove('q-error'),3000);}
+    return;
+  }
+
+  // Re-number IDs sequentially
+  qData.forEach((q,i)=>q.id=i+1);
+
+  const payload={
+    exam_title: document.getElementById('q-title').value.trim() || 'Exam',
+    duration_minutes: parseInt(document.getElementById('q-duration').value) || 60,
+    questions: qData
+  };
+
+  msgEl.innerHTML='<span class="spinner"></span> Saving...';
+  try{
+    const r=await fetch(`${BASE}/api/admin/questions`,{
+      method:'POST',headers:hdr(),body:JSON.stringify(payload)
+    });
+    if(!r.ok){
+      const err=await r.json();
+      throw new Error(err.detail||'Save failed');
+    }
+    const d=await r.json();
+    qDirty=false;
+    msgEl.innerHTML=`<span style="color:var(--green)">Saved ${d.count} questions successfully.</span>`;
+    renderQStats();
+  }catch(e){
+    msgEl.innerHTML=`<span style="color:var(--red)">Save failed: ${escAttr(e.message)}</span>`;
+  }
+}
+
+// ── KEYBOARD SHORTCUTS ──────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') closeModal();
+});
+</script>
+</body>
+</html>

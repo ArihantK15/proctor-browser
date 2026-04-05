@@ -113,6 +113,15 @@ def download_page():
         raise HTTPException(status_code=404, detail="Download page not found")
     return HTMLResponse(html_path.read_text())
 
+# ─── STUDENT REGISTRATION PAGE ───────────────────────────────────
+@app.get("/register", response_class=HTMLResponse)
+def register_page():
+    """Self-registration page for students before exam day."""
+    html_path = STATIC_DIR / "register.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="Registration page not found")
+    return HTMLResponse(html_path.read_text())
+
 
 # ─── BACKGROUND: SCREENSHOT CLEANUP ──────────────────────────────
 def _cleanup_screenshots():
@@ -136,6 +145,12 @@ class EventIn(BaseModel):
     event_type: str
     severity:   str
     details:    Optional[str] = None
+
+class RegisterIn(BaseModel):
+    full_name:   str
+    roll_number: str
+    email:       str
+    phone:       Optional[str] = None
 
 class ValidateIn(BaseModel):
     roll_number: str
@@ -195,12 +210,14 @@ def _load_questions() -> list[dict]:
     ]
 
 def _load_exam_config() -> dict:
-    """Load exam config (title, duration, access_code) from Supabase."""
+    """Load exam config (title, duration, access_code, schedule) from Supabase."""
     result = supabase.table("exam_config")\
-        .select("exam_title,duration_minutes,access_code").eq("id", 1).execute()
+        .select("exam_title,duration_minutes,access_code,starts_at,ends_at")\
+        .eq("id", 1).execute()
     if result.data:
         return result.data[0]
-    return {"exam_title": "Exam", "duration_minutes": 60, "access_code": ""}
+    return {"exam_title": "Exam", "duration_minutes": 60, "access_code": "",
+            "starts_at": None, "ends_at": None}
 
 def _get_access_code() -> str:
     """Load the current exam access code from Supabase (persisted across restarts)."""
@@ -381,9 +398,75 @@ def health():
     except ImportError:
         return {"ok": True}
 
+@app.post("/api/register-student")
+@limiter.limit("5/minute")
+def register_student(request: Request, body: RegisterIn):
+    """Public self-registration for students before exam day."""
+    roll = body.roll_number.strip().upper()
+    name = body.full_name.strip()
+    email = body.email.strip().lower()
+    phone = (body.phone or "").strip() or None
+
+    if not roll:
+        raise HTTPException(status_code=400, detail="Roll number is required")
+    if not name:
+        raise HTTPException(status_code=400, detail="Full name is required")
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+
+    # Check uniqueness (PK constraint is the real guard against races)
+    existing = supabase.table("students")\
+        .select("roll_number").eq("roll_number", roll).execute()
+    if existing.data:
+        raise HTTPException(
+            status_code=409,
+            detail="This roll number is already registered. If this is a mistake, contact your examiner.")
+
+    try:
+        supabase.table("students").insert({
+            "roll_number": roll,
+            "full_name":   name,
+            "email":       email,
+            "phone":       phone,
+        }).execute()
+    except Exception as e:
+        # Catch PK violation from race condition
+        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+            raise HTTPException(status_code=409, detail="This roll number is already registered.")
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+
+    return {"status": "registered", "roll_number": roll, "full_name": name}
+
+@app.get("/api/exam-schedule")
+def get_public_schedule():
+    """Public endpoint — returns exam title and schedule for download/register pages."""
+    config = _load_exam_config()
+    return {
+        "exam_title":  config.get("exam_title", "Exam"),
+        "duration_minutes": config.get("duration_minutes", 60),
+        "starts_at":   config.get("starts_at"),
+        "ends_at":     config.get("ends_at"),
+    }
+
 @app.post("/api/validate-student")
 @limiter.limit("10/minute")
 def validate_student(request: Request, body: ValidateIn):
+    # Check exam time window
+    config = _load_exam_config()
+    now_utc = datetime.now(timezone.utc)
+    if config.get("starts_at"):
+        starts = datetime.fromisoformat(str(config["starts_at"]).replace("Z", "+00:00"))
+        if now_utc < starts:
+            raise HTTPException(
+                status_code=403,
+                detail=f"The exam has not started yet. It begins at {fmt_ist(config['starts_at'])}.")
+    if config.get("ends_at"):
+        ends = datetime.fromisoformat(str(config["ends_at"]).replace("Z", "+00:00"))
+        if now_utc > ends:
+            raise HTTPException(
+                status_code=403,
+                detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
+
     # Check exam access code if configured (loaded from Supabase, persists across restarts)
     current_code = _get_access_code()
     if current_code:
@@ -1261,6 +1344,41 @@ def set_access_code(request: Request, body: dict):
     new_code = str(body.get("access_code", "")).strip().upper()
     _set_access_code(new_code)
     return {"access_code": new_code, "enabled": bool(new_code)}
+
+@app.get("/api/admin/registered-count")
+def registered_count(request: Request):
+    """Return total number of registered students."""
+    require_admin(request)
+    result = supabase.table("students").select("roll_number", count="exact").execute()
+    return {"count": result.count if result.count is not None else len(result.data or [])}
+
+@app.get("/api/admin/exam-schedule")
+def admin_get_schedule(request: Request):
+    """Return current exam schedule for the admin dashboard."""
+    require_admin(request)
+    config = _load_exam_config()
+    return {
+        "exam_title": config.get("exam_title", "Exam"),
+        "starts_at":  config.get("starts_at"),
+        "ends_at":    config.get("ends_at"),
+    }
+
+@app.post("/api/admin/exam-schedule")
+def admin_set_schedule(request: Request, body: dict):
+    """Set or clear exam start/end times (persisted in Supabase)."""
+    require_admin(request)
+    update = {"id": 1}
+    # Accept ISO strings or null to clear
+    if "starts_at" in body:
+        update["starts_at"] = body["starts_at"]
+    if "ends_at" in body:
+        update["ends_at"] = body["ends_at"]
+    supabase.table("exam_config").upsert(update).execute()
+    return {
+        "status":    "updated",
+        "starts_at": body.get("starts_at"),
+        "ends_at":   body.get("ends_at"),
+    }
 
 @app.post("/api/admin-submit/{session_id}")
 def admin_submit(session_id: str, request: Request):

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Register — Proctor Browser</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;
+        --muted:#8b949e;--blue:#58a6ff;--green:#3fb950;--red:#ff7b72}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       background:var(--bg);color:var(--text);min-height:100vh;
+       display:flex;align-items:center;justify-content:center;padding:24px}
+
+  .container{max-width:520px;width:100%;text-align:center}
+  .logo{font-size:56px;margin-bottom:12px}
+  h1{color:var(--blue);font-size:26px;margin-bottom:6px}
+  .subtitle{color:var(--muted);font-size:14px;margin-bottom:28px;line-height:1.6}
+
+  .schedule-banner{display:none;background:var(--card);border:1px solid var(--border);
+    border-radius:10px;padding:16px 20px;margin-bottom:20px;text-align:center}
+  .schedule-title{font-size:15px;color:var(--blue);font-weight:700}
+  .schedule-times{font-size:13px;color:var(--muted);margin-top:4px}
+  .schedule-warn{display:none;margin-top:8px;color:var(--red);font-size:13px;font-weight:600}
+
+  .form-card{background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:32px;text-align:left}
+  .fg{margin-bottom:16px}
+  .fg label{display:block;font-size:12px;color:var(--muted);font-weight:600;
+    text-transform:uppercase;margin-bottom:6px}
+  .fg label .opt{text-transform:none;font-weight:400;font-size:11px}
+  .fg input{width:100%;background:var(--bg);border:1px solid var(--border);
+    border-radius:6px;padding:11px 14px;color:var(--text);font-size:14px}
+  .fg input:focus{outline:none;border-color:var(--blue)}
+  .fg input.err-border{border-color:var(--red)}
+
+  .btn{width:100%;padding:14px;border-radius:6px;border:none;
+    font-size:15px;font-weight:700;cursor:pointer;
+    background:#238636;color:#fff;transition:.2s}
+  .btn:hover{background:#2ea043}
+  .btn:disabled{background:#2d333b;color:#484f58;cursor:not-allowed}
+
+  .err-msg{color:var(--red);font-size:13px;margin-top:10px;min-height:18px;text-align:center}
+  .loading{color:var(--muted);font-size:13px;margin-top:8px;text-align:center}
+
+  .success-card{display:none;background:var(--card);border:1px solid var(--border);
+    border-radius:12px;padding:40px;text-align:center}
+  .success-icon{font-size:56px;margin-bottom:12px}
+  .success-card h2{color:var(--green);font-size:22px;margin-bottom:8px}
+  .success-card p{color:var(--muted);font-size:14px;line-height:1.7}
+  .success-card .roll-display{font-size:28px;font-weight:700;color:var(--blue);
+    margin:16px 0;font-family:monospace;letter-spacing:2px}
+  .success-card .next-steps{background:var(--bg);border-radius:8px;padding:16px;
+    margin-top:20px;text-align:left}
+  .success-card .next-steps h3{font-size:13px;color:var(--blue);margin-bottom:8px}
+  .success-card .next-steps ol{padding-left:18px;color:var(--muted);font-size:13px;line-height:2}
+  .success-card .next-steps li strong{color:var(--text)}
+
+  .footer{margin-top:28px;font-size:12px;color:var(--muted)}
+  .footer a{color:var(--blue);text-decoration:none}
+
+  .links{margin-top:16px;font-size:13px}
+  .links a{color:var(--blue);text-decoration:none;margin:0 8px}
+  .links a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="logo">🎓</div>
+  <h1>Student Registration</h1>
+  <p class="subtitle">Register before exam day to receive access to the proctored exam.</p>
+
+  <!-- Exam schedule banner -->
+  <div class="schedule-banner" id="schedule-banner">
+    <div class="schedule-title" id="sched-title"></div>
+    <div class="schedule-times" id="sched-times"></div>
+    <div class="schedule-warn" id="sched-warn"></div>
+  </div>
+
+  <!-- Registration form -->
+  <div class="form-card" id="reg-form">
+    <div class="fg">
+      <label>Full Name</label>
+      <input type="text" id="inp-name" placeholder="e.g. Arihant Kaul"
+             autocomplete="name" spellcheck="false"
+             oninput="clearErr()">
+    </div>
+    <div class="fg">
+      <label>Roll Number</label>
+      <input type="text" id="inp-roll" placeholder="e.g. CS2024001"
+             autocomplete="off" spellcheck="false"
+             style="text-transform:uppercase;font-family:monospace;font-weight:600;letter-spacing:1px"
+             oninput="this.value=this.value.toUpperCase().trim();clearErr()">
+    </div>
+    <div class="fg">
+      <label>Email</label>
+      <input type="email" id="inp-email" placeholder="e.g. arihant@university.edu"
+             autocomplete="email"
+             oninput="clearErr()">
+    </div>
+    <div class="fg">
+      <label>Phone <span class="opt">(optional)</span></label>
+      <input type="tel" id="inp-phone" placeholder="e.g. 9876543210"
+             autocomplete="tel">
+    </div>
+    <button class="btn" id="reg-btn" onclick="doRegister()">Register</button>
+    <div class="err-msg" id="reg-err"></div>
+    <div class="loading" id="reg-ldr"></div>
+  </div>
+
+  <!-- Success card (shown after registration) -->
+  <div class="success-card" id="reg-success">
+    <div class="success-icon">&#10003;</div>
+    <h2>Registration Complete!</h2>
+    <div class="roll-display" id="success-roll"></div>
+    <p id="success-name"></p>
+    <div class="next-steps">
+      <h3>Next Steps</h3>
+      <ol>
+        <li>Wait for the <strong>exam access code</strong> from your examiner</li>
+        <li><strong>Download</strong> the Proctor Browser app on exam day</li>
+        <li>Enter your <strong>Roll Number</strong> and <strong>Access Code</strong> to start</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="links">
+    <a href="/download">Download App</a> &bull;
+    <a href="/">Home</a>
+  </div>
+
+  <div class="footer">
+    <p>Powered by AI Proctor &bull; <a href="https://procta.net">procta.net</a></p>
+  </div>
+</div>
+
+<script>
+function clearErr(){
+  document.getElementById('reg-err').textContent='';
+  document.querySelectorAll('.err-border').forEach(e=>e.classList.remove('err-border'));
+}
+
+async function doRegister(){
+  clearErr();
+  const name  = document.getElementById('inp-name').value.trim();
+  const roll  = document.getElementById('inp-roll').value.trim().toUpperCase();
+  const email = document.getElementById('inp-email').value.trim();
+  const phone = document.getElementById('inp-phone').value.trim();
+
+  // Client-side validation
+  const errors = [];
+  if(!name){
+    errors.push('Full name is required');
+    document.getElementById('inp-name').classList.add('err-border');
+  }
+  if(!roll){
+    errors.push('Roll number is required');
+    document.getElementById('inp-roll').classList.add('err-border');
+  }
+  if(!email || !email.includes('@')){
+    errors.push('A valid email is required');
+    document.getElementById('inp-email').classList.add('err-border');
+  }
+  if(errors.length){
+    document.getElementById('reg-err').textContent=errors[0];
+    return;
+  }
+
+  const btn = document.getElementById('reg-btn');
+  btn.disabled = true;
+  document.getElementById('reg-ldr').textContent = 'Registering...';
+
+  try{
+    const r = await fetch('/api/register-student', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null})
+    });
+    const d = await r.json();
+    if(!r.ok){
+      throw new Error(d.detail || 'Registration failed');
+    }
+    // Success — show confirmation
+    document.getElementById('reg-form').style.display = 'none';
+    document.getElementById('reg-success').style.display = 'block';
+    document.getElementById('success-roll').textContent = d.roll_number;
+    document.getElementById('success-name').textContent = 'Registered as: ' + d.full_name;
+  }catch(e){
+    document.getElementById('reg-err').textContent = e.message;
+    btn.disabled = false;
+  }
+  document.getElementById('reg-ldr').textContent = '';
+}
+
+// Load exam schedule on page load
+(function(){
+  fetch('/api/exam-schedule').then(r=>r.json()).then(d=>{
+    if(!d.starts_at && !d.ends_at) return;
+    const banner = document.getElementById('schedule-banner');
+    banner.style.display = 'block';
+    document.getElementById('sched-title').textContent = d.exam_title || 'Exam';
+    const opts = {timeZone:'Asia/Kolkata', year:'numeric', month:'short', day:'numeric',
+                  hour:'2-digit', minute:'2-digit', hour12:true};
+    let times = '';
+    if(d.starts_at) times += 'Starts: ' + new Date(d.starts_at).toLocaleString('en-IN', opts);
+    if(d.ends_at) times += (times ? '  |  ' : '') + 'Ends: ' + new Date(d.ends_at).toLocaleString('en-IN', opts);
+    document.getElementById('sched-times').textContent = times;
+    if(d.duration_minutes) {
+      document.getElementById('sched-times').textContent += '  |  Duration: ' + d.duration_minutes + ' min';
+    }
+  }).catch(()=>{});
+})();
+</script>
+</body>
+</html>

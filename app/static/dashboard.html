@@ -372,6 +372,10 @@
   <div class="panel" id="panel-tools">
     <div class="stats">
       <div class="stat">
+        <div class="label">Registered Students</div>
+        <div class="value blue" id="tools-registered">--</div>
+      </div>
+      <div class="stat">
         <div class="label">Failed Submissions</div>
         <div class="value red" id="tools-failed">--</div>
       </div>
@@ -418,6 +422,29 @@
           <button class="action-btn" onclick="clearAccessCode()" style="color:var(--red)">Clear</button>
         </div>
         <div id="access-code-status" style="font-size:12px;min-height:18px"></div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:24px;flex:1;min-width:280px">
+        <h3 style="font-size:15px;color:var(--blue);margin-bottom:8px">Schedule Exam</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+          Set exam start and end times. Students cannot begin outside this window. Leave empty for no restrictions.
+        </p>
+        <div style="margin-bottom:10px">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;font-weight:600">Starts At (IST)</label>
+          <input type="datetime-local" id="schedule-start"
+                 style="width:100%;background:var(--bg);border:1px solid var(--border);
+                        border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;font-family:inherit">
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;font-weight:600">Ends At (IST)</label>
+          <input type="datetime-local" id="schedule-end"
+                 style="width:100%;background:var(--bg);border:1px solid var(--border);
+                        border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;font-family:inherit">
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="action-btn primary" onclick="saveSchedule()">Save Schedule</button>
+          <button class="action-btn" onclick="clearSchedule()" style="color:var(--red)">Clear</button>
+        </div>
+        <div id="schedule-status" style="margin-top:10px;font-size:12px;min-height:18px"></div>
       </div>
     </div>
   </div>
@@ -509,7 +536,7 @@ function switchTab(tab){
 // ── REFRESH ─────────────────────────────────────────────────────
 async function refreshAll(){
   document.getElementById('refresh-spin').style.display='inline-block';
-  await Promise.all([refreshLive(), refreshResults(), loadFailedCount(), loadAccessCode()]);
+  await Promise.all([refreshLive(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule()]);
   document.getElementById('refresh-spin').style.display='none';
   document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString();
 }
@@ -933,6 +960,97 @@ async function saveAccessCode(){
 function clearAccessCode(){
   document.getElementById('access-code-input').value='';
   saveAccessCode();
+}
+
+// ── REGISTERED COUNT ────────────────────────────────────────────
+async function loadRegisteredCount(){
+  try{
+    const r=await fetch(`${BASE}/api/admin/registered-count`,{headers:hdr()});
+    if(!r.ok) return;
+    const d=await r.json();
+    document.getElementById('tools-registered').textContent=d.count;
+  }catch(e){}
+}
+
+// ── EXAM SCHEDULE ───────────────────────────────────────────────
+async function loadSchedule(){
+  try{
+    const r=await fetch(`${BASE}/api/admin/exam-schedule`,{headers:hdr()});
+    if(!r.ok) return;
+    const d=await r.json();
+    if(d.starts_at) document.getElementById('schedule-start').value=utcToLocalInput(d.starts_at);
+    if(d.ends_at) document.getElementById('schedule-end').value=utcToLocalInput(d.ends_at);
+    updateScheduleStatus(d);
+  }catch(e){}
+}
+
+function utcToLocalInput(iso){
+  if(!iso) return '';
+  // Convert UTC ISO to IST datetime-local value (IST = UTC+5:30)
+  const d=new Date(iso);
+  const ist=new Date(d.getTime()+5.5*60*60*1000);
+  return ist.toISOString().slice(0,16);
+}
+
+function localInputToUtc(val){
+  if(!val) return null;
+  // The datetime-local input is treated as IST — convert to UTC ISO
+  const parts=val.split('T');
+  if(parts.length!==2) return null;
+  // Build an IST date and subtract 5:30 to get UTC
+  const ist=new Date(val+':00+05:30');
+  return ist.toISOString();
+}
+
+function updateScheduleStatus(d){
+  const st=document.getElementById('schedule-status');
+  if(!d.starts_at&&!d.ends_at){
+    st.style.color='var(--muted)';
+    st.textContent='No schedule set — exam is always accessible.';
+    return;
+  }
+  const opts={timeZone:'Asia/Kolkata',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true};
+  let msg='';
+  if(d.starts_at) msg+='Opens: '+new Date(d.starts_at).toLocaleString('en-IN',opts);
+  if(d.ends_at) msg+=(msg?' | ':'')+'Closes: '+new Date(d.ends_at).toLocaleString('en-IN',opts);
+  const now=new Date();
+  let color='var(--green)';
+  if(d.starts_at&&now<new Date(d.starts_at)){color='var(--yellow)';msg+=' (not started yet)';}
+  else if(d.ends_at&&now>new Date(d.ends_at)){color='var(--red)';msg+=' (ended)';}
+  else{msg+=' (active now)';}
+  st.style.color=color;
+  st.textContent=msg;
+}
+
+async function saveSchedule(){
+  const st=document.getElementById('schedule-status');
+  const starts=document.getElementById('schedule-start').value;
+  const ends=document.getElementById('schedule-end').value;
+  // Validate end > start if both set
+  if(starts&&ends&&new Date(starts)>=new Date(ends)){
+    st.style.color='var(--red)';
+    st.textContent='End time must be after start time.';
+    return;
+  }
+  try{
+    const r=await fetch(`${BASE}/api/admin/exam-schedule`,{
+      method:'POST',headers:hdr(),
+      body:JSON.stringify({starts_at:localInputToUtc(starts),ends_at:localInputToUtc(ends)})
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    st.style.color='var(--green)';
+    st.textContent='Schedule saved!';
+    setTimeout(()=>loadSchedule(),1000);
+  }catch(e){
+    st.style.color='var(--red)';
+    st.textContent='Failed: '+e.message;
+  }
+}
+
+function clearSchedule(){
+  document.getElementById('schedule-start').value='';
+  document.getElementById('schedule-end').value='';
+  saveSchedule();
 }
 
 // ── QUESTIONS EDITOR ────────────────────────────────────────────

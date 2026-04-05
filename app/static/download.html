@@ -64,6 +64,14 @@
     then enter your Roll Number to begin the exam.
   </p>
 
+  <!-- Exam schedule banner -->
+  <div id="exam-schedule" style="display:none;background:var(--card);border:1px solid var(--border);
+    border-radius:10px;padding:16px 20px;margin-bottom:16px">
+    <div style="font-size:15px;color:var(--blue);font-weight:700" id="dl-sched-title"></div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px" id="dl-sched-times"></div>
+    <div id="dl-sched-warn" style="display:none;margin-top:8px;color:var(--red);font-size:13px;font-weight:600"></div>
+  </div>
+
   <!-- Auto-detected OS -->
   <div class="detected">
     <div class="os-name" id="os-name">Detecting your system...</div>
@@ -108,6 +116,10 @@
       <li><strong>Complete face calibration</strong> — look straight, left, and right</li>
       <li><strong>Take the exam</strong> — the AI proctor monitors automatically</li>
     </ol>
+  </div>
+
+  <div style="margin-top:20px;font-size:13px">
+    <a href="/register" style="color:var(--blue);text-decoration:none">Not registered? Sign up here &rarr;</a>
   </div>
 
   <div class="footer">
@@ -202,6 +214,30 @@
   checkLink('dl-mac-arm', '/download/mac');
   checkLink('dl-mac-x64', '/download/mac-x64');
   checkLink('dl-win', '/download/win');
+
+  // Load exam schedule
+  fetch('/api/exam-schedule').then(r=>r.json()).then(d=>{
+    if(!d.starts_at && !d.ends_at) return;
+    const banner = document.getElementById('exam-schedule');
+    banner.style.display = 'block';
+    document.getElementById('dl-sched-title').textContent = d.exam_title || 'Exam';
+    const opts = {timeZone:'Asia/Kolkata', month:'short', day:'numeric',
+                  hour:'2-digit', minute:'2-digit', hour12:true};
+    let times = '';
+    if(d.starts_at) times += 'Starts: ' + new Date(d.starts_at).toLocaleString('en-IN', opts);
+    if(d.ends_at) times += (times ? '  |  ' : '') + 'Ends: ' + new Date(d.ends_at).toLocaleString('en-IN', opts);
+    if(d.duration_minutes) times += '  |  Duration: ' + d.duration_minutes + ' min';
+    document.getElementById('dl-sched-times').textContent = times;
+    const now = new Date();
+    const warn = document.getElementById('dl-sched-warn');
+    if(d.starts_at && now < new Date(d.starts_at)){
+      warn.style.display = 'block';
+      warn.textContent = 'The exam has not started yet. Download the app now and wait for the start time.';
+    } else if(d.ends_at && now > new Date(d.ends_at)){
+      warn.style.display = 'block';
+      warn.textContent = 'The exam window has closed.';
+    }
+  }).catch(()=>{});
 })();
 </script>
 </body>

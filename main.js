@@ -8,8 +8,8 @@ const os      = require('os');
 const fs      = require('fs');
 const https   = require('https');
 
-const SERVER_URL = 'https://procta.net';
-const ADMIN_CODE = 'EXIT2026';
+const SERVER_URL = process.env.PROCTOR_SERVER_URL || 'https://procta.net';
+const ADMIN_CODE = process.env.EXIT_CODE || 'EXIT2026';
 
 let mainWindow      = null;
 let setupWindow     = null;

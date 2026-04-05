@@ -21,3 +21,9 @@ logs/
 
 # Docs
 *.md
+
+# Credentials — never include in Docker image
+app/credentials.json
+
+# Client-side proctoring script (runs in Electron, not in Docker)
+app/proctor.py

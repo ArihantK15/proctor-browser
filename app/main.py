@@ -49,6 +49,7 @@ SCREENSHOTS_DIR  = os.getenv("SCREENSHOTS_DIR", "/app/screenshots")
 DOWNLOAD_MAC_ARM = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN     = os.getenv("DOWNLOAD_WIN", "")
+EXAM_ACCESS_CODE = os.getenv("EXAM_ACCESS_CODE", "")
 TOKEN_TTL_HOURS  = 10
 
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
@@ -139,6 +140,7 @@ class EventIn(BaseModel):
 
 class ValidateIn(BaseModel):
     roll_number: str
+    access_code: Optional[str] = None
 
 class ResultIn(BaseModel):
     session_id:      str
@@ -346,6 +348,12 @@ def health():
 @app.post("/api/validate-student")
 @limiter.limit("10/minute")
 def validate_student(request: Request, body: ValidateIn):
+    # Check exam access code if configured
+    if EXAM_ACCESS_CODE:
+        if not body.access_code or body.access_code.strip().upper() != EXAM_ACCESS_CODE.strip().upper():
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid exam access code. Ask your examiner for the correct code.")
     result = supabase.table("students")\
         .select("*")\
         .eq("roll_number", body.roll_number.strip().upper())\
@@ -1185,6 +1193,22 @@ def update_questions(request: Request, body: dict):
     with open(QUESTIONS_FILE, "w") as f:
         json.dump(body, f, indent=2)
     return {"status": "updated", "count": len(questions)}
+
+@app.get("/api/admin/access-code")
+def get_access_code(request: Request):
+    """Return the current exam access code."""
+    require_admin(request)
+    global EXAM_ACCESS_CODE
+    return {"access_code": EXAM_ACCESS_CODE, "enabled": bool(EXAM_ACCESS_CODE)}
+
+@app.post("/api/admin/access-code")
+def set_access_code(request: Request, body: dict):
+    """Set or clear the exam access code."""
+    require_admin(request)
+    global EXAM_ACCESS_CODE
+    new_code = str(body.get("access_code", "")).strip().upper()
+    EXAM_ACCESS_CODE = new_code
+    return {"access_code": EXAM_ACCESS_CODE, "enabled": bool(EXAM_ACCESS_CODE)}
 
 @app.post("/api/admin-submit/{session_id}")
 def admin_submit(session_id: str, request: Request):

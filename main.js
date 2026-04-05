@@ -709,11 +709,11 @@ ipcMain.handle('get-integrity-flags', () => {
   return integrityFlags;
 });
 
-ipcMain.handle('validate-student', async (_, roll) => {
+ipcMain.handle('validate-student', async (_, roll, accessCode) => {
   const r = await fetch(`${SERVER_URL}/api/validate-student`, {
     method:  'POST',
     headers: {'Content-Type': 'application/json'},
-    body:    JSON.stringify({roll_number: roll})
+    body:    JSON.stringify({roll_number: roll, access_code: accessCode || ''})
   });
   if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
   const data = await r.json();

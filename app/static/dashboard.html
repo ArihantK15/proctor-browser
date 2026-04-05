@@ -402,6 +402,23 @@
         <button class="action-btn" onclick="loadFailed()">Check Failed</button>
         <div id="failed-result" style="margin-top:10px;font-size:13px"></div>
       </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:24px;flex:1;min-width:280px">
+        <h3 style="font-size:15px;color:var(--blue);margin-bottom:8px">Exam Access Code</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+          Students must enter this code along with their roll number to start the exam.
+          Leave empty to disable.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <input type="text" id="access-code-input" placeholder="e.g. ABC123"
+                 style="width:160px;background:var(--bg);border:1px solid var(--border);
+                        border-radius:6px;padding:8px 12px;color:var(--text);font-size:16px;
+                        font-weight:700;letter-spacing:2px;text-transform:uppercase;font-family:monospace">
+          <button class="action-btn primary" onclick="saveAccessCode()">Save</button>
+          <button class="action-btn" onclick="generateAccessCode()">Generate</button>
+          <button class="action-btn" onclick="clearAccessCode()" style="color:var(--red)">Clear</button>
+        </div>
+        <div id="access-code-status" style="font-size:12px;min-height:18px"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -492,7 +509,7 @@ function switchTab(tab){
 // ── REFRESH ─────────────────────────────────────────────────────
 async function refreshAll(){
   document.getElementById('refresh-spin').style.display='inline-block';
-  await Promise.all([refreshLive(), refreshResults(), loadFailedCount()]);
+  await Promise.all([refreshLive(), refreshResults(), loadFailedCount(), loadAccessCode()]);
   document.getElementById('refresh-spin').style.display='none';
   document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString();
 }
@@ -861,6 +878,46 @@ async function forceSubmit(sid){
     loadFailed();
     refreshResults();
   }catch(e){alert('Failed: '+e.message);}
+}
+
+// ── ACCESS CODE ────────────────────────────────────────────────
+async function loadAccessCode(){
+  try{
+    const r=await fetch(`${BASE}/api/admin/access-code`,{headers:hdr()});
+    const d=await r.json();
+    document.getElementById('access-code-input').value=d.access_code||'';
+    const st=document.getElementById('access-code-status');
+    st.style.color=d.enabled?'var(--green)':'var(--muted)';
+    st.textContent=d.enabled?`Active: students need code "${d.access_code}" to start`:'Disabled: no code required';
+  }catch(e){}
+}
+
+function generateAccessCode(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I/O/0/1 to avoid confusion
+  let code='';
+  for(let i=0;i<6;i++) code+=chars[Math.floor(Math.random()*chars.length)];
+  document.getElementById('access-code-input').value=code;
+}
+
+async function saveAccessCode(){
+  const code=document.getElementById('access-code-input').value.trim().toUpperCase();
+  const st=document.getElementById('access-code-status');
+  try{
+    const r=await fetch(`${BASE}/api/admin/access-code`,{
+      method:'POST',headers:hdr(),body:JSON.stringify({access_code:code})
+    });
+    const d=await r.json();
+    st.style.color=d.enabled?'var(--green)':'var(--muted)';
+    st.textContent=d.enabled?`Saved! Students need code "${d.access_code}" to start`:'Cleared — no code required';
+  }catch(e){
+    st.style.color='var(--red)';
+    st.textContent='Failed to save: '+e.message;
+  }
+}
+
+function clearAccessCode(){
+  document.getElementById('access-code-input').value='';
+  saveAccessCode();
 }
 
 // ── QUESTIONS EDITOR ────────────────────────────────────────────

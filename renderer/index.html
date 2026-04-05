@@ -129,6 +129,15 @@
              oninput="this.value=this.value.toUpperCase().trim();clearLoginErr()"
              onkeydown="if(event.key==='Enter')doLogin()">
     </div>
+    <div class="fg">
+      <label>Exam Access Code <span style="font-size:11px;color:#8b949e;font-weight:400">(from your examiner)</span></label>
+      <input type="text" id="code-input"
+             placeholder="e.g. ABC123"
+             autocomplete="off" spellcheck="false"
+             style="text-transform:uppercase;letter-spacing:2px;font-family:monospace;font-weight:700"
+             oninput="this.value=this.value.toUpperCase().trim();clearLoginErr()"
+             onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
     <button class="btn" id="login-btn" onclick="doLogin()">
       Verify & Continue
     </button>
@@ -286,7 +295,8 @@ async function doLogin(){
   document.getElementById('login-err').textContent='';
   document.getElementById('login-ldr').textContent='Verifying...';
   try{
-    student      = await window.proctor.validateStudent(roll);
+    const accessCode=document.getElementById('code-input').value.trim().toUpperCase();
+    student      = await window.proctor.validateStudent(roll, accessCode);
     studentToken = student.token || null;
     document.getElementById('login-ldr').textContent='Checking for existing session...';
 

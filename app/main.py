@@ -44,7 +44,7 @@ def fmt_ist(ts_str):
 
 SECRET_KEY       = os.environ["SUPABASE_JWT_SECRET"]
 ADMIN_PASSWORD   = os.getenv("ADMIN_PASSWORD", "ProctorAdmin2026!")
-QUESTIONS_FILE   = "/app/questions.json"
+# Questions are stored in Supabase (questions + exam_config tables)
 SCREENSHOTS_DIR  = os.getenv("SCREENSHOTS_DIR", "/app/screenshots")
 DOWNLOAD_MAC_ARM = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
@@ -184,12 +184,30 @@ _NON_VIOLATION_TYPES = {
 def _is_violation(vtype: str) -> bool:
     return vtype not in _NON_VIOLATION_TYPES
 
+def _load_questions() -> list[dict]:
+    """Load all questions from Supabase, ordered by question_id."""
+    result = supabase.table("questions")\
+        .select("question_id,question,options,correct")\
+        .order("question_id").execute()
+    return [
+        {"id": q["question_id"], "question": q["question"],
+         "options": q["options"], "correct": q["correct"]}
+        for q in (result.data or [])
+    ]
+
+def _load_exam_config() -> dict:
+    """Load exam config (title, duration) from Supabase."""
+    result = supabase.table("exam_config")\
+        .select("exam_title,duration_minutes").eq("id", 1).execute()
+    if result.data:
+        return result.data[0]
+    return {"exam_title": "Exam", "duration_minutes": 60}
+
+
 def _recalculate_score(session_id: str, payload_answers: dict) -> tuple[int, int]:
-    """Calculate score server-side from questions.json + saved answers."""
+    """Calculate score server-side from Supabase questions + saved answers."""
     try:
-        with open(QUESTIONS_FILE) as f:
-            qdata = json.load(f)
-        questions = qdata.get("questions", [])
+        questions = _load_questions()
         total = len(questions)
         # Merge DB answers with payload answers (payload takes precedence)
         saved = supabase.table("answers").select("question_id,answer")\
@@ -415,18 +433,15 @@ def download_win():
 @app.get("/api/questions")
 def get_questions(request: Request):
     require_auth(request)
-    if not os.path.exists(QUESTIONS_FILE):
+    questions = _load_questions()
+    if not questions:
         raise HTTPException(status_code=404, detail="Questions not found")
-    with open(QUESTIONS_FILE) as f:
-        data = json.load(f)
+    config = _load_exam_config()
     # Strip correct answers — students must never see them
-    safe_questions = []
-    for q in data.get("questions", []):
-        sq = {k: v for k, v in q.items() if k != "correct"}
-        safe_questions.append(sq)
+    safe_questions = [{k: v for k, v in q.items() if k != "correct"} for q in questions]
     return {
-        "exam_title": data.get("exam_title", "Exam"),
-        "duration_minutes": data.get("duration_minutes"),
+        "exam_title": config.get("exam_title", "Exam"),
+        "duration_minutes": config.get("duration_minutes"),
         "questions": safe_questions,
     }
 
@@ -538,7 +553,7 @@ def submit_exam(result: ResultIn, request: Request):
     # Server-side scoring — never trust client score
     server_score, server_total = _recalculate_score(result.session_id, result.answers)
     if server_score == -1:
-        # questions.json failed to load — fallback to client score
+        # Supabase questions failed to load — fallback to client score
         server_score = result.score
         server_total = result.total
 
@@ -559,9 +574,8 @@ def submit_exam(result: ResultIn, request: Request):
 
     # Check time exceeded
     try:
-        with open(QUESTIONS_FILE) as f:
-            qdata = json.load(f)
-        allowed_secs = qdata.get("duration_minutes", 60) * 60
+        config = _load_exam_config()
+        allowed_secs = config.get("duration_minutes", 60) * 60
         if result.time_taken_secs > allowed_secs + 120:  # 2 min grace
             supabase.table("violations").insert({
                 "session_key":    result.session_id,
@@ -1016,10 +1030,9 @@ def export_pdf(session_id: str, request: Request):
 
         # Load questions for correct answers
         try:
-            with open(QUESTIONS_FILE) as f:
-                qdata_pdf = json.load(f)
-            q_correct = {str(q["id"]): str(q.get("correct", "")) for q in qdata_pdf.get("questions", [])}
-            q_texts = {str(q["id"]): q.get("question", "")[:50] for q in qdata_pdf.get("questions", [])}
+            pdf_questions = _load_questions()
+            q_correct = {str(q["id"]): str(q.get("correct", "")) for q in pdf_questions}
+            q_texts = {str(q["id"]): q.get("question", "")[:50] for q in pdf_questions}
         except Exception:
             q_correct = {}
             q_texts = {}
@@ -1120,25 +1133,23 @@ def backfill_risk_scores(request: Request):
 
 @app.get("/api/admin/questions")
 def get_admin_questions(request: Request):
-    """Return full questions.json including correct answers (admin only)."""
+    """Return all questions including correct answers (admin only)."""
     require_admin(request)
-    if not os.path.exists(QUESTIONS_FILE):
-        return {"exam_title": "", "duration_minutes": 60, "questions": []}
-    with open(QUESTIONS_FILE) as f:
-        return json.load(f)
+    config = _load_exam_config()
+    questions = _load_questions()
+    return {
+        "exam_title": config.get("exam_title", "Exam"),
+        "duration_minutes": config.get("duration_minutes", 60),
+        "questions": questions,
+    }
 
 @app.get("/api/admin/answers/{session_id:path}")
 def get_admin_answers(session_id: str, request: Request):
     """Return student answers merged with correct answers for the detail modal."""
     require_admin(request)
 
-    # Load questions
-    try:
-        with open(QUESTIONS_FILE) as f:
-            qdata = json.load(f)
-        questions = qdata.get("questions", [])
-    except Exception:
-        questions = []
+    # Load questions from Supabase
+    questions = _load_questions()
 
     # Fetch student answers
     ans_result = supabase.table("answers").select("question_id,answer")\
@@ -1165,7 +1176,7 @@ def get_admin_answers(session_id: str, request: Request):
 
 @app.post("/api/admin/questions")
 def update_questions(request: Request, body: dict):
-    """Update questions.json without rebuilding Docker image."""
+    """Update questions in Supabase."""
     require_admin(request)
     if "questions" not in body:
         raise HTTPException(status_code=400, detail="Missing 'questions' key")
@@ -1190,8 +1201,20 @@ def update_questions(request: Request, body: dict):
                 status_code=400,
                 detail=f"Question {i+1}: 'correct' value '{q['correct']}' not in options"
             )
-    with open(QUESTIONS_FILE, "w") as f:
-        json.dump(body, f, indent=2)
+    # Update exam config
+    supabase.table("exam_config").upsert({
+        "id": 1,
+        "exam_title": body.get("exam_title", "Exam"),
+        "duration_minutes": body.get("duration_minutes", 60),
+    }).execute()
+    # Replace all questions: delete existing, insert new
+    supabase.table("questions").delete().neq("question_id", -1).execute()
+    records = [
+        {"question_id": q["id"], "question": q["question"],
+         "options": q["options"], "correct": str(q["correct"])}
+        for q in questions
+    ]
+    supabase.table("questions").insert(records).execute()
     return {"status": "updated", "count": len(questions)}
 
 @app.get("/api/admin/access-code")

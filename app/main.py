@@ -12,7 +12,6 @@ from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, RedirectResponse, FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import jwt, JWTError
@@ -102,6 +101,16 @@ def admin_dashboard():
     html_path = STATIC_DIR / "dashboard.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="Dashboard not found")
+    return HTMLResponse(html_path.read_text())
+
+
+# ─── STUDENT DOWNLOAD PAGE ────────────────────────────────────────
+@app.get("/download", response_class=HTMLResponse)
+def download_page():
+    """Auto-detect OS and offer the right installer."""
+    html_path = STATIC_DIR / "download.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="Download page not found")
     return HTMLResponse(html_path.read_text())
 
 

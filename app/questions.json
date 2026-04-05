@@ -1,5 +1,6 @@
 {
   "exam_title": "Computer Science Fundamentals",
+  "duration_minutes": 60,
   "questions": [
     {
       "id": 1,

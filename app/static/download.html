@@ -191,7 +191,7 @@
   // Check if download URLs are configured by testing HEAD requests
   function checkLink(id, url) {
     fetch(url, {method:'HEAD'}).then(r=>{
-      if(!r.ok && r.status !== 302) {
+      if(!r.ok) {
         document.getElementById(id).classList.add('disabled');
         document.getElementById(id).title = 'Not available yet';
       }

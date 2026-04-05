@@ -518,6 +518,7 @@ async function refreshAll(){
 async function refreshLive(){
   try{
     const r = await fetch(`${BASE}/sessions`,{headers:hdr()});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     liveData = d.all_sessions || [];
     renderLiveStats(d.sessions||[], liveData);
@@ -550,15 +551,16 @@ function renderLive(){
     const statusTxt = s.submitted?'Submitted':'Live';
     const sevColor = s.last_severity==='high'?'var(--red)':s.last_severity==='medium'?'var(--yellow)':'var(--muted)';
     const roll = s.session_id.split('_')[0];
+    const sid = esc(s.session_id);
     return `<tr>
-      <td><strong>${roll}</strong><br><span style="font-size:11px;color:var(--muted)">${s.session_id.substring(0,30)}...</span></td>
-      <td>${s.last_event.replace(/_/g,' ')}</td>
-      <td style="color:${sevColor};font-weight:600">${s.last_severity.toUpperCase()}</td>
-      <td style="font-size:12px">${s.last_seen}</td>
+      <td><strong>${esc(roll)}</strong><br><span style="font-size:11px;color:var(--muted)">${esc(s.session_id.substring(0,30))}...</span></td>
+      <td>${esc(s.last_event.replace(/_/g,' '))}</td>
+      <td style="color:${sevColor};font-weight:600">${esc(s.last_severity.toUpperCase())}</td>
+      <td style="font-size:12px">${esc(s.last_seen)}</td>
       <td><span class="status-badge ${statusCls}">${statusTxt}</span></td>
       <td>
-        <button class="action-btn" onclick="viewRisk('${s.session_id}')" style="padding:4px 10px;font-size:11px">Risk</button>
-        <button class="action-btn" onclick="currentSessionId='${s.session_id}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
+        <button class="action-btn" onclick="viewRisk('${sid}')" style="padding:4px 10px;font-size:11px">Risk</button>
+        <button class="action-btn" onclick="currentSessionId='${sid}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
       </td>
     </tr>`;
   }).join('');
@@ -575,6 +577,7 @@ function filterLive(){renderLive();}
 async function refreshResults(){
   try{
     const r = await fetch(`${BASE}/api/results`,{headers:hdr()});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     resultsData = d.results || [];
     renderResultsStats();
@@ -619,19 +622,20 @@ function renderResults(){
   tb.innerHTML = rows.map(r=>{
     const mins = Math.floor((r.time_taken_secs||0)/60);
     const secs = (r.time_taken_secs||0)%60;
+    const sid = esc(r.session_id);
     return `<tr>
-      <td><strong>${r.roll_number}</strong></td>
+      <td><strong>${esc(r.roll_number)}</strong></td>
       <td>${esc(r.full_name)}</td>
       <td>${r.score}/${r.total}</td>
       <td>${r.percentage}%</td>
       <td style="color:${r.violation_count>5?'var(--red)':r.violation_count>0?'var(--yellow)':'var(--green)'}">${r.violation_count}</td>
       <td>${riskBadge(r.risk_score, r.risk_label)}</td>
       <td>${mins}m ${secs}s</td>
-      <td style="font-size:11px;color:var(--muted)">${r.submitted_at||'—'}</td>
+      <td style="font-size:11px;color:var(--muted)">${esc(r.submitted_at||'—')}</td>
       <td>
-        <button class="action-btn" onclick="openDetail('${r.session_id}')" style="padding:4px 10px;font-size:11px">Detail</button>
-        <button class="action-btn" onclick="currentSessionId='${r.session_id}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
-        <button class="action-btn" onclick="dlPDF('${r.session_id}')" style="padding:4px 10px;font-size:11px">PDF</button>
+        <button class="action-btn" onclick="openDetail('${sid}')" style="padding:4px 10px;font-size:11px">Detail</button>
+        <button class="action-btn" onclick="currentSessionId='${sid}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
+        <button class="action-btn" onclick="dlPDF('${sid}')" style="padding:4px 10px;font-size:11px">PDF</button>
       </td>
     </tr>`;
   }).join('');
@@ -666,6 +670,7 @@ async function openDetail(sid){
   document.getElementById('detail-modal').classList.add('open');
   try{
     const resp = await fetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`,{headers:hdr()});
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const risk = await resp.json();
     renderBreakdown(risk);
   }catch(e){
@@ -674,6 +679,7 @@ async function openDetail(sid){
   // Load answer breakdown
   try{
     const ansResp = await fetch(`${BASE}/api/admin/answers/${encodeURIComponent(sid)}`,{headers:hdr()});
+    if(!ansResp.ok) throw new Error(`HTTP ${ansResp.status}`);
     const ansData = await ansResp.json();
     renderAnswerReview(ansData);
   }catch(e){
@@ -771,6 +777,7 @@ async function viewRisk(sid){
   document.getElementById('detail-modal').classList.add('open');
   try{
     const resp = await fetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`,{headers:hdr()});
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const risk = await resp.json();
     // Update info with live risk
     document.getElementById('modal-info').innerHTML=`
@@ -795,6 +802,7 @@ function exportCSV(){
 }
 async function fetchBlob(url,filename){
   const r = await fetch(url,{headers:hdr()});
+  if(!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
   const blob = await r.blob();
   const a = document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -817,6 +825,7 @@ async function doBackfill(){
   const el=document.getElementById('backfill-result');
   try{
     const r=await fetch(`${BASE}/api/admin/backfill-risk-scores`,{method:'POST',headers:hdr()});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     el.style.color='var(--green)';
     el.textContent=`Done! Backfilled ${d.backfilled} sessions.`;
@@ -832,6 +841,7 @@ async function doCleanup(){
   const el=document.getElementById('cleanup-result');
   try{
     const r=await fetch(`${BASE}/api/admin-cleanup`,{method:'POST',headers:hdr()});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     el.style.color='var(--green)';
     el.textContent=`Deleted ${d.deleted} old files.`;
@@ -845,14 +855,15 @@ async function loadFailed(){
   const el=document.getElementById('failed-result');
   try{
     const r=await fetch(`${BASE}/api/admin-failed-sessions`,{headers:hdr()});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     if(d.count===0){
       el.innerHTML='<span style="color:var(--green)">No failed sessions!</span>';
     } else {
       el.innerHTML=d.failed_sessions.map(s=>`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span style="font-size:12px;color:var(--text)">${s}</span>
-          <button class="action-btn" onclick="forceSubmit('${s}')" style="padding:2px 8px;font-size:11px">Force Submit</button>
+          <span style="font-size:12px;color:var(--text)">${esc(s)}</span>
+          <button class="action-btn" onclick="forceSubmit('${esc(s)}')" style="padding:2px 8px;font-size:11px">Force Submit</button>
         </div>
       `).join('');
     }
@@ -864,6 +875,7 @@ async function loadFailed(){
 async function loadFailedCount(){
   try{
     const r=await fetch(`${BASE}/api/admin-failed-sessions`,{headers:hdr()});
+    if(!r.ok) return;
     const d=await r.json();
     document.getElementById('tools-failed').textContent=d.count;
   }catch(e){}
@@ -873,6 +885,7 @@ async function forceSubmit(sid){
   if(!confirm(`Force-submit session ${sid}?`)) return;
   try{
     const r=await fetch(`${BASE}/api/admin-submit/${encodeURIComponent(sid)}`,{method:'POST',headers:hdr()});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     alert(`Force-submitted! Score: ${d.score}/${d.total}, Risk: ${d.risk_score}/100`);
     loadFailed();
@@ -884,6 +897,7 @@ async function forceSubmit(sid){
 async function loadAccessCode(){
   try{
     const r=await fetch(`${BASE}/api/admin/access-code`,{headers:hdr()});
+    if(!r.ok) return;
     const d=await r.json();
     document.getElementById('access-code-input').value=d.access_code||'';
     const st=document.getElementById('access-code-status');
@@ -906,6 +920,7 @@ async function saveAccessCode(){
     const r=await fetch(`${BASE}/api/admin/access-code`,{
       method:'POST',headers:hdr(),body:JSON.stringify({access_code:code})
     });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     st.style.color=d.enabled?'var(--green)':'var(--muted)';
     st.textContent=d.enabled?`Saved! Students need code "${d.access_code}" to start`:'Cleared — no code required';
@@ -931,6 +946,7 @@ async function loadQuestions(){
   document.getElementById('q-save-msg').textContent='';
   try{
     const r = await fetch(`${BASE}/api/admin/questions`,{headers:hdr()});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     qData = d.questions || [];
     document.getElementById('q-title').value = d.exam_title || '';

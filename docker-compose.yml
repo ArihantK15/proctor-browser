@@ -9,7 +9,6 @@ services:
       - .env
     volumes:
       - ./screenshots:/app/screenshots
-      - ./questions.json:/app/questions.json
       - ./logs:/data/logs
     mem_limit: 1400m       # leave ~600 MB for Caddy + OS on a 2 GB droplet
     memswap_limit: 1400m   # don't let it silently spill into swap

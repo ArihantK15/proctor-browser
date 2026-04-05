@@ -71,8 +71,8 @@ def require_auth(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     try:
         return jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
-    except JWTError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 def require_admin(request: Request):
     """Admin password auth — required for all admin endpoints."""
@@ -220,7 +220,7 @@ def _recalculate_score(session_id: str, payload_answers: dict) -> tuple[int, int
         return score, total
     except Exception as e:
         print(f"[Score] Recalculation failed: {e}")
-        return -1, -1  # signals fallback to client score
+        return 0, 0  # fail-safe: never trust client score
 
 # ─── BEHAVIORAL RISK SCORING ─────────────────────────────────────
 # Computes a 0–100 risk score from violation history.
@@ -552,10 +552,9 @@ def submit_exam(result: ResultIn, request: Request):
 
     # Server-side scoring — never trust client score
     server_score, server_total = _recalculate_score(result.session_id, result.answers)
-    if server_score == -1:
-        # Supabase questions failed to load — fallback to client score
-        server_score = result.score
-        server_total = result.total
+    if server_score == 0 and server_total == 0:
+        # Supabase questions failed to load — log warning, score stays 0
+        print(f"[WARN] Score recalculation returned 0/0 for {result.session_id} — check Supabase questions table")
 
     pct = round((server_score / max(server_total, 1)) * 100, 1)
 
@@ -1207,14 +1206,26 @@ def update_questions(request: Request, body: dict):
         "exam_title": body.get("exam_title", "Exam"),
         "duration_minutes": body.get("duration_minutes", 60),
     }).execute()
-    # Replace all questions: delete existing, insert new
-    supabase.table("questions").delete().neq("question_id", -1).execute()
-    records = [
-        {"question_id": q["id"], "question": q["question"],
-         "options": q["options"], "correct": str(q["correct"])}
-        for q in questions
-    ]
-    supabase.table("questions").insert(records).execute()
+    # Replace all questions: backup, delete, insert — rollback on failure
+    backup = supabase.table("questions").select("*").execute()
+    backup_rows = backup.data or []
+    try:
+        supabase.table("questions").delete().neq("question_id", -1).execute()
+        records = [
+            {"question_id": q["id"], "question": q["question"],
+             "options": q["options"], "correct": str(q["correct"])}
+            for q in questions
+        ]
+        supabase.table("questions").insert(records).execute()
+    except Exception as e:
+        # Rollback: re-insert backup rows if insert failed
+        print(f"[Questions] Insert failed, rolling back: {e}")
+        if backup_rows:
+            try:
+                supabase.table("questions").upsert(backup_rows).execute()
+            except Exception as e2:
+                print(f"[Questions] Rollback also failed: {e2}")
+        raise HTTPException(status_code=500, detail="Failed to update questions — rolled back")
     return {"status": "updated", "count": len(questions)}
 
 @app.get("/api/admin/access-code")
@@ -1286,9 +1297,6 @@ def admin_submit(session_id: str, request: Request):
                 pass
 
     score, total = _recalculate_score(session_id, answers_map)
-    if score == -1:
-        score = 0
-        total = 0
 
     pct        = round((score / max(total, 1)) * 100, 1)
     now        = now_ist()

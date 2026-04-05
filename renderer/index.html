@@ -661,7 +661,19 @@ async function startExam(){
       if(!isNaN(ts)){
         startTime = ts;
         const elapsedSecs = Math.floor((Date.now() - ts) / 1000);
-        timerSecs = Math.max(30, timerSecs - elapsedSecs); // at least 30s if resuming very late
+        const remaining = timerSecs - elapsedSecs;
+        if(remaining <= 0){
+          // Time fully expired during disconnection — auto-submit immediately
+          timerSecs = 0;
+          resumedStartedAt = null;
+          document.getElementById('exam-title').textContent=data.exam_title||'Exam';
+          document.getElementById('exam-stu').textContent=`${student.full_name} — ${student.roll_number}`;
+          buildGrid(); renderQ(); showScreen('exam');
+          examActive=true;
+          setTimeout(()=>submitExam(true), 500);
+          return;
+        }
+        timerSecs = remaining;
       } else {
         startTime = Date.now(); // bad timestamp from server — start fresh
       }
@@ -927,12 +939,18 @@ async function submitExam(timeUp=false){
   document.getElementById('retry-submit-btn').style.display='none';
   document.getElementById('countdown').textContent='';
 
+  // Build answers dict with string keys for server-side scoring
+  const answersPayload={};
+  for(const [qid,ans] of Object.entries(answers)){
+    answersPayload[String(qid)]=String(ans);
+  }
   lastSubmitPayload={
     session_id:sessionId,
     roll_number:student.roll_number,
     full_name:student.full_name,
     email:student.email,
-    time_taken_secs:taken
+    time_taken_secs:taken,
+    answers:answersPayload
   };
 
   const result=await _doSubmit(lastSubmitPayload);
@@ -992,9 +1010,14 @@ async function retrySubmit(){
   document.getElementById('final-score').textContent='...';
   submitInFlight=true;
 
-  // Refresh time_taken_secs since time has passed
+  // Refresh time_taken_secs and answers since time has passed
   lastSubmitPayload.time_taken_secs=
     startTime ? Math.floor((Date.now()-startTime)/1000) : 0;
+  const retryAnswers={};
+  for(const [qid,ans] of Object.entries(answers)){
+    retryAnswers[String(qid)]=String(ans);
+  }
+  lastSubmitPayload.answers=retryAnswers;
 
   const result=await _doSubmit(lastSubmitPayload);
   if(!result){

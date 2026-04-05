@@ -1,0 +1,84 @@
+2026-04-02 10:14:11,154 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T10:14:11.123748
+2026-04-02 10:14:24,092 | INFO | [MEDIUM] head_away | yaw=-44.3 pitch=-10.9 phone_down=0
+2026-04-02 10:14:24,321 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:14:24,335 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154424.jpg
+2026-04-02 10:14:27,424 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:14:31,635 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:14:31,650 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154431.jpg
+2026-04-02 10:14:31,877 | INFO | [HIGH] wrong_person | conf:64
+2026-04-02 10:14:31,889 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154431.jpg
+2026-04-02 10:14:38,708 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:14:38,721 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154438.jpg
+2026-04-02 10:14:43,735 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:14:43,750 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154443.jpg
+2026-04-02 10:14:44,569 | INFO | [HIGH] wrong_person | conf:66
+2026-04-02 10:14:44,584 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154444.jpg
+2026-04-02 10:14:51,892 | INFO | [HIGH] wrong_person | conf:90
+2026-04-02 10:14:51,912 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154451.jpg
+2026-04-02 10:14:53,692 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:14:53,710 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154453.jpg
+2026-04-02 10:14:55,094 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:14:56,952 | INFO | [HIGH] wrong_person | conf:79
+2026-04-02 10:14:56,965 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154456.jpg
+2026-04-02 10:15:01,986 | INFO | [HIGH] wrong_person | conf:110
+2026-04-02 10:15:01,997 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154501.jpg
+2026-04-02 10:15:09,938 | INFO | [HIGH] wrong_person | conf:78
+2026-04-02 10:15:09,949 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154509.jpg
+2026-04-02 10:15:14,979 | INFO | [HIGH] wrong_person | conf:85
+2026-04-02 10:15:14,992 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154514.jpg
+2026-04-02 10:15:15,703 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:15:15,721 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154515.jpg
+2026-04-02 10:15:20,703 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:15:20,719 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154520.jpg
+2026-04-02 10:15:22,563 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:15:22,582 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154522.jpg
+2026-04-02 10:15:25,130 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:15:29,271 | INFO | [HIGH] wrong_person | conf:103
+2026-04-02 10:15:29,290 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154529.jpg
+2026-04-02 10:15:29,543 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:15:29,557 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154529.jpg
+2026-04-02 10:15:34,661 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:15:34,674 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154534.jpg
+2026-04-02 10:15:38,097 | INFO | [HIGH] cheat_object_detected | Detected: Phone
+2026-04-02 10:15:38,111 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154538.jpg
+2026-04-02 10:15:53,333 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:15:53,359 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:15:53,372 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154553.jpg
+2026-04-02 10:15:58,396 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:15:58,412 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154558.jpg
+2026-04-02 10:16:03,414 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:03,429 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154603.jpg
+2026-04-02 10:16:05,169 | INFO | [HIGH] cheat_object_detected | Detected: Phone, Earphone?
+2026-04-02 10:16:05,183 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154605.jpg
+2026-04-02 10:16:09,668 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:16:09,692 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:09,702 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154609.jpg
+2026-04-02 10:16:14,716 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:14,730 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154614.jpg
+2026-04-02 10:16:19,801 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:19,815 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154619.jpg
+2026-04-02 10:16:20,570 | INFO | [HIGH] wrong_person | conf:102
+2026-04-02 10:16:20,582 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154620.jpg
+2026-04-02 10:16:25,606 | INFO | [HIGH] wrong_person | conf:102
+2026-04-02 10:16:25,619 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154625.jpg
+2026-04-02 10:16:27,750 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:27,765 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154627.jpg
+2026-04-02 10:16:32,781 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:32,797 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154632.jpg
+2026-04-02 10:16:37,858 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:37,870 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154637.jpg
+2026-04-02 10:16:42,921 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:42,934 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154642.jpg
+2026-04-02 10:16:47,436 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:16:47,450 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154647.jpg
+2026-04-02 10:16:48,773 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:16:48,799 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 10:16:48,811 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_154648.jpg
+2026-04-02 10:16:51,513 | INFO | [HIGH] wrong_person | conf:105
+2026-04-02 10:16:51,530 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154651.jpg
+2026-04-02 10:16:55,569 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:16:55,585 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154655.jpg
+2026-04-02 10:16:56,937 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:16:56,955 | INFO | [HIGH] wrong_person | conf:84
+2026-04-02 10:16:56,967 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154656.jpg
+2026-04-02 10:17:01,104 | INFO | [LOW] session_ended | Session ended

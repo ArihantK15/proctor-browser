@@ -1,0 +1,4 @@
+2026-04-02 16:57:21,963 | INFO | [LOW] enrollment_started | Student: Test Student (TEST001)
+2026-04-02 16:57:42,201 | INFO | [LOW] enrollment_complete | Enrolled: Test Student
+2026-04-02 16:57:44,287 | INFO | [LOW] exam_started | Questions:3 Time:450s
+2026-04-02 16:58:10,961 | INFO | [HIGH] window_focus_lost | Switched away

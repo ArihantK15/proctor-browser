@@ -1,0 +1,5 @@
+2026-04-02 08:02:32,993 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T08:02:32.978809
+2026-04-02 08:02:40,412 | INFO | [HIGH] wrong_person | Unrecognized conf:59
+2026-04-02 08:02:40,430 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_133240.jpg
+2026-04-02 08:02:48,412 | INFO | [MEDIUM] head_away | yaw=76.6 pitch=7.8 down_frames=0
+2026-04-02 08:03:01,552 | INFO | [MEDIUM] head_away | yaw=36.0 pitch=12.9 down_frames=0

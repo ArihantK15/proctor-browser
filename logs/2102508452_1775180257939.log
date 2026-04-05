@@ -1,0 +1,85 @@
+2026-04-03 01:37:38,984 | INFO | [LOW] enrollment_started | Student: BIswajit (2102508452)
+2026-04-03 01:37:48,574 | INFO | [LOW] enrollment_started | Session: 2102508452_1775180257939 | confidence:75%
+2026-04-03 01:37:55,417 | INFO | [LOW] enrollment_complete | Enrolled 5 directions | confidence:75%
+2026-04-03 01:37:59,151 | INFO | [LOW] enrollment_complete | Enrolled: BIswajit
+2026-04-03 01:38:00,880 | INFO | [LOW] exam_started | Questions:3 Time:450s
+2026-04-03 01:38:03,688 | INFO | [HIGH] head_turned | Head turned left (-77°) | confidence:85%
+2026-04-03 01:38:05,655 | INFO | [HIGH] gaze_away | Looking right (ratio:0.21) | confidence:82%
+2026-04-03 01:38:10,307 | INFO | [LOW] answer_selected | q:1|a:D|correct:A
+2026-04-03 01:38:11,714 | INFO | [HIGH] head_turned | Head turned left (-50°) | confidence:85%
+2026-04-03 01:38:12,590 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:38:12,979 | INFO | [LOW] answer_selected | q:2|a:A|correct:B
+2026-04-03 01:38:15,465 | INFO | [LOW] answer_selected | q:3|a:C|correct:C
+2026-04-03 01:38:18,617 | INFO | [HIGH] gaze_away | Looking left (ratio:0.48) | confidence:82%
+2026-04-03 01:38:19,749 | INFO | [HIGH] head_turned | Head turned right (2°) | confidence:85%
+2026-04-03 01:38:21,350 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-03 01:38:26,678 | INFO | [HIGH] gaze_away | Looking right (ratio:0.31) | confidence:82%
+2026-04-03 01:38:27,742 | INFO | [HIGH] submit_failed | Client submit failed after 3 attempts
+2026-04-03 01:38:38,252 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:38:45,814 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-03 01:38:50,997 | INFO | [HIGH] tab_hidden | Exam tab hidden
+2026-04-03 01:38:56,971 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:39:00,629 | INFO | [HIGH] head_turned | Head turned left (-26°) | confidence:85%
+2026-04-03 01:39:11,791 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:39:20,112 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:39:24,620 | INFO | [HIGH] head_turned | Head turned left (-48°) | confidence:85%
+2026-04-03 01:39:32,616 | INFO | [HIGH] head_turned | Head turned left (-42°) | confidence:85%
+2026-04-03 01:39:40,635 | INFO | [HIGH] head_turned | Head turned left (-54°) | confidence:85%
+2026-04-03 01:39:42,924 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:39:47,865 | INFO | [HIGH] gaze_away | Looking right (ratio:0.10) | confidence:82%
+2026-04-03 01:39:48,647 | INFO | [HIGH] head_turned | Head turned left (-97°) | confidence:85%
+2026-04-03 01:39:51,257 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:39:57,589 | INFO | [MEDIUM] voice_detected | Voice/sound detected (rms:0.051) | confidence:75%
+2026-04-03 01:39:59,229 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:40:00,124 | INFO | [HIGH] gaze_away | Looking left (ratio:0.37) | confidence:82%
+2026-04-03 01:40:00,266 | INFO | [HIGH] head_turned | Head turned right (7°) | confidence:85%
+2026-04-03 01:40:08,103 | INFO | [HIGH] multiple_faces | 2 faces in frame | confidence:92%
+2026-04-03 01:40:13,937 | INFO | [HIGH] gaze_away | Looking right (ratio:0.21) | confidence:82%
+2026-04-03 01:40:14,083 | INFO | [HIGH] head_turned | Head turned left (-47°) | confidence:85%
+2026-04-03 01:40:15,842 | INFO | [MEDIUM] voice_detected | Voice/sound detected (rms:0.047) | confidence:75%
+2026-04-03 01:40:18,331 | INFO | [HIGH] multiple_faces | 3 faces in frame | confidence:92%
+2026-04-03 01:40:19,732 | INFO | [HIGH] face_missing | No face detected for 10 frames | confidence:95%
+2026-04-03 01:40:22,136 | INFO | [HIGH] head_turned | Head turned left (-29°) | confidence:85%
+2026-04-03 01:40:23,859 | INFO | [MEDIUM] voice_detected | Voice/sound detected (rms:0.081) | confidence:75%
+2026-04-03 01:40:30,155 | INFO | [HIGH] head_turned | Head turned left (-54°) | confidence:85%
+2026-04-03 01:40:30,725 | INFO | [HIGH] gaze_away | Looking right (ratio:-0.07) | confidence:82%
+2026-04-03 01:40:31,860 | INFO | [MEDIUM] voice_detected | Voice/sound detected (rms:0.007) | confidence:75%
+2026-04-03 01:40:38,220 | INFO | [HIGH] head_turned | Head turned left (-34°) | confidence:85%
+2026-04-03 01:40:46,278 | INFO | [HIGH] head_turned | Head turned left (-34°) | confidence:85%
+2026-04-03 01:40:54,139 | INFO | [HIGH] gaze_away | Looking right (ratio:0.26) | confidence:82%
+2026-04-03 01:40:54,381 | INFO | [HIGH] head_turned | Head turned left (-61°) | confidence:85%
+2026-04-03 01:41:01,965 | INFO | [HIGH] gaze_away | Looking right (ratio:0.16) | confidence:82%
+2026-04-03 01:41:02,328 | INFO | [HIGH] head_turned | Head turned left (-61°) | confidence:85%
+2026-04-03 01:41:10,714 | INFO | [HIGH] head_turned | Head turned left (-50°) | confidence:85%
+2026-04-03 01:41:13,649 | INFO | [HIGH] gaze_away | Looking right (ratio:0.14) | confidence:82%
+2026-04-03 01:41:18,902 | INFO | [HIGH] head_turned | Head turned left (-56°) | confidence:85%
+2026-04-03 01:41:21,849 | INFO | [HIGH] gaze_away | Looking left (ratio:0.34) | confidence:82%
+2026-04-03 01:41:26,941 | INFO | [HIGH] head_turned | Head turned left (-53°) | confidence:85%
+2026-04-03 01:41:28,238 | INFO | [HIGH] face_missing | No face detected for 10 frames | confidence:95%
+2026-04-03 01:41:33,043 | INFO | [HIGH] gaze_away | Looking right (ratio:0.08) | confidence:82%
+2026-04-03 01:41:34,903 | INFO | [HIGH] head_turned | Head turned left (-26°) | confidence:85%
+2026-04-03 01:41:41,377 | INFO | [HIGH] gaze_away | Looking right (ratio:0.21) | confidence:82%
+2026-04-03 01:41:43,200 | INFO | [HIGH] head_turned | Head turned left (-41°) | confidence:85%
+2026-04-03 01:41:49,510 | INFO | [HIGH] gaze_away | Looking right (ratio:0.29) | confidence:82%
+2026-04-03 01:41:51,180 | INFO | [HIGH] head_turned | Head turned left (-62°) | confidence:85%
+2026-04-03 01:41:57,503 | INFO | [HIGH] gaze_away | Looking left (ratio:0.47) | confidence:82%
+2026-04-03 01:41:59,251 | INFO | [HIGH] head_turned | Head turned left (-48°) | confidence:85%
+2026-04-03 01:42:05,542 | INFO | [HIGH] gaze_away | Looking left (ratio:0.38) | confidence:82%
+2026-04-03 01:42:07,541 | INFO | [HIGH] head_turned | Head turned left (-44°) | confidence:85%
+2026-04-03 01:42:15,550 | INFO | [HIGH] head_turned | Head turned left (-36°) | confidence:85%
+2026-04-03 01:42:23,670 | INFO | [HIGH] head_turned | Head turned right (5°) | confidence:85%
+2026-04-03 01:42:31,657 | INFO | [HIGH] head_turned | Head turned left (-40°) | confidence:85%
+2026-04-03 01:42:39,612 | INFO | [HIGH] head_turned | Head turned left (-7°) | confidence:85%
+2026-04-03 01:42:46,010 | INFO | [HIGH] gaze_away | Looking right (ratio:0.14) | confidence:82%
+2026-04-03 01:42:47,640 | INFO | [HIGH] head_turned | Head turned left (-48°) | confidence:85%
+2026-04-03 01:42:55,693 | INFO | [HIGH] head_turned | Head turned left (-3°) | confidence:85%
+2026-04-03 01:43:03,770 | INFO | [HIGH] head_turned | Head turned left (-12°) | confidence:85%
+2026-04-03 01:43:11,871 | INFO | [HIGH] head_turned | Head turned left (-21°) | confidence:85%
+2026-04-03 01:43:19,892 | INFO | [HIGH] head_turned | Head turned left (-50°) | confidence:85%
+2026-04-03 01:43:28,047 | INFO | [HIGH] head_turned | Head turned left (-9°) | confidence:85%
+2026-04-03 01:43:30,953 | INFO | [HIGH] face_missing | No face detected for 10 frames | confidence:95%
+2026-04-03 01:43:39,370 | INFO | [HIGH] face_missing | No face detected for 66 frames | confidence:95%
+2026-04-03 01:43:40,933 | INFO | [HIGH] head_turned | Head turned left (-54°) | confidence:85%
+2026-04-03 01:43:49,115 | INFO | [HIGH] head_turned | Head turned left (-45°) | confidence:85%
+2026-04-03 01:43:53,596 | INFO | [HIGH] face_missing | No face detected for 10 frames | confidence:95%
+2026-04-03 01:43:57,366 | INFO | [HIGH] head_turned | Head turned left (-56°) | confidence:85%

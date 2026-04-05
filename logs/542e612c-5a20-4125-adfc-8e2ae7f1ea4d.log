@@ -1,0 +1,22 @@
+2026-04-02 10:39:04,925 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T10:39:04.885913
+2026-04-02 10:39:32,396 | INFO | [MEDIUM] head_away | yaw=-32.1 pitch=-3.2
+2026-04-02 10:39:38,491 | INFO | [HIGH] wrong_person | LBPH:73 Sim:0.97
+2026-04-02 10:39:38,508 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_160938.jpg
+2026-04-02 10:39:50,523 | INFO | [HIGH] wrong_person | LBPH:60 Sim:0.98
+2026-04-02 10:39:50,538 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_160950.jpg
+2026-04-02 10:39:55,718 | INFO | [HIGH] wrong_person | LBPH:82 Sim:0.96
+2026-04-02 10:39:55,731 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_160955.jpg
+2026-04-02 10:40:04,652 | INFO | [HIGH] voice_detected | rms=0.0117 frames=23
+2026-04-02 10:40:04,672 | INFO | [LOW] voice_detected_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/voice_detected_20260402_161004.jpg
+2026-04-02 10:40:12,321 | INFO | [HIGH] wrong_person | LBPH:57 Sim:0.97
+2026-04-02 10:40:12,337 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_161012.jpg
+2026-04-02 10:40:22,151 | INFO | [HIGH] wrong_person | LBPH:69 Sim:0.96
+2026-04-02 10:40:22,166 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_161022.jpg
+2026-04-02 10:40:23,224 | INFO | [MEDIUM] head_away | yaw=-27.4 pitch=-0.6
+2026-04-02 10:40:28,495 | INFO | [HIGH] voice_detected | rms=0.0211 frames=35
+2026-04-02 10:40:28,509 | INFO | [LOW] voice_detected_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/voice_detected_20260402_161028.jpg
+2026-04-02 10:40:51,190 | INFO | [HIGH] wrong_person | LBPH:76 Sim:0.96
+2026-04-02 10:40:51,206 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_161051.jpg
+2026-04-02 10:40:56,197 | INFO | [HIGH] wrong_person | LBPH:118 Sim:0.85
+2026-04-02 10:40:56,212 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_161056.jpg
+2026-04-02 10:40:58,183 | INFO | [LOW] session_ended | Session ended

@@ -1,0 +1,15 @@
+2026-04-02 05:36:14,988 | INFO | [LOW] enrollment_complete | User enrolled at 2026-04-02T05:36:14.974205
+2026-04-02 05:36:19,425 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:36:19,749 | INFO | [HIGH] wrong_person | Unrecognized face — possible impersonation
+2026-04-02 05:36:24,552 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:36:25,173 | INFO | [HIGH] wrong_person | Unrecognized face — possible impersonation
+2026-04-02 05:36:29,693 | INFO | [HIGH] multiple_faces | 3 faces detected simultaneously
+2026-04-02 05:36:34,978 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:36:38,120 | INFO | [HIGH] wrong_person | Unrecognized face — possible impersonation
+2026-04-02 05:36:40,020 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:36:45,039 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:36:46,639 | INFO | [HIGH] wrong_person | Unrecognized face — possible impersonation
+2026-04-02 05:36:50,553 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:36:57,631 | INFO | [HIGH] wrong_person | Unrecognized face — possible impersonation
+2026-04-02 05:36:58,264 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:37:03,017 | INFO | [LOW] session_ended | Proctoring session ended by user

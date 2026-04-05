@@ -1,0 +1,10 @@
+2026-04-02 11:35:13,431 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T11:35:13.166951
+2026-04-02 11:35:26,749 | INFO | [MEDIUM] head_away | yaw=61.3 pitch=23.5
+2026-04-02 11:35:27,836 | INFO | [HIGH] wrong_person | conf:58
+2026-04-02 11:35:28,349 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_170527.jpg
+2026-04-02 11:35:31,876 | INFO | [LOW] lighting_issue | Too dark (23)
+2026-04-02 11:35:34,493 | INFO | [HIGH] face_missing | No face
+2026-04-02 11:35:34,920 | INFO | [LOW] face_missing_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/face_missing_20260402_170534.jpg
+2026-04-02 11:35:39,614 | INFO | [HIGH] face_missing | No face
+2026-04-02 11:35:39,804 | INFO | [LOW] face_missing_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/face_missing_20260402_170539.jpg
+2026-04-02 11:35:40,416 | INFO | [LOW] session_ended | Session ended

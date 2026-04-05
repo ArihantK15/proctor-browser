@@ -1,0 +1,12 @@
+2026-04-02 05:28:22,361 | INFO | [LOW] enrollment_complete | User enrolled at 2026-04-02T05:28:22.334195
+2026-04-02 05:28:22,588 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:28:27,889 | INFO | [HIGH] multiple_faces | 2 faces detected simultaneously
+2026-04-02 05:28:29,833 | INFO | [HIGH] face_missing | No face detected in frame
+2026-04-02 05:28:32,942 | INFO | [HIGH] multiple_faces | 3 faces detected simultaneously
+2026-04-02 05:28:38,031 | INFO | [HIGH] multiple_faces | 3 faces detected simultaneously
+2026-04-02 05:28:43,040 | INFO | [HIGH] multiple_faces | 4 faces detected simultaneously
+2026-04-02 05:28:48,067 | INFO | [HIGH] multiple_faces | 4 faces detected simultaneously
+2026-04-02 05:28:53,095 | INFO | [HIGH] multiple_faces | 4 faces detected simultaneously
+2026-04-02 05:28:58,126 | INFO | [HIGH] multiple_faces | 3 faces detected simultaneously
+2026-04-02 05:29:03,171 | INFO | [HIGH] multiple_faces | 4 faces detected simultaneously
+2026-04-02 05:29:04,979 | INFO | [LOW] session_ended | Proctoring session ended by user

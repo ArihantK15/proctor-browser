@@ -11,11 +11,18 @@ services:
       - ./screenshots:/app/screenshots
       - ./questions.json:/app/questions.json
       - ./logs:/data/logs
+    mem_limit: 1400m       # leave ~600 MB for Caddy + OS on a 2 GB droplet
+    memswap_limit: 1400m   # don't let it silently spill into swap
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
 
   caddy:
     image: caddy:2-alpine
@@ -28,8 +35,15 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
+    mem_limit: 128m
+    memswap_limit: 128m
     depends_on:
       - api
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   caddy_data:

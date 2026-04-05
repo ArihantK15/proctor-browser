@@ -1,0 +1,10 @@
+2026-04-03 00:47:39,705 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-03T00:47:39.459557 | confidence:75%
+2026-04-03 00:47:43,348 | INFO | [MEDIUM] head_away | yaw=-27.3 pitch=0.1 | confidence:80%
+2026-04-03 00:47:54,994 | INFO | [HIGH] wrong_person | conf:53 | confidence:53%
+2026-04-03 00:47:55,148 | INFO | [LOW] wrong_person_screenshot | Evidence: /tmp/evidence/wrong_person_20260403_061755.jpg | confidence:75%
+2026-04-03 00:47:56,767 | INFO | [HIGH] earphone_detected | score=1.5 signals=['audio_lip'] | confidence:72%
+2026-04-03 00:47:56,909 | INFO | [LOW] earphone_screenshot | Evidence: /tmp/evidence/earphone_20260403_061756.jpg | confidence:75%
+2026-04-03 00:48:02,397 | INFO | [HIGH] wrong_person | conf:58 | confidence:57%
+2026-04-03 00:48:02,543 | INFO | [LOW] wrong_person_screenshot | Evidence: /tmp/evidence/wrong_person_20260403_061802.jpg | confidence:75%
+2026-04-03 00:48:06,795 | INFO | [HIGH] earphone_detected | score=0.8 signals=['roll'] | confidence:72%
+2026-04-03 00:48:06,939 | INFO | [LOW] earphone_screenshot | Evidence: /tmp/evidence/earphone_20260403_061806.jpg | confidence:75%

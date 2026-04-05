@@ -1,0 +1,46 @@
+2026-04-02 07:06:20,415 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T07:06:20.380569
+2026-04-02 07:06:23,111 | INFO | [MEDIUM] head_away | yaw=27.6 pitch=10.7
+2026-04-02 07:06:27,044 | INFO | [HIGH] wrong_person | Unrecognized conf:49
+2026-04-02 07:06:27,064 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123627.jpg
+2026-04-02 07:06:28,545 | INFO | [MEDIUM] head_away | yaw=25.0 pitch=9.3
+2026-04-02 07:06:34,346 | INFO | [MEDIUM] head_away | yaw=36.8 pitch=13.2
+2026-04-02 07:06:34,746 | INFO | [HIGH] wrong_person | Unrecognized conf:48
+2026-04-02 07:06:34,764 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123634.jpg
+2026-04-02 07:06:39,378 | INFO | [MEDIUM] head_away | yaw=59.0 pitch=15.0
+2026-04-02 07:06:44,378 | INFO | [MEDIUM] head_away | yaw=80.7 pitch=14.3
+2026-04-02 07:06:45,920 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 07:06:45,942 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_123645.jpg
+2026-04-02 07:06:50,951 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 07:06:50,970 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_123650.jpg
+2026-04-02 07:06:55,981 | INFO | [HIGH] multiple_faces | 2 faces
+2026-04-02 07:06:55,995 | INFO | [LOW] multiple_faces_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/multiple_faces_20260402_123655.jpg
+2026-04-02 07:06:56,684 | INFO | [HIGH] wrong_person | Unrecognized conf:68
+2026-04-02 07:06:56,701 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123656.jpg
+2026-04-02 07:06:57,248 | INFO | [MEDIUM] head_away | yaw=81.0 pitch=15.3
+2026-04-02 07:07:04,048 | INFO | [MEDIUM] head_away | yaw=25.3 pitch=16.2
+2026-04-02 07:07:05,883 | INFO | [HIGH] wrong_person | Unrecognized conf:49
+2026-04-02 07:07:05,900 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123705.jpg
+2026-04-02 07:07:10,916 | INFO | [HIGH] wrong_person | Unrecognized conf:55
+2026-04-02 07:07:10,934 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123710.jpg
+2026-04-02 07:07:15,950 | INFO | [HIGH] wrong_person | Unrecognized conf:51
+2026-04-02 07:07:15,967 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123715.jpg
+2026-04-02 07:07:17,385 | INFO | [MEDIUM] head_away | yaw=47.2 pitch=12.5
+2026-04-02 07:07:22,110 | INFO | [HIGH] wrong_person | Unrecognized conf:46
+2026-04-02 07:07:22,125 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123722.jpg
+2026-04-02 07:07:24,883 | INFO | [MEDIUM] head_away | yaw=53.1 pitch=13.6
+2026-04-02 07:07:26,800 | INFO | [HIGH] face_missing | No face in frame
+2026-04-02 07:07:26,820 | INFO | [LOW] face_missing_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/face_missing_20260402_123726.jpg
+2026-04-02 07:07:27,304 | INFO | [HIGH] wrong_person | Unrecognized conf:85
+2026-04-02 07:07:27,321 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123727.jpg
+2026-04-02 07:07:31,351 | INFO | [MEDIUM] head_away | yaw=-30.3 pitch=-5.5
+2026-04-02 07:07:32,356 | INFO | [HIGH] wrong_person | Unrecognized conf:56
+2026-04-02 07:07:32,382 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123732.jpg
+2026-04-02 07:07:37,419 | INFO | [HIGH] wrong_person | Unrecognized conf:47
+2026-04-02 07:07:37,435 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123737.jpg
+2026-04-02 07:07:37,583 | INFO | [MEDIUM] head_away | yaw=52.8 pitch=2.4
+2026-04-02 07:07:42,436 | INFO | [HIGH] wrong_person | Unrecognized conf:46
+2026-04-02 07:07:42,468 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123742.jpg
+2026-04-02 07:07:47,456 | INFO | [HIGH] wrong_person | Unrecognized conf:46
+2026-04-02 07:07:47,473 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_123747.jpg
+2026-04-02 07:07:47,618 | INFO | [MEDIUM] head_away | yaw=54.9 pitch=14.2
+2026-04-02 07:07:50,569 | INFO | [LOW] session_ended | Session ended by user

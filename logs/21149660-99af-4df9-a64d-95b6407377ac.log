@@ -1,0 +1,33 @@
+2026-04-02 10:12:53,210 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T10:12:53.180155
+2026-04-02 10:12:59,480 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:12:59,498 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154259.jpg
+2026-04-02 10:13:00,880 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:13:03,245 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:13:03,263 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154303.jpg
+2026-04-02 10:13:05,478 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:13:08,687 | INFO | [HIGH] wrong_person | conf:72
+2026-04-02 10:13:08,701 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154308.jpg
+2026-04-02 10:13:13,686 | INFO | [HIGH] wrong_person | conf:75
+2026-04-02 10:13:13,701 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154313.jpg
+2026-04-02 10:13:16,215 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:13:16,228 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154316.jpg
+2026-04-02 10:13:17,550 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:13:18,740 | INFO | [HIGH] wrong_person | conf:65
+2026-04-02 10:13:18,752 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154318.jpg
+2026-04-02 10:13:21,084 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:13:21,100 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154321.jpg
+2026-04-02 10:13:23,350 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:13:23,753 | INFO | [HIGH] wrong_person | conf:60
+2026-04-02 10:13:23,769 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154323.jpg
+2026-04-02 10:13:27,183 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
+2026-04-02 10:13:27,201 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_154327.jpg
+2026-04-02 10:13:28,582 | INFO | [LOW] exam_resumed | Object removed — resumed
+2026-04-02 10:13:28,776 | INFO | [HIGH] wrong_person | conf:61
+2026-04-02 10:13:28,787 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154328.jpg
+2026-04-02 10:13:33,861 | INFO | [HIGH] wrong_person | conf:97
+2026-04-02 10:13:33,885 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154333.jpg
+2026-04-02 10:13:38,850 | INFO | [HIGH] wrong_person | conf:97
+2026-04-02 10:13:38,864 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154338.jpg
+2026-04-02 10:13:43,861 | INFO | [HIGH] wrong_person | conf:97
+2026-04-02 10:13:43,879 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_154343.jpg
+2026-04-02 10:13:48,643 | INFO | [LOW] session_ended | Session ended

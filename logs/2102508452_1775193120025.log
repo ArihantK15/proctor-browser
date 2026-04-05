@@ -1,0 +1,6 @@
+2026-04-03 05:12:00,320 | INFO | [LOW] enrollment_started | Student: Biswajit Putel (2102508452)
+2026-04-03 05:12:20,499 | INFO | [LOW] enrollment_complete | Enrolled: Biswajit Putel
+2026-04-03 05:12:21,952 | INFO | [LOW] exam_started | Questions:3 Time:450s
+2026-04-03 05:12:35,055 | INFO | [LOW] answer_selected | q:1|a:B|correct:A
+2026-04-03 05:12:39,778 | INFO | [LOW] answer_selected | q:2|a:B|correct:B
+2026-04-03 05:12:42,048 | INFO | [LOW] answer_selected | q:3|a:C|correct:C

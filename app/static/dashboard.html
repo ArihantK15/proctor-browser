@@ -185,6 +185,63 @@
     display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;
     flex-shrink:0;color:var(--muted)}
   .preview-q .pq-opt.pq-correct .pq-key{background:#238636;color:#fff}
+
+  /* ── Forensics Timeline ──────────────────────────────────────── */
+  .tl-meta{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:13px;color:var(--muted)}
+  .tl-meta span{background:var(--bg);padding:4px 10px;border-radius:6px}
+  .tl-meta strong{color:var(--text)}
+
+  .tl-filters{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+  .tl-filter-btn{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;
+    border-radius:16px;font-size:12px;font-weight:600;cursor:pointer;
+    background:var(--bg);border:1px solid var(--border);color:var(--muted);transition:.2s}
+  .tl-filter-btn:hover{border-color:var(--blue);color:var(--blue)}
+  .tl-filter-btn.active{background:rgba(88,166,255,.1);border-color:var(--blue);color:var(--blue)}
+  .tl-filter-btn input{display:none}
+
+  .tl-scrubber{position:relative;height:40px;background:var(--bg);border-radius:6px;
+    margin-bottom:4px;overflow:hidden;border:1px solid var(--border)}
+  .tl-scrubber-track{position:relative;height:100%;width:100%}
+  .tl-dot{position:absolute;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;
+    border-radius:50%;cursor:pointer;z-index:2;transition:transform .15s}
+  .tl-dot:hover{transform:translate(-50%,-50%) scale(1.6)}
+  .tl-dot.sev-high{background:var(--red)}
+  .tl-dot.sev-medium{background:var(--yellow)}
+  .tl-dot.sev-low{background:var(--muted)}
+  .tl-dot.has-screenshot{box-shadow:0 0 0 2px var(--blue);width:12px;height:12px}
+  .tl-scrubber-labels{display:flex;justify-content:space-between;font-size:10px;
+    color:var(--muted);margin-bottom:16px;padding:0 4px}
+
+  .tl-events{max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:0}
+  .tl-event{display:flex;gap:12px;padding:10px 12px;border-left:3px solid var(--border);
+    position:relative;transition:background .15s}
+  .tl-event:hover{background:rgba(88,166,255,.03)}
+  .tl-event.sev-high{border-left-color:var(--red)}
+  .tl-event.sev-medium{border-left-color:var(--yellow)}
+  .tl-event.sev-low{border-left-color:var(--border)}
+  .tl-event.is-violation{background:rgba(255,123,114,.03)}
+  .tl-event.highlighted{background:rgba(88,166,255,.08)}
+  .tl-time{width:70px;flex-shrink:0;font-size:11px;color:var(--muted);font-family:monospace;
+    padding-top:2px}
+  .tl-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;
+    justify-content:center;font-size:14px;flex-shrink:0}
+  .tl-icon.ic-high{background:rgba(255,123,114,.15);color:var(--red)}
+  .tl-icon.ic-medium{background:rgba(227,179,65,.15);color:var(--yellow)}
+  .tl-icon.ic-low{background:rgba(139,148,158,.1);color:var(--muted)}
+  .tl-body{flex:1;min-width:0}
+  .tl-type{font-size:13px;font-weight:600;color:var(--text)}
+  .tl-detail{font-size:12px;color:var(--muted);margin-top:2px;word-break:break-word}
+  .tl-thumb{width:80px;height:60px;border-radius:4px;object-fit:cover;cursor:pointer;
+    border:1px solid var(--border);flex-shrink:0;transition:transform .15s}
+  .tl-thumb:hover{transform:scale(1.08);border-color:var(--blue)}
+
+  .tl-lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:2000;
+    align-items:center;justify-content:center;flex-direction:column;cursor:pointer}
+  .tl-lightbox.open{display:flex}
+  .tl-lightbox img{max-width:90vw;max-height:80vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+  .tl-lightbox-caption{color:#fff;font-size:13px;margin-top:12px;text-align:center}
+
+  .tl-empty{text-align:center;padding:40px;color:var(--muted);font-size:14px}
 </style>
 </head>
 <body>
@@ -350,6 +407,36 @@
     <div style="margin-top:20px;display:flex;gap:10px">
       <button class="action-btn" id="modal-pdf" onclick="downloadPDF()">Download PDF</button>
       <button class="action-btn" id="modal-risk" onclick="viewRiskDetail()">Full Risk Breakdown</button>
+      <button class="action-btn primary" id="modal-timeline" onclick="openTimeline()">Forensics Timeline</button>
+    </div>
+  </div>
+</div>
+
+<!-- TIMELINE MODAL -->
+<div class="modal-bg" id="timeline-modal" onclick="if(event.target===this)closeTimeline()">
+  <div class="modal" style="width:900px;max-width:95vw">
+    <button class="close" onclick="closeTimeline()">&times;</button>
+    <h3 id="tl-title">Forensics Timeline</h3>
+    <div class="tl-meta" id="tl-meta"></div>
+    <!-- Severity filter -->
+    <div class="tl-filters" id="tl-filters">
+      <label class="tl-filter-btn active" data-sev="all"><input type="radio" name="tl-sev" value="all" checked onchange="filterTimeline()"> All</label>
+      <label class="tl-filter-btn" data-sev="high"><input type="radio" name="tl-sev" value="high" onchange="filterTimeline()"> High</label>
+      <label class="tl-filter-btn" data-sev="medium"><input type="radio" name="tl-sev" value="medium" onchange="filterTimeline()"> Medium</label>
+      <label class="tl-filter-btn" data-sev="low"><input type="radio" name="tl-sev" value="low" onchange="filterTimeline()"> Low</label>
+      <label class="tl-filter-btn" data-sev="violations"><input type="radio" name="tl-sev" value="violations" onchange="filterTimeline()"> Violations Only</label>
+    </div>
+    <!-- Scrubber bar -->
+    <div class="tl-scrubber" id="tl-scrubber">
+      <div class="tl-scrubber-track" id="tl-scrubber-track"></div>
+    </div>
+    <div class="tl-scrubber-labels" id="tl-scrubber-labels"></div>
+    <!-- Event list -->
+    <div class="tl-events" id="tl-events"></div>
+    <!-- Screenshot lightbox -->
+    <div class="tl-lightbox" id="tl-lightbox" onclick="closeLightbox()">
+      <img id="tl-lightbox-img" src="">
+      <div class="tl-lightbox-caption" id="tl-lightbox-caption"></div>
     </div>
   </div>
 </div>
@@ -442,7 +529,10 @@ function renderLive(){
       <td style="color:${sevColor};font-weight:600">${s.last_severity.toUpperCase()}</td>
       <td style="font-size:12px">${s.last_seen}</td>
       <td><span class="status-badge ${statusCls}">${statusTxt}</span></td>
-      <td><button class="action-btn" onclick="viewRisk('${s.session_id}')" style="padding:4px 10px;font-size:11px">Risk</button></td>
+      <td>
+        <button class="action-btn" onclick="viewRisk('${s.session_id}')" style="padding:4px 10px;font-size:11px">Risk</button>
+        <button class="action-btn" onclick="currentSessionId='${s.session_id}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -513,6 +603,7 @@ function renderResults(){
       <td style="font-size:11px;color:var(--muted)">${r.submitted_at||'—'}</td>
       <td>
         <button class="action-btn" onclick="openDetail('${r.session_id}')" style="padding:4px 10px;font-size:11px">Detail</button>
+        <button class="action-btn" onclick="currentSessionId='${r.session_id}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
         <button class="action-btn" onclick="dlPDF('${r.session_id}')" style="padding:4px 10px;font-size:11px">PDF</button>
       </td>
     </tr>`;
@@ -970,9 +1061,201 @@ async function saveQuestions(){
   }
 }
 
+// ── FORENSICS TIMELINE ──────────────────────────────────────────
+let tlData = null;  // current timeline data
+let tlFilter = 'all';
+
+const TL_ICONS = {
+  face_missing:'👤', multiple_faces:'👥', wrong_person:'🚨',
+  gaze_away:'👀', head_turned:'↩️', eyes_closed:'😑',
+  cheat_object_detected:'📱', voice_detected:'🎤',
+  window_focus_lost:'🪟', tab_hidden:'📑', shortcut_blocked:'⌨️',
+  time_exceeded:'⏰', vm_detected:'💻', remote_desktop_detected:'🖥️',
+  screen_share_detected:'📺', multiple_monitors:'🖥️',
+  exam_started:'▶️', exam_submitted:'✅', enrollment_started:'📷',
+  enrollment_complete:'✅', face_enrolled:'🔒', session_ended:'🏁',
+  answer_selected:'📝', heartbeat:'💓', submit_failed:'❌',
+  proctor_camera_failed:'📷',
+};
+
+function openTimeline(){
+  if(!currentSessionId) return;
+  closeModal();
+  const m=document.getElementById('timeline-modal');
+  m.classList.add('open');
+  document.getElementById('tl-title').textContent='Loading...';
+  document.getElementById('tl-meta').innerHTML='';
+  document.getElementById('tl-events').innerHTML='<div class="tl-empty"><span class="spinner"></span> Loading timeline...</div>';
+  document.getElementById('tl-scrubber-track').innerHTML='';
+  document.getElementById('tl-scrubber-labels').innerHTML='';
+  loadTimeline(currentSessionId);
+}
+
+async function loadTimeline(sid){
+  try{
+    const r=await fetch(`${BASE}/api/admin/timeline/${encodeURIComponent(sid)}`,{headers:hdr()});
+    if(!r.ok) throw new Error('Failed to load');
+    tlData=await r.json();
+    tlFilter='all';
+    // Reset filter buttons
+    document.querySelectorAll('.tl-filter-btn').forEach(b=>{
+      b.classList.toggle('active',b.dataset.sev==='all');
+    });
+    renderTimeline();
+  }catch(e){
+    document.getElementById('tl-events').innerHTML=`<div class="tl-empty" style="color:var(--red)">Failed to load timeline: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderTimeline(){
+  if(!tlData) return;
+  const d=tlData;
+
+  // Title & meta
+  document.getElementById('tl-title').textContent=`${d.full_name||'Unknown'} — ${d.roll_number}`;
+  document.getElementById('tl-meta').innerHTML=`
+    <span>Status: <strong>${d.status}</strong></span>
+    <span>Started: <strong>${d.started_at||'—'}</strong></span>
+    <span>Submitted: <strong>${d.submitted_at||'—'}</strong></span>
+    <span>Score: <strong>${d.score!=null?d.score+'/'+d.total:'—'}</strong></span>
+    <span>Risk: <strong>${d.risk_score!=null?d.risk_score+'/100':'—'}</strong></span>
+    <span>Events: <strong>${d.total_events}</strong></span>
+  `;
+
+  // Filter events
+  const events=d.timeline.filter(e=>{
+    if(tlFilter==='all') return true;
+    if(tlFilter==='violations') return e.is_violation;
+    return e.severity===tlFilter;
+  });
+
+  // Scrubber — parse timestamps to build the bar
+  const allTs=d.timeline.map(e=>parseRawTs(e.raw_ts)).filter(t=>t>0);
+  const minTs=Math.min(...allTs), maxTs=Math.max(...allTs);
+  const range=maxTs-minTs||1;
+
+  const track=document.getElementById('tl-scrubber-track');
+  track.innerHTML='';
+  events.forEach((e,i)=>{
+    const ts=parseRawTs(e.raw_ts);
+    if(ts<=0) return;
+    const pct=((ts-minTs)/range)*100;
+    const dot=document.createElement('div');
+    dot.className=`tl-dot sev-${e.severity}${e.screenshot?' has-screenshot':''}`;
+    dot.style.left=pct+'%';
+    dot.title=`${e.type.replace(/_/g,' ')} (${e.severity})`;
+    dot.onclick=(ev)=>{ev.stopPropagation();scrollToEvent(i);};
+    track.appendChild(dot);
+  });
+
+  // Scrubber labels
+  const labels=document.getElementById('tl-scrubber-labels');
+  if(allTs.length>=2){
+    const startTime=new Date(minTs*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+    const endTime=new Date(maxTs*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+    const durMins=Math.round(range/60);
+    labels.innerHTML=`<span>${startTime}</span><span>${durMins} min</span><span>${endTime}</span>`;
+  } else {
+    labels.innerHTML='';
+  }
+
+  // Event list
+  const el=document.getElementById('tl-events');
+  if(!events.length){
+    el.innerHTML='<div class="tl-empty">No events match the current filter.</div>';
+    return;
+  }
+  // Render events and then lazy-load thumbnails
+  el.innerHTML=events.map((e,i)=>{
+    const icon=TL_ICONS[e.type]||'📌';
+    const icCls=`ic-${e.severity}`;
+    const timeStr=extractTime(e.timestamp);
+    const thumbHtml=e.screenshot
+      ?`<img class="tl-thumb" data-src="${e.screenshot}" onclick="event.stopPropagation();showLightbox('${e.screenshot}','${esc(e.type)} — ${esc(timeStr)}')" onerror="this.style.display='none'">`
+      :'';
+    return `<div class="tl-event sev-${e.severity}${e.is_violation?' is-violation':''}" id="tl-evt-${i}">
+      <div class="tl-time">${timeStr}</div>
+      <div class="tl-icon ${icCls}">${icon}</div>
+      <div class="tl-body">
+        <div class="tl-type">${e.type.replace(/_/g,' ')}<span style="margin-left:8px;font-size:11px;font-weight:400;color:${e.severity==='high'?'var(--red)':e.severity==='medium'?'var(--yellow)':'var(--muted)'}">${e.severity.toUpperCase()}</span></div>
+        ${e.details?`<div class="tl-detail">${esc(e.details)}</div>`:''}
+      </div>
+      ${thumbHtml}
+    </div>`;
+  }).join('');
+
+  // Lazy-load thumbnails with auth headers
+  el.querySelectorAll('.tl-thumb[data-src]').forEach(img=>{
+    fetch(img.dataset.src,{headers:hdr()}).then(r=>{
+      if(!r.ok) throw new Error();
+      return r.blob();
+    }).then(b=>{
+      img.src=URL.createObjectURL(b);
+    }).catch(()=>{img.style.display='none';});
+  });
+}
+
+function parseRawTs(raw){
+  if(!raw) return 0;
+  try{return new Date(raw.replace(' ','T').replace('Z','+00:00')).getTime()/1000;}catch(e){return 0;}
+}
+
+function extractTime(formatted){
+  // formatted is like "2026-04-05 14:30:22 IST" — extract time part
+  if(!formatted) return '--:--';
+  const parts=formatted.split(' ');
+  return parts.length>=2?parts[1]:'--:--';
+}
+
+function filterTimeline(){
+  const checked=document.querySelector('input[name="tl-sev"]:checked');
+  tlFilter=checked?checked.value:'all';
+  document.querySelectorAll('.tl-filter-btn').forEach(b=>{
+    b.classList.toggle('active',b.dataset.sev===tlFilter);
+  });
+  renderTimeline();
+}
+
+function scrollToEvent(idx){
+  const el=document.getElementById(`tl-evt-${idx}`);
+  if(!el) return;
+  // Remove previous highlight
+  document.querySelectorAll('.tl-event.highlighted').forEach(e=>e.classList.remove('highlighted'));
+  el.classList.add('highlighted');
+  el.scrollIntoView({behavior:'smooth',block:'center'});
+  setTimeout(()=>el.classList.remove('highlighted'),2500);
+}
+
+function showLightbox(src,caption){
+  const img=document.getElementById('tl-lightbox-img');
+  // Load image with admin auth via fetch+blob
+  fetch(src,{headers:hdr()}).then(r=>r.blob()).then(b=>{
+    img.src=URL.createObjectURL(b);
+    document.getElementById('tl-lightbox-caption').textContent=caption;
+    document.getElementById('tl-lightbox').classList.add('open');
+  }).catch(()=>{});
+}
+
+function closeLightbox(){
+  const lb=document.getElementById('tl-lightbox');
+  lb.classList.remove('open');
+  const img=document.getElementById('tl-lightbox-img');
+  if(img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+  img.src='';
+}
+
+function closeTimeline(){
+  document.getElementById('timeline-modal').classList.remove('open');
+  tlData=null;
+}
+
 // ── KEYBOARD SHORTCUTS ──────────────────────────────────────────
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape') closeModal();
+  if(e.key==='Escape'){
+    if(document.getElementById('tl-lightbox').classList.contains('open')) closeLightbox();
+    else if(document.getElementById('timeline-modal').classList.contains('open')) closeTimeline();
+    else closeModal();
+  }
 });
 </script>
 </body>

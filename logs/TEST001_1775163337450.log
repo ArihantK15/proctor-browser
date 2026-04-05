@@ -1,0 +1,23 @@
+2026-04-02 20:55:38,243 | INFO | [LOW] enrollment_started | Student: Test Student (TEST001)
+2026-04-02 20:55:49,900 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T20:55:49.770927
+2026-04-02 20:55:55,324 | INFO | [MEDIUM] head_away | yaw=-27.7 pitch=0.1
+2026-04-02 20:55:56,023 | INFO | [HIGH] wrong_person | conf:58
+2026-04-02 20:55:56,179 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260403_022556.jpg
+2026-04-02 20:55:58,308 | INFO | [LOW] enrollment_complete | Enrolled: Test Student
+2026-04-02 20:55:59,917 | INFO | [LOW] exam_started | Questions:3 Time:450s
+2026-04-02 20:56:01,036 | INFO | [HIGH] wrong_person | conf:56
+2026-04-02 20:56:01,159 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260403_022601.jpg
+2026-04-02 20:56:05,889 | INFO | [MEDIUM] head_away | yaw=33.9 pitch=21.1
+2026-04-02 20:56:10,389 | INFO | [HIGH] wrong_person | conf:67
+2026-04-02 20:56:10,537 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260403_022610.jpg
+2026-04-02 20:56:13,121 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-02 20:56:15,385 | INFO | [HIGH] wrong_person | conf:87
+2026-04-02 20:56:15,525 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260403_022615.jpg
+2026-04-02 20:56:20,419 | INFO | [HIGH] wrong_person | conf:75
+2026-04-02 20:56:20,653 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260403_022620.jpg
+2026-04-02 20:56:22,371 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-02 20:56:23,920 | INFO | [LOW] session_ended | Session ended
+2026-04-02 20:56:26,199 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-02 20:57:22,810 | INFO | [HIGH] tab_hidden | Exam tab hidden
+2026-04-02 20:57:23,086 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-02 20:57:31,798 | INFO | [HIGH] window_focus_lost | Student switched away from exam

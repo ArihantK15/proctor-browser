@@ -1,0 +1,10 @@
+2026-04-02 17:31:59,096 | INFO | [LOW] enrollment_started | Student: Test Student (TEST001)
+2026-04-02 17:32:19,315 | INFO | [LOW] enrollment_complete | Enrolled: Test Student
+2026-04-02 17:32:21,362 | INFO | [LOW] exam_started | Questions:3 Time:450s
+2026-04-02 17:32:23,776 | INFO | [HIGH] tab_hidden | Exam tab hidden
+2026-04-02 17:32:23,904 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-02 17:32:25,854 | INFO | [HIGH] tab_hidden | Exam tab hidden
+2026-04-02 17:32:25,891 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-02 17:32:28,945 | INFO | [HIGH] tab_hidden | Exam tab hidden
+2026-04-02 17:32:28,976 | INFO | [HIGH] window_focus_lost | Student switched away from exam
+2026-04-02 17:32:39,198 | INFO | [HIGH] window_focus_lost | Student switched away from exam

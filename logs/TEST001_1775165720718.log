@@ -1,0 +1,12 @@
+2026-04-02 21:35:21,336 | INFO | [LOW] enrollment_started | Student: Test Student (TEST001)
+2026-04-02 21:35:32,952 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T21:35:32.738319 | confidence:75%
+2026-04-02 21:35:37,772 | INFO | [HIGH] wrong_person | conf:81 | confidence:81%
+2026-04-02 21:35:37,923 | INFO | [LOW] wrong_person_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260403_030537.jpg | confidence:75%
+2026-04-02 21:35:41,459 | INFO | [LOW] enrollment_complete | Enrolled: Test Student
+2026-04-02 21:35:43,072 | INFO | [LOW] exam_started | Questions:3 Time:450s
+2026-04-02 21:35:45,012 | INFO | [HIGH] earphone_detected | score=2.3 signals=['audio_lip', 'roll'] | confidence:72%
+2026-04-02 21:35:45,139 | INFO | [LOW] earphone_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/earphone_20260403_030545.jpg | confidence:75%
+2026-04-02 21:35:51,641 | INFO | [MEDIUM] head_away | yaw=-27.3 pitch=9.0 | confidence:80%
+2026-04-02 21:35:55,668 | INFO | [HIGH] earphone_detected | score=2.3 signals=['audio_lip', 'roll'] | confidence:72%
+2026-04-02 21:35:55,799 | INFO | [LOW] earphone_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/earphone_20260403_030555.jpg | confidence:75%
+2026-04-02 21:35:58,427 | INFO | [HIGH] window_focus_lost | Student switched away from exam

@@ -1,0 +1,5 @@
+2026-04-02 09:06:26,286 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T09:06:26.263550
+2026-04-02 09:06:58,212 | INFO | [HIGH] cheat_object_detected | Detected: Phone
+2026-04-02 09:06:58,237 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_143658.jpg
+2026-04-02 09:07:08,645 | INFO | [LOW] exam_resumed | Cheat object removed — exam resumed
+2026-04-02 09:07:48,814 | INFO | [LOW] session_ended | Session ended by user

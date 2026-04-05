@@ -1,0 +1,7 @@
+2026-04-02 08:57:15,079 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T08:57:15.045281
+2026-04-02 08:57:59,536 | INFO | [HIGH] cheat_object_detected | Detected: Phone
+2026-04-02 08:57:59,555 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_142759.jpg
+2026-04-02 08:58:07,302 | INFO | [LOW] exam_resumed | Cheat object removed — exam resumed
+2026-04-02 08:59:09,093 | INFO | [HIGH] wrong_person | Unrecognized conf:80
+2026-04-02 08:59:09,111 | INFO | [LOW] wrong_person_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/wrong_person_20260402_142909.jpg
+2026-04-02 08:59:17,672 | INFO | [LOW] session_ended | Session ended by user

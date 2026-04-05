@@ -1,0 +1,5 @@
+2026-04-02 10:05:26,781 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T10:05:26.753467
+2026-04-02 10:06:02,114 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?(Remote), Laptop, Phone
+2026-04-02 10:06:02,138 | INFO | [LOW] cheat_object_screenshot | Evidence saved: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_153602.jpg
+2026-04-02 10:07:24,234 | INFO | [LOW] exam_resumed | Cheat object removed — exam resumed
+2026-04-02 10:07:51,117 | INFO | [LOW] session_ended | Session ended by user

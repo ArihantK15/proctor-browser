@@ -615,6 +615,90 @@ def get_risk_score(session_id: str, request: Request):
     return result
 
 
+@app.get("/api/admin/timeline/{session_id:path}")
+def get_timeline(session_id: str, request: Request):
+    """Full forensics timeline: every event + screenshot paths for a session."""
+    require_admin(request)
+    viol_result = supabase.table("violations")\
+        .select("*")\
+        .eq("session_key", session_id)\
+        .order("created_at")\
+        .execute()
+    events = viol_result.data or []
+
+    # Gather screenshots for this student
+    roll = session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]
+    student_dir = Path(SCREENSHOTS_DIR) / roll
+    screenshots: dict[str, str] = {}   # filename -> relative URL
+    if student_dir.is_dir():
+        for f in sorted(student_dir.iterdir()):
+            if f.suffix.lower() in (".jpg", ".jpeg", ".png"):
+                screenshots[f.name] = f"/api/admin/screenshot/{roll}/{f.name}"
+
+    # Build timeline entries
+    timeline = []
+    for e in events:
+        entry = {
+            "id":        e.get("id"),
+            "type":      e["violation_type"],
+            "severity":  e["severity"],
+            "timestamp": fmt_ist(e.get("created_at", "")),
+            "raw_ts":    e.get("created_at", ""),
+            "details":   e.get("details"),
+            "is_violation": _is_violation(e["violation_type"]),
+        }
+        # Match screenshot by timestamp proximity
+        if e.get("created_at"):
+            try:
+                evt_ts = datetime.fromisoformat(
+                    str(e["created_at"]).replace("Z", "+00:00")
+                ).astimezone(IST)
+                evt_key = evt_ts.strftime("%Y%m%d_%H%M%S")
+                # Look for evidence screenshots saved around this time
+                for fname in screenshots:
+                    if evt_key in fname:
+                        entry["screenshot"] = screenshots[fname]
+                        break
+            except Exception:
+                pass
+        timeline.append(entry)
+
+    # Session metadata
+    sess_result = supabase.table("exam_sessions")\
+        .select("*").eq("session_key", session_id).execute()
+    session_info = sess_result.data[0] if sess_result.data else {}
+
+    return {
+        "session_id":  session_id,
+        "roll_number": session_info.get("roll_number", roll),
+        "full_name":   session_info.get("full_name", ""),
+        "status":      session_info.get("status", "unknown"),
+        "started_at":  fmt_ist(session_info.get("started_at", "")),
+        "submitted_at": fmt_ist(session_info.get("submitted_at", "")),
+        "score":       session_info.get("score"),
+        "total":       session_info.get("total"),
+        "risk_score":  session_info.get("risk_score"),
+        "total_events": len(events),
+        "timeline":    timeline,
+        "screenshots": list(screenshots.values()),
+    }
+
+
+@app.get("/api/admin/screenshot/{roll}/{filename}")
+def get_screenshot(roll: str, filename: str, request: Request):
+    """Serve a screenshot image to the admin dashboard."""
+    require_admin(request)
+    # Sanitize path components to prevent directory traversal
+    safe_roll = Path(roll).name
+    safe_file = Path(filename).name
+    fpath = Path(SCREENSHOTS_DIR) / safe_roll / safe_file
+    if not fpath.exists() or not fpath.is_file():
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    suffix = fpath.suffix.lower()
+    media = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
+    return FileResponse(str(fpath), media_type=media)
+
+
 @app.get("/sessions")
 def get_all_sessions(request: Request):
     require_admin(request)

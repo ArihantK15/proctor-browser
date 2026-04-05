@@ -1,0 +1,7 @@
+2026-04-03 00:05:30,253 | INFO | [LOW] enrollment_started | Student: BIswajit (2102508452)
+2026-04-03 00:05:50,534 | INFO | [LOW] enrollment_complete | Enrolled: BIswajit
+2026-04-03 00:05:52,241 | INFO | [LOW] exam_started | Questions:3 Time:450s
+2026-04-03 00:06:02,496 | INFO | [LOW] answer_selected | q:1|a:B|correct:A
+2026-04-03 00:06:04,965 | INFO | [LOW] answer_selected | q:2|a:B|correct:B
+2026-04-03 00:06:07,217 | INFO | [LOW] answer_selected | q:3|a:C|correct:C
+2026-04-03 00:06:08,653 | INFO | [LOW] answer_selected | q:3|a:A|correct:C

@@ -49,7 +49,6 @@ SCREENSHOTS_DIR  = os.getenv("SCREENSHOTS_DIR", "/app/screenshots")
 DOWNLOAD_MAC_ARM = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN     = os.getenv("DOWNLOAD_WIN", "")
-EXAM_ACCESS_CODE = os.getenv("EXAM_ACCESS_CODE", "")
 TOKEN_TTL_HOURS  = 10
 
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
@@ -190,18 +189,37 @@ def _load_questions() -> list[dict]:
         .select("question_id,question,options,correct")\
         .order("question_id").execute()
     return [
-        {"id": q["question_id"], "question": q["question"],
-         "options": q["options"], "correct": q["correct"]}
+        {"id": str(q["question_id"]), "question": q["question"],
+         "options": q["options"], "correct": str(q["correct"])}
         for q in (result.data or [])
     ]
 
 def _load_exam_config() -> dict:
-    """Load exam config (title, duration) from Supabase."""
+    """Load exam config (title, duration, access_code) from Supabase."""
     result = supabase.table("exam_config")\
-        .select("exam_title,duration_minutes").eq("id", 1).execute()
+        .select("exam_title,duration_minutes,access_code").eq("id", 1).execute()
     if result.data:
         return result.data[0]
-    return {"exam_title": "Exam", "duration_minutes": 60}
+    return {"exam_title": "Exam", "duration_minutes": 60, "access_code": ""}
+
+def _get_access_code() -> str:
+    """Load the current exam access code from Supabase (persisted across restarts)."""
+    try:
+        config = _load_exam_config()
+        code = config.get("access_code", "")
+        if code:
+            return str(code).strip().upper()
+    except Exception:
+        pass
+    # Fallback to env var (first-boot or DB migration)
+    return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
+
+def _set_access_code(code: str):
+    """Persist access code to Supabase exam_config table."""
+    supabase.table("exam_config").upsert({
+        "id": 1,
+        "access_code": code,
+    }).execute()
 
 
 def _recalculate_score(session_id: str, payload_answers: dict) -> tuple[int, int]:
@@ -212,11 +230,11 @@ def _recalculate_score(session_id: str, payload_answers: dict) -> tuple[int, int
         # Merge DB answers with payload answers (payload takes precedence)
         saved = supabase.table("answers").select("question_id,answer")\
             .eq("session_key", session_id).execute()
-        ans_map = {r["question_id"]: r["answer"] for r in (saved.data or [])}
+        ans_map = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
         for qid, ans in payload_answers.items():
             ans_map[str(qid)] = str(ans)
         score = sum(1 for q in questions
-                    if ans_map.get(str(q["id"])) == str(q.get("correct", "")))
+                    if ans_map.get(q["id"]) == q["correct"])
         return score, total
     except Exception as e:
         print(f"[Score] Recalculation failed: {e}")
@@ -366,9 +384,10 @@ def health():
 @app.post("/api/validate-student")
 @limiter.limit("10/minute")
 def validate_student(request: Request, body: ValidateIn):
-    # Check exam access code if configured
-    if EXAM_ACCESS_CODE:
-        if not body.access_code or body.access_code.strip().upper() != EXAM_ACCESS_CODE.strip().upper():
+    # Check exam access code if configured (loaded from Supabase, persists across restarts)
+    current_code = _get_access_code()
+    if current_code:
+        if not body.access_code or body.access_code.strip().upper() != current_code:
             raise HTTPException(
                 status_code=403,
                 detail="Invalid exam access code. Ask your examiner for the correct code.")
@@ -465,7 +484,7 @@ def check_session(roll_number: str, request: Request):
         "exists":      True,
         "session_key": session["session_key"],
         "answer_count": len(answers.data or []),
-        "answers":     {r["question_id"]: r["answer"] for r in (answers.data or [])},
+        "answers":     {str(r["question_id"]): r["answer"] for r in (answers.data or [])},
         "started_at":  session.get("started_at"),
     }
 
@@ -1030,8 +1049,8 @@ def export_pdf(session_id: str, request: Request):
         # Load questions for correct answers
         try:
             pdf_questions = _load_questions()
-            q_correct = {str(q["id"]): str(q.get("correct", "")) for q in pdf_questions}
-            q_texts = {str(q["id"]): q.get("question", "")[:50] for q in pdf_questions}
+            q_correct = {q["id"]: q["correct"] for q in pdf_questions}
+            q_texts = {q["id"]: q.get("question", "")[:50] for q in pdf_questions}
         except Exception:
             q_correct = {}
             q_texts = {}
@@ -1039,12 +1058,12 @@ def export_pdf(session_id: str, request: Request):
         if answers:
             ad = [["#", "Question", "Student", "Correct", "Result"]]
             for a in answers:
-                qid = a["question_id"]
-                correct = q_correct.get(str(qid), "?")
-                is_right = a["answer"] == correct
+                qid = str(a["question_id"])
+                correct = q_correct.get(qid, "?")
+                is_right = str(a["answer"]) == correct
                 ad.append([
                     f"Q{qid}",
-                    q_texts.get(str(qid), "")[:40],
+                    q_texts.get(qid, "")[:40],
                     a["answer"],
                     correct,
                     "✓" if is_right else "✗",
@@ -1153,14 +1172,14 @@ def get_admin_answers(session_id: str, request: Request):
     # Fetch student answers
     ans_result = supabase.table("answers").select("question_id,answer")\
         .eq("session_key", session_id).execute()
-    ans_map = {r["question_id"]: r["answer"] for r in (ans_result.data or [])}
+    ans_map = {str(r["question_id"]): str(r["answer"]) for r in (ans_result.data or [])}
 
     # Merge
     answer_review = []
     for q in questions:
-        qid = str(q["id"])
+        qid = q["id"]  # already str from _load_questions
         student_ans = ans_map.get(qid, "")
-        correct_ans = str(q.get("correct", ""))
+        correct_ans = q["correct"]  # already str from _load_questions
         answer_review.append({
             "question_id": qid,
             "question": q.get("question", ""),
@@ -1230,19 +1249,18 @@ def update_questions(request: Request, body: dict):
 
 @app.get("/api/admin/access-code")
 def get_access_code(request: Request):
-    """Return the current exam access code."""
+    """Return the current exam access code (persisted in Supabase)."""
     require_admin(request)
-    global EXAM_ACCESS_CODE
-    return {"access_code": EXAM_ACCESS_CODE, "enabled": bool(EXAM_ACCESS_CODE)}
+    code = _get_access_code()
+    return {"access_code": code, "enabled": bool(code)}
 
 @app.post("/api/admin/access-code")
 def set_access_code(request: Request, body: dict):
-    """Set or clear the exam access code."""
+    """Set or clear the exam access code (persisted in Supabase)."""
     require_admin(request)
-    global EXAM_ACCESS_CODE
     new_code = str(body.get("access_code", "")).strip().upper()
-    EXAM_ACCESS_CODE = new_code
-    return {"access_code": EXAM_ACCESS_CODE, "enabled": bool(EXAM_ACCESS_CODE)}
+    _set_access_code(new_code)
+    return {"access_code": new_code, "enabled": bool(new_code)}
 
 @app.post("/api/admin-submit/{session_id}")
 def admin_submit(session_id: str, request: Request):

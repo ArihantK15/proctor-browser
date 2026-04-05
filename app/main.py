@@ -156,6 +156,10 @@ class AnswerIn(BaseModel):
     question_id: str
     answer:      str
 
+class BulkAnswerIn(BaseModel):
+    session_id: str
+    answers:    dict  # {question_id: answer, ...}
+
 class FrameIn(BaseModel):
     session_id: str
     frame:      str
@@ -501,6 +505,20 @@ def save_answer(body: AnswerIn, request: Request):
         "answer":       body.answer,
     }).execute()
     return {"status": "saved"}
+
+@app.post("/api/save-answers-bulk")
+def save_answers_bulk(body: BulkAnswerIn, request: Request):
+    """Periodic bulk save of all answers — safety net for failed individual saves."""
+    claims = require_auth(request)
+    _check_session_ownership(claims, body.session_id)
+    if not body.answers:
+        return {"status": "empty", "saved": 0}
+    records = [
+        {"session_key": body.session_id, "question_id": str(qid), "answer": str(ans)}
+        for qid, ans in body.answers.items()
+    ]
+    supabase.table("answers").upsert(records).execute()
+    return {"status": "saved", "saved": len(records)}
 
 @app.post("/api/submit-exam")
 @limiter.limit("10/minute")
@@ -987,11 +1005,31 @@ def export_pdf(session_id: str, request: Request):
         story.append(Spacer(1, 20))
         story.append(Paragraph("Answer Sheet", styles["Heading2"]))
         story.append(Spacer(1, 8))
+
+        # Load questions for correct answers
+        try:
+            with open(QUESTIONS_FILE) as f:
+                qdata_pdf = json.load(f)
+            q_correct = {str(q["id"]): str(q.get("correct", "")) for q in qdata_pdf.get("questions", [])}
+            q_texts = {str(q["id"]): q.get("question", "")[:50] for q in qdata_pdf.get("questions", [])}
+        except Exception:
+            q_correct = {}
+            q_texts = {}
+
         if answers:
-            ad = [["Question", "Answer"]]
+            ad = [["#", "Question", "Student", "Correct", "Result"]]
             for a in answers:
-                ad.append([f"Question {a['question_id']}", a["answer"]])
-            at = Table(ad, colWidths=[200, 270])
+                qid = a["question_id"]
+                correct = q_correct.get(str(qid), "?")
+                is_right = a["answer"] == correct
+                ad.append([
+                    f"Q{qid}",
+                    q_texts.get(str(qid), "")[:40],
+                    a["answer"],
+                    correct,
+                    "✓" if is_right else "✗",
+                ])
+            at = Table(ad, colWidths=[30, 180, 50, 50, 40])
             at.setStyle(TableStyle([
                 ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
                 ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
@@ -1080,6 +1118,42 @@ def get_admin_questions(request: Request):
         return {"exam_title": "", "duration_minutes": 60, "questions": []}
     with open(QUESTIONS_FILE) as f:
         return json.load(f)
+
+@app.get("/api/admin/answers/{session_id:path}")
+def get_admin_answers(session_id: str, request: Request):
+    """Return student answers merged with correct answers for the detail modal."""
+    require_admin(request)
+
+    # Load questions
+    try:
+        with open(QUESTIONS_FILE) as f:
+            qdata = json.load(f)
+        questions = qdata.get("questions", [])
+    except Exception:
+        questions = []
+
+    # Fetch student answers
+    ans_result = supabase.table("answers").select("question_id,answer")\
+        .eq("session_key", session_id).execute()
+    ans_map = {r["question_id"]: r["answer"] for r in (ans_result.data or [])}
+
+    # Merge
+    answer_review = []
+    for q in questions:
+        qid = str(q["id"])
+        student_ans = ans_map.get(qid, "")
+        correct_ans = str(q.get("correct", ""))
+        answer_review.append({
+            "question_id": qid,
+            "question": q.get("question", ""),
+            "options": q.get("options", {}),
+            "student_answer": student_ans,
+            "correct_answer": correct_ans,
+            "is_correct": student_ans == correct_ans,
+        })
+
+    return {"answers": answer_review, "total": len(questions),
+            "correct_count": sum(1 for a in answer_review if a["is_correct"])}
 
 @app.post("/api/admin/questions")
 def update_questions(request: Request, body: dict):

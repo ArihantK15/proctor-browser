@@ -50,6 +50,8 @@
     font-weight:600;background:rgba(88,166,255,.1);color:var(--blue);margin-left:6px}
   .warn{background:rgba(227,179,65,.1);color:#e3b341;border-radius:8px;
     padding:12px 16px;font-size:12px;margin-top:12px;text-align:left}
+  .mobile-warn-banner{background:rgba(255,123,114,.1);border:1px solid rgba(255,123,114,.3);
+    color:#ff7b72;border-radius:8px;padding:16px;font-size:14px;margin-top:12px;text-align:center;font-weight:600}
 </style>
 </head>
 <body>
@@ -129,7 +131,10 @@
   let os = 'unknown';
   let arch = '';
 
-  if (ua.includes('mac') || platform.includes('mac')) {
+  const isMobile = /android|iphone|ipad|ipod|mobile/i.test(ua) || (ua.includes('mac') && navigator.maxTouchPoints > 1);
+  if (isMobile) {
+    os = 'mobile';
+  } else if (ua.includes('mac') || platform.includes('mac')) {
     os = 'mac';
     // Detect Apple Silicon vs Intel
     // navigator.userAgentData?.architecture is only in some browsers
@@ -173,6 +178,11 @@
     detailEl.textContent = 'Linux is not currently supported. Please use a Mac or Windows PC.';
     unavail.style.display = 'block';
     unavail.textContent = 'Linux builds are not available. Use a Windows or Mac machine.';
+  } else if (os === 'mobile') {
+    osEl.textContent = 'Mobile Device Detected';
+    detailEl.textContent = 'The Proctor Browser requires a desktop computer (Mac or Windows). Please switch to a laptop or desktop to download and run the exam.';
+    unavail.style.display = 'block';
+    unavail.textContent = 'Mobile and tablet devices are not supported.';
   } else {
     osEl.textContent = 'Unknown System';
     detailEl.textContent = 'Could not detect your operating system. Choose a download below.';

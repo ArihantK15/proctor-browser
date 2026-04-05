@@ -110,6 +110,7 @@
     .axit{position:fixed;bottom:12px;left:12px;font-size:11px;
           color:#21262d;cursor:pointer;padding:8px;border-radius:4px}
     .axit:hover{color:#58a6ff;background:#161b22}
+    .save-flash{opacity:1!important;transition:opacity .3s}
   </style>
 </head>
 <body>
@@ -165,6 +166,7 @@
       <div class="etitle" id="exam-title">Exam</div>
       <div class="estu"   id="exam-stu"></div>
     </div>
+    <div id="save-status" style="font-size:11px;color:#8b949e;opacity:0;transition:opacity .3s">Saved ✓</div>
     <div class="etimer" id="exam-timer">--:--</div>
   </div>
   <div class="ebody">
@@ -676,6 +678,7 @@ async function startExam(){
     showScreen('exam');
     startTimer(); // start AFTER screen is shown so student sees full time
     examActive=true;
+    startBulkSave();
 
     // Anti-cheat listeners — bound once per page load, gated by examActive flag
     if(!antiCheatBound){
@@ -786,6 +789,46 @@ function selAns(l){
       2000));
   }
 }
+// ── BULK AUTO-SAVE (safety net every 60s) ──────────────────────
+let bulkSaveTimer = null;
+
+function startBulkSave(){
+  if(bulkSaveTimer) clearInterval(bulkSaveTimer);
+  bulkSaveTimer = setInterval(doBulkSave, 60000);
+}
+
+async function doBulkSave(){
+  if(!sessionId || !examActive || Object.keys(answers).length === 0) return;
+  const statusEl = document.getElementById('save-status');
+  try{
+    statusEl.textContent = 'Saving...';
+    statusEl.classList.add('save-flash');
+    const payload = {session_id: sessionId, answers: {}};
+    for(const [qid, ans] of Object.entries(answers)){
+      payload.answers[String(qid)] = String(ans);
+    }
+    const r = await fetch(`${SERVER}/api/save-answers-bulk`, {
+      method: 'POST',
+      headers: authHdr(),
+      body: JSON.stringify(payload)
+    });
+    if(r.ok){
+      statusEl.textContent = 'Saved ✓';
+      statusEl.style.color = '#3fb950';
+    } else {
+      statusEl.textContent = 'Save failed';
+      statusEl.style.color = '#ff7b72';
+    }
+  }catch(e){
+    statusEl.textContent = 'Save failed';
+    statusEl.style.color = '#ff7b72';
+  }
+  setTimeout(()=>{
+    statusEl.classList.remove('save-flash');
+    statusEl.style.color = '#8b949e';
+  }, 3000);
+}
+
 function goQ(i)   { curQ=i; renderQ(); }
 function prevQ()  { if(curQ>0){ curQ--; renderQ(); } }
 function nextQ()  { if(curQ<questions.length-1){ curQ++; renderQ(); } }
@@ -860,6 +903,7 @@ async function submitExam(timeUp=false){
   if(submitInFlight) return;
   submitInFlight=true;
   examActive=false;
+  if(bulkSaveTimer) clearInterval(bulkSaveTimer);
   clearInterval(timerInt);
 
   const taken=startTime ? Math.floor((Date.now()-startTime)/1000) : 0;

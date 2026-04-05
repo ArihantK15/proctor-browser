@@ -113,6 +113,15 @@
     font-weight:600;margin-bottom:2px}
   .detail-item .dval{font-size:16px;font-weight:600}
 
+  /* ── Answer review ─────────────────────────────────────────── */
+  .ans-review{margin-top:8px}
+  .ans-review table{width:100%;font-size:12px}
+  .ans-review th{background:var(--bg);padding:8px;text-align:left;font-size:11px;color:var(--muted)}
+  .ans-review td{padding:8px;border-bottom:1px solid var(--border)}
+  .ans-review .ans-correct{color:var(--green)}
+  .ans-review .ans-wrong{color:var(--red)}
+  .ans-review .ans-mark{font-size:16px;font-weight:700}
+
   /* ── Risk breakdown bar chart ─────────────────────────────────── */
   .breakdown{margin-top:16px}
   .breakdown h4{font-size:13px;color:var(--muted);margin-bottom:10px;
@@ -404,6 +413,7 @@
     <h3 id="modal-title">Session Detail</h3>
     <div class="detail-grid" id="modal-info"></div>
     <div class="breakdown" id="modal-breakdown"></div>
+    <div id="modal-answers" style="margin-top:20px"></div>
     <div style="margin-top:20px;display:flex;gap:10px">
       <button class="action-btn" id="modal-pdf" onclick="downloadPDF()">Download PDF</button>
       <button class="action-btn" id="modal-risk" onclick="viewRiskDetail()">Full Risk Breakdown</button>
@@ -644,6 +654,14 @@ async function openDetail(sid){
   }catch(e){
     bd.innerHTML='<p style="color:var(--muted)">Could not load breakdown.</p>';
   }
+  // Load answer breakdown
+  try{
+    const ansResp = await fetch(`${BASE}/api/admin/answers/${encodeURIComponent(sid)}`,{headers:hdr()});
+    const ansData = await ansResp.json();
+    renderAnswerReview(ansData);
+  }catch(e){
+    document.getElementById('modal-answers').innerHTML='';
+  }
 }
 
 function renderBreakdown(risk){
@@ -674,6 +692,46 @@ function renderBreakdown(risk){
         <div class="bd-count">${data.count}x (+${data.contribution})</div>
       </div>`;
     }).join('')}
+  `;
+}
+
+function renderAnswerReview(data){
+  const el = document.getElementById('modal-answers');
+  if(!data.answers||!data.answers.length){
+    el.innerHTML='';
+    return;
+  }
+  el.innerHTML=`
+    <div class="ans-review">
+      <h4 style="font-size:13px;color:var(--muted);text-transform:uppercase;font-weight:600;margin-bottom:10px">
+        Answer Review (${data.correct_count}/${data.total} correct)
+      </h4>
+      <div class="table-wrap" style="max-height:300px">
+        <table>
+          <thead><tr>
+            <th style="width:40px">#</th>
+            <th>Question</th>
+            <th style="width:70px">Student</th>
+            <th style="width:70px">Correct</th>
+            <th style="width:40px"></th>
+          </tr></thead>
+          <tbody>
+            ${data.answers.map((a,i)=>{
+              const cls = a.is_correct ? 'ans-correct' : 'ans-wrong';
+              const mark = a.is_correct ? '✓' : '✗';
+              const stuAns = a.student_answer || '—';
+              return `<tr class="${cls}">
+                <td>Q${a.question_id}</td>
+                <td style="color:var(--text)">${esc(a.question)}</td>
+                <td><strong>${esc(stuAns)}</strong></td>
+                <td><strong>${esc(a.correct_answer)}</strong></td>
+                <td class="ans-mark">${mark}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
   `;
 }
 

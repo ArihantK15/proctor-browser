@@ -1,7 +1,0 @@
-2026-04-02 10:30:05,000 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-02T10:30:04.963959
-2026-04-02 10:30:07,713 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
-2026-04-02 10:30:07,730 | INFO | [LOW] cheat_object_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_160007.jpg
-2026-04-02 10:30:09,114 | INFO | [LOW] exam_resumed | Object removed
-2026-04-02 10:30:10,783 | INFO | [HIGH] cheat_object_detected | Detected: Earphone?
-2026-04-02 10:30:10,799 | INFO | [LOW] cheat_object_screenshot | Evidence: /Users/arihantkaul/proctored-browser/logs/evidence/cheat_object_20260402_160010.jpg
-2026-04-02 10:30:13,398 | INFO | [LOW] session_ended | Session ended

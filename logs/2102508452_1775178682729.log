@@ -1,8 +1,0 @@
-2026-04-03 01:11:22,201 | INFO | [LOW] enrollment_started | Student: BIswajit (2102508452)
-2026-04-03 01:11:42,415 | INFO | [LOW] enrollment_complete | Enrolled: BIswajit
-2026-04-03 01:11:44,041 | INFO | [LOW] exam_started | Questions:3 Time:450s
-2026-04-03 01:11:49,490 | INFO | [HIGH] window_focus_lost | Student switched away from exam
-2026-04-03 01:11:49,495 | INFO | [HIGH] tab_hidden | Exam tab hidden
-2026-04-03 01:11:56,327 | INFO | [LOW] answer_selected | q:1|a:B|correct:A
-2026-04-03 01:11:59,065 | INFO | [LOW] answer_selected | q:2|a:B|correct:B
-2026-04-03 01:12:02,848 | INFO | [LOW] answer_selected | q:3|a:C|correct:C

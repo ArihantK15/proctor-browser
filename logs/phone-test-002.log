@@ -1,4 +1,0 @@
-2026-04-03 00:50:54,918 | INFO | [LOW] enrollment_complete | Enrolled at 2026-04-03T00:50:54.553796 | confidence:75%
-2026-04-03 00:51:16,161 | INFO | [HIGH] wrong_person | conf:55 | confidence:55%
-2026-04-03 00:51:16,359 | INFO | [LOW] wrong_person_screenshot | Evidence: /tmp/evidence/wrong_person_20260403_062116.jpg | confidence:75%
-2026-04-03 00:51:27,035 | INFO | [MEDIUM] head_away | yaw=-34.4 pitch=-3.6 | confidence:80%

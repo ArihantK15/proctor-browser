@@ -5,3 +5,23 @@ venv/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Environment & secrets — never commit
+.env
+.env.*
+!.env.example
+app/credentials.json
+
+# Runtime data — generated on server
+logs/
+screenshots/
+app/proctoring.db
+*.db
+
+# Installer binaries — too large for git (use GitHub Releases)
+app/downloads/
+*.dmg
+*.exe
+
+# Exam config — managed per-deployment
+questions.json

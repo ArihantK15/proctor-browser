@@ -10,7 +10,8 @@ AI-Powered Online Exam Proctoring System
 
 A secure, intelligent, and scalable platform for conducting cheat-resistant online examinations.
 
-Live: https://procta.net
+Website: https://procta.net
+App: https://app.procta.net
 
 ⸻
 
@@ -120,7 +121,8 @@ Infrastructure
 	•	GitHub Actions for CI/CD
 	•	DigitalOcean hosting
 
-Domain: https://procta.net (24/7 live)
+Marketing site: https://procta.net (Vercel)
+App server: https://app.procta.net (DigitalOcean)
 
 ⸻
 

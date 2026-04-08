@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Check } from 'lucide-react'
+import { APP_URL } from '../config'
 
 export default function Signup() {
   const [form, setForm] = useState({ name: '', email: '', institution: '', role: '', message: '' })
@@ -173,9 +174,9 @@ export default function Signup() {
 
           <p className="mt-6 text-center text-sm text-slate-500">
             Already have an account?{' '}
-            <Link to="/login" className="font-medium text-accent-light hover:text-white transition-colors no-underline">
+            <a href={`${APP_URL}/dashboard`} className="font-medium text-accent-light hover:text-white transition-colors no-underline">
               Log In
-            </Link>
+            </a>
           </p>
         </div>
       </div>

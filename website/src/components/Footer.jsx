@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { APP_URL } from '../config'
 
 export default function Footer() {
   return (
@@ -46,8 +47,9 @@ export default function Footer() {
           <div>
             <h4 className="mb-4 text-xs font-semibold uppercase tracking-widest text-slate-500">Connect</h4>
             <ul className="space-y-2.5 list-none p-0">
-              <li><Link to="/login" className="text-sm text-slate-400 transition-colors hover:text-white no-underline">Log In</Link></li>
+              <li><a href={`${APP_URL}/dashboard`} className="text-sm text-slate-400 transition-colors hover:text-white no-underline">Log In</a></li>
               <li><Link to="/signup" className="text-sm text-slate-400 transition-colors hover:text-white no-underline">Request Demo</Link></li>
+              <li><a href={`${APP_URL}/download`} className="text-sm text-slate-400 transition-colors hover:text-white no-underline">Download App</a></li>
             </ul>
           </div>
         </div>

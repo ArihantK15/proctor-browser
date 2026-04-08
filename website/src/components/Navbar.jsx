@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
+import { APP_URL } from '../config'
 
 export default function Navbar() {
   const [open, setOpen] = useState(false)
@@ -39,12 +40,12 @@ export default function Navbar() {
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
-          <Link
-            to="/login"
+          <a
+            href={`${APP_URL}/dashboard`}
             className="rounded-lg px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:text-white no-underline"
           >
             Log In
-          </Link>
+          </a>
           <Link
             to="/signup"
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-all hover:bg-accent-light no-underline"
@@ -76,13 +77,13 @@ export default function Navbar() {
               </a>
             ))}
             <div className="mt-3 flex flex-col gap-2 border-t border-white/5 pt-3">
-              <Link
-                to="/login"
+              <a
+                href={`${APP_URL}/dashboard`}
                 onClick={() => setOpen(false)}
                 className="rounded-lg px-3 py-2.5 text-sm text-slate-300 hover:text-white no-underline"
               >
                 Log In
-              </Link>
+              </a>
               <Link
                 to="/signup"
                 onClick={() => setOpen(false)}

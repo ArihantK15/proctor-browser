@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { APP_URL } from '../config'
 
 export default function CTA() {
   return (
@@ -32,12 +33,12 @@ export default function CTA() {
                 Request Demo
                 <ArrowRight size={18} className="transition-transform group-hover:translate-x-0.5" />
               </Link>
-              <Link
-                to="/login"
+              <a
+                href={`${APP_URL}/dashboard`}
                 className="rounded-xl border border-white/10 bg-white/[0.03] px-8 py-4 text-base font-semibold text-slate-300 transition-all hover:border-white/20 no-underline"
               >
                 Log In
-              </Link>
+              </a>
             </div>
           </div>
         </motion.div>

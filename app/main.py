@@ -4,6 +4,8 @@ import io
 import json
 import base64
 import math
+import random
+import hashlib
 import threading
 import time
 from datetime import datetime, timezone, timedelta
@@ -467,13 +469,7 @@ def validate_student(request: Request, body: ValidateIn):
                 status_code=403,
                 detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
 
-    # Check exam access code if configured (loaded from Supabase, persists across restarts)
-    current_code = _get_access_code()
-    if current_code:
-        if not body.access_code or body.access_code.strip().upper() != current_code:
-            raise HTTPException(
-                status_code=403,
-                detail="Invalid exam access code. Ask your examiner for the correct code.")
+    # Look up student first (most common error = wrong roll number)
     result = supabase.table("students")\
         .select("*")\
         .eq("roll_number", body.roll_number.strip().upper())\
@@ -483,6 +479,14 @@ def validate_student(request: Request, body: ValidateIn):
             status_code=404,
             detail="Roll number not found. Please complete registration first.")
     student = result.data[0]
+
+    # Check exam access code if configured (loaded from Supabase, persists across restarts)
+    current_code = _get_access_code()
+    if current_code:
+        if not body.access_code or body.access_code.strip().upper() != current_code:
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid exam access code. Ask your examiner for the correct code.")
     completed = supabase.table("exam_sessions").select("session_key")\
         .eq("roll_number", student["roll_number"])\
         .eq("status", "completed")\
@@ -531,16 +535,46 @@ def download_win():
     return FileResponse(path, filename="ProctorBrowser-Setup.exe",
                         media_type="application/octet-stream")
 
+def _shuffle_for_student(questions: list[dict], roll: str) -> list[dict]:
+    """Deterministically shuffle question order and option order per student.
+
+    Uses roll number as seed so the same student always gets the same order
+    (important for resume). Question IDs are preserved — only presentation
+    order changes. Scoring is unaffected since it matches by question_id.
+    """
+    seed = int(hashlib.sha256(roll.encode()).hexdigest(), 16) % (2**32)
+    rng = random.Random(seed)
+
+    shuffled = list(questions)
+    rng.shuffle(shuffled)
+
+    # Shuffle option order within each question
+    result = []
+    for q in shuffled:
+        opts = q.get("options", {})
+        if opts:
+            keys = list(opts.keys())
+            rng.shuffle(keys)
+            q = {**q, "options": {k: opts[k] for k in keys}}
+        result.append(q)
+    return result
+
+
 # ─── STUDENT ENDPOINTS (require JWT) ─────────────────────────────
 @app.get("/api/questions")
 def get_questions(request: Request):
-    require_auth(request)
+    claims = require_auth(request)
     questions = _load_questions()
     if not questions:
         raise HTTPException(status_code=404, detail="Questions not found")
     config = _load_exam_config()
+
+    # Randomize question and option order per student (deterministic by roll)
+    roll = claims.get("roll", "")
+    shuffled = _shuffle_for_student(questions, roll)
+
     # Strip correct answers — students must never see them
-    safe_questions = [{k: v for k, v in q.items() if k != "correct"} for q in questions]
+    safe_questions = [{k: v for k, v in q.items() if k != "correct"} for q in shuffled]
     return {
         "exam_title": config.get("exam_title", "Exam"),
         "duration_minutes": config.get("duration_minutes"),

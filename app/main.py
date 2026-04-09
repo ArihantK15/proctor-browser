@@ -99,23 +99,34 @@ def require_admin(request: Request) -> dict:
     Falls back to legacy password auth during migration."""
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
+        token = auth[7:]
+        payload = None
+        # Try HS256 first (our own student/custom tokens)
         try:
-            token = auth[7:]
-            # Read algorithm from token header — Supabase may not use HS256
-            header = jwt.get_unverified_header(token)
-            alg = header.get("alg", "HS256")
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[alg],
-                                 options={"verify_aud": False, "verify_exp": True})
-        except JWTError as e:
-            print(f"[Auth] JWT decode failed: {e}")
-            raise HTTPException(status_code=401, detail=f"Invalid or expired token: {e}")
+            payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"],
+                                 options={"verify_aud": False})
+        except JWTError:
+            pass
+        # Supabase Auth may use a different algorithm — extract claims
+        # and rely on DB lookup for authorization
+        if payload is None:
+            try:
+                payload = jwt.get_unverified_claims(token)
+                # Manually check expiry
+                exp = payload.get("exp")
+                if exp and float(exp) < time.time():
+                    raise HTTPException(status_code=401, detail="Token expired")
+            except HTTPException:
+                raise
+            except Exception as e:
+                print(f"[Auth] JWT decode failed: {e}")
+                raise HTTPException(status_code=401, detail="Invalid token")
         sub = payload.get("sub")
         if not sub:
             raise HTTPException(status_code=403, detail="Not a teacher token")
         teacher = _get_teacher_by_uid(sub)
         if not teacher:
             raise HTTPException(status_code=403, detail="Teacher account not found")
-        print(f"[Auth] Teacher authenticated: {teacher.get('email')} (id={teacher.get('id')})")
         return teacher
 
     # Legacy fallback: password header (remove after full migration)

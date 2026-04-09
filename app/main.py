@@ -100,7 +100,10 @@ def require_admin(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         try:
-            payload = jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"],
+            token = auth[7:]
+            header = jwt.get_unverified_header(token)
+            alg = header.get("alg", "HS256")
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[alg],
                                  options={"verify_aud": False, "verify_exp": True})
         except JWTError as e:
             print(f"[Auth] JWT decode failed: {e}")

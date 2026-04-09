@@ -101,6 +101,7 @@ def require_admin(request: Request) -> dict:
     if auth.startswith("Bearer "):
         try:
             token = auth[7:]
+            # Read algorithm from token header — Supabase may not use HS256
             header = jwt.get_unverified_header(token)
             alg = header.get("alg", "HS256")
             payload = jwt.decode(token, SECRET_KEY, algorithms=[alg],
@@ -114,6 +115,7 @@ def require_admin(request: Request) -> dict:
         teacher = _get_teacher_by_uid(sub)
         if not teacher:
             raise HTTPException(status_code=403, detail="Teacher account not found")
+        print(f"[Auth] Teacher authenticated: {teacher.get('email')} (id={teacher.get('id')})")
         return teacher
 
     # Legacy fallback: password header (remove after full migration)
@@ -140,6 +142,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── GLOBAL ERROR HANDLER ────────────────────────────────────────
+import traceback as _tb
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: StarletteRequest, exc: Exception):
+    print(f"[UNHANDLED] {request.method} {request.url.path}: {exc}")
+    _tb.print_exc()
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 # ─── STATIC FILES & ADMIN DASHBOARD ──────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"
@@ -1128,38 +1141,43 @@ def get_screenshot(roll: str, filename: str, request: Request):
 def get_all_sessions(request: Request):
     teacher = require_admin(request)
     tid = teacher["id"]
-    # Limit to last 48h so this never scans the entire violations table
-    cutoff = (now_ist() - timedelta(hours=48)).isoformat()
-    evts_query = supabase.table("violations")\
-        .select("session_key,violation_type,severity,created_at,details")\
-        .gte("created_at", cutoff)
-    if tid:
-        evts_query = evts_query.eq("teacher_id", tid)
-    evts_result = evts_query.order("created_at", desc=True).execute()
-    events = evts_result.data or []
+    try:
+        # Limit to last 48h so this never scans the entire violations table
+        cutoff = (now_ist() - timedelta(hours=48)).isoformat()
+        evts_query = supabase.table("violations")\
+            .select("session_key,violation_type,severity,created_at,details")\
+            .gte("created_at", cutoff)
+        if tid:
+            evts_query = evts_query.eq("teacher_id", str(tid))
+        evts_result = evts_query.order("created_at", desc=True).execute()
+        events = evts_result.data or []
 
-    sub_query = supabase.table("exam_sessions").select("session_key")\
-        .eq("status", "completed")
-    if tid:
-        sub_query = sub_query.eq("teacher_id", tid)
-    sub_result = sub_query.execute()
-    submitted  = {r["session_key"] for r in (sub_result.data or [])}
+        sub_query = supabase.table("exam_sessions").select("session_key")\
+            .eq("status", "completed")
+        if tid:
+            sub_query = sub_query.eq("teacher_id", str(tid))
+        sub_result = sub_query.execute()
+        submitted  = {r["session_key"] for r in (sub_result.data or [])}
 
-    sessions: dict = {}
-    for e in events:
-        sk = e["session_key"]
-        if sk not in sessions:
-            sessions[sk] = {
-                "session_id":    sk,
-                "last_event":    e["violation_type"],
-                "last_severity": e["severity"],
-                "last_seen":     fmt_ist(e.get("created_at", "")),
-                "details":       e.get("details"),
-                "submitted":     sk in submitted,
-            }
+        sessions: dict = {}
+        for e in events:
+            sk = e["session_key"]
+            if sk not in sessions:
+                sessions[sk] = {
+                    "session_id":    sk,
+                    "last_event":    e["violation_type"],
+                    "last_severity": e["severity"],
+                    "last_seen":     fmt_ist(e.get("created_at", "")),
+                    "details":       e.get("details"),
+                    "submitted":     sk in submitted,
+                }
 
-    active = [s for s in sessions.values() if not s["submitted"]]
-    return {"sessions": active, "all_sessions": list(sessions.values())}
+        active = [s for s in sessions.values() if not s["submitted"]]
+        return {"sessions": active, "all_sessions": list(sessions.values())}
+    except Exception as e:
+        print(f"[Sessions] ERROR: {e}")
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 def _violation_counts_by_session(session_keys: list[str]) -> dict[str, int]:
     """Bulk-fetch violations for all sessions and return a count map.
@@ -1526,13 +1544,18 @@ def get_admin_questions(request: Request):
     """Return all questions including correct answers (admin only)."""
     teacher = require_admin(request)
     tid = teacher["id"]
-    config = _load_exam_config(tid)
-    questions = _load_questions(tid)
-    return {
-        "exam_title": config.get("exam_title", "Exam"),
-        "duration_minutes": config.get("duration_minutes", 60),
-        "questions": questions,
-    }
+    try:
+        config = _load_exam_config(str(tid) if tid else None)
+        questions = _load_questions(str(tid) if tid else None)
+        return {
+            "exam_title": config.get("exam_title", "Exam"),
+            "duration_minutes": config.get("duration_minutes", 60),
+            "questions": questions,
+        }
+    except Exception as e:
+        print(f"[Questions] ERROR: {e}")
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/answers/{session_id:path}")
 def get_admin_answers(session_id: str, request: Request):

@@ -170,6 +170,18 @@ def register_page():
 
 # ─── TEACHER AUTH ────────────────────────────────────────────────
 
+class TeacherSignupIn(BaseModel):
+    email:     str
+    password:  str
+    full_name: str
+
+class TeacherLoginIn(BaseModel):
+    email:    str
+    password: str
+
+class RefreshIn(BaseModel):
+    refresh_token: str
+
 @app.post("/api/auth/signup")
 @limiter.limit("5/hour")
 async def teacher_signup(body: TeacherSignupIn, request: Request):
@@ -343,18 +355,6 @@ class FrameIn(BaseModel):
     session_id: str
     frame:      str
     timestamp:  str
-
-class TeacherSignupIn(BaseModel):
-    email:     str
-    password:  str
-    full_name: str
-
-class TeacherLoginIn(BaseModel):
-    email:    str
-    password: str
-
-class RefreshIn(BaseModel):
-    refresh_token: str
 
 # ─── HELPERS ──────────────────────────────────────────────────────
 def ts_to_id(ts_str: str) -> int:

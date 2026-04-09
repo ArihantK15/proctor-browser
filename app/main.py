@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, RedirectResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import jwt, JWTError
@@ -136,8 +137,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── ADMIN DASHBOARD ─────────────────────────────────────────────
+# ─── STATIC FILES & ADMIN DASHBOARD ──────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def admin_dashboard():

@@ -101,9 +101,10 @@ def require_admin(request: Request) -> dict:
     if auth.startswith("Bearer "):
         try:
             payload = jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"],
-                                 options={"verify_aud": False})
-        except JWTError:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
+                                 options={"verify_aud": False, "verify_exp": True})
+        except JWTError as e:
+            print(f"[Auth] JWT decode failed: {e}")
+            raise HTTPException(status_code=401, detail=f"Invalid or expired token: {e}")
         sub = payload.get("sub")
         if not sub:
             raise HTTPException(status_code=403, detail="Not a teacher token")

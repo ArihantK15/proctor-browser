@@ -1,6 +1,6 @@
 {
   "name": "proctor-browser",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "AI Proctored Exam Browser",
   "main": "main.js",
   "scripts": {
@@ -16,7 +16,7 @@
   },
   "build": {
     "appId": "com.proctor.browser",
-    "productName": "Proctor Browser",
+    "productName": "Procta Browser",
     "asar": true,
     "files": [
       "main.js",

@@ -15,11 +15,22 @@ export default function Signup() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    // TODO: Connect to actual signup/demo request endpoint
-    setTimeout(() => {
-      setLoading(false)
+    try {
+      const res = await fetch(`${APP_URL}/api/demo-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Something went wrong. Please try again.')
+      }
       setSubmitted(true)
-    }, 1200)
+    } catch (err) {
+      setError(err.message || 'Failed to submit. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (submitted) {

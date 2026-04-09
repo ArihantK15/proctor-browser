@@ -3,79 +3,113 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Register — Proctor Browser</title>
+<title>Register — Procta</title>
+<link rel="stylesheet" href="/static/theme.css">
 <style>
-  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;
-        --muted:#8b949e;--blue:#58a6ff;--green:#3fb950;--red:#ff7b72}
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       background:var(--bg);color:var(--text);min-height:100vh;
-       display:flex;align-items:center;justify-content:center;padding:24px}
+  body { display:flex; align-items:center; justify-content:center; padding:24px; }
+  .container { max-width:520px; width:100%; text-align:center; }
+  .header { margin-bottom:28px; }
+  .header h1 {
+    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;
+    color:white; font-size:26px; font-weight:700; margin:16px 0 6px;
+  }
+  .subtitle { color:var(--muted); font-size:14px; line-height:1.7; }
 
-  .container{max-width:520px;width:100%;text-align:center}
-  .logo{font-size:56px;margin-bottom:12px}
-  h1{color:var(--blue);font-size:26px;margin-bottom:6px}
-  .subtitle{color:var(--muted);font-size:14px;margin-bottom:28px;line-height:1.6}
+  .sched-banner {
+    display:none; background:var(--card); border:1px solid var(--border);
+    border-radius:12px; padding:16px 20px; margin-bottom:20px;
+  }
+  .sched-title { font-size:15px; color:var(--accent-light); font-weight:700; }
+  .sched-times { font-size:13px; color:var(--muted); margin-top:4px; }
+  .sched-warn { display:none; margin-top:8px; color:var(--red); font-size:13px; font-weight:600; }
 
-  .schedule-banner{display:none;background:var(--card);border:1px solid var(--border);
-    border-radius:10px;padding:16px 20px;margin-bottom:20px;text-align:center}
-  .schedule-title{font-size:15px;color:var(--blue);font-weight:700}
-  .schedule-times{font-size:13px;color:var(--muted);margin-top:4px}
-  .schedule-warn{display:none;margin-top:8px;color:var(--red);font-size:13px;font-weight:600}
+  .form-card {
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:32px; text-align:left;
+  }
+  .fg { margin-bottom:16px; }
+  .fg label {
+    display:block; font-size:11px; color:var(--muted); font-weight:600;
+    text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px;
+  }
+  .fg label .opt { text-transform:none; font-weight:400; font-size:11px; color:var(--muted); opacity:.7; }
+  .fg input {
+    width:100%; background:rgba(255,255,255,.03); border:1px solid var(--border);
+    border-radius:8px; padding:11px 14px; color:var(--text); font-size:14px;
+    font-family:'Inter',system-ui,sans-serif; transition:border-color .2s, background .2s;
+  }
+  .fg input:focus { outline:none; border-color:rgba(59,130,246,.4); background:rgba(255,255,255,.05); }
+  .fg input.err-border { border-color:var(--red); }
 
-  .form-card{background:var(--card);border:1px solid var(--border);border-radius:12px;
-    padding:32px;text-align:left}
-  .fg{margin-bottom:16px}
-  .fg label{display:block;font-size:12px;color:var(--muted);font-weight:600;
-    text-transform:uppercase;margin-bottom:6px}
-  .fg label .opt{text-transform:none;font-weight:400;font-size:11px}
-  .fg input{width:100%;background:var(--bg);border:1px solid var(--border);
-    border-radius:6px;padding:11px 14px;color:var(--text);font-size:14px}
-  .fg input:focus{outline:none;border-color:var(--blue)}
-  .fg input.err-border{border-color:var(--red)}
+  .submit-btn {
+    width:100%; padding:13px; border-radius:10px; border:none;
+    font-size:14px; font-weight:600; cursor:pointer;
+    font-family:'Inter',system-ui,sans-serif;
+    background:var(--accent); color:#fff; transition:all .2s;
+    box-shadow:0 2px 8px rgba(59,130,246,.2);
+  }
+  .submit-btn:hover { background:var(--accent-light); box-shadow:0 4px 12px rgba(59,130,246,.3); }
+  .submit-btn:disabled { opacity:.4; cursor:not-allowed; box-shadow:none; }
 
-  .btn{width:100%;padding:14px;border-radius:6px;border:none;
-    font-size:15px;font-weight:700;cursor:pointer;
-    background:#238636;color:#fff;transition:.2s}
-  .btn:hover{background:#2ea043}
-  .btn:disabled{background:#2d333b;color:#484f58;cursor:not-allowed}
+  .err-msg { color:var(--red); font-size:13px; margin-top:10px; min-height:18px; text-align:center; }
+  .loading { color:var(--muted); font-size:13px; margin-top:8px; text-align:center; }
 
-  .err-msg{color:var(--red);font-size:13px;margin-top:10px;min-height:18px;text-align:center}
-  .loading{color:var(--muted);font-size:13px;margin-top:8px;text-align:center}
+  .success-card {
+    display:none; background:var(--card); border:1px solid var(--border);
+    border-radius:14px; padding:40px; text-align:center;
+  }
+  .success-check {
+    width:56px; height:56px; border-radius:50%; margin:0 auto 16px;
+    background:rgba(16,185,129,.1); display:flex; align-items:center; justify-content:center;
+  }
+  .success-check svg { width:28px; height:28px; }
+  .success-card h2 {
+    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;
+    color:var(--emerald); font-size:22px; margin-bottom:8px;
+  }
+  .success-card p { color:var(--muted); font-size:14px; line-height:1.7; }
+  .success-card .roll-display {
+    font-size:28px; font-weight:700; color:var(--accent-light);
+    margin:16px 0; font-family:monospace; letter-spacing:2px;
+  }
+  .success-card .next-steps {
+    background:rgba(255,255,255,.02); border:1px solid var(--border);
+    border-radius:10px; padding:16px 20px; margin-top:20px; text-align:left;
+  }
+  .success-card .next-steps h3 {
+    font-size:12px; color:var(--accent-light); margin-bottom:8px;
+    font-weight:600; text-transform:uppercase; letter-spacing:.04em;
+  }
+  .success-card .next-steps ol { padding-left:18px; color:var(--muted); font-size:13px; line-height:2.1; }
+  .success-card .next-steps li strong { color:var(--text); }
 
-  .success-card{display:none;background:var(--card);border:1px solid var(--border);
-    border-radius:12px;padding:40px;text-align:center}
-  .success-icon{font-size:56px;margin-bottom:12px}
-  .success-card h2{color:var(--green);font-size:22px;margin-bottom:8px}
-  .success-card p{color:var(--muted);font-size:14px;line-height:1.7}
-  .success-card .roll-display{font-size:28px;font-weight:700;color:var(--blue);
-    margin:16px 0;font-family:monospace;letter-spacing:2px}
-  .success-card .next-steps{background:var(--bg);border-radius:8px;padding:16px;
-    margin-top:20px;text-align:left}
-  .success-card .next-steps h3{font-size:13px;color:var(--blue);margin-bottom:8px}
-  .success-card .next-steps ol{padding-left:18px;color:var(--muted);font-size:13px;line-height:2}
-  .success-card .next-steps li strong{color:var(--text)}
-
-  .footer{margin-top:28px;font-size:12px;color:var(--muted)}
-  .footer a{color:var(--blue);text-decoration:none}
-
-  .links{margin-top:16px;font-size:13px}
-  .links a{color:var(--blue);text-decoration:none;margin:0 8px}
-  .links a:hover{text-decoration:underline}
+  .links { margin-top:20px; font-size:13px; }
+  .links a { color:var(--accent-light); text-decoration:none; margin:0 8px; transition:color .2s; }
+  .links a:hover { color:white; }
 </style>
 </head>
 <body>
 
 <div class="container">
-  <div class="logo">🎓</div>
-  <h1>Student Registration</h1>
-  <p class="subtitle">Register before exam day to receive access to the proctored exam.</p>
+  <div class="header">
+    <div class="procta-logo" style="justify-content:center">
+      <div class="procta-icon">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+          <path d="M4 3h3v1H5v8h2v1H4V3zm5 0h3v10h-3v-1h2V4H9V3z" fill="white"/>
+          <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8"/>
+        </svg>
+      </div>
+      <span>Procta</span>
+    </div>
+    <h1>Student Registration</h1>
+    <p class="subtitle">Register before exam day to receive access to the proctored exam.</p>
+  </div>
 
   <!-- Exam schedule banner -->
-  <div class="schedule-banner" id="schedule-banner">
-    <div class="schedule-title" id="sched-title"></div>
-    <div class="schedule-times" id="sched-times"></div>
-    <div class="schedule-warn" id="sched-warn"></div>
+  <div class="sched-banner" id="schedule-banner">
+    <div class="sched-title" id="sched-title"></div>
+    <div class="sched-times" id="sched-times"></div>
+    <div class="sched-warn" id="sched-warn"></div>
   </div>
 
   <!-- Registration form -->
@@ -104,22 +138,26 @@
       <input type="tel" id="inp-phone" placeholder="e.g. 9876543210"
              autocomplete="tel">
     </div>
-    <button class="btn" id="reg-btn" onclick="doRegister()">Register</button>
+    <button class="submit-btn" id="reg-btn" onclick="doRegister()">Register</button>
     <div class="err-msg" id="reg-err"></div>
     <div class="loading" id="reg-ldr"></div>
   </div>
 
-  <!-- Success card (shown after registration) -->
+  <!-- Success card -->
   <div class="success-card" id="reg-success">
-    <div class="success-icon">&#10003;</div>
-    <h2>Registration Complete!</h2>
+    <div class="success-check">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    </div>
+    <h2>Registration Complete</h2>
     <div class="roll-display" id="success-roll"></div>
     <p id="success-name"></p>
     <div class="next-steps">
       <h3>Next Steps</h3>
       <ol>
         <li>Wait for the <strong>exam access code</strong> from your examiner</li>
-        <li><strong>Download</strong> the Proctor Browser app on exam day</li>
+        <li><strong>Download</strong> the Procta app on exam day</li>
         <li>Enter your <strong>Roll Number</strong> and <strong>Access Code</strong> to start</li>
       </ol>
     </div>
@@ -127,15 +165,17 @@
 
   <div class="links">
     <a href="/download">Download App</a> &bull;
-    <a href="/">Home</a>
+    <a href="https://procta.net">Home</a>
   </div>
 
   <div class="footer">
-    <p>Powered by AI Proctor &bull; <a href="https://procta.net">procta.net</a></p>
+    <p>&copy; 2026 Procta &bull; <a href="https://procta.net">procta.net</a></p>
   </div>
 </div>
 
 <script>
+const _teacherId = new URLSearchParams(location.search).get('t') || null;
+
 function clearErr(){
   document.getElementById('reg-err').textContent='';
   document.querySelectorAll('.err-border').forEach(e=>e.classList.remove('err-border'));
@@ -148,7 +188,6 @@ async function doRegister(){
   const email = document.getElementById('inp-email').value.trim();
   const phone = document.getElementById('inp-phone').value.trim();
 
-  // Client-side validation
   const errors = [];
   if(!name){
     errors.push('Full name is required');
@@ -175,14 +214,13 @@ async function doRegister(){
     const r = await fetch('/api/register-student', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null})
+      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, teacher_id:_teacherId})
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({detail:'Registration failed'}));
       throw new Error(err.detail || 'Registration failed');
     }
     const d = await r.json();
-    // Success — show confirmation
     document.getElementById('reg-form').style.display = 'none';
     document.getElementById('reg-success').style.display = 'block';
     document.getElementById('success-roll').textContent = d.roll_number;
@@ -194,9 +232,8 @@ async function doRegister(){
   document.getElementById('reg-ldr').textContent = '';
 }
 
-// Load exam schedule on page load
 (function(){
-  fetch('/api/exam-schedule').then(r=>r.json()).then(d=>{
+  fetch('/api/exam-schedule' + (_teacherId ? '?t=' + encodeURIComponent(_teacherId) : '')).then(r=>r.json()).then(d=>{
     if(!d.starts_at && !d.ends_at) return;
     const banner = document.getElementById('schedule-banner');
     banner.style.display = 'block';

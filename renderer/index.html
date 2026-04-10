@@ -704,7 +704,7 @@ async function finishEnroll(){
 // ── EXAM ───────────────────────────────────────────────────────────
 async function startExam(){
   try{
-    const data=await window.proctor.getQuestions();
+    const data=await window.proctor.getQuestions(sessionId);
     questions=data.questions||[];
     if(!questions.length){
       alert('No questions found. Contact examiner.'); return;

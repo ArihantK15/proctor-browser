@@ -258,6 +258,13 @@
   .tool-card-field input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
   .tool-card-field input.access-code{font-size:16px;font-weight:700;letter-spacing:2px;
     text-transform:uppercase;font-family:monospace}
+  .shuffle-toggle{display:flex;align-items:center;gap:10px;padding:10px 12px;
+    background:rgba(255,255,255,0.02);border:1px solid var(--border);
+    border-radius:8px;margin-bottom:8px;cursor:pointer;font-size:13px;
+    color:var(--text);user-select:none;transition:border-color .15s}
+  .shuffle-toggle:hover{border-color:rgba(59,130,246,0.35)}
+  .shuffle-toggle input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);
+    margin:0;cursor:pointer;flex-shrink:0}
 
   /* ── Chat tab ────────────────────────────────────────────────── */
   .tab-badge{display:inline-flex;align-items:center;justify-content:center;
@@ -606,6 +613,24 @@
     <div class="tools-grid">
       <div class="tool-card">
         <div class="tool-card-body">
+          <h3>Per-Student Randomization</h3>
+          <p>Give every student their own deterministic question order and option layout.
+             Two students sitting side by side see different sequences, so "the answer is B"
+             doesn't help a neighbour. Same student on a resume sees the exact same view.</p>
+          <label class="shuffle-toggle">
+            <input type="checkbox" id="shuffle-q-toggle" onchange="saveShuffleConfig()">
+            <span>Shuffle question order</span>
+          </label>
+          <label class="shuffle-toggle">
+            <input type="checkbox" id="shuffle-o-toggle" onchange="saveShuffleConfig()">
+            <span>Shuffle option order</span>
+          </label>
+        </div>
+        <div class="tool-card-result" id="shuffle-status" style="font-size:12px"></div>
+      </div>
+
+      <div class="tool-card">
+        <div class="tool-card-body">
           <h3>Backfill Risk Scores</h3>
           <p>Recompute risk scores for all completed sessions. Use after first deployment or formula update.</p>
         </div>
@@ -916,7 +941,7 @@ function switchTab(tab){
 // ── REFRESH ─────────────────────────────────────────────────────
 async function refreshAll(){
   document.getElementById('refresh-spin').style.display='inline-block';
-  await Promise.all([refreshLive(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule()]);
+  await Promise.all([refreshLive(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig()]);
   document.getElementById('refresh-spin').style.display='none';
   document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString();
 }
@@ -1431,6 +1456,60 @@ function clearSchedule(){
   document.getElementById('schedule-start').value='';
   document.getElementById('schedule-end').value='';
   saveSchedule();
+}
+
+// ── SHUFFLE CONFIG ──────────────────────────────────────────────
+async function loadShuffleConfig(){
+  try{
+    const r = await authFetch(`${BASE}/api/admin/shuffle-config`);
+    if(!r.ok) return;
+    const d = await r.json();
+    const qEl = document.getElementById('shuffle-q-toggle');
+    const oEl = document.getElementById('shuffle-o-toggle');
+    if(qEl) qEl.checked = !!d.shuffle_questions;
+    if(oEl) oEl.checked = !!d.shuffle_options;
+    updateShuffleStatus(d);
+  }catch(e){ /* silent */ }
+}
+
+function updateShuffleStatus(d){
+  const st = document.getElementById('shuffle-status');
+  if(!st) return;
+  const sq = !!d.shuffle_questions, so = !!d.shuffle_options;
+  if(sq && so){
+    st.style.color = 'var(--emerald)';
+    st.textContent = 'Active — every student gets a unique question and option order.';
+  } else if(sq){
+    st.style.color = 'var(--emerald)';
+    st.textContent = 'Question order is randomized per student. Options stay in the original order.';
+  } else if(so){
+    st.style.color = 'var(--emerald)';
+    st.textContent = 'Option order is randomized per student. Questions stay in the original order.';
+  } else {
+    st.style.color = 'var(--muted)';
+    st.textContent = 'Randomization is off — every student sees the exact same exam.';
+  }
+}
+
+async function saveShuffleConfig(){
+  const qEl = document.getElementById('shuffle-q-toggle');
+  const oEl = document.getElementById('shuffle-o-toggle');
+  const st = document.getElementById('shuffle-status');
+  const body = {
+    shuffle_questions: !!qEl.checked,
+    shuffle_options:   !!oEl.checked,
+  };
+  try{
+    const r = await authFetch(`${BASE}/api/admin/shuffle-config`,{
+      method:'POST',
+      body: JSON.stringify(body),
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    updateShuffleStatus(body);
+  }catch(e){
+    st.style.color = 'var(--red)';
+    st.textContent = 'Failed to save: '+e.message;
+  }
 }
 
 // ── QUESTIONS EDITOR ────────────────────────────────────────────

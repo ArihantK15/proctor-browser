@@ -464,9 +464,12 @@ def _load_questions(teacher_id: str = None) -> list[dict]:
     ]
 
 def _load_exam_config(teacher_id: str = None) -> dict:
-    """Load exam config from Supabase, scoped to teacher if provided."""
-    query = supabase.table("exam_config")\
-        .select("exam_title,duration_minutes,access_code,starts_at,ends_at")
+    """Load exam config from Supabase, scoped to teacher if provided.
+
+    Uses select('*') so newly-added columns (e.g. shuffle_questions /
+    shuffle_options) are picked up automatically without code changes.
+    """
+    query = supabase.table("exam_config").select("*")
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
     else:
@@ -475,7 +478,8 @@ def _load_exam_config(teacher_id: str = None) -> dict:
     if result.data:
         return result.data[0]
     return {"exam_title": "Exam", "duration_minutes": 60, "access_code": "",
-            "starts_at": None, "ends_at": None}
+            "starts_at": None, "ends_at": None,
+            "shuffle_questions": True, "shuffle_options": True}
 
 def _get_access_code(teacher_id: str = None) -> str:
     """Load the current exam access code from Supabase."""
@@ -503,16 +507,25 @@ def _set_access_code(code: str, teacher_id: str = None):
 
 
 def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None) -> tuple[int, int]:
-    """Calculate score server-side from Supabase questions + saved answers."""
+    """Calculate score server-side from Supabase questions + saved answers.
+
+    Answers saved via /api/save-answer* are already translated to the
+    canonical option keys at write time.  Fresh answers arriving in the
+    submit payload are still in student-facing label space, so we
+    translate them here before merging.
+    """
     try:
         questions = _load_questions(teacher_id)
         total = len(questions)
-        # Merge DB answers with payload answers (payload takes precedence)
+        # DB answers are already canonical
         saved = supabase.table("answers").select("question_id,answer")\
             .eq("session_key", session_id).execute()
         ans_map = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
-        for qid, ans in payload_answers.items():
-            ans_map[str(qid)] = str(ans)
+        # Payload answers are student-facing → translate to canonical
+        for qid, ans in (payload_answers or {}).items():
+            canonical = _translate_student_answer(
+                session_id, str(teacher_id or ""), str(qid), str(ans))
+            ans_map[str(qid)] = canonical
         score = sum(1 for q in questions
                     if ans_map.get(q["id"]) == q["correct"])
         return score, total
@@ -845,29 +858,102 @@ def download_win():
     return FileResponse(path, filename="ProctorBrowser-Setup.exe",
                         media_type="application/octet-stream")
 
-def _shuffle_for_student(questions: list[dict], roll: str) -> list[dict]:
-    """Deterministically shuffle question order and option order per student.
+def _shuffle_seed(session_id: str, teacher_id: str) -> int:
+    """Derive a deterministic 32-bit seed from (session_id, teacher_id).
 
-    Uses roll number as seed so the same student always gets the same order
-    (important for resume). Question IDs are preserved — only presentation
-    order changes. Scoring is unaffected since it matches by question_id.
+    Using session_id (not roll) means a resumed exam keeps the same shuffle,
+    and two exams from the same student get different shuffles. Mixing in
+    teacher_id prevents cross-tenant seed collisions.
     """
-    seed = int(hashlib.sha256(roll.encode()).hexdigest(), 16) % (2**32)
-    rng = random.Random(seed)
+    basis = f"{teacher_id or ''}::{session_id or ''}"
+    return int(hashlib.sha256(basis.encode()).hexdigest(), 16) % (2**32)
 
-    shuffled = list(questions)
-    rng.shuffle(shuffled)
 
-    # Shuffle option order within each question
-    result = []
-    for q in shuffled:
-        opts = q.get("options", {})
-        if opts:
-            keys = list(opts.keys())
-            rng.shuffle(keys)
-            q = {**q, "options": {k: opts[k] for k in keys}}
-        result.append(q)
-    return result
+def _build_shuffle_view(questions: list[dict], session_id: str,
+                        teacher_id: str, *, shuffle_q: bool,
+                        shuffle_o: bool) -> tuple[list[dict], dict[str, dict[str, str]]]:
+    """Build the per-student question view and the label translation map.
+
+    Returns (student_questions, label_maps) where:
+      - student_questions is the list the student will see (order + options).
+      - label_maps[question_id][display_label] = original_label, used to
+        translate answers back at save/grade time.
+
+    Option shuffling: the display labels remain "A","B","C",... but the
+    VALUES under them are a permutation of the originals. That way, two
+    students sitting next to each other cannot share "the answer is B".
+    """
+    rng = random.Random(_shuffle_seed(session_id, teacher_id))
+
+    q_iter = list(questions)
+    if shuffle_q:
+        rng.shuffle(q_iter)
+
+    student_qs: list[dict] = []
+    label_maps: dict[str, dict[str, str]] = {}
+
+    for q in q_iter:
+        qid = str(q.get("id"))
+        opts = q.get("options", {}) or {}
+        orig_keys = list(opts.keys())
+
+        if shuffle_o and len(orig_keys) > 1:
+            perm = list(orig_keys)
+            rng.shuffle(perm)
+            # display_label i is shown the text from orig_keys[perm[i]]
+            new_opts = {orig_keys[i]: opts[perm[i]] for i in range(len(orig_keys))}
+            label_maps[qid] = {orig_keys[i]: perm[i] for i in range(len(orig_keys))}
+            q = {**q, "options": new_opts}
+        else:
+            label_maps[qid] = {k: k for k in orig_keys}
+
+        student_qs.append(q)
+
+    return student_qs, label_maps
+
+
+def _get_shuffle_flags(config: dict) -> tuple[bool, bool]:
+    """Read shuffle toggles from an exam_config row with safe defaults."""
+    sq = config.get("shuffle_questions")
+    so = config.get("shuffle_options")
+    if sq is None:
+        sq = True
+    if so is None:
+        so = True
+    return bool(sq), bool(so)
+
+
+def _translate_student_answer(session_id: str, teacher_id: str,
+                              question_id: str, student_label: str) -> str:
+    """Map a student-facing answer label back to the original option key.
+
+    Re-derives the deterministic shuffle from (session_id, teacher_id) and
+    the current question set + config, then looks up the display→original
+    mapping. On any failure, returns the student label unchanged so we
+    never break grading for edge cases — the worst that happens is a
+    student gets marked incorrectly for a single shuffled question, which
+    will surface in QA.
+    """
+    try:
+        if not student_label:
+            return student_label
+        config = _load_exam_config(teacher_id)
+        shuffle_q, shuffle_o = _get_shuffle_flags(config)
+        if not shuffle_o:
+            return student_label
+        questions = _load_questions(teacher_id)
+        if not questions:
+            return student_label
+        _, label_maps = _build_shuffle_view(
+            questions, session_id, teacher_id,
+            shuffle_q=shuffle_q, shuffle_o=shuffle_o)
+        qmap = label_maps.get(str(question_id))
+        if not qmap:
+            return student_label
+        return qmap.get(str(student_label), student_label)
+    except Exception as e:
+        print(f"[Shuffle] translate failed q={question_id} s={student_label}: {e}")
+        return student_label
 
 
 # ─── STUDENT ENDPOINTS (require JWT) ─────────────────────────────
@@ -880,9 +966,13 @@ def get_questions(request: Request):
         raise HTTPException(status_code=404, detail="Questions not found")
     config = _load_exam_config(tid)
 
-    # Randomize question and option order per student (deterministic by roll)
-    roll = claims.get("roll", "")
-    shuffled = _shuffle_for_student(questions, roll)
+    # Deterministic per-session shuffle — same session always gets the same
+    # view, but two different students see different question/option orders.
+    session_id = (request.query_params.get("session_id") or "").strip()
+    shuffle_q, shuffle_o = _get_shuffle_flags(config)
+    shuffled, _ = _build_shuffle_view(
+        questions, session_id, str(tid or ""),
+        shuffle_q=shuffle_q, shuffle_o=shuffle_o)
 
     # Strip correct answers — students must never see them
     safe_questions = [{k: v for k, v in q.items() if k != "correct"} for q in shuffled]
@@ -913,11 +1003,38 @@ def check_session(roll_number: str, request: Request):
     if tid:
         ans_query = ans_query.eq("teacher_id", str(tid))
     answers = ans_query.execute()
+
+    # Answers are stored in canonical form.  Build the reverse map so the
+    # resumed student sees the correct option highlighted in their own
+    # (shuffled) view.
+    session_key = session["session_key"]
+    config = _load_exam_config(str(tid or ""))
+    shuffle_q, shuffle_o = _get_shuffle_flags(config)
+    reverse: dict[str, dict[str, str]] = {}
+    if shuffle_o:
+        try:
+            questions = _load_questions(str(tid or ""))
+            _, label_maps = _build_shuffle_view(
+                questions, session_key, str(tid or ""),
+                shuffle_q=shuffle_q, shuffle_o=shuffle_o)
+            for qid, qmap in label_maps.items():
+                # qmap: display_label -> original; we need original -> display
+                reverse[qid] = {orig: disp for disp, orig in qmap.items()}
+        except Exception as e:
+            print(f"[Resume] reverse map failed: {e}")
+
+    resumed = {}
+    for r in (answers.data or []):
+        qid = str(r["question_id"])
+        canonical = str(r["answer"])
+        disp = reverse.get(qid, {}).get(canonical, canonical)
+        resumed[qid] = disp
+
     return {
         "exists":      True,
-        "session_key": session["session_key"],
-        "answer_count": len(answers.data or []),
-        "answers":     {str(r["question_id"]): r["answer"] for r in (answers.data or [])},
+        "session_key": session_key,
+        "answer_count": len(resumed),
+        "answers":     resumed,
         "started_at":  session.get("started_at"),
     }
 
@@ -986,10 +1103,14 @@ def save_answer(body: AnswerIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, body.session_id)
     tid = claims.get("tid")
+    # Translate the student-facing label back to the original option key so
+    # grading always compares against the canonical "correct" value.
+    canonical = _translate_student_answer(
+        body.session_id, str(tid or ""), str(body.question_id), str(body.answer))
     row = {
         "session_key":  body.session_id,
         "question_id":  body.question_id,
-        "answer":       body.answer,
+        "answer":       canonical,
     }
     if tid:
         row["teacher_id"] = tid
@@ -1004,11 +1125,16 @@ def save_answers_bulk(body: BulkAnswerIn, request: Request):
     if not body.answers:
         return {"status": "empty", "saved": 0}
     tid = claims.get("tid")
-    records = [
-        {"session_key": body.session_id, "question_id": str(qid), "answer": str(ans),
-         **({"teacher_id": tid} if tid else {})}
-        for qid, ans in body.answers.items()
-    ]
+    records = []
+    for qid, ans in body.answers.items():
+        canonical = _translate_student_answer(
+            body.session_id, str(tid or ""), str(qid), str(ans))
+        rec = {"session_key": body.session_id,
+               "question_id": str(qid),
+               "answer":      canonical}
+        if tid:
+            rec["teacher_id"] = tid
+        records.append(rec)
     supabase.table("answers").upsert(records).execute()
     return {"status": "saved", "saved": len(records)}
 
@@ -1837,6 +1963,35 @@ def admin_set_schedule(request: Request, body: dict):
         "status":    "updated",
         "starts_at": body.get("starts_at"),
         "ends_at":   body.get("ends_at"),
+    }
+
+
+@app.get("/api/admin/shuffle-config")
+def admin_get_shuffle(request: Request):
+    """Return current per-student shuffle toggles."""
+    teacher = require_admin(request)
+    config = _load_exam_config(teacher["id"])
+    sq, so = _get_shuffle_flags(config)
+    return {"shuffle_questions": sq, "shuffle_options": so}
+
+
+@app.post("/api/admin/shuffle-config")
+def admin_set_shuffle(request: Request, body: dict):
+    """Toggle per-student question / option shuffling."""
+    teacher = require_admin(request)
+    tid = teacher["id"]
+    update: dict = {"teacher_id": tid} if tid else {"id": 1}
+    if "shuffle_questions" in body:
+        update["shuffle_questions"] = bool(body["shuffle_questions"])
+    if "shuffle_options" in body:
+        update["shuffle_options"] = bool(body["shuffle_options"])
+    if len(update) == 1:
+        raise HTTPException(status_code=400, detail="No shuffle fields provided")
+    supabase.table("exam_config").upsert(update).execute()
+    return {
+        "status": "updated",
+        "shuffle_questions": update.get("shuffle_questions"),
+        "shuffle_options":   update.get("shuffle_options"),
     }
 
 @app.post("/api/admin-submit/{session_id}")

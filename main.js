@@ -721,8 +721,9 @@ ipcMain.handle('validate-student', async (_, roll, accessCode) => {
   return data;
 });
 
-ipcMain.handle('get-questions', async () => {
-  const r = await fetch(`${SERVER_URL}/api/questions`,
+ipcMain.handle('get-questions', async (_, sessionId) => {
+  const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+  const r = await fetch(`${SERVER_URL}/api/questions${qs}`,
                         { headers: authHeaders() });
   if (!r.ok) throw new Error('Could not load questions');
   return r.json();

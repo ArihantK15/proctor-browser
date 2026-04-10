@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('proctor', {
   getIntegrityFlags: ()   => ipcRenderer.invoke('get-integrity-flags'),
   validateStudent: (roll, accessCode) => ipcRenderer.invoke('validate-student', roll, accessCode),
-  getQuestions:    ()     => ipcRenderer.invoke('get-questions'),
+  getQuestions:    (sid)  => ipcRenderer.invoke('get-questions', sid),
   startProctor:    (data) => ipcRenderer.invoke('start-proctor', data),
   startPolling:    (data) => ipcRenderer.invoke('start-polling', data),
   stopProctor:     ()     => ipcRenderer.invoke('stop-proctor'),

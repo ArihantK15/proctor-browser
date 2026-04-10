@@ -594,7 +594,7 @@ async function doSignup(){
   const pwd = document.getElementById('signup-pwd').value;
   const pwd2 = document.getElementById('signup-pwd2').value;
   if(!name||!email||!pwd){ document.getElementById('signup-err').textContent='All fields required'; return; }
-  if(pwd.length<6){ document.getElementById('signup-err').textContent='Password must be at least 6 characters'; return; }
+  if(pwd.length<8){ document.getElementById('signup-err').textContent='Password must be at least 8 characters'; return; }
   if(pwd!==pwd2){ document.getElementById('signup-err').textContent='Passwords do not match'; return; }
   const btn = document.getElementById('signup-btn');
   btn.disabled = true; btn.textContent = 'Creating...';
@@ -658,7 +658,15 @@ async function _tryAutoLogin(){
 
 function doLogout(){
   _saveTokens('','');
-  if(autoRefreshTimer) clearInterval(autoRefreshTimer);
+  if(autoRefreshTimer){ clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  // Wipe in-memory state so a second teacher logging in on the same
+  // browser never sees the previous teacher's data even momentarily.
+  try{
+    if(typeof liveData    !== 'undefined') liveData    = [];
+    if(typeof resultsData !== 'undefined') resultsData = [];
+    if(typeof currentSessionId !== 'undefined') currentSessionId = null;
+    document.querySelectorAll('#live-body, #results-body').forEach(el=>el.innerHTML='');
+  }catch(_){}
   document.getElementById('auth-overlay').classList.remove('hidden');
   document.getElementById('teacher-name').textContent = '';
   toggleAuthForm('login');
@@ -668,23 +676,42 @@ function hdr(){
   return {'Content-Type':'application/json','Authorization':'Bearer '+authToken};
 }
 
-// Wrapper: auto-refresh token on 401 and retry once
-async function authFetch(url, opts={}){
-  opts.headers = opts.headers || hdr();
-  let r = await fetch(url, opts);
-  if(r.status===401 && refreshToken){
+// Single-flight guard so concurrent 401s only trigger one /refresh call —
+// without this, parallel admin requests can each refresh independently and
+// the slower responses overwrite the newer rotated refresh_token, causing
+// sporadic logouts on the next call.
+let _refreshInFlight = null;
+async function _refreshTokens(){
+  if(_refreshInFlight) return _refreshInFlight;
+  _refreshInFlight = (async ()=>{
     const rr = await fetch(`${BASE}/api/auth/refresh`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({refresh_token:refreshToken})
     });
-    if(rr.ok){
-      const rd = await rr.json();
-      _saveTokens(rd.access_token, rd.refresh_token);
-      opts.headers = hdr();
-      r = await fetch(url, opts);
-    } else {
+    if(!rr.ok) throw new Error('refresh failed');
+    const rd = await rr.json();
+    _saveTokens(rd.access_token, rd.refresh_token);
+    return rd;
+  })();
+  try { return await _refreshInFlight; }
+  finally { _refreshInFlight = null; }
+}
+
+// Wrapper: auto-refresh token on 401 and retry once. Always merges
+// the Authorization header into caller-supplied headers so POST calls
+// that pass {'Content-Type':'application/json'} still get authenticated.
+async function authFetch(url, opts={}){
+  opts.headers = {...hdr(), ...(opts.headers||{})};
+  let r = await fetch(url, opts);
+  if(r.status===401 && refreshToken){
+    try{
+      await _refreshTokens();
+    }catch(_){
       doLogout();
+      return r;
     }
+    opts.headers = {...hdr(), ...(opts.headers||{}), 'Authorization':'Bearer '+authToken};
+    r = await fetch(url, opts);
   }
   return r;
 }

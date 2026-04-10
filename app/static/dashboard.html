@@ -259,6 +259,66 @@
   .tool-card-field input.access-code{font-size:16px;font-weight:700;letter-spacing:2px;
     text-transform:uppercase;font-family:monospace}
 
+  /* ── Chat tab ────────────────────────────────────────────────── */
+  .tab-badge{display:inline-flex;align-items:center;justify-content:center;
+    min-width:18px;height:18px;padding:0 6px;border-radius:9px;
+    background:var(--red);color:#fff;font-size:10px;font-weight:700;
+    margin-left:8px;line-height:1;vertical-align:middle}
+  .chat-wrap{display:grid;grid-template-columns:300px 1fr;gap:16px;
+    height:calc(100vh - 230px);min-height:500px}
+  .chat-roster{background:var(--card);border:1px solid var(--border);
+    border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+  .chat-roster-head{padding:14px 16px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .chat-roster-title{font-size:13px;font-weight:700;color:var(--accent-light);
+    letter-spacing:0.3px}
+  .chat-roster-sub{font-size:11px;color:var(--muted);margin-top:3px}
+  .chat-roster-body{flex:1;overflow-y:auto;padding:8px 0}
+  .chat-row{display:flex;align-items:center;gap:10px;padding:10px 16px;
+    cursor:pointer;border-left:3px solid transparent;position:relative}
+  .chat-row:hover{background:rgba(255,255,255,0.03)}
+  .chat-row.active{background:rgba(59,130,246,0.08);border-left-color:var(--accent)}
+  .chat-row .dot{width:8px;height:8px;border-radius:50%;background:var(--emerald);
+    flex-shrink:0;box-shadow:0 0 0 3px rgba(16,185,129,0.15)}
+  .chat-row .dot.offline{background:#555;box-shadow:none}
+  .chat-row .meta{flex:1;min-width:0}
+  .chat-row .name{font-size:13px;font-weight:600;color:var(--text);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chat-row .roll{font-size:11px;color:var(--muted);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .chat-row .unread{background:var(--red);color:#fff;font-size:10px;font-weight:700;
+    min-width:18px;height:18px;border-radius:9px;padding:0 5px;
+    display:inline-flex;align-items:center;justify-content:center;line-height:1}
+  .chat-empty,.chat-empty-lg{color:var(--muted);font-size:13px;text-align:center;
+    padding:24px 16px}
+  .chat-empty-lg{padding:64px 24px;font-size:14px}
+  .chat-thread{background:var(--card);border:1px solid var(--border);
+    border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+  .chat-thread-head{padding:14px 18px;border-bottom:1px solid var(--border)}
+  .chat-thread-title{font-size:14px;font-weight:700;color:var(--text)}
+  .chat-thread-sub{font-size:11px;color:var(--muted);margin-top:3px}
+  .chat-thread-body{flex:1;overflow-y:auto;padding:18px;display:flex;
+    flex-direction:column;gap:10px}
+  .chat-msg{max-width:72%;padding:9px 13px;border-radius:12px;font-size:13px;
+    line-height:1.45;word-wrap:break-word;white-space:pre-wrap}
+  .chat-msg.from-student{align-self:flex-start;background:rgba(255,255,255,0.05);
+    border:1px solid var(--border);border-bottom-left-radius:4px;color:var(--text)}
+  .chat-msg.from-teacher{align-self:flex-end;background:var(--accent);color:#fff;
+    border-bottom-right-radius:4px}
+  .chat-msg.from-broadcast{align-self:center;background:rgba(245,158,11,0.1);
+    border:1px solid rgba(245,158,11,0.3);color:#fbbf24;max-width:90%;
+    text-align:center;border-radius:8px;font-style:italic}
+  .chat-msg .ts{display:block;font-size:10px;opacity:0.65;margin-top:4px}
+  .chat-composer{border-top:1px solid var(--border);padding:12px;
+    display:flex;gap:10px;align-items:flex-end}
+  .chat-composer textarea{flex:1;background:rgba(255,255,255,0.03);
+    border:1px solid var(--border);border-radius:8px;padding:10px 12px;
+    color:var(--text);font:inherit;font-size:13px;resize:none;
+    max-height:120px;line-height:1.4}
+  .chat-composer textarea:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .chat-composer textarea:disabled{opacity:0.5;cursor:not-allowed}
+  .chat-composer button{height:38px}
+
   /* ── Forensics Timeline ──────────────────────────────────────── */
   .tl-meta{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:13px;color:var(--muted)}
   .tl-meta span{background:var(--bg);padding:4px 10px;border-radius:6px}
@@ -394,6 +454,9 @@
   <div class="tab active" data-tab="live" onclick="switchTab('live')">Live Sessions</div>
   <div class="tab" data-tab="results" onclick="switchTab('results')">Results</div>
   <div class="tab" data-tab="questions" onclick="switchTab('questions')">Questions</div>
+  <div class="tab" data-tab="chat" onclick="switchTab('chat')">
+    Chat<span class="tab-badge" id="chat-tab-badge" style="display:none">0</span>
+  </div>
   <div class="tab" data-tab="tools" onclick="switchTab('tools')">Tools</div>
 </div>
 
@@ -474,6 +537,56 @@
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:800px">
         <h3 style="color:var(--accent-light);margin-bottom:16px;font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif" id="preview-title">Preview</h3>
         <div id="preview-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div class="panel" id="panel-chat">
+    <div class="chat-wrap">
+      <aside class="chat-roster">
+        <div class="chat-roster-head">
+          <div>
+            <div class="chat-roster-title">Active Students</div>
+            <div class="chat-roster-sub" id="chat-roster-sub">Not connected</div>
+          </div>
+          <button class="action-btn" onclick="openBroadcastModal()" title="Send a message to every online student">Broadcast</button>
+        </div>
+        <div class="chat-roster-body" id="chat-roster-body">
+          <div class="chat-empty">No students online yet.</div>
+        </div>
+      </aside>
+      <section class="chat-thread" id="chat-thread">
+        <div class="chat-thread-head" id="chat-thread-head">
+          <div class="chat-thread-title">Select a student</div>
+          <div class="chat-thread-sub">Messages are ephemeral &mdash; nothing is stored after the exam ends.</div>
+        </div>
+        <div class="chat-thread-body" id="chat-thread-body">
+          <div class="chat-empty-lg">Pick a student on the left to start chatting.</div>
+        </div>
+        <form class="chat-composer" id="chat-composer" onsubmit="return sendTeacherMsg(event)">
+          <textarea id="chat-input" placeholder="Type a reply&hellip; (Enter to send, Shift+Enter for newline)" rows="2" disabled></textarea>
+          <button type="submit" class="action-btn primary" id="chat-send" disabled>Send</button>
+        </form>
+      </section>
+    </div>
+  </div>
+
+  <!-- BROADCAST MODAL -->
+  <div class="modal-bg" id="broadcast-modal" onclick="if(event.target===this)closeBroadcastModal()">
+    <div class="modal" style="width:480px">
+      <button class="close" onclick="closeBroadcastModal()">&times;</button>
+      <h3>Broadcast to all students</h3>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
+        This message will be delivered to every student currently online under your exam.
+      </p>
+      <textarea id="broadcast-text" rows="4" placeholder="Type your broadcast&hellip;"
+        style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);
+               border-radius:8px;padding:10px;color:var(--text);font:inherit;resize:vertical"></textarea>
+      <div id="broadcast-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--emerald)"></div>
+      <div style="margin-top:12px;display:flex;gap:10px;justify-content:flex-end">
+        <button class="action-btn" onclick="closeBroadcastModal()">Cancel</button>
+        <button class="action-btn primary" onclick="sendBroadcast()">Send Broadcast</button>
       </div>
     </div>
   </div>
@@ -695,6 +808,7 @@ function _onAuthed(teacher){
   }
   refreshAll();
   autoRefreshTimer = setInterval(refreshLive, 15000);
+  chatConnect();
 }
 
 async function _tryAutoLogin(){
@@ -734,6 +848,7 @@ function doLogout(){
     if(typeof currentSessionId !== 'undefined') currentSessionId = null;
     document.querySelectorAll('#live-body, #results-body').forEach(el=>el.innerHTML='');
   }catch(_){}
+  chatDisconnect();
   document.getElementById('auth-overlay').classList.remove('hidden');
   document.getElementById('teacher-name').textContent = '';
   toggleAuthForm('login');
@@ -792,6 +907,10 @@ function switchTab(tab){
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
   if(tab==='results' && resultsData.length===0) refreshResults();
   if(tab==='questions' && qData.length===0) loadQuestions();
+  if(tab==='chat'){
+    if(typeof chatClearActiveUnread==='function') chatClearActiveUnread();
+    if(typeof chatClearTabBadge==='function') chatClearTabBadge();
+  }
 }
 
 // ── REFRESH ─────────────────────────────────────────────────────
@@ -1764,9 +1883,370 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     if(document.getElementById('tl-lightbox').classList.contains('open')) closeLightbox();
     else if(document.getElementById('timeline-modal').classList.contains('open')) closeTimeline();
+    else if(document.getElementById('broadcast-modal').classList.contains('open')) closeBroadcastModal();
     else closeModal();
   }
 });
+
+// ── IN-EXAM CHAT (teacher side) ─────────────────────────────────
+let chatWs = null;
+let chatReconnectTimer = null;
+let chatReconnectDelay = 1000;
+let chatSessions = {};          // session_id -> {roll, name, online, messages, unread}
+let chatActiveSid = null;
+let chatIntentionalClose = false;
+const CHAT_TAB_ORIG_TITLE = document.title;
+let chatTitleFlashTimer = null;
+
+// Tiny built-in beep so we don't need to ship an audio file.
+const CHAT_BEEP_DATA = (()=>{
+  // 16-bit PCM WAV, 440Hz, 120ms, mono, 8kHz.  Generated inline.
+  const sr=8000, dur=0.12, freq=440;
+  const n=Math.floor(sr*dur);
+  const buf=new ArrayBuffer(44+n*2);
+  const v=new DataView(buf);
+  const wstr=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  wstr(0,'RIFF'); v.setUint32(4,36+n*2,true); wstr(8,'WAVE');
+  wstr(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
+  v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true);
+  v.setUint16(32,2,true); v.setUint16(34,16,true);
+  wstr(36,'data'); v.setUint32(40,n*2,true);
+  for(let i=0;i<n;i++){
+    const t=i/sr;
+    const env=Math.min(1,t*20)*Math.min(1,(dur-t)*20);
+    const s=Math.sin(2*Math.PI*freq*t)*env*0.35;
+    v.setInt16(44+i*2, Math.max(-1,Math.min(1,s))*0x7fff, true);
+  }
+  let bin='';
+  const b=new Uint8Array(buf);
+  for(let i=0;i<b.length;i++) bin+=String.fromCharCode(b[i]);
+  return 'data:audio/wav;base64,'+btoa(bin);
+})();
+const chatBeep = new Audio(CHAT_BEEP_DATA);
+chatBeep.volume = 0.5;
+
+function chatWsUrl(){
+  const proto = (location.protocol==='https:')?'wss:':'ws:';
+  const host = (BASE.replace(/^https?:\/\//,'').replace(/\/$/,'')) || location.host;
+  return `${proto}//${host}/ws/chat/teacher?token=${encodeURIComponent(authToken)}`;
+}
+
+function chatConnect(){
+  if(!authToken) return;
+  if(chatWs && (chatWs.readyState===0||chatWs.readyState===1)) return;
+  chatIntentionalClose = false;
+  try{
+    chatWs = new WebSocket(chatWsUrl());
+  }catch(e){
+    console.warn('chat ws ctor failed',e);
+    chatScheduleReconnect();
+    return;
+  }
+  chatWs.onopen = ()=>{
+    chatReconnectDelay = 1000;
+    document.getElementById('chat-roster-sub').textContent = 'Connected';
+  };
+  chatWs.onmessage = (ev)=>{
+    let data; try{ data = JSON.parse(ev.data); }catch(_){ return; }
+    chatHandleIncoming(data);
+  };
+  chatWs.onclose = (ev)=>{
+    document.getElementById('chat-roster-sub').textContent = 'Disconnected';
+    if(chatIntentionalClose) return;
+    if(ev.code===4401 && refreshToken){
+      // Token expired — refresh and reconnect
+      _refreshTokens().then(()=>chatConnect()).catch(()=>doLogout());
+      return;
+    }
+    chatScheduleReconnect();
+  };
+  chatWs.onerror = ()=>{ /* onclose will follow */ };
+}
+
+function chatDisconnect(){
+  chatIntentionalClose = true;
+  if(chatReconnectTimer){ clearTimeout(chatReconnectTimer); chatReconnectTimer=null; }
+  if(chatWs){ try{ chatWs.close(); }catch(_){ } chatWs=null; }
+  chatSessions = {};
+  chatActiveSid = null;
+  chatRenderRoster();
+  chatRenderThread();
+  chatClearTabBadge();
+  document.getElementById('chat-roster-sub').textContent = 'Not connected';
+}
+
+function chatScheduleReconnect(){
+  if(chatReconnectTimer) return;
+  const d = Math.min(chatReconnectDelay, 15000);
+  chatReconnectTimer = setTimeout(()=>{
+    chatReconnectTimer = null;
+    chatReconnectDelay = Math.min(chatReconnectDelay*2, 15000);
+    chatConnect();
+  }, d);
+}
+
+function chatEnsureSession(sid, meta){
+  if(!chatSessions[sid]){
+    chatSessions[sid] = {
+      roll: (meta&&meta.roll)||'',
+      name: (meta&&meta.name)||sid,
+      online: (meta&&meta.online)||false,
+      messages: [],
+      unread: 0,
+    };
+  }else if(meta){
+    if(meta.roll) chatSessions[sid].roll = meta.roll;
+    if(meta.name) chatSessions[sid].name = meta.name;
+    if(typeof meta.online==='boolean') chatSessions[sid].online = meta.online;
+  }
+  return chatSessions[sid];
+}
+
+function chatHandleIncoming(data){
+  const t = data.type;
+  if(t==='roster'){
+    chatSessions = {};
+    (data.sessions||[]).forEach(s=>{
+      const sess = chatEnsureSession(s.session_id, s);
+      sess.messages = (s.history||[]).slice();
+    });
+    chatRenderRoster();
+    if(chatActiveSid && chatSessions[chatActiveSid]) chatRenderThread();
+    return;
+  }
+  if(t==='presence'){
+    const sess = chatEnsureSession(data.session_id, data);
+    sess.online = !!data.online;
+    if(!data.online && !sess.messages.length){
+      // Student dropped before any message — remove entirely
+      delete chatSessions[data.session_id];
+      if(chatActiveSid===data.session_id){ chatActiveSid=null; chatRenderThread(); }
+    }
+    chatRenderRoster();
+    return;
+  }
+  if(t==='msg' || t==='broadcast'){
+    const sid = data.session_id;
+    if(!sid) return;
+    const sess = chatEnsureSession(sid, {
+      roll: data.roll, name: data.name,
+    });
+    sess.messages.push(data);
+    const isBroadcast = (t==='broadcast');
+    const fromStudent = (data.sender==='student');
+    if(fromStudent){
+      const chatTabActive =
+        document.querySelector('.tab.active')?.dataset.tab==='chat';
+      if(!chatTabActive || chatActiveSid!==sid){
+        sess.unread = (sess.unread||0)+1;
+        chatBumpTabBadge();
+        chatNotify();
+      }
+    }
+    chatRenderRoster();
+    if(chatActiveSid===sid){
+      chatRenderThread();
+      chatScrollToBottom();
+    }
+    return;
+  }
+}
+
+function chatRenderRoster(){
+  const body = document.getElementById('chat-roster-body');
+  const entries = Object.entries(chatSessions);
+  // Online first, then recently-active
+  entries.sort((a,b)=>{
+    if(a[1].online!==b[1].online) return a[1].online?-1:1;
+    const ta = a[1].messages.length ? a[1].messages[a[1].messages.length-1].ts : '';
+    const tb = b[1].messages.length ? b[1].messages[b[1].messages.length-1].ts : '';
+    return tb.localeCompare(ta);
+  });
+  if(!entries.length){
+    body.innerHTML = '<div class="chat-empty">No students online yet.</div>';
+    return;
+  }
+  body.innerHTML = entries.map(([sid,s])=>{
+    const active = (sid===chatActiveSid) ? ' active' : '';
+    const dotCls = s.online ? '' : ' offline';
+    const unread = (s.unread||0) > 0 ? `<span class="unread">${s.unread}</span>` : '';
+    const safeName = chatEscape(s.name || sid);
+    const safeRoll = chatEscape(s.roll || '');
+    return `<div class="chat-row${active}" onclick="chatSelect('${chatJsEscape(sid)}')">
+      <span class="dot${dotCls}"></span>
+      <div class="meta">
+        <div class="name">${safeName}</div>
+        <div class="roll">${safeRoll}${s.online?'':' · offline'}</div>
+      </div>
+      ${unread}
+    </div>`;
+  }).join('');
+}
+
+function chatSelect(sid){
+  chatActiveSid = sid;
+  const sess = chatSessions[sid];
+  if(sess){ sess.unread = 0; }
+  chatRecomputeTabBadge();
+  chatRenderRoster();
+  chatRenderThread();
+  chatScrollToBottom();
+  const input = document.getElementById('chat-input');
+  input.disabled = false;
+  document.getElementById('chat-send').disabled = false;
+  input.focus();
+}
+
+function chatRenderThread(){
+  const head = document.getElementById('chat-thread-head');
+  const body = document.getElementById('chat-thread-body');
+  if(!chatActiveSid || !chatSessions[chatActiveSid]){
+    head.innerHTML = '<div class="chat-thread-title">Select a student</div>'
+      +'<div class="chat-thread-sub">Messages are ephemeral — nothing is stored after the exam ends.</div>';
+    body.innerHTML = '<div class="chat-empty-lg">Pick a student on the left to start chatting.</div>';
+    document.getElementById('chat-input').disabled = true;
+    document.getElementById('chat-send').disabled = true;
+    return;
+  }
+  const sess = chatSessions[chatActiveSid];
+  const onlineTxt = sess.online ? '<span style="color:var(--emerald)">● online</span>' : '<span style="color:var(--muted)">○ offline</span>';
+  head.innerHTML = `<div class="chat-thread-title">${chatEscape(sess.name||chatActiveSid)} <span style="color:var(--muted);font-weight:400;font-size:12px">· ${chatEscape(sess.roll||'')}</span></div>
+    <div class="chat-thread-sub">${onlineTxt} · Session ${chatEscape(chatActiveSid)}</div>`;
+  if(!sess.messages.length){
+    body.innerHTML = '<div class="chat-empty-lg">No messages yet. Say hi.</div>';
+    return;
+  }
+  body.innerHTML = sess.messages.map(m=>{
+    const isB = m.type==='broadcast';
+    const isT = m.sender==='teacher';
+    const cls = isB ? 'from-broadcast' : (isT ? 'from-teacher' : 'from-student');
+    const ts = chatFmtTime(m.ts);
+    const label = isB ? 'Broadcast · ' : '';
+    return `<div class="chat-msg ${cls}">${chatEscape(m.text)}<span class="ts">${label}${ts}</span></div>`;
+  }).join('');
+}
+
+function chatScrollToBottom(){
+  const body = document.getElementById('chat-thread-body');
+  setTimeout(()=>{ body.scrollTop = body.scrollHeight; }, 0);
+}
+
+function sendTeacherMsg(ev){
+  if(ev) ev.preventDefault();
+  const input = document.getElementById('chat-input');
+  const text = (input.value||'').trim();
+  if(!text || !chatActiveSid || !chatWs || chatWs.readyState!==1) return false;
+  try{
+    chatWs.send(JSON.stringify({type:'msg', session_id:chatActiveSid, text}));
+    input.value='';
+  }catch(e){ console.warn('chat send failed',e); }
+  return false;
+}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  const input = document.getElementById('chat-input');
+  if(input){
+    input.addEventListener('keydown',e=>{
+      if(e.key==='Enter' && !e.shiftKey){
+        e.preventDefault();
+        sendTeacherMsg();
+      }
+    });
+  }
+});
+// If DOMContentLoaded already fired, wire it up anyway
+setTimeout(()=>{
+  const input = document.getElementById('chat-input');
+  if(input && !input.__chatBound){
+    input.__chatBound = true;
+    input.addEventListener('keydown',e=>{
+      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendTeacherMsg(); }
+    });
+  }
+},0);
+
+// ── Broadcast modal ─────────────────────────────────────────────
+function openBroadcastModal(){
+  document.getElementById('broadcast-text').value='';
+  document.getElementById('broadcast-status').textContent='';
+  document.getElementById('broadcast-modal').classList.add('open');
+}
+function closeBroadcastModal(){
+  document.getElementById('broadcast-modal').classList.remove('open');
+}
+function sendBroadcast(){
+  const ta = document.getElementById('broadcast-text');
+  const text = (ta.value||'').trim();
+  const status = document.getElementById('broadcast-status');
+  if(!text){ status.style.color='var(--red)'; status.textContent='Message is empty'; return; }
+  if(!chatWs || chatWs.readyState!==1){
+    status.style.color='var(--red)'; status.textContent='Chat not connected';
+    return;
+  }
+  try{
+    chatWs.send(JSON.stringify({type:'broadcast', text}));
+    status.style.color='var(--emerald)';
+    status.textContent='Broadcast sent.';
+    ta.value='';
+    setTimeout(closeBroadcastModal, 700);
+  }catch(e){
+    status.style.color='var(--red)'; status.textContent='Send failed';
+  }
+}
+
+// ── Badge / notification helpers ────────────────────────────────
+function chatRecomputeTabBadge(){
+  let n=0;
+  for(const sid in chatSessions) n += (chatSessions[sid].unread||0);
+  const el = document.getElementById('chat-tab-badge');
+  if(n>0){ el.textContent = n>99?'99+':n; el.style.display=''; }
+  else   { el.textContent = '0'; el.style.display='none'; }
+}
+function chatBumpTabBadge(){ chatRecomputeTabBadge(); }
+function chatClearTabBadge(){
+  for(const sid in chatSessions) chatSessions[sid].unread = 0;
+  chatRecomputeTabBadge();
+  if(chatTitleFlashTimer){ clearInterval(chatTitleFlashTimer); chatTitleFlashTimer=null; }
+  document.title = CHAT_TAB_ORIG_TITLE;
+}
+function chatClearActiveUnread(){
+  if(chatActiveSid && chatSessions[chatActiveSid]){
+    chatSessions[chatActiveSid].unread = 0;
+    chatRecomputeTabBadge();
+    chatRenderRoster();
+  }
+}
+function chatNotify(){
+  try{ chatBeep.currentTime = 0; chatBeep.play().catch(()=>{}); }catch(_){}
+  // Title flash if the tab/window isn't focused
+  if(document.hidden || document.visibilityState==='hidden'){
+    if(chatTitleFlashTimer) return;
+    let on=false;
+    chatTitleFlashTimer = setInterval(()=>{
+      on=!on;
+      document.title = on ? '● new message — Procta' : CHAT_TAB_ORIG_TITLE;
+    }, 900);
+  }
+}
+window.addEventListener('focus', ()=>{
+  if(chatTitleFlashTimer){ clearInterval(chatTitleFlashTimer); chatTitleFlashTimer=null; }
+  document.title = CHAT_TAB_ORIG_TITLE;
+});
+
+// ── Safe escape helpers ─────────────────────────────────────────
+function chatEscape(s){
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function chatJsEscape(s){
+  return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+function chatFmtTime(ts){
+  if(!ts) return '';
+  try{ return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+  catch(_){ return ''; }
+}
 </script>
 </body>
 </html>

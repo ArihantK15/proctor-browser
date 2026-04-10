@@ -12,7 +12,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException
+import asyncio
+import uuid as _uuid
+from collections import deque
+from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -122,17 +125,13 @@ def issue_admin_token(teacher: dict) -> str:
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
-def require_admin(request: Request) -> dict:
-    """Teacher JWT auth — returns teacher dict with 'id' key.
+def verify_admin_token(token: str) -> dict:
+    """Strictly verify an admin HS256 token and return the teacher dict.
 
-    Verifies our own HS256 admin tokens issued by issue_admin_token().
-    No fallbacks: every accepted token must be strictly signed by our SECRET_KEY.
+    Raises HTTPException on any failure. Shared by REST (require_admin) and WS.
     """
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
-
-    token = auth[7:]
     try:
         payload = jwt.decode(
             token, SECRET_KEY, algorithms=["HS256"],
@@ -143,15 +142,38 @@ def require_admin(request: Request) -> dict:
         if "expired" in msg:
             raise HTTPException(status_code=401, detail="Token expired")
         raise HTTPException(status_code=401, detail="Invalid token")
-
     if payload.get("role") != "teacher":
         raise HTTPException(status_code=403, detail="Not a teacher token")
-
     tid = payload.get("tid")
     teacher = _get_teacher_by_id(tid)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
     return teacher
+
+
+def verify_student_token(token: str) -> dict:
+    """Verify a student JWT. Returns decoded payload on success."""
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+    except JWTError as e:
+        msg = str(e).lower()
+        if "expired" in msg:
+            raise HTTPException(status_code=401, detail="Token expired")
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def require_admin(request: Request) -> dict:
+    """Teacher JWT auth — returns teacher dict with 'id' key.
+
+    Verifies our own HS256 admin tokens issued by issue_admin_token().
+    No fallbacks: every accepted token must be strictly signed by our SECRET_KEY.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return verify_admin_token(auth[7:])
 
 # ─── RATE LIMITER ─────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
@@ -1968,3 +1990,360 @@ async def list_demo_requests(request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
     result = supabase.table("demo_requests").select("*").order("created_at", desc=True).execute()
     return {"requests": result.data, "count": len(result.data)}
+
+
+# ─── IN-EXAM CHAT (WebSockets) ───────────────────────────────────
+#
+# Ephemeral real-time chat between students (in the Electron exam window)
+# and teachers (on the dashboard).  One thread per exam session, scoped to
+# the owning teacher.  Nothing is persisted — the server holds only the
+# last 50 messages per thread so a late-joining dashboard can backfill.
+
+CHAT_MAX_TEXT_LEN = 2000
+CHAT_HISTORY_LIMIT = 50
+
+
+class ChatHub:
+    """In-memory hub for student↔teacher chat sockets.
+
+    Thread-safety note: FastAPI websockets run on the asyncio event loop, so
+    all access happens on a single thread.  We still keep an asyncio.Lock for
+    operations that fan out to multiple sockets, to avoid interleaving sends.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        # session_id -> WebSocket (one active student socket per session)
+        self.student_conns: dict[str, WebSocket] = {}
+        # teacher_id -> set[WebSocket] (a teacher may have multiple tabs open)
+        self.teacher_conns: dict[str, set[WebSocket]] = {}
+        # teacher_id -> {session_id: deque[msg]}
+        self.threads: dict[str, dict[str, deque]] = {}
+        # session_id -> {roll, name, teacher_id, joined_at}
+        self.student_meta: dict[str, dict] = {}
+
+    # ── helpers ────────────────────────────────────────────────
+    def _thread(self, teacher_id: str, session_id: str) -> deque:
+        t = self.threads.setdefault(teacher_id, {})
+        return t.setdefault(session_id, deque(maxlen=CHAT_HISTORY_LIMIT))
+
+    def _make_msg(self, *, sender: str, session_id: str, text: str,
+                  kind: str = "msg") -> dict:
+        return {
+            "type": kind,
+            "id": _uuid.uuid4().hex,
+            "session_id": session_id,
+            "sender": sender,
+            "text": text,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def _safe_send(self, ws: WebSocket, payload: dict) -> bool:
+        try:
+            await ws.send_json(payload)
+            return True
+        except Exception:
+            return False
+
+    # ── student side ───────────────────────────────────────────
+    async def register_student(self, *, session_id: str, teacher_id: str,
+                               roll: str, name: str, ws: WebSocket) -> None:
+        async with self._lock:
+            # If a previous student socket exists for this session, close it
+            old = self.student_conns.get(session_id)
+            if old is not None and old is not ws:
+                try:
+                    await old.close(code=4000)
+                except Exception:
+                    pass
+            self.student_conns[session_id] = ws
+            self.student_meta[session_id] = {
+                "roll": roll,
+                "name": name,
+                "teacher_id": teacher_id,
+                "joined_at": datetime.now(timezone.utc).isoformat(),
+            }
+            # Ensure the thread exists so teachers can see presence
+            self._thread(teacher_id, session_id)
+
+        # Notify teachers of presence change
+        await self._notify_teachers_presence(teacher_id, session_id, online=True)
+
+    async def unregister_student(self, session_id: str) -> None:
+        async with self._lock:
+            meta = self.student_meta.pop(session_id, None)
+            self.student_conns.pop(session_id, None)
+        if meta:
+            await self._notify_teachers_presence(
+                meta["teacher_id"], session_id, online=False)
+
+    async def student_send(self, session_id: str, text: str) -> Optional[dict]:
+        meta = self.student_meta.get(session_id)
+        if not meta:
+            return None
+        msg = self._make_msg(sender="student", session_id=session_id, text=text)
+        msg["roll"] = meta["roll"]
+        msg["name"] = meta["name"]
+        self._thread(meta["teacher_id"], session_id).append(msg)
+
+        # Echo back to student
+        student_ws = self.student_conns.get(session_id)
+        if student_ws is not None:
+            await self._safe_send(student_ws, msg)
+
+        # Fan out to every teacher socket on this tenant
+        await self._fanout_teachers(meta["teacher_id"], msg)
+        return msg
+
+    # ── teacher side ───────────────────────────────────────────
+    async def register_teacher(self, teacher_id: str, ws: WebSocket) -> None:
+        async with self._lock:
+            self.teacher_conns.setdefault(teacher_id, set()).add(ws)
+
+        # Send the current roster + per-session history so the dashboard can
+        # hydrate without another round trip.
+        roster_sessions = []
+        for sid, meta in self.student_meta.items():
+            if meta.get("teacher_id") != teacher_id:
+                continue
+            history = list(self._thread(teacher_id, sid))
+            roster_sessions.append({
+                "session_id": sid,
+                "roll": meta["roll"],
+                "name": meta["name"],
+                "online": sid in self.student_conns,
+                "joined_at": meta.get("joined_at"),
+                "history": history,
+            })
+        await self._safe_send(ws, {
+            "type": "roster",
+            "sessions": roster_sessions,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+
+    async def unregister_teacher(self, teacher_id: str, ws: WebSocket) -> None:
+        async with self._lock:
+            conns = self.teacher_conns.get(teacher_id)
+            if conns:
+                conns.discard(ws)
+                if not conns:
+                    self.teacher_conns.pop(teacher_id, None)
+
+    async def teacher_send(self, teacher_id: str, session_id: str,
+                           text: str) -> Optional[dict]:
+        # Ownership check: target session must belong to this teacher
+        meta = self.student_meta.get(session_id)
+        if not meta or meta.get("teacher_id") != teacher_id:
+            return None
+        msg = self._make_msg(sender="teacher", session_id=session_id, text=text)
+        self._thread(teacher_id, session_id).append(msg)
+
+        # Deliver to the specific student if online
+        student_ws = self.student_conns.get(session_id)
+        if student_ws is not None:
+            await self._safe_send(student_ws, msg)
+
+        # Mirror to every teacher tab so they stay in sync
+        await self._fanout_teachers(teacher_id, msg)
+        return msg
+
+    async def teacher_broadcast(self, teacher_id: str, text: str) -> int:
+        """Send a broadcast to every online student under this teacher.
+
+        Returns the number of students the broadcast was delivered to.
+        """
+        msg = self._make_msg(
+            sender="teacher", session_id="*", text=text, kind="broadcast")
+        delivered = 0
+        # Snapshot the target sockets to avoid holding the lock during sends
+        targets: list[tuple[str, WebSocket]] = []
+        async with self._lock:
+            for sid, m in self.student_meta.items():
+                if m.get("teacher_id") != teacher_id:
+                    continue
+                ws = self.student_conns.get(sid)
+                if ws is not None:
+                    targets.append((sid, ws))
+
+        for sid, ws in targets:
+            per_msg = dict(msg)
+            per_msg["session_id"] = sid
+            # Append to the per-session thread so it shows on the teacher view
+            self._thread(teacher_id, sid).append(per_msg)
+            if await self._safe_send(ws, per_msg):
+                delivered += 1
+
+        # Inform every teacher tab that a broadcast was fired
+        teacher_view = dict(msg)
+        teacher_view["delivered"] = delivered
+        await self._fanout_teachers(teacher_id, teacher_view)
+        return delivered
+
+    # ── fan-out helpers ────────────────────────────────────────
+    async def _fanout_teachers(self, teacher_id: str, payload: dict) -> None:
+        dead: list[WebSocket] = []
+        conns = list(self.teacher_conns.get(teacher_id, ()))
+        for ws in conns:
+            if not await self._safe_send(ws, payload):
+                dead.append(ws)
+        if dead:
+            async with self._lock:
+                s = self.teacher_conns.get(teacher_id)
+                if s is not None:
+                    for ws in dead:
+                        s.discard(ws)
+                    if not s:
+                        self.teacher_conns.pop(teacher_id, None)
+
+    async def _notify_teachers_presence(self, teacher_id: str,
+                                        session_id: str, *, online: bool) -> None:
+        meta = self.student_meta.get(session_id) or {}
+        await self._fanout_teachers(teacher_id, {
+            "type": "presence",
+            "session_id": session_id,
+            "online": online,
+            "roll": meta.get("roll", ""),
+            "name": meta.get("name", ""),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+
+
+chat_hub = ChatHub()
+
+
+def _chat_verify_session_owned(session_id: str, teacher_id: str,
+                               roll: str) -> Optional[dict]:
+    """Confirm that the given session belongs to the teacher and student.
+
+    Returns the exam_sessions row on success, or None if it does not exist
+    or does not match.  Completed sessions are rejected so closed threads
+    cannot be reopened.
+    """
+    try:
+        result = supabase.table("exam_sessions") \
+            .select("*") \
+            .eq("session_key", session_id) \
+            .execute()
+    except Exception:
+        return None
+    if not result.data:
+        return None
+    row = result.data[0]
+    if str(row.get("teacher_id") or "") != str(teacher_id or ""):
+        return None
+    if (row.get("roll_number") or "").upper() != (roll or "").upper():
+        return None
+    if row.get("status") == "completed":
+        return None
+    return row
+
+
+@app.websocket("/ws/chat/student")
+async def ws_chat_student(ws: WebSocket):
+    """Student end of the chat.  Query params: token, session_id."""
+    await ws.accept()
+    try:
+        token = ws.query_params.get("token") or ""
+        session_id = (ws.query_params.get("session_id") or "").strip()
+        if not session_id:
+            await ws.close(code=4400); return
+        try:
+            payload = verify_student_token(token)
+        except HTTPException:
+            await ws.close(code=4401); return
+
+        roll = (payload.get("roll") or "").upper()
+        tid = payload.get("tid")
+        if not roll or not tid:
+            await ws.close(code=4401); return
+
+        sess_row = _chat_verify_session_owned(session_id, tid, roll)
+        if not sess_row:
+            await ws.close(code=4403); return
+
+        student_result = supabase.table("students") \
+            .select("full_name") \
+            .eq("roll_number", roll) \
+            .eq("teacher_id", str(tid)) \
+            .execute()
+        name = (student_result.data[0]["full_name"]
+                if student_result.data else roll)
+
+        await chat_hub.register_student(
+            session_id=session_id, teacher_id=str(tid),
+            roll=roll, name=name, ws=ws)
+
+        # Hydrate with any existing thread history
+        history = list(chat_hub._thread(str(tid), session_id))
+        await ws.send_json({
+            "type": "history",
+            "session_id": session_id,
+            "messages": history,
+        })
+
+        while True:
+            raw = await ws.receive_text()
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+            mtype = data.get("type", "msg")
+            if mtype != "msg":
+                continue
+            text = str(data.get("text", "")).strip()
+            if not text:
+                continue
+            if len(text) > CHAT_MAX_TEXT_LEN:
+                text = text[:CHAT_MAX_TEXT_LEN]
+            await chat_hub.student_send(session_id, text)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[ws_chat_student] error: {e}")
+    finally:
+        sid = (ws.query_params.get("session_id") or "").strip()
+        if sid:
+            await chat_hub.unregister_student(sid)
+
+
+@app.websocket("/ws/chat/teacher")
+async def ws_chat_teacher(ws: WebSocket):
+    """Teacher end of the chat.  Query param: token."""
+    await ws.accept()
+    teacher_id: Optional[str] = None
+    try:
+        token = ws.query_params.get("token") or ""
+        try:
+            teacher = verify_admin_token(token)
+        except HTTPException:
+            await ws.close(code=4401); return
+        teacher_id = str(teacher["id"])
+
+        await chat_hub.register_teacher(teacher_id, ws)
+
+        while True:
+            raw = await ws.receive_text()
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+            mtype = data.get("type", "msg")
+            text = str(data.get("text", "")).strip()
+            if not text:
+                continue
+            if len(text) > CHAT_MAX_TEXT_LEN:
+                text = text[:CHAT_MAX_TEXT_LEN]
+            if mtype == "msg":
+                target_sid = str(data.get("session_id", "")).strip()
+                if not target_sid:
+                    continue
+                await chat_hub.teacher_send(teacher_id, target_sid, text)
+            elif mtype == "broadcast":
+                await chat_hub.teacher_broadcast(teacher_id, text)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[ws_chat_teacher] error: {e}")
+    finally:
+        if teacher_id is not None:
+            await chat_hub.unregister_teacher(teacher_id, ws)

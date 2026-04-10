@@ -27,8 +27,25 @@
 
   /* ── Layout ───────────────────────────────────────────────────── */
   .topbar{background:var(--card);border-bottom:1px solid var(--border);
-    padding:12px 24px;display:flex;align-items:center;justify-content:space-between}
-  .topbar .meta{font-size:12px;color:var(--muted)}
+    padding:14px 24px;display:flex;align-items:center;justify-content:space-between;
+    gap:16px;min-height:60px;box-sizing:border-box}
+  .topbar-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .brand-icon{width:32px;height:32px;border-radius:8px;background:var(--accent);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .brand-name{font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;
+    font-size:17px;font-weight:700;color:white;line-height:1}
+  .topbar-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    justify-content:flex-end}
+  .topbar-status{display:flex;align-items:center;gap:8px;font-size:12px;
+    color:var(--muted);line-height:1}
+  .topbar-status .spinner{width:13px;height:13px;border-width:2px}
+  .topbar-teacher{font-size:12px;font-weight:600;color:var(--accent-light);
+    line-height:1;padding-left:14px;border-left:1px solid var(--border)}
+  .topbar-teacher:empty{display:none}
+  .topbar .action-btn{padding:7px 14px;height:32px;display:inline-flex;
+    align-items:center;justify-content:center;line-height:1}
+  .topbar-logout{color:var(--red)}
+  .topbar-logout:hover{border-color:var(--red) !important;color:var(--red) !important}
   .tabs{display:flex;gap:0;background:var(--card);border-bottom:1px solid var(--border);
     padding:0 24px}
   .tab{padding:12px 20px;font-size:13px;font-weight:600;cursor:pointer;
@@ -54,18 +71,24 @@
   .stat .value.yellow{color:var(--amber)}
 
   /* ── Tables ───────────────────────────────────────────────────── */
-  .toolbar{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+  .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
   .toolbar input{background:rgba(255,255,255,0.03);border:1px solid var(--border);
-    border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;width:260px;
+    border-radius:8px;padding:0 12px;color:var(--text);font-size:13px;width:260px;
+    height:34px;box-sizing:border-box;
     font-family:'Inter',system-ui,sans-serif}
   .toolbar input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .toolbar label{display:inline-flex;align-items:center;gap:8px;font-size:12px;
+    color:var(--muted);font-weight:600;height:34px;line-height:1}
+  .toolbar label input{height:34px;box-sizing:border-box}
   .toolbar button,.action-btn{background:var(--card);border:1px solid var(--border);
-    border-radius:8px;padding:8px 16px;color:var(--text);font-size:12px;
+    border-radius:8px;padding:0 16px;color:var(--text);font-size:12px;
     font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.2s;
-    font-family:'Inter',system-ui,sans-serif}
+    font-family:'Inter',system-ui,sans-serif;
+    height:34px;display:inline-flex;align-items:center;justify-content:center;
+    box-sizing:border-box;line-height:1}
   .toolbar button:hover,.action-btn:hover{border-color:var(--accent);color:var(--accent-light)}
   .action-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-  .action-btn.primary:hover{background:var(--accent-light);border-color:var(--accent-light)}
+  .action-btn.primary:hover{background:var(--accent-light);border-color:var(--accent-light);color:#fff}
   table{width:100%;border-collapse:collapse;font-size:13px}
   thead{position:sticky;top:0;z-index:10}
   th{background:var(--card);color:var(--muted);text-align:left;padding:10px 12px;
@@ -149,10 +172,12 @@
     padding:20px;margin-bottom:12px;position:relative}
   .q-card.q-error{border-color:var(--red)}
   .q-card-hdr{display:flex;align-items:center;justify-content:space-between;
-    margin-bottom:12px}
-  .q-card-hdr .q-num{font-size:14px;font-weight:700;color:var(--accent-light)}
+    margin-bottom:12px;gap:8px}
+  .q-card-hdr .q-num{font-size:14px;font-weight:700;color:var(--accent-light);
+    line-height:1;display:inline-flex;align-items:center;height:24px}
   .q-card-hdr .q-del{background:none;border:1px solid var(--border);border-radius:6px;
-    color:var(--red);cursor:pointer;padding:4px 10px;font-size:12px;font-weight:600}
+    color:var(--red);cursor:pointer;padding:0 10px;font-size:12px;font-weight:600;
+    height:26px;display:inline-flex;align-items:center;line-height:1}
   .q-card-hdr .q-del:hover{background:rgba(239,68,68,.08);border-color:var(--red)}
   .q-field{margin-bottom:10px}
   .q-field label{display:block;font-size:11px;color:var(--muted);font-weight:600;
@@ -162,25 +187,42 @@
     font-size:13px;font-family:'Inter',system-ui,sans-serif}
   .q-field textarea{resize:vertical;min-height:60px}
   .q-field input:focus,.q-field textarea:focus{outline:none;border-color:rgba(59,130,246,0.4)}
-  .q-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .q-opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .q-opt{display:flex;align-items:center;gap:8px}
-  .q-opt-key{width:32px;height:32px;border-radius:8px;background:var(--bg);
+  .q-opt-key{width:34px;height:34px;border-radius:8px;background:var(--bg);
     border:1px solid var(--border);display:flex;align-items:center;justify-content:center;
-    font-weight:700;font-size:12px;color:var(--muted);flex-shrink:0}
+    font-weight:700;font-size:12px;color:var(--muted);flex-shrink:0;line-height:1}
   .q-opt-key.correct{background:var(--accent);border-color:var(--accent);color:#fff}
-  .q-opt input{flex:1}
-  .q-correct-row{margin-top:10px;display:flex;align-items:center;gap:8px}
-  .q-correct-row label{font-size:11px;color:var(--muted);font-weight:600;margin:0}
+  .q-opt input{flex:1;height:34px;box-sizing:border-box;padding:0 12px;
+    background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;
+    color:var(--text);font-size:13px;font-family:'Inter',system-ui,sans-serif;min-width:0}
+  .q-opt input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .q-opt .q-opt-remove{background:none;border:none;color:var(--red);cursor:pointer;
+    font-size:18px;width:24px;height:24px;border-radius:6px;display:inline-flex;
+    align-items:center;justify-content:center;flex-shrink:0;line-height:1;padding:0}
+  .q-opt .q-opt-remove:hover{background:rgba(239,68,68,.08)}
+  .q-correct-row{margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .q-correct-row label{font-size:11px;color:var(--muted);font-weight:600;margin:0;
+    text-transform:uppercase;letter-spacing:0.04em;line-height:1;
+    display:inline-flex;align-items:center;height:32px}
   .q-correct-row select{background:rgba(255,255,255,0.03);border:1px solid var(--border);
-    border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;
-    font-family:'Inter',system-ui,sans-serif}
+    border-radius:8px;padding:0 30px 0 12px;color:var(--text);font-size:13px;
+    font-family:'Inter',system-ui,sans-serif;height:32px;box-sizing:border-box;
+    line-height:1;cursor:pointer;-webkit-appearance:none;appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23748094' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat:no-repeat;background-position:right 10px center}
   .q-correct-row select:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .q-correct-row .q-correct-status{font-size:12px;display:inline-flex;align-items:center;
+    height:32px;line-height:1}
   .q-add-opt{background:none;border:1px dashed var(--border);border-radius:8px;
-    color:var(--muted);cursor:pointer;padding:6px 12px;font-size:12px;margin-top:8px}
+    color:var(--muted);cursor:pointer;padding:0 14px;font-size:12px;margin-top:10px;
+    height:32px;display:inline-flex;align-items:center;line-height:1;font-weight:600}
   .q-add-opt:hover{border-color:var(--accent);color:var(--accent-light)}
-  .q-move{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;
-    padding:2px 6px}
-  .q-move:hover{color:var(--accent-light)}
+  .q-move{background:none;border:1px solid var(--border);color:var(--muted);
+    cursor:pointer;font-size:11px;width:24px;height:24px;border-radius:6px;
+    display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0}
+  .q-move:hover{color:var(--accent-light);border-color:var(--accent)}
+  .q-move:disabled{cursor:not-allowed;opacity:.3}
   .preview-q{margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
   .preview-q:last-child{border-bottom:none}
   .preview-q .pq-num{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px}
@@ -193,6 +235,29 @@
     display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;
     flex-shrink:0;color:var(--muted)}
   .preview-q .pq-opt.pq-correct .pq-key{background:var(--accent);color:#fff}
+
+  /* ── Tools tab cards ─────────────────────────────────────────── */
+  .tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
+    gap:16px;align-items:stretch}
+  .tool-card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+    padding:24px;display:flex;flex-direction:column;min-height:100%}
+  .tool-card h3{font-size:15px;color:var(--accent-light);margin:0 0 8px 0;
+    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;font-weight:700;
+    line-height:1.3}
+  .tool-card p{font-size:13px;color:var(--muted);margin:0 0 16px 0;line-height:1.5}
+  .tool-card-body{flex:1;display:flex;flex-direction:column}
+  .tool-card-actions{margin-top:auto;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .tool-card-result{margin-top:10px;font-size:13px;min-height:18px;line-height:1.4}
+  .tool-card-field{margin-bottom:10px}
+  .tool-card-field label{font-size:11px;color:var(--muted);display:block;
+    margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em}
+  .tool-card-field input{width:100%;background:rgba(255,255,255,0.03);
+    border:1px solid var(--border);border-radius:8px;padding:0 12px;color:var(--text);
+    font-size:13px;height:34px;box-sizing:border-box;
+    font-family:'Inter',system-ui,sans-serif}
+  .tool-card-field input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .tool-card-field input.access-code{font-size:16px;font-weight:700;letter-spacing:2px;
+    text-transform:uppercase;font-family:monospace}
 
   /* ── Forensics Timeline ──────────────────────────────────────── */
   .tl-meta{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:13px;color:var(--muted)}
@@ -291,7 +356,7 @@
              onkeydown="if(event.key==='Enter')document.getElementById('signup-email').focus()">
       <input type="email" id="signup-email" placeholder="Email address"
              onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd').focus()">
-      <input type="password" id="signup-pwd" placeholder="Password (min 6 characters)"
+      <input type="password" id="signup-pwd" placeholder="Password (min 8 characters)"
              onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd2').focus()">
       <input type="password" id="signup-pwd2" placeholder="Confirm password"
              onkeydown="if(event.key==='Enter')doSignup()">
@@ -307,18 +372,20 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <div style="display:flex;align-items:center;gap:10px">
-    <div style="width:32px;height:32px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center">
+  <div class="topbar-brand">
+    <div class="brand-icon">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
     </div>
-    <span style="font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;font-size:17px;font-weight:700;color:white">Procta Dashboard</span>
+    <span class="brand-name">Procta Dashboard</span>
   </div>
-  <div class="meta" style="display:flex;align-items:center;gap:8px">
-    <span id="teacher-name" style="color:var(--accent-light);font-weight:600;font-size:12px"></span>
-    <span id="last-refresh">--</span> |
-    <span class="spinner" id="refresh-spin" style="display:none"></span>
-    <button class="action-btn" onclick="refreshAll()" style="padding:4px 12px">Refresh</button>
-    <button class="action-btn" onclick="doLogout()" style="padding:4px 12px;color:var(--red)">Logout</button>
+  <div class="topbar-actions">
+    <div class="topbar-status">
+      <span class="spinner" id="refresh-spin" style="display:none"></span>
+      <span id="last-refresh">--</span>
+    </div>
+    <span id="teacher-name" class="topbar-teacher"></span>
+    <button class="action-btn" onclick="refreshAll()">Refresh</button>
+    <button class="action-btn topbar-logout" onclick="doLogout()">Logout</button>
   </div>
 </div>
 
@@ -388,12 +455,9 @@
     <div class="stats" id="q-stats"></div>
     <div class="toolbar">
       <input type="text" id="q-title" placeholder="Exam title" style="width:300px">
-      <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px">
-        Duration (min):
-        <input type="number" id="q-duration" min="1" max="600" value="60"
-               style="width:80px;background:rgba(255,255,255,0.03);border:1px solid var(--border);
-                      border-radius:8px;padding:8px;color:var(--text);font-size:13px;
-                      font-family:'Inter',system-ui,sans-serif">
+      <label>
+        Duration (min)
+        <input type="number" id="q-duration" min="1" max="600" value="60" style="width:80px">
       </label>
       <button onclick="addQuestion()">+ Add Question</button>
       <button onclick="togglePreview()">Preview</button>
@@ -426,71 +490,74 @@
         <div class="value red" id="tools-failed">--</div>
       </div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:16px">
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;flex:1;min-width:280px">
-        <h3 style="font-size:15px;color:var(--accent-light);margin-bottom:8px;font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif">Backfill Risk Scores</h3>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-          Recompute risk scores for all completed sessions.
-          Use after first deployment or formula update.
-        </p>
-        <button class="action-btn primary" id="btn-backfill" onclick="doBackfill()">Run Backfill</button>
-        <div id="backfill-result" style="margin-top:10px;font-size:13px;color:var(--emerald)"></div>
+    <div class="tools-grid">
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Backfill Risk Scores</h3>
+          <p>Recompute risk scores for all completed sessions. Use after first deployment or formula update.</p>
+        </div>
+        <div class="tool-card-actions">
+          <button class="action-btn primary" id="btn-backfill" onclick="doBackfill()">Run Backfill</button>
+        </div>
+        <div class="tool-card-result" id="backfill-result" style="color:var(--emerald)"></div>
       </div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;flex:1;min-width:280px">
-        <h3 style="font-size:15px;color:var(--accent-light);margin-bottom:8px;font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif">Cleanup Screenshots</h3>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-          Delete screenshots older than 7 days to free disk space.
-        </p>
-        <button class="action-btn" onclick="doCleanup()">Run Cleanup</button>
-        <div id="cleanup-result" style="margin-top:10px;font-size:13px;color:var(--emerald)"></div>
+
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Cleanup Screenshots</h3>
+          <p>Delete screenshots older than 7 days to free disk space.</p>
+        </div>
+        <div class="tool-card-actions">
+          <button class="action-btn" onclick="doCleanup()">Run Cleanup</button>
+        </div>
+        <div class="tool-card-result" id="cleanup-result" style="color:var(--emerald)"></div>
       </div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;flex:1;min-width:280px">
-        <h3 style="font-size:15px;color:var(--accent-light);margin-bottom:8px;font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif">Failed Sessions</h3>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-          View sessions where submission failed and may need admin force-submit.
-        </p>
-        <button class="action-btn" onclick="loadFailed()">Check Failed</button>
-        <div id="failed-result" style="margin-top:10px;font-size:13px"></div>
+
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Failed Sessions</h3>
+          <p>View sessions where submission failed and may need admin force-submit.</p>
+        </div>
+        <div class="tool-card-actions">
+          <button class="action-btn" onclick="loadFailed()">Check Failed</button>
+        </div>
+        <div class="tool-card-result" id="failed-result"></div>
       </div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;flex:1;min-width:280px">
-        <h3 style="font-size:15px;color:var(--accent-light);margin-bottom:8px;font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif">Exam Access Code</h3>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-          Students must enter this code along with their roll number to start the exam.
-          Leave empty to disable.
-        </p>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-          <input type="text" id="access-code-input" placeholder="e.g. ABC123"
-                 style="width:160px;background:rgba(255,255,255,0.03);border:1px solid var(--border);
-                        border-radius:8px;padding:8px 12px;color:var(--text);font-size:16px;
-                        font-weight:700;letter-spacing:2px;text-transform:uppercase;font-family:monospace">
+
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Exam Access Code</h3>
+          <p>Students must enter this code along with their roll number to start the exam. Leave empty to disable.</p>
+          <div class="tool-card-field">
+            <input type="text" id="access-code-input" class="access-code" placeholder="e.g. ABC123">
+          </div>
+        </div>
+        <div class="tool-card-actions">
           <button class="action-btn primary" onclick="saveAccessCode()">Save</button>
           <button class="action-btn" onclick="generateAccessCode()">Generate</button>
           <button class="action-btn" onclick="clearAccessCode()" style="color:var(--red)">Clear</button>
         </div>
-        <div id="access-code-status" style="font-size:12px;min-height:18px"></div>
+        <div class="tool-card-result" id="access-code-status" style="font-size:12px"></div>
       </div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;flex:1;min-width:280px">
-        <h3 style="font-size:15px;color:var(--accent-light);margin-bottom:8px;font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif">Schedule Exam</h3>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
-          Set exam start and end times. Students cannot begin outside this window. Leave empty for no restrictions.
-        </p>
-        <div style="margin-bottom:10px">
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;font-weight:600">Starts At (IST)</label>
-          <input type="datetime-local" id="schedule-start"
-                 style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);
-                        border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;font-family:'Inter',system-ui,sans-serif">
+
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Schedule Exam</h3>
+          <p>Set exam start and end times. Students cannot begin outside this window. Leave empty for no restrictions.</p>
+          <div class="tool-card-field">
+            <label>Starts At (IST)</label>
+            <input type="datetime-local" id="schedule-start">
+          </div>
+          <div class="tool-card-field">
+            <label>Ends At (IST)</label>
+            <input type="datetime-local" id="schedule-end">
+          </div>
         </div>
-        <div style="margin-bottom:12px">
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;font-weight:600">Ends At (IST)</label>
-          <input type="datetime-local" id="schedule-end"
-                 style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);
-                        border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;font-family:'Inter',system-ui,sans-serif">
-        </div>
-        <div style="display:flex;gap:8px">
+        <div class="tool-card-actions">
           <button class="action-btn primary" onclick="saveSchedule()">Save Schedule</button>
           <button class="action-btn" onclick="clearSchedule()" style="color:var(--red)">Clear</button>
         </div>
-        <div id="schedule-status" style="margin-top:10px;font-size:12px;min-height:18px"></div>
+        <div class="tool-card-result" id="schedule-status" style="font-size:12px"></div>
       </div>
     </div>
   </div>
@@ -1305,10 +1372,10 @@ function renderQEditor(){
     const optKeys = Object.keys(q.options||{});
     return `<div class="q-card" id="qcard-${i}">
       <div class="q-card-hdr">
-        <div style="display:flex;align-items:center;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px">
           <span class="q-num">Q${i+1}</span>
-          <button class="q-move" onclick="moveQ(${i},-1)" title="Move up" ${i===0?'disabled style="opacity:.3"':''}>&#9650;</button>
-          <button class="q-move" onclick="moveQ(${i},1)" title="Move down" ${i===qData.length-1?'disabled style="opacity:.3"':''}>&#9660;</button>
+          <button class="q-move" onclick="moveQ(${i},-1)" title="Move up" ${i===0?'disabled':''}>&#9650;</button>
+          <button class="q-move" onclick="moveQ(${i},1)" title="Move down" ${i===qData.length-1?'disabled':''}>&#9660;</button>
         </div>
         <button class="q-del" onclick="deleteQ(${i})">Delete</button>
       </div>
@@ -1327,18 +1394,18 @@ function renderQEditor(){
               <input value="${escAttr(q.options[k])}"
                      oninput="qData[${i}].options['${escAttr(k)}']=this.value;markQDirty()"
                      placeholder="Option ${escAttr(k)}">
-              ${optKeys.length>2?`<button class="q-move" onclick="removeOpt(${i},'${escAttr(k)}')" title="Remove option" style="color:var(--red)">&times;</button>`:''}
+              ${optKeys.length>2?`<button class="q-opt-remove" onclick="removeOpt(${i},'${escAttr(k)}')" title="Remove option">&times;</button>`:''}
             </div>
           `).join('')}
         </div>
         <button class="q-add-opt" onclick="addOpt(${i})">+ Add Option</button>
       </div>
       <div class="q-correct-row">
-        <label>Correct Answer:</label>
+        <label>Correct Answer</label>
         <select onchange="qData[${i}].correct=this.value;markQDirty();renderQEditor()">
           ${optKeys.map(k=>`<option value="${escAttr(k)}" ${q.correct===k?'selected':''}>${escAttr(k)}</option>`).join('')}
         </select>
-        <span style="font-size:12px;color:${q.correct?'var(--emerald)':'var(--red)'}">
+        <span class="q-correct-status" style="color:${q.correct?'var(--emerald)':'var(--red)'}">
           ${q.correct ? q.correct+' = '+escAttr(q.options[q.correct]||'?') : 'Not set!'}
         </span>
       </div>

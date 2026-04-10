@@ -100,27 +100,24 @@ def require_admin(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         token = auth[7:]
+        # Extract claims — try verified HS256 first, then unverified fallback
+        # for Supabase Auth tokens (which may use RS256 or other algorithms)
         payload = None
-        # Try HS256 first (our own student/custom tokens)
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"],
                                  options={"verify_aud": False})
         except JWTError:
-            pass
-        # Supabase Auth may use a different algorithm — extract claims
-        # and rely on DB lookup for authorization
-        if payload is None:
             try:
                 payload = jwt.get_unverified_claims(token)
-                # Manually check expiry
-                exp = payload.get("exp")
-                if exp and float(exp) < time.time():
-                    raise HTTPException(status_code=401, detail="Token expired")
-            except HTTPException:
-                raise
             except Exception as e:
-                print(f"[Auth] JWT decode failed: {e}")
+                print(f"[Auth] Cannot parse token: {e}")
                 raise HTTPException(status_code=401, detail="Invalid token")
+
+        # Check expiry
+        exp = payload.get("exp")
+        if exp and float(exp) < time.time():
+            raise HTTPException(status_code=401, detail="Token expired")
+
         sub = payload.get("sub")
         if not sub:
             raise HTTPException(status_code=403, detail="Not a teacher token")

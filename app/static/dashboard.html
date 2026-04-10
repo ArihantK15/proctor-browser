@@ -633,28 +633,27 @@ function _onAuthed(teacher){
 async function _tryAutoLogin(){
   if(!authToken) return;
   try{
-    const r = await fetch(`${BASE}/api/auth/me`,{headers:{'Authorization':'Bearer '+authToken}});
-    if(r.ok){
-      const data = await r.json();
-      _onAuthed(data);
-      return;
-    }
+    // Try current token
+    let r = await fetch(`${BASE}/api/auth/me`,{headers:{'Authorization':'Bearer '+authToken}});
+    if(r.ok){ _onAuthed(await r.json()); return; }
+
     // Token expired — try refresh
-    if(refreshToken){
-      const rr = await fetch(`${BASE}/api/auth/refresh`,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({refresh_token:refreshToken})
-      });
-      if(rr.ok){
-        const rd = await rr.json();
-        _saveTokens(rd.access_token, rd.refresh_token);
-        const mr = await fetch(`${BASE}/api/auth/me`,{headers:{'Authorization':'Bearer '+rd.access_token}});
-        if(mr.ok){ _onAuthed(await mr.json()); return; }
-      }
-    }
-  }catch(e){}
-  // Clear stale tokens
-  _saveTokens('','');
+    if(!refreshToken){ _saveTokens('',''); return; }
+    const rr = await fetch(`${BASE}/api/auth/refresh`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({refresh_token:refreshToken})
+    });
+    if(!rr.ok){ _saveTokens('',''); return; }
+    const rd = await rr.json();
+    _saveTokens(rd.access_token, rd.refresh_token);
+
+    // Retry with fresh token
+    r = await fetch(`${BASE}/api/auth/me`,{headers:{'Authorization':'Bearer '+rd.access_token}});
+    if(r.ok){ _onAuthed(await r.json()); return; }
+    _saveTokens('','');
+  }catch(e){
+    _saveTokens('','');
+  }
 }
 
 function doLogout(){
@@ -667,6 +666,27 @@ function doLogout(){
 
 function hdr(){
   return {'Content-Type':'application/json','Authorization':'Bearer '+authToken};
+}
+
+// Wrapper: auto-refresh token on 401 and retry once
+async function authFetch(url, opts={}){
+  opts.headers = opts.headers || hdr();
+  let r = await fetch(url, opts);
+  if(r.status===401 && refreshToken){
+    const rr = await fetch(`${BASE}/api/auth/refresh`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({refresh_token:refreshToken})
+    });
+    if(rr.ok){
+      const rd = await rr.json();
+      _saveTokens(rd.access_token, rd.refresh_token);
+      opts.headers = hdr();
+      r = await fetch(url, opts);
+    } else {
+      doLogout();
+    }
+  }
+  return r;
 }
 
 // Auto-login on page load
@@ -691,7 +711,7 @@ async function refreshAll(){
 // ── LIVE SESSIONS ───────────────────────────────────────────────
 async function refreshLive(){
   try{
-    const r = await fetch(`${BASE}/sessions`,{headers:hdr()});
+    const r = await authFetch(`${BASE}/sessions`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     liveData = d.all_sessions || [];
@@ -750,7 +770,7 @@ function filterLive(){renderLive();}
 // ── RESULTS ─────────────────────────────────────────────────────
 async function refreshResults(){
   try{
-    const r = await fetch(`${BASE}/api/results`,{headers:hdr()});
+    const r = await authFetch(`${BASE}/api/results`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     resultsData = d.results || [];
@@ -843,7 +863,7 @@ async function openDetail(sid){
   bd.innerHTML='<div class="loading-msg"><span class="spinner"></span> Loading breakdown...</div>';
   document.getElementById('detail-modal').classList.add('open');
   try{
-    const resp = await fetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`,{headers:hdr()});
+    const resp = await authFetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`);
     if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const risk = await resp.json();
     renderBreakdown(risk);
@@ -852,7 +872,7 @@ async function openDetail(sid){
   }
   // Load answer breakdown
   try{
-    const ansResp = await fetch(`${BASE}/api/admin/answers/${encodeURIComponent(sid)}`,{headers:hdr()});
+    const ansResp = await authFetch(`${BASE}/api/admin/answers/${encodeURIComponent(sid)}`);
     if(!ansResp.ok) throw new Error(`HTTP ${ansResp.status}`);
     const ansData = await ansResp.json();
     renderAnswerReview(ansData);
@@ -950,7 +970,7 @@ async function viewRisk(sid){
   bd.innerHTML='<div class="loading-msg"><span class="spinner"></span> Computing live risk...</div>';
   document.getElementById('detail-modal').classList.add('open');
   try{
-    const resp = await fetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`,{headers:hdr()});
+    const resp = await authFetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`);
     if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const risk = await resp.json();
     // Update info with live risk
@@ -975,7 +995,7 @@ function exportCSV(){
   fetchBlob(`${BASE}/api/export-csv`,'results.csv');
 }
 async function fetchBlob(url,filename){
-  const r = await fetch(url,{headers:hdr()});
+  const r = await authFetch(url);
   if(!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
   const blob = await r.blob();
   const a = document.createElement('a');
@@ -998,7 +1018,7 @@ async function doBackfill(){
   btn.disabled=true; btn.textContent='Running...';
   const el=document.getElementById('backfill-result');
   try{
-    const r=await fetch(`${BASE}/api/admin/backfill-risk-scores`,{method:'POST',headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin/backfill-risk-scores`,{method:'POST'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     el.style.color='var(--emerald)';
@@ -1014,7 +1034,7 @@ async function doBackfill(){
 async function doCleanup(){
   const el=document.getElementById('cleanup-result');
   try{
-    const r=await fetch(`${BASE}/api/admin-cleanup`,{method:'POST',headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin-cleanup`,{method:'POST'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     el.style.color='var(--emerald)';
@@ -1028,7 +1048,7 @@ async function doCleanup(){
 async function loadFailed(){
   const el=document.getElementById('failed-result');
   try{
-    const r=await fetch(`${BASE}/api/admin-failed-sessions`,{headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin-failed-sessions`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     if(d.count===0){
@@ -1048,7 +1068,7 @@ async function loadFailed(){
 
 async function loadFailedCount(){
   try{
-    const r=await fetch(`${BASE}/api/admin-failed-sessions`,{headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin-failed-sessions`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('tools-failed').textContent=d.count;
@@ -1058,7 +1078,7 @@ async function loadFailedCount(){
 async function forceSubmit(sid){
   if(!confirm(`Force-submit session ${sid}?`)) return;
   try{
-    const r=await fetch(`${BASE}/api/admin-submit/${encodeURIComponent(sid)}`,{method:'POST',headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin-submit/${encodeURIComponent(sid)}`,{method:'POST'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     alert(`Force-submitted! Score: ${d.score}/${d.total}, Risk: ${d.risk_score}/100`);
@@ -1070,7 +1090,7 @@ async function forceSubmit(sid){
 // ── ACCESS CODE ────────────────────────────────────────────────
 async function loadAccessCode(){
   try{
-    const r=await fetch(`${BASE}/api/admin/access-code`,{headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin/access-code`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('access-code-input').value=d.access_code||'';
@@ -1091,8 +1111,8 @@ async function saveAccessCode(){
   const code=document.getElementById('access-code-input').value.trim().toUpperCase();
   const st=document.getElementById('access-code-status');
   try{
-    const r=await fetch(`${BASE}/api/admin/access-code`,{
-      method:'POST',headers:hdr(),body:JSON.stringify({access_code:code})
+    const r=await authFetch(`${BASE}/api/admin/access-code`,{
+      method:'POST',body:JSON.stringify({access_code:code})
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
@@ -1112,7 +1132,7 @@ function clearAccessCode(){
 // ── REGISTERED COUNT ────────────────────────────────────────────
 async function loadRegisteredCount(){
   try{
-    const r=await fetch(`${BASE}/api/admin/registered-count`,{headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin/registered-count`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('tools-registered').textContent=d.count;
@@ -1122,7 +1142,7 @@ async function loadRegisteredCount(){
 // ── EXAM SCHEDULE ───────────────────────────────────────────────
 async function loadSchedule(){
   try{
-    const r=await fetch(`${BASE}/api/admin/exam-schedule`,{headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin/exam-schedule`);
     if(!r.ok) return;
     const d=await r.json();
     if(d.starts_at) document.getElementById('schedule-start').value=utcToLocalInput(d.starts_at);
@@ -1180,8 +1200,8 @@ async function saveSchedule(){
     return;
   }
   try{
-    const r=await fetch(`${BASE}/api/admin/exam-schedule`,{
-      method:'POST',headers:hdr(),
+    const r=await authFetch(`${BASE}/api/admin/exam-schedule`,{
+      method:'POST',
       body:JSON.stringify({starts_at:localInputToUtc(starts),ends_at:localInputToUtc(ends)})
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1210,7 +1230,7 @@ async function loadQuestions(){
   el.innerHTML='<div class="loading-msg"><span class="spinner"></span> Loading questions...</div>';
   document.getElementById('q-save-msg').textContent='';
   try{
-    const r = await fetch(`${BASE}/api/admin/questions`,{headers:hdr()});
+    const r = await authFetch(`${BASE}/api/admin/questions`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     qData = d.questions || [];
@@ -1441,8 +1461,8 @@ async function saveQuestions(){
 
   msgEl.innerHTML='<span class="spinner"></span> Saving...';
   try{
-    const r=await fetch(`${BASE}/api/admin/questions`,{
-      method:'POST',headers:hdr(),body:JSON.stringify(payload)
+    const r=await authFetch(`${BASE}/api/admin/questions`,{
+      method:'POST',body:JSON.stringify(payload)
     });
     if(!r.ok){
       const err=await r.json();
@@ -1489,7 +1509,7 @@ function openTimeline(){
 
 async function loadTimeline(sid){
   try{
-    const r=await fetch(`${BASE}/api/admin/timeline/${encodeURIComponent(sid)}`,{headers:hdr()});
+    const r=await authFetch(`${BASE}/api/admin/timeline/${encodeURIComponent(sid)}`);
     if(!r.ok) throw new Error('Failed to load');
     tlData=await r.json();
     tlFilter='all';
@@ -1582,7 +1602,7 @@ function renderTimeline(){
 
   // Lazy-load thumbnails with auth headers
   el.querySelectorAll('.tl-thumb[data-src]').forEach(img=>{
-    fetch(img.dataset.src,{headers:hdr()}).then(r=>{
+    authFetch(img.dataset.src).then(r=>{
       if(!r.ok) throw new Error();
       return r.blob();
     }).then(b=>{
@@ -1625,7 +1645,7 @@ function scrollToEvent(idx){
 function showLightbox(src,caption){
   const img=document.getElementById('tl-lightbox-img');
   // Load image with admin auth via fetch+blob
-  fetch(src,{headers:hdr()}).then(r=>r.blob()).then(b=>{
+  authFetch(src).then(r=>r.blob()).then(b=>{
     img.src=URL.createObjectURL(b);
     document.getElementById('tl-lightbox-caption').textContent=caption;
     document.getElementById('tl-lightbox').classList.add('open');

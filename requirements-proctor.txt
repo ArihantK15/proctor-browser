@@ -1,0 +1,25 @@
+# Python dependencies for proctor.py (the local face/object/voice detector
+# spawned by the Electron app during an active exam). These are SEPARATE
+# from requirements.txt, which only lists the FastAPI backend deps that run
+# inside the Docker container on the server. proctor.py runs on the
+# student's local machine alongside Electron and is not packaged in the
+# server image.
+#
+# Install with:  pip3 install --break-system-packages -r requirements-proctor.txt
+#
+# Face detection: uniface (RetinaFace ONNX) — replaces mediapipe, which
+# crashed on Python 3.12 + Apple Silicon with a mutex-lock abort. uniface
+# pulls onnxruntime + opencv-python and gives us face boxes plus the 5
+# landmarks we feed into solvePnP for head pose.
+#
+# Gaze: weights/resnet18_gaze.onnx is loaded directly via onnxruntime.
+# Eye open/closed: OpenCV Haar cascade (ships with opencv-python).
+
+uniface>=1.1.0
+onnxruntime>=1.15.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+ultralytics>=8.0.0
+insightface>=0.7.3
+sounddevice>=0.4.6
+requests>=2.31.0

@@ -25,12 +25,17 @@
       "renderer/**/*",
       "app/static/student.html",
       "app/static/theme.css",
-      "proctor.py"
+      "proctor.py",
+      "weights/**/*"
     ],
     "extraResources": [
       {
         "from": "proctor.py",
         "to": "proctor.py"
+      },
+      {
+        "from": "weights",
+        "to": "weights"
       }
     ],
     "publish": {

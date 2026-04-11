@@ -761,6 +761,10 @@ class FrameIn(BaseModel):
     session_id: str
     frame:      str
     timestamp:  str
+    # Optional violation type so the local proctor can push evidence frames
+    # that the forensics timeline can pair with their matching event row.
+    # If absent we save the frame as a generic "frame_*" snapshot like before.
+    event_type: Optional[str] = None
 
 # ─── HELPERS ──────────────────────────────────────────────────────
 def ts_to_id(ts_str: str) -> int:
@@ -908,6 +912,61 @@ def _risk_label(score: int) -> str:
         if score <= threshold:
             return label
     return "Critical Risk"
+
+
+def _collect_session_screenshots(roll: str, teacher_id: str) -> dict[str, Path]:
+    """Return {filename: absolute_path} for every screenshot belonging to a
+    student session, scoped to the requesting teacher's evidence directory.
+    Used by both the forensics timeline endpoint and the PDF export so they
+    pair violations with screenshots identically.
+    """
+    if not roll or not teacher_id:
+        return {}
+    student_dir = Path(SCREENSHOTS_DIR) / str(teacher_id) / roll
+    if not student_dir.is_dir():
+        return {}
+    out: dict[str, Path] = {}
+    for f in sorted(student_dir.iterdir()):
+        if f.suffix.lower() in (".jpg", ".jpeg", ".png"):
+            out[f.name] = f
+    return out
+
+
+def _match_screenshot_for_violation(
+    violation: dict, screenshots: dict[str, Path]
+) -> Path | None:
+    """Pick the best screenshot for a violation row using a 3-pass match:
+       1. evt_<violation_type>_<ts> within ±2s of the event timestamp
+       2. any evt_* within the same window
+       3. any frame_* within the same window (legacy renderer reference)
+    Returns the absolute path or None if no plausible screenshot exists.
+    """
+    if not screenshots or not violation.get("created_at"):
+        return None
+    try:
+        evt_ts = datetime.fromisoformat(
+            str(violation["created_at"]).replace("Z", "+00:00")
+        ).astimezone(IST)
+    except Exception:
+        return None
+    vtype = violation.get("violation_type", "")
+    window_keys = {
+        (evt_ts + timedelta(seconds=delta)).strftime("%Y%m%d_%H%M%S")
+        for delta in range(-2, 3)
+    }
+    # Pass 1
+    for fname, fpath in screenshots.items():
+        if fname.startswith(f"evt_{vtype}_") and any(k in fname for k in window_keys):
+            return fpath
+    # Pass 2
+    for fname, fpath in screenshots.items():
+        if fname.startswith("evt_") and any(k in fname for k in window_keys):
+            return fpath
+    # Pass 3
+    for fname, fpath in screenshots.items():
+        if any(k in fname for k in window_keys):
+            return fpath
+    return None
 
 
 def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
@@ -1557,7 +1616,18 @@ def analyze_frame(data: FrameIn, request: Request):
             student_dir = os.path.join(SCREENSHOTS_DIR, roll)
         os.makedirs(student_dir, exist_ok=True)
         ts    = now_ist().strftime("%Y%m%d_%H%M%S")
-        fpath = os.path.join(student_dir, f"frame_{ts}.jpg")
+        # Prefix evidence frames with the violation type so the forensics
+        # timeline can pair them with their matching event row. Plain
+        # renderer reference frames continue to use the "frame_" prefix.
+        if data.event_type:
+            safe_label = "".join(
+                c if c.isalnum() or c in "_-" else "_"
+                for c in data.event_type
+            )[:32]
+            fname = f"evt_{safe_label}_{ts}.jpg"
+        else:
+            fname = f"frame_{ts}.jpg"
+        fpath = os.path.join(student_dir, fname)
         with open(fpath, "wb") as f:
             f.write(base64.b64decode(data.frame))
     except Exception as e:
@@ -1626,12 +1696,12 @@ def get_timeline(session_id: str, request: Request):
     roll = session_info.get("roll_number") or (
         session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]
     )
-    student_dir = Path(SCREENSHOTS_DIR) / str(tid) / roll
-    screenshots: dict[str, str] = {}   # filename -> relative URL
-    if student_dir.is_dir():
-        for f in sorted(student_dir.iterdir()):
-            if f.suffix.lower() in (".jpg", ".jpeg", ".png"):
-                screenshots[f.name] = f"/api/admin/screenshot/{roll}/{f.name}"
+    screenshot_paths = _collect_session_screenshots(roll, str(tid))
+    # filename -> URL the dashboard fetches with admin auth
+    screenshot_urls = {
+        fname: f"/api/admin/screenshot/{roll}/{fname}"
+        for fname in screenshot_paths
+    }
 
     # Build timeline entries
     timeline = []
@@ -1645,20 +1715,9 @@ def get_timeline(session_id: str, request: Request):
             "details":   e.get("details"),
             "is_violation": _is_violation(e["violation_type"]),
         }
-        # Match screenshot by timestamp proximity
-        if e.get("created_at"):
-            try:
-                evt_ts = datetime.fromisoformat(
-                    str(e["created_at"]).replace("Z", "+00:00")
-                ).astimezone(IST)
-                evt_key = evt_ts.strftime("%Y%m%d_%H%M%S")
-                # Look for evidence screenshots saved around this time
-                for fname in screenshots:
-                    if evt_key in fname:
-                        entry["screenshot"] = screenshots[fname]
-                        break
-            except Exception:
-                pass
+        match = _match_screenshot_for_violation(e, screenshot_paths)
+        if match is not None:
+            entry["screenshot"] = screenshot_urls[match.name]
         timeline.append(entry)
 
     return {
@@ -1673,7 +1732,7 @@ def get_timeline(session_id: str, request: Request):
         "risk_score":  session_info.get("risk_score"),
         "total_events": len(events),
         "timeline":    timeline,
-        "screenshots": list(screenshots.values()),
+        "screenshots": list(screenshot_urls.values()),
     }
 
 
@@ -1718,17 +1777,37 @@ def get_all_sessions(request: Request):
         evts_result = evts_query.order("created_at", desc=True).execute()
         events = evts_result.data or []
 
-        sub_query = supabase.table("exam_sessions").select("session_key")\
-            .eq("status", "completed")
+        # Pull session metadata (status + cached risk_score) in one shot so
+        # the live tab can show the same risk number as the detail view.
+        # Without this, the list shows just the most recent event's severity
+        # which often disagrees with the aggregated risk score.
+        sess_query = supabase.table("exam_sessions").select(
+            "session_key,status,risk_score")
         if tid:
-            sub_query = sub_query.eq("teacher_id", str(tid))
-        sub_result = sub_query.execute()
-        submitted  = {r["session_key"] for r in (sub_result.data or [])}
+            sess_query = sess_query.eq("teacher_id", str(tid))
+        sess_result = sess_query.execute()
+        sess_meta = {
+            r["session_key"]: r for r in (sess_result.data or [])
+        }
+        submitted = {
+            sk for sk, m in sess_meta.items() if m.get("status") == "completed"
+        }
 
         sessions: dict = {}
         for e in events:
             sk = e["session_key"]
             if sk not in sessions:
+                meta = sess_meta.get(sk, {})
+                # For live (in_progress) sessions risk_score is null in the
+                # DB, so compute it on the fly. Cheap — bounded by the same
+                # 48h violations slice we already fetched per session.
+                cached_risk = meta.get("risk_score")
+                if cached_risk is None and sk not in submitted:
+                    try:
+                        cached_risk = compute_risk_score(
+                            sk, teacher_id=tid)["risk_score"]
+                    except Exception:
+                        cached_risk = None
                 sessions[sk] = {
                     "session_id":    sk,
                     "last_event":    e["violation_type"],
@@ -1736,6 +1815,9 @@ def get_all_sessions(request: Request):
                     "last_seen":     fmt_ist(e.get("created_at", "")),
                     "details":       e.get("details"),
                     "submitted":     sk in submitted,
+                    "risk_score":    cached_risk,
+                    "risk_label":    _risk_label(cached_risk)
+                                     if cached_risk is not None else None,
                 }
 
         active = [s for s in sessions.values() if not s["submitted"]]
@@ -1837,9 +1919,11 @@ def export_pdf(session_id: str, request: Request):
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
+        from reportlab.lib.units import inch
         from reportlab.platypus import (SimpleDocTemplate, Table,
-                                         TableStyle, Paragraph, Spacer)
-        from reportlab.lib.styles import getSampleStyleSheet
+                                         TableStyle, Paragraph, Spacer,
+                                         Image, PageBreak, KeepTogether)
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
         exam = _assert_session_owned(session_id, tid)
 
@@ -1992,6 +2076,74 @@ def export_pdf(session_id: str, request: Request):
                 story.append(ct)
         else:
             story.append(Paragraph("No violations recorded.", styles["Normal"]))
+
+        # ── Visual Evidence Timeline ──────────────────────────────────────
+        # For every violation that has a matching evidence screenshot, embed
+        # the image directly into the PDF in chronological order so the
+        # report stands on its own — the teacher doesn't have to open the
+        # dashboard to see what each flag actually looked like.
+        roll_for_evidence = exam.get("roll_number") or (
+            session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]
+        )
+        evidence_paths = _collect_session_screenshots(roll_for_evidence, str(tid))
+        evidence_items = []
+        for idx, v in enumerate(raw_violations, 1):
+            match = _match_screenshot_for_violation(v, evidence_paths)
+            if match is not None and match.exists():
+                evidence_items.append((idx, v, match))
+
+        if evidence_items:
+            story.append(Spacer(1, 18))
+            story.append(PageBreak())
+            story.append(Paragraph(
+                f"Visual Evidence ({len(evidence_items)} captures)",
+                styles["Heading2"]))
+            story.append(Paragraph(
+                "Screenshots are listed in the same order as the violations table above.",
+                styles["Italic"]))
+            story.append(Spacer(1, 10))
+
+            evidence_caption_style = ParagraphStyle(
+                "EvidenceCaption", parent=styles["Normal"],
+                fontSize=9, leading=12, spaceAfter=4,
+            )
+
+            for idx, v, img_path in evidence_items:
+                ts_str = fmt_ist(v.get("created_at", ""))
+                sev = v["severity"].upper()
+                sev_color = "#c0392b" if v["severity"] == "high" else "#d68910"
+                vtype_pretty = v["violation_type"].replace("_", " ").title()
+                caption = (
+                    f'<b>#{idx} — {vtype_pretty}</b>  ·  '
+                    f'<font color="{sev_color}"><b>{sev}</b></font>  ·  '
+                    f'{ts_str}'
+                )
+                detail = clean_details(v.get("details"))
+                if detail:
+                    caption += f'<br/><font size="8" color="#666">{detail}</font>'
+
+                # Render image at fixed width; reportlab keeps aspect ratio
+                # via kind='proportional'. KeepTogether stops a caption from
+                # being orphaned at the bottom of one page while its image
+                # gets pushed to the next.
+                try:
+                    img_flowable = Image(
+                        str(img_path),
+                        width=4.5 * inch, height=3.4 * inch,
+                        kind="proportional",
+                    )
+                    story.append(KeepTogether([
+                        Paragraph(caption, evidence_caption_style),
+                        img_flowable,
+                        Spacer(1, 14),
+                    ]))
+                except Exception as img_err:
+                    # Skip unreadable files but keep the caption so the report
+                    # is still complete and the teacher knows the frame existed.
+                    story.append(Paragraph(
+                        caption + f'  <font color="#999">(image unreadable: {img_err})</font>',
+                        evidence_caption_style))
+                    story.append(Spacer(1, 8))
 
         story.append(Spacer(1, 20))
         story.append(Paragraph("Answer Sheet", styles["Heading2"]))

@@ -484,6 +484,7 @@
           <th onclick="sortLive('session_id')">Session <span class="arrow"></span></th>
           <th onclick="sortLive('last_event')">Last Event <span class="arrow"></span></th>
           <th onclick="sortLive('last_severity')">Severity <span class="arrow"></span></th>
+          <th onclick="sortLive('risk_score')">Risk <span class="arrow"></span></th>
           <th onclick="sortLive('last_seen')">Last Seen <span class="arrow"></span></th>
           <th onclick="sortLive('submitted')">Status <span class="arrow"></span></th>
           <th>Actions</th>
@@ -832,7 +833,9 @@ function _onAuthed(teacher){
     document.getElementById('teacher-name').textContent = teacher.full_name;
   }
   refreshAll();
-  autoRefreshTimer = setInterval(refreshLive, 15000);
+  // Poll every 5s so live status / risk score / submission state catches
+  // up almost immediately when a student finishes their exam.
+  autoRefreshTimer = setInterval(refreshLive, 5000);
   chatConnect();
 }
 
@@ -984,10 +987,16 @@ function renderLive(){
     const sevColor = s.last_severity==='high'?'var(--red)':s.last_severity==='medium'?'var(--amber)':'var(--muted)';
     const roll = s.session_id.split('_')[0];
     const sid = esc(s.session_id);
+    // Risk cell — colour-coded so the live tab agrees with the detail view.
+    const rs = (s.risk_score!=null)?s.risk_score:null;
+    const riskColor = rs==null?'var(--muted)'
+      :rs>70?'var(--red)':rs>40?'var(--amber)':rs>15?'#58a6ff':'var(--emerald)';
+    const riskTxt = rs==null?'—':`${rs}/100`;
     return `<tr>
       <td><strong>${esc(roll)}</strong><br><span style="font-size:11px;color:var(--muted)">${esc(s.session_id.substring(0,30))}...</span></td>
       <td>${esc(s.last_event.replace(/_/g,' '))}</td>
       <td style="color:${sevColor};font-weight:600">${esc(s.last_severity.toUpperCase())}</td>
+      <td style="color:${riskColor};font-weight:600">${riskTxt}</td>
       <td style="font-size:12px">${esc(s.last_seen)}</td>
       <td><span class="status-badge ${statusCls}">${statusTxt}</span></td>
       <td>
@@ -1802,7 +1811,16 @@ function openTimeline(){
 async function loadTimeline(sid){
   try{
     const r=await authFetch(`${BASE}/api/admin/timeline/${encodeURIComponent(sid)}`);
-    if(!r.ok) throw new Error('Failed to load');
+    if(!r.ok){
+      // Surface the actual server error so we can debug "session not found"
+      // vs auth failures vs 500s instead of a generic "Failed to load".
+      let msg=`HTTP ${r.status}`;
+      try{
+        const body=await r.json();
+        if(body && body.detail) msg=`${r.status}: ${body.detail}`;
+      }catch(_){}
+      throw new Error(msg);
+    }
     tlData=await r.json();
     tlFilter='all';
     // Reset filter buttons

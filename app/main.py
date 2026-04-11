@@ -56,6 +56,7 @@ DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN     = os.getenv("DOWNLOAD_WIN", "")
 TOKEN_TTL_HOURS  = 10
 ADMIN_TOKEN_TTL_HOURS = 12
+STUDENT_AUTH_TTL_HOURS = 12  # student dashboard session (not the exam JWT)
 
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 
@@ -175,6 +176,89 @@ def require_admin(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Authentication required")
     return verify_admin_token(auth[7:])
 
+
+# ─── Student-account (dashboard) auth ────────────────────────────
+# NOTE: these JWTs gate the student web dashboard (listing exams, practice,
+# profile). They are DIFFERENT from the exam JWT issued by create_token() —
+# that one has a `roll` claim and is what the Electron app presents while an
+# exam is in progress. A student_account JWT cannot take an exam; it can
+# only list/enroll. Exam entry still goes through /api/validate-student
+# which mints a fresh short-lived exam token.
+
+_student_acct_cache = {}
+_student_acct_cache_ttl = {}
+_student_acct_cache_lock = _threading.Lock()
+
+
+def _get_student_account_by_id(account_id: str) -> dict | None:
+    if not account_id:
+        return None
+    now = time.time()
+    with _student_acct_cache_lock:
+        if account_id in _student_acct_cache and _student_acct_cache_ttl.get(account_id, 0) > now:
+            return _student_acct_cache[account_id]
+    result = supabase.table("student_accounts").select("*").eq("id", str(account_id)).execute()
+    if not result.data:
+        return None
+    acct = result.data[0]
+    with _student_acct_cache_lock:
+        _student_acct_cache[account_id] = acct
+        _student_acct_cache_ttl[account_id] = now + 60
+    return acct
+
+
+def _get_student_account_by_uid(uid: str) -> dict | None:
+    if not uid:
+        return None
+    result = supabase.table("student_accounts").select("*").eq("supabase_uid", str(uid)).execute()
+    if not result.data:
+        return None
+    return result.data[0]
+
+
+def issue_student_auth_token(account: dict) -> str:
+    """Issue an HS256 JWT for the student web dashboard."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sid":   str(account["id"]),
+        "email": account.get("email", ""),
+        "role":  "student_account",
+        "iat":   now,
+        "exp":   now + timedelta(hours=STUDENT_AUTH_TTL_HOURS),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+
+def verify_student_auth_token(token: str) -> dict:
+    """Strictly verify a student-account token and return the account dict."""
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    try:
+        payload = jwt.decode(
+            token, SECRET_KEY, algorithms=["HS256"],
+            options={"verify_aud": False, "require": ["exp", "sid"]},
+        )
+    except JWTError as e:
+        msg = str(e).lower()
+        if "expired" in msg:
+            raise HTTPException(status_code=401, detail="Token expired")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get("role") != "student_account":
+        raise HTTPException(status_code=403, detail="Not a student token")
+    sid = payload.get("sid")
+    account = _get_student_account_by_id(sid)
+    if not account:
+        raise HTTPException(status_code=403, detail="Student account not found")
+    return account
+
+
+def require_student_account(request: Request) -> dict:
+    """Student-dashboard JWT auth — returns student_account dict."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return verify_student_auth_token(auth[7:])
+
 # ─── RATE LIMITER ─────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
 
@@ -231,6 +315,21 @@ def register_page():
     return HTMLResponse(html_path.read_text())
 
 
+# ─── STUDENT WEB DASHBOARD ───────────────────────────────────────
+@app.get("/student", response_class=HTMLResponse)
+def student_page():
+    """Student-facing dashboard: upcoming exams, practice, profile.
+
+    This is the web home for students between exams. The browser lock
+    (Electron app) is NOT required to view this page — it only locks
+    down when the student actually starts an exam.
+    """
+    html_path = STATIC_DIR / "student.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="Student dashboard not found")
+    return HTMLResponse(html_path.read_text())
+
+
 # ─── TEACHER AUTH ────────────────────────────────────────────────
 
 class TeacherSignupIn(BaseModel):
@@ -244,6 +343,15 @@ class TeacherLoginIn(BaseModel):
 
 class RefreshIn(BaseModel):
     refresh_token: str
+
+class StudentSignupIn(BaseModel):
+    email:     str
+    password:  str
+    full_name: str
+
+class StudentLoginIn(BaseModel):
+    email:    str
+    password: str
 
 @app.post("/api/auth/signup")
 @limiter.limit("5/hour")
@@ -372,6 +480,227 @@ async def teacher_refresh(body: RefreshIn, request: Request):
         "access_token":  issue_admin_token(teacher),
         "refresh_token": auth_resp.session.refresh_token,
     }
+
+
+# ─── STUDENT DASHBOARD AUTH ──────────────────────────────────────
+
+@app.post("/api/student/auth/signup")
+@limiter.limit("5/hour")
+async def student_signup(body: StudentSignupIn, request: Request):
+    """Create a new student dashboard account via Supabase Auth.
+
+    After creating the auth user + student_accounts row, we auto-link any
+    pre-existing per-teacher `students` enrollments that match the email
+    so the student immediately sees their upcoming exam(s) on first login.
+    """
+    email = body.email.strip().lower()
+    name = body.full_name.strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    if not name:
+        raise HTTPException(status_code=400, detail="Full name is required")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    existing = supabase.table("student_accounts").select("id").eq("email", email).execute()
+    if existing.data:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+    try:
+        auth_resp = supabase.auth.admin.create_user({
+            "email": email,
+            "password": body.password,
+            "email_confirm": True,
+        })
+        supabase_uid = auth_resp.user.id
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "already registered" in err_msg or "duplicate" in err_msg:
+            raise HTTPException(status_code=409, detail="An account with this email already exists")
+        print(f"[StudentSignup] Supabase Auth error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create account")
+
+    try:
+        result = supabase.table("student_accounts").insert({
+            "email":        email,
+            "full_name":    name,
+            "supabase_uid": str(supabase_uid),
+        }).execute()
+        account = result.data[0]
+    except Exception as e:
+        print(f"[StudentSignup] DB insert error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create student record")
+
+    # Auto-link any existing enrollments by matching email (case-insensitive).
+    try:
+        supabase.table("students")\
+            .update({"account_id": account["id"]})\
+            .eq("email", email)\
+            .is_("account_id", "null")\
+            .execute()
+    except Exception as e:
+        print(f"[StudentSignup] Auto-link warning: {e}")
+
+    print(f"[StudentSignup] {name} <{email}> created")
+    return {
+        "account_id": account["id"],
+        "email":      email,
+        "full_name":  name,
+    }
+
+
+@app.post("/api/student/auth/login")
+@limiter.limit("10/minute")
+async def student_login(body: StudentLoginIn, request: Request):
+    email = body.email.strip().lower()
+    try:
+        auth_resp = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": body.password,
+        })
+    except Exception as e:
+        print(f"[StudentLogin] Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    supabase_uid = str(auth_resp.user.id)
+    account = _get_student_account_by_uid(supabase_uid)
+    if not account:
+        raise HTTPException(
+            status_code=403,
+            detail="No student account found for this login. Please sign up first.")
+
+    # Opportunistic auto-link on every login in case the student was
+    # registered by a teacher AFTER they created their account.
+    try:
+        supabase.table("students")\
+            .update({"account_id": account["id"]})\
+            .eq("email", email)\
+            .is_("account_id", "null")\
+            .execute()
+    except Exception:
+        pass
+
+    return {
+        "access_token":  issue_student_auth_token(account),
+        "refresh_token": auth_resp.session.refresh_token,
+        "account": {
+            "id":        account["id"],
+            "email":     account["email"],
+            "full_name": account["full_name"],
+        },
+    }
+
+
+@app.get("/api/student/auth/me")
+async def student_me(request: Request):
+    account = require_student_account(request)
+    return {
+        "id":        account["id"],
+        "email":     account["email"],
+        "full_name": account["full_name"],
+    }
+
+
+@app.post("/api/student/auth/refresh")
+async def student_refresh(body: RefreshIn, request: Request):
+    try:
+        auth_resp = supabase.auth.refresh_session(body.refresh_token)
+    except Exception as e:
+        print(f"[StudentRefresh] Error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    if not auth_resp or not auth_resp.user or not auth_resp.session:
+        raise HTTPException(status_code=401, detail="Invalid refresh response")
+
+    account = _get_student_account_by_uid(str(auth_resp.user.id))
+    if not account:
+        raise HTTPException(status_code=403, detail="Student account not found")
+
+    return {
+        "access_token":  issue_student_auth_token(account),
+        "refresh_token": auth_resp.session.refresh_token,
+    }
+
+
+@app.get("/api/student/exams")
+async def student_exams(request: Request):
+    """List the signed-in student's upcoming / active / completed exams.
+
+    Joins student_accounts → students (per-teacher enrollments) → exam_config
+    and exam_sessions to produce a single flat list. Phase 1 has one
+    exam_config per teacher, so a student sees at most one exam per teacher
+    they are enrolled with — multi-exam per teacher is Phase 6.
+    """
+    account = require_student_account(request)
+
+    # 1. enrollments for this account
+    enroll_resp = supabase.table("students")\
+        .select("roll_number, teacher_id, full_name")\
+        .eq("account_id", account["id"])\
+        .execute()
+    enrollments = enroll_resp.data or []
+
+    out = []
+    for e in enrollments:
+        tid = e.get("teacher_id")
+        if not tid:
+            continue
+        # exam config (title, schedule, duration)
+        cfg = _load_exam_config(teacher_id=tid) or {}
+        # teacher name for display
+        teacher = _get_teacher_by_id(tid) or {}
+        # most recent session status for this student (if any)
+        sess_resp = supabase.table("exam_sessions")\
+            .select("session_key,status,started_at,submitted_at")\
+            .eq("teacher_id", tid)\
+            .eq("roll_number", e["roll_number"])\
+            .order("started_at", desc=True)\
+            .limit(1)\
+            .execute()
+        sess = (sess_resp.data or [{}])[0]
+
+        now_utc = datetime.now(timezone.utc)
+        starts_raw = cfg.get("starts_at")
+        ends_raw   = cfg.get("ends_at")
+        starts_at  = None
+        ends_at    = None
+        window = "open"  # default: no schedule → always open
+        if starts_raw:
+            starts_at = datetime.fromisoformat(str(starts_raw).replace("Z", "+00:00"))
+            if now_utc < starts_at:
+                window = "upcoming"
+        if ends_raw:
+            ends_at = datetime.fromisoformat(str(ends_raw).replace("Z", "+00:00"))
+            if now_utc > ends_at:
+                window = "closed"
+
+        if sess.get("status") == "completed":
+            status = "completed"
+        elif sess.get("status") == "in_progress":
+            status = "in_progress"
+        else:
+            status = window  # upcoming / open / closed
+
+        out.append({
+            "teacher_id":       tid,
+            "teacher_name":     teacher.get("full_name", ""),
+            "roll_number":      e["roll_number"],
+            "exam_title":       cfg.get("exam_title", "Exam"),
+            "duration_minutes": cfg.get("duration_minutes", 60),
+            "starts_at":        cfg.get("starts_at"),
+            "ends_at":          cfg.get("ends_at"),
+            "access_code_required": bool(_get_access_code(tid)),
+            "status":           status,
+            "submitted_at":     sess.get("submitted_at"),
+        })
+
+    # sort: active first, then upcoming by start time, then completed
+    def _sort_key(r):
+        rank = {"in_progress": 0, "open": 1, "upcoming": 2, "closed": 3, "completed": 4}
+        return (rank.get(r["status"], 5), r.get("starts_at") or "")
+    out.sort(key=_sort_key)
+
+    return {"exams": out}
 
 
 # ─── BACKGROUND: SCREENSHOT CLEANUP ──────────────────────────────

@@ -11,15 +11,23 @@ const https   = require('https');
 const SERVER_URL = process.env.PROCTOR_SERVER_URL || 'https://app.procta.net';
 const ADMIN_CODE = process.env.EXIT_CODE || 'EXIT2026';
 
-let mainWindow      = null;
+let mainWindow      = null;   // the exam window (kiosk) when present
+let lobbyWindow     = null;   // the pre-exam web dashboard window (unlocked)
 let setupWindow     = null;
 let pythonProcess   = null;
 let pythonShouldRun = false; // guard against restart after intentional stop
 let powerBlockId    = null;
 let pollInterval    = null;
 let studentToken    = null; // JWT issued after validate-student
-let isKiosk       = !process.argv.includes('--no-kiosk') &&
-                    process.env.PROCTOR_DEBUG !== '1';
+// Phase 2: kiosk mode is opt-in per-session, not a global launch flag.
+// `isKiosk` now reflects whether the CURRENTLY OPEN exam window is locked;
+// it starts false on app launch (lobby is never locked) and is toggled
+// on only when an exam window is created via the lobby bridge.
+let isKiosk        = false;
+const KIOSK_ALLOWED = !process.argv.includes('--no-kiosk') &&
+                      process.env.PROCTOR_DEBUG !== '1';
+let currentSessionId = null;  // set once an exam session is active
+let examContext      = null;  // {rollNumber, accessCode, examTitle, teacherId} stashed by lobby
 let resolvedPython = null;
 let integrityFlags = []; // populated at startup, sent to renderer
 
@@ -582,8 +590,142 @@ function stopPolling() {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
 }
 
-// ── MAIN WINDOW ───────────────────────────────────────────────────
-function createWindow() {
+// ── LOBBY WINDOW (pre-exam, NOT kiosk) ───────────────────────────
+//
+// Phase 2: Electron now boots into a normal window showing the student web
+// dashboard (/student). The student logs in there, sees upcoming exams, and
+// clicks "Start exam" to trigger an IPC that spawns a locked exam window.
+// Everything outside of an active exam is unlocked — no shortcut capture,
+// no kiosk mode, no always-on-top, devtools allowed for debugging.
+function createLobbyWindow() {
+  if (lobbyWindow && !lobbyWindow.isDestroyed()) {
+    lobbyWindow.show();
+    lobbyWindow.focus();
+    return lobbyWindow;
+  }
+
+  console.log('[Lobby] creating lobby window (fullscreen:false, kiosk:false)');
+
+  lobbyWindow = new BrowserWindow({
+    width:           1180,
+    height:          820,
+    minWidth:        900,
+    minHeight:       640,
+    // Defense-in-depth: macOS may remember a previous Space state from
+    // the pre-Phase-2 kiosk builds. Explicitly declare non-kiosk geometry
+    // so nothing drags the lobby into full-screen mode at launch.
+    fullscreen:      false,
+    fullscreenable:  true,
+    kiosk:           false,
+    alwaysOnTop:     false,
+    frame:           true,
+    resizable:       true,
+    movable:         true,
+    minimizable:     true,
+    maximizable:     true,
+    closable:        true,
+    autoHideMenuBar: true,
+    title:           'Procta',
+    webPreferences: {
+      preload:          path.join(__dirname, 'lobby_preload.js'),
+      contextIsolation: true,
+      nodeIntegration:  false,
+      devTools:         true,
+    }
+  });
+
+  // Phase 2 fix: the lobby HTML lives inside the Electron bundle, not on
+  // the server. The student dashboard is a shell that talks to the
+  // backend via fetch(`${SERVER_URL}/api/...`), so deploying the backend
+  // is NOT a prerequisite for the app to boot cleanly. Previously the
+  // lobby loaded `${SERVER_URL}/student` directly, which failed hard if
+  // the route wasn't deployed yet — giving the impression the app was
+  // "stuck in the old startup screen".
+  const lobbyHtml = findLobbyHtml();
+  console.log('[Lobby] loading:', lobbyHtml);
+  lobbyWindow.loadFile(lobbyHtml);
+
+  lobbyWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
+    if (errorCode === -3) return; // user-initiated abort
+    console.error('[Lobby] load failed:', errorCode, errorDescription, validatedURL);
+    const offline = `
+      <!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>Procta — Error</title>
+      <style>
+        body{margin:0;font-family:-apple-system,sans-serif;background:#0a0e1a;color:#cbd5e1;
+             display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px}
+        .box{max-width:480px;background:#0f1629;border:1px solid rgba(255,255,255,.06);
+             border-radius:14px;padding:36px 32px}
+        h1{color:#fff;font-size:20px;margin:0 0 10px}
+        p{color:#94a3b8;font-size:13px;line-height:1.7;margin:0 0 10px}
+        code{font-family:monospace;color:#60a5fa;font-size:11px;word-break:break-all;
+             display:block;margin-top:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:6px}
+      </style></head><body>
+      <div class="box">
+        <h1>Lobby failed to open</h1>
+        <p>Couldn't load the local student dashboard bundle.</p>
+        <code>${errorDescription || errorCode}\n${validatedURL || lobbyHtml}</code>
+        <p style="margin-top:16px">Relaunch the app, or reinstall if the problem persists.</p>
+      </div></body></html>`;
+    lobbyWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(offline));
+  });
+
+  lobbyWindow.webContents.on('did-finish-load', () => {
+    console.log('[Lobby] did-finish-load OK');
+  });
+
+  lobbyWindow.webContents.on('will-navigate', (e, url) => {
+    // Allow file:// (our own bundle), data: (error page), and SERVER_URL
+    // redirects. Everything else is denied.
+    try {
+      const u = new URL(url);
+      const ok = url.startsWith(SERVER_URL) ||
+                 u.protocol === 'data:' ||
+                 u.protocol === 'file:' ||
+                 u.protocol === 'about:';
+      if (!ok) e.preventDefault();
+    } catch { e.preventDefault(); }
+  });
+  lobbyWindow.webContents.setWindowOpenHandler(
+    () => ({ action: 'deny' }));
+
+  lobbyWindow.on('closed', () => { lobbyWindow = null; });
+  return lobbyWindow;
+}
+
+// Resolve the lobby HTML path in both dev (project root) and packaged
+// (resources) layouts. In dev the file lives at `app/static/student.html`
+// relative to main.js. When packaged by electron-builder we copy it to
+// `renderer/lobby.html` (added to build.files).
+function findLobbyHtml() {
+  const candidates = [
+    path.join(__dirname, 'renderer', 'lobby.html'),
+    path.join(__dirname, 'app', 'static', 'student.html'),
+    path.join(process.resourcesPath || '', 'app', 'static', 'student.html'),
+    path.join(process.resourcesPath || '', 'renderer', 'lobby.html'),
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch(e) {}
+  }
+  // Fallback — return the first candidate so did-fail-load fires with a
+  // useful error rather than crashing.
+  return candidates[0];
+}
+
+// ── EXAM WINDOW (kiosk-locked) ───────────────────────────────────
+//
+// Called by the lobby bridge when the student clicks "Start exam" on an
+// exam card. Kiosk mode + global shortcut capture are engaged HERE, not at
+// app launch, so the student is only locked down while actually sitting
+// an exam. `releaseKiosk()` tears everything back down on submit / panic.
+function createExamWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus();
+    return mainWindow;
+  }
+
+  isKiosk = KIOSK_ALLOWED;  // honor --no-kiosk / PROCTOR_DEBUG overrides
+
   mainWindow = new BrowserWindow({
     fullscreen:      isKiosk,
     kiosk:           isKiosk,
@@ -629,12 +771,9 @@ function createWindow() {
     mainWindow.on('blur',  () => mainWindow.focus());
     mainWindow.on('close', e  => e.preventDefault());
     powerBlockId = powerSaveBlocker.start('prevent-display-sleep');
-  }
-}
 
-// ── APP START ─────────────────────────────────────────────────────
-app.whenReady().then(async () => {
-  if (isKiosk) {
+    // Global shortcut capture — kiosk lockdown keys. Only registered while
+    // the exam window is alive; released by releaseKiosk() on submit/panic.
     globalShortcut.registerAll([
       'Alt+F4','Cmd+Q','Cmd+W','Cmd+M','Cmd+H',
       'Cmd+Tab','Alt+Tab','F11','F12','Escape',
@@ -644,24 +783,111 @@ app.whenReady().then(async () => {
       'Cmd+C','Cmd+V','Cmd+X',
       'Ctrl+C','Ctrl+V','Ctrl+X',
     ], () => false);
-  }
 
-  // Emergency escape — works even in kiosk, requires admin code
-  globalShortcut.register('CommandOrControl+Shift+Alt+E', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.executeJavaScript(`
-        (function() {
-          const code = prompt('Emergency exit — enter admin code:');
-          window.proctor && window.proctor.adminExit(code);
-        })()
-      `);
-    }
-  });
+    // Emergency escape — admin-code exit (legacy).
+    globalShortcut.register('CommandOrControl+Shift+Alt+E', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.executeJavaScript(`
+          (function() {
+            const code = prompt('Emergency exit — enter admin code:');
+            window.proctor && window.proctor.adminExit(code);
+          })()
+        `);
+      }
+    });
+
+    // ── Panic unlock chord ──────────────────────────────────────
+    // Cmd/Ctrl+Shift+F12 → confirmation → release kiosk + flag session.
+    // Never auto-submits. The session remains in_progress and the teacher
+    // sees a high-severity `panic_unlock` event on their dashboard so they
+    // can decide whether to accept the partial work or void the session.
+    globalShortcut.register('CommandOrControl+Shift+F12', async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      try {
+        const confirmed = await mainWindow.webContents.executeJavaScript(`
+          (function() {
+            return confirm(
+              'PANIC UNLOCK\\n\\n' +
+              'This releases the exam lockdown and flags your session for your teacher to review.\\n\\n' +
+              'Your work will NOT be submitted automatically.\\n\\n' +
+              'Continue?'
+            );
+          })()
+        `);
+        if (!confirmed) return;
+        await handlePanicUnlock('student-triggered');
+      } catch(e) {
+        console.error('[Panic] chord error:', e.message);
+      }
+    });
+  }
+}
+
+// ── KIOSK TEARDOWN ───────────────────────────────────────────────
+function releaseKiosk({ reopenLobby = true } = {}) {
+  console.log('[Kiosk] releasing', reopenLobby ? '(→ lobby)' : '(→ quit)');
+  stopPython();
+  stopPolling();
+  try { globalShortcut.unregisterAll(); } catch(e) {}
+  if (powerBlockId !== null) {
+    try { powerSaveBlocker.stop(powerBlockId); } catch(e) {}
+    powerBlockId = null;
+  }
+  isKiosk = false;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.removeAllListeners('close');
+      mainWindow.removeAllListeners('blur');
+      mainWindow.setKiosk(false);
+      mainWindow.setFullScreen(false);
+      mainWindow.setAlwaysOnTop(false);
+      mainWindow.close();
+    } catch(e) { console.error('[Kiosk] close error:', e.message); }
+  }
+  mainWindow = null;
+  currentSessionId = null;
+  examContext = null;
+  studentToken = null;
+
+  if (reopenLobby) {
+    setTimeout(() => createLobbyWindow(), 200);
+  }
+}
+
+// ── PANIC UNLOCK HANDLER ─────────────────────────────────────────
+// Flags the active session with a high-severity event (so the teacher can
+// see it), then releases kiosk and returns to the lobby. No auto-submit.
+async function handlePanicUnlock(reason) {
+  const sid = currentSessionId;
+  if (sid && studentToken) {
+    try {
+      await fetch(`${SERVER_URL}/event`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          session_id: sid,
+          event_type: 'panic_unlock',
+          severity:   'high',
+          details:    `Panic unlock triggered (${reason}). Session left in_progress for teacher review.`,
+        }),
+      });
+    } catch(e) { console.error('[Panic] event post failed:', e.message); }
+  }
+  releaseKiosk({ reopenLobby: true });
+}
+
+// ── APP START ─────────────────────────────────────────────────────
+app.whenReady().then(async () => {
+  // Phase 2: NO global shortcut capture at boot — the lobby is unlocked.
+  // Shortcut registration happens inside createExamWindow() when the
+  // student actively enters a proctored exam.
 
   // Run integrity checks before window creation
   integrityFlags = runIntegrityChecks();
 
-  // Windows: auto-setup Python if needed
+  // Windows: auto-setup Python if needed (runs in background while the
+  // lobby is already visible — no need to block the dashboard on this).
   if (process.platform === 'win32') {
     const python = findPython();
     const packagesOk = python && checkPackagesReady(python);
@@ -682,12 +908,14 @@ app.whenReady().then(async () => {
     }
   }
 
-  createWindow();
+  createLobbyWindow();
 
-  // Deferred GPU-based VM check (needs a window)
-  mainWindow.webContents.on('did-finish-load', () => {
-    _checkGPU(mainWindow);
-  });
+  // Deferred GPU-based VM check (needs any window)
+  if (lobbyWindow) {
+    lobbyWindow.webContents.on('did-finish-load', () => {
+      _checkGPU(lobbyWindow);
+    });
+  }
 });
 
 app.on('before-quit', () => {
@@ -697,11 +925,12 @@ app.on('before-quit', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (!isKiosk) {
-    stopPython();
-    stopPolling();
-    app.quit();
-  }
+  // Quit whenever every window (lobby + exam) is gone. In Phase 2 the
+  // lobby is always closable, so this just works — no more "isKiosk guard".
+  stopPython();
+  stopPolling();
+  try { globalShortcut.unregisterAll(); } catch(e) {}
+  app.quit();
 });
 
 // ── IPC ───────────────────────────────────────────────────────────
@@ -761,11 +990,13 @@ ipcMain.handle('get-events', async (_, sessionId) => {
 });
 
 ipcMain.handle('start-proctor', (_, { sessionId }) => {
+  currentSessionId = sessionId;
   startPython(sessionId);
   return { started: true };
 });
 
 ipcMain.handle('start-polling', (_, { sessionId }) => {
+  currentSessionId = sessionId;
   startPolling(sessionId);
   return { polling: true };
 });
@@ -776,19 +1007,68 @@ ipcMain.handle('stop-proctor', () => {
   return { stopped: true };
 });
 
+// Phase 2: the exam renderer fetches pre-filled context (roll, access code,
+// exam title) stashed by the lobby bridge so the student doesn't have to
+// retype what they already entered on the web dashboard. Returns null if
+// the exam window was opened directly (legacy / debug).
+ipcMain.handle('get-exam-context', () => {
+  return examContext;
+});
+
+// Lobby → main bridge: the student clicked "Start exam" on an exam card.
+// We stash their context and spawn the locked exam window. The lobby
+// window stays open in the background so that panic/submit can return to
+// it cleanly (we just re-focus it after releaseKiosk).
+ipcMain.handle('lobby-launch-exam', async (_, ctx) => {
+  if (!ctx || !ctx.rollNumber) {
+    return { ok: false, error: 'Missing roll number' };
+  }
+  examContext = {
+    rollNumber:  String(ctx.rollNumber).trim().toUpperCase(),
+    accessCode:  String(ctx.accessCode || '').trim().toUpperCase(),
+    examTitle:   ctx.examTitle || '',
+    teacherId:   ctx.teacherId || null,
+  };
+  console.log('[Lobby] launch exam:', examContext);
+  // Hide (don't destroy) the lobby so we can come back to it cleanly.
+  if (lobbyWindow && !lobbyWindow.isDestroyed()) {
+    try { lobbyWindow.hide(); } catch(e) {}
+  }
+  createExamWindow();
+  return { ok: true };
+});
+
+// Panic unlock fired from the renderer (in-exam button) — same effect as
+// the Cmd/Ctrl+Shift+F12 chord.
+ipcMain.handle('panic-unlock', async (_, payload) => {
+  await handlePanicUnlock((payload && payload.reason) || 'renderer-triggered');
+  return { ok: true };
+});
+
+// Normal post-submit exit → release kiosk + reopen lobby.
+ipcMain.handle('exit-exam-to-lobby', () => {
+  releaseKiosk({ reopenLobby: true });
+  return { ok: true };
+});
+
 ipcMain.handle('admin-exit', (_, code) => {
-  if (code === ADMIN_CODE || code === 'AUTO_CLOSE') {
-    isKiosk = false;
-    stopPython();
-    stopPolling();
-    globalShortcut.unregisterAll();
-    if (powerBlockId !== null) powerSaveBlocker.stop(powerBlockId);
-    // Remove the kiosk close-prevention listener before quitting,
-    // otherwise app.quit() triggers 'close', preventDefault() runs, and quit is cancelled
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.removeAllListeners('close');
-      mainWindow.removeAllListeners('blur');
-    }
+  // AUTO_CLOSE is fired by the renderer after a successful submit. In
+  // Phase 2 we treat it as "return to lobby" instead of "quit app" so the
+  // student lands back on their dashboard to see the submitted status and
+  // browse practice, etc. The manual admin-code path (typed by a teacher)
+  // still quits the entire app.
+  if (code === 'AUTO_CLOSE') {
+    releaseKiosk({ reopenLobby: true });
+    // Re-show the lobby if it was just hidden during the exam.
+    setTimeout(() => {
+      if (lobbyWindow && !lobbyWindow.isDestroyed()) {
+        try { lobbyWindow.show(); lobbyWindow.focus(); } catch(e) {}
+      }
+    }, 250);
+    return { success: true };
+  }
+  if (code === ADMIN_CODE) {
+    releaseKiosk({ reopenLobby: false });
     app.quit();
     return { success: true };
   }

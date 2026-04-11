@@ -110,6 +110,14 @@
     .axit{position:fixed;bottom:12px;left:12px;font-size:11px;
           color:#21262d;cursor:pointer;padding:8px;border-radius:4px}
     .axit:hover{color:#58a6ff;background:#161b22}
+    /* Phase 2 panic unlock — hidden discreet link, only surfaced during
+       an active exam. Uses a different spot from .axit so it doesn't
+       overlap the legacy admin cog. Copy is deliberately wordy so a
+       stressed student reads it before acting. */
+    .panic-link{position:fixed;bottom:12px;left:52px;font-size:11px;
+          color:#21262d;cursor:pointer;padding:8px;border-radius:4px;
+          display:none}
+    .panic-link:hover{color:#ef4444;background:#161b22}
     .save-flash{opacity:1!important;transition:opacity .3s}
 
     /* ── In-exam chat ────────────────────────────────────────── */
@@ -280,6 +288,7 @@
 </div>
 
 <div class="axit" onclick="adminExit()">⚙</div>
+<div class="panic-link" id="panic-link" onclick="panicUnlock()">Emergency unlock</div>
 
 <script>
 const SERVER = 'https://app.procta.net';
@@ -294,6 +303,24 @@ let examActive=false;
 let submitInFlight=false;
 let antiCheatBound=false; // prevents stacking blur/visibility listeners
 let lastSubmitPayload=null; // stored for retry
+
+// Phase 2: the lobby hands us pre-filled roll + access code via the
+// examContext IPC. We prefill the login inputs so the student doesn't
+// retype what they already entered on the web dashboard. If no context
+// is available (legacy / debug launch), the inputs stay blank and the
+// existing manual flow works as before.
+(async function _prefillFromLobby(){
+  try {
+    if (!window.proctor || !window.proctor.getExamContext) return;
+    const ctx = await window.proctor.getExamContext();
+    if (!ctx || !ctx.rollNumber) return;
+    const rollInput = document.getElementById('roll-input');
+    const codeInput = document.getElementById('code-input');
+    if (rollInput) rollInput.value = ctx.rollNumber;
+    if (codeInput && ctx.accessCode) codeInput.value = ctx.accessCode;
+    console.log('[Lobby] prefilled login from examContext');
+  } catch(e) { console.warn('[Lobby] prefill failed:', e); }
+})();
 
 function showScreen(id){
   document.querySelectorAll('.screen')
@@ -755,6 +782,11 @@ async function startExam(){
     showScreen('exam');
     startTimer(); // start AFTER screen is shown so student sees full time
     examActive=true;
+    // Phase 2: reveal the emergency-unlock link now that the student is
+    // actually in the exam. Hidden everywhere else so it can't be
+    // clicked accidentally during login / enrollment.
+    const _panicLink = document.getElementById('panic-link');
+    if (_panicLink) _panicLink.style.display = 'block';
     startBulkSave();
     chatInit();
 
@@ -1112,6 +1144,25 @@ async function adminExit(){
   if(!code) return;
   const r=await window.proctor.adminExit(code);
   if(!r||!r.success) alert('Wrong code');
+}
+
+// Phase 2: student-triggered emergency unlock. Flags the session for the
+// teacher to review, releases kiosk, and returns to the student lobby.
+// Does NOT auto-submit. The panic link is only shown once the exam is
+// actually active — see `showScreen('exam')` wiring in startExam().
+async function panicUnlock(){
+  const ok = confirm(
+    'EMERGENCY UNLOCK\n\n' +
+    'This releases the exam lockdown and flags your session for your teacher to review.\n\n' +
+    'Your work will NOT be submitted automatically.\n\n' +
+    'Continue?'
+  );
+  if (!ok) return;
+  try {
+    if (window.proctor && window.proctor.panicUnlock) {
+      await window.proctor.panicUnlock('student-clicked-link');
+    }
+  } catch(e) { console.error('[Panic]', e); }
 }
 
 // ── IN-EXAM CHAT (student side) ────────────────────────────────────

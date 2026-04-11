@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Dashboard — Procta</title>
+<!-- The served (FastAPI) path is /static/theme.css. When loaded via
+     file:// from inside the Electron lobby, theme.css sits next to this
+     HTML in the same directory. Both links are included — browsers pick
+     the first one that loads, and we remove the broken one at runtime if
+     needed. Order matters: file:// sibling first (wins locally), then
+     absolute web path (wins when served over HTTP). -->
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="/static/theme.css">
+<style>
+  body { padding: 24px; }
+
+  /* ── Auth (login / signup) view ─────────────────────────────── */
+  .auth-wrap {
+    min-height: calc(100vh - 48px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .auth-card {
+    width: 100%;
+    max-width: 440px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 36px 32px;
+  }
+  .auth-header { text-align: center; margin-bottom: 24px; }
+  .auth-header h1 {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    color: white;
+    font-size: 22px;
+    font-weight: 700;
+    margin: 14px 0 4px;
+  }
+  .auth-header p { color: var(--muted); font-size: 13px; }
+  .auth-tabs {
+    display: flex;
+    gap: 4px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 20px;
+  }
+  .auth-tab {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 7px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .auth-tab.active {
+    background: var(--accent);
+    color: white;
+    box-shadow: 0 2px 8px rgba(59,130,246,0.25);
+  }
+  .fg { margin-bottom: 14px; }
+  .fg label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+  .fg input {
+    width: 100%;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 14px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .fg input:focus {
+    outline: none;
+    border-color: rgba(59,130,246,0.4);
+    background: rgba(255,255,255,0.05);
+  }
+  .auth-err {
+    color: var(--red);
+    font-size: 13px;
+    margin-top: 6px;
+    min-height: 18px;
+    text-align: center;
+  }
+
+  /* ── Dashboard view ─────────────────────────────────────────── */
+  #dashboard { display: none; max-width: 960px; margin: 0 auto; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 24px;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .topbar-user { font-size: 13px; color: var(--muted); }
+  .topbar-user strong { color: var(--text); font-weight: 600; }
+
+  .section-title {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    color: white;
+    font-size: 18px;
+    font-weight: 700;
+    margin: 28px 0 14px;
+  }
+  .section-subtitle { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+
+  .exams-empty {
+    background: var(--card);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    padding: 40px 24px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .exams-empty strong { color: var(--text); display: block; margin-bottom: 6px; font-size: 15px; }
+
+  .exam-list { display: flex; flex-direction: column; gap: 14px; }
+  .exam-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .exam-card:hover {
+    border-color: var(--border-hover);
+  }
+  .exam-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .exam-title {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    color: white;
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .exam-teacher { color: var(--muted); font-size: 12px; }
+  .exam-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 22px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .exam-meta div strong {
+    display: block;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 13px;
+    margin-top: 2px;
+  }
+
+  .exam-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+  }
+  .exam-hint {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .exam-hint a { color: var(--accent-light); text-decoration: none; }
+  .exam-hint a:hover { color: white; }
+  .placeholder-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .placeholder-row .badge { font-size: 10px; }
+
+  /* ── Access-code modal (Start-exam flow) ────────────────────── */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(4, 8, 18, 0.75);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+  .modal-backdrop.active { display: flex; }
+  .modal-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 28px 22px;
+    width: 100%;
+    max-width: 420px;
+  }
+  .modal-card h3 {
+    font-family: 'Plus Jakarta Sans','Inter',system-ui,sans-serif;
+    color: white;
+    font-size: 17px;
+    margin-bottom: 4px;
+  }
+  .modal-card p.sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .modal-err { color: var(--red); font-size: 12px; min-height: 16px; margin-top: 8px; }
+
+  .footer-links {
+    text-align: center;
+    margin-top: 32px;
+    font-size: 12px;
+  }
+  .footer-links a {
+    color: var(--accent-light);
+    text-decoration: none;
+    margin: 0 8px;
+  }
+  .footer-links a:hover { color: white; }
+</style>
+</head>
+<body>
+
+<!-- ───────── Auth view (login / signup) ───────── -->
+<div class="auth-wrap" id="auth-view">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="procta-logo" style="justify-content:center">
+        <div class="procta-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+            <path d="M4 3h3v1H5v8h2v1H4V3zm5 0h3v10h-3v-1h2V4H9V3z" fill="white"/>
+            <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8"/>
+          </svg>
+        </div>
+        <span>Procta</span>
+      </div>
+      <h1 id="auth-heading">Welcome back</h1>
+      <p id="auth-subheading">Sign in to see your upcoming exams</p>
+    </div>
+
+    <div class="auth-tabs" role="tablist">
+      <button class="auth-tab active" id="tab-login" onclick="setAuthMode('login')">Log in</button>
+      <button class="auth-tab" id="tab-signup" onclick="setAuthMode('signup')">Sign up</button>
+    </div>
+
+    <div class="fg" id="fg-name" style="display:none">
+      <label>Full Name</label>
+      <input type="text" id="inp-name" autocomplete="name" placeholder="e.g. Arihant Kaul">
+    </div>
+    <div class="fg">
+      <label>Email</label>
+      <input type="email" id="inp-email" autocomplete="email" placeholder="you@university.edu">
+    </div>
+    <div class="fg">
+      <label>Password</label>
+      <input type="password" id="inp-password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+
+    <button class="btn btn-primary btn-block" id="auth-btn" onclick="doAuth()">Log in</button>
+    <div class="auth-err" id="auth-err"></div>
+
+    <div class="footer-links">
+      <a href="/register">Register for an exam</a> &bull;
+      <a href="/download">Download app</a>
+    </div>
+  </div>
+</div>
+
+<!-- ───────── Dashboard view ───────── -->
+<div id="dashboard">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="procta-logo">
+        <div class="procta-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+            <path d="M4 3h3v1H5v8h2v1H4V3zm5 0h3v10h-3v-1h2V4H9V3z" fill="white"/>
+            <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8"/>
+          </svg>
+        </div>
+        <span>Procta</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <div class="topbar-user">
+        Signed in as <strong id="me-name">—</strong>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="doLogout()">Log out</button>
+    </div>
+  </div>
+
+  <h2 class="section-title">Upcoming exams</h2>
+  <p class="section-subtitle">Exams you've been enrolled in by your teachers. Launch the Procta app to sit them.</p>
+
+  <div id="exams-container" class="exam-list"></div>
+
+  <!-- Access-code modal, shown when the student clicks Start exam
+       on an exam that requires a code. -->
+  <div class="modal-backdrop" id="code-modal">
+    <div class="modal-card">
+      <h3>Enter access code</h3>
+      <p class="sub">Your teacher gave you a code to unlock this exam. Enter it to start.</p>
+      <div class="fg">
+        <label>Access code</label>
+        <input type="text" id="modal-code"
+               autocomplete="off" spellcheck="false"
+               style="text-transform:uppercase;font-family:monospace;letter-spacing:2px;font-weight:600">
+      </div>
+      <div class="modal-err" id="modal-err"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" style="flex:1" onclick="closeCodeModal()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" id="modal-start-btn" onclick="confirmStartExam()">Start exam</button>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">Practice <span class="badge badge-muted" style="font-size:10px;vertical-align:middle;margin-left:8px">coming soon</span></h2>
+  <p class="section-subtitle">DSA, analytical thinking, and teacher-uploaded practice sets. Available outside of exams.</p>
+
+  <div class="exams-empty">
+    <strong>Practice section coming soon</strong>
+    We're building a practice area so you can warm up before exams. No browser lock required.
+  </div>
+
+  <div class="footer-links">
+    <a href="/download">Download app</a> &bull;
+    <a href="https://procta.net">procta.net</a>
+  </div>
+</div>
+
+<script>
+// ─── API base resolution ─────────────────────────────────────
+// When this page is loaded via file:// from inside the Electron lobby,
+// relative `/api/...` URLs would resolve to `file:///api/...` and fail.
+// The lobby preload injects window.procta_native.serverUrl; we prepend
+// it to every API call in that case. When served normally by FastAPI
+// (HTTPS), the base is empty and same-origin relative URLs work fine.
+const API_BASE = (window.procta_native && window.procta_native.serverUrl)
+  ? window.procta_native.serverUrl.replace(/\/+$/, '')
+  : '';
+function apiUrl(p) { return API_BASE + p; }
+
+// ─── state ────────────────────────────────────────────────────
+let authMode = 'login';
+let authToken   = localStorage.getItem('procta_student_token')    || '';
+let refreshTok  = localStorage.getItem('procta_student_refresh')  || '';
+let refreshInFlight = null;
+
+// ─── auth UI ──────────────────────────────────────────────────
+function setAuthMode(mode) {
+  authMode = mode;
+  const isSignup = mode === 'signup';
+  document.getElementById('tab-login').classList.toggle('active', !isSignup);
+  document.getElementById('tab-signup').classList.toggle('active', isSignup);
+  document.getElementById('fg-name').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('auth-heading').textContent = isSignup ? 'Create your account' : 'Welcome back';
+  document.getElementById('auth-subheading').textContent = isSignup
+    ? 'One login for every exam you take on Procta'
+    : 'Sign in to see your upcoming exams';
+  document.getElementById('auth-btn').textContent = isSignup ? 'Sign up' : 'Log in';
+  document.getElementById('inp-password').autocomplete = isSignup ? 'new-password' : 'current-password';
+  document.getElementById('auth-err').textContent = '';
+}
+
+async function doAuth() {
+  const errEl = document.getElementById('auth-err');
+  errEl.textContent = '';
+  const email = document.getElementById('inp-email').value.trim().toLowerCase();
+  const password = document.getElementById('inp-password').value;
+  const name = document.getElementById('inp-name').value.trim();
+
+  if (!email || !email.includes('@')) { errEl.textContent = 'A valid email is required'; return; }
+  if (!password || password.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; return; }
+  if (authMode === 'signup' && !name) { errEl.textContent = 'Full name is required'; return; }
+
+  const btn = document.getElementById('auth-btn');
+  btn.disabled = true;
+  btn.textContent = authMode === 'signup' ? 'Creating account…' : 'Signing in…';
+
+  try {
+    if (authMode === 'signup') {
+      const r = await fetch(apiUrl('/api/student/auth/signup'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email, password, full_name: name}),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Signup failed');
+      // fall through to login
+    }
+
+    const r = await fetch(apiUrl('/api/student/auth/login'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, password}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Login failed');
+    const d = await r.json();
+    authToken  = d.access_token;
+    refreshTok = d.refresh_token;
+    localStorage.setItem('procta_student_token',    authToken);
+    localStorage.setItem('procta_student_refresh',  refreshTok);
+    await showDashboard(d.account);
+  } catch (e) {
+    errEl.textContent = e.message || 'Something went wrong';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = authMode === 'signup' ? 'Sign up' : 'Log in';
+  }
+}
+
+function doLogout() {
+  localStorage.removeItem('procta_student_token');
+  localStorage.removeItem('procta_student_refresh');
+  authToken = '';
+  refreshTok = '';
+  location.reload();
+}
+
+// ─── fetch wrapper with single-flight refresh ─────────────────
+async function authed(path, opts = {}) {
+  opts.headers = Object.assign({}, opts.headers, {
+    'Authorization': 'Bearer ' + authToken,
+  });
+  const url = apiUrl(path);
+  let r = await fetch(url, opts);
+  if (r.status === 401 && refreshTok) {
+    const ok = await tryRefresh();
+    if (ok) {
+      opts.headers['Authorization'] = 'Bearer ' + authToken;
+      r = await fetch(url, opts);
+    }
+  }
+  return r;
+}
+
+async function tryRefresh() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const r = await fetch(apiUrl('/api/student/auth/refresh'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({refresh_token: refreshTok}),
+      });
+      if (!r.ok) return false;
+      const d = await r.json();
+      authToken = d.access_token;
+      refreshTok = d.refresh_token;
+      localStorage.setItem('procta_student_token',    authToken);
+      localStorage.setItem('procta_student_refresh',  refreshTok);
+      return true;
+    } catch { return false; }
+    finally { refreshInFlight = null; }
+  })();
+  return refreshInFlight;
+}
+
+// ─── dashboard ────────────────────────────────────────────────
+async function showDashboard(account) {
+  document.getElementById('auth-view').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('me-name').textContent = account.full_name || account.email;
+  await loadExams();
+}
+
+function fmtWhen(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    });
+  } catch { return iso; }
+}
+
+function statusBadge(status) {
+  const map = {
+    in_progress: ['badge-amber',   'In progress'],
+    open:        ['badge-emerald', 'Open now'],
+    upcoming:    ['badge-accent',  'Upcoming'],
+    closed:      ['badge-red',     'Closed'],
+    completed:   ['badge-muted',   'Submitted'],
+  };
+  const [cls, label] = map[status] || ['badge-muted', status];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+async function loadExams() {
+  const container = document.getElementById('exams-container');
+  container.innerHTML = '<div class="exams-empty">Loading…</div>';
+  try {
+    const r = await authed('/api/student/exams');
+    if (r.status === 401) { doLogout(); return; }
+    if (!r.ok) throw new Error('Failed to load exams');
+    const d = await r.json();
+    renderExams(d.exams || []);
+  } catch (e) {
+    container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>' + (e.message||'') + '</div>';
+  }
+}
+
+// Phase 2: if the dashboard is loaded inside the Procta Electron lobby,
+// window.procta_native is injected by lobby_preload.js. Otherwise the
+// student is in a regular browser and we show a "Launch in the Procta
+// app" nudge instead of the Start button.
+const INSIDE_PROCTA_APP = !!(window.procta_native && window.procta_native.isLobby);
+
+// Stash the exams list so we can resolve a click back to its record
+// when the access-code modal fires.
+let _examsCache = [];
+let _pendingExam = null;
+
+function renderExams(exams) {
+  _examsCache = exams;
+  const container = document.getElementById('exams-container');
+  if (!exams.length) {
+    container.innerHTML = `
+      <div class="exams-empty">
+        <strong>No exams yet</strong>
+        Once your teacher registers you for an exam with this email, it'll show up here.
+        <div style="margin-top:14px">
+          <a class="btn btn-secondary btn-sm" href="/register">Register for an exam</a>
+        </div>
+      </div>`;
+    return;
+  }
+  container.innerHTML = exams.map((e, idx) => {
+    const roll = e.roll_number || '—';
+    const dur = e.duration_minutes ? (e.duration_minutes + ' min') : '—';
+    const accessNote = e.access_code_required
+      ? '<span class="badge badge-muted">Access code required</span>'
+      : '';
+
+    // Launchable states: either inside the active window or open now.
+    // `in_progress` is also launchable because the renderer supports
+    // resume (check-session endpoint).
+    const launchable = e.status === 'open' || e.status === 'in_progress';
+    let actionHtml = '';
+    if (launchable && INSIDE_PROCTA_APP) {
+      actionHtml = `
+        <div class="exam-actions">
+          <div class="exam-hint">Make sure your face is visible to the camera.</div>
+          <button class="btn btn-primary btn-sm" onclick="startExamFromCard(${idx})">Start exam</button>
+        </div>`;
+    } else if (launchable) {
+      actionHtml = `
+        <div class="exam-actions">
+          <div class="exam-hint">
+            Open this in the Procta app to start.
+            <a href="/download">Download the app</a>
+          </div>
+        </div>`;
+    } else if (e.status === 'upcoming') {
+      actionHtml = `
+        <div class="exam-actions">
+          <div class="exam-hint">Starts ${fmtWhen(e.starts_at)}</div>
+        </div>`;
+    } else if (e.status === 'closed') {
+      actionHtml = `
+        <div class="exam-actions">
+          <div class="exam-hint">The exam window has closed.</div>
+        </div>`;
+    } else if (e.status === 'completed') {
+      actionHtml = `
+        <div class="exam-actions">
+          <div class="exam-hint">Submitted ${fmtWhen(e.submitted_at)}</div>
+        </div>`;
+    }
+
+    return `
+      <div class="exam-card">
+        <div class="exam-card-head">
+          <div>
+            <div class="exam-title">${escapeHtml(e.exam_title || 'Exam')}</div>
+            <div class="exam-teacher">${escapeHtml(e.teacher_name || 'Teacher')}</div>
+          </div>
+          ${statusBadge(e.status)}
+        </div>
+        <div class="exam-meta">
+          <div>Roll number<strong>${escapeHtml(roll)}</strong></div>
+          <div>Starts<strong>${fmtWhen(e.starts_at)}</strong></div>
+          <div>Ends<strong>${fmtWhen(e.ends_at)}</strong></div>
+          <div>Duration<strong>${dur}</strong></div>
+        </div>
+        <div class="placeholder-row">${accessNote}</div>
+        ${actionHtml}
+      </div>`;
+  }).join('');
+}
+
+// ─── Start-exam flow ──────────────────────────────────────────
+function startExamFromCard(idx) {
+  const exam = _examsCache[idx];
+  if (!exam) return;
+  _pendingExam = exam;
+  if (exam.access_code_required) {
+    openCodeModal();
+  } else {
+    launchExam(exam, '');
+  }
+}
+
+function openCodeModal() {
+  document.getElementById('modal-code').value = '';
+  document.getElementById('modal-err').textContent = '';
+  document.getElementById('code-modal').classList.add('active');
+  setTimeout(() => document.getElementById('modal-code').focus(), 50);
+}
+
+function closeCodeModal() {
+  document.getElementById('code-modal').classList.remove('active');
+  _pendingExam = null;
+}
+
+async function confirmStartExam() {
+  if (!_pendingExam) return;
+  const code = document.getElementById('modal-code').value.trim().toUpperCase();
+  if (!code) {
+    document.getElementById('modal-err').textContent = 'Enter the access code from your teacher.';
+    return;
+  }
+  document.getElementById('modal-err').textContent = '';
+  await launchExam(_pendingExam, code);
+}
+
+async function launchExam(exam, accessCode) {
+  if (!INSIDE_PROCTA_APP) {
+    alert('Open this page inside the Procta app to start your exam.');
+    return;
+  }
+  const btn = document.getElementById('modal-start-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+  try {
+    await window.procta_native.launchExam({
+      rollNumber: exam.roll_number,
+      accessCode: accessCode || '',
+      examTitle:  exam.exam_title || 'Exam',
+      teacherId:  exam.teacher_id,
+    });
+    // Main process hides the lobby on success; this JS will stop running.
+  } catch (e) {
+    const msg = (e && e.message) || 'Failed to start exam';
+    document.getElementById('modal-err').textContent = msg;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Start exam'; }
+  }
+}
+
+// Modal dismiss: Escape key + backdrop click.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('code-modal').classList.contains('active')) {
+    closeCodeModal();
+  }
+});
+document.getElementById('code-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'code-modal') closeCodeModal();
+});
+document.getElementById('modal-code').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') confirmStartExam();
+});
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+
+// ─── boot: try silent auto-login with stored token ────────────
+(async function init(){
+  if (!authToken) return;
+  try {
+    const r = await authed('/api/student/auth/me');
+    if (r.ok) {
+      const me = await r.json();
+      await showDashboard(me);
+    } else if (r.status === 401) {
+      // stored tokens are both expired
+      doLogout();
+    }
+  } catch {}
+})();
+</script>
+</body>
+</html>

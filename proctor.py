@@ -140,20 +140,34 @@ CONFIDENCE = {
 }
 
 # ─── THRESHOLDS ───────────────────────────────────────────────────────────────
-# All frame-count and time thresholds are preserved from the mediapipe era
-# so the teacher's experience (how many false positives, how fast a flag
-# fires) is unchanged. Only the gaze threshold unit had to change because
-# the new ONNX model emits radians, not the old normalized iris ratio.
-GAZE_YAW_RAD        = 0.25   # ~14° — looking left/right beyond this = gaze away
-GAZE_PITCH_RAD      = 0.30   # ~17° — looking up/down beyond this   = gaze away
-GAZE_FRAMES_NEEDED  = 6      # frames-in-bucket before logging (leaky)
-HEAD_YAW_THRESHOLD  = 22     # degrees (solvePnP yaw)
-HEAD_PITCH_THRESHOLD = 30    # degrees (solvePnP pitch)
-HEAD_FRAMES_NEEDED  = 6
-FACE_MISSING_FRAMES = 18     # ~600ms at 30fps — survives camera warmup blips
-EYES_CLOSED_FRAMES  = 12
-MULTI_FACE_FRAMES   = 3
-WARMUP_GRACE_FRAMES = 60     # ignore face_missing for first ~2s after camera open
+# Tuned for "ADHD-friendly" tolerance: a student fidgeting, glancing around,
+# or shifting their head a few degrees while reading the question is NOT a
+# violation. Only a sustained look-away or an extreme glance-to-edge fires.
+#
+# Two tiers per signal:
+#   • NORMAL  → fires after a long sustain (~1s+) at moderate angles
+#   • EXTREME → fires faster (~0.4s) but only for blatant edge-of-screen looks
+#
+# This gives genuine cheating attempts (turning head to side, looking off-
+# screen) a fast catch while letting honest students breathe.
+# Note: these are bias-corrected. With calibration the student's "centre"
+# is 0,0 so we can be a bit stricter than the bias-free build was.
+GAZE_YAW_RAD          = 0.35   # ~20° from calibrated centre (medium tier)
+GAZE_PITCH_RAD        = 0.40   # ~23° from calibrated centre
+GAZE_YAW_EXTREME      = 0.65   # ~37° — clearly looking off-screen (high tier)
+GAZE_PITCH_EXTREME    = 0.65   # ~37°
+GAZE_FRAMES_NEEDED    = 14     # ~0.9s at 15fps before medium flag
+GAZE_EXTREME_FRAMES   = 6      # ~0.4s for the extreme/high tier
+HEAD_YAW_THRESHOLD    = 25     # degrees from calibrated centre (medium)
+HEAD_PITCH_THRESHOLD  = 32
+HEAD_YAW_EXTREME      = 45     # clearly turned away from monitor (high)
+HEAD_PITCH_EXTREME    = 50
+HEAD_FRAMES_NEEDED    = 14
+HEAD_EXTREME_FRAMES   = 6
+FACE_MISSING_FRAMES   = 24     # ~1.6s at 15fps — survives any blip
+EYES_CLOSED_FRAMES    = 20     # ~1.3s — natural blinks won't trip this
+MULTI_FACE_FRAMES     = 5
+WARMUP_GRACE_FRAMES   = 30     # ~1s — faster perceived camera startup
 YOLO_CONFIDENCE     = 0.35
 YOLO_MIN_FRAMES     = 2
 YOLO_EVERY_N        = 5
@@ -165,6 +179,19 @@ WRONG_PERSON_THRESHOLD = float(os.getenv("PROCTOR_WRONG_PERSON_THRESHOLD", "0.25
 # don't flag a single noisy frame as "looking away". 5 frames at ~30fps
 # gives a ~150ms low-pass which feels responsive without being twitchy.
 GAZE_SMOOTH_WINDOW = 5
+
+# ─── PER-STUDENT CALIBRATION ──────────────────────────────────────────────────
+# Both the ResNet18 gaze model and the solvePnP head-pose pipeline have a
+# per-camera + per-person bias of 5–15° at the rest position ("looking at
+# the screen"). Without subtracting this bias, a student whose webcam sits
+# high or whose head naturally tilts already starts halfway to threshold,
+# causing false positives that the loose tier values can only hide, not fix.
+#
+# At session start we collect the first CALIBRATION_FRAMES clean readings,
+# average them, and treat that as the personal "centre". Every subsequent
+# yaw/pitch is compared against the threshold *after* subtracting the bias.
+CALIBRATION_FRAMES = 45      # ~3s at 15fps — long enough to be stable
+CALIBRATION_MAX_WAIT = 240   # give up after this many frames if face missing
 
 # ─── CHEAT OBJECTS ────────────────────────────────────────────────────────────
 # COCO class IDs for items that shouldn't be on the desk during an exam.
@@ -572,16 +599,55 @@ def run_enrollment(cap, W, H):
     print("[ENROLLMENT] ✅ Complete! Starting proctoring...\n")
 
 # ─── MAIN PROCTORING LOOP ─────────────────────────────────────────────────────
+def _print_tuning_summary():
+    """Dump every detection threshold to stdout exactly once at startup so
+    we can confirm at a glance which version of the proctor is actually
+    running on the student's machine when debugging false positives."""
+    print("[PROCTOR] ┌─ Detection tuning ──────────────────────────────")
+    print(f"[PROCTOR] │ gaze:      yaw>{GAZE_YAW_RAD:.2f}rad  pitch>{GAZE_PITCH_RAD:.2f}rad  "
+          f"frames>{GAZE_FRAMES_NEEDED}  (medium)")
+    print(f"[PROCTOR] │ gaze EXT:  yaw>{GAZE_YAW_EXTREME:.2f}rad  pitch>{GAZE_PITCH_EXTREME:.2f}rad  "
+          f"frames>{GAZE_EXTREME_FRAMES}  (high)")
+    print(f"[PROCTOR] │ head:      yaw>{HEAD_YAW_THRESHOLD}°  pitch>{HEAD_PITCH_THRESHOLD}°  "
+          f"frames>{HEAD_FRAMES_NEEDED}  (medium)")
+    print(f"[PROCTOR] │ head EXT:  yaw>{HEAD_YAW_EXTREME}°  pitch>{HEAD_PITCH_EXTREME}°  "
+          f"frames>{HEAD_EXTREME_FRAMES}  (high)")
+    print(f"[PROCTOR] │ face miss: {FACE_MISSING_FRAMES} frames   "
+          f"warmup grace: {WARMUP_GRACE_FRAMES} frames")
+    print(f"[PROCTOR] │ eyes shut: {EYES_CLOSED_FRAMES} frames   "
+          f"multi-face: {MULTI_FACE_FRAMES} frames")
+    print(f"[PROCTOR] │ calibration: {CALIBRATION_FRAMES} frames "
+          f"(max wait {CALIBRATION_MAX_WAIT})")
+    print(f"[PROCTOR] │ voice rms>{VOICE_THRESHOLD}  sustained>{VOICE_SUSTAINED_SECS}s")
+    print(f"[PROCTOR] │ wrong-person cosine<{WRONG_PERSON_THRESHOLD}")
+    print("[PROCTOR] └──────────────────────────────────────────────────")
+
+
 def run_proctoring(cap, W, H):
     print(f"[PROCTOR] 🟢 Monitoring LIVE — Session: {SESSION_ID}")
+    _print_tuning_summary()
 
     # Per-event sustain counters. Each detection only fires after its
     # consecutive-frame threshold is met — single noisy frames are ignored.
     face_missing_count  = 0
     multi_face_count    = 0
     gaze_away_count     = 0
+    gaze_extreme_count  = 0
     head_away_count     = 0
+    head_extreme_count  = 0
     eyes_closed_count   = 0
+
+    # Per-student calibration bias. Filled in during the first
+    # CALIBRATION_FRAMES of clean detections, then frozen.
+    gaze_yaw_bias   = 0.0
+    gaze_pitch_bias = 0.0
+    head_yaw_bias   = 0.0
+    head_pitch_bias = 0.0
+    cal_gaze_yaw    = []
+    cal_gaze_pitch  = []
+    cal_head_yaw    = []
+    cal_head_pitch  = []
+    calibrated      = False
     object_history      = {}
     frame_count         = 0
     voice_start_time    = None
@@ -645,6 +711,23 @@ def run_proctoring(cap, W, H):
         head_yaw   = 0.0
         head_pitch = 0.0
 
+        # Hard-freeze calibration if we've waited too long. Worst case the
+        # student gets the default (0,0) bias — same as the previous build.
+        if not calibrated and frame_count >= CALIBRATION_MAX_WAIT:
+            if cal_head_yaw:
+                head_yaw_bias   = sum(cal_head_yaw)   / len(cal_head_yaw)
+                head_pitch_bias = sum(cal_head_pitch) / len(cal_head_pitch)
+            if cal_gaze_yaw:
+                gaze_yaw_bias   = sum(cal_gaze_yaw)   / len(cal_gaze_yaw)
+                gaze_pitch_bias = sum(cal_gaze_pitch) / len(cal_gaze_pitch)
+            calibrated = True
+            print(f"[CALIBRATION] ⚠ timed out after {frame_count} frames "
+                  f"with {len(cal_head_yaw)} samples — "
+                  f"freezing bias gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) "
+                  f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})")
+            log_event("calibration_timeout", "low",
+                      f"samples:{len(cal_head_yaw)}")
+
         if num_faces == 0:
             multi_face_count = 0
             # Decay gaze/eyes counters slowly so a brief face loss doesn't
@@ -691,52 +774,111 @@ def run_proctoring(cap, W, H):
 
             # ── GAZE ─────────────────────────────────────────────────────────
             if GAZE_AVAILABLE and face_crop.size > 0:
-                gaze_yaw, gaze_pitch = _gaze_engine.estimate(face_crop)
-                # Leaky-bucket: looking-away frames add 1, looking-at-screen
-                # frames subtract 1 (not reset to 0). This way a student who
-                # glances around still triggers, while a single noisy frame
-                # in the middle of an honest exam does not.
-                if abs(gaze_yaw)   > GAZE_YAW_RAD or \
-                   abs(gaze_pitch) > GAZE_PITCH_RAD:
-                    gaze_away_count += 1
-                else:
-                    gaze_away_count = max(0, gaze_away_count - 1)
+                gaze_yaw_raw, gaze_pitch_raw = _gaze_engine.estimate(face_crop)
+                # Subtract per-student bias so 0,0 means "this student
+                # looking at the screen" rather than the model's idealised
+                # forward vector.
+                gaze_yaw   = gaze_yaw_raw   - gaze_yaw_bias
+                gaze_pitch = gaze_pitch_raw - gaze_pitch_bias
+                is_extreme = (abs(gaze_yaw)   > GAZE_YAW_EXTREME or
+                              abs(gaze_pitch) > GAZE_PITCH_EXTREME)
+                is_away    = (abs(gaze_yaw)   > GAZE_YAW_RAD or
+                              abs(gaze_pitch) > GAZE_PITCH_RAD)
+                if not calibrated:
+                    # Skip threshold checks entirely during calibration —
+                    # we just collect samples and bail.
+                    cal_gaze_yaw.append(gaze_yaw_raw)
+                    cal_gaze_pitch.append(gaze_pitch_raw)
+                    is_extreme = False
+                    is_away    = False
 
-                # Periodic debug print so we can see what the model is
-                # actually emitting if a future student reports false
-                # negatives. One line every ~2s at 30fps is harmless.
+                # Leaky-bucket counters. Extreme looks add 2/frame so they
+                # cross the smaller GAZE_EXTREME_FRAMES bar fast; normal
+                # away-looks add 1; centered gaze decays the buckets.
+                if is_extreme:
+                    gaze_extreme_count += 2
+                    gaze_away_count    += 1
+                elif is_away:
+                    gaze_away_count    += 1
+                    gaze_extreme_count = max(0, gaze_extreme_count - 1)
+                else:
+                    gaze_away_count    = max(0, gaze_away_count - 1)
+                    gaze_extreme_count = max(0, gaze_extreme_count - 2)
+
                 if frame_count % 60 == 0:
                     print(f"[Gaze Debug] yaw:{gaze_yaw:+.2f}rad "
                           f"pitch:{gaze_pitch:+.2f}rad "
-                          f"bucket:{gaze_away_count}/{GAZE_FRAMES_NEEDED}")
+                          f"normal:{gaze_away_count}/{GAZE_FRAMES_NEEDED} "
+                          f"extreme:{gaze_extreme_count}/{GAZE_EXTREME_FRAMES}")
 
-                if gaze_away_count >= GAZE_FRAMES_NEEDED and \
+                # Extreme tier fires first (faster + higher confidence).
+                if gaze_extreme_count >= GAZE_EXTREME_FRAMES and \
                    can_log("gaze_away"):
                     direction = "left"  if gaze_yaw   < -GAZE_YAW_RAD else \
                                 "right" if gaze_yaw   >  GAZE_YAW_RAD else \
                                 "up"    if gaze_pitch < -GAZE_PITCH_RAD else \
                                 "down"
                     log_event("gaze_away", "high",
+                              f"Looking off-screen {direction} "
+                              f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad EXTREME)")
+                    save_evidence(frame, "gaze_away")
+                    gaze_away_count    = 0
+                    gaze_extreme_count = 0
+                elif gaze_away_count >= GAZE_FRAMES_NEEDED and \
+                     can_log("gaze_away"):
+                    direction = "left"  if gaze_yaw   < -GAZE_YAW_RAD else \
+                                "right" if gaze_yaw   >  GAZE_YAW_RAD else \
+                                "up"    if gaze_pitch < -GAZE_PITCH_RAD else \
+                                "down"
+                    log_event("gaze_away", "medium",
                               f"Looking {direction} "
                               f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad)")
                     save_evidence(frame, "gaze_away")
                     gaze_away_count = 0
 
             # ── HEAD POSE ────────────────────────────────────────────────────
-            head_yaw, head_pitch = get_head_pose(lm_2d, W, H)
-            if abs(head_yaw)   > HEAD_YAW_THRESHOLD or \
-               abs(head_pitch) > HEAD_PITCH_THRESHOLD:
-                head_away_count += 1
-            else:
-                head_away_count = 0
+            head_yaw_raw, head_pitch_raw = get_head_pose(lm_2d, W, H)
+            head_yaw   = head_yaw_raw   - head_yaw_bias
+            head_pitch = head_pitch_raw - head_pitch_bias
+            head_is_extreme = (abs(head_yaw)   > HEAD_YAW_EXTREME or
+                               abs(head_pitch) > HEAD_PITCH_EXTREME)
+            head_is_away    = (abs(head_yaw)   > HEAD_YAW_THRESHOLD or
+                               abs(head_pitch) > HEAD_PITCH_THRESHOLD)
+            if not calibrated:
+                cal_head_yaw.append(head_yaw_raw)
+                cal_head_pitch.append(head_pitch_raw)
+                head_is_extreme = False
+                head_is_away    = False
 
-            if head_away_count >= HEAD_FRAMES_NEEDED and \
+            if head_is_extreme:
+                head_extreme_count += 2
+                head_away_count    += 1
+            elif head_is_away:
+                head_away_count    += 1
+                head_extreme_count = max(0, head_extreme_count - 1)
+            else:
+                head_away_count    = max(0, head_away_count - 1)
+                head_extreme_count = max(0, head_extreme_count - 2)
+
+            if head_extreme_count >= HEAD_EXTREME_FRAMES and \
                can_log("head_turned"):
                 direction = "left"  if head_yaw   < -HEAD_YAW_THRESHOLD else \
                             "right" if head_yaw   >  HEAD_YAW_THRESHOLD else \
                             "up"    if head_pitch < -HEAD_PITCH_THRESHOLD else \
                             "down"
                 log_event("head_turned", "high",
+                          f"Head turned {direction} "
+                          f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}° EXTREME)")
+                save_evidence(frame, "head_turned")
+                head_away_count    = 0
+                head_extreme_count = 0
+            elif head_away_count >= HEAD_FRAMES_NEEDED and \
+                 can_log("head_turned"):
+                direction = "left"  if head_yaw   < -HEAD_YAW_THRESHOLD else \
+                            "right" if head_yaw   >  HEAD_YAW_THRESHOLD else \
+                            "up"    if head_pitch < -HEAD_PITCH_THRESHOLD else \
+                            "down"
+                log_event("head_turned", "medium",
                           f"Head turned {direction} "
                           f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}°)")
                 save_evidence(frame, "head_turned")
@@ -753,6 +895,30 @@ def run_proctoring(cap, W, H):
                can_log("eyes_closed"):
                 log_event("eyes_closed", "high", "Eyes closed")
                 save_evidence(frame, "eyes_closed")
+
+            # ── CALIBRATION FREEZE ───────────────────────────────────────────
+            # Once we have CALIBRATION_FRAMES clean samples, freeze the
+            # bias and start enforcing thresholds. If the student moved
+            # around during calibration that's fine — the average still
+            # reflects "their" centred position better than 0.
+            if not calibrated and len(cal_head_yaw) >= CALIBRATION_FRAMES:
+                if cal_gaze_yaw:
+                    gaze_yaw_bias   = sum(cal_gaze_yaw)   / len(cal_gaze_yaw)
+                    gaze_pitch_bias = sum(cal_gaze_pitch) / len(cal_gaze_pitch)
+                head_yaw_bias   = sum(cal_head_yaw)   / len(cal_head_yaw)
+                head_pitch_bias = sum(cal_head_pitch) / len(cal_head_pitch)
+                calibrated = True
+                print(f"[CALIBRATION] ✅ baseline frozen after "
+                      f"{len(cal_head_yaw)} frames — "
+                      f"gaze bias yaw:{gaze_yaw_bias:+.2f}rad "
+                      f"pitch:{gaze_pitch_bias:+.2f}rad | "
+                      f"head bias yaw:{head_yaw_bias:+.0f}° "
+                      f"pitch:{head_pitch_bias:+.0f}°")
+                log_event("calibration_complete", "low",
+                          f"gaze yaw:{gaze_yaw_bias:+.2f}rad "
+                          f"pitch:{gaze_pitch_bias:+.2f}rad | "
+                          f"head yaw:{head_yaw_bias:+.0f}° "
+                          f"pitch:{head_pitch_bias:+.0f}°")
 
             # ── HUD: draw bbox + landmarks ───────────────────────────────────
             if not HEADLESS:

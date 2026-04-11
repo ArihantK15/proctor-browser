@@ -507,17 +507,32 @@ function statusBadge(status) {
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
-async function loadExams() {
+let _lastExamsFetch = 0;
+let _examsInflight = false;
+async function loadExams(opts) {
+  const silent = opts && opts.silent;
+  if (_examsInflight) return;
+  _examsInflight = true;
   const container = document.getElementById('exams-container');
-  container.innerHTML = '<div class="exams-empty">Loading…</div>';
+  // Only show the "Loading…" placeholder on the first fetch — silent
+  // refreshes (focus/visibility) keep the existing list visible so the
+  // dashboard doesn't flicker every time the user alt-tabs.
+  if (!silent) {
+    container.innerHTML = '<div class="exams-empty">Loading…</div>';
+  }
   try {
     const r = await authed('/api/student/exams');
     if (r.status === 401) { doLogout(); return; }
     if (!r.ok) throw new Error('Failed to load exams');
     const d = await r.json();
     renderExams(d.exams || []);
+    _lastExamsFetch = Date.now();
   } catch (e) {
-    container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>' + (e.message||'') + '</div>';
+    if (!silent) {
+      container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>' + (e.message||'') + '</div>';
+    }
+  } finally {
+    _examsInflight = false;
   }
 }
 
@@ -701,6 +716,31 @@ function escapeHtml(s) {
     }
   } catch {}
 })();
+
+// ─── refetch exams when the lobby regains focus ───────────────
+// Phase 2: the main process hides (not destroys) the lobby window when
+// an exam launches and re-shows it when the kiosk releases. Without
+// this, the cached exam list still shows "Start exam" on the just-
+// finished exam because nothing told the dashboard to refresh. Listen
+// for window focus and visibilitychange and re-fetch /api/student/exams
+// whenever we come back into view, but only if the user is logged in
+// and the dashboard view is currently visible (not the auth view).
+// Only refetch if (a) logged in, (b) on dashboard view, and (c) the cached
+// list is at least STALE_MS old. Without the stale check the dashboard
+// reloaded on every alt-tab which made it feel like a permanent loading
+// spinner during testing.
+const EXAMS_STALE_MS = 60_000;
+function _shouldRefetchExams() {
+  if (!authToken) return false;
+  if (document.getElementById('dashboard').style.display !== 'block') return false;
+  return (Date.now() - _lastExamsFetch) > EXAMS_STALE_MS;
+}
+window.addEventListener('focus', () => {
+  if (_shouldRefetchExams()) loadExams({ silent: true });
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _shouldRefetchExams()) loadExams({ silent: true });
+});
 </script>
 </body>
 </html>

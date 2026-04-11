@@ -899,6 +899,11 @@ _SATURATION_K = 5           # 5 occurrences ≈ full weight for that type
 _BASELINE_DURATION_MINS = 30  # normalization baseline
 _DEFAULT_WEIGHT_HIGH = 10   # fallback for unknown high-severity types
 _DEFAULT_WEIGHT_MED  = 5    # fallback for unknown medium-severity types
+# Per-severity multiplier applied to the per-type weight. Without this a
+# fidgety honest student (lots of "medium" gaze_away after the calibration
+# tier split) racks up the same score as a clear cheater (extreme gaze).
+# 0.4 was picked so 3 medium events ≈ 1 high event of the same type.
+_SEVERITY_MULTIPLIER = {"high": 1.0, "medium": 0.4}
 
 RISK_LABELS = [
     (15,  "Low Risk"),
@@ -975,18 +980,84 @@ def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
     Returns the session row, or raises 404 if it does not exist or belongs
     to another teacher. Use this on every endpoint that takes a session_id
     as a path parameter to prevent cross-teacher data leaks.
+
+    Falls back to a violations-table check for in-progress sessions whose
+    exam_sessions row hasn't been backfilled with teacher_id yet — this was
+    breaking the forensics timeline button on the live tab right after the
+    multi-tenant migration.
     """
     if not teacher_id:
         raise HTTPException(status_code=403, detail="Teacher context missing")
+    tid_str = str(teacher_id)
+
+    # Strict path: session_key + teacher_id match.
     result = supabase.table("exam_sessions")\
         .select("*")\
         .eq("session_key", session_id)\
-        .eq("teacher_id", str(teacher_id))\
+        .eq("teacher_id", tid_str)\
         .limit(1)\
         .execute()
-    if not result.data:
+    if result.data:
+        print(f"[OWN] strict hit  sid={session_id} tid={tid_str}")
+        return result.data[0]
+
+    # Fallback 1: row exists but teacher_id is NULL. Authorise via the
+    # violations table — if every violation on this session belongs to the
+    # requesting teacher, this is their session.
+    bare = supabase.table("exam_sessions")\
+        .select("*")\
+        .eq("session_key", session_id)\
+        .limit(1)\
+        .execute()
+    if bare.data:
+        row = bare.data[0]
+        row_tid = row.get("teacher_id")
+        if row_tid in (None, ""):
+            v_other = supabase.table("violations")\
+                .select("teacher_id")\
+                .eq("session_key", session_id)\
+                .neq("teacher_id", tid_str)\
+                .limit(1)\
+                .execute()
+            if not (v_other.data or []):
+                print(f"[OWN] fallback1 (null tid) sid={session_id} tid={tid_str}")
+                return row
+            print(f"[OWN] DENY fallback1 — other teacher's violations exist "
+                  f"sid={session_id} tid={tid_str}")
+        else:
+            print(f"[OWN] DENY strict — row owned by another teacher "
+                  f"sid={session_id} req_tid={tid_str} row_tid={row_tid}")
         raise HTTPException(status_code=404, detail="Session not found")
-    return result.data[0]
+
+    # Fallback 2: no exam_sessions row at all (very early in-progress).
+    # Allow timeline if violations exist and all belong to this teacher.
+    v_mine = supabase.table("violations")\
+        .select("session_key,roll_number,teacher_id")\
+        .eq("session_key", session_id)\
+        .eq("teacher_id", tid_str)\
+        .limit(1)\
+        .execute()
+    if v_mine.data:
+        v = v_mine.data[0]
+        print(f"[OWN] fallback2 (no session row, violations match) "
+              f"sid={session_id} tid={tid_str}")
+        return {
+            "session_key": session_id,
+            "teacher_id":  tid_str,
+            "roll_number": v.get("roll_number") or
+                           (session_id.rsplit("_", 1)[0] if "_" in session_id
+                            else session_id[:20]),
+            "full_name":   "",
+            "status":      "in_progress",
+            "started_at":  "",
+            "submitted_at": "",
+            "score":       None,
+            "total":       None,
+            "risk_score":  None,
+        }
+
+    print(f"[OWN] DENY no match anywhere  sid={session_id} tid={tid_str}")
+    raise HTTPException(status_code=404, detail="Session not found")
 
 
 def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
@@ -1028,29 +1099,35 @@ def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
     else:
         duration_mins = 1.0  # single event — assume minimal duration
 
-    # ── Count occurrences per type ───────────────────────────────────
-    counts: dict[str, int] = {}
-    severities: dict[str, str] = {}
+    # ── Count occurrences per (type, severity) ───────────────────────
+    # Splitting by severity lets us downweight the new "medium" tier
+    # (calibrated soft gaze/head flags) without losing the heavy hit
+    # for an "extreme" gaze that landed under the same vtype.
+    counts: dict[tuple[str, str], int] = {}
     for r in scored:
-        vtype = r["violation_type"]
-        counts[vtype] = counts.get(vtype, 0) + 1
-        severities.setdefault(vtype, r["severity"])
+        key = (r["violation_type"], r["severity"])
+        counts[key] = counts.get(key, 0) + 1
 
-    # ── Compute per-type contribution with log saturation ────────────
+    # ── Compute per-(type,severity) contribution with log saturation ─
     breakdown: dict[str, dict] = {}
     raw_sum = 0.0
     log_sat = math.log(1 + _SATURATION_K)
 
-    for vtype, n in counts.items():
+    for (vtype, sev), n in counts.items():
         weight = VIOLATION_WEIGHTS.get(vtype)
         if weight is None:
-            # Unknown type — use severity-based default
-            weight = (_DEFAULT_WEIGHT_HIGH
-                      if severities.get(vtype) == "high"
+            weight = (_DEFAULT_WEIGHT_HIGH if sev == "high"
                       else _DEFAULT_WEIGHT_MED)
-        contribution = weight * min(1.0, math.log(1 + n) / log_sat)
+        sev_mult = _SEVERITY_MULTIPLIER.get(sev, 0.4)
+        contribution = weight * sev_mult * min(1.0, math.log(1 + n) / log_sat)
         raw_sum += contribution
-        breakdown[vtype] = {"count": n, "contribution": round(contribution, 1)}
+        # Merge medium + high under the same vtype in the breakdown so
+        # the dashboard's bar chart doesn't grow a duplicate row.
+        if vtype not in breakdown:
+            breakdown[vtype] = {"count": 0, "contribution": 0.0}
+        breakdown[vtype]["count"]        += n
+        breakdown[vtype]["contribution"] = round(
+            breakdown[vtype]["contribution"] + contribution, 1)
 
     # ── Duration normalization ───────────────────────────────────────
     duration_factor = _BASELINE_DURATION_MINS / max(duration_mins, 5.0)

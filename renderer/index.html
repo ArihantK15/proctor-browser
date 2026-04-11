@@ -1307,8 +1307,12 @@ function chatRender(){
   body.innerHTML = chatMsgs.map(m=>{
     const isB = m.type==='broadcast';
     const cls = isB ? 'from-broadcast' : (m.sender==='student' ? 'from-student' : 'from-teacher');
-    const label = isB ? 'Broadcast · ' : '';
-    return `<div class="chat-msg ${cls}">${chatEscape(m.text)}<span class="ts">${label}${chatFmtTime(m.ts)}</span></div>`;
+    // Make it obvious to the student that incoming messages are from the
+    // exam admin (their teacher), not from another student or system bot.
+    let sender = '';
+    if(isB)                       sender = 'Admin Broadcast · ';
+    else if(m.sender==='teacher') sender = 'Admin · ';
+    return `<div class="chat-msg ${cls}">${chatEscape(m.text)}<span class="ts">${sender}${chatFmtTime(m.ts)}</span></div>`;
   }).join('');
   body.scrollTop = body.scrollHeight;
 }

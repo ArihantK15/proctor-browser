@@ -74,6 +74,10 @@
     .qnum{font-size:13px;color:#8b949e;font-weight:500}
     .qtxt{font-size:18px;color:#e6edf3;line-height:1.6;font-weight:500}
     .opts{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+    .qimg{display:block;max-width:100%;max-height:280px;margin:0 0 14px 0;
+      border-radius:8px;border:1px solid #30363d;background:#0d1117}
+    .qhint{font-size:11px;color:#8b949e;margin:6px 0 12px 0;text-transform:uppercase;
+      letter-spacing:0.05em;font-weight:600}
     .opt{background:#161b22;border:2px solid #30363d;border-radius:8px;
          padding:14px 18px;cursor:pointer;display:flex;
          align-items:center;gap:14px;font-size:14px}
@@ -253,7 +257,9 @@
     </div>
     <div class="emain">
       <div class="qnum" id="qnum">Question 1 of 1</div>
+      <img class="qimg" id="qimg" alt="" style="display:none">
       <div class="qtxt" id="qtxt">Loading...</div>
+      <div class="qhint" id="qhint"></div>
       <div class="opts" id="qopts"></div>
       <div class="enav">
         <button class="bnav bprev" id="btn-prev"
@@ -839,18 +845,60 @@ function buildGrid(){
   });
 }
 
+// ── Answer helpers ────────────────────────────────────────────────
+// answers[qid] is always a canonical comma-joined sorted string so
+// single ("A"), multi ("A,C") and true_false ("True") all flow through
+// the same save/submit pipeline as the server already expects.
+function qNormType(q){
+  const t=(q&&q.question_type||'mcq_single').toString().toLowerCase();
+  return ['mcq_single','mcq_multi','true_false'].includes(t)?t:'mcq_single';
+}
+function ansSet(qid){
+  const v = answers[qid];
+  if(!v) return new Set();
+  return new Set(String(v).split(',').map(s=>s.trim()).filter(Boolean));
+}
+function ansWrite(qid, setObj){
+  const arr=[...setObj].filter(Boolean).sort();
+  if(arr.length) answers[qid]=arr.join(',');
+  else delete answers[qid];
+}
+
 function renderQ(){
   if(curQ<0||curQ>=questions.length) return;
   const q=questions[curQ];
+  const qtype=qNormType(q);
   document.getElementById('qnum').textContent=
     `Question ${curQ+1} of ${questions.length}`;
+
+  // Optional image (fetched via authenticated GET, shown as blob URL).
+  const img=document.getElementById('qimg');
+  img.style.display='none';
+  img.removeAttribute('src');
+  if(q.image_url){
+    loadQImageSrc(q.image_url).then(src=>{
+      // Only apply if user is still on the same question
+      if(questions[curQ] && questions[curQ].id===q.id && src){
+        img.src=src;
+        img.style.display='block';
+      }
+    });
+  }
+
   document.getElementById('qtxt').textContent=q.question;
+  const hint=document.getElementById('qhint');
+  hint.textContent = qtype==='mcq_multi'
+    ? 'Select all that apply'
+    : qtype==='true_false'
+      ? 'True or False'
+      : 'Select one';
+
   const o=document.getElementById('qopts'); o.innerHTML='';
+  const selected=ansSet(q.id);
   Object.entries(q.options).forEach(([l,t])=>{
     const d=document.createElement('div');
-    d.className='opt'+(answers[q.id]===l?' sel':'');
+    d.className='opt'+(selected.has(l)?' sel':'');
     d.onclick=()=>selAns(l);
-    // Use textContent to prevent XSS from injected option text
     const lbl=document.createElement('div');
     lbl.className='oltr';
     lbl.textContent=l;
@@ -873,23 +921,56 @@ function renderQ(){
   });
 }
 
+// Image fetch uses the student Bearer token so /api/question-image/...
+// can scope images to the student's teacher.
+const _qImgCache = new Map();
+async function loadQImageSrc(url){
+  if(!url) return '';
+  if(_qImgCache.has(url)) return _qImgCache.get(url);
+  const headers={};
+  if(studentToken) headers['Authorization']='Bearer '+studentToken;
+  try{
+    const r = await fetch(SERVER+url, {headers});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const blob = await r.blob();
+    const obj = URL.createObjectURL(blob);
+    _qImgCache.set(url, obj);
+    return obj;
+  }catch(e){
+    console.warn('Image load failed', url, e);
+    return '';
+  }
+}
+
 function selAns(l){
-  answers[questions[curQ].id]=l;
+  const q=questions[curQ];
+  const qtype=qNormType(q);
+  const cs=ansSet(q.id);
+  if(qtype==='mcq_multi'){
+    if(cs.has(l)) cs.delete(l); else cs.add(l);
+  }else{
+    cs.clear();
+    cs.add(l);
+  }
+  ansWrite(q.id, cs);
+  const canonical = answers[q.id] || '';
   renderQ();
   if(window.proctor&&sessionId){
     window.proctor.logEvent({
       session_id:sessionId,
       event_type:'answer_selected',
       severity:'low',
-      details:`q:${questions[curQ].id}|a:${l}`
+      details:`q:${q.id}|a:${canonical}`
     });
   }
-  // Autosave answer — retry once on failure
+  // Autosave answer — retry once on failure. Server already stores a
+  // plain string; the canonical comma-joined form round-trips through
+  // the existing /api/save-answer endpoint unchanged.
   if(sessionId){
     const savePayload={
       session_id:sessionId,
-      question_id:String(questions[curQ].id),
-      answer:l
+      question_id:String(q.id),
+      answer:canonical
     };
     const saveHeaders={'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
     fetch(`${SERVER}/api/save-answer`,{method:'POST',headers:saveHeaders,body:JSON.stringify(savePayload)})

@@ -265,6 +265,29 @@
     display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;
     flex-shrink:0;color:var(--muted)}
   .preview-q .pq-opt.pq-correct .pq-key{background:var(--accent);color:#fff}
+  /* ── Question type picker + image upload ──────────────────── */
+  .q-type-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+  .q-type-row label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:0}
+  .q-type-row select{background:rgba(255,255,255,0.03);border:1px solid var(--border);
+    border-radius:8px;color:var(--text);padding:6px 10px;font-size:12px;height:32px;cursor:pointer}
+  .q-type-row select:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .q-img-wrap{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+  .q-img-thumb{width:120px;height:90px;border-radius:8px;border:1px solid var(--border);
+    background:var(--bg) center/contain no-repeat;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:11px;flex-shrink:0;overflow:hidden}
+  .q-img-thumb img{max-width:100%;max-height:100%;display:block}
+  .q-img-actions{display:flex;flex-direction:column;gap:6px}
+  .q-img-btn{background:rgba(255,255,255,0.03);border:1px dashed var(--border);border-radius:8px;
+    color:var(--muted);cursor:pointer;padding:6px 12px;font-size:12px;font-weight:600;height:30px;
+    display:inline-flex;align-items:center;line-height:1}
+  .q-img-btn:hover{border-color:var(--accent);color:var(--accent-light)}
+  .q-img-btn.danger:hover{border-color:var(--red);color:var(--red)}
+  .q-opt-key.correct-multi{background:var(--emerald,#10b981);border-color:var(--emerald,#10b981);color:#fff}
+  .q-card .q-type-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;
+    font-weight:700;text-transform:uppercase;letter-spacing:0.05em;background:rgba(59,130,246,.12);
+    color:var(--accent-light);border:1px solid rgba(59,130,246,.25);margin-left:8px}
+  .preview-q .pq-image{max-width:360px;max-height:240px;border-radius:8px;border:1px solid var(--border);
+    display:block;margin:0 0 10px 0}
 
   /* ── Tools tab cards ─────────────────────────────────────────── */
   .tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
@@ -680,6 +703,18 @@
           <button class="action-btn" onclick="doCleanup()">Run Cleanup</button>
         </div>
         <div class="tool-card-result" id="cleanup-result" style="color:var(--emerald)"></div>
+      </div>
+
+      <div class="tool-card" id="clear-live-card" style="border-color:rgba(239,68,68,0.35)">
+        <div class="tool-card-body">
+          <h3 style="color:var(--red)">Clear Live Sessions</h3>
+          <p>Destructive. Wipes <em>stale</em> in-progress exam sessions for your account — along with the saved answers, violation events and loose screenshots that belong to them. A student whose client has sent a heartbeat in the last 2 minutes is considered actively taking the exam and is <b>never</b> touched. Completed submissions, your questions, and other teachers' data are never touched. Requires two confirmations.</p>
+          <div class="tool-card-result" id="clear-live-preview" style="font-size:12px;color:var(--muted)"></div>
+        </div>
+        <div class="tool-card-actions">
+          <button class="action-btn" id="clear-live-btn" onclick="clearLiveSessionsStep()" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Clear Live Sessions</button>
+        </div>
+        <div class="tool-card-result" id="clear-live-result" style="font-size:12px"></div>
       </div>
 
       <div class="tool-card">
@@ -1322,6 +1357,132 @@ async function doCleanup(){
   }
 }
 
+// ── Clear Live Sessions (destructive, double-confirm) ───────────
+// State machine on a single button: idle → first-confirm → final-confirm.
+// First click: asks the server for a preview + token ("Are you sure?").
+// Second click: "Really wipe N sessions? Click again to confirm."
+// Third click: sends the ack back with the token and deletes.
+let _clearLiveState = 'idle';
+let _clearLiveToken = '';
+let _clearLiveCount = 0;
+let _clearLiveTimer = null;
+
+function _clearLiveReset(){
+  _clearLiveState='idle';
+  _clearLiveToken='';
+  _clearLiveCount=0;
+  if(_clearLiveTimer){ clearTimeout(_clearLiveTimer); _clearLiveTimer=null; }
+  const btn=document.getElementById('clear-live-btn');
+  if(btn){
+    btn.textContent='Clear Live Sessions';
+    btn.disabled=false;
+    btn.style.color='var(--red)';
+  }
+  const prev=document.getElementById('clear-live-preview');
+  if(prev) prev.textContent='';
+}
+
+async function clearLiveSessionsStep(){
+  const btn=document.getElementById('clear-live-btn');
+  const prev=document.getElementById('clear-live-preview');
+  const out=document.getElementById('clear-live-result');
+  out.textContent='';
+
+  if(_clearLiveState==='idle'){
+    // Step 1 — ask server for a preview + token.
+    btn.disabled=true;
+    btn.textContent='Checking...';
+    try{
+      const r=await authFetch(`${BASE}/api/admin/clear-live-sessions`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({step:'request'})
+      });
+      if(!r.ok){
+        const err=await r.json().catch(()=>({detail:'Request failed'}));
+        throw new Error(err.detail||('HTTP '+r.status));
+      }
+      const d=await r.json();
+      _clearLiveToken=d.token||'';
+      // `count` is the stale (clearable) count — active sessions are
+      // protected so students mid-exam keep their work.
+      _clearLiveCount=d.stale_count!==undefined?d.stale_count:(d.count||0);
+      const activeCount=d.active_count||0;
+      const win=d.active_window_s||120;
+      _clearLiveState='first';
+      btn.disabled=false;
+      if(_clearLiveCount===0){
+        out.style.color=activeCount>0?'var(--amber)':'var(--muted)';
+        out.textContent=activeCount>0
+          ? `Nothing to clear — ${activeCount} student(s) are actively taking the exam right now (heartbeat within ${win}s). Wait for them to finish.`
+          : 'No live sessions to clear.';
+        _clearLiveReset();
+        return;
+      }
+      btn.textContent=`Are you sure? Click to confirm (${_clearLiveCount})`;
+      btn.style.color='var(--amber)';
+      const rolls=(d.preview||[]).map(p=>esc(p.roll_number||p.session_key)).slice(0,10).join(', ');
+      const activeRolls=(d.active_preview||[]).map(p=>esc(p.roll_number||p.session_key)).slice(0,6).join(', ');
+      let html=`Will wipe <b>${_clearLiveCount}</b> stale session(s)${rolls?': '+rolls:''}${_clearLiveCount>10?' ...':''}`;
+      if(activeCount>0){
+        html+=`<br><span style="color:var(--emerald)">Protected (still taking exam): <b>${activeCount}</b>${activeRolls?' — '+activeRolls:''}${activeCount>6?' ...':''}</span>`;
+      }
+      prev.innerHTML=html;
+      // Auto-cancel after 30s so a stale button doesn't linger.
+      _clearLiveTimer=setTimeout(()=>{
+        out.style.color='var(--muted)';
+        out.textContent='Confirmation timed out — click again to restart.';
+        _clearLiveReset();
+      }, 30000);
+    }catch(e){
+      out.style.color='var(--red)';
+      out.textContent='Failed: '+e.message;
+      _clearLiveReset();
+    }
+    return;
+  }
+
+  if(_clearLiveState==='first'){
+    // Step 2 — second confirmation before firing.
+    _clearLiveState='final';
+    btn.textContent=`This deletes answers, violations & screenshots. Click once more to wipe ${_clearLiveCount}.`;
+    btn.style.color='var(--red)';
+    return;
+  }
+
+  if(_clearLiveState==='final'){
+    // Step 3 — really do it.
+    btn.disabled=true;
+    btn.textContent='Wiping...';
+    try{
+      const r=await authFetch(`${BASE}/api/admin/clear-live-sessions`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({step:'confirm', token:_clearLiveToken, ack:'DELETE'})
+      });
+      if(!r.ok){
+        const err=await r.json().catch(()=>({detail:'Failed'}));
+        throw new Error(err.detail||('HTTP '+r.status));
+      }
+      const d=await r.json();
+      out.style.color='var(--emerald)';
+      let msg=`Cleared ${d.cleared} session(s). Deleted ${d.answers} answers, ${d.violations} violation events, ${d.screenshots} screenshots.`;
+      if(d.skipped_active>0){
+        msg+=` Protected ${d.skipped_active} active student(s) still taking the exam.`;
+      }
+      out.textContent=msg;
+      // Refresh the live tab since the rows are gone now.
+      if(typeof refreshLive==='function') refreshLive();
+    }catch(e){
+      out.style.color='var(--red)';
+      out.textContent='Failed: '+e.message;
+    }finally{
+      _clearLiveReset();
+    }
+    return;
+  }
+}
+
 async function loadFailed(){
   const el=document.getElementById('failed-result');
   try{
@@ -1581,13 +1742,59 @@ function renderQStats(){
   const optCounts = qData.map(q=>Object.keys(q.options||{}).length);
   const avgOpts = total ? Math.round(optCounts.reduce((a,b)=>a+b,0)/total*10)/10 : 0;
   const noCorrect = qData.filter(q=>!q.correct).length;
+  const withImg = qData.filter(q=>!!q.image_url).length;
   const dur = parseInt(document.getElementById('q-duration').value)||60;
   el.innerHTML=`
     <div class="stat"><div class="label">Total Questions</div><div class="value blue">${total}</div></div>
     <div class="stat"><div class="label">Avg Options</div><div class="value">${avgOpts}</div></div>
+    <div class="stat"><div class="label">With Image</div><div class="value">${withImg}</div></div>
     <div class="stat"><div class="label">Duration</div><div class="value green">${dur} min</div></div>
     <div class="stat"><div class="label">Missing Answer</div><div class="value ${noCorrect?'red':'green'}">${noCorrect}</div></div>
   `;
+}
+
+// ── Helpers for the new question schema ────────────────────────
+// `correct` is stored as a canonical comma-joined string. Use these
+// helpers so single/multi/true-false all use a consistent shape.
+function qGetCorrectSet(q){
+  return new Set(String(q.correct||'').split(',').map(s=>s.trim()).filter(Boolean));
+}
+function qSetCorrectSet(q, setOrArr){
+  const arr=[...setOrArr].filter(Boolean).sort();
+  q.correct=arr.join(',');
+}
+function qNormaliseType(q){
+  let t=(q.question_type||'mcq_single').toString().trim().toLowerCase();
+  if(!['mcq_single','mcq_multi','true_false'].includes(t)) t='mcq_single';
+  q.question_type=t;
+  return t;
+}
+function qTypeLabel(t){
+  return t==='mcq_multi'?'Multi-select':t==='true_false'?'True / False':'Single choice';
+}
+function qBuildImageUrl(u){
+  if(!u) return '';
+  // Server-issued relative URLs need the admin Bearer token. We use a
+  // blob fetched via authFetch so we never leak the token into the DOM.
+  return u;
+}
+
+// Fetch authenticated image bytes and convert to a blob URL for <img>.
+const _qImgBlobCache = new Map();
+async function qLoadImgSrc(url){
+  if(!url) return '';
+  if(_qImgBlobCache.has(url)) return _qImgBlobCache.get(url);
+  try{
+    const r = await authFetch(BASE + url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const blob = await r.blob();
+    const obj = URL.createObjectURL(blob);
+    _qImgBlobCache.set(url, obj);
+    return obj;
+  }catch(e){
+    console.warn('image load failed', url, e);
+    return '';
+  }
 }
 
 function markQDirty(){
@@ -1606,49 +1813,187 @@ function renderQEditor(){
     return;
   }
   el.innerHTML = qData.map((q,i)=>{
+    const qtype = qNormaliseType(q);
+    // Force fixed True/False options when the type is true_false so the
+    // teacher can't accidentally leave stale A/B/C/D around.
+    if(qtype==='true_false'){
+      q.options = {'True':'True','False':'False'};
+      const cs = qGetCorrectSet(q);
+      if(cs.size!==1 || (!cs.has('True') && !cs.has('False'))){
+        qSetCorrectSet(q, ['True']);
+      }
+    }
     const optKeys = Object.keys(q.options||{});
+    const correctSet = qGetCorrectSet(q);
+    const isMulti = qtype==='mcq_multi';
+    const optionsEditable = qtype!=='true_false';
+
+    const correctStatusText = correctSet.size
+      ? [...correctSet].sort().map(k=>`${k} = ${escAttr(q.options[k]||'?')}`).join('  |  ')
+      : 'Not set!';
+    const correctStatusColor = correctSet.size?'var(--emerald)':'var(--red)';
+
     return `<div class="q-card" id="qcard-${i}">
       <div class="q-card-hdr">
         <div style="display:flex;align-items:center;gap:8px">
           <span class="q-num">Q${i+1}</span>
+          <span class="q-type-badge">${qTypeLabel(qtype)}</span>
           <button class="q-move" onclick="moveQ(${i},-1)" title="Move up" ${i===0?'disabled':''}>&#9650;</button>
           <button class="q-move" onclick="moveQ(${i},1)" title="Move down" ${i===qData.length-1?'disabled':''}>&#9660;</button>
         </div>
         <button class="q-del" onclick="deleteQ(${i})">Delete</button>
       </div>
+      <div class="q-type-row">
+        <label for="qtype-${i}">Question type</label>
+        <select id="qtype-${i}" onchange="setQType(${i},this.value)">
+          <option value="mcq_single" ${qtype==='mcq_single'?'selected':''}>Single choice (MCQ)</option>
+          <option value="mcq_multi"  ${qtype==='mcq_multi'?'selected':''}>Multi-select (2+ correct)</option>
+          <option value="true_false" ${qtype==='true_false'?'selected':''}>True / False</option>
+        </select>
+      </div>
       <div class="q-field">
         <label>Question Text</label>
         <textarea oninput="qData[${i}].question=this.value;markQDirty()">${escAttr(q.question||'')}</textarea>
       </div>
-      <div class="q-field">
-        <label>Options</label>
-        <div class="q-opts">
-          ${optKeys.map(k=>`
-            <div class="q-opt">
-              <div class="q-opt-key ${q.correct===k?'correct':''}"
-                   onclick="setCorrect(${i},'${escAttr(k)}')" title="Click to set as correct answer"
-                   style="cursor:pointer">${escAttr(k)}</div>
-              <input value="${escAttr(q.options[k])}"
-                     oninput="qData[${i}].options['${escAttr(k)}']=this.value;markQDirty()"
-                     placeholder="Option ${escAttr(k)}">
-              ${optKeys.length>2?`<button class="q-opt-remove" onclick="removeOpt(${i},'${escAttr(k)}')" title="Remove option">&times;</button>`:''}
-            </div>
-          `).join('')}
+      <div class="q-img-wrap">
+        <div class="q-img-thumb" id="qimg-${i}">${q.image_url?'loading...':'No image'}</div>
+        <div class="q-img-actions">
+          <button class="q-img-btn" onclick="document.getElementById('qimg-input-${i}').click()">
+            ${q.image_url?'Replace image':'+ Upload image'}
+          </button>
+          ${q.image_url?`<button class="q-img-btn danger" onclick="clearQImage(${i})">Remove image</button>`:''}
+          <input type="file" id="qimg-input-${i}" accept="image/png,image/jpeg,image/gif,image/webp"
+                 style="display:none" onchange="handleQImageUpload(${i},this.files[0])">
         </div>
-        <button class="q-add-opt" onclick="addOpt(${i})">+ Add Option</button>
+      </div>
+      <div class="q-field">
+        <label>Options ${isMulti?'(check all correct)':qtype==='true_false'?'(fixed)':'(pick one correct)'}</label>
+        <div class="q-opts">
+          ${optKeys.map(k=>{
+            const esc=escAttr(k);
+            const hit=correctSet.has(k);
+            const keyCls=hit?(isMulti?'correct-multi':'correct'):'';
+            return `
+            <div class="q-opt">
+              <div class="q-opt-key ${keyCls}"
+                   onclick="toggleCorrect(${i},'${esc}')"
+                   title="${isMulti?'Click to toggle correct':'Click to set as correct'}"
+                   style="cursor:pointer">${esc}</div>
+              <input value="${escAttr(q.options[k])}"
+                     ${optionsEditable?`oninput="qData[${i}].options['${esc}']=this.value;markQDirty()"`:'readonly'}
+                     placeholder="Option ${esc}">
+              ${(optionsEditable && optKeys.length>2)?`<button class="q-opt-remove" onclick="removeOpt(${i},'${esc}')" title="Remove option">&times;</button>`:''}
+            </div>`;
+          }).join('')}
+        </div>
+        ${optionsEditable?`<button class="q-add-opt" onclick="addOpt(${i})">+ Add Option</button>`:''}
       </div>
       <div class="q-correct-row">
-        <label>Correct Answer</label>
-        <select onchange="qData[${i}].correct=this.value;markQDirty();renderQEditor()">
-          ${optKeys.map(k=>`<option value="${escAttr(k)}" ${q.correct===k?'selected':''}>${escAttr(k)}</option>`).join('')}
-        </select>
-        <span class="q-correct-status" style="color:${q.correct?'var(--emerald)':'var(--red)'}">
-          ${q.correct ? q.correct+' = '+escAttr(q.options[q.correct]||'?') : 'Not set!'}
+        <label>Correct</label>
+        <span class="q-correct-status" style="color:${correctStatusColor}">
+          ${escAttr(correctStatusText)}
         </span>
       </div>
     </div>`;
   }).join('');
   renderQStats();
+  // Resolve image thumbnails asynchronously (fetched with auth token).
+  qData.forEach((q,i)=>{
+    if(!q.image_url) return;
+    qLoadImgSrc(q.image_url).then(src=>{
+      const el=document.getElementById('qimg-'+i);
+      if(!el) return;
+      if(src) el.innerHTML=`<img src="${src}" alt="Q${i+1} image">`;
+      else el.textContent='Load failed';
+    });
+  });
+}
+
+function setQType(idx, val){
+  const q = qData[idx];
+  if(!q) return;
+  q.question_type = val;
+  if(val==='true_false'){
+    q.options = {'True':'True','False':'False'};
+    qSetCorrectSet(q, ['True']);
+  }else if(val==='mcq_single'){
+    const cs = qGetCorrectSet(q);
+    if(cs.size>1){
+      // Keep only the first correct pick
+      qSetCorrectSet(q, [[...cs][0]]);
+    }
+    // If options are still True/False (from a prior toggle), restore A/B/C/D
+    const keys = Object.keys(q.options||{});
+    if(keys.length===2 && keys.includes('True') && keys.includes('False')){
+      q.options = {A:'',B:'',C:'',D:''};
+      qSetCorrectSet(q, ['A']);
+    }
+  }else if(val==='mcq_multi'){
+    const keys = Object.keys(q.options||{});
+    if(keys.length===2 && keys.includes('True') && keys.includes('False')){
+      q.options = {A:'',B:'',C:'',D:''};
+      qSetCorrectSet(q, []);
+    }
+    // A multi question must have ≥2 correct — leave it to save-time validation.
+  }
+  markQDirty();
+  renderQEditor();
+}
+
+function toggleCorrect(idx, key){
+  const q = qData[idx];
+  if(!q) return;
+  const qtype = qNormaliseType(q);
+  const cs = qGetCorrectSet(q);
+  if(qtype==='mcq_multi'){
+    if(cs.has(key)) cs.delete(key); else cs.add(key);
+  }else{
+    // single / true_false: exactly one correct
+    cs.clear();
+    cs.add(key);
+  }
+  qSetCorrectSet(q, cs);
+  markQDirty();
+  renderQEditor();
+}
+
+async function handleQImageUpload(idx, file){
+  if(!file) return;
+  if(file.size > 4*1024*1024){
+    alert('Image too large (max 4MB).');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async ()=>{
+    const b64 = String(reader.result||'').split(',')[1] || '';
+    if(!b64){ alert('Failed to read image.'); return; }
+    try{
+      const r = await authFetch(`${BASE}/api/admin/upload-question-image`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({image:b64, filename:file.name||''})
+      });
+      if(!r.ok){
+        const err = await r.json().catch(()=>({detail:'Upload failed'}));
+        throw new Error(err.detail||('HTTP '+r.status));
+      }
+      const d = await r.json();
+      qData[idx].image_url = d.url;
+      markQDirty();
+      renderQEditor();
+    }catch(e){
+      alert('Image upload failed: '+e.message);
+    }
+  };
+  reader.onerror = ()=>alert('Failed to read file.');
+  reader.readAsDataURL(file);
+}
+
+function clearQImage(idx){
+  if(!qData[idx]) return;
+  qData[idx].image_url = '';
+  markQDirty();
+  renderQEditor();
 }
 
 function escAttr(s){
@@ -1656,9 +2001,10 @@ function escAttr(s){
 }
 
 function setCorrect(idx,key){
-  qData[idx].correct=key;
-  markQDirty();
-  renderQEditor();
+  // Legacy single-correct setter kept for backwards compat with any
+  // callers still out there. Delegates to toggleCorrect, which handles
+  // all three question types.
+  toggleCorrect(idx, key);
 }
 
 function addOpt(idx){
@@ -1680,8 +2026,9 @@ function removeOpt(idx,key){
   const opts=qData[idx].options;
   if(Object.keys(opts).length<=2){alert('Minimum 2 options required.');return;}
   delete opts[key];
-  // If we removed the correct answer, clear it
-  if(qData[idx].correct===key) qData[idx].correct='';
+  // If we removed a correct answer, strip it from the canonical set
+  const cs = qGetCorrectSet(qData[idx]);
+  if(cs.has(key)){ cs.delete(key); qSetCorrectSet(qData[idx], cs); }
   markQDirty();
   renderQEditor();
 }
@@ -1710,7 +2057,9 @@ function addQuestion(){
     id:nextId,
     question:'',
     options:{A:'',B:'',C:'',D:''},
-    correct:'A'
+    correct:'A',
+    question_type:'mcq_single',
+    image_url:''
   });
   markQDirty();
   renderQEditor();
@@ -1739,34 +2088,65 @@ function renderQPreview(){
     return;
   }
   body.innerHTML=qData.map((q,i)=>{
+    const qtype=qNormaliseType(q);
     const optKeys=Object.keys(q.options||{});
+    const correctSet=qGetCorrectSet(q);
     return `<div class="preview-q">
-      <div class="pq-num">Question ${i+1} of ${qData.length}</div>
+      <div class="pq-num">Question ${i+1} of ${qData.length} · ${escAttr(qTypeLabel(qtype))}</div>
+      ${q.image_url?`<img class="pq-image" id="pqimg-${i}" alt="Q${i+1}">`:''}
       <div class="pq-text">${escAttr(q.question||'(empty)')}</div>
       <div class="pq-opts">
-        ${optKeys.map(k=>`
-          <div class="pq-opt ${q.correct===k?'pq-correct':''}">
+        ${optKeys.map(k=>{
+          const hit=correctSet.has(k);
+          return `
+          <div class="pq-opt ${hit?'pq-correct':''}">
             <div class="pq-key">${escAttr(k)}</div>
             <span>${escAttr(q.options[k]||'(empty)')}</span>
-            ${q.correct===k?'<span style="margin-left:auto;font-size:11px;color:var(--emerald);font-weight:600">CORRECT</span>':''}
-          </div>
-        `).join('')}
+            ${hit?'<span style="margin-left:auto;font-size:11px;color:var(--emerald);font-weight:600">CORRECT</span>':''}
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
   }).join('');
+  qData.forEach((q,i)=>{
+    if(!q.image_url) return;
+    qLoadImgSrc(q.image_url).then(src=>{
+      const el=document.getElementById('pqimg-'+i);
+      if(el && src) el.src=src;
+    });
+  });
 }
 
 async function saveQuestions(){
   // Validate before saving
   const errors=[];
   qData.forEach((q,i)=>{
+    const qtype=qNormaliseType(q);
     if(!q.question||!q.question.trim()) errors.push(`Q${i+1}: empty question text`);
     const optKeys=Object.keys(q.options||{});
     if(optKeys.length<2) errors.push(`Q${i+1}: needs at least 2 options`);
     const emptyOpts=optKeys.filter(k=>!q.options[k]||!q.options[k].trim());
     if(emptyOpts.length) errors.push(`Q${i+1}: empty option(s): ${emptyOpts.join(', ')}`);
-    if(!q.correct||!q.options.hasOwnProperty(q.correct))
-      errors.push(`Q${i+1}: no valid correct answer set`);
+    const correctSet=qGetCorrectSet(q);
+    if(correctSet.size===0){
+      errors.push(`Q${i+1}: no correct answer set`);
+    }else{
+      for(const k of correctSet){
+        if(!q.options.hasOwnProperty(k)){
+          errors.push(`Q${i+1}: correct answer '${k}' not in options`);
+        }
+      }
+    }
+    if(qtype==='mcq_single' && correctSet.size!==1){
+      errors.push(`Q${i+1}: single-choice needs exactly 1 correct answer`);
+    }
+    if(qtype==='mcq_multi' && correctSet.size<2){
+      errors.push(`Q${i+1}: multi-select needs at least 2 correct answers`);
+    }
+    if(qtype==='true_false'){
+      const ok = correctSet.size===1 && (correctSet.has('True')||correctSet.has('False'));
+      if(!ok) errors.push(`Q${i+1}: True/False must have 'True' or 'False' as the correct answer`);
+    }
   });
   if(!qData.length) errors.push('No questions to save');
 

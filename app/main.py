@@ -51,6 +51,7 @@ def fmt_ist(ts_str):
 SECRET_KEY       = os.environ["SUPABASE_JWT_SECRET"]
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "").strip().lower()
 SCREENSHOTS_DIR  = os.getenv("SCREENSHOTS_DIR", "/app/screenshots")
+QUESTION_IMG_DIR = os.getenv("QUESTION_IMG_DIR", "/app/question_images")
 DOWNLOAD_MAC_ARM = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN     = os.getenv("DOWNLOAD_WIN", "")
@@ -58,7 +59,8 @@ TOKEN_TTL_HOURS  = 10
 ADMIN_TOKEN_TTL_HOURS = 12
 STUDENT_AUTH_TTL_HOURS = 12  # student dashboard session (not the exam JWT)
 
-os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+os.makedirs(SCREENSHOTS_DIR,  exist_ok=True)
+os.makedirs(QUESTION_IMG_DIR, exist_ok=True)
 
 # ─── JWT ──────────────────────────────────────────────────────────
 def create_token(roll_number: str, teacher_id: str = None) -> str:
@@ -784,17 +786,42 @@ def _is_violation(vtype: str) -> bool:
     return vtype not in _NON_VIOLATION_TYPES
 
 def _load_questions(teacher_id: str = None) -> list[dict]:
-    """Load questions from Supabase, optionally scoped to a teacher."""
-    query = supabase.table("questions")\
-        .select("question_id,question,options,correct")
-    if teacher_id:
-        query = query.eq("teacher_id", teacher_id)
-    result = query.order("question_id").execute()
-    return [
-        {"id": str(q["question_id"]), "question": q["question"],
-         "options": q["options"], "correct": str(q["correct"])}
-        for q in (result.data or [])
-    ]
+    """Load questions from Supabase, optionally scoped to a teacher.
+
+    Uses ``select('*')`` so newly-added columns (``question_type``,
+    ``image_url``) are surfaced automatically without a migration step.
+    Unknown-column errors from older DBs fall back to the legacy shape.
+    Returned dicts are normalised to always include:
+        id, question, options, correct, question_type, image_url
+    """
+    try:
+        query = supabase.table("questions").select("*")
+        if teacher_id:
+            query = query.eq("teacher_id", teacher_id)
+        result = query.order("question_id").execute()
+        rows = result.data or []
+    except Exception as e:
+        print(f"[Questions] select(*) failed, falling back: {e}")
+        query = supabase.table("questions").select(
+            "question_id,question,options,correct")
+        if teacher_id:
+            query = query.eq("teacher_id", teacher_id)
+        rows = (query.order("question_id").execute().data or [])
+
+    out = []
+    for q in rows:
+        qtype = (q.get("question_type") or "mcq_single").strip().lower()
+        if qtype not in ("mcq_single", "mcq_multi", "true_false"):
+            qtype = "mcq_single"
+        out.append({
+            "id":            str(q["question_id"]),
+            "question":      q.get("question", "") or "",
+            "options":       q.get("options") or {},
+            "correct":       str(q.get("correct") or ""),
+            "question_type": qtype,
+            "image_url":     q.get("image_url") or "",
+        })
+    return out
 
 def _load_exam_config(teacher_id: str = None) -> dict:
     """Load exam config from Supabase, scoped to teacher if provided.
@@ -839,13 +866,31 @@ def _set_access_code(code: str, teacher_id: str = None):
         }).execute()
 
 
+def _normalise_answer_set(ans: str) -> set[str]:
+    """Parse an answer string like "A" or "A,C" into a normalised set.
+
+    Used by both the grader and the admin answer-review view so a
+    multi-correct question ("A,C") compares equal regardless of whether
+    the student's selections were saved as "C,A", "A, C", etc.
+    """
+    if ans is None:
+        return set()
+    return {s.strip().upper() for s in str(ans).split(",") if s.strip()}
+
+
+def _answers_match(student_ans: str, correct_ans: str) -> bool:
+    """Return True iff the student's answer set equals the correct set."""
+    return _normalise_answer_set(student_ans) == _normalise_answer_set(correct_ans)
+
+
 def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None) -> tuple[int, int]:
     """Calculate score server-side from Supabase questions + saved answers.
 
     Answers saved via /api/save-answer* are already translated to the
     canonical option keys at write time.  Fresh answers arriving in the
     submit payload are still in student-facing label space, so we
-    translate them here before merging.
+    translate them here before merging. Multi-correct answers are stored
+    as comma-separated canonical keys (e.g. "A,C") and matched by set.
     """
     try:
         questions = _load_questions(teacher_id)
@@ -854,13 +899,13 @@ def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str =
         saved = supabase.table("answers").select("question_id,answer")\
             .eq("session_key", session_id).execute()
         ans_map = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
-        # Payload answers are student-facing → translate to canonical
+        # Payload answers are student-facing → translate to canonical.
+        # Multi-select answers arrive as "A,C" — translate each label.
         for qid, ans in (payload_answers or {}).items():
-            canonical = _translate_student_answer(
+            ans_map[str(qid)] = _canonicalise_student_answer(
                 session_id, str(teacher_id or ""), str(qid), str(ans))
-            ans_map[str(qid)] = canonical
         score = sum(1 for q in questions
-                    if ans_map.get(q["id"]) == q["correct"])
+                    if _answers_match(ans_map.get(q["id"], ""), q["correct"]))
         return score, total
     except Exception as e:
         print(f"[Score] Recalculation failed: {e}")
@@ -1362,7 +1407,13 @@ def _build_shuffle_view(questions: list[dict], session_id: str,
         opts = q.get("options", {}) or {}
         orig_keys = list(opts.keys())
 
-        if shuffle_o and len(orig_keys) > 1:
+        # Never shuffle options for True/False questions — swapping the
+        # two labels would show the text "False" beside the key "True"
+        # and vice versa, which makes no sense to a student.
+        qtype = str(q.get("question_type") or "mcq_single").lower()
+        tf_keys = set(orig_keys) == {"True", "False"}
+        can_shuffle_opts = shuffle_o and len(orig_keys) > 1 and qtype != "true_false" and not tf_keys
+        if can_shuffle_opts:
             perm = list(orig_keys)
             rng.shuffle(perm)
             # display_label i is shown the text from orig_keys[perm[i]]
@@ -1563,14 +1614,32 @@ def heartbeat(event: EventIn, request: Request):
     supabase.table("exam_sessions").upsert(row).execute()
     return {"ok": True}
 
+def _canonicalise_student_answer(session_id: str, teacher_id: str,
+                                  question_id: str, raw: str) -> str:
+    """Translate a (possibly multi-select) student answer into canonical form.
+
+    Multi-select answers arrive as comma-separated student-facing labels
+    like ``"A,C"``. We split, translate each label through the shuffle
+    map, then return the sorted comma-joined canonical string so grading
+    can compare as a set.
+    """
+    parts = [p.strip() for p in str(raw or "").split(",") if p.strip()]
+    if not parts:
+        return ""
+    translated = [
+        _translate_student_answer(session_id, str(teacher_id or ""),
+                                  str(question_id), p)
+        for p in parts
+    ]
+    return ",".join(sorted(translated))
+
+
 @app.post("/api/save-answer")
 def save_answer(body: AnswerIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, body.session_id)
     tid = claims.get("tid")
-    # Translate the student-facing label back to the original option key so
-    # grading always compares against the canonical "correct" value.
-    canonical = _translate_student_answer(
+    canonical = _canonicalise_student_answer(
         body.session_id, str(tid or ""), str(body.question_id), str(body.answer))
     row = {
         "session_key":  body.session_id,
@@ -1592,7 +1661,7 @@ def save_answers_bulk(body: BulkAnswerIn, request: Request):
     tid = claims.get("tid")
     records = []
     for qid, ans in body.answers.items():
-        canonical = _translate_student_answer(
+        canonical = _canonicalise_student_answer(
             body.session_id, str(tid or ""), str(qid), str(ans))
         rec = {"session_key": body.session_id,
                "question_id": str(qid),
@@ -1811,6 +1880,121 @@ def get_timeline(session_id: str, request: Request):
         "timeline":    timeline,
         "screenshots": list(screenshot_urls.values()),
     }
+
+
+@app.post("/api/admin/upload-question-image")
+def upload_question_image(request: Request, body: dict):
+    """Teacher uploads a question image.
+
+    Accepts base64-encoded PNG/JPEG (with or without data URL prefix) and
+    a filename hint. Stores the file under
+    ``QUESTION_IMG_DIR/<teacher_id>/<sha1>.<ext>`` and returns the URL
+    that students and teachers will fetch via ``/api/question-image/...``.
+
+    Files are content-hashed so uploading the same image twice is a
+    no-op (dedup) and the URL is stable across edits.
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    raw = body.get("image") or body.get("data") or ""
+    if not isinstance(raw, str) or not raw:
+        raise HTTPException(status_code=400, detail="Missing 'image' (base64)")
+    # Strip data URL prefix if present
+    if raw.startswith("data:"):
+        try:
+            _, raw = raw.split(",", 1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Malformed data URL")
+    try:
+        blob = base64.b64decode(raw, validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image payload")
+    if len(blob) > 4 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large (max 4MB)")
+
+    # Sniff format from magic bytes so we don't trust the client filename.
+    if blob[:8] == b"\x89PNG\r\n\x1a\n":
+        ext = "png"
+        media = "image/png"
+    elif blob[:3] == b"\xff\xd8\xff":
+        ext = "jpg"
+        media = "image/jpeg"
+    elif blob[:6] in (b"GIF87a", b"GIF89a"):
+        ext = "gif"
+        media = "image/gif"
+    elif blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
+        ext = "webp"
+        media = "image/webp"
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported image format (PNG/JPEG/GIF/WebP only)")
+
+    digest = hashlib.sha1(blob).hexdigest()[:24]
+    filename = f"{digest}.{ext}"
+    tdir = Path(QUESTION_IMG_DIR) / tid
+    tdir.mkdir(parents=True, exist_ok=True)
+    fpath = tdir / filename
+    if not fpath.exists():
+        try:
+            with open(fpath, "wb") as f:
+                f.write(blob)
+        except OSError as e:
+            print(f"[QImage] write failed: {e}")
+            raise HTTPException(status_code=500, detail="Failed to store image")
+
+    url = f"/api/question-image/{tid}/{filename}"
+    return {"url": url, "bytes": len(blob), "media_type": media}
+
+
+@app.get("/api/question-image/{tid}/{filename}")
+def get_question_image(tid: str, filename: str, request: Request):
+    """Serve a question image.
+
+    Authenticated for both teachers (admin token) and students (exam JWT).
+    Students can only fetch images scoped to their own teacher's tid,
+    enforced via the ``tid`` claim on their exam token.
+    """
+    # Try admin auth first (teacher viewing/editing). If that fails, fall
+    # back to student exam token scoped to the same teacher.
+    auth = request.headers.get("Authorization", "")
+    allowed = False
+    if auth.startswith("Bearer "):
+        tok = auth[7:]
+        # Attempt admin
+        try:
+            teacher = verify_admin_token(tok)
+            if str(teacher.get("id")) == str(tid):
+                allowed = True
+        except HTTPException:
+            pass
+        # Attempt student exam JWT
+        if not allowed:
+            try:
+                payload = jwt.decode(
+                    tok, SECRET_KEY, algorithms=["HS256"],
+                    options={"verify_aud": False, "require": ["exp"]},
+                )
+                if str(payload.get("tid") or "") == str(tid):
+                    allowed = True
+            except JWTError:
+                pass
+    if not allowed:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    safe_tid = Path(tid).name
+    safe_file = Path(filename).name
+    fpath = Path(QUESTION_IMG_DIR) / safe_tid / safe_file
+    try:
+        fpath.resolve().relative_to(Path(QUESTION_IMG_DIR).resolve())
+    except (ValueError, RuntimeError):
+        raise HTTPException(status_code=404, detail="Image not found")
+    if not fpath.exists() or not fpath.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    suffix = fpath.suffix.lower()
+    media_map = {".png": "image/png", ".jpg": "image/jpeg",
+                 ".jpeg": "image/jpeg", ".gif": "image/gif",
+                 ".webp": "image/webp"}
+    media = media_map.get(suffix, "application/octet-stream")
+    return FileResponse(str(fpath), media_type=media)
 
 
 @app.get("/api/admin/screenshot/{roll}/{filename}")
@@ -2322,6 +2506,278 @@ def admin_cleanup(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
     return {"deleted": deleted}
 
+# ─── CLEAR LIVE SESSIONS (double-confirm) ────────────────────────
+# Teachers occasionally need to wipe in-progress sessions (crashed
+# Electron clients, abandoned exams, test runs, etc.). This is
+# destructive so it is gated by a two-step token flow:
+#   1) POST {step:"request"} → server returns a short-lived confirm
+#      token scoped to this teacher.
+#   2) POST {step:"confirm", token:<t>, ack:"DELETE"} → server actually
+#      deletes the rows. Both the token and the ack string must match.
+# The token is kept in-process (no new table) and expires in 60 s.
+
+_CLEAR_TOKENS: dict[str, dict] = {}
+_CLEAR_TOKEN_TTL = 60  # seconds
+# A session is considered "active" (student currently taking the exam)
+# if we've seen a heartbeat from it within the last _CLEAR_ACTIVE_WINDOW
+# seconds. Heartbeats are sent by the Electron client every ~10s, so a
+# 120s window tolerates network blips but still catches genuinely stuck
+# sessions. Active sessions are NEVER wiped by clear-live-sessions.
+_CLEAR_ACTIVE_WINDOW = 120
+
+
+def _clear_token_issue(teacher_id: str) -> str:
+    """Mint and remember a one-shot clear-live-sessions token."""
+    tok = _uuid.uuid4().hex
+    _CLEAR_TOKENS[tok] = {
+        "teacher_id": str(teacher_id),
+        "expires":    time.time() + _CLEAR_TOKEN_TTL,
+    }
+    # Opportunistically prune expired entries so the map doesn't grow.
+    now = time.time()
+    stale = [k for k, v in _CLEAR_TOKENS.items() if v["expires"] < now]
+    for k in stale:
+        _CLEAR_TOKENS.pop(k, None)
+    return tok
+
+
+def _session_is_active(row: dict) -> bool:
+    """True if a session's last heartbeat is within the safety window.
+
+    Missing or unparseable timestamps count as stale so that genuinely
+    crashed clients (which never had a chance to send a heartbeat)
+    remain eligible for cleanup.
+    """
+    hb = row.get("last_heartbeat")
+    if not hb:
+        return False
+    try:
+        if isinstance(hb, datetime):
+            dt = hb
+        else:
+            dt = datetime.fromisoformat(str(hb).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    age = (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds()
+    return age <= _CLEAR_ACTIVE_WINDOW
+
+
+def _partition_live_sessions(teacher_id: str) -> tuple[list[dict], list[dict]]:
+    """Return (active, stale) in-progress sessions for a teacher.
+
+    Active = heartbeat within _CLEAR_ACTIVE_WINDOW seconds. Stale = the
+    rest. A single query hits the DB; the split is done in Python so
+    the classification is consistent across request/confirm steps.
+    """
+    result = supabase.table("exam_sessions")\
+        .select("session_key,roll_number,full_name,started_at,last_heartbeat")\
+        .eq("teacher_id", str(teacher_id))\
+        .eq("status", "in_progress")\
+        .execute()
+    rows = result.data or []
+    active, stale = [], []
+    for r in rows:
+        (active if _session_is_active(r) else stale).append(r)
+    return active, stale
+
+
+def _clear_token_consume(token: str, teacher_id: str) -> bool:
+    """Validate and consume a clear-live-sessions token."""
+    rec = _CLEAR_TOKENS.pop(token, None)
+    if not rec:
+        return False
+    if rec["teacher_id"] != str(teacher_id):
+        return False
+    if rec["expires"] < time.time():
+        return False
+    return True
+
+
+@app.post("/api/admin/clear-live-sessions")
+def clear_live_sessions(request: Request, body: dict):
+    """Destructive: wipe all in-progress sessions for the calling teacher.
+
+    Two-step confirmation:
+      - ``step=request`` returns a confirm token and a preview count.
+      - ``step=confirm`` with ``token`` and ``ack="DELETE"`` actually
+        deletes exam_sessions (status=in_progress), plus the answers,
+        violations, and screenshot files that belong to those sessions.
+
+    Never touches completed sessions or other teachers' data.
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    step = str(body.get("step") or "").lower().strip()
+
+    if step == "request":
+        active, stale = _partition_live_sessions(tid)
+        token = _clear_token_issue(tid)
+        return {
+            "step":          "request",
+            "token":          token,
+            "expires_in":     _CLEAR_TOKEN_TTL,
+            "active_window_s": _CLEAR_ACTIVE_WINDOW,
+            # Total live sessions (for display). Only `stale_count` will
+            # actually be deleted on confirm — `active_count` students
+            # are protected while they're still sending heartbeats.
+            "count":          len(stale),
+            "stale_count":    len(stale),
+            "active_count":   len(active),
+            "preview":    [
+                {"session_key": r["session_key"],
+                 "roll_number": r.get("roll_number"),
+                 "full_name":   r.get("full_name"),
+                 "started_at":  r.get("started_at"),
+                 "last_heartbeat": r.get("last_heartbeat")}
+                for r in stale[:20]
+            ],
+            "active_preview": [
+                {"session_key": r["session_key"],
+                 "roll_number": r.get("roll_number"),
+                 "full_name":   r.get("full_name"),
+                 "last_heartbeat": r.get("last_heartbeat")}
+                for r in active[:20]
+            ],
+        }
+
+    if step == "confirm":
+        token = str(body.get("token") or "")
+        ack   = str(body.get("ack") or "")
+        if ack != "DELETE":
+            raise HTTPException(status_code=400,
+                detail="Missing or incorrect ack — expected 'DELETE'")
+        if not _clear_token_consume(token, tid):
+            raise HTTPException(status_code=400,
+                detail="Confirmation token is invalid or expired — restart the clear flow")
+
+        # Re-classify RIGHT NOW, not off a preview that may be stale.
+        # If a student resumed or started since the request step, their
+        # session will now be "active" and we MUST skip it.
+        active, stale = _partition_live_sessions(tid)
+        if not stale:
+            skipped = [
+                {"session_key": r["session_key"],
+                 "roll_number": r.get("roll_number"),
+                 "full_name":   r.get("full_name")}
+                for r in active
+            ]
+            return {"step": "confirm", "cleared": 0, "sessions": 0,
+                    "answers": 0, "violations": 0, "screenshots": 0,
+                    "skipped_active": len(active), "skipped": skipped,
+                    "note": ("No stale sessions to clear"
+                             + (" — active students were protected"
+                                if active else ""))}
+
+        session_keys = [r["session_key"] for r in stale]
+        stale_set = set(session_keys)
+        rolls_seen = {r.get("roll_number") for r in stale if r.get("roll_number")}
+        skipped_active = [
+            {"session_key": r["session_key"],
+             "roll_number": r.get("roll_number"),
+             "full_name":   r.get("full_name")}
+            for r in active
+        ]
+        if active:
+            print(f"[ClearLive] teacher={tid} protecting {len(active)} "
+                  f"active session(s) from wipe")
+
+        ans_deleted = 0
+        viol_deleted = 0
+        scr_deleted = 0
+
+        # Delete answers + violations for each session. Supabase-py's
+        # .in_() accepts a list but we iterate to keep the queries small
+        # and traceable in the log.
+        for sk in session_keys:
+            try:
+                r = supabase.table("answers").delete()\
+                    .eq("session_key", sk)\
+                    .eq("teacher_id", tid).execute()
+                ans_deleted += len(r.data or [])
+            except Exception as e:
+                print(f"[ClearLive] answer delete failed {sk}: {e}")
+            try:
+                r = supabase.table("violations").delete()\
+                    .eq("session_key", sk)\
+                    .eq("teacher_id", tid).execute()
+                viol_deleted += len(r.data or [])
+            except Exception as e:
+                print(f"[ClearLive] violation delete failed {sk}: {e}")
+
+        # Delete only the STALE in-progress session rows — an active
+        # student's row must survive so their exam continues normally.
+        sess_deleted = 0
+        for sk in session_keys:
+            try:
+                supabase.table("exam_sessions").delete()\
+                    .eq("teacher_id", tid)\
+                    .eq("session_key", sk)\
+                    .eq("status", "in_progress")\
+                    .execute()
+                sess_deleted += 1
+            except Exception as e:
+                print(f"[ClearLive] session delete failed {sk}: {e}")
+
+        # Clean up on-disk screenshots for the affected rolls. We skip
+        # any roll that has (a) an active session still running or
+        # (b) a completed session in the DB — either case means there
+        # is evidence we must preserve.
+        active_rolls = {r.get("roll_number") for r in active if r.get("roll_number")}
+        t_screens = Path(SCREENSHOTS_DIR) / tid
+        if t_screens.is_dir():
+            for roll in rolls_seen:
+                if not roll:
+                    continue
+                if roll in active_rolls:
+                    # Same student also has a live session — leave
+                    # their folder alone so in-flight screenshots are
+                    # not deleted mid-exam.
+                    continue
+                safe = Path(roll).name
+                rdir = t_screens / safe
+                if not rdir.is_dir():
+                    continue
+                # If the student has completed sessions, keep their dir
+                # so their evidence remains auditable.
+                comp = supabase.table("exam_sessions")\
+                    .select("session_key", count="exact")\
+                    .eq("teacher_id", tid)\
+                    .eq("roll_number", roll)\
+                    .eq("status", "completed")\
+                    .execute()
+                has_completed = (comp.count or 0) > 0
+                if has_completed:
+                    continue
+                try:
+                    for f in rdir.iterdir():
+                        if f.is_file():
+                            f.unlink()
+                            scr_deleted += 1
+                    rdir.rmdir()
+                except Exception as e:
+                    print(f"[ClearLive] screenshot cleanup failed {rdir}: {e}")
+
+        print(f"[ClearLive] teacher={tid} sessions={sess_deleted} "
+              f"answers={ans_deleted} violations={viol_deleted} "
+              f"screenshots={scr_deleted} "
+              f"protected_active={len(active)}")
+        return {
+            "step":           "confirm",
+            "cleared":        sess_deleted,
+            "sessions":       sess_deleted,
+            "answers":        ans_deleted,
+            "violations":     viol_deleted,
+            "screenshots":    scr_deleted,
+            "skipped_active": len(active),
+            "skipped":        skipped_active,
+        }
+
+    raise HTTPException(status_code=400,
+        detail="'step' must be 'request' or 'confirm'")
+
+
 @app.post("/api/admin/backfill-risk-scores")
 def backfill_risk_scores(request: Request):
     """Recompute and cache risk scores for all completed sessions."""
@@ -2384,12 +2840,14 @@ def get_admin_answers(session_id: str, request: Request):
         student_ans = ans_map.get(qid, "")
         correct_ans = q["correct"]  # already str from _load_questions
         answer_review.append({
-            "question_id": qid,
-            "question": q.get("question", ""),
-            "options": q.get("options", {}),
+            "question_id":   qid,
+            "question":      q.get("question", ""),
+            "options":       q.get("options", {}),
+            "question_type": q.get("question_type", "mcq_single"),
+            "image_url":     q.get("image_url", ""),
             "student_answer": student_ans,
             "correct_answer": correct_ans,
-            "is_correct": student_ans == correct_ans,
+            "is_correct":     _answers_match(student_ans, correct_ans),
         })
 
     return {"answers": answer_review, "total": len(questions),
@@ -2397,7 +2855,13 @@ def get_admin_answers(session_id: str, request: Request):
 
 @app.post("/api/admin/questions")
 def update_questions(request: Request, body: dict):
-    """Update questions in Supabase."""
+    """Update questions in Supabase.
+
+    Accepts the extended schema: each question may set ``question_type``
+    (``mcq_single`` | ``mcq_multi`` | ``true_false``), an optional
+    ``image_url``, and for multi-correct questions a comma-separated
+    ``correct`` value (e.g. ``"A,C"``).
+    """
     teacher = require_admin(request)
     tid = teacher["id"]
     if "questions" not in body:
@@ -2405,7 +2869,10 @@ def update_questions(request: Request, body: dict):
     questions = body["questions"]
     if not isinstance(questions, list) or len(questions) == 0:
         raise HTTPException(status_code=400, detail="'questions' must be a non-empty list")
+
+    ALLOWED_TYPES = {"mcq_single", "mcq_multi", "true_false"}
     required_fields = {"id", "question", "options", "correct"}
+    normalised: list[dict] = []
     for i, q in enumerate(questions):
         missing = required_fields - set(q.keys())
         if missing:
@@ -2413,16 +2880,66 @@ def update_questions(request: Request, body: dict):
                 status_code=400,
                 detail=f"Question {i+1} missing fields: {', '.join(sorted(missing))}"
             )
-        if not isinstance(q["options"], dict) or len(q["options"]) < 2:
+        qtype = str(q.get("question_type", "mcq_single")).strip().lower()
+        if qtype not in ALLOWED_TYPES:
             raise HTTPException(
                 status_code=400,
-                detail=f"Question {i+1}: 'options' must be a dict with at least 2 entries"
+                detail=f"Question {i+1}: invalid question_type '{qtype}'. "
+                       f"Must be one of {sorted(ALLOWED_TYPES)}"
             )
-        if str(q["correct"]) not in {str(k) for k in q["options"].keys()}:
+
+        # True/False questions always have exactly two fixed options.
+        if qtype == "true_false":
+            options = {"True": "True", "False": "False"}
+        else:
+            if not isinstance(q["options"], dict) or len(q["options"]) < 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Question {i+1}: 'options' must be a dict with at least 2 entries"
+                )
+            options = q["options"]
+
+        # Validate correct answer(s) against the options.
+        opt_keys = {str(k) for k in options.keys()}
+        correct_raw = str(q["correct"] or "")
+        correct_parts = [p.strip() for p in correct_raw.split(",") if p.strip()]
+        if not correct_parts:
             raise HTTPException(
                 status_code=400,
-                detail=f"Question {i+1}: 'correct' value '{q['correct']}' not in options"
+                detail=f"Question {i+1}: 'correct' cannot be empty"
             )
+        for cp in correct_parts:
+            if cp not in opt_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Question {i+1}: 'correct' value '{cp}' not in options"
+                )
+        if qtype == "mcq_single" and len(correct_parts) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Question {i+1}: single-choice questions need exactly 1 correct answer"
+            )
+        if qtype == "mcq_multi" and len(correct_parts) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Question {i+1}: multi-choice questions need at least 2 correct answers"
+            )
+        if qtype == "true_false" and (len(correct_parts) != 1 or
+                                       correct_parts[0] not in ("True", "False")):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Question {i+1}: true/false correct must be 'True' or 'False'"
+            )
+
+        normalised.append({
+            "question_id":   q["id"],
+            "question":      q["question"],
+            "options":       options,
+            "correct":       ",".join(sorted(correct_parts)),
+            "question_type": qtype,
+            "image_url":     str(q.get("image_url") or "") or None,
+        })
+
     # Update exam config
     if tid:
         supabase.table("exam_config").upsert({
@@ -2436,6 +2953,7 @@ def update_questions(request: Request, body: dict):
             "exam_title": body.get("exam_title", "Exam"),
             "duration_minutes": body.get("duration_minutes", 60),
         }).execute()
+
     # Replace teacher's questions: backup, delete, insert — rollback on failure
     q_query = supabase.table("questions").select("*")
     if tid:
@@ -2448,13 +2966,23 @@ def update_questions(request: Request, body: dict):
             del_query.delete().eq("teacher_id", tid).execute()
         else:
             del_query.delete().neq("question_id", -1).execute()
-        records = [
-            {"question_id": q["id"], "question": q["question"],
-             "options": q["options"], "correct": str(q["correct"]),
-             **({"teacher_id": tid} if tid else {})}
-            for q in questions
-        ]
-        supabase.table("questions").insert(records).execute()
+        records = [{**r, **({"teacher_id": tid} if tid else {})}
+                   for r in normalised]
+        try:
+            supabase.table("questions").insert(records).execute()
+        except Exception as e:
+            # Older DBs without the new columns — strip and retry.
+            msg = str(e).lower()
+            if "question_type" in msg or "image_url" in msg or "column" in msg:
+                print("[Questions] new columns missing on DB, retrying without")
+                legacy = [
+                    {k: v for k, v in r.items()
+                     if k not in ("question_type", "image_url")}
+                    for r in records
+                ]
+                supabase.table("questions").insert(legacy).execute()
+            else:
+                raise
     except Exception as e:
         # Rollback: re-insert backup rows if insert failed
         print(f"[Questions] Insert failed, rolling back: {e}")

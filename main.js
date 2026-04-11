@@ -824,28 +824,56 @@ function createExamWindow() {
 }
 
 // ── KIOSK TEARDOWN ───────────────────────────────────────────────
+// IMPORTANT: window destruction happens FIRST, before any other cleanup,
+// so a hung Python process or stuck shortcut can't leave the user with a
+// frozen kiosk window on screen. We use destroy() (not close()) because
+// close() can be silently swallowed by lingering close-handlers, beforeunload
+// handlers, or macOS fullscreen-transition races. destroy() is the documented
+// nuclear option: it bypasses all of that and guarantees the window goes away.
 function releaseKiosk({ reopenLobby = true } = {}) {
   console.log('[Kiosk] releasing', reopenLobby ? '(→ lobby)' : '(→ quit)');
-  stopPython();
-  stopPolling();
+  isKiosk = false;
+
+  // Step 1: tear down the window FIRST. Nothing else matters if the user
+  // is staring at a frozen exam screen.
+  const winRef = mainWindow;
+  mainWindow = null;
+  if (winRef && !winRef.isDestroyed()) {
+    try {
+      winRef.removeAllListeners('close');
+      winRef.removeAllListeners('blur');
+      winRef.removeAllListeners('focus');
+      try { winRef.setKiosk(false); }       catch(e) {}
+      try { winRef.setFullScreen(false); }  catch(e) {}
+      try { winRef.setAlwaysOnTop(false); } catch(e) {}
+      try { winRef.setClosable(true); }     catch(e) {}
+      // destroy() bypasses all close handlers + beforeunload + fullscreen
+      // transitions. Window WILL go away.
+      winRef.destroy();
+      console.log('[Kiosk] window destroyed');
+    } catch(e) {
+      console.error('[Kiosk] destroy error:', e.message);
+    }
+  }
+
+  // Step 2: watchdog. If somehow destroy() didn't take, force it again
+  // after a beat. Belt-and-suspenders for the bug we just hit.
+  setTimeout(() => {
+    if (winRef && !winRef.isDestroyed()) {
+      console.error('[Kiosk] window survived destroy(); retrying');
+      try { winRef.destroy(); } catch(e) {}
+    }
+  }, 500);
+
+  // Step 3: now clean up the rest. None of this can leave a window stuck.
+  try { stopPython(); }              catch(e) { console.error('[Kiosk] stopPython:', e.message); }
+  try { stopPolling(); }             catch(e) { console.error('[Kiosk] stopPolling:', e.message); }
   try { globalShortcut.unregisterAll(); } catch(e) {}
   if (powerBlockId !== null) {
     try { powerSaveBlocker.stop(powerBlockId); } catch(e) {}
     powerBlockId = null;
   }
-  isKiosk = false;
 
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    try {
-      mainWindow.removeAllListeners('close');
-      mainWindow.removeAllListeners('blur');
-      mainWindow.setKiosk(false);
-      mainWindow.setFullScreen(false);
-      mainWindow.setAlwaysOnTop(false);
-      mainWindow.close();
-    } catch(e) { console.error('[Kiosk] close error:', e.message); }
-  }
-  mainWindow = null;
   currentSessionId = null;
   examContext = null;
   studentToken = null;
@@ -1058,13 +1086,31 @@ ipcMain.handle('admin-exit', (_, code) => {
   // browse practice, etc. The manual admin-code path (typed by a teacher)
   // still quits the entire app.
   if (code === 'AUTO_CLOSE') {
-    releaseKiosk({ reopenLobby: true });
-    // Re-show the lobby if it was just hidden during the exam.
+    console.log('[admin-exit] AUTO_CLOSE received');
+    // Capture a ref before releaseKiosk nulls it, so the outer watchdog
+    // below can verify the destruction took effect even if releaseKiosk
+    // itself throws partway through.
+    const winRef = mainWindow;
+    try {
+      releaseKiosk({ reopenLobby: true });
+    } catch(e) {
+      console.error('[admin-exit] releaseKiosk threw:', e.message);
+    }
+    // Outer-most safety net: if for ANY reason the kiosk window is still
+    // alive 1s later, force-destroy it. The user must NEVER end up staring
+    // at a frozen "Exam Submitted" card with no way out.
     setTimeout(() => {
+      if (winRef && !winRef.isDestroyed()) {
+        console.error('[admin-exit] window still alive after releaseKiosk; force-destroying');
+        try { winRef.destroy(); } catch(e) {}
+      }
       if (lobbyWindow && !lobbyWindow.isDestroyed()) {
         try { lobbyWindow.show(); lobbyWindow.focus(); } catch(e) {}
+      } else {
+        // Lobby got lost too — recreate it so the user has somewhere to land.
+        try { createLobbyWindow(); } catch(e) {}
       }
-    }, 250);
+    }, 1000);
     return { success: true };
   }
   if (code === ADMIN_CODE) {

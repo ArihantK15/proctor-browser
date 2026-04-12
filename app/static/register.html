@@ -189,27 +189,36 @@
 
     <div class="divider"><span>Account password</span></div>
 
-    <div class="fg">
-      <label>Password</label>
-      <input type="password" id="inp-pwd" placeholder="Min 8 characters"
-             autocomplete="new-password"
-             oninput="clearErr()">
+    <div id="pwd-section">
+      <p style="color:var(--muted);font-size:12px;margin-bottom:14px">
+        First time? Set a password for your student account.
+        <a href="#" onclick="togglePwdSection(false);return false"
+           style="color:var(--accent-light);text-decoration:none;font-weight:600">Already have an account? Skip this.</a>
+      </p>
+      <div class="fg">
+        <label>Password</label>
+        <input type="password" id="inp-pwd" placeholder="Min 8 characters"
+               autocomplete="new-password"
+               oninput="clearErr()">
+      </div>
+      <div class="fg">
+        <label>Confirm Password</label>
+        <input type="password" id="inp-pwd2" placeholder="Confirm password"
+               autocomplete="new-password"
+               onkeydown="if(event.key==='Enter')doRegister()">
+      </div>
     </div>
-    <div class="fg">
-      <label>Confirm Password</label>
-      <input type="password" id="inp-pwd2" placeholder="Confirm password"
-             autocomplete="new-password"
-             onkeydown="if(event.key==='Enter')doRegister()">
+    <div id="pwd-skipped" style="display:none">
+      <p style="color:var(--muted);font-size:12px;margin-bottom:14px">
+        You'll sign in with your existing account in the Procta app.
+        <a href="#" onclick="togglePwdSection(true);return false"
+           style="color:var(--accent-light);text-decoration:none;font-weight:600">New here? Create an account.</a>
+      </p>
     </div>
 
     <button class="submit-btn" id="reg-btn" onclick="doRegister()">Register & Create Account</button>
     <div class="err-msg" id="reg-err"></div>
     <div class="loading" id="reg-ldr"></div>
-
-    <p style="color:var(--muted);font-size:12px;margin-top:16px;text-align:center">
-      Already have an account?
-      <a href="/student" style="color:var(--accent-light);text-decoration:none;font-weight:600">Sign in</a>
-    </p>
   </div>
 
   <!-- Success card with progress stepper -->
@@ -233,7 +242,7 @@
           <div class="step-desc">Your roll number is enrolled with your teacher.</div>
         </div>
       </div>
-      <div class="step done">
+      <div class="step done" id="step-account">
         <div class="step-icon">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
@@ -278,9 +287,19 @@
 <script>
 const _teacherId = new URLSearchParams(location.search).get('t') || null;
 
+let _createAccount = true;
+
 function clearErr(){
   document.getElementById('reg-err').textContent='';
   document.querySelectorAll('.err-border').forEach(e=>e.classList.remove('err-border'));
+}
+
+function togglePwdSection(show){
+  _createAccount = show;
+  document.getElementById('pwd-section').style.display = show ? '' : 'none';
+  document.getElementById('pwd-skipped').style.display = show ? 'none' : '';
+  document.getElementById('reg-btn').textContent = show ? 'Register & Create Account' : 'Register for Exam';
+  clearErr();
 }
 
 async function doRegister(){
@@ -292,7 +311,6 @@ async function doRegister(){
   const pwd   = document.getElementById('inp-pwd').value;
   const pwd2  = document.getElementById('inp-pwd2').value;
 
-  // Validate all fields at once
   if(!name){
     document.getElementById('inp-name').classList.add('err-border');
     document.getElementById('reg-err').textContent='Full name is required';
@@ -308,23 +326,29 @@ async function doRegister(){
     document.getElementById('reg-err').textContent='A valid email is required';
     return;
   }
-  if(!pwd || pwd.length < 8){
-    document.getElementById('inp-pwd').classList.add('err-border');
-    document.getElementById('reg-err').textContent='Password must be at least 8 characters';
-    return;
-  }
-  if(pwd !== pwd2){
-    document.getElementById('inp-pwd2').classList.add('err-border');
-    document.getElementById('reg-err').textContent='Passwords do not match';
-    return;
+  // Only validate password if creating a new account
+  if(_createAccount){
+    if(!pwd || pwd.length < 8){
+      document.getElementById('inp-pwd').classList.add('err-border');
+      document.getElementById('reg-err').textContent='Password must be at least 8 characters';
+      return;
+    }
+    if(pwd !== pwd2){
+      document.getElementById('inp-pwd2').classList.add('err-border');
+      document.getElementById('reg-err').textContent='Passwords do not match';
+      return;
+    }
   }
 
   const btn = document.getElementById('reg-btn');
   btn.disabled = true;
-  document.getElementById('reg-ldr').textContent = 'Setting up your account...';
+  document.getElementById('reg-ldr').textContent = _createAccount
+    ? 'Setting up your account...' : 'Registering...';
+
+  let accountCreated = false;
 
   try{
-    // Step 1: Register with teacher
+    // Step 1: Register (enroll) with teacher
     const r1 = await fetch('/api/register-student', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -336,41 +360,61 @@ async function doRegister(){
     }
     const d1 = await r1.json();
 
-    // Step 2: Create student account
-    const r2 = await fetch('/api/student/auth/signup', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({email:email, password:pwd, full_name:name})
-    });
-    if(!r2.ok){
-      const err2 = await r2.json().catch(()=>({}));
-      // If account already exists, that's OK — they're still registered
-      if(r2.status !== 409) {
-        console.warn('Account creation failed:', err2.detail);
-      }
-    }
-
-    // Step 3: Auto-login so dashboard works immediately
-    try {
-      const r3 = await fetch('/api/student/auth/login', {
+    // Step 2: Create student account (only if password was provided)
+    if(_createAccount && pwd){
+      const r2 = await fetch('/api/student/auth/signup', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email:email, password:pwd})
+        body: JSON.stringify({email:email, password:pwd, full_name:name})
       });
-      if(r3.ok){
-        const d3 = await r3.json();
-        localStorage.setItem('procta_student_token', d3.access_token);
-        localStorage.setItem('procta_student_refresh', d3.refresh_token);
+      if(r2.ok){
+        accountCreated = true;
+      } else {
+        const err2 = await r2.json().catch(()=>({}));
+        if(r2.status === 409){
+          // Account already exists — not an error, they just didn't know
+          accountCreated = true; // existing account counts
+        } else {
+          console.warn('Account creation failed:', err2.detail);
+        }
       }
-    } catch(loginErr) {
-      console.warn('Auto-login failed:', loginErr);
+
+      // Step 3: Auto-login
+      if(accountCreated){
+        try {
+          const r3 = await fetch('/api/student/auth/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email:email, password:pwd})
+          });
+          if(r3.ok){
+            const d3 = await r3.json();
+            localStorage.setItem('procta_student_token', d3.access_token);
+            localStorage.setItem('procta_student_refresh', d3.refresh_token);
+          }
+        } catch(loginErr) {
+          console.warn('Auto-login failed:', loginErr);
+        }
+      }
     }
 
-    // Show success
+    // Show success — adapt stepper based on whether account was created
     document.getElementById('reg-form').style.display = 'none';
     document.getElementById('reg-success').style.display = 'block';
     document.getElementById('success-roll').textContent = d1.roll_number;
     document.getElementById('success-name').textContent = 'Registered as ' + d1.full_name;
+
+    // If they skipped account creation, update the stepper to reflect that
+    if(!_createAccount || !accountCreated){
+      const acctStep = document.getElementById('step-account');
+      if(acctStep){
+        acctStep.className = 'step current';
+        acctStep.querySelector('.step-icon').textContent = '2';
+        acctStep.querySelector('.step-icon').innerHTML = '2';
+        acctStep.querySelector('.step-title').textContent = 'Sign in with your existing account';
+        acctStep.querySelector('.step-desc').textContent = 'Open the Procta app and sign in with your email and password.';
+      }
+    }
   }catch(e){
     document.getElementById('reg-err').textContent = e.message;
     btn.disabled = false;

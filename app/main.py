@@ -1077,20 +1077,18 @@ def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
     # Fallback 2: no exam_sessions row at all (very early in-progress).
     # Allow timeline if violations exist and all belong to this teacher.
     v_mine = supabase.table("violations")\
-        .select("session_key,roll_number,teacher_id")\
+        .select("session_key,teacher_id")\
         .eq("session_key", session_id)\
         .eq("teacher_id", tid_str)\
         .limit(1)\
         .execute()
     if v_mine.data:
-        v = v_mine.data[0]
         print(f"[OWN] fallback2 (no session row, violations match) "
               f"sid={session_id} tid={tid_str}")
         return {
             "session_key": session_id,
             "teacher_id":  tid_str,
-            "roll_number": v.get("roll_number") or
-                           (session_id.rsplit("_", 1)[0] if "_" in session_id
+            "roll_number": (session_id.rsplit("_", 1)[0] if "_" in session_id
                             else session_id[:20]),
             "full_name":   "",
             "status":      "in_progress",

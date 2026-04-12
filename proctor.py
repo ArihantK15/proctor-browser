@@ -152,18 +152,18 @@ CONFIDENCE = {
 # screen) a fast catch while letting honest students breathe.
 # Note: these are bias-corrected. With calibration the student's "centre"
 # is 0,0 so we can be a bit stricter than the bias-free build was.
-GAZE_YAW_RAD          = 0.35   # ~20° from calibrated centre (medium tier)
-GAZE_PITCH_RAD        = 0.40   # ~23° from calibrated centre
-GAZE_YAW_EXTREME      = 0.65   # ~37° — clearly looking off-screen (high tier)
-GAZE_PITCH_EXTREME    = 0.65   # ~37°
-GAZE_FRAMES_NEEDED    = 14     # ~0.9s at 15fps before medium flag
-GAZE_EXTREME_FRAMES   = 6      # ~0.4s for the extreme/high tier
-HEAD_YAW_THRESHOLD    = 25     # degrees from calibrated centre (medium)
-HEAD_PITCH_THRESHOLD  = 32
-HEAD_YAW_EXTREME      = 45     # clearly turned away from monitor (high)
-HEAD_PITCH_EXTREME    = 50
-HEAD_FRAMES_NEEDED    = 14
-HEAD_EXTREME_FRAMES   = 6
+GAZE_YAW_RAD          = 0.30   # ~17° from calibrated centre (medium tier)
+GAZE_PITCH_RAD        = 0.35   # ~20° from calibrated centre
+GAZE_YAW_EXTREME      = 0.55   # ~31° — clearly looking off-screen (high tier)
+GAZE_PITCH_EXTREME    = 0.55   # ~31°
+GAZE_FRAMES_NEEDED    = 12     # ~0.8s at 15fps before medium flag
+GAZE_EXTREME_FRAMES   = 5      # ~0.33s for the extreme/high tier
+HEAD_YAW_THRESHOLD    = 22     # degrees from calibrated centre (medium)
+HEAD_PITCH_THRESHOLD  = 28
+HEAD_YAW_EXTREME      = 40     # clearly turned away from monitor (high)
+HEAD_PITCH_EXTREME    = 45
+HEAD_FRAMES_NEEDED    = 12
+HEAD_EXTREME_FRAMES   = 5
 FACE_MISSING_FRAMES   = 24     # ~1.6s at 15fps — survives any blip
 EYES_CLOSED_FRAMES    = 20     # ~1.3s — natural blinks won't trip this
 MULTI_FACE_FRAMES     = 5
@@ -192,6 +192,24 @@ GAZE_SMOOTH_WINDOW = 5
 # yaw/pitch is compared against the threshold *after* subtracting the bias.
 CALIBRATION_FRAMES = 45      # ~3s at 15fps — long enough to be stable
 CALIBRATION_MAX_WAIT = 240   # give up after this many frames if face missing
+
+# ─── DIRECTION HELPER ────────────────────────────────────────────────────────
+# The old cascade checked yaw first, then pitch as a fallback — so if yaw was
+# *barely* over threshold while pitch was way past, the label said "right"
+# instead of "down". Fix: pick whichever axis dominates (relative to its own
+# threshold) to avoid misleading labels like "head turns right" when the user
+# was clearly looking down.
+def _dominant_direction(yaw: float, pitch: float,
+                        yaw_thresh: float, pitch_thresh: float) -> str:
+    """Return 'left'|'right'|'up'|'down' choosing the dominant axis."""
+    # Normalise each axis by its threshold so they're comparable.
+    yaw_ratio   = abs(yaw)   / max(yaw_thresh,   1e-6)
+    pitch_ratio = abs(pitch) / max(pitch_thresh, 1e-6)
+    if yaw_ratio >= pitch_ratio:
+        return "left" if yaw < 0 else "right"
+    else:
+        return "up"   if pitch < 0 else "down"
+
 
 # ─── CHEAT OBJECTS ────────────────────────────────────────────────────────────
 # COCO class IDs for items that shouldn't be on the desk during an exam.
@@ -814,10 +832,8 @@ def run_proctoring(cap, W, H):
                 # Extreme tier fires first (faster + higher confidence).
                 if gaze_extreme_count >= GAZE_EXTREME_FRAMES and \
                    can_log("gaze_away"):
-                    direction = "left"  if gaze_yaw   < -GAZE_YAW_RAD else \
-                                "right" if gaze_yaw   >  GAZE_YAW_RAD else \
-                                "up"    if gaze_pitch < -GAZE_PITCH_RAD else \
-                                "down"
+                    direction = _dominant_direction(
+                        gaze_yaw, gaze_pitch, GAZE_YAW_RAD, GAZE_PITCH_RAD)
                     log_event("gaze_away", "high",
                               f"Looking off-screen {direction} "
                               f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad EXTREME)")
@@ -826,10 +842,8 @@ def run_proctoring(cap, W, H):
                     gaze_extreme_count = 0
                 elif gaze_away_count >= GAZE_FRAMES_NEEDED and \
                      can_log("gaze_away"):
-                    direction = "left"  if gaze_yaw   < -GAZE_YAW_RAD else \
-                                "right" if gaze_yaw   >  GAZE_YAW_RAD else \
-                                "up"    if gaze_pitch < -GAZE_PITCH_RAD else \
-                                "down"
+                    direction = _dominant_direction(
+                        gaze_yaw, gaze_pitch, GAZE_YAW_RAD, GAZE_PITCH_RAD)
                     log_event("gaze_away", "medium",
                               f"Looking {direction} "
                               f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad)")
@@ -862,10 +876,8 @@ def run_proctoring(cap, W, H):
 
             if head_extreme_count >= HEAD_EXTREME_FRAMES and \
                can_log("head_turned"):
-                direction = "left"  if head_yaw   < -HEAD_YAW_THRESHOLD else \
-                            "right" if head_yaw   >  HEAD_YAW_THRESHOLD else \
-                            "up"    if head_pitch < -HEAD_PITCH_THRESHOLD else \
-                            "down"
+                direction = _dominant_direction(
+                    head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
                 log_event("head_turned", "high",
                           f"Head turned {direction} "
                           f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}° EXTREME)")
@@ -874,10 +886,8 @@ def run_proctoring(cap, W, H):
                 head_extreme_count = 0
             elif head_away_count >= HEAD_FRAMES_NEEDED and \
                  can_log("head_turned"):
-                direction = "left"  if head_yaw   < -HEAD_YAW_THRESHOLD else \
-                            "right" if head_yaw   >  HEAD_YAW_THRESHOLD else \
-                            "up"    if head_pitch < -HEAD_PITCH_THRESHOLD else \
-                            "down"
+                direction = _dominant_direction(
+                    head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
                 log_event("head_turned", "medium",
                           f"Head turned {direction} "
                           f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}°)")

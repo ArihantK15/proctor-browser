@@ -2574,13 +2574,46 @@ def _partition_live_sessions(teacher_id: str) -> tuple[list[dict], list[dict]]:
     Active = heartbeat within _CLEAR_ACTIVE_WINDOW seconds. Stale = the
     rest. A single query hits the DB; the split is done in Python so
     the classification is consistent across request/confirm steps.
+
+    Also picks up orphan sessions whose teacher_id is NULL — these are
+    from before multi-tenant scoping was added and should be clearable.
     """
+    # Teacher-scoped sessions
     result = supabase.table("exam_sessions")\
-        .select("session_key,roll_number,full_name,started_at,last_heartbeat")\
+        .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")\
         .eq("teacher_id", str(teacher_id))\
         .eq("status", "in_progress")\
         .execute()
-    rows = result.data or []
+    rows = list(result.data or [])
+    seen = {r["session_key"] for r in rows}
+
+    # Also grab orphans with NULL/empty teacher_id — these belong to no
+    # one and should be clearable by any admin (or the sole teacher).
+    try:
+        orphan1 = supabase.table("exam_sessions")\
+            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")\
+            .is_("teacher_id", "null")\
+            .eq("status", "in_progress")\
+            .execute()
+        for r in (orphan1.data or []):
+            if r["session_key"] not in seen:
+                rows.append(r)
+                seen.add(r["session_key"])
+    except Exception as e:
+        print(f"[ClearLive] orphan query (null) failed: {e}")
+    try:
+        orphan2 = supabase.table("exam_sessions")\
+            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")\
+            .eq("teacher_id", "")\
+            .eq("status", "in_progress")\
+            .execute()
+        for r in (orphan2.data or []):
+            if r["session_key"] not in seen:
+                rows.append(r)
+                seen.add(r["session_key"])
+    except Exception as e:
+        print(f"[ClearLive] orphan query (empty) failed: {e}")
+
     active, stale = [], []
     for r in rows:
         (active if _session_is_active(r) else stale).append(r)
@@ -2733,21 +2766,27 @@ def clear_live_sessions(request: Request, body: dict):
         viol_deleted = 0
         scr_deleted = 0
 
-        # Delete answers + violations for each session. Supabase-py's
-        # .in_() accepts a list but we iterate to keep the queries small
-        # and traceable in the log.
+        # Build a lookup of session_key → teacher_id from the partition
+        # data so we can handle orphans (NULL teacher_id) correctly.
+        _sk_tid = {r["session_key"]: r.get("teacher_id") or ""
+                   for r in stale}
+
+        # Delete answers + violations for each session.
         for sk in session_keys:
+            sk_tid = _sk_tid.get(sk, tid)
             try:
-                r = supabase.table("answers").delete()\
-                    .eq("session_key", sk)\
-                    .eq("teacher_id", tid).execute()
+                q = supabase.table("answers").delete().eq("session_key", sk)
+                if sk_tid:
+                    q = q.eq("teacher_id", sk_tid)
+                r = q.execute()
                 ans_deleted += len(r.data or [])
             except Exception as e:
                 print(f"[ClearLive] answer delete failed {sk}: {e}")
             try:
-                r = supabase.table("violations").delete()\
-                    .eq("session_key", sk)\
-                    .eq("teacher_id", tid).execute()
+                q = supabase.table("violations").delete().eq("session_key", sk)
+                if sk_tid:
+                    q = q.eq("teacher_id", sk_tid)
+                r = q.execute()
                 viol_deleted += len(r.data or [])
             except Exception as e:
                 print(f"[ClearLive] violation delete failed {sk}: {e}")
@@ -2761,8 +2800,10 @@ def clear_live_sessions(request: Request, body: dict):
         for sk in session_keys:
             try:
                 q = supabase.table("exam_sessions").delete()\
-                    .eq("teacher_id", tid)\
                     .eq("session_key", sk)
+                sk_tid = _sk_tid.get(sk, tid)
+                if sk_tid:
+                    q = q.eq("teacher_id", sk_tid)
                 if sk in stale_key_set:
                     q = q.eq("status", "in_progress")
                 else:

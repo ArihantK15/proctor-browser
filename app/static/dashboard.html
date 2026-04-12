@@ -179,7 +179,7 @@
     .stats{grid-template-columns:1fr 1fr}
     .toolbar input{width:100%;min-width:0}
     .toolbar{flex-wrap:wrap}
-    .modal{padding:20px;width:95vw}
+    .modal{padding:16px;width:98vw}
     .chat-wrap{grid-template-columns:1fr;
       height:auto;min-height:0}
     .chat-roster{max-height:220px}
@@ -187,6 +187,23 @@
     .topbar-teacher{padding-left:0;border-left:none}
     .tools-grid{grid-template-columns:1fr}
     .q-opts{grid-template-columns:1fr}
+    table{font-size:12px}
+    th,td{padding:8px 8px}
+    .topbar-right{gap:8px;flex-wrap:wrap}
+    .topbar-right .action-btn{padding:6px 10px;font-size:11px}
+  }
+  @media(max-width:480px){
+    .container{padding:8px}
+    .stats{grid-template-columns:1fr}
+    .topbar{padding:10px 12px}
+    .topbar .logo{font-size:15px}
+    .topbar .logo img{width:24px;height:24px}
+    table{font-size:11px}
+    th,td{padding:6px 6px;white-space:nowrap}
+    .modal{padding:12px;width:100vw;max-width:100vw;border-radius:8px}
+    .tool-card{padding:16px}
+    .tool-card p{font-size:12px}
+    .q-card{padding:14px}
   }
   /* Hard guard against horizontal-scroll on the document itself —
      the table .table-wrap already scrolls, but the page outer

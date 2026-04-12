@@ -2572,47 +2572,100 @@ def _partition_live_sessions(teacher_id: str) -> tuple[list[dict], list[dict]]:
     """Return (active, stale) in-progress sessions for a teacher.
 
     Active = heartbeat within _CLEAR_ACTIVE_WINDOW seconds. Stale = the
-    rest. A single query hits the DB; the split is done in Python so
-    the classification is consistent across request/confirm steps.
+    rest.
+
+    Discovery uses TWO sources — the same approach the live tab uses:
+      1. exam_sessions table (in_progress rows)
+      2. violations table (last 48h) — session_keys that appear here but
+         have NO matching exam_sessions row are "ghost" sessions created
+         when the student record was deleted. These are always stale.
 
     Also picks up orphan sessions whose teacher_id is NULL — these are
     from before multi-tenant scoping was added and should be clearable.
     """
-    # Teacher-scoped sessions
+    tid = str(teacher_id)
+
+    # ── 1. exam_sessions-based discovery ──
     result = supabase.table("exam_sessions")\
         .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")\
-        .eq("teacher_id", str(teacher_id))\
+        .eq("teacher_id", tid)\
         .eq("status", "in_progress")\
         .execute()
     rows = list(result.data or [])
     seen = {r["session_key"] for r in rows}
 
-    # Also grab orphans with NULL/empty teacher_id — these belong to no
-    # one and should be clearable by any admin (or the sole teacher).
+    # Orphans with NULL/empty teacher_id
+    for fetch_fn in [
+        lambda: supabase.table("exam_sessions")
+            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")
+            .is_("teacher_id", "null")
+            .eq("status", "in_progress")
+            .execute(),
+        lambda: supabase.table("exam_sessions")
+            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")
+            .eq("teacher_id", "")
+            .eq("status", "in_progress")
+            .execute(),
+    ]:
+        try:
+            for r in (fetch_fn().data or []):
+                if r["session_key"] not in seen:
+                    rows.append(r)
+                    seen.add(r["session_key"])
+        except Exception as e:
+            print(f"[ClearLive] orphan query failed: {e}")
+
+    # ── 2. violations-based discovery ("ghost" sessions) ──
+    # The live tab finds sessions from violations in the last 48h.
+    # Some of those session_keys may not exist in exam_sessions at all
+    # (e.g. student row was deleted, or exam_sessions row was manually
+    # removed from Supabase). These ghosts keep showing in the live tab
+    # but cannot be cleared unless we discover them here too.
     try:
-        orphan1 = supabase.table("exam_sessions")\
-            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")\
+        cutoff = (now_ist() - timedelta(hours=48)).isoformat()
+        # Query teacher-scoped violations
+        viol_teacher = supabase.table("violations")\
+            .select("session_key")\
+            .eq("teacher_id", tid)\
+            .gte("created_at", cutoff)\
+            .execute()
+        # Also grab orphan violations (NULL or empty teacher_id)
+        viol_orphan1 = supabase.table("violations")\
+            .select("session_key")\
             .is_("teacher_id", "null")\
-            .eq("status", "in_progress")\
+            .gte("created_at", cutoff)\
             .execute()
-        for r in (orphan1.data or []):
-            if r["session_key"] not in seen:
-                rows.append(r)
-                seen.add(r["session_key"])
-    except Exception as e:
-        print(f"[ClearLive] orphan query (null) failed: {e}")
-    try:
-        orphan2 = supabase.table("exam_sessions")\
-            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")\
+        viol_orphan2 = supabase.table("violations")\
+            .select("session_key")\
             .eq("teacher_id", "")\
-            .eq("status", "in_progress")\
+            .gte("created_at", cutoff)\
             .execute()
-        for r in (orphan2.data or []):
-            if r["session_key"] not in seen:
-                rows.append(r)
-                seen.add(r["session_key"])
+        all_viol_data = (viol_teacher.data or []) + \
+                        (viol_orphan1.data or []) + \
+                        (viol_orphan2.data or [])
+        ghost_keys: set[str] = set()
+        for v in all_viol_data:
+            sk = v.get("session_key")
+            if sk and sk not in seen:
+                ghost_keys.add(sk)
+        if ghost_keys:
+            print(f"[ClearLive] discovered {len(ghost_keys)} ghost session(s) "
+                  f"from violations: {ghost_keys}")
+        # For each ghost, create a synthetic stale row so the delete
+        # loop can wipe its violations/answers.
+        for sk in ghost_keys:
+            rows.append({
+                "session_key": sk,
+                "roll_number": sk.split("_")[0] if "_" in sk else sk,
+                "full_name": None,
+                "started_at": None,
+                "last_heartbeat": None,  # no heartbeat → always stale
+                "teacher_id": tid,
+                "_ghost": True,  # marker so delete logic can skip exam_sessions
+            })
+            seen.add(sk)
     except Exception as e:
-        print(f"[ClearLive] orphan query (empty) failed: {e}")
+        print(f"[ClearLive] violations ghost discovery failed: {e}")
 
     active, stale = [], []
     for r in rows:
@@ -2766,17 +2819,21 @@ def clear_live_sessions(request: Request, body: dict):
         viol_deleted = 0
         scr_deleted = 0
 
-        # Build a lookup of session_key → teacher_id from the partition
-        # data so we can handle orphans (NULL teacher_id) correctly.
+        # Build lookups from partition data.
         _sk_tid = {r["session_key"]: r.get("teacher_id") or ""
                    for r in stale}
+        _ghost_keys = {r["session_key"] for r in stale if r.get("_ghost")}
 
         # Delete answers + violations for each session.
+        # For ghost sessions (violations-only, no exam_sessions row)
+        # we delete by session_key alone — no teacher_id filter — because
+        # the violations may have been written with any/no teacher_id.
         for sk in session_keys:
             sk_tid = _sk_tid.get(sk, tid)
+            is_ghost = sk in _ghost_keys
             try:
                 q = supabase.table("answers").delete().eq("session_key", sk)
-                if sk_tid:
+                if sk_tid and not is_ghost:
                     q = q.eq("teacher_id", sk_tid)
                 r = q.execute()
                 ans_deleted += len(r.data or [])
@@ -2784,7 +2841,7 @@ def clear_live_sessions(request: Request, body: dict):
                 print(f"[ClearLive] answer delete failed {sk}: {e}")
             try:
                 q = supabase.table("violations").delete().eq("session_key", sk)
-                if sk_tid:
+                if sk_tid and not is_ghost:
                     q = q.eq("teacher_id", sk_tid)
                 r = q.execute()
                 viol_deleted += len(r.data or [])
@@ -2793,22 +2850,28 @@ def clear_live_sessions(request: Request, body: dict):
 
         # Delete the session rows. For stale sessions we scope to
         # status=in_progress; for completed ones we scope to
-        # status=completed. Active students are not in session_keys
-        # so they're never touched.
+        # status=completed. Ghost sessions may or may not have an
+        # exam_sessions row — try to delete without status filter.
         stale_key_set = {r["session_key"] for r in stale}
         sess_deleted = 0
         for sk in session_keys:
             try:
-                q = supabase.table("exam_sessions").delete()\
-                    .eq("session_key", sk)
-                sk_tid = _sk_tid.get(sk, tid)
-                if sk_tid:
-                    q = q.eq("teacher_id", sk_tid)
-                if sk in stale_key_set:
-                    q = q.eq("status", "in_progress")
+                if sk in _ghost_keys:
+                    # Ghost: try deleting any exam_sessions row by key
+                    # (may be a no-op if the row doesn't exist)
+                    supabase.table("exam_sessions").delete()\
+                        .eq("session_key", sk).execute()
                 else:
-                    q = q.eq("status", "completed")
-                q.execute()
+                    q = supabase.table("exam_sessions").delete()\
+                        .eq("session_key", sk)
+                    sk_tid = _sk_tid.get(sk, tid)
+                    if sk_tid:
+                        q = q.eq("teacher_id", sk_tid)
+                    if sk in stale_key_set:
+                        q = q.eq("status", "in_progress")
+                    else:
+                        q = q.eq("status", "completed")
+                    q.execute()
                 sess_deleted += 1
             except Exception as e:
                 print(f"[ClearLive] session delete failed {sk}: {e}")

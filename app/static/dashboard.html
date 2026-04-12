@@ -707,12 +707,16 @@
 
       <div class="tool-card" id="clear-live-card" style="border-color:rgba(239,68,68,0.35)">
         <div class="tool-card-body">
-          <h3 style="color:var(--red)">Clear Live Sessions</h3>
-          <p>Destructive. Wipes <em>stale</em> in-progress exam sessions for your account — along with the saved answers, violation events and loose screenshots that belong to them. A student whose client has sent a heartbeat in the last 2 minutes is considered actively taking the exam and is <b>never</b> touched. Completed submissions, your questions, and other teachers' data are never touched. Requires two confirmations.</p>
+          <h3 style="color:var(--red)">Clear Sessions</h3>
+          <p>Destructive. Wipes <em>stale</em> in-progress exam sessions for your account — along with the saved answers, violation events and screenshots that belong to them. A student whose client has sent a heartbeat in the last 2 minutes is considered actively taking the exam and is <b>never</b> touched. Your questions and other teachers' data are never touched. Requires two confirmations.</p>
+          <label class="shuffle-toggle" style="margin-top:8px">
+            <input type="checkbox" id="clear-include-completed" onchange="_clearLiveReset()">
+            <span>Include completed (submitted) sessions</span>
+          </label>
           <div class="tool-card-result" id="clear-live-preview" style="font-size:12px;color:var(--muted)"></div>
         </div>
         <div class="tool-card-actions">
-          <button class="action-btn" id="clear-live-btn" onclick="clearLiveSessionsStep()" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Clear Live Sessions</button>
+          <button class="action-btn" id="clear-live-btn" onclick="clearLiveSessionsStep()" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Clear Sessions</button>
         </div>
         <div class="tool-card-result" id="clear-live-result" style="font-size:12px"></div>
       </div>
@@ -1382,21 +1386,25 @@ function _clearLiveReset(){
   if(prev) prev.textContent='';
 }
 
+function _clearIncludeCompleted(){
+  return document.getElementById('clear-include-completed')?.checked || false;
+}
+
 async function clearLiveSessionsStep(){
   const btn=document.getElementById('clear-live-btn');
   const prev=document.getElementById('clear-live-preview');
   const out=document.getElementById('clear-live-result');
   out.textContent='';
+  const inclComp=_clearIncludeCompleted();
 
   if(_clearLiveState==='idle'){
-    // Step 1 — ask server for a preview + token.
     btn.disabled=true;
     btn.textContent='Checking...';
     try{
       const r=await authFetch(`${BASE}/api/admin/clear-live-sessions`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({step:'request'})
+        body:JSON.stringify({step:'request', include_completed:inclComp})
       });
       if(!r.ok){
         const err=await r.json().catch(()=>({detail:'Request failed'}));
@@ -1404,9 +1412,9 @@ async function clearLiveSessionsStep(){
       }
       const d=await r.json();
       _clearLiveToken=d.token||'';
-      // `count` is the stale (clearable) count — active sessions are
-      // protected so students mid-exam keep their work.
-      _clearLiveCount=d.stale_count!==undefined?d.stale_count:(d.count||0);
+      const staleCount=d.stale_count||0;
+      const compCount=d.completed_count||0;
+      _clearLiveCount=(d.count!==undefined?d.count:staleCount);
       const activeCount=d.active_count||0;
       const win=d.active_window_s||120;
       _clearLiveState='first';
@@ -1415,7 +1423,7 @@ async function clearLiveSessionsStep(){
         out.style.color=activeCount>0?'var(--amber)':'var(--muted)';
         out.textContent=activeCount>0
           ? `Nothing to clear — ${activeCount} student(s) are actively taking the exam right now (heartbeat within ${win}s). Wait for them to finish.`
-          : 'No live sessions to clear.';
+          : 'No sessions to clear.';
         _clearLiveReset();
         return;
       }
@@ -1423,12 +1431,16 @@ async function clearLiveSessionsStep(){
       btn.style.color='var(--amber)';
       const rolls=(d.preview||[]).map(p=>esc(p.roll_number||p.session_key)).slice(0,10).join(', ');
       const activeRolls=(d.active_preview||[]).map(p=>esc(p.roll_number||p.session_key)).slice(0,6).join(', ');
-      let html=`Will wipe <b>${_clearLiveCount}</b> stale session(s)${rolls?': '+rolls:''}${_clearLiveCount>10?' ...':''}`;
+      let html='';
+      if(staleCount>0) html+=`Will wipe <b>${staleCount}</b> stale live session(s)${rolls?': '+rolls:''}${staleCount>10?' ...':''}`;
+      if(compCount>0){
+        const compRolls=(d.completed_preview||[]).map(p=>esc(p.roll_number||p.session_key)).slice(0,10).join(', ');
+        html+=(html?'<br>':'')+`<span style="color:var(--amber)">+ <b>${compCount}</b> completed (submitted) session(s)${compRolls?' — '+compRolls:''}</span>`;
+      }
       if(activeCount>0){
         html+=`<br><span style="color:var(--emerald)">Protected (still taking exam): <b>${activeCount}</b>${activeRolls?' — '+activeRolls:''}${activeCount>6?' ...':''}</span>`;
       }
       prev.innerHTML=html;
-      // Auto-cancel after 30s so a stale button doesn't linger.
       _clearLiveTimer=setTimeout(()=>{
         out.style.color='var(--muted)';
         out.textContent='Confirmation timed out — click again to restart.';
@@ -1443,22 +1455,21 @@ async function clearLiveSessionsStep(){
   }
 
   if(_clearLiveState==='first'){
-    // Step 2 — second confirmation before firing.
     _clearLiveState='final';
-    btn.textContent=`This deletes answers, violations & screenshots. Click once more to wipe ${_clearLiveCount}.`;
+    const extra=inclComp?' INCLUDING completed results':'';
+    btn.textContent=`This deletes answers, violations & screenshots${extra}. Click once more to wipe ${_clearLiveCount}.`;
     btn.style.color='var(--red)';
     return;
   }
 
   if(_clearLiveState==='final'){
-    // Step 3 — really do it.
     btn.disabled=true;
     btn.textContent='Wiping...';
     try{
       const r=await authFetch(`${BASE}/api/admin/clear-live-sessions`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({step:'confirm', token:_clearLiveToken, ack:'DELETE'})
+        body:JSON.stringify({step:'confirm', token:_clearLiveToken, ack:'DELETE', include_completed:inclComp})
       });
       if(!r.ok){
         const err=await r.json().catch(()=>({detail:'Failed'}));
@@ -1466,13 +1477,15 @@ async function clearLiveSessionsStep(){
       }
       const d=await r.json();
       out.style.color='var(--emerald)';
-      let msg=`Cleared ${d.cleared} session(s). Deleted ${d.answers} answers, ${d.violations} violation events, ${d.screenshots} screenshots.`;
+      let msg=`Cleared ${d.cleared} session(s)`;
+      if(d.completed_cleared>0) msg+=` (${d.completed_cleared} completed)`;
+      msg+=`. Deleted ${d.answers} answers, ${d.violations} violation events, ${d.screenshots} screenshots.`;
       if(d.skipped_active>0){
         msg+=` Protected ${d.skipped_active} active student(s) still taking the exam.`;
       }
       out.textContent=msg;
-      // Refresh the live tab since the rows are gone now.
       if(typeof refreshLive==='function') refreshLive();
+      if(typeof refreshResults==='function') refreshResults();
     }catch(e){
       out.style.color='var(--red)';
       out.textContent='Failed: '+e.message;

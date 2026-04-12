@@ -2615,20 +2615,36 @@ def clear_live_sessions(request: Request, body: dict):
     tid = str(teacher["id"])
     step = str(body.get("step") or "").lower().strip()
 
+    # When include_completed is true, wipe completed (submitted) sessions
+    # too — a full data reset for this teacher's exam history. Still
+    # protects actively-heartbeating students.
+    include_completed = bool(body.get("include_completed", False))
+
     if step == "request":
         active, stale = _partition_live_sessions(tid)
+        # Optionally include completed sessions in the wipe.
+        completed_rows: list[dict] = []
+        if include_completed:
+            comp = supabase.table("exam_sessions")\
+                .select("session_key,roll_number,full_name,started_at,submitted_at")\
+                .eq("teacher_id", tid)\
+                .eq("status", "completed")\
+                .execute()
+            completed_rows = comp.data or []
         token = _clear_token_issue(tid)
         return {
             "step":          "request",
             "token":          token,
             "expires_in":     _CLEAR_TOKEN_TTL,
             "active_window_s": _CLEAR_ACTIVE_WINDOW,
+            "include_completed": include_completed,
             # Total live sessions (for display). Only `stale_count` will
             # actually be deleted on confirm — `active_count` students
             # are protected while they're still sending heartbeats.
-            "count":          len(stale),
+            "count":          len(stale) + len(completed_rows),
             "stale_count":    len(stale),
             "active_count":   len(active),
+            "completed_count": len(completed_rows),
             "preview":    [
                 {"session_key": r["session_key"],
                  "roll_number": r.get("roll_number"),
@@ -2643,6 +2659,13 @@ def clear_live_sessions(request: Request, body: dict):
                  "full_name":   r.get("full_name"),
                  "last_heartbeat": r.get("last_heartbeat")}
                 for r in active[:20]
+            ],
+            "completed_preview": [
+                {"session_key": r["session_key"],
+                 "roll_number": r.get("roll_number"),
+                 "full_name":   r.get("full_name"),
+                 "submitted_at": r.get("submitted_at")}
+                for r in completed_rows[:20]
             ],
         }
 
@@ -2660,7 +2683,18 @@ def clear_live_sessions(request: Request, body: dict):
         # If a student resumed or started since the request step, their
         # session will now be "active" and we MUST skip it.
         active, stale = _partition_live_sessions(tid)
-        if not stale:
+
+        # Optionally include completed sessions.
+        completed_keys: list[str] = []
+        if include_completed:
+            comp = supabase.table("exam_sessions")\
+                .select("session_key,roll_number")\
+                .eq("teacher_id", tid)\
+                .eq("status", "completed")\
+                .execute()
+            completed_keys = [r["session_key"] for r in (comp.data or [])]
+
+        if not stale and not completed_keys:
             skipped = [
                 {"session_key": r["session_key"],
                  "roll_number": r.get("roll_number"),
@@ -2670,13 +2704,21 @@ def clear_live_sessions(request: Request, body: dict):
             return {"step": "confirm", "cleared": 0, "sessions": 0,
                     "answers": 0, "violations": 0, "screenshots": 0,
                     "skipped_active": len(active), "skipped": skipped,
-                    "note": ("No stale sessions to clear"
+                    "note": ("No sessions to clear"
                              + (" — active students were protected"
                                 if active else ""))}
 
-        session_keys = [r["session_key"] for r in stale]
-        stale_set = set(session_keys)
-        rolls_seen = {r.get("roll_number") for r in stale if r.get("roll_number")}
+        # Merge stale live + completed into one list of keys to wipe.
+        session_keys = [r["session_key"] for r in stale] + completed_keys
+        rolls_seen = set()
+        for r in stale:
+            if r.get("roll_number"):
+                rolls_seen.add(r["roll_number"])
+        if include_completed:
+            for r in (comp.data or []):
+                if r.get("roll_number"):
+                    rolls_seen.add(r["roll_number"])
+
         skipped_active = [
             {"session_key": r["session_key"],
              "roll_number": r.get("roll_number"),
@@ -2710,24 +2752,29 @@ def clear_live_sessions(request: Request, body: dict):
             except Exception as e:
                 print(f"[ClearLive] violation delete failed {sk}: {e}")
 
-        # Delete only the STALE in-progress session rows — an active
-        # student's row must survive so their exam continues normally.
+        # Delete the session rows. For stale sessions we scope to
+        # status=in_progress; for completed ones we scope to
+        # status=completed. Active students are not in session_keys
+        # so they're never touched.
+        stale_key_set = {r["session_key"] for r in stale}
         sess_deleted = 0
         for sk in session_keys:
             try:
-                supabase.table("exam_sessions").delete()\
+                q = supabase.table("exam_sessions").delete()\
                     .eq("teacher_id", tid)\
-                    .eq("session_key", sk)\
-                    .eq("status", "in_progress")\
-                    .execute()
+                    .eq("session_key", sk)
+                if sk in stale_key_set:
+                    q = q.eq("status", "in_progress")
+                else:
+                    q = q.eq("status", "completed")
+                q.execute()
                 sess_deleted += 1
             except Exception as e:
                 print(f"[ClearLive] session delete failed {sk}: {e}")
 
         # Clean up on-disk screenshots for the affected rolls. We skip
         # any roll that has (a) an active session still running or
-        # (b) a completed session in the DB — either case means there
-        # is evidence we must preserve.
+        # (b) a completed session in the DB that we're NOT clearing.
         active_rolls = {r.get("roll_number") for r in active if r.get("roll_number")}
         t_screens = Path(SCREENSHOTS_DIR) / tid
         if t_screens.is_dir():
@@ -2735,25 +2782,22 @@ def clear_live_sessions(request: Request, body: dict):
                 if not roll:
                     continue
                 if roll in active_rolls:
-                    # Same student also has a live session — leave
-                    # their folder alone so in-flight screenshots are
-                    # not deleted mid-exam.
                     continue
                 safe = Path(roll).name
                 rdir = t_screens / safe
                 if not rdir.is_dir():
                     continue
-                # If the student has completed sessions, keep their dir
-                # so their evidence remains auditable.
-                comp = supabase.table("exam_sessions")\
-                    .select("session_key", count="exact")\
-                    .eq("teacher_id", tid)\
-                    .eq("roll_number", roll)\
-                    .eq("status", "completed")\
-                    .execute()
-                has_completed = (comp.count or 0) > 0
-                if has_completed:
-                    continue
+                # If we're NOT wiping completed sessions, check whether
+                # the student has completed data worth preserving.
+                if not include_completed:
+                    comp_chk = supabase.table("exam_sessions")\
+                        .select("session_key", count="exact")\
+                        .eq("teacher_id", tid)\
+                        .eq("roll_number", roll)\
+                        .eq("status", "completed")\
+                        .execute()
+                    if (comp_chk.count or 0) > 0:
+                        continue
                 try:
                     for f in rdir.iterdir():
                         if f.is_file():
@@ -2764,6 +2808,7 @@ def clear_live_sessions(request: Request, body: dict):
                     print(f"[ClearLive] screenshot cleanup failed {rdir}: {e}")
 
         print(f"[ClearLive] teacher={tid} sessions={sess_deleted} "
+              f"(completed={len(completed_keys)}) "
               f"answers={ans_deleted} violations={viol_deleted} "
               f"screenshots={scr_deleted} "
               f"protected_active={len(active)}")
@@ -2774,6 +2819,7 @@ def clear_live_sessions(request: Request, body: dict):
             "answers":        ans_deleted,
             "violations":     viol_deleted,
             "screenshots":    scr_deleted,
+            "completed_cleared": len(completed_keys),
             "skipped_active": len(active),
             "skipped":        skipped_active,
         }

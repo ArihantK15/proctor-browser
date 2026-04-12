@@ -6,7 +6,7 @@
 <title>Register — Procta</title>
 <link rel="stylesheet" href="/static/theme.css">
 <style>
-  body { display:flex; align-items:center; justify-content:center; padding:24px; }
+  body { display:flex; align-items:center; justify-content:center; padding:24px; min-height:100vh; }
   .container { max-width:520px; width:100%; text-align:center; }
   .header { margin-bottom:28px; }
   .header h1 {
@@ -41,6 +41,17 @@
   .fg input:focus { outline:none; border-color:rgba(59,130,246,.4); background:rgba(255,255,255,.05); }
   .fg input.err-border { border-color:var(--red); }
 
+  .divider {
+    display:flex; align-items:center; gap:14px; margin:20px 0 16px;
+  }
+  .divider::before, .divider::after {
+    content:''; flex:1; height:1px; background:var(--border);
+  }
+  .divider span {
+    font-size:11px; color:var(--muted); font-weight:600;
+    text-transform:uppercase; letter-spacing:.06em; white-space:nowrap;
+  }
+
   .submit-btn {
     width:100%; padding:13px; border-radius:10px; border:none;
     font-size:14px; font-weight:600; cursor:pointer;
@@ -54,6 +65,7 @@
   .err-msg { color:var(--red); font-size:13px; margin-top:10px; min-height:18px; text-align:center; }
   .loading { color:var(--muted); font-size:13px; margin-top:8px; text-align:center; }
 
+  /* ── Success view ──────────────────────────────────────────── */
   .success-card {
     display:none; background:var(--card); border:1px solid var(--border);
     border-radius:14px; padding:40px; text-align:center;
@@ -72,16 +84,52 @@
     font-size:28px; font-weight:700; color:var(--accent-light);
     margin:16px 0; font-family:monospace; letter-spacing:2px;
   }
-  .success-card .next-steps {
+
+  /* ── Progress stepper ──────────────────────────────────────── */
+  .stepper {
+    display:flex; flex-direction:column; gap:0;
     background:rgba(255,255,255,.02); border:1px solid var(--border);
-    border-radius:10px; padding:16px 20px; margin-top:20px; text-align:left;
+    border-radius:12px; padding:20px 22px; margin-top:20px; text-align:left;
   }
-  .success-card .next-steps h3 {
-    font-size:12px; color:var(--accent-light); margin-bottom:8px;
-    font-weight:600; text-transform:uppercase; letter-spacing:.04em;
+  .step {
+    display:flex; align-items:flex-start; gap:14px; position:relative;
+    padding-bottom:18px;
   }
-  .success-card .next-steps ol { padding-left:18px; color:var(--muted); font-size:13px; line-height:2.1; }
-  .success-card .next-steps li strong { color:var(--text); }
+  .step:last-child { padding-bottom:0; }
+  /* Vertical connector line */
+  .step:not(:last-child)::after {
+    content:''; position:absolute; left:13px; top:28px;
+    width:2px; bottom:0; background:var(--border);
+  }
+  .step.done:not(:last-child)::after { background:var(--emerald); }
+  .step-icon {
+    width:28px; height:28px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:13px; font-weight:700; z-index:1;
+    border:2px solid var(--border); background:var(--bg); color:var(--muted);
+  }
+  .step.done .step-icon {
+    border-color:var(--emerald); background:rgba(16,185,129,.12); color:var(--emerald);
+  }
+  .step.current .step-icon {
+    border-color:var(--accent); background:rgba(59,130,246,.12); color:var(--accent-light);
+    animation:pulse-ring 2s infinite;
+  }
+  @keyframes pulse-ring {
+    0%,100% { box-shadow:0 0 0 0 rgba(59,130,246,.3); }
+    50% { box-shadow:0 0 0 6px rgba(59,130,246,0); }
+  }
+  .step-content { flex:1; padding-top:3px; }
+  .step-title { font-size:13px; font-weight:600; color:var(--text); margin-bottom:2px; }
+  .step.done .step-title { color:var(--emerald); }
+  .step-desc { font-size:12px; color:var(--muted); line-height:1.5; }
+  .step-action { margin-top:8px; }
+  .step-action a {
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:13px; font-weight:600; color:var(--accent-light);
+    text-decoration:none; transition:color .2s;
+  }
+  .step-action a:hover { color:white; }
 
   .links { margin-top:20px; font-size:13px; }
   .links a { color:var(--accent-light); text-decoration:none; margin:0 8px; transition:color .2s; }
@@ -102,7 +150,7 @@
       <span>Procta</span>
     </div>
     <h1>Student Registration</h1>
-    <p class="subtitle">Register before exam day to receive access to the proctored exam.</p>
+    <p class="subtitle">Register and create your account in one step.</p>
   </div>
 
   <!-- Exam schedule banner -->
@@ -112,7 +160,7 @@
     <div class="sched-warn" id="sched-warn"></div>
   </div>
 
-  <!-- Registration form -->
+  <!-- Single unified registration + account form -->
   <div class="form-card" id="reg-form">
     <div class="fg">
       <label>Full Name</label>
@@ -138,45 +186,82 @@
       <input type="tel" id="inp-phone" placeholder="e.g. 9876543210"
              autocomplete="tel">
     </div>
-    <button class="submit-btn" id="reg-btn" onclick="doRegister()">Register</button>
+
+    <div class="divider"><span>Account password</span></div>
+
+    <div class="fg">
+      <label>Password</label>
+      <input type="password" id="inp-pwd" placeholder="Min 8 characters"
+             autocomplete="new-password"
+             oninput="clearErr()">
+    </div>
+    <div class="fg">
+      <label>Confirm Password</label>
+      <input type="password" id="inp-pwd2" placeholder="Confirm password"
+             autocomplete="new-password"
+             onkeydown="if(event.key==='Enter')doRegister()">
+    </div>
+
+    <button class="submit-btn" id="reg-btn" onclick="doRegister()">Register & Create Account</button>
     <div class="err-msg" id="reg-err"></div>
     <div class="loading" id="reg-ldr"></div>
+
+    <p style="color:var(--muted);font-size:12px;margin-top:16px;text-align:center">
+      Already have an account?
+      <a href="/student" style="color:var(--accent-light);text-decoration:none;font-weight:600">Sign in</a>
+    </p>
   </div>
 
-  <!-- Success card -->
+  <!-- Success card with progress stepper -->
   <div class="success-card" id="reg-success">
     <div class="success-check">
       <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="20 6 9 17 4 12"/>
       </svg>
     </div>
-    <h2>Registration Complete</h2>
-    <div class="roll-display" id="success-roll"></div>
+    <h2>You're all set!</h2>
     <p id="success-name"></p>
-    <div class="next-steps">
-      <h3>Next Steps</h3>
-      <ol>
-        <li><strong>Create your student account</strong> below to track your exams</li>
-        <li>Wait for the <strong>exam access code</strong> from your examiner</li>
-        <li><strong>Download</strong> the Procta app and sign in to start</li>
-      </ol>
-    </div>
-    <div id="quick-signup" style="margin-top:20px;text-align:left">
-      <div class="fg">
-        <label>Password</label>
-        <input type="password" id="inp-acct-pwd" placeholder="Min 8 characters (for your student account)">
+    <div class="roll-display" id="success-roll"></div>
+
+    <div class="stepper">
+      <div class="step done">
+        <div class="step-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="step-content">
+          <div class="step-title">Registered for exam</div>
+          <div class="step-desc">Your roll number is enrolled with your teacher.</div>
+        </div>
       </div>
-      <div class="fg">
-        <label>Confirm Password</label>
-        <input type="password" id="inp-acct-pwd2" placeholder="Confirm password"
-               onkeydown="if(event.key==='Enter')doQuickSignup()">
+      <div class="step done">
+        <div class="step-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="step-content">
+          <div class="step-title">Account created</div>
+          <div class="step-desc">You can sign in at any time to check your exams.</div>
+        </div>
       </div>
-      <button class="submit-btn" id="quick-signup-btn" onclick="doQuickSignup()">Create Student Account</button>
-      <div class="err-msg" id="quick-err"></div>
-    </div>
-    <div id="quick-done" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:16px 20px;margin-top:16px;text-align:center">
-      <div style="color:var(--emerald);font-weight:600;font-size:14px;margin-bottom:6px">Account created!</div>
-      <a href="/student" style="color:var(--accent-light);font-weight:600;text-decoration:none;font-size:13px">Go to your dashboard &rarr;</a>
+      <div class="step current" id="step-download">
+        <div class="step-icon">3</div>
+        <div class="step-content">
+          <div class="step-title">Download the Procta app</div>
+          <div class="step-desc">You'll need the app on exam day. Install it ahead of time.</div>
+          <div class="step-action">
+            <a href="/download">Download for your device &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="step" id="step-exam">
+        <div class="step-icon">4</div>
+        <div class="step-content">
+          <div class="step-title">Take the exam</div>
+          <div class="step-desc">Open the app, sign in, and start when your teacher provides the access code.</div>
+          <div class="step-action">
+            <a href="/student">Go to your dashboard &rarr;</a>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -205,47 +290,88 @@ async function doRegister(){
   const roll  = document.getElementById('inp-roll').value.trim().toUpperCase();
   const email = document.getElementById('inp-email').value.trim();
   const phone = document.getElementById('inp-phone').value.trim();
+  const pwd   = document.getElementById('inp-pwd').value;
+  const pwd2  = document.getElementById('inp-pwd2').value;
 
-  const errors = [];
+  // Validate all fields at once
   if(!name){
-    errors.push('Full name is required');
     document.getElementById('inp-name').classList.add('err-border');
+    document.getElementById('reg-err').textContent='Full name is required';
+    return;
   }
   if(!roll){
-    errors.push('Roll number is required');
     document.getElementById('inp-roll').classList.add('err-border');
+    document.getElementById('reg-err').textContent='Roll number is required';
+    return;
   }
   if(!email || !email.includes('@')){
-    errors.push('A valid email is required');
     document.getElementById('inp-email').classList.add('err-border');
+    document.getElementById('reg-err').textContent='A valid email is required';
+    return;
   }
-  if(errors.length){
-    document.getElementById('reg-err').textContent=errors[0];
+  if(!pwd || pwd.length < 8){
+    document.getElementById('inp-pwd').classList.add('err-border');
+    document.getElementById('reg-err').textContent='Password must be at least 8 characters';
+    return;
+  }
+  if(pwd !== pwd2){
+    document.getElementById('inp-pwd2').classList.add('err-border');
+    document.getElementById('reg-err').textContent='Passwords do not match';
     return;
   }
 
   const btn = document.getElementById('reg-btn');
   btn.disabled = true;
-  document.getElementById('reg-ldr').textContent = 'Registering...';
+  document.getElementById('reg-ldr').textContent = 'Setting up your account...';
 
   try{
-    const r = await fetch('/api/register-student', {
+    // Step 1: Register with teacher
+    const r1 = await fetch('/api/register-student', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, teacher_id:_teacherId})
     });
-    if(!r.ok){
-      const err = await r.json().catch(()=>({detail:'Registration failed'}));
+    if(!r1.ok){
+      const err = await r1.json().catch(()=>({detail:'Registration failed'}));
       throw new Error(err.detail || 'Registration failed');
     }
-    const d = await r.json();
-    // Stash for quick-signup
-    window._regEmail = email;
-    window._regName = name;
+    const d1 = await r1.json();
+
+    // Step 2: Create student account
+    const r2 = await fetch('/api/student/auth/signup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email:email, password:pwd, full_name:name})
+    });
+    if(!r2.ok){
+      const err2 = await r2.json().catch(()=>({}));
+      // If account already exists, that's OK — they're still registered
+      if(r2.status !== 409) {
+        console.warn('Account creation failed:', err2.detail);
+      }
+    }
+
+    // Step 3: Auto-login so dashboard works immediately
+    try {
+      const r3 = await fetch('/api/student/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email:email, password:pwd})
+      });
+      if(r3.ok){
+        const d3 = await r3.json();
+        localStorage.setItem('procta_student_token', d3.access_token);
+        localStorage.setItem('procta_student_refresh', d3.refresh_token);
+      }
+    } catch(loginErr) {
+      console.warn('Auto-login failed:', loginErr);
+    }
+
+    // Show success
     document.getElementById('reg-form').style.display = 'none';
     document.getElementById('reg-success').style.display = 'block';
-    document.getElementById('success-roll').textContent = d.roll_number;
-    document.getElementById('success-name').textContent = 'Registered as: ' + d.full_name;
+    document.getElementById('success-roll').textContent = d1.roll_number;
+    document.getElementById('success-name').textContent = 'Registered as ' + d1.full_name;
   }catch(e){
     document.getElementById('reg-err').textContent = e.message;
     btn.disabled = false;
@@ -253,46 +379,7 @@ async function doRegister(){
   document.getElementById('reg-ldr').textContent = '';
 }
 
-async function doQuickSignup(){
-  const pwd = document.getElementById('inp-acct-pwd').value;
-  const pwd2 = document.getElementById('inp-acct-pwd2').value;
-  const errEl = document.getElementById('quick-err');
-  errEl.textContent = '';
-  if(!pwd || pwd.length < 8){ errEl.textContent='Password must be at least 8 characters'; return; }
-  if(pwd !== pwd2){ errEl.textContent='Passwords do not match'; return; }
-  const email = window._regEmail;
-  const name = window._regName;
-  if(!email){ errEl.textContent='Registration data missing — please refresh and register again'; return; }
-  const btn = document.getElementById('quick-signup-btn');
-  btn.disabled = true; btn.textContent = 'Creating account...';
-  try{
-    // Sign up
-    const r1 = await fetch('/api/student/auth/signup',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email, password:pwd, full_name:name})
-    });
-    if(!r1.ok){
-      const d = await r1.json().catch(()=>({}));
-      throw new Error(d.detail || 'Signup failed');
-    }
-    // Auto-login
-    const r2 = await fetch('/api/student/auth/login',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email, password:pwd})
-    });
-    if(r2.ok){
-      const d2 = await r2.json();
-      localStorage.setItem('procta_student_token', d2.access_token);
-      localStorage.setItem('procta_student_refresh', d2.refresh_token);
-    }
-    document.getElementById('quick-signup').style.display = 'none';
-    document.getElementById('quick-done').style.display = 'block';
-  }catch(e){
-    errEl.textContent = e.message;
-    btn.disabled = false; btn.textContent = 'Create Student Account';
-  }
-}
-
+// Load exam schedule banner
 (function(){
   fetch('/api/exam-schedule' + (_teacherId ? '?t=' + encodeURIComponent(_teacherId) : '')).then(r=>r.json()).then(d=>{
     if(!d.starts_at && !d.ends_at) return;

@@ -484,6 +484,24 @@ async def teacher_refresh(body: RefreshIn, request: Request):
     }
 
 
+class PasswordResetIn(BaseModel):
+    email: str
+
+@app.post("/api/auth/password-reset")
+@limiter.limit("3/minute")
+async def teacher_password_reset(body: PasswordResetIn, request: Request):
+    """Send a password reset email via Supabase Auth."""
+    email = body.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    try:
+        supabase.auth.reset_password_for_email(email)
+    except Exception as e:
+        print(f"[PasswordReset] Error for {email}: {e}")
+        # Don't reveal whether the email exists or not
+    return {"status": "ok", "message": "If that email is registered, a reset link has been sent."}
+
+
 # ─── STUDENT DASHBOARD AUTH ──────────────────────────────────────
 
 @app.post("/api/student/auth/signup")

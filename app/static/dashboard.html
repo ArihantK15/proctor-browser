@@ -479,9 +479,28 @@
              onkeydown="if(event.key==='Enter')doLogin()">
       <button onclick="doLogin()" id="login-btn">Log In</button>
       <div class="auth-err" id="auth-err"></div>
-      <p style="color:var(--muted);font-size:12px;margin-top:16px">
+      <p style="color:var(--muted);font-size:12px;margin-top:12px">
+        <a href="#" onclick="toggleAuthForm('reset');return false" style="color:var(--muted);text-decoration:none;font-size:12px">Forgot password?</a>
+      </p>
+      <p style="color:var(--muted);font-size:12px;margin-top:8px">
         Don't have an account?
         <a href="#" onclick="toggleAuthForm('signup');return false" style="color:var(--accent-light);text-decoration:none;font-weight:600">Create one</a>
+      </p>
+    </div>
+
+    <!-- PASSWORD RESET FORM -->
+    <div id="auth-reset" style="display:none">
+      <h2>Reset Password</h2>
+      <p>Enter your email and we'll send a reset link</p>
+      <input type="email" id="reset-email" placeholder="Email address"
+             onkeydown="if(event.key==='Enter')doPasswordReset()">
+      <button onclick="doPasswordReset()" id="reset-btn">Send Reset Link</button>
+      <div class="auth-err" id="reset-err"></div>
+      <div id="reset-success" style="display:none;color:var(--emerald);font-size:13px;margin-top:12px">
+        Reset link sent! Check your email inbox.
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:16px">
+        <a href="#" onclick="toggleAuthForm('login');return false" style="color:var(--accent-light);text-decoration:none;font-weight:600">Back to login</a>
       </p>
     </div>
 
@@ -682,6 +701,31 @@
       </div>
     </div>
     <div class="tools-grid">
+      <div class="tool-card" style="grid-column:1/-1">
+        <div class="tool-card-body">
+          <h3>Share With Students</h3>
+          <p>Send these links to your students. The registration link is unique to your account — students who register through it will appear in your dashboard.</p>
+          <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+            <div>
+              <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Registration Link</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" id="share-register-link" readonly
+                  style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
+                <button class="action-btn primary" onclick="copyLink('share-register-link')" style="white-space:nowrap;padding:10px 16px">Copy</button>
+              </div>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Download Link</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" id="share-download-link" readonly
+                  style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
+                <button class="action-btn primary" onclick="copyLink('share-download-link')" style="white-space:nowrap;padding:10px 16px">Copy</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="tool-card">
         <div class="tool-card-body">
           <h3>Per-Student Randomization</h3>
@@ -842,13 +886,17 @@ let liveSortKey = 'last_seen', liveSortAsc = false;
 let resSortKey = 'submitted_at', resSortAsc = false;
 let currentSessionId = null;
 let autoRefreshTimer = null;
+let currentTeacherId = null;
 
 // ── AUTH ─────────────────────────────────────────────────────────
 function toggleAuthForm(mode){
   document.getElementById('auth-login').style.display = mode==='login' ? '' : 'none';
   document.getElementById('auth-signup').style.display = mode==='signup' ? '' : 'none';
+  document.getElementById('auth-reset').style.display = mode==='reset' ? '' : 'none';
   document.getElementById('auth-err').textContent = '';
   document.getElementById('signup-err').textContent = '';
+  document.getElementById('reset-err').textContent = '';
+  document.getElementById('reset-success').style.display = 'none';
 }
 
 function _saveTokens(access, refresh){
@@ -877,6 +925,29 @@ async function doLogin(){
     document.getElementById('auth-err').textContent = e.message;
   }finally{
     btn.disabled = false; btn.textContent = 'Log In';
+  }
+}
+
+async function doPasswordReset(){
+  const email = document.getElementById('reset-email').value.trim();
+  if(!email||!email.includes('@')){ document.getElementById('reset-err').textContent='Enter a valid email'; return; }
+  const btn = document.getElementById('reset-btn');
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try{
+    const r = await fetch(`${BASE}/api/auth/password-reset`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email})
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({detail:'Failed to send reset link'}));
+      throw new Error(d.detail||'Failed');
+    }
+    document.getElementById('reset-success').style.display = 'block';
+    document.getElementById('reset-err').textContent = '';
+  }catch(e){
+    document.getElementById('reset-err').textContent = e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = 'Send Reset Link';
   }
 }
 
@@ -917,6 +988,10 @@ function _onAuthed(teacher){
   document.getElementById('auth-overlay').classList.add('hidden');
   if(teacher && teacher.full_name){
     document.getElementById('teacher-name').textContent = teacher.full_name;
+  }
+  if(teacher && teacher.id){
+    currentTeacherId = teacher.id;
+    _populateShareLinks(teacher.id);
   }
   refreshAll();
   // Poll every 5s so live status / risk score / submission state catches
@@ -966,6 +1041,26 @@ function doLogout(){
   document.getElementById('auth-overlay').classList.remove('hidden');
   document.getElementById('teacher-name').textContent = '';
   toggleAuthForm('login');
+}
+
+function _populateShareLinks(teacherId){
+  const base = location.origin;
+  document.getElementById('share-register-link').value = `${base}/register?t=${teacherId}`;
+  document.getElementById('share-download-link').value = `${base}/download`;
+}
+
+function copyLink(inputId){
+  const inp = document.getElementById(inputId);
+  navigator.clipboard.writeText(inp.value).then(()=>{
+    const btn = inp.parentElement.querySelector('button');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.background = 'var(--emerald)';
+    setTimeout(()=>{ btn.textContent = orig; btn.style.background = ''; }, 1500);
+  }).catch(()=>{
+    inp.select();
+    document.execCommand('copy');
+  });
 }
 
 function hdr(){

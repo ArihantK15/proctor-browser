@@ -179,7 +179,8 @@
       <label>Email</label>
       <input type="email" id="inp-email" placeholder="e.g. arihant@university.edu"
              autocomplete="email"
-             oninput="clearErr()">
+             oninput="clearErr()"
+             onblur="checkExistingAccount()">
     </div>
     <div class="fg">
       <label>Phone <span class="opt">(optional)</span></label>
@@ -190,11 +191,6 @@
     <div class="divider"><span>Account password</span></div>
 
     <div id="pwd-section">
-      <p style="color:var(--muted);font-size:12px;margin-bottom:14px">
-        First time? Set a password for your student account.
-        <a href="#" onclick="togglePwdSection(false);return false"
-           style="color:var(--accent-light);text-decoration:none;font-weight:600">Already have an account? Skip this.</a>
-      </p>
       <div class="fg">
         <label>Password</label>
         <input type="password" id="inp-pwd" placeholder="Min 8 characters"
@@ -208,11 +204,9 @@
                onkeydown="if(event.key==='Enter')doRegister()">
       </div>
     </div>
-    <div id="pwd-skipped" style="display:none">
-      <p style="color:var(--muted);font-size:12px;margin-bottom:14px">
-        You'll sign in with your existing account in the Procta app.
-        <a href="#" onclick="togglePwdSection(true);return false"
-           style="color:var(--accent-light);text-decoration:none;font-weight:600">New here? Create an account.</a>
+    <div id="pwd-skipped" style="display:none;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      <p style="color:var(--emerald);font-size:13px;font-weight:600;margin:0">
+        Account found for this email — you're all set. Just register and sign in with your existing password in the app.
       </p>
     </div>
 
@@ -288,18 +282,33 @@
 const _teacherId = new URLSearchParams(location.search).get('t') || null;
 
 let _createAccount = true;
+let _lastCheckedEmail = '';
 
 function clearErr(){
   document.getElementById('reg-err').textContent='';
   document.querySelectorAll('.err-border').forEach(e=>e.classList.remove('err-border'));
 }
 
-function togglePwdSection(show){
-  _createAccount = show;
-  document.getElementById('pwd-section').style.display = show ? '' : 'none';
-  document.getElementById('pwd-skipped').style.display = show ? 'none' : '';
-  document.getElementById('reg-btn').textContent = show ? 'Register & Create Account' : 'Register for Exam';
-  clearErr();
+function _setAccountMode(needsAccount){
+  _createAccount = needsAccount;
+  document.getElementById('pwd-section').style.display = needsAccount ? '' : 'none';
+  document.getElementById('pwd-skipped').style.display = needsAccount ? 'none' : '';
+  document.getElementById('reg-btn').textContent = needsAccount
+    ? 'Register & Create Account' : 'Register for Exam';
+}
+
+async function checkExistingAccount(){
+  const email = document.getElementById('inp-email').value.trim().toLowerCase();
+  if(!email || !email.includes('@') || email === _lastCheckedEmail) return;
+  _lastCheckedEmail = email;
+  try {
+    const r = await fetch('/api/student/account-exists?email=' + encodeURIComponent(email));
+    if(!r.ok) return;
+    const d = await r.json();
+    _setAccountMode(!d.exists);
+  } catch(e) {
+    // Network error — default to showing password fields
+  }
 }
 
 async function doRegister(){
@@ -326,22 +335,37 @@ async function doRegister(){
     document.getElementById('reg-err').textContent='A valid email is required';
     return;
   }
-  // Only validate password if creating a new account
+  const btn = document.getElementById('reg-btn');
+  btn.disabled = true;
+  document.getElementById('reg-ldr').textContent = 'Checking...';
+
+  // Re-check account existence in case they never blurred the email field
+  try {
+    const chk = await fetch('/api/student/account-exists?email=' + encodeURIComponent(email));
+    if(chk.ok){
+      const d = await chk.json();
+      _setAccountMode(!d.exists);
+    }
+  } catch(e){}
+
+  // Re-validate password after the check
   if(_createAccount){
     if(!pwd || pwd.length < 8){
       document.getElementById('inp-pwd').classList.add('err-border');
       document.getElementById('reg-err').textContent='Password must be at least 8 characters';
+      btn.disabled = false;
+      document.getElementById('reg-ldr').textContent = '';
       return;
     }
     if(pwd !== pwd2){
       document.getElementById('inp-pwd2').classList.add('err-border');
       document.getElementById('reg-err').textContent='Passwords do not match';
+      btn.disabled = false;
+      document.getElementById('reg-ldr').textContent = '';
       return;
     }
   }
 
-  const btn = document.getElementById('reg-btn');
-  btn.disabled = true;
   document.getElementById('reg-ldr').textContent = _createAccount
     ? 'Setting up your account...' : 'Registering...';
 

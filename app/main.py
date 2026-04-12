@@ -504,6 +504,20 @@ async def teacher_password_reset(body: PasswordResetIn, request: Request):
 
 # ─── STUDENT DASHBOARD AUTH ──────────────────────────────────────
 
+@app.get("/api/student/account-exists")
+@limiter.limit("20/minute")
+async def student_account_exists(request: Request, email: str = ""):
+    """Check if a student dashboard account exists for this email."""
+    email = (email or "").strip().lower()
+    if not email or "@" not in email:
+        return {"exists": False}
+    result = supabase.table("student_accounts")\
+        .select("id", count="exact")\
+        .eq("email", email)\
+        .execute()
+    return {"exists": (result.count or 0) > 0}
+
+
 @app.post("/api/student/auth/signup")
 @limiter.limit("5/hour")
 async def student_signup(body: StudentSignupIn, request: Request):

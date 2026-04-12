@@ -239,12 +239,103 @@
     margin: 0 8px;
   }
   .footer-links a:hover { color: white; }
+
+  /* ── Web-only landing (shown when NOT inside Electron) ────── */
+  .web-landing {
+    min-height: calc(100vh - 48px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .web-landing-card {
+    width: 100%;
+    max-width: 480px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 40px 32px;
+    text-align: center;
+  }
+  .web-landing-card h1 {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    color: white;
+    font-size: 22px;
+    font-weight: 700;
+    margin: 16px 0 8px;
+  }
+  .web-landing-card p {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.7;
+    margin-bottom: 24px;
+  }
+  .web-landing-card .dl-btn {
+    display: inline-block;
+    padding: 13px 32px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.2s;
+    box-shadow: 0 2px 8px rgba(59,130,246,0.2);
+  }
+  .web-landing-card .dl-btn:hover { background: var(--accent-light); }
+  .web-steps {
+    text-align: left;
+    margin-top: 28px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  .web-steps h3 {
+    font-size: 12px; color: var(--accent-light); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em; margin-bottom: 14px;
+  }
+  .web-steps ol {
+    padding-left: 18px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 2.2;
+  }
+  .web-steps li strong { color: var(--text); }
 </style>
 </head>
 <body>
 
-<!-- ───────── Auth view (login / signup) ───────── -->
-<div class="auth-wrap" id="auth-view">
+<!-- ───────── Web-only landing (hidden inside Electron) ───────── -->
+<div class="web-landing" id="web-landing" style="display:none">
+  <div class="web-landing-card">
+    <div class="procta-logo" style="justify-content:center">
+      <div class="procta-icon">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+          <path d="M4 3h3v1H5v8h2v1H4V3zm5 0h3v10h-3v-1h2V4H9V3z" fill="white"/>
+          <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8"/>
+        </svg>
+      </div>
+      <span>Procta</span>
+    </div>
+    <h1>Student Dashboard</h1>
+    <p>Your dashboard, exams, and everything else lives inside the Procta desktop app. Download it to get started.</p>
+    <a class="dl-btn" href="/download">Download Procta App</a>
+    <div class="web-steps">
+      <h3>How it works</h3>
+      <ol>
+        <li><strong>Register</strong> using the link from your teacher</li>
+        <li><strong>Download</strong> and install the Procta app</li>
+        <li><strong>Sign in</strong> with the email and password you registered with</li>
+        <li><strong>Start your exam</strong> when your teacher provides the access code</li>
+      </ol>
+    </div>
+    <div class="footer-links" style="margin-top:24px">
+      <a href="/register">Register for an exam</a> &bull;
+      <a href="https://procta.net">procta.net</a>
+    </div>
+  </div>
+</div>
+
+<!-- ───────── Auth view (login / signup) — Electron only ───────── -->
+<div class="auth-wrap" id="auth-view" style="display:none">
   <div class="auth-card">
     <div class="auth-header">
       <div class="procta-logo" style="justify-content:center">
@@ -756,8 +847,18 @@ function escapeHtml(s) {
   })[c]);
 }
 
-// ─── boot: try silent auto-login with stored token ────────────
+// ─── boot: route between web landing vs Electron dashboard ──
 (async function init(){
+  if (!INSIDE_PROCTA_APP) {
+    // On the web: show the simple landing page, hide everything else
+    document.getElementById('web-landing').style.display = 'flex';
+    document.getElementById('auth-view').style.display = 'none';
+    return;
+  }
+  // Inside Electron: show the full auth/dashboard flow
+  document.getElementById('web-landing').style.display = 'none';
+  document.getElementById('auth-view').style.display = '';
+
   if (!authToken) return;
   try {
     const r = await authed('/api/student/auth/me');

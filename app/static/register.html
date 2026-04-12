@@ -156,10 +156,27 @@
     <div class="next-steps">
       <h3>Next Steps</h3>
       <ol>
+        <li><strong>Create your student account</strong> below to track your exams</li>
         <li>Wait for the <strong>exam access code</strong> from your examiner</li>
-        <li><strong>Download</strong> the Procta app on exam day</li>
-        <li>Enter your <strong>Roll Number</strong> and <strong>Access Code</strong> to start</li>
+        <li><strong>Download</strong> the Procta app and sign in to start</li>
       </ol>
+    </div>
+    <div id="quick-signup" style="margin-top:20px;text-align:left">
+      <div class="fg">
+        <label>Password</label>
+        <input type="password" id="inp-acct-pwd" placeholder="Min 8 characters (for your student account)">
+      </div>
+      <div class="fg">
+        <label>Confirm Password</label>
+        <input type="password" id="inp-acct-pwd2" placeholder="Confirm password"
+               onkeydown="if(event.key==='Enter')doQuickSignup()">
+      </div>
+      <button class="submit-btn" id="quick-signup-btn" onclick="doQuickSignup()">Create Student Account</button>
+      <div class="err-msg" id="quick-err"></div>
+    </div>
+    <div id="quick-done" style="display:none;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:16px 20px;margin-top:16px;text-align:center">
+      <div style="color:var(--emerald);font-weight:600;font-size:14px;margin-bottom:6px">Account created!</div>
+      <a href="/student" style="color:var(--accent-light);font-weight:600;text-decoration:none;font-size:13px">Go to your dashboard &rarr;</a>
     </div>
   </div>
 
@@ -222,6 +239,9 @@ async function doRegister(){
       throw new Error(err.detail || 'Registration failed');
     }
     const d = await r.json();
+    // Stash for quick-signup
+    window._regEmail = email;
+    window._regName = name;
     document.getElementById('reg-form').style.display = 'none';
     document.getElementById('reg-success').style.display = 'block';
     document.getElementById('success-roll').textContent = d.roll_number;
@@ -231,6 +251,46 @@ async function doRegister(){
     btn.disabled = false;
   }
   document.getElementById('reg-ldr').textContent = '';
+}
+
+async function doQuickSignup(){
+  const pwd = document.getElementById('inp-acct-pwd').value;
+  const pwd2 = document.getElementById('inp-acct-pwd2').value;
+  const errEl = document.getElementById('quick-err');
+  errEl.textContent = '';
+  if(!pwd || pwd.length < 8){ errEl.textContent='Password must be at least 8 characters'; return; }
+  if(pwd !== pwd2){ errEl.textContent='Passwords do not match'; return; }
+  const email = window._regEmail;
+  const name = window._regName;
+  if(!email){ errEl.textContent='Registration data missing — please refresh and register again'; return; }
+  const btn = document.getElementById('quick-signup-btn');
+  btn.disabled = true; btn.textContent = 'Creating account...';
+  try{
+    // Sign up
+    const r1 = await fetch('/api/student/auth/signup',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email, password:pwd, full_name:name})
+    });
+    if(!r1.ok){
+      const d = await r1.json().catch(()=>({}));
+      throw new Error(d.detail || 'Signup failed');
+    }
+    // Auto-login
+    const r2 = await fetch('/api/student/auth/login',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email, password:pwd})
+    });
+    if(r2.ok){
+      const d2 = await r2.json();
+      localStorage.setItem('procta_student_token', d2.access_token);
+      localStorage.setItem('procta_student_refresh', d2.refresh_token);
+    }
+    document.getElementById('quick-signup').style.display = 'none';
+    document.getElementById('quick-done').style.display = 'block';
+  }catch(e){
+    errEl.textContent = e.message;
+    btn.disabled = false; btn.textContent = 'Create Student Account';
+  }
 }
 
 (function(){

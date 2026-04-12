@@ -1060,6 +1060,11 @@ function copyLink(inputId){
   }).catch(()=>{
     inp.select();
     document.execCommand('copy');
+    const btn = inp.parentElement.querySelector('button');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.background = 'var(--emerald)';
+    setTimeout(()=>{ btn.textContent = orig; btn.style.background = ''; }, 1500);
   });
 }
 

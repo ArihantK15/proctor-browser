@@ -383,6 +383,9 @@
       <div id="reset-ok" style="display:none;color:var(--emerald,#10b981);font-size:13px;margin-top:8px;text-align:center">
         If that email is registered, a reset link has been sent.
       </div>
+      <p style="text-align:center;margin-top:14px">
+        <a href="#" onclick="cancelReset();return false" style="color:var(--accent-light,#60a5fa);font-size:12px;text-decoration:none;font-weight:600">Back to login</a>
+      </p>
     </div>
 
     <p id="forgot-link" style="text-align:center;margin-top:12px">
@@ -493,9 +496,9 @@ function setAuthMode(mode) {
 
 function showReset() {
   document.getElementById('fg-name').style.display = 'none';
-  document.querySelectorAll('.fg').forEach(el => {
-    if (el.id !== 'fg-name') el.style.display = 'none';
-  });
+  // Hide email + password fields (by parent .fg)
+  document.getElementById('inp-email').closest('.fg').style.display = 'none';
+  document.getElementById('inp-password').closest('.fg').style.display = 'none';
   document.getElementById('auth-btn').style.display = 'none';
   document.getElementById('auth-err').textContent = '';
   document.querySelector('.auth-tabs').style.display = 'none';
@@ -503,6 +506,21 @@ function showReset() {
   document.getElementById('reset-view').style.display = 'block';
   document.getElementById('auth-heading').textContent = 'Reset password';
   document.getElementById('auth-subheading').textContent = 'We\'ll email you a link to reset it';
+}
+
+function cancelReset() {
+  document.getElementById('reset-view').style.display = 'none';
+  document.getElementById('reset-err').textContent = '';
+  document.getElementById('reset-ok').style.display = 'none';
+  document.getElementById('reset-email').disabled = false;
+  document.getElementById('reset-btn').style.display = '';
+  // Restore login form
+  document.getElementById('inp-email').closest('.fg').style.display = '';
+  document.getElementById('inp-password').closest('.fg').style.display = '';
+  document.getElementById('auth-btn').style.display = '';
+  document.querySelector('.auth-tabs').style.display = '';
+  document.getElementById('forgot-link').style.display = '';
+  setAuthMode('login');
 }
 
 async function doReset() {

@@ -188,7 +188,7 @@
              autocomplete="tel">
     </div>
 
-    <div class="divider"><span>Account password</span></div>
+    <div class="divider" id="pwd-divider"><span>Account password</span></div>
 
     <div id="pwd-section">
       <div class="fg">
@@ -291,6 +291,7 @@ function clearErr(){
 
 function _setAccountMode(needsAccount){
   _createAccount = needsAccount;
+  document.getElementById('pwd-divider').style.display = needsAccount ? '' : 'none';
   document.getElementById('pwd-section').style.display = needsAccount ? '' : 'none';
   document.getElementById('pwd-skipped').style.display = needsAccount ? 'none' : '';
   document.getElementById('reg-btn').textContent = needsAccount
@@ -433,7 +434,6 @@ async function doRegister(){
       const acctStep = document.getElementById('step-account');
       if(acctStep){
         acctStep.className = 'step current';
-        acctStep.querySelector('.step-icon').textContent = '2';
         acctStep.querySelector('.step-icon').innerHTML = '2';
         acctStep.querySelector('.step-title').textContent = 'Sign in with your existing account';
         acctStep.querySelector('.step-desc').textContent = 'Open the Procta app and sign in with your email and password.';

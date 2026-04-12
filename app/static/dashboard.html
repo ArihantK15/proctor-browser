@@ -1011,7 +1011,7 @@ async function refreshAll(){
   document.getElementById('refresh-spin').style.display='inline-block';
   await Promise.all([refreshLive(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig()]);
   document.getElementById('refresh-spin').style.display='none';
-  document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString();
+  document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
 }
 
 // ── LIVE SESSIONS ───────────────────────────────────────────────
@@ -2287,8 +2287,8 @@ function renderTimeline(){
   // Scrubber labels
   const labels=document.getElementById('tl-scrubber-labels');
   if(allTs.length>=2){
-    const startTime=new Date(minTs*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-    const endTime=new Date(maxTs*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+    const startTime=new Date(minTs*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+    const endTime=new Date(maxTs*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
     const durMins=Math.round(range/60);
     labels.innerHTML=`<span>${startTime}</span><span>${durMins} min</span><span>${endTime}</span>`;
   } else {
@@ -2337,10 +2337,10 @@ function parseRawTs(raw){
 }
 
 function extractTime(formatted){
-  // formatted is like "2026-04-05 14:30:22 IST" — extract time part
+  // formatted is like "05 Apr 2026, 02:30:22 PM IST" — extract time part
   if(!formatted) return '--:--';
-  const parts=formatted.split(' ');
-  return parts.length>=2?parts[1]:'--:--';
+  const m=formatted.match(/(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)/i);
+  return m ? m[1] : '--:--';
 }
 
 function filterTimeline(){
@@ -2751,7 +2751,7 @@ function chatJsEscape(s){
 }
 function chatFmtTime(ts){
   if(!ts) return '';
-  try{ return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+  try{ return new Date(ts).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',hour12:true}); }
   catch(_){ return ''; }
 }
 </script>

@@ -44,7 +44,7 @@ def fmt_ist(ts_str):
             dt = datetime.fromisoformat(str(ts_str).replace('Z', '+00:00'))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+        return dt.astimezone(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
     except Exception:
         return str(ts_str)
 
@@ -2289,8 +2289,14 @@ def export_pdf(session_id: str, request: Request):
                     pass
                 ts_part = ""
                 if v.get("created_at"):
-                    ts_parts = fmt_ist(v["created_at"]).split(" ")
-                    ts_part  = ts_parts[1].replace(" IST", "") if len(ts_parts) > 1 else ""
+                    # fmt_ist → "05 Apr 2026, 02:30:22 PM IST"
+                    # Extract time+AM/PM after the comma.
+                    _fmted = fmt_ist(v["created_at"])
+                    _comma = _fmted.find(",")
+                    if _comma >= 0:
+                        ts_part = _fmted[_comma+1:].replace("IST","").strip()
+                    else:
+                        ts_part = _fmted
                 vd.append([
                     str(i),
                     v["violation_type"].replace("_", " ").title()[:22],
@@ -2445,7 +2451,7 @@ def export_pdf(session_id: str, request: Request):
 
         story.append(Spacer(1, 20))
         story.append(Paragraph(
-            f"Generated: {now_ist().strftime('%Y-%m-%d %H:%M:%S')} | "
+            f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST | "
             f"Session: {session_id[:20]}...",
             styles["Normal"]))
 

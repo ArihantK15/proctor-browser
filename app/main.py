@@ -811,7 +811,8 @@ def ts_to_id(ts_str: str) -> int:
 _NON_VIOLATION_TYPES = {
     "exam_submitted", "enrollment_started", "enrollment_complete",
     "exam_started", "submit_failed", "answer_selected", "session_ended",
-    "face_enrolled", "heartbeat",
+    "face_enrolled", "heartbeat", "id_verification", "id_verification_captured",
+    "calibration_started", "calibration_complete", "calibration_timeout",
 }
 
 def _is_violation(vtype: str) -> bool:
@@ -1221,6 +1222,30 @@ def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
 @app.get("/")
 def root():
     return {"status": "AI Proctor Server running"}
+
+@app.get("/sitemap.xml", response_class=HTMLResponse)
+def sitemap():
+    fpath = os.path.join(os.path.dirname(__file__), "static", "sitemap.xml")
+    with open(fpath) as f:
+        content = f.read()
+    from starlette.responses import Response
+    return Response(content=content, media_type="application/xml")
+
+@app.get("/robots.txt", response_class=HTMLResponse)
+def robots_txt():
+    content = (
+        "User-agent: *\n"
+        "Allow: /download\n"
+        "Allow: /dashboard\n"
+        "Disallow: /api/\n"
+        "Disallow: /register\n"
+        "Disallow: /student\n"
+        "Disallow: /static/\n"
+        "\n"
+        "Sitemap: https://app.procta.net/sitemap.xml\n"
+    )
+    from starlette.responses import Response
+    return Response(content=content, media_type="text/plain")
 
 @app.get("/health")
 def health():
@@ -1809,6 +1834,168 @@ def analyze_frame(data: FrameIn, request: Request):
     except Exception as e:
         print(f"[Frame] {e}")
     return {"status": "received"}
+
+class IdVerifyIn(BaseModel):
+    session_id:   str
+    roll_number:  str
+    selfie_frame: str            # base64 student face photo
+    id_frame:     str            # base64 ID card photo
+    full_name:    str = ""       # for dashboard display
+    timestamp:    str = ""
+
+@app.post("/api/id-verification")
+def id_verification(data: IdVerifyIn, request: Request):
+    """Store selfie + ID photos and create a pending verification for teacher review."""
+    claims = require_auth(request)
+    _check_session_ownership(claims, data.session_id)
+    try:
+        tid = claims.get("tid")
+        roll = data.roll_number.strip().upper() or "UNKNOWN"
+        if tid:
+            student_dir = os.path.join(SCREENSHOTS_DIR, tid, roll)
+        else:
+            student_dir = os.path.join(SCREENSHOTS_DIR, roll)
+        os.makedirs(student_dir, exist_ok=True)
+        ts = now_ist().strftime("%Y%m%d_%H%M%S")
+
+        selfie_fname = f"id_selfie_{ts}.jpg"
+        id_fname     = f"id_card_{ts}.jpg"
+        with open(os.path.join(student_dir, selfie_fname), "wb") as f:
+            f.write(base64.b64decode(data.selfie_frame))
+        with open(os.path.join(student_dir, id_fname), "wb") as f:
+            f.write(base64.b64decode(data.id_frame))
+
+        detail_obj = {
+            "status":       "pending",
+            "selfie_file":  selfie_fname,
+            "id_file":      id_fname,
+            "roll_number":  roll,
+            "full_name":    data.full_name,
+        }
+        viol_row = {
+            "session_key":    data.session_id,
+            "violation_type": "id_verification",
+            "severity":       "low",
+            "details":        json.dumps(detail_obj),
+        }
+        if tid:
+            viol_row["teacher_id"] = str(tid)
+        supabase.table("violations").insert(viol_row).execute()
+    except Exception as e:
+        print(f"[ID Verify] {e}")
+    return {"status": "received"}
+
+
+@app.get("/api/id-verification/status")
+def id_verification_status(request: Request, session_id: str = ""):
+    """Student polls this to check if teacher has approved/retake/rejected."""
+    claims = require_auth(request)
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    _check_session_ownership(claims, session_id)
+    import json as _json
+    result = supabase.table("violations")\
+        .select("details")\
+        .eq("session_key", session_id)\
+        .eq("violation_type", "id_verification")\
+        .order("created_at", desc=True)\
+        .limit(1)\
+        .execute()
+    if not result.data:
+        return {"status": "not_found"}
+    raw = result.data[0].get("details", "")
+    try:
+        obj = json.loads(raw)
+        return {"status": obj.get("status", "pending")}
+    except Exception:
+        return {"status": "pending"}
+
+
+@app.get("/api/admin/pending-verifications")
+def pending_verifications(request: Request):
+    """Return all pending ID verifications for this teacher."""
+    teacher = require_admin(request)
+    tid = teacher["id"]
+    import json as _json
+    result = supabase.table("violations")\
+        .select("*")\
+        .eq("teacher_id", str(tid))\
+        .eq("violation_type", "id_verification")\
+        .order("created_at", desc=True)\
+        .execute()
+    pending = []
+    for row in (result.data or []):
+        try:
+            obj = json.loads(row.get("details", "{}"))
+        except Exception:
+            continue
+        if obj.get("status") != "pending":
+            continue
+        roll = obj.get("roll_number", "")
+        pending.append({
+            "id":           row.get("id"),
+            "session_key":  row.get("session_key"),
+            "roll_number":  roll,
+            "full_name":    obj.get("full_name", ""),
+            "selfie_url":   f"/api/admin/screenshot/{roll}/{obj['selfie_file']}"
+                            if obj.get("selfie_file") else None,
+            "id_url":       f"/api/admin/screenshot/{roll}/{obj['id_file']}"
+                            if obj.get("id_file") else None,
+            "created_at":   fmt_ist(row.get("created_at", "")),
+        })
+    return {"pending": pending}
+
+
+class IdDecisionIn(BaseModel):
+    violation_id: int
+    session_key:  str
+    decision:     str  # "approved" | "retake" | "rejected"
+
+@app.post("/api/admin/id-decision")
+def id_decision(data: IdDecisionIn, request: Request):
+    """Teacher approves, requests retake, or rejects a student's ID."""
+    teacher = require_admin(request)
+    tid = teacher["id"]
+    if data.decision not in ("approved", "retake", "rejected"):
+        raise HTTPException(status_code=400, detail="Invalid decision")
+    import json as _json
+    # Fetch the existing row
+    result = supabase.table("violations")\
+        .select("*")\
+        .eq("id", data.violation_id)\
+        .eq("teacher_id", str(tid))\
+        .limit(1)\
+        .execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Verification not found")
+    row = result.data[0]
+    # Update the details JSON with the decision
+    try:
+        obj = json.loads(row.get("details", "{}"))
+    except Exception:
+        obj = {}
+    obj["status"] = data.decision
+    obj["decided_by"] = teacher.get("full_name", teacher.get("email", ""))
+    obj["decided_at"] = now_ist().isoformat()
+    supabase.table("violations")\
+        .update({"details": json.dumps(obj)})\
+        .eq("id", data.violation_id)\
+        .execute()
+
+    # If rejected, also log a high-severity event so it shows in the timeline
+    if data.decision == "rejected":
+        reject_row = {
+            "session_key":    data.session_key,
+            "violation_type": "id_rejected",
+            "severity":       "high",
+            "details":        f"Teacher rejected student identity — "
+                              f"decided by {obj['decided_by']}",
+        }
+        if tid:
+            reject_row["teacher_id"] = str(tid)
+        supabase.table("violations").insert(reject_row).execute()
+
+    return {"status": "ok", "decision": data.decision}
 
 @app.get("/events/{session_id}")
 def get_events(session_id: str, request: Request):

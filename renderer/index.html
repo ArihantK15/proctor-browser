@@ -37,21 +37,40 @@
     .btn:disabled{background:rgba(255,255,255,.06);color:#484f58;cursor:not-allowed;box-shadow:none}
     .err{color:#ff7b72;font-size:12px;margin-top:10px;min-height:18px}
     .ldr{color:#6b7b8f;font-size:12px;margin-top:8px}
-    #screen-enroll{flex-direction:column}
-    .econt{text-align:center;max-width:700px;width:90%}
-    .econt h2{color:#93c5fd;font-size:20px;margin-bottom:6px}
-    .econt p{color:#6b7b8f;font-size:13px;margin-bottom:20px}
-    .cam-wrap{position:relative;display:inline-block;margin:0 auto;
-              border-radius:12px;overflow:hidden;border:2px solid #30363d;
-              background:#000;line-height:0}
-    #cam{width:640px;max-width:100%;display:block}
-    #canvas{position:absolute;top:0;left:0;width:100%;height:100%;
-            pointer-events:none}
-    .face-badge{position:absolute;top:10px;left:50%;
-                transform:translateX(-50%);
-                background:rgba(0,0,0,.65);border-radius:20px;
-                padding:4px 14px;font-size:13px;font-weight:600;
-                pointer-events:none;white-space:nowrap}
+    #screen-enroll{flex-direction:column;background:#0a0e14}
+
+    /* ── Calibration dot system ─────────────────────────────────── */
+    .cal-overlay{position:absolute;inset:0;pointer-events:none}
+    .cal-dot{position:absolute;width:28px;height:28px;border-radius:50%;
+             background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.15);
+             transform:translate(-50%,-50%);transition:all .4s ease}
+    .cal-dot.active{background:rgba(59,130,246,.7);border-color:#3b82f6;
+                    box-shadow:0 0 24px 8px rgba(59,130,246,.45),
+                               0 0 60px 20px rgba(59,130,246,.15);
+                    animation:cal-pulse 1.2s ease-in-out infinite}
+    .cal-dot.done{background:rgba(34,197,94,.6);border-color:#22c55e;
+                  box-shadow:0 0 16px 4px rgba(34,197,94,.3)}
+    .cal-dot.done::after{content:'✓';position:absolute;inset:0;
+                         display:flex;align-items:center;justify-content:center;
+                         color:#fff;font-size:14px;font-weight:700}
+    @keyframes cal-pulse{0%,100%{transform:translate(-50%,-50%) scale(1);
+      opacity:1}50%{transform:translate(-50%,-50%) scale(1.3);opacity:.7}}
+
+    .cal-center{display:flex;flex-direction:column;align-items:center;
+                justify-content:center;position:absolute;inset:0;
+                pointer-events:none;z-index:2}
+    .cal-title{font-size:22px;font-weight:700;color:#e6edf3;margin-bottom:8px}
+    .cal-sub{font-size:14px;color:#8b949e;margin-bottom:24px;max-width:400px;
+             text-align:center;line-height:1.5}
+    .cal-status{font-size:13px;color:#58a6ff;font-weight:600;
+                min-height:20px;margin-top:16px}
+    .cal-face-status{font-size:12px;margin-top:8px;font-weight:500;min-height:18px}
+
+    .cal-progress{width:280px;height:6px;background:#21262d;border-radius:20px;
+                  overflow:hidden;margin-top:16px}
+    .cal-progress-fill{height:100%;background:#3b82f6;border-radius:20px;
+                       transition:width .4s ease;width:0%}
+
     .est{margin-top:16px;font-size:14px;color:#c9d1d9;min-height:24px}
     .pb{background:#21262d;border-radius:20px;height:8px;
         margin-top:12px;overflow:hidden}
@@ -229,26 +248,113 @@
   </div>
 </div>
 
-<!-- ENROLL -->
-<div class="screen" id="screen-enroll">
-  <div class="econt">
-    <h2>Face Calibration</h2>
-    <p id="enroll-dir">Position your face in the frame</p>
-    <div class="cam-wrap">
-      <video id="cam" autoplay muted playsinline width="640" height="480"></video>
-      <canvas id="canvas" width="640" height="480"></canvas>
-      <div class="face-badge" id="face-badge" style="color:#8b949e">
-        Waiting for camera...
+<!-- ID VERIFICATION -->
+<div class="screen" id="screen-id-verify">
+  <!-- Step 1 & 2: Capture selfie + ID -->
+  <div class="card" id="id-capture-card" style="width:520px">
+    <div class="logo-wrap">
+      <div class="logo-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="12" r="2.5"/><path d="M15 10h2M15 14h2"/></svg></div>
+      <span class="logo-text">ID Check</span>
+    </div>
+    <h1 id="id-title" style="margin-bottom:6px">Step 1: Face Photo</h1>
+    <p id="id-instruction" style="margin-bottom:16px">Look directly at the camera. This photo will be compared with your ID.</p>
+    <div style="position:relative;display:inline-block;border-radius:12px;overflow:hidden;border:2px solid #30363d;background:#000;line-height:0;margin-bottom:16px">
+      <video id="id-cam" autoplay muted playsinline width="400" height="300" style="display:block;width:400px"></video>
+      <canvas id="id-canvas" width="400" height="300" style="display:none"></canvas>
+      <div id="id-badge" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);
+           background:rgba(0,0,0,.65);border-radius:20px;padding:4px 14px;font-size:13px;
+           font-weight:600;pointer-events:none;white-space:nowrap;color:#8b949e">
+        Look at the camera
       </div>
     </div>
-    <div class="est" id="enroll-st">Starting camera...</div>
-    <div class="pb" style="margin-top:10px">
-      <div class="pf" id="enroll-pf" style="width:0%"></div>
+    <!-- Step indicator -->
+    <div style="display:flex;gap:8px;justify-content:center;margin-bottom:16px">
+      <div id="id-step-1" style="width:10px;height:10px;border-radius:50%;background:#3b82f6"></div>
+      <div id="id-step-2" style="width:10px;height:10px;border-radius:50%;background:#30363d"></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button class="btn" id="id-capture-btn" onclick="captureIdPhoto()" style="width:auto;padding:12px 28px">
+        Take Photo
+      </button>
+      <button class="btn" id="id-retake-btn" onclick="retakeCurrentStep()" style="width:auto;padding:12px 28px;background:#21262d;color:#c9d1d9;display:none">
+        Retake
+      </button>
+      <button class="btn" id="id-next-btn" onclick="idNextStep()" style="width:auto;padding:12px 28px;background:#238636;display:none">
+        Next
+      </button>
+    </div>
+    <div class="err" id="id-err"></div>
+    <div class="ldr" id="id-status" style="margin-top:8px"></div>
+  </div>
+
+  <!-- Waiting for teacher approval -->
+  <div class="card" id="id-waiting-card" style="width:480px;display:none">
+    <div class="logo-wrap">
+      <div class="logo-icon" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+      <span class="logo-text">Awaiting Approval</span>
+    </div>
+    <h1 style="margin-bottom:10px">Waiting for Teacher</h1>
+    <p style="margin-bottom:24px;color:#8b949e">Your photos have been sent to your examiner for review. Please wait — this usually takes less than a minute.</p>
+    <div style="display:flex;gap:16px;justify-content:center;margin-bottom:20px">
+      <div style="text-align:center">
+        <div style="font-size:11px;color:#6b7b8f;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;font-weight:600">Your Face</div>
+        <img id="id-preview-selfie" style="width:140px;height:105px;object-fit:cover;border-radius:8px;border:2px solid #30363d">
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:11px;color:#6b7b8f;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;font-weight:600">Your ID</div>
+        <img id="id-preview-id" style="width:140px;height:105px;object-fit:cover;border-radius:8px;border:2px solid #30363d">
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;color:#f59e0b;font-size:13px" id="id-wait-spinner">
+      <svg width="16" height="16" viewBox="0 0 24 24" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="30 70" stroke-linecap="round"/></svg>
+      <span>Checking with your examiner...</span>
+    </div>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  </div>
+
+  <!-- Rejected by teacher -->
+  <div class="card" id="id-rejected-card" style="width:480px;display:none">
+    <div class="logo-wrap">
+      <div class="logo-icon" style="background:linear-gradient(135deg,#ef4444,#dc2626)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg></div>
+      <span class="logo-text">Session Closed</span>
+    </div>
+    <h1 style="color:#ff7b72;margin-bottom:10px">Identity Mismatch</h1>
+    <p style="margin-bottom:20px">Your examiner has determined that the person does not match the provided ID. This exam session has been closed.</p>
+    <p style="color:#6b7b8f;font-size:13px">If you believe this is an error, contact your examiner directly.</p>
+    <div class="ldr" id="id-reject-countdown" style="margin-top:16px;color:#ff7b72"></div>
+  </div>
+</div>
+
+<!-- CALIBRATION -->
+<div class="screen" id="screen-enroll">
+  <!-- Dots positioned at screen edges -->
+  <div class="cal-overlay" id="cal-dots">
+    <div class="cal-dot" id="cal-dot-0" style="left:50%;top:50%"></div>
+    <div class="cal-dot" id="cal-dot-1" style="left:8%;top:8%"></div>
+    <div class="cal-dot" id="cal-dot-2" style="left:92%;top:8%"></div>
+    <div class="cal-dot" id="cal-dot-3" style="left:8%;top:92%"></div>
+    <div class="cal-dot" id="cal-dot-4" style="left:92%;top:92%"></div>
+  </div>
+
+  <!-- Centre instructions -->
+  <div class="cal-center">
+    <div class="cal-title" id="cal-title">Gaze Calibration</div>
+    <div class="cal-sub" id="cal-sub">
+      Look at each glowing dot as it appears on screen.
+      Keep your head relatively still — move your eyes to follow the dot.
+    </div>
+    <div class="cal-status" id="cal-status">Initialising camera...</div>
+    <div class="cal-face-status" id="cal-face-status"></div>
+    <div class="cal-progress">
+      <div class="cal-progress-fill" id="cal-pf"></div>
     </div>
     <button class="btn" id="cam-retry-btn"
-            style="display:none;margin-top:16px;width:auto;padding:10px 28px"
+            style="display:none;margin-top:20px;width:auto;padding:10px 28px"
             onclick="retryCam()">Retry Camera</button>
   </div>
+
+  <!-- Camera is owned by proctor.py during calibration — no local preview -->
+  <video id="cam" style="display:none" autoplay muted playsinline></video>
 </div>
 
 <!-- EXAM -->
@@ -426,14 +532,14 @@ async function doLogin(){
         answers          = existing.answers || {};
         resumedStartedAt = existing.started_at || null;
         reportIntegrityFlags();
-        startEnroll();
+        startIdVerify();
         return;
       }
     }
 
     sessionId = `${normalizedRoll}_${Date.now()}`;
     reportIntegrityFlags();
-    startEnroll();
+    startIdVerify();
   }catch(e){
     document.getElementById('login-err').textContent=
       e.message||'Roll number not found. Check and try again.';
@@ -442,312 +548,458 @@ async function doLogin(){
   }
 }
 
-// ── ENROLL ─────────────────────────────────────────────────────────
-// Real face detection using the browser FaceDetector API (Chromium built-in).
-// Falls back to skin-tone pixel analysis if FaceDetector is unavailable.
-// Only advances when exactly 1 face is confirmed in frame.
-const DIRS=[
-  'Look STRAIGHT at the camera',
-  'Turn slightly LEFT',
-  'Turn slightly RIGHT',
-];
-const SAMP=20;           // confirmed-face frames needed per direction
-const DETECT_MS=120;     // detection interval (~8 fps — fast enough, CPU-light)
+// ── ID VERIFICATION ───────────────────────────────────────────────
+// Two-step capture: 1) student selfie, 2) ID card photo.
+// Both uploaded to server, teacher reviews and approves/retakes/rejects.
+// Student waits on a "pending" screen polling for the decision.
+let idStream = null;
+let idStep = 1;        // 1 = selfie, 2 = ID card
+let selfieB64 = null;
+let idCardB64 = null;
+let idPollTimer = null;
 
-let eDir=0, eSamp=0;
-let enrollRunning=false; // loop guard
-let faceDetector=null;
-let refFrameCaptured=false;
+async function startIdVerify() {
+  idStep = 1; selfieB64 = null; idCardB64 = null;
+  showScreen('id-verify');
+  document.getElementById('id-capture-card').style.display = '';
+  document.getElementById('id-waiting-card').style.display = 'none';
+  document.getElementById('id-rejected-card').style.display = 'none';
+  _idShowStep(1);
 
-// ── Face detector init ─────────────────────────────────────────────
-async function initFaceDetector(){
-  if(typeof FaceDetector==='undefined') return false;
-  try{
-    faceDetector=new FaceDetector({fastMode:false, maxDetectedFaces:4});
-    return true;
-  }catch(e){ faceDetector=null; return false; }
-}
+  const vid = document.getElementById('id-cam');
+  const cvs = document.getElementById('id-canvas');
+  vid.style.display = 'block'; cvs.style.display = 'none';
 
-// ── Fallback: skin-tone pixel count using a small offscreen canvas ──
-// We never draw the video feed onto the visible overlay canvas — that
-// would create a double-image on top of the <video> element.
-const _offscreen = document.createElement('canvas');
-_offscreen.width=160; _offscreen.height=120; // small for speed
-const _offCtx = _offscreen.getContext('2d');
-
-function skinToneFacePresent(vid){
-  _offCtx.drawImage(vid, 0, 0, _offscreen.width, _offscreen.height);
-  const d=_offCtx.getImageData(
-    _offscreen.width/4, _offscreen.height/4,
-    _offscreen.width/2, _offscreen.height/2
-  ).data;
-  let skin=0;
-  for(let i=0;i<d.length;i+=4){
-    const r=d[i],g=d[i+1],b=d[i+2];
-    if(r>80 && g>40 && b>20 && r>g && r>b &&
-       r-Math.min(g,b)>15 && Math.abs(r-g)<50) skin++;
+  try {
+    idStream = await navigator.mediaDevices.getUserMedia(
+      { video: { width: 640, height: 480, facingMode: 'user' } });
+    vid.srcObject = idStream;
+  } catch (e) {
+    document.getElementById('id-err').textContent =
+      'Camera access needed for ID verification. ' + e.message;
   }
-  return (skin/(d.length/4)) > 0.08;
 }
 
-// ── Badge helper ───────────────────────────────────────────────────
-function setBadge(text, color){
-  const el=document.getElementById('face-badge');
-  el.textContent=text; el.style.color=color;
+function _idShowStep(step) {
+  idStep = step;
+  document.getElementById('id-step-1').style.background = step >= 1 ? '#3b82f6' : '#30363d';
+  document.getElementById('id-step-2').style.background = step >= 2 ? '#3b82f6' : '#30363d';
+  document.getElementById('id-capture-btn').style.display = '';
+  document.getElementById('id-retake-btn').style.display = 'none';
+  document.getElementById('id-next-btn').style.display = 'none';
+  document.getElementById('id-err').textContent = '';
+  document.getElementById('id-status').textContent = '';
+
+  const vid = document.getElementById('id-cam');
+  const cvs = document.getElementById('id-canvas');
+  vid.style.display = 'block'; cvs.style.display = 'none';
+
+  document.getElementById('id-badge').style.color = '#8b949e';
+  document.getElementById('id-status').style.color = '';
+
+  if (step === 1) {
+    document.getElementById('id-title').textContent = 'Step 1: Face Photo';
+    document.getElementById('id-instruction').textContent =
+      'Look directly at the camera. This photo will be compared with your ID.';
+    document.getElementById('id-badge').textContent = 'Look at the camera';
+    document.getElementById('id-capture-btn').textContent = 'Take Photo';
+  } else {
+    document.getElementById('id-title').textContent = 'Step 2: ID Card';
+    document.getElementById('id-instruction').textContent =
+      'Hold your student ID or photo ID clearly in front of the camera.';
+    document.getElementById('id-badge').textContent = 'Hold your ID in frame';
+    document.getElementById('id-capture-btn').textContent = 'Capture ID';
+  }
 }
 
-// ── Reference frame upload (straight-ahead, mid-enrollment) ────────
-async function uploadRefFrame(){
-  if(refFrameCaptured||!sessionId) return;
-  refFrameCaptured=true;
-  try{
-    // Draw the actual video frame onto a temp canvas (not the overlay canvas
-    // which only contains transparent bounding-box strokes)
-    const vid=document.getElementById('cam');
-    const tmp=document.createElement('canvas');
-    tmp.width=vid.videoWidth; tmp.height=vid.videoHeight;
-    tmp.getContext('2d').drawImage(vid,0,0);
-    const b64=tmp.toDataURL('image/jpeg',0.75).split(',')[1];
-    const hdr={'Content-Type':'application/json',
-                ...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
-    await fetch(`${SERVER}/api/analyze-frame`,{
-      method:'POST', headers:hdr,
-      body:JSON.stringify({
-        session_id:sessionId,
-        frame:b64,
-        timestamp:new Date().toISOString()
+function captureIdPhoto() {
+  const vid = document.getElementById('id-cam');
+  const cvs = document.getElementById('id-canvas');
+  if (!vid.videoWidth) return;
+
+  cvs.width = vid.videoWidth; cvs.height = vid.videoHeight;
+  cvs.style.width = '400px'; cvs.style.height = '';
+  cvs.getContext('2d').drawImage(vid, 0, 0);
+  vid.style.display = 'none'; cvs.style.display = 'block';
+
+  const b64 = cvs.toDataURL('image/jpeg', 0.85).split(',')[1];
+  if (idStep === 1) { selfieB64 = b64; }
+  else              { idCardB64 = b64; }
+
+  document.getElementById('id-badge').textContent = 'Review your photo';
+  document.getElementById('id-badge').style.color = '#58a6ff';
+  document.getElementById('id-capture-btn').style.display = 'none';
+  document.getElementById('id-retake-btn').style.display = '';
+  document.getElementById('id-next-btn').style.display = '';
+  document.getElementById('id-next-btn').textContent =
+    idStep === 1 ? 'Next — Capture ID' : 'Submit for Review';
+}
+
+function retakeCurrentStep() {
+  if (idStep === 1) selfieB64 = null; else idCardB64 = null;
+  _idShowStep(idStep);
+}
+
+async function idNextStep() {
+  if (idStep === 1) {
+    _idShowStep(2);
+    return;
+  }
+  // Step 2 done — upload both and enter waiting state
+  if (!selfieB64 || !idCardB64 || !sessionId) return;
+  document.getElementById('id-status').textContent = 'Uploading photos...';
+  document.getElementById('id-next-btn').disabled = true;
+  document.getElementById('id-retake-btn').disabled = true;
+
+  try {
+    const hdr = { 'Content-Type': 'application/json',
+                  ...(studentToken ? { 'Authorization': 'Bearer ' + studentToken } : {}) };
+    const res = await fetch(`${SERVER}/api/id-verification`, {
+      method: 'POST', headers: hdr,
+      body: JSON.stringify({
+        session_id: sessionId,
+        roll_number: student.roll_number,
+        full_name: student.full_name || '',
+        selfie_frame: selfieB64,
+        id_frame: idCardB64,
+        timestamp: new Date().toISOString()
       })
     });
-    console.log('[Enroll] Reference frame uploaded');
-  }catch(e){ console.warn('[Enroll] ref frame upload failed:',e.message); }
-}
-
-// ── Main enrollment detection loop ────────────────────────────────
-async function enrollLoop(){
-  if(!enrollRunning||!stream) return;
-
-  const vid=document.getElementById('cam');
-  const cvs=document.getElementById('canvas');
-  const ctx=cvs.getContext('2d');
-
-  if(vid.videoWidth&&vid.videoHeight){
-    // Sync canvas resolution to video — overlay only, never draw video here
-    if(cvs.width!==vid.videoWidth){
-      cvs.width=vid.videoWidth; cvs.height=vid.videoHeight;
-    }
-    // Clear overlay (transparent — the <video> element behind it shows through)
-    ctx.clearRect(0,0,cvs.width,cvs.height);
-
-    let faceCount=0;
-    let boxes=[];
-
-    if(faceDetector){
-      try{
-        const faces=await faceDetector.detect(vid);
-        faceCount=faces.length;
-        // FaceDetector returns coords in the video's natural pixel space
-        const sx=cvs.width/vid.videoWidth;
-        const sy=cvs.height/vid.videoHeight;
-        boxes=faces.map(f=>({
-          x:f.boundingBox.x*sx, y:f.boundingBox.y*sy,
-          w:f.boundingBox.width*sx, h:f.boundingBox.height*sy
-        }));
-      }catch(e){}
-    } else {
-      // Fallback: use offscreen canvas for pixel sampling (not the visible one)
-      faceCount = skinToneFacePresent(vid) ? 1 : 0;
-    }
-
-    // ── Draw overlay bounding boxes only ──────────────────────────
-    ctx.lineWidth=3;
-    for(const b of boxes){
-      const ok=faceCount===1;
-      ctx.strokeStyle=ok?'#3fb950':'#ff7b72';
-      ctx.strokeRect(b.x,b.y,b.w,b.h);
-      if(ok){
-        // Progress arc inside the box — guard radius so it's always ≥1
-        const radius=Math.max(Math.min(b.w,b.h)/2-6, 1);
-        const filled=eSamp/SAMP;
-        ctx.strokeStyle='rgba(63,185,80,0.5)';
-        ctx.lineWidth=4;
-        ctx.beginPath();
-        ctx.arc(b.x+b.w/2, b.y+b.h/2, radius,
-                -Math.PI/2, -Math.PI/2+filled*2*Math.PI);
-        ctx.stroke();
-        ctx.lineWidth=3;
-      }
-    }
-
-    // ── Badge & status ─────────────────────────────────────────────
-    if(faceCount===0){
-      setBadge('No face detected — move closer','#ff7b72');
-      document.getElementById('enroll-st').textContent=
-        eDir===0
-          ? 'Centre your face in the frame and look at the camera.'
-          : `${DIRS[eDir]} — hold still until the bar fills.`;
-    } else if(faceCount>1){
-      setBadge(`${faceCount} faces detected — please be alone`,'#e3b341');
-      document.getElementById('enroll-st').textContent=
-        'Only one person should be visible in the camera.';
-    } else {
-      setBadge('Face detected ✓','#3fb950');
-
-      // ── Advance progress ─────────────────────────────────────────
-      eSamp++;
-      const pct=((eDir*SAMP+eSamp)/(DIRS.length*SAMP))*100;
-      document.getElementById('enroll-pf').style.width=pct+'%';
-      document.getElementById('enroll-dir').textContent=DIRS[eDir];
-      document.getElementById('enroll-st').textContent=
-        `Step ${eDir+1} of ${DIRS.length} — hold position (${eSamp}/${SAMP})`;
-
-      // Capture reference frame at midpoint of direction 0 (best straight shot)
-      if(eDir===0 && eSamp===Math.floor(SAMP/2)){
-        uploadRefFrame();
-      }
-
-      if(eSamp>=SAMP){
-        eSamp=0; eDir++;
-        if(eDir>=DIRS.length){
-          enrollRunning=false;
-          finishEnroll();
-          return;
-        }
-        // Brief pause between directions so student can reposition
-        // eDir already incremented: eDir-1 = completed step, eDir = next step
-        setBadge(`Step ${eDir} of ${DIRS.length} — now: ${DIRS[eDir]}`,'#58a6ff');
-        document.getElementById('enroll-st').textContent=
-          `Step ${eDir} done. Now: ${DIRS[eDir]}`;
-        await new Promise(r=>setTimeout(r,900));
-      }
-    }
-  }
-
-  if(enrollRunning) setTimeout(enrollLoop, DETECT_MS);
-}
-
-// ── Retry camera ────────────────────────────────────────────────────
-async function retryCam(){
-  document.getElementById('cam-retry-btn').style.display='none';
-  eDir=0; eSamp=0; refFrameCaptured=false;
-  document.getElementById('enroll-pf').style.width='0%';
-  try{
-    stream=await navigator.mediaDevices.getUserMedia(
-      {video:{width:640,height:480,facingMode:'user'},audio:true});
-    document.getElementById('cam').srcObject=stream;
-    document.getElementById('cam-mini').srcObject=stream;
-    setBadge('Camera ready','#3fb950');
-    document.getElementById('enroll-st').textContent=
-      'Camera ready. Face the camera to begin.';
-    await initFaceDetector();
-    enrollRunning=true;
-    enrollLoop();
-  }catch(e){
-    document.getElementById('enroll-st').textContent=
-      'Camera still unavailable: '+e.message;
-    document.getElementById('cam-retry-btn').style.display='inline-block';
-  }
-}
-
-// ── Start enrollment ────────────────────────────────────────────────
-async function startEnroll(){
-  eDir=0; eSamp=0; enrollRunning=false; refFrameCaptured=false;
-  showScreen('enroll');
-  document.getElementById('cam-retry-btn').style.display='none';
-  document.getElementById('enroll-dir').textContent=DIRS[0];
-  document.getElementById('enroll-st').textContent='Starting camera...';
-  document.getElementById('enroll-pf').style.width='0%';
-  setBadge('Waiting for camera...','#8b949e');
-
-  try{
-    stream=await navigator.mediaDevices.getUserMedia(
-      {video:{width:640,height:480,facingMode:'user'},audio:true});
-    document.getElementById('cam').srcObject=stream;
-    document.getElementById('cam-mini').srcObject=stream;
-  }catch(e){
-    const msg=e.name==='NotAllowedError'
-      ? 'Camera access denied. Open System Settings → Privacy → Camera, enable this app, then click Retry.'
-      : 'Camera error: '+e.message+'. Click Retry to try again.';
-    document.getElementById('enroll-st').textContent=msg;
-    document.getElementById('cam-retry-btn').style.display='inline-block';
-    setBadge('Camera unavailable','#ff7b72');
+    if (!res.ok) throw new Error('Upload failed');
+  } catch (e) {
+    document.getElementById('id-err').textContent = 'Upload failed — ' + e.message;
+    document.getElementById('id-next-btn').disabled = false;
+    document.getElementById('id-retake-btn').disabled = false;
     return;
   }
 
-  if(window.proctor){
+  if (window.proctor) {
     window.proctor.logEvent({
-      session_id:sessionId, event_type:'enrollment_started',
-      severity:'low',
-      details:`Student: ${student.full_name} (${student.roll_number})`
-    }).catch(()=>{});
+      session_id: sessionId, event_type: 'id_verification_captured',
+      severity: 'low',
+      details: `ID + selfie submitted for review — ${student.roll_number}`
+    }).catch(() => {});
   }
 
-  // Init FaceDetector — runs in parallel with camera warmup
-  const fdReady=await initFaceDetector();
-  console.log('[Enroll] FaceDetector available:', fdReady);
-  if(!fdReady){
-    document.getElementById('enroll-st').textContent=
-      'Face detection running via fallback — keep your face centred.';
-  }
+  // Show waiting card with preview thumbnails
+  document.getElementById('id-capture-card').style.display = 'none';
+  document.getElementById('id-waiting-card').style.display = '';
+  document.getElementById('id-preview-selfie').src =
+    'data:image/jpeg;base64,' + selfieB64;
+  document.getElementById('id-preview-id').src =
+    'data:image/jpeg;base64,' + idCardB64;
 
-  // Wait for first video frame before starting loop
-  await new Promise(r=>{
-    const vid=document.getElementById('cam');
-    if(vid.videoWidth) return r();
-    vid.addEventListener('loadeddata', r, {once:true});
-    setTimeout(r, 2000); // safety timeout
-  });
-
-  document.getElementById('enroll-st').textContent=
-    'Face the camera and hold each position until the bar fills.';
-  enrollRunning=true;
-  enrollLoop();
+  // Start polling for teacher decision
+  _startIdPoll();
 }
 
-async function finishEnroll(){
-  enrollRunning=false;
-  setBadge('Calibration complete ✓','#3fb950');
-  document.getElementById('enroll-st').textContent='Calibration complete! Starting exam...';
-  document.getElementById('enroll-pf').style.width='100%';
-  if(window.proctor){
-    try{
+function _startIdPoll() {
+  if (idPollTimer) clearInterval(idPollTimer);
+  idPollTimer = setInterval(async () => {
+    try {
+      const hdr = studentToken ? { 'Authorization': 'Bearer ' + studentToken } : {};
+      const r = await fetch(
+        `${SERVER}/api/id-verification/status?session_id=${encodeURIComponent(sessionId)}`,
+        { headers: hdr });
+      if (!r.ok) return;
+      const d = await r.json();
+
+      if (d.status === 'approved') {
+        clearInterval(idPollTimer); idPollTimer = null;
+        // Release camera and proceed to calibration
+        if (idStream) {
+          idStream.getTracks().forEach(t => t.stop());
+          idStream = null;
+          document.getElementById('id-cam').srcObject = null;
+        }
+        startEnroll();
+
+      } else if (d.status === 'retake') {
+        clearInterval(idPollTimer); idPollTimer = null;
+        // Teacher wants a retake — go back to step 1
+        document.getElementById('id-waiting-card').style.display = 'none';
+        document.getElementById('id-capture-card').style.display = '';
+        document.getElementById('id-next-btn').disabled = false;
+        document.getElementById('id-retake-btn').disabled = false;
+        selfieB64 = null; idCardB64 = null;
+        _idShowStep(1);
+        document.getElementById('id-status').textContent =
+          'Your examiner has requested a retake. Please try again.';
+        document.getElementById('id-status').style.color = '#f59e0b';
+
+      } else if (d.status === 'rejected') {
+        clearInterval(idPollTimer); idPollTimer = null;
+        // Release camera
+        if (idStream) {
+          idStream.getTracks().forEach(t => t.stop());
+          idStream = null;
+          document.getElementById('id-cam').srcObject = null;
+        }
+        // Show rejection screen
+        document.getElementById('id-waiting-card').style.display = 'none';
+        document.getElementById('id-rejected-card').style.display = '';
+        // Countdown and close
+        let secs = 8;
+        const cdEl = document.getElementById('id-reject-countdown');
+        cdEl.textContent = `Closing in ${secs} seconds...`;
+        const cdInt = setInterval(() => {
+          secs--;
+          cdEl.textContent = `Closing in ${secs} seconds...`;
+          if (secs <= 0) {
+            clearInterval(cdInt);
+            if (window.proctor) window.proctor.exitToLobby();
+          }
+        }, 1000);
+      }
+    } catch (e) { /* network hiccup — will retry next tick */ }
+  }, 3000);
+}
+
+// ── CALIBRATION (edge-dot gaze calibration) ───────────────────────
+// proctor.py runs in calibration mode (PROCTOR_CALIBRATION_MODE=1),
+// opens the camera, and streams gaze/head readings as JSON via IPC.
+// The renderer shows 5 dots (centre + 4 corners). The student must
+// look at each dot; readings verify actual gaze movement. Collected
+// data is sent to proctor.py's normal mode as pre-set biases.
+
+const CAL_POINTS = [
+  { id: 0, name: 'centre',       required: 25 }, // baseline — need more samples
+  { id: 1, name: 'top-left',     required: 15 },
+  { id: 2, name: 'top-right',    required: 15 },
+  { id: 3, name: 'bottom-left',  required: 15 },
+  { id: 4, name: 'bottom-right', required: 15 },
+];
+const CAL_MIN_DELTA = 0.06; // min gaze deviation from centre to count as "looking at edge"
+
+let calIdx = 0;          // current calibration point index
+let calRunning = false;
+let calReadings = [];    // readings for current point
+let calResults = {};     // { 0: {gaze_yaw, gaze_pitch, head_yaw, head_pitch}, ... }
+let calCenterYaw = 0, calCenterPitch = 0; // centre baseline for edge validation
+let calNoFaceCount = 0;  // consecutive no-face readings
+
+function calSetStatus(text) {
+  document.getElementById('cal-status').textContent = text;
+}
+function calSetFaceStatus(text, color) {
+  const el = document.getElementById('cal-face-status');
+  el.textContent = text;
+  el.style.color = color || '#8b949e';
+}
+
+function calUpdateDots() {
+  for (let i = 0; i < CAL_POINTS.length; i++) {
+    const dot = document.getElementById('cal-dot-' + i);
+    dot.className = 'cal-dot';
+    if (calResults[i]) {
+      dot.classList.add('done');
+    } else if (i === calIdx) {
+      dot.classList.add('active');
+    }
+  }
+  const pct = (Object.keys(calResults).length / CAL_POINTS.length) * 100;
+  document.getElementById('cal-pf').style.width = pct + '%';
+}
+
+function calHandleReading(r) {
+  if (!calRunning) return;
+
+  if (r.error) {
+    calSetStatus('Camera error — click Retry');
+    calSetFaceStatus('', '#ff7b72');
+    document.getElementById('cam-retry-btn').style.display = 'inline-block';
+    calRunning = false;
+    return;
+  }
+
+  if (!r.face) {
+    calNoFaceCount++;
+    if (calNoFaceCount > 5) {
+      calSetFaceStatus(
+        (r.count || 0) > 1 ? `${r.count} faces detected — only you should be visible`
+                     : 'No face detected — face the camera',
+        '#ff7b72');
+    }
+    return;
+  }
+
+  calNoFaceCount = 0;
+  calSetFaceStatus('Face detected', '#3fb950');
+
+  const pt = CAL_POINTS[calIdx];
+
+  // For edge dots, verify gaze has actually moved from centre baseline
+  if (calIdx > 0) {
+    const dYaw   = Math.abs(r.gaze_yaw - calCenterYaw);
+    const dPitch = Math.abs(r.gaze_pitch - calCenterPitch);
+    if (dYaw < CAL_MIN_DELTA && dPitch < CAL_MIN_DELTA) {
+      calSetStatus(`Look at the glowing dot — move your eyes towards it`);
+      return; // gaze hasn't moved enough from centre
+    }
+  }
+
+  calReadings.push(r);
+  const progress = Math.min(calReadings.length / pt.required, 1);
+
+  if (calIdx === 0) {
+    calSetStatus(`Calibrating centre... ${calReadings.length}/${pt.required}`);
+  } else {
+    calSetStatus(`Point ${calIdx + 1} of 5 — hold your gaze... ${calReadings.length}/${pt.required}`);
+  }
+
+  if (calReadings.length >= pt.required) {
+    // Average the readings for this point
+    const avg = {
+      gaze_yaw:   calReadings.reduce((s, x) => s + x.gaze_yaw, 0) / calReadings.length,
+      gaze_pitch: calReadings.reduce((s, x) => s + x.gaze_pitch, 0) / calReadings.length,
+      head_yaw:   calReadings.reduce((s, x) => s + x.head_yaw, 0) / calReadings.length,
+      head_pitch: calReadings.reduce((s, x) => s + x.head_pitch, 0) / calReadings.length,
+    };
+    calResults[calIdx] = avg;
+
+    if (calIdx === 0) {
+      calCenterYaw   = avg.gaze_yaw;
+      calCenterPitch = avg.gaze_pitch;
+    }
+
+    calIdx++;
+    calReadings = [];
+    calUpdateDots();
+
+    if (calIdx >= CAL_POINTS.length) {
+      calRunning = false;
+      finishCalibration();
+      return;
+    }
+
+    // Brief pause before next dot
+    calSetStatus('Moving to next point...');
+    setTimeout(() => {
+      calUpdateDots();
+      const names = ['centre', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
+      calSetStatus(`Look at the ${names[calIdx]} dot`);
+    }, 600);
+  }
+}
+
+async function finishCalibration() {
+  calSetStatus('Calibration complete! Starting exam...');
+  document.getElementById('cal-pf').style.width = '100%';
+
+  // Compute biases: centre point averages
+  const centre = calResults[0];
+  const biases = {
+    gaze_yaw:   centre.gaze_yaw,
+    gaze_pitch: centre.gaze_pitch,
+    head_yaw:   centre.head_yaw,
+    head_pitch: centre.head_pitch,
+  };
+
+  console.log('[Cal] Biases:', biases);
+  console.log('[Cal] Edge readings:', calResults);
+
+  // Stop calibration proctor and pass biases
+  if (window.proctor) {
+    try {
+      await window.proctor.stopCalibration({ biases });
+    } catch (e) { console.warn('[Cal] stopCalibration failed:', e); }
+
+    try {
       await window.proctor.logEvent({
-        session_id:sessionId, event_type:'enrollment_complete',
-        severity:'low', details:`Enrolled: ${student.full_name}`
+        session_id: sessionId, event_type: 'calibration_complete',
+        severity: 'low',
+        details: `Dot calibration — gaze bias: (${biases.gaze_yaw.toFixed(2)}, ${biases.gaze_pitch.toFixed(2)})`
       });
-    }catch(e){ console.warn('[Enroll] completion logEvent failed:', e); }
-  }
+    } catch (e) {}
 
-  if(stream){
-    stream.getTracks().forEach(t=>t.stop());
-    stream=null;
-    document.getElementById('cam').srcObject=null;
-    document.getElementById('cam-mini').srcObject=null;
-  }
-
-  if(window.proctor){
-    try{
-      await new Promise(r=>setTimeout(r,800));
-      await window.proctor.startProctor({sessionId});
-      await window.proctor.startPolling({sessionId});
-      window.proctor.onViolation(({type, details, severity})=>{
-        const color = severity==='high' ? '#c0392b' : '#e67e22';
-        showBanner(`⚠ ${type.replace(/_/g,' ')}: ${details}`, color);
+    try {
+      await new Promise(r => setTimeout(r, 800));
+      await window.proctor.startProctor({ sessionId });
+      await window.proctor.startPolling({ sessionId });
+      window.proctor.onViolation(({ type, details, severity }) => {
+        const color = severity === 'high' ? '#c0392b' : '#e67e22';
+        showBanner(`⚠ ${type.replace(/_/g, ' ')}: ${details}`, color);
       });
-      window.proctor.onForceSubmit(()=>{
-        examActive=false;
+      window.proctor.onForceSubmit(() => {
+        examActive = false;
         clearInterval(timerInt);
-        const _dh=document.getElementById('done-heading');_dh.className='info';_dh.textContent='Exam Closed';
-        document.getElementById('done-subtext').textContent='Your examiner has ended this session.';
-        document.getElementById('final-score').textContent='Submitted';
-        document.getElementById('done-note').style.display='none';
+        const _dh = document.getElementById('done-heading'); _dh.className = 'info'; _dh.textContent = 'Exam Closed';
+        document.getElementById('done-subtext').textContent = 'Your examiner has ended this session.';
+        document.getElementById('final-score').textContent = 'Submitted';
+        document.getElementById('done-note').style.display = 'none';
         showScreen('done');
-        document.getElementById('countdown').textContent='Closing in 3 seconds...';
-        setTimeout(()=>{ if(window.proctor) window.proctor.adminExit('AUTO_CLOSE'); },3000);
+        document.getElementById('countdown').textContent = 'Closing in 3 seconds...';
+        setTimeout(() => { if (window.proctor) window.proctor.adminExit('AUTO_CLOSE'); }, 3000);
       });
-    }catch(e){ console.error('[Enroll] startProctor/startPolling failed:', e); }
+    } catch (e) { console.error('[Cal] startProctor/startPolling failed:', e); }
   }
 
   setTimeout(startExam, 500);
+}
+
+// ── Retry camera ────────────────────────────────────────────────────
+async function retryCam() {
+  document.getElementById('cam-retry-btn').style.display = 'none';
+  calIdx = 0; calReadings = []; calResults = {};
+  calUpdateDots();
+  calSetStatus('Retrying camera...');
+  try {
+    // Quick camera permission check
+    const testStream = await navigator.mediaDevices.getUserMedia(
+      { video: { width: 320, height: 240, facingMode: 'user' } });
+    testStream.getTracks().forEach(t => t.stop());
+
+    // Restart calibration proctor (it opens its own camera)
+    if (window.proctor) {
+      await window.proctor.startCalibration({ sessionId });
+      window.proctor.onCalReading(calHandleReading);
+    }
+    await new Promise(r => setTimeout(r, 2000));
+    calRunning = true;
+    calUpdateDots();
+    calSetStatus('Look at the centre dot');
+  } catch (e) {
+    calSetStatus('Camera still unavailable: ' + e.message);
+    document.getElementById('cam-retry-btn').style.display = 'inline-block';
+  }
+}
+
+// ── Start calibration ────────────────────────────────────────────────
+async function startEnroll() {
+  calIdx = 0; calReadings = []; calResults = {};
+  calRunning = false; calNoFaceCount = 0;
+  showScreen('enroll');
+  document.getElementById('cam-retry-btn').style.display = 'none';
+  calUpdateDots();
+  calSetStatus('Starting AI calibration system...');
+  calSetFaceStatus('', '#8b949e');
+
+  if (window.proctor) {
+    window.proctor.logEvent({
+      session_id: sessionId, event_type: 'calibration_started',
+      severity: 'low',
+      details: `Student: ${student.full_name} (${student.roll_number})`
+    }).catch(() => {});
+  }
+
+  // Start proctor.py in calibration mode — it opens its own camera
+  if (window.proctor) {
+    try {
+      await window.proctor.startCalibration({ sessionId });
+      window.proctor.onCalReading(calHandleReading);
+    } catch (e) {
+      calSetStatus('Failed to start calibration: ' + e.message);
+      document.getElementById('cam-retry-btn').style.display = 'inline-block';
+      return;
+    }
+  }
+
+  // Wait for proctor.py to warm up camera
+  await new Promise(r => setTimeout(r, 2000));
+
+  calRunning = true;
+  calUpdateDots();
+  calSetStatus('Look at the centre dot');
 }
 
 // ── EXAM ───────────────────────────────────────────────────────────

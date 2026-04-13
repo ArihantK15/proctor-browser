@@ -16,6 +16,8 @@ let lobbyWindow     = null;   // the pre-exam web dashboard window (unlocked)
 let setupWindow     = null;
 let pythonProcess   = null;
 let pythonShouldRun = false; // guard against restart after intentional stop
+let calProcess      = null;  // calibration-mode proctor.py (streams gaze readings)
+let calBiases       = null;  // {gaze_yaw, gaze_pitch, head_yaw, head_pitch} from dot calibration
 let powerBlockId    = null;
 let pollInterval    = null;
 let studentToken    = null; // JWT issued after validate-student
@@ -491,18 +493,25 @@ function startPython(sessionId) {
   const evidenceDir = path.join(app.getPath('userData'), 'evidence');
   try { fs.mkdirSync(evidenceDir, { recursive: true }); } catch(e) {}
 
-  pythonProcess = spawn(python, [script], {
-    env: {
-      ...process.env,
-      PROCTOR_SESSION_ID:              sessionId,
-      PROCTOR_SERVER_URL:              `${SERVER_URL}/event`,
-      PROCTOR_EVIDENCE_DIR:            evidenceDir,
-      PROCTOR_JWT_TOKEN:               studentToken || '',
-      PROCTOR_SKIP_ENROLLMENT:         '1',  // renderer handled the UI phase
-      PROCTOR_WRONG_PERSON_THRESHOLD:  '0.25',
-      PROCTOR_VOICE_THRESHOLD:         '0.035',
-    }
-  });
+  const envVars = {
+    ...process.env,
+    PROCTOR_SESSION_ID:              sessionId,
+    PROCTOR_SERVER_URL:              `${SERVER_URL}/event`,
+    PROCTOR_EVIDENCE_DIR:            evidenceDir,
+    PROCTOR_JWT_TOKEN:               studentToken || '',
+    PROCTOR_SKIP_ENROLLMENT:         '1',  // renderer handled the UI phase
+    PROCTOR_WRONG_PERSON_THRESHOLD:  '0.25',
+    PROCTOR_VOICE_THRESHOLD:         '0.035',
+  };
+  // Pass calibration biases from the dot-calibration step (if available)
+  if (calBiases) {
+    envVars.PROCTOR_GAZE_YAW_BIAS  = String(calBiases.gaze_yaw);
+    envVars.PROCTOR_GAZE_PITCH_BIAS = String(calBiases.gaze_pitch);
+    envVars.PROCTOR_HEAD_YAW_BIAS  = String(calBiases.head_yaw);
+    envVars.PROCTOR_HEAD_PITCH_BIAS = String(calBiases.head_pitch);
+  }
+
+  pythonProcess = spawn(python, [script], { env: envVars });
 
   pythonProcess.stdout.on('data', d =>
     console.log('[AI]', d.toString().trim()));
@@ -533,6 +542,73 @@ function stopPython() {
       }
     } catch(e) { console.error('[AI] Stop error:', e.message); }
     pythonProcess = null;
+  }
+}
+
+// ── CALIBRATION MODE ────────────────────────────────────────────
+// Spawns proctor.py with PROCTOR_CALIBRATION_MODE=1 so it streams
+// gaze/head readings as CAL:{...} JSON lines on stdout. The renderer
+// uses these to verify the student is looking at each calibration dot.
+function startCalibration(sessionId) {
+  stopCalibration(); // kill any prior instance
+
+  const python = findPython();
+  const script = getScriptPath();
+  if (!python || !fs.existsSync(script)) {
+    console.error('[CAL] Python or script not found — calibration unavailable');
+    return;
+  }
+
+  calProcess = spawn(python, [script], {
+    env: {
+      ...process.env,
+      PROCTOR_SESSION_ID:          sessionId,
+      PROCTOR_SERVER_URL:          `${SERVER_URL}/event`,
+      PROCTOR_JWT_TOKEN:           studentToken || '',
+      PROCTOR_CALIBRATION_MODE:    '1',
+      PROCTOR_SKIP_ENROLLMENT:     '1',
+      PROCTOR_HEADLESS:            '1',
+    }
+  });
+
+  calProcess.stdout.on('data', d => {
+    const lines = d.toString().split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('CAL:')) {
+        try {
+          const reading = JSON.parse(trimmed.slice(4));
+          // Forward to the exam renderer window
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('cal-reading', reading);
+          }
+        } catch (e) { /* malformed JSON — skip */ }
+      } else if (trimmed) {
+        console.log('[CAL]', trimmed);
+      }
+    }
+  });
+  calProcess.stderr.on('data', d =>
+    console.error('[CAL]', d.toString().trim()));
+  calProcess.on('close', code =>
+    console.log('[CAL] Exited:', code));
+  calProcess.on('error', err =>
+    console.error('[CAL] Spawn error:', err.message));
+
+  console.log('[CAL] Calibration proctor started');
+}
+
+function stopCalibration() {
+  if (calProcess) {
+    try {
+      if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/pid', String(calProcess.pid), '/f', '/t'],
+          { timeout: 5000 });
+      } else {
+        calProcess.kill('SIGTERM');
+      }
+    } catch (e) { console.error('[CAL] Stop error:', e.message); }
+    calProcess = null;
   }
 }
 
@@ -1015,6 +1091,22 @@ ipcMain.handle('get-events', async (_, sessionId) => {
                         { headers: authHeaders() });
   if (!r.ok) return { events: [] };
   return r.json();
+});
+
+ipcMain.handle('start-calibration', (_, { sessionId }) => {
+  currentSessionId = sessionId;
+  startCalibration(sessionId);
+  return { started: true };
+});
+
+ipcMain.handle('stop-calibration', (_, data) => {
+  const biases = data && data.biases;
+  if (biases) {
+    calBiases = biases; // {gaze_yaw, gaze_pitch, head_yaw, head_pitch}
+    console.log('[CAL] Biases received:', JSON.stringify(calBiases));
+  }
+  stopCalibration();
+  return { stopped: true };
 });
 
 ipcMain.handle('start-proctor', (_, { sessionId }) => {

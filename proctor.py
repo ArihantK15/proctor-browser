@@ -105,6 +105,13 @@ EVIDENCE_UPLOAD_URL = SERVER_URL.replace("/event", "/api/analyze-frame")
 HEADLESS          = platform.system() == "Windows" or \
                     os.environ.get("PROCTOR_HEADLESS","0") == "1"
 SKIP_ENROLLMENT   = os.environ.get("PROCTOR_SKIP_ENROLLMENT","0") == "1"
+CALIBRATION_MODE  = os.environ.get("PROCTOR_CALIBRATION_MODE","0") == "1"
+
+# Pre-set biases from renderer dot-calibration (skip self-calibration if present)
+_PRESET_GAZE_YAW_BIAS  = os.environ.get("PROCTOR_GAZE_YAW_BIAS")
+_PRESET_GAZE_PITCH_BIAS = os.environ.get("PROCTOR_GAZE_PITCH_BIAS")
+_PRESET_HEAD_YAW_BIAS  = os.environ.get("PROCTOR_HEAD_YAW_BIAS")
+_PRESET_HEAD_PITCH_BIAS = os.environ.get("PROCTOR_HEAD_PITCH_BIAS")
 
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
@@ -641,6 +648,65 @@ def _print_tuning_summary():
     print("[PROCTOR] └──────────────────────────────────────────────────")
 
 
+# ─── CALIBRATION MODE ────────────────────────────────────────────────────────
+# When PROCTOR_CALIBRATION_MODE=1 the renderer is showing a dot-calibration
+# UI. proctor.py opens the camera, runs face+gaze+head detection each frame,
+# and streams readings as JSON lines (prefixed "CAL:") on stdout. The Electron
+# main process parses these and forwards them to the renderer via IPC.
+# No violation detection, no event posting, no heartbeat.
+import json as _json
+
+def run_calibration(cap, W, H):
+    """Stream face/gaze/head readings for the renderer calibration UI."""
+    print("[CALIBRATION] 🎯 Streaming readings for dot calibration...")
+    sys.stdout.flush()
+
+    consecutive_failures = 0
+    MAX_FAILURES = 30
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            consecutive_failures += 1
+            if consecutive_failures >= MAX_FAILURES:
+                print("CAL:" + _json.dumps({"error": "camera_lost"}))
+                sys.stdout.flush()
+                break
+            time.sleep(0.05)
+            continue
+        consecutive_failures = 0
+
+        faces = detect_faces(frame)
+        if len(faces) != 1:
+            print("CAL:" + _json.dumps({"face": False, "count": len(faces)}))
+            sys.stdout.flush()
+            time.sleep(0.066)
+            continue
+
+        bbox, lm_2d = faces[0]
+        x1, y1, x2, y2 = bbox
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(W, x2), min(H, y2)
+        face_crop = frame[y1:y2, x1:x2]
+
+        reading = {"face": True,
+                   "gaze_yaw": 0.0, "gaze_pitch": 0.0,
+                   "head_yaw": 0.0, "head_pitch": 0.0}
+
+        if GAZE_AVAILABLE and face_crop.size > 0:
+            yaw, pitch = _gaze_engine.estimate(face_crop)
+            reading["gaze_yaw"]   = round(float(yaw), 4)
+            reading["gaze_pitch"] = round(float(pitch), 4)
+
+        hyaw, hpitch = get_head_pose(lm_2d, W, H)
+        reading["head_yaw"]   = round(float(hyaw), 2)
+        reading["head_pitch"] = round(float(hpitch), 2)
+
+        print("CAL:" + _json.dumps(reading))
+        sys.stdout.flush()
+        time.sleep(0.066)  # ~15fps
+
+
 def run_proctoring(cap, W, H):
     print(f"[PROCTOR] 🟢 Monitoring LIVE — Session: {SESSION_ID}")
     _print_tuning_summary()
@@ -655,17 +721,31 @@ def run_proctoring(cap, W, H):
     head_extreme_count  = 0
     eyes_closed_count   = 0
 
-    # Per-student calibration bias. Filled in during the first
-    # CALIBRATION_FRAMES of clean detections, then frozen.
-    gaze_yaw_bias   = 0.0
-    gaze_pitch_bias = 0.0
-    head_yaw_bias   = 0.0
-    head_pitch_bias = 0.0
-    cal_gaze_yaw    = []
-    cal_gaze_pitch  = []
-    cal_head_yaw    = []
-    cal_head_pitch  = []
-    calibrated      = False
+    # Per-student calibration bias. If pre-set biases from the renderer's
+    # dot-calibration are available, use them and skip self-calibration.
+    if _PRESET_GAZE_YAW_BIAS is not None:
+        gaze_yaw_bias   = float(_PRESET_GAZE_YAW_BIAS)
+        gaze_pitch_bias = float(_PRESET_GAZE_PITCH_BIAS or 0)
+        head_yaw_bias   = float(_PRESET_HEAD_YAW_BIAS or 0)
+        head_pitch_bias = float(_PRESET_HEAD_PITCH_BIAS or 0)
+        calibrated      = True
+        cal_gaze_yaw    = []
+        cal_gaze_pitch  = []
+        cal_head_yaw    = []
+        cal_head_pitch  = []
+        print(f"[CALIBRATION] ✅ Using pre-set biases from dot calibration — "
+              f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) "
+              f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})")
+    else:
+        gaze_yaw_bias   = 0.0
+        gaze_pitch_bias = 0.0
+        head_yaw_bias   = 0.0
+        head_pitch_bias = 0.0
+        cal_gaze_yaw    = []
+        cal_gaze_pitch  = []
+        cal_head_yaw    = []
+        cal_head_pitch  = []
+        calibrated      = False
     object_history      = {}
     frame_count         = 0
     voice_start_time    = None
@@ -1053,6 +1133,17 @@ def main():
     for _ in range(10):
         cap.read()
     time.sleep(0.5)
+
+    # ── Calibration-only mode: stream readings and exit ────────────
+    if CALIBRATION_MODE:
+        try:
+            run_calibration(cap, W, H)
+        except KeyboardInterrupt:
+            print("\n[CALIBRATION] Stopped by signal")
+        finally:
+            cap.release()
+            print("[CALIBRATION] Done")
+        return
 
     if HEADLESS or SKIP_ENROLLMENT:
         reason = "headless mode" if HEADLESS else "renderer handled enrollment"

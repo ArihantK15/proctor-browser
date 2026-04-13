@@ -10,6 +10,13 @@ contextBridge.exposeInMainWorld('proctor', {
   getExamContext:  ()     => ipcRenderer.invoke('get-exam-context'),
   validateStudent: (roll, accessCode) => ipcRenderer.invoke('validate-student', roll, accessCode),
   getQuestions:    (sid)  => ipcRenderer.invoke('get-questions', sid),
+  startCalibration:(data) => ipcRenderer.invoke('start-calibration', data),
+  stopCalibration: (data) => ipcRenderer.invoke('stop-calibration', data),
+  onCalReading:    (cb)   => {
+    // Remove any prior listener to prevent leaks on retry/re-calibration
+    ipcRenderer.removeAllListeners('cal-reading');
+    ipcRenderer.on('cal-reading', (_, data) => cb(data));
+  },
   startProctor:    (data) => ipcRenderer.invoke('start-proctor', data),
   startPolling:    (data) => ipcRenderer.invoke('start-polling', data),
   stopProctor:     ()     => ipcRenderer.invoke('stop-proctor'),

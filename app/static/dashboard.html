@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Procta — Admin Dashboard</title>
+<title>Teacher Dashboard — Procta AI Proctoring</title>
+<meta name="description" content="Procta teacher dashboard. Monitor live exams, review student identity, view forensics timelines, and manage AI-proctored assessments.">
+<meta name="robots" content="noindex, nofollow">
 <link rel="stylesheet" href="/static/theme.css">
 <style>
   /* ── Auth overlay ─────────────────────────────────────────────── */
@@ -452,6 +454,31 @@
   .tl-lightbox-caption{color:#fff;font-size:13px;margin-top:12px;text-align:center}
 
   .tl-empty{text-align:center;padding:40px;color:var(--muted);font-size:14px}
+
+  /* ── Pending ID Reviews ─────────────────────────────────────── */
+  .id-reviews{margin-bottom:20px}
+  .id-reviews-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;
+    font-size:14px;font-weight:600;color:#f59e0b}
+  .id-reviews-header .badge{background:rgba(245,158,11,.15);color:#f59e0b;
+    border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700}
+  .id-review-card{background:var(--card);border:1px solid var(--border);
+    border-radius:10px;padding:16px;margin-bottom:10px;
+    display:flex;align-items:center;gap:16px}
+  .id-review-photos{display:flex;gap:10px;flex-shrink:0}
+  .id-review-photo{width:120px;height:90px;object-fit:cover;border-radius:8px;
+    border:2px solid var(--border);cursor:pointer;transition:border-color .2s}
+  .id-review-photo:hover{border-color:var(--accent)}
+  .id-review-info{flex:1;min-width:0}
+  .id-review-name{font-weight:600;font-size:14px;color:var(--text);margin-bottom:2px}
+  .id-review-roll{font-size:12px;color:var(--muted)}
+  .id-review-time{font-size:11px;color:var(--muted);margin-top:4px}
+  .id-review-actions{display:flex;gap:8px;flex-shrink:0}
+  .id-review-actions button{padding:8px 16px;border-radius:6px;border:none;
+    font-size:12px;font-weight:600;cursor:pointer;transition:opacity .2s}
+  .id-review-actions button:hover{opacity:.85}
+  .id-btn-approve{background:#238636;color:#fff}
+  .id-btn-retake{background:rgba(245,158,11,.15);color:#f59e0b}
+  .id-btn-reject{background:rgba(239,68,68,.12);color:#ff7b72}
 </style>
 </head>
 <body>
@@ -561,6 +588,15 @@
 
   <!-- LIVE SESSIONS -->
   <div class="panel active" id="panel-live">
+    <!-- Pending ID reviews (hidden when empty) -->
+    <div class="id-reviews" id="id-reviews-section" style="display:none">
+      <div class="id-reviews-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="12" r="2.5"/><path d="M15 10h2M15 14h2"/></svg>
+        Pending ID Reviews
+        <span class="badge" id="id-reviews-count">0</span>
+      </div>
+      <div id="id-reviews-list"></div>
+    </div>
     <div class="stats" id="live-stats"></div>
     <div class="toolbar">
       <input type="text" id="live-search" placeholder="Search sessions..."
@@ -996,7 +1032,7 @@ function _onAuthed(teacher){
   refreshAll();
   // Poll every 5s so live status / risk score / submission state catches
   // up almost immediately when a student finishes their exam.
-  autoRefreshTimer = setInterval(refreshLive, 5000);
+  autoRefreshTimer = setInterval(()=>{ refreshLive(); refreshIdReviews(); }, 5000);
   chatConnect();
 }
 
@@ -1130,9 +1166,101 @@ function switchTab(tab){
 // ── REFRESH ─────────────────────────────────────────────────────
 async function refreshAll(){
   document.getElementById('refresh-spin').style.display='inline-block';
-  await Promise.all([refreshLive(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig()]);
+  await Promise.all([refreshLive(), refreshIdReviews(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig()]);
   document.getElementById('refresh-spin').style.display='none';
   document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+}
+
+// ── PENDING ID REVIEWS ──────────────────────────────────────────
+async function refreshIdReviews(){
+  try{
+    const r = await authFetch(`${BASE}/api/admin/pending-verifications`);
+    if(!r.ok) return;
+    const d = await r.json();
+    const list = d.pending || [];
+    const section = document.getElementById('id-reviews-section');
+    const container = document.getElementById('id-reviews-list');
+    document.getElementById('id-reviews-count').textContent = list.length;
+    if(list.length === 0){
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+    // Revoke old blob URLs before replacing
+    container.querySelectorAll('img[data-blob]').forEach(img=>{
+      try{ URL.revokeObjectURL(img.src); }catch(_){}
+    });
+    container.innerHTML = list.map(v => {
+      const vid = parseInt(v.id,10)||0;
+      const selfieUrl = esc(BASE+(v.selfie_url||''));
+      const idUrl     = esc(BASE+(v.id_url||''));
+      const label     = esc(v.full_name||v.roll_number||'');
+      const sk        = esc(v.session_key||'');
+      return `
+      <div class="id-review-card" data-vid="${vid}" data-sk="${sk}"
+           data-selfie-url="${selfieUrl}" data-id-url="${idUrl}" data-label="${label}">
+        <div class="id-review-photos">
+          <img class="id-review-photo" data-auth-src="${selfieUrl}" data-role="selfie" alt="Selfie">
+          <img class="id-review-photo" data-auth-src="${idUrl}" data-role="id" alt="ID Card">
+        </div>
+        <div class="id-review-info">
+          <div class="id-review-name">${esc(v.full_name||'Unknown')}</div>
+          <div class="id-review-roll">${esc(v.roll_number)}</div>
+          <div class="id-review-time">${esc(v.created_at)}</div>
+        </div>
+        <div class="id-review-actions">
+          <button class="id-btn-approve" data-decision="approved">Approve</button>
+          <button class="id-btn-retake" data-decision="retake">Retake</button>
+          <button class="id-btn-reject" data-decision="rejected">Different Person</button>
+        </div>
+      </div>`;
+    }).join('');
+    // Wire click handlers safely (no inline onclick)
+    container.querySelectorAll('.id-review-photo').forEach(img=>{
+      img.addEventListener('click', ()=>{
+        const card = img.closest('.id-review-card');
+        const role = img.dataset.role;
+        const url  = role==='selfie' ? card.dataset.selfieUrl : card.dataset.idUrl;
+        const cap  = card.dataset.label + (role==='selfie' ? ' — Selfie' : ' — ID Card');
+        showLightbox(url, cap);
+      });
+    });
+    container.querySelectorAll('.id-review-actions button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const card = btn.closest('.id-review-card');
+        idDecision(parseInt(card.dataset.vid,10), card.dataset.sk, btn.dataset.decision, btn);
+      });
+    });
+    // Load images with auth headers
+    container.querySelectorAll('img[data-auth-src]').forEach(img=>{
+      authFetch(img.dataset.authSrc).then(r=>r.blob()).then(b=>{
+        img.src=URL.createObjectURL(b);
+        img.dataset.blob='1';
+      }).catch(()=>{ img.alt='Failed to load'; });
+    });
+  }catch(e){ console.error('refreshIdReviews',e); }
+}
+
+async function idDecision(violationId, sessionKey, decision, btn){
+  const card = btn.closest('.id-review-card');
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+  btn.textContent = decision === 'approved' ? 'Approving...'
+                  : decision === 'retake' ? 'Requesting...' : 'Rejecting...';
+  try{
+    const r = await authFetch(`${BASE}/api/admin/id-decision`,{
+      method:'POST',
+      body:JSON.stringify({violation_id:violationId, session_key:sessionKey, decision})
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    // Animate card removal
+    card.style.opacity='0';card.style.transform='translateX(20px)';
+    card.style.transition='all .3s ease';
+    setTimeout(()=>{card.remove(); refreshIdReviews();}, 350);
+  }catch(e){
+    btn.textContent = 'Error — retry';
+    card.querySelectorAll('button').forEach(b => b.disabled = false);
+    console.error('idDecision',e);
+  }
 }
 
 // ── LIVE SESSIONS ───────────────────────────────────────────────

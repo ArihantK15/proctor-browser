@@ -44,6 +44,7 @@
       "repo": "proctor-browser"
     },
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",
@@ -58,6 +59,7 @@
       "gatekeeperAssess": false
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",

@@ -802,6 +802,9 @@ def run_proctoring(cap, W, H):
                     print("[PROCTOR] ✅ Face embedding captured (lazy enrollment)")
                     log_event("face_enrolled", "low",
                               f"Lazy embedding at frame {frame_count}")
+                    # Upload a reference frame so the teacher always has a
+                    # face photo in the timeline, even with zero violations.
+                    save_evidence(frame, "reference_frame")
             else:
                 lazy_enroll_done = True
                 print("[PROCTOR] ⚠ Could not capture face embedding in first "

@@ -1985,6 +1985,7 @@ def id_decision(data: IdDecisionIn, request: Request):
         .execute()
 
     # If rejected, also log a high-severity event so it shows in the timeline
+    # and invalidate the session so the student cannot proceed.
     if data.decision == "rejected":
         reject_row = {
             "session_key":    data.session_key,
@@ -1996,6 +1997,14 @@ def id_decision(data: IdDecisionIn, request: Request):
         if tid:
             reject_row["teacher_id"] = str(tid)
         supabase.table("violations").insert(reject_row).execute()
+        # Mark session as rejected so the student can't re-enter
+        try:
+            supabase.table("exam_sessions").update({
+                "status":       "rejected",
+                "submitted_at": now_ist().isoformat(),
+            }).eq("session_key", data.session_key).execute()
+        except Exception:
+            pass  # best-effort — client-side exit already handles this
 
     return {"status": "ok", "decision": data.decision}
 

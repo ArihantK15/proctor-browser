@@ -457,6 +457,8 @@
 
   /* ── Pending ID Reviews ─────────────────────────────────────── */
   .id-reviews{margin-bottom:20px}
+  .id-review-pulse{animation:idPulse .5s ease-in-out 3}
+  @keyframes idPulse{0%,100%{box-shadow:none}50%{box-shadow:0 0 16px rgba(245,158,11,.4)}}
   .id-reviews-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;
     font-size:14px;font-weight:600;color:#f59e0b}
   .id-reviews-header .badge{background:rgba(245,158,11,.15);color:#f59e0b;
@@ -1172,6 +1174,7 @@ async function refreshAll(){
 }
 
 // ── PENDING ID REVIEWS ──────────────────────────────────────────
+let _prevIdReviewCount = 0;
 async function refreshIdReviews(){
   try{
     const r = await authFetch(`${BASE}/api/admin/pending-verifications`);
@@ -1181,6 +1184,14 @@ async function refreshIdReviews(){
     const section = document.getElementById('id-reviews-section');
     const container = document.getElementById('id-reviews-list');
     document.getElementById('id-reviews-count').textContent = list.length;
+    // Notify teacher when new ID reviews arrive
+    if(list.length > _prevIdReviewCount && _prevIdReviewCount >= 0){
+      try{ new Audio('data:audio/wav;base64,UklGRl9vT19teleVBQCAAIABAAEAIlYAAESsAAACABAAEA'+
+        'AAEAAAAADAAAAA//8AAP//AAAAAP//AAD//wAAAAD//wAA//8A').play().catch(()=>{}); }catch(_){}
+      section.classList.add('id-review-pulse');
+      setTimeout(()=> section.classList.remove('id-review-pulse'), 3000);
+    }
+    _prevIdReviewCount = list.length;
     if(list.length === 0){
       section.style.display = 'none';
       return;

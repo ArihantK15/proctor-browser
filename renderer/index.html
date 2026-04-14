@@ -1000,6 +1000,18 @@ async function startEnroll() {
   calRunning = true;
   calUpdateDots();
   calSetStatus('Look at the centre dot');
+
+  // Timeout — if no reading arrives in 15s, proctor.py likely crashed
+  let calGotReading = false;
+  const origHandler = calHandleReading;
+  window.proctor.onCalReading(r => { calGotReading = true; origHandler(r); });
+  setTimeout(() => {
+    if (!calGotReading && calRunning) {
+      calRunning = false;
+      calSetStatus('Calibration timed out — camera may be unavailable');
+      document.getElementById('cam-retry-btn').style.display = 'inline-block';
+    }
+  }, 15000);
 }
 
 // ── EXAM ───────────────────────────────────────────────────────────

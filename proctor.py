@@ -702,6 +702,10 @@ def run_calibration(cap, W, H):
         reading["head_yaw"]   = round(float(hyaw), 2)
         reading["head_pitch"] = round(float(hpitch), 2)
 
+        # Sanitise NaN/Inf — json.dumps raises ValueError on them
+        for k, v in list(reading.items()):
+            if isinstance(v, float) and (v != v or v == float('inf') or v == float('-inf')):
+                reading[k] = 0.0
         print("CAL:" + _json.dumps(reading))
         sys.stdout.flush()
         time.sleep(0.066)  # ~15fps
@@ -724,10 +728,14 @@ def run_proctoring(cap, W, H):
     # Per-student calibration bias. If pre-set biases from the renderer's
     # dot-calibration are available, use them and skip self-calibration.
     if _PRESET_GAZE_YAW_BIAS is not None:
-        gaze_yaw_bias   = float(_PRESET_GAZE_YAW_BIAS)
-        gaze_pitch_bias = float(_PRESET_GAZE_PITCH_BIAS or 0)
-        head_yaw_bias   = float(_PRESET_HEAD_YAW_BIAS or 0)
-        head_pitch_bias = float(_PRESET_HEAD_PITCH_BIAS or 0)
+        try:
+            gaze_yaw_bias   = float(_PRESET_GAZE_YAW_BIAS)
+            gaze_pitch_bias = float(_PRESET_GAZE_PITCH_BIAS or 0)
+            head_yaw_bias   = float(_PRESET_HEAD_YAW_BIAS or 0)
+            head_pitch_bias = float(_PRESET_HEAD_PITCH_BIAS or 0)
+        except (ValueError, TypeError):
+            print("[PROCTOR] ⚠️ Invalid preset biases — falling back to self-calibration")
+            _PRESET_GAZE_YAW_BIAS = None
         calibrated      = True
         cal_gaze_yaw    = []
         cal_gaze_pitch  = []
@@ -1126,6 +1134,11 @@ def main():
 
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if W == 0 or H == 0:
+        W, H = 640, 480
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, W)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, H)
+        print(f"[PROCTOR] Camera returned 0x0 — forcing {W}x{H}")
     print(f"[PROCTOR] Camera: {W}x{H}")
 
     # First few frames are often blank, especially on Windows.

@@ -668,7 +668,7 @@ function statusBadge(status) {
     closed:      ['badge-red',     'Closed'],
     completed:   ['badge-muted',   'Submitted'],
   };
-  const [cls, label] = map[status] || ['badge-muted', status];
+  const [cls, label] = map[status] || ['badge-muted', escapeHtml(status)];
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
@@ -694,7 +694,7 @@ async function loadExams(opts) {
     _lastExamsFetch = Date.now();
   } catch (e) {
     if (!silent) {
-      container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>' + (e.message||'') + '</div>';
+      container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>' + escapeHtml(e.message||'') + '</div>';
     }
   } finally {
     _examsInflight = false;

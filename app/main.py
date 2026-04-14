@@ -284,7 +284,7 @@ from starlette.responses import JSONResponse
 async def _global_exception_handler(request: StarletteRequest, exc: Exception):
     print(f"[UNHANDLED] {request.method} {request.url.path}: {exc}")
     _tb.print_exc()
-    return JSONResponse(status_code=500, content={"detail": str(exc)})
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 # ─── STATIC FILES & ADMIN DASHBOARD ──────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"
@@ -1226,6 +1226,8 @@ def root():
 @app.get("/sitemap.xml", response_class=HTMLResponse)
 def sitemap():
     fpath = os.path.join(os.path.dirname(__file__), "static", "sitemap.xml")
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="sitemap.xml not found")
     with open(fpath) as f:
         content = f.read()
     from starlette.responses import Response

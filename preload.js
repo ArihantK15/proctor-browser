@@ -31,9 +31,11 @@ contextBridge.exposeInMainWorld('proctor', {
   panicUnlock:     (reason) => ipcRenderer.invoke('panic-unlock', { reason }),
   getEvents:       (sid)  => ipcRenderer.invoke('get-events', sid),
   onViolation:     (cb)   => {
+    ipcRenderer.removeAllListeners('violation-detected');
     ipcRenderer.on('violation-detected', (_, data) => cb(data));
   },
   onForceSubmit:   (cb)   => {
+    ipcRenderer.removeAllListeners('force-submit');
     ipcRenderer.once('force-submit', () => cb());
   },
 });

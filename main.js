@@ -519,6 +519,7 @@ function startPython(sessionId) {
     console.error('[AI]', d.toString().trim()));
   pythonProcess.on('close', code => {
     console.log('[AI] Exited:', code);
+    pythonProcess = null;
     if (code !== 0 && code !== null && pythonShouldRun) {
       console.log('[AI] Unexpected exit — restarting in 3s');
       setTimeout(() => startPython(sessionId), 3000);
@@ -590,8 +591,10 @@ function startCalibration(sessionId) {
   });
   calProcess.stderr.on('data', d =>
     console.error('[CAL]', d.toString().trim()));
-  calProcess.on('close', code =>
-    console.log('[CAL] Exited:', code));
+  calProcess.on('close', code => {
+    console.log('[CAL] Exited:', code);
+    calProcess = null;
+  });
   calProcess.on('error', err =>
     console.error('[CAL] Spawn error:', err.message));
 
@@ -840,11 +843,11 @@ function createExamWindow() {
 
   mainWindow.webContents.on('render-process-gone', (_, details) => {
     console.log('[App] Renderer gone:', details.reason, '— reloading');
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); } catch(e) {}
   });
 
   if (isKiosk) {
-    mainWindow.on('blur',  () => mainWindow.focus());
+    mainWindow.on('blur',  () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus(); });
     mainWindow.on('close', e  => e.preventDefault());
     powerBlockId = powerSaveBlocker.start('prevent-display-sleep');
 
@@ -1093,8 +1096,9 @@ ipcMain.handle('get-events', async (_, sessionId) => {
   return r.json();
 });
 
-ipcMain.handle('start-calibration', (_, { sessionId }) => {
-  currentSessionId = sessionId;
+ipcMain.handle('start-calibration', (_, data) => {
+  const sessionId = data && data.sessionId;
+  if (sessionId) currentSessionId = sessionId;
   startCalibration(sessionId);
   return { started: true };
 });
@@ -1109,14 +1113,16 @@ ipcMain.handle('stop-calibration', (_, data) => {
   return { stopped: true };
 });
 
-ipcMain.handle('start-proctor', (_, { sessionId }) => {
-  currentSessionId = sessionId;
+ipcMain.handle('start-proctor', (_, data) => {
+  const sessionId = data && data.sessionId;
+  if (sessionId) currentSessionId = sessionId;
   startPython(sessionId);
   return { started: true };
 });
 
-ipcMain.handle('start-polling', (_, { sessionId }) => {
-  currentSessionId = sessionId;
+ipcMain.handle('start-polling', (_, data) => {
+  const sessionId = data && data.sessionId;
+  if (sessionId) currentSessionId = sessionId;
   startPolling(sessionId);
   return { polling: true };
 });

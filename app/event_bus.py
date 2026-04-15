@@ -29,10 +29,12 @@ def _get_sync() -> redis.Redis:
     return _sync
 
 
-_async_lock = asyncio.Lock()
+_async_lock: asyncio.Lock | None = None
 
 async def _get_async() -> aioredis.Redis:
-    global _async_pool
+    global _async_pool, _async_lock
+    if _async_lock is None:
+        _async_lock = asyncio.Lock()
     if _async_pool is None:
         async with _async_lock:
             if _async_pool is None:

@@ -2417,7 +2417,7 @@ def get_timeline(session_id: str, request: Request):
 
 
 @app.post("/api/admin/upload-question-image")
-def upload_question_image(request: Request, body: dict):
+def upload_question_image(request: Request, body: dict = Body(...)):
     """Teacher uploads a question image.
 
     Accepts base64-encoded PNG/JPEG (with or without data URL prefix) and
@@ -3517,7 +3517,7 @@ def _clear_token_consume(token: str, teacher_id: str) -> bool:
 
 
 @app.post("/api/admin/clear-live-sessions")
-def clear_live_sessions(request: Request, body: dict):
+def clear_live_sessions(request: Request, body: dict = Body(...)):
     """Destructive: wipe all in-progress sessions for the calling teacher.
 
     Two-step confirmation:
@@ -3825,7 +3825,7 @@ def list_exams(request: Request):
     return {"exams": out}
 
 @app.post("/api/admin/exams")
-def create_exam(request: Request, body: dict):
+def create_exam(request: Request, body: dict = Body(...)):
     """Create a new exam for the calling teacher."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
@@ -4427,7 +4427,7 @@ def get_admin_answers(session_id: str, request: Request):
             "correct_count": sum(1 for a in answer_review if a["is_correct"])}
 
 @app.post("/api/admin/questions")
-def update_questions(request: Request, body: dict):
+def update_questions(request: Request, body: dict = Body(...)):
     """Update questions in Supabase.
 
     Accepts the extended schema: each question may set ``question_type``
@@ -4593,7 +4593,7 @@ def get_access_code(request: Request):
     return {"access_code": code, "enabled": bool(code)}
 
 @app.post("/api/admin/access-code")
-def set_access_code(request: Request, body: dict):
+def set_access_code(request: Request, body: dict = Body(...)):
     """Set or clear the exam access code (persisted in Supabase)."""
     teacher = require_admin(request)
     exam_id = body.get("exam_id")
@@ -4628,7 +4628,7 @@ def admin_get_schedule(request: Request):
     }
 
 @app.post("/api/admin/exam-schedule")
-def admin_set_schedule(request: Request, body: dict):
+def admin_set_schedule(request: Request, body: dict = Body(...)):
     """Set or clear exam start/end times (persisted in Supabase)."""
     teacher = require_admin(request)
     tid = teacher["id"]
@@ -4670,7 +4670,7 @@ def admin_get_shuffle(request: Request):
 
 
 @app.post("/api/admin/shuffle-config")
-def admin_set_shuffle(request: Request, body: dict):
+def admin_set_shuffle(request: Request, body: dict = Body(...)):
     """Toggle per-student question / option shuffling."""
     teacher = require_admin(request)
     tid = teacher["id"]

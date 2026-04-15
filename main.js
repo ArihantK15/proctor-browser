@@ -625,6 +625,7 @@ function authHeaders() {
 
 // ── POLLING ───────────────────────────────────────────────────────
 let _sseAbort = null; // AbortController for SSE fetch
+let _sseReconnectDelay = 0; // exponential backoff for SSE reconnect
 
 function startPolling(sessionId) {
   if (pollInterval || _sseAbort) return; // already running
@@ -639,7 +640,9 @@ async function _startSSE(sessionId) {
   _sseAbort = new AbortController();
   let forceSubmitSent = false;
 
+  const timeout = setTimeout(() => _sseAbort.abort(), 15000);
   const r = await fetch(url, { signal: _sseAbort.signal });
+  clearTimeout(timeout);
   if (!r.ok || !r.body) throw new Error('SSE not available');
 
   console.log('[SSE] connected for', sessionId);
@@ -696,15 +699,17 @@ async function _startSSE(sessionId) {
     if (e.name !== 'AbortError') console.error('[SSE] stream error:', e.message);
   }
 
-  // Stream ended or errored — reconnect after 5s unless intentionally aborted
+  // Stream ended or errored — reconnect with exponential backoff
   if (_sseAbort && !_sseAbort.signal.aborted) {
-    console.log('[SSE] stream ended, reconnecting in 5s...');
+    _sseReconnectDelay = Math.min((_sseReconnectDelay || 2000) * 2, 30000);
+    console.log(`[SSE] stream ended, reconnecting in ${_sseReconnectDelay / 1000}s...`);
     setTimeout(() => {
       if (_sseAbort && !_sseAbort.signal.aborted) {
         _sseAbort = null;
-        _startSSE(sessionId).catch(() => _startLegacyPolling(sessionId));
+        _startSSE(sessionId).then(() => { _sseReconnectDelay = 0; })
+          .catch(() => _startLegacyPolling(sessionId));
       }
-    }, 5000);
+    }, _sseReconnectDelay);
   }
 }
 
@@ -713,11 +718,14 @@ function _startLegacyPolling(sessionId) {
   console.log('[Poll] using legacy polling for', sessionId);
   let lastEventId = 0;
   let forceSubmitSent = false;
+  let _pollInFlight = false;
   pollInterval = setInterval(async () => {
+    if (_pollInFlight) return;
+    _pollInFlight = true;
     try {
       const r    = await fetch(`${SERVER_URL}/events/${sessionId}`,
                                { headers: authHeaders() });
-      if (!r.ok) return;
+      if (!r.ok) { _pollInFlight = false; return; }
       const data = await r.json();
       const events = data.events || [];
 
@@ -746,6 +754,7 @@ function _startLegacyPolling(sessionId) {
         }
       }
     } catch(e) { console.error('[Poll]', e.message); }
+    _pollInFlight = false;
   }, 2000);
 }
 

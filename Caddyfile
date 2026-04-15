@@ -30,6 +30,8 @@ app.procta.net {
 
     # ── Everything else: API ──
     handle {
-        reverse_proxy api:8000
+        reverse_proxy api:8000 {
+            flush_interval -1
+        }
     }
 }

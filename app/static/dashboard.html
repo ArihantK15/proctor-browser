@@ -1977,7 +1977,7 @@ function dlScorecard(sid){
   fetchBlob(`${BASE}/api/admin/scorecard-pdf/${encodeURIComponent(sid)}`,`scorecard_${sid.split('_')[0]}.pdf`);
 }
 function dlAllScorecards(){
-  const eid = selectedExamId;
+  const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
   fetchBlob(`${BASE}/api/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}`,`scorecards_${eid}.zip`);
 }
@@ -3497,7 +3497,7 @@ async function deleteBankQ(qid){
 }
 
 async function bankToExam(){
-  const eid = selectedExamId;
+  const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
   const ids = Array.from(_bankSelected);
   if(!ids.length){ alert('Select questions using the checkboxes first.'); return; }
@@ -3515,7 +3515,7 @@ async function bankToExam(){
 }
 
 async function saveBankToExamSingle(qid){
-  const eid = selectedExamId;
+  const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
   const r = await authFetch(`${BASE}/api/admin/question-bank/to-exam`,
     {method:'POST',body:JSON.stringify({question_ids:[qid],exam_id:eid})});
@@ -3707,7 +3707,7 @@ function populateGroupSelect(){
 }
 
 async function loadExamGroups(){
-  const eid = selectedExamId;
+  const eid = currentExamId;
   if(!eid){ document.getElementById('exam-groups-list').innerHTML=''; document.getElementById('exam-groups-none').style.display=''; return; }
   const r = await authFetch(`${BASE}/api/admin/exams/${encodeURIComponent(eid)}/groups`);
   const groups = r.ok ? await r.json() : [];
@@ -3723,7 +3723,7 @@ async function loadExamGroups(){
 }
 
 async function assignGroupToExam(){
-  const eid = selectedExamId;
+  const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
   const gid = document.getElementById('assign-group-select').value;
   if(!gid) return;
@@ -3733,7 +3733,7 @@ async function assignGroupToExam(){
 }
 
 async function unassignGroup(gid){
-  const eid = selectedExamId;
+  const eid = currentExamId;
   if(!eid) return;
   await authFetch(`${BASE}/api/admin/exams/${encodeURIComponent(eid)}/groups/${gid}`,{method:'DELETE'});
   loadExamGroups();
@@ -3751,7 +3751,7 @@ let _analyticsCache = {};
 let _analyticsLoading = false;
 
 async function loadAnalytics(){
-  const eid = selectedExamId;
+  const eid = currentExamId;
   const empty = document.getElementById('analytics-empty');
   const loading = document.getElementById('analytics-loading');
   const content = document.getElementById('analytics-content');

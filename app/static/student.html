@@ -905,6 +905,16 @@ function escapeHtml(s) {
   } catch {}
 })();
 
+// Re-check auth when page is restored from bfcache (back/forward navigation)
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) {
+    const stored = localStorage.getItem('procta_student_token') || '';
+    if (!stored && !document.getElementById('web-landing')?.style.display?.includes('flex')) {
+      document.getElementById('auth-view').style.display = '';
+    }
+  }
+});
+
 // ─── refetch exams when the lobby regains focus ───────────────
 // Phase 2: the main process hides (not destroys) the lobby window when
 // an exam launches and re-shows it when the kiosk releases. Without

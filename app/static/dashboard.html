@@ -1538,6 +1538,19 @@ async function authFetch(url, opts={}){
 // Auto-login on page load
 _tryAutoLogin();
 
+// Re-check auth when page is restored from bfcache (back/forward navigation)
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) {
+    // Page was restored from bfcache — re-validate token
+    const stored = localStorage.getItem('procta_token') || '';
+    if (!stored) {
+      document.getElementById('auth-overlay').classList.remove('hidden');
+    } else {
+      _tryAutoLogin();
+    }
+  }
+});
+
 // ── TABS ────────────────────────────────────────────────────────
 function switchTab(tab){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));

@@ -428,6 +428,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     # Create default exam_config for this teacher
     try:
         supabase.table("exam_config").insert({
+            "exam_id": str(_uuid.uuid4()),
             "teacher_id": teacher["id"],
             "exam_title": "Exam",
             "duration_minutes": 60,
@@ -3877,8 +3878,10 @@ def create_exam(request: Request, body: dict = Body(...)):
     tid = str(teacher["id"])
     title = str(body.get("exam_title", "New Exam")).strip() or "New Exam"
     duration = int(body.get("duration_minutes", 60))
+    exam_id = str(_uuid.uuid4())
     try:
         result = supabase.table("exam_config").insert({
+            "exam_id":          exam_id,
             "teacher_id":       tid,
             "exam_title":       title,
             "duration_minutes": duration,
@@ -3887,7 +3890,7 @@ def create_exam(request: Request, body: dict = Body(...)):
         print(f"[CreateExam] DB error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create exam: {e}")
     row = result.data[0] if result.data else {}
-    return {"exam_id": row.get("exam_id"), "exam_title": title, "duration_minutes": duration}
+    return {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration}
 
 @app.delete("/api/admin/exams/{exam_id}")
 def delete_exam(exam_id: str, request: Request):

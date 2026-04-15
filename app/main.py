@@ -421,7 +421,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         print(f"[TeacherSignup] Supabase Auth error: {e}")
         raise HTTPException(status_code=500, detail="Failed to create account")
 
-    # Insert teacher record
+    # Insert teacher record — if this fails, roll back the Auth user
     teacher_row = {
         "email": email,
         "full_name": name,
@@ -432,6 +432,12 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         teacher = result.data[0]
     except Exception as e:
         print(f"[TeacherSignup] DB insert error: {e}")
+        # Roll back: delete the orphaned Supabase Auth user
+        try:
+            supabase.auth.admin.delete_user(str(supabase_uid))
+            print(f"[TeacherSignup] Rolled back Auth user {supabase_uid}")
+        except Exception as rollback_err:
+            print(f"[TeacherSignup] CRITICAL: Failed to rollback Auth user {supabase_uid}: {rollback_err}")
         raise HTTPException(status_code=500, detail="Failed to create teacher record")
 
     # Create default exam_config for this teacher
@@ -597,6 +603,12 @@ async def student_signup(body: StudentSignupIn, request: Request):
         account = result.data[0]
     except Exception as e:
         print(f"[StudentSignup] DB insert error: {e}")
+        # Roll back: delete the orphaned Supabase Auth user
+        try:
+            supabase.auth.admin.delete_user(str(supabase_uid))
+            print(f"[StudentSignup] Rolled back Auth user {supabase_uid}")
+        except Exception as rollback_err:
+            print(f"[StudentSignup] CRITICAL: Failed to rollback Auth user {supabase_uid}: {rollback_err}")
         raise HTTPException(status_code=500, detail="Failed to create student record")
 
     # Auto-link any existing enrollments by matching email (case-insensitive).
@@ -997,25 +1009,35 @@ def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str =
     submit payload are still in student-facing label space, so we
     translate them here before merging. Multi-correct answers are stored
     as comma-separated canonical keys (e.g. "A,C") and matched by set.
+
+    Retries once on transient failure. Raises on persistent failure so the
+    caller can return a proper error instead of permanently locking at 0/0.
     """
-    try:
-        questions = _load_questions(teacher_id, exam_id=exam_id)
-        total = len(questions)
-        # DB answers are already canonical
-        saved = supabase.table("answers").select("question_id,answer")\
-            .eq("session_key", session_id).execute()
-        ans_map = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
-        # Payload answers are student-facing → translate to canonical.
-        # Multi-select answers arrive as "A,C" — translate each label.
-        for qid, ans in (payload_answers or {}).items():
-            ans_map[str(qid)] = _canonicalise_student_answer(
-                session_id, str(teacher_id or ""), str(qid), str(ans))
-        score = sum(1 for q in questions
-                    if _answers_match(ans_map.get(q["id"], ""), q["correct"]))
-        return score, total
-    except Exception as e:
-        print(f"[Score] Recalculation failed: {e}")
-        return 0, 0  # fail-safe: never trust client score
+    last_err = None
+    for attempt in range(2):  # retry once on transient failure
+        try:
+            questions = _load_questions(teacher_id, exam_id=exam_id)
+            total = len(questions)
+            # DB answers are already canonical
+            saved = supabase.table("answers").select("question_id,answer")\
+                .eq("session_key", session_id).execute()
+            ans_map = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
+            # Payload answers are student-facing → translate to canonical.
+            # Multi-select answers arrive as "A,C" — translate each label.
+            for qid, ans in (payload_answers or {}).items():
+                ans_map[str(qid)] = _canonicalise_student_answer(
+                    session_id, str(teacher_id or ""), str(qid), str(ans))
+            score = sum(1 for q in questions
+                        if _answers_match(ans_map.get(str(q["id"]), ""), str(q["correct"])))
+            return score, total
+        except Exception as e:
+            last_err = e
+            print(f"[Score] Recalculation attempt {attempt+1} failed: {e}")
+            if attempt == 0:
+                time.sleep(0.3)  # brief pause before retry
+    # Both attempts failed — raise so submit-exam can return an error
+    # instead of permanently locking the student at 0/0
+    raise RuntimeError(f"Score recalculation failed after 2 attempts: {last_err}")
 
 # ─── BEHAVIORAL RISK SCORING ─────────────────────────────────────
 # Computes a 0–100 risk score from violation history.
@@ -1527,6 +1549,32 @@ def validate_student(request: Request, body: ValidateIn):
         raise HTTPException(
             status_code=403,
             detail="You have already submitted this exam.")
+
+    # Also check for in-progress sessions to prevent duplicate tokens.
+    # If another request is already minting a token for the same student+exam,
+    # we block to avoid a TOCTOU race.
+    in_progress_query = supabase.table("exam_sessions").select("session_key,status")\
+        .eq("roll_number", student["roll_number"])\
+        .eq("status", "in_progress")
+    if student_tid:
+        in_progress_query = in_progress_query.eq("teacher_id", str(student_tid))
+    if exam_id:
+        in_progress_query = in_progress_query.eq("exam_id", exam_id)
+    in_progress = in_progress_query.execute()
+    if in_progress.data:
+        # Student already has an active session — return a token for the
+        # existing session instead of creating a new one (supports reconnection)
+        existing_key = in_progress.data[0]["session_key"]
+        return {
+            "valid":       True,
+            "full_name":   student["full_name"],
+            "email":       student.get("email", ""),
+            "phone":       student.get("phone", ""),
+            "roll_number": student["roll_number"],
+            "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id),
+            "existing_session": existing_key,
+        }
+
     return {
         "valid":       True,
         "full_name":   student["full_name"],
@@ -1823,17 +1871,35 @@ async def heartbeat(event: EventIn, request: Request):
     _check_session_ownership(claims, event.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
-    row = {
-        "session_key":    event.session_id,
-        "roll_number":    event.session_id.rsplit("_", 1)[0],
-        "last_heartbeat": now_ist().isoformat(),
-        "status":         "in_progress",
-    }
-    if tid:
-        row["teacher_id"] = tid
-    if eid:
-        row["exam_id"] = eid
-    await _atable("exam_sessions").upsert(row).execute()
+
+    # Check if session already exists and is completed — don't overwrite
+    existing = await _atable("exam_sessions").select("status")\
+        .eq("session_key", event.session_id).execute()
+
+    if existing.data and existing.data[0].get("status") == "completed":
+        # Session already submitted — just acknowledge heartbeat, don't upsert
+        return {"ok": True}
+
+    if existing.data:
+        # Session exists — UPDATE only heartbeat + status (preserves other fields)
+        await _atable("exam_sessions").eq("session_key", event.session_id)\
+            .update({
+                "last_heartbeat": now_ist().isoformat(),
+                "status":         "in_progress",
+            }).execute()
+    else:
+        # No session row yet — INSERT with all required fields
+        row = {
+            "session_key":    event.session_id,
+            "roll_number":    event.session_id.rsplit("_", 1)[0],
+            "last_heartbeat": now_ist().isoformat(),
+            "status":         "in_progress",
+        }
+        if tid:
+            row["teacher_id"] = tid
+        if eid:
+            row["exam_id"] = eid
+        await _atable("exam_sessions").upsert(row).execute()
 
     # Publish heartbeat to dashboard SSE
     if tid:
@@ -1922,12 +1988,29 @@ async def submit_exam(result: ResultIn, request: Request):
     eid = claims.get("eid")
     now = now_ist()
 
+    # ── SECURITY: Use JWT roll, not client-supplied fields (IDOR prevention) ──
+    jwt_roll = claims.get("roll", "")
+    # Derive trusted identity from JWT + session_id, ignore client body
+    trusted_roll = jwt_roll.upper()
+
+    # ── Guard: Block re-submission of already-completed sessions ──
+    existing = await _atable("exam_sessions").select("status")\
+        .eq("session_key", result.session_id).execute()
+    if existing.data and existing.data[0].get("status") == "completed":
+        raise HTTPException(status_code=409, detail="Exam already submitted")
+
     # ── Phase 1: Score + config in parallel (both are sync/cached) ──
     score_fut = asyncio.to_thread(
         _recalculate_score, result.session_id, result.answers,
         teacher_id=tid, exam_id=eid)
     config_fut = asyncio.to_thread(_load_exam_config, teacher_id=tid, exam_id=eid)
-    (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
+    try:
+        (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
+    except RuntimeError as e:
+        # Score recalculation failed after retries — don't lock at 0/0
+        print(f"[SUBMIT] Score calculation failed for {result.session_id}: {e}")
+        raise HTTPException(status_code=503,
+                            detail="Score calculation temporarily unavailable. Please retry.")
 
     if server_score == 0 and server_total == 0:
         print(f"[WARN] Score recalculation returned 0/0 for {result.session_id} — check Supabase questions table")
@@ -1937,7 +2020,7 @@ async def submit_exam(result: ResultIn, request: Request):
     # ── Phase 2: Session upsert + submission log + time check in parallel ──
     session_row = {
         "session_key":     result.session_id,
-        "roll_number":     result.roll_number,
+        "roll_number":     trusted_roll,
         "full_name":       result.full_name,
         "email":           result.email,
         "score":           server_score,
@@ -1979,7 +2062,15 @@ async def submit_exam(result: ResultIn, request: Request):
             time_viol["teacher_id"] = tid
         parallel_ops.append(_atable("violations").insert(time_viol).execute())
 
-    await asyncio.gather(*parallel_ops, return_exceptions=True)
+    # ── Execute parallel ops — check for failures instead of swallowing ──
+    results = await asyncio.gather(*parallel_ops, return_exceptions=True)
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            print(f"[SUBMIT] Phase 2 op {i} failed for {result.session_id}: {r}")
+            # The session upsert (op 0) is critical — if it failed, raise
+            if i == 0:
+                raise HTTPException(status_code=500,
+                                    detail="Failed to save exam submission. Please retry.")
 
     # ── Phase 3: Risk score (needs violations written above) ──────
     risk = await asyncio.to_thread(compute_risk_score, result.session_id, teacher_id=tid)
@@ -1989,7 +2080,7 @@ async def submit_exam(result: ResultIn, request: Request):
     await upd.update({"risk_score": risk["risk_score"]}).execute()
 
     get_logger(result.session_id).info(
-        f"[SUBMIT] {result.roll_number} score:{server_score}/{server_total} "
+        f"[SUBMIT] {trusted_roll} score:{server_score}/{server_total} "
         f"risk:{risk['risk_score']}/100")
 
     # Publish submission to dashboard SSE (fire-and-forget)
@@ -2002,24 +2093,39 @@ async def submit_exam(result: ResultIn, request: Request):
             "total": server_total, "percentage": pct,
             "risk_score": risk["risk_score"], "risk_label": risk["label"]}
 
+_MAX_FRAME_BASE64_LEN = 500_000  # ~375KB decoded, enough for a JPEG frame
+
 @app.post("/api/analyze-frame")
 def analyze_frame(data: FrameIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, data.session_id)
-    try:
-        tid = claims.get("tid")
-        roll = data.session_id.rsplit("_", 1)[0] if "_" in data.session_id \
+    tid = claims.get("tid")
+
+    # ── Size limit: reject oversized payloads to prevent OOM ──
+    if len(data.frame) > _MAX_FRAME_BASE64_LEN:
+        raise HTTPException(status_code=413,
+                            detail=f"Frame too large ({len(data.frame)} chars). Max {_MAX_FRAME_BASE64_LEN}.")
+
+    # ── Sanitize roll/tid for path safety (strip anything non-alnum/_-) ──
+    raw_roll = data.session_id.rsplit("_", 1)[0] if "_" in data.session_id \
                else data.session_id[:20]
-        # Scope screenshots under teacher_id to avoid roll collisions across teachers
-        if tid:
-            student_dir = os.path.join(SCREENSHOTS_DIR, tid, roll)
-        else:
-            student_dir = os.path.join(SCREENSHOTS_DIR, roll)
+    roll = "".join(c if c.isalnum() or c in "_-" else "_" for c in raw_roll)[:40]
+    safe_tid = "".join(c if c.isalnum() or c in "_-" else "_" for c in (tid or ""))[:40]
+
+    if safe_tid:
+        student_dir = os.path.join(SCREENSHOTS_DIR, safe_tid, roll)
+    else:
+        student_dir = os.path.join(SCREENSHOTS_DIR, roll)
+
+    # Verify resolved path is under SCREENSHOTS_DIR (prevent traversal)
+    real_dir = os.path.realpath(student_dir)
+    real_base = os.path.realpath(SCREENSHOTS_DIR)
+    if not real_dir.startswith(real_base + os.sep) and real_dir != real_base:
+        raise HTTPException(status_code=400, detail="Invalid session identifier")
+
+    try:
         os.makedirs(student_dir, exist_ok=True)
-        ts    = now_ist().strftime("%Y%m%d_%H%M%S")
-        # Prefix evidence frames with the violation type so the forensics
-        # timeline can pair them with their matching event row. Plain
-        # renderer reference frames continue to use the "frame_" prefix.
+        ts = now_ist().strftime("%Y%m%d_%H%M%S")
         if data.event_type:
             safe_label = "".join(
                 c if c.isalnum() or c in "_-" else "_"
@@ -2032,7 +2138,8 @@ def analyze_frame(data: FrameIn, request: Request):
         with open(fpath, "wb") as f:
             f.write(base64.b64decode(data.frame))
     except Exception as e:
-        print(f"[Frame] {e}")
+        print(f"[Frame] Error saving frame for {data.session_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save frame")
     return {"status": "received"}
 
 class IdVerifyIn(BaseModel):
@@ -2048,13 +2155,30 @@ def id_verification(data: IdVerifyIn, request: Request):
     """Store selfie + ID photos and create a pending verification for teacher review."""
     claims = require_auth(request)
     _check_session_ownership(claims, data.session_id)
+    tid = claims.get("tid")
+
+    # Size guard — selfie + ID card shouldn't exceed ~750KB each
+    for field_name, field_val in [("selfie_frame", data.selfie_frame), ("id_frame", data.id_frame)]:
+        if len(field_val) > _MAX_FRAME_BASE64_LEN:
+            raise HTTPException(status_code=413, detail=f"{field_name} too large")
+
+    # Sanitize roll for filesystem safety
+    raw_roll = data.roll_number.strip().upper() or "UNKNOWN"
+    roll = "".join(c if c.isalnum() or c in "_-" else "_" for c in raw_roll)[:40]
+    safe_tid = "".join(c if c.isalnum() or c in "_-" else "_" for c in (tid or ""))[:40]
+
+    if safe_tid:
+        student_dir = os.path.join(SCREENSHOTS_DIR, safe_tid, roll)
+    else:
+        student_dir = os.path.join(SCREENSHOTS_DIR, roll)
+
+    # Path traversal guard
+    real_dir = os.path.realpath(student_dir)
+    real_base = os.path.realpath(SCREENSHOTS_DIR)
+    if not real_dir.startswith(real_base + os.sep) and real_dir != real_base:
+        raise HTTPException(status_code=400, detail="Invalid roll number")
+
     try:
-        tid = claims.get("tid")
-        roll = data.roll_number.strip().upper() or "UNKNOWN"
-        if tid:
-            student_dir = os.path.join(SCREENSHOTS_DIR, tid, roll)
-        else:
-            student_dir = os.path.join(SCREENSHOTS_DIR, roll)
         os.makedirs(student_dir, exist_ok=True)
         ts = now_ist().strftime("%Y%m%d_%H%M%S")
 
@@ -2064,7 +2188,11 @@ def id_verification(data: IdVerifyIn, request: Request):
             f.write(base64.b64decode(data.selfie_frame))
         with open(os.path.join(student_dir, id_fname), "wb") as f:
             f.write(base64.b64decode(data.id_frame))
+    except Exception as e:
+        print(f"[ID Verify] File save error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save verification images")
 
+    try:
         detail_obj = {
             "status":       "pending",
             "selfie_file":  selfie_fname,
@@ -2082,7 +2210,10 @@ def id_verification(data: IdVerifyIn, request: Request):
             viol_row["teacher_id"] = str(tid)
         supabase.table("violations").insert(viol_row).execute()
     except Exception as e:
-        print(f"[ID Verify] {e}")
+        print(f"[ID Verify] DB error: {e}")
+        # Files saved but DB record failed — not critical, verification
+        # can be retried. Log but don't crash.
+
     return {"status": "received"}
 
 
@@ -4691,25 +4822,22 @@ def admin_set_schedule(request: Request, body: dict = Body(...)):
     teacher = require_admin(request)
     tid = teacher["id"]
     exam_id = body.get("exam_id")
-    if tid and exam_id:
-        update = {}
-        if "starts_at" in body:
-            update["starts_at"] = body["starts_at"]
-        if "ends_at" in body:
-            update["ends_at"] = body["ends_at"]
-        if update:
-            supabase.table("exam_config").update(update)\
-                .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    else:
-        update = {"teacher_id": tid} if tid else {"id": 1}
-        if "starts_at" in body:
-            update["starts_at"] = body["starts_at"]
-        if "ends_at" in body:
-            update["ends_at"] = body["ends_at"]
-        supabase.table("exam_config").upsert(update).execute()
+
+    if not exam_id:
+        raise HTTPException(status_code=400, detail="exam_id is required")
+
+    update = {}
+    if "starts_at" in body:
+        update["starts_at"] = body["starts_at"]
+    if "ends_at" in body:
+        update["ends_at"] = body["ends_at"]
+    if update:
+        supabase.table("exam_config").update(update)\
+            .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+
     # Invalidate cached config
     if _cache:
-        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
+        _cache.delete(f"exam_config:{tid}:{exam_id}")
     return {
         "status":    "updated",
         "starts_at": body.get("starts_at"),

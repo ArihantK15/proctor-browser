@@ -624,19 +624,103 @@ function authHeaders() {
 }
 
 // ── POLLING ───────────────────────────────────────────────────────
+let _sseAbort = null; // AbortController for SSE fetch
+
 function startPolling(sessionId) {
-  if (pollInterval) return; // already polling — don't stack a second loop
+  if (pollInterval || _sseAbort) return; // already running
+
+  // Try SSE first; fall back to interval polling on failure
+  _startSSE(sessionId).catch(() => _startLegacyPolling(sessionId));
+}
+
+async function _startSSE(sessionId) {
+  const token = studentToken || '';
+  const url = `${SERVER_URL}/api/sse/events/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(token)}`;
+  _sseAbort = new AbortController();
+  let forceSubmitSent = false;
+
+  const r = await fetch(url, { signal: _sseAbort.signal });
+  if (!r.ok || !r.body) throw new Error('SSE not available');
+
+  console.log('[SSE] connected for', sessionId);
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE events (accumulate data lines, emit on blank line)
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete last line
+      let eventData = '';
+      for (const line of lines) {
+        if (line === '') {
+          // Blank line = event boundary
+          if (eventData) {
+            try {
+              const evt = JSON.parse(eventData);
+              // Force-submit
+              if (!forceSubmitSent && evt.type === 'exam_submitted') {
+                forceSubmitSent = true;
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('force-submit');
+                }
+              }
+              // Violation banners
+              const IGNORED = ['screenshot','enrollment','started','submitted',
+                               'resumed','complete','session_ended','answer_selected'];
+              if ((evt.severity === 'high' || evt.severity === 'medium') &&
+                  !IGNORED.some(x => (evt.type || '').includes(x))) {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('violation-detected', {
+                    type:     evt.type,
+                    details:  evt.details,
+                    severity: evt.severity,
+                  });
+                }
+              }
+            } catch(_) { /* ignore non-JSON / keepalives */ }
+          }
+          eventData = '';
+        } else if (line.startsWith('data: ')) {
+          eventData += (eventData ? '\n' : '') + line.slice(6);
+        }
+        // Ignore event:, id:, retry:, and comment lines
+      }
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') console.error('[SSE] stream error:', e.message);
+  }
+
+  // Stream ended or errored — reconnect after 5s unless intentionally aborted
+  if (_sseAbort && !_sseAbort.signal.aborted) {
+    console.log('[SSE] stream ended, reconnecting in 5s...');
+    setTimeout(() => {
+      if (_sseAbort && !_sseAbort.signal.aborted) {
+        _sseAbort = null;
+        _startSSE(sessionId).catch(() => _startLegacyPolling(sessionId));
+      }
+    }, 5000);
+  }
+}
+
+function _startLegacyPolling(sessionId) {
+  if (pollInterval) return;
+  console.log('[Poll] using legacy polling for', sessionId);
   let lastEventId = 0;
   let forceSubmitSent = false;
   pollInterval = setInterval(async () => {
     try {
       const r    = await fetch(`${SERVER_URL}/events/${sessionId}`,
                                { headers: authHeaders() });
-      if (!r.ok) return; // skip this cycle on server error
+      if (!r.ok) return;
       const data = await r.json();
       const events = data.events || [];
 
-      // Check for admin force-submit (only once)
       if (!forceSubmitSent && events.some(e => e.type === 'exam_submitted')) {
         forceSubmitSent = true;
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -644,7 +728,6 @@ function startPolling(sessionId) {
         }
       }
 
-      // Send violation banners for new high/medium events
       const IGNORED = ['screenshot','enrollment','started','submitted',
                        'resumed','complete','session_ended','answer_selected'];
       const newV = events.filter(e =>
@@ -668,6 +751,7 @@ function startPolling(sessionId) {
 
 function stopPolling() {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  if (_sseAbort) { try { _sseAbort.abort(); } catch(_) {} _sseAbort = null; }
 }
 
 // ── LOBBY WINDOW (pre-exam, NOT kiosk) ───────────────────────────

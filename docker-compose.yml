@@ -7,11 +7,15 @@ services:
       - "8000"
     env_file:
       - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
     volumes:
       - ./screenshots:/app/screenshots
       - ./logs:/data/logs
-    mem_limit: 1400m       # leave ~600 MB for Caddy + OS on a 2 GB droplet
-    memswap_limit: 1400m   # don't let it silently spill into swap
+    mem_limit: 1200m       # 1 async worker; leaves ~600 MB for Caddy + Redis + OS
+    memswap_limit: 1200m   # don't let it silently spill into swap
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -32,6 +36,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./app/static:/srv/static:ro
       - caddy_data:/data
       - caddy_config:/config
     mem_limit: 128m
@@ -43,6 +48,21 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: proctor-redis
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --save ""
+    restart: unless-stopped
+    expose:
+      - "6379"
+    mem_limit: 96m
+    memswap_limit: 96m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 volumes:
   caddy_data:

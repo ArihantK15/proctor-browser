@@ -5,17 +5,18 @@
   <title>Procta — Proctored Exam</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;user-select:none}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-         background:#0a0e14;color:#c9d1d9;height:100vh;overflow:hidden}
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
+    body{font-family:'Space Grotesk',system-ui,sans-serif;
+         background:#06080d;color:#c8d1dc;height:100vh;overflow:hidden}
     .screen{position:absolute;inset:0;display:none;
             align-items:center;justify-content:center}
     .screen.active{display:flex}
     #screen-login{flex-direction:column}
-    .card{background:#12161e;border:1px solid rgba(255,255,255,.06);
+    .card{background:#0c1018;border:1px solid rgba(255,255,255,.06);
           border-radius:14px;padding:48px;width:420px;text-align:center}
     .logo-wrap{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:20px}
     .logo-icon{width:40px;height:40px;border-radius:10px;
-      background:linear-gradient(135deg,#3b82f6,#2563eb);
+      background:linear-gradient(135deg,#3dd9a8,#2bb88a);
       display:flex;align-items:center;justify-content:center}
     .logo-text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
       font-size:24px;font-weight:700;color:white;letter-spacing:-.02em}
@@ -28,25 +29,25 @@
     .fg input{width:100%;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);
               border-radius:8px;padding:11px 14px;color:#c9d1d9;font-size:14px;
               transition:border-color .2s,background .2s}
-    .fg input:focus{outline:none;border-color:rgba(59,130,246,.4);background:rgba(255,255,255,.05)}
+    .fg input:focus{outline:none;border-color:rgba(61,217,168,.4);background:rgba(255,255,255,.05)}
     .btn{width:100%;padding:13px;border-radius:8px;border:none;
          font-size:14px;font-weight:600;cursor:pointer;
-         background:#3b82f6;color:#fff;transition:background .2s;
-         box-shadow:0 2px 8px rgba(59,130,246,.2)}
-    .btn:hover{background:#60a5fa}
+         background:#3dd9a8;color:#fff;transition:background .2s;
+         box-shadow:0 2px 8px rgba(61,217,168,.2)}
+    .btn:hover{background:#63dfc4}
     .btn:disabled{background:rgba(255,255,255,.06);color:#484f58;cursor:not-allowed;box-shadow:none}
     .err{color:#ff7b72;font-size:12px;margin-top:10px;min-height:18px}
     .ldr{color:#6b7b8f;font-size:12px;margin-top:8px}
-    #screen-enroll{flex-direction:column;background:#0a0e14}
+    #screen-enroll{flex-direction:column;background:#06080d}
 
     /* ── Calibration dot system ─────────────────────────────────── */
     .cal-overlay{position:absolute;inset:0;pointer-events:none}
     .cal-dot{position:absolute;width:28px;height:28px;border-radius:50%;
              background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.15);
              transform:translate(-50%,-50%);transition:all .4s ease}
-    .cal-dot.active{background:rgba(59,130,246,.7);border-color:#3b82f6;
-                    box-shadow:0 0 24px 8px rgba(59,130,246,.45),
-                               0 0 60px 20px rgba(59,130,246,.15);
+    .cal-dot.active{background:rgba(61,217,168,.7);border-color:#3dd9a8;
+                    box-shadow:0 0 24px 8px rgba(61,217,168,.45),
+                               0 0 60px 20px rgba(61,217,168,.15);
                     animation:cal-pulse 1.2s ease-in-out infinite}
     .cal-dot.done{background:rgba(34,197,94,.6);border-color:#22c55e;
                   box-shadow:0 0 16px 4px rgba(34,197,94,.3)}
@@ -68,7 +69,7 @@
 
     .cal-progress{width:280px;height:6px;background:#21262d;border-radius:20px;
                   overflow:hidden;margin-top:16px}
-    .cal-progress-fill{height:100%;background:#3b82f6;border-radius:20px;
+    .cal-progress-fill{height:100%;background:#3dd9a8;border-radius:20px;
                        transition:width .4s ease;width:0%}
 
     .est{margin-top:16px;font-size:14px;color:#c9d1d9;min-height:24px}
@@ -94,7 +95,7 @@
     .qdot{width:36px;height:36px;border-radius:6px;border:none;
           font-size:12px;font-weight:600;cursor:pointer;
           background:#21262d;color:#8b949e}
-    .qdot.cur{background:#1f6feb;color:#fff}
+    .qdot.cur{background:#2bb88a;color:#fff}
     .qdot.ans{background:#238636;color:#fff}
     .emain{flex:1;padding:32px;overflow-y:auto;
            display:flex;flex-direction:column;gap:24px}
@@ -118,7 +119,7 @@
     .bnav{padding:10px 24px;border-radius:6px;border:none;
           font-size:13px;font-weight:600;cursor:pointer}
     .bprev{background:#21262d;color:#c9d1d9}
-    .bnext{background:#1f6feb;color:#fff}
+    .bnext{background:#2bb88a;color:#fff}
     .bsub{background:#238636;color:#fff}
     .bnav:disabled{opacity:.4;cursor:not-allowed}
     .camini{position:fixed;bottom:20px;right:20px;width:160px;
@@ -153,7 +154,7 @@
 
     /* ── In-exam chat ────────────────────────────────────────── */
     #chat-fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;
-      border-radius:50%;background:#1f6feb;color:#fff;display:none;
+      border-radius:50%;background:#2bb88a;color:#fff;display:none;
       align-items:center;justify-content:center;cursor:pointer;
       box-shadow:0 4px 18px rgba(31,111,235,0.35);z-index:9998;
       border:none;transition:transform .15s, box-shadow .15s}
@@ -169,7 +170,7 @@
     #chat-panel{position:fixed;bottom:24px;right:24px;width:340px;height:440px;
       background:#161b22;border:1px solid #30363d;border-radius:12px;
       box-shadow:0 12px 40px rgba(0,0,0,0.5);display:none;flex-direction:column;
-      z-index:9999;overflow:hidden;font-family:'Inter',system-ui,sans-serif}
+      z-index:9999;overflow:hidden;font-family:'Space Grotesk',system-ui,sans-serif}
     #chat-panel.open{display:flex}
     .chat-head{padding:12px 16px;background:#0d1117;border-bottom:1px solid #30363d;
       display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -184,7 +185,7 @@
       margin:auto;padding:24px}
     .chat-msg{max-width:82%;padding:8px 12px;border-radius:10px;font-size:12.5px;
       line-height:1.4;word-wrap:break-word;white-space:pre-wrap}
-    .chat-msg.from-student{align-self:flex-end;background:#1f6feb;color:#fff;
+    .chat-msg.from-student{align-self:flex-end;background:#2bb88a;color:#fff;
       border-bottom-right-radius:3px}
     .chat-msg.from-teacher{align-self:flex-start;background:#21262d;color:#c9d1d9;
       border:1px solid #30363d;border-bottom-left-radius:3px}
@@ -197,8 +198,8 @@
     .chat-composer textarea{flex:1;background:#161b22;border:1px solid #30363d;
       border-radius:8px;padding:8px 10px;color:#c9d1d9;font:inherit;font-size:12.5px;
       resize:none;max-height:90px;line-height:1.4;outline:none}
-    .chat-composer textarea:focus{border-color:#1f6feb}
-    .chat-composer button{background:#1f6feb;color:#fff;border:none;
+    .chat-composer textarea:focus{border-color:#2bb88a}
+    .chat-composer button{background:#2bb88a;color:#fff;border:none;
       border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;
       cursor:pointer;height:34px}
     .chat-composer button:disabled{opacity:0.5;cursor:not-allowed}
@@ -269,7 +270,7 @@
     </div>
     <!-- Step indicator -->
     <div style="display:flex;gap:8px;justify-content:center;margin-bottom:16px">
-      <div id="id-step-1" style="width:10px;height:10px;border-radius:50%;background:#3b82f6"></div>
+      <div id="id-step-1" style="width:10px;height:10px;border-radius:50%;background:#3dd9a8"></div>
       <div id="id-step-2" style="width:10px;height:10px;border-radius:50%;background:#30363d"></div>
     </div>
     <div style="display:flex;gap:10px;justify-content:center">
@@ -427,6 +428,47 @@ let curQ=0, timerSecs=0, timerInt=null;
 let startTime=null, stream=null;
 let resumedStartedAt=null;
 let lastFocusLost=0;
+let isOffline=false;
+
+// ── Offline Answer Resilience ─────────────────────────────────────
+function _persistAnswers(){
+  if(!sessionId) return;
+  try{ localStorage.setItem('answers_'+sessionId, JSON.stringify(answers)); }catch(_){}
+}
+function _loadLocalAnswers(){
+  if(!sessionId) return {};
+  try{
+    const raw = localStorage.getItem('answers_'+sessionId);
+    return raw ? JSON.parse(raw) : {};
+  }catch(_){ return {}; }
+}
+function _clearLocalAnswers(){
+  if(!sessionId) return;
+  try{ localStorage.removeItem('answers_'+sessionId); }catch(_){}
+}
+function _mergeLocalAnswers(){
+  const local = _loadLocalAnswers();
+  if(!local || !Object.keys(local).length) return;
+  let merged = 0;
+  for(const [qid, ans] of Object.entries(local)){
+    if(!(qid in answers)){
+      answers[qid] = ans;
+      merged++;
+    }
+  }
+  if(merged) console.log(`[Offline] merged ${merged} locally-saved answers`);
+}
+window.addEventListener('online', ()=>{
+  if(!isOffline) return;
+  isOffline = false;
+  console.log('[Offline] back online — syncing answers');
+  doBulkSave();
+});
+window.addEventListener('offline', ()=>{
+  isOffline = true;
+  const s = document.getElementById('save-status');
+  if(s){ s.textContent='Offline — saved locally'; s.style.color='#d29922'; s.style.opacity='1'; }
+});
 let examActive=false;
 let submitInFlight=false;
 let antiCheatBound=false; // prevents stacking blur/visibility listeners
@@ -531,6 +573,7 @@ async function doLogin(){
         sessionId        = existing.session_key;
         answers          = existing.answers || {};
         resumedStartedAt = existing.started_at || null;
+        _mergeLocalAnswers(); // recover any answers saved offline
         reportIntegrityFlags();
         startIdVerify();
         return;
@@ -538,6 +581,7 @@ async function doLogin(){
     }
 
     sessionId = `${normalizedRoll}_${Date.now()}`;
+    _mergeLocalAnswers(); // recover any answers from a crashed prior attempt
     reportIntegrityFlags();
     startIdVerify();
   }catch(e){
@@ -582,8 +626,8 @@ async function startIdVerify() {
 
 function _idShowStep(step) {
   idStep = step;
-  document.getElementById('id-step-1').style.background = step >= 1 ? '#3b82f6' : '#30363d';
-  document.getElementById('id-step-2').style.background = step >= 2 ? '#3b82f6' : '#30363d';
+  document.getElementById('id-step-1').style.background = step >= 1 ? '#3dd9a8' : '#30363d';
+  document.getElementById('id-step-2').style.background = step >= 2 ? '#3dd9a8' : '#30363d';
   document.getElementById('id-capture-btn').style.display = '';
   document.getElementById('id-retake-btn').style.display = 'none';
   document.getElementById('id-next-btn').style.display = 'none';
@@ -1142,6 +1186,7 @@ function ansWrite(qid, setObj){
   const arr=[...setObj].filter(Boolean).sort();
   if(arr.length) answers[qid]=arr.join(',');
   else delete answers[qid];
+  _persistAnswers();
 }
 
 function renderQ(){
@@ -1243,10 +1288,9 @@ function selAns(l){
       details:`q:${q.id}|a:${canonical}`
     });
   }
-  // Autosave answer — retry once on failure. Server already stores a
-  // plain string; the canonical comma-joined form round-trips through
-  // the existing /api/save-answer endpoint unchanged.
-  if(sessionId){
+  // Autosave answer — skip server call when offline (localStorage already saved).
+  // Retry once on failure; on second failure mark offline.
+  if(sessionId && !isOffline){
     const savePayload={
       session_id:sessionId,
       question_id:String(q.id),
@@ -1256,7 +1300,11 @@ function selAns(l){
     fetch(`${SERVER}/api/save-answer`,{method:'POST',headers:saveHeaders,body:JSON.stringify(savePayload)})
       .catch(()=>setTimeout(()=>
         fetch(`${SERVER}/api/save-answer`,{method:'POST',headers:saveHeaders,body:JSON.stringify(savePayload)})
-          .catch(()=>{}),
+          .catch(()=>{
+            isOffline=true;
+            const s=document.getElementById('save-status');
+            if(s){s.textContent='Offline — saved locally';s.style.color='#d29922';s.style.opacity='1';}
+          }),
       2000));
   }
 }
@@ -1270,9 +1318,17 @@ function startBulkSave(){
 
 async function doBulkSave(){
   if(!sessionId || !examActive || Object.keys(answers).length === 0) return;
+  _persistAnswers(); // always persist locally first
   const statusEl = document.getElementById('save-status');
+  if(isOffline){
+    statusEl.textContent = 'Offline — saved locally';
+    statusEl.style.color = '#d29922';
+    statusEl.style.opacity = '1';
+    return;
+  }
   try{
     statusEl.textContent = 'Saving...';
+    statusEl.style.opacity = '1';
     statusEl.classList.add('save-flash');
     const payload = {session_id: sessionId, answers: {}};
     for(const [qid, ans] of Object.entries(answers)){
@@ -1284,6 +1340,7 @@ async function doBulkSave(){
       body: JSON.stringify(payload)
     });
     if(r.ok){
+      isOffline = false;
       statusEl.textContent = 'Saved ✓';
       statusEl.style.color = '#3fb950';
     } else {
@@ -1291,12 +1348,13 @@ async function doBulkSave(){
       statusEl.style.color = '#ff7b72';
     }
   }catch(e){
-    statusEl.textContent = 'Save failed';
-    statusEl.style.color = '#ff7b72';
+    isOffline = true;
+    statusEl.textContent = 'Offline — saved locally';
+    statusEl.style.color = '#d29922';
   }
   setTimeout(()=>{
     statusEl.classList.remove('save-flash');
-    statusEl.style.color = '#8b949e';
+    if(!isOffline) statusEl.style.color = '#8b949e';
   }, 3000);
 }
 
@@ -1427,7 +1485,9 @@ async function submitExam(timeUp=false){
     return;
   }
 
-  // Success
+  // Success — clear offline answer backup
+  _clearLocalAnswers();
+
   const dh3=document.getElementById('done-heading');
   dh3.className='ok'; dh3.textContent='Exam Submitted';
   document.getElementById('done-subtext').textContent='Your answers have been saved securely.';

@@ -25,8 +25,20 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from database import supabase
+from database import supabase, async_table as _atable
 from logger import get_logger
+try:
+    from event_bus import publish as _bus_publish, async_publish as _bus_async_publish, subscribe as _bus_subscribe
+    _HAS_REDIS = True
+except Exception:
+    _HAS_REDIS = False
+    def _bus_publish(*a, **kw): pass
+    async def _bus_async_publish(*a, **kw): pass
+
+try:
+    import cache as _cache
+except Exception:
+    _cache = None
 
 # ─── CONFIG ───────────────────────────────────────────────────────
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -86,27 +98,37 @@ def require_auth(request: Request) -> dict:
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-# ─── Teacher lookup cache (avoids DB hit per request) ────────────
+# ─── Teacher lookup cache (Redis-backed, falls back to in-process) ─
 import threading as _threading
-_teacher_cache = {}  # teacher_id -> teacher dict
-_teacher_cache_ttl = {}  # teacher_id -> expiry timestamp
+_teacher_cache = {}  # fallback: teacher_id -> teacher dict
+_teacher_cache_ttl = {}  # fallback: teacher_id -> expiry timestamp
 _teacher_cache_lock = _threading.Lock()
 
 def _get_teacher_by_id(teacher_id: str) -> dict | None:
-    """Look up teacher by our internal id, with 60s cache."""
+    """Look up teacher by our internal id, with 60s cache (Redis or in-process)."""
     if not teacher_id:
         return None
-    now = time.time()
-    with _teacher_cache_lock:
-        if teacher_id in _teacher_cache and _teacher_cache_ttl.get(teacher_id, 0) > now:
-            return _teacher_cache[teacher_id]
+    # Try Redis first
+    if _cache:
+        cached = _cache.get(f"teacher:{teacher_id}")
+        if cached:
+            return cached
+    else:
+        now = time.time()
+        with _teacher_cache_lock:
+            if teacher_id in _teacher_cache and _teacher_cache_ttl.get(teacher_id, 0) > now:
+                return _teacher_cache[teacher_id]
     result = supabase.table("teachers").select("*").eq("id", str(teacher_id)).execute()
     if not result.data:
         return None
     teacher = result.data[0]
-    with _teacher_cache_lock:
-        _teacher_cache[teacher_id] = teacher
-        _teacher_cache_ttl[teacher_id] = now + 60
+    if _cache:
+        _cache.set(f"teacher:{teacher_id}", teacher, ttl=60)
+    else:
+        now = time.time()
+        with _teacher_cache_lock:
+            _teacher_cache[teacher_id] = teacher
+            _teacher_cache_ttl[teacher_id] = now + 60
     return teacher
 
 def _get_teacher_by_uid(uid: str) -> dict | None:
@@ -840,7 +862,14 @@ def _load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
     Unknown-column errors from older DBs fall back to the legacy shape.
     Returned dicts are normalised to always include:
         id, question, options, correct, question_type, image_url
+    Results are cached in Redis for 300s.
     """
+    cache_key = f"questions:{teacher_id or '_'}:{exam_id or '_'}"
+    if _cache:
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     try:
         query = supabase.table("questions").select("*")
         if teacher_id:
@@ -870,6 +899,8 @@ def _load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
             "question_type": qtype,
             "image_url":     q.get("image_url") or "",
         })
+    if _cache and out:
+        _cache.set(cache_key, out, ttl=300)
     return out
 
 def _load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
@@ -877,7 +908,14 @@ def _load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
 
     Uses select('*') so newly-added columns (e.g. shuffle_questions /
     shuffle_options) are picked up automatically without code changes.
+    Results are cached in Redis for 300s to avoid repeated DB calls.
     """
+    cache_key = f"exam_config:{teacher_id or '_'}:{exam_id or '_'}"
+    if _cache:
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     query = supabase.table("exam_config").select("*")
     if exam_id:
         query = query.eq("exam_id", exam_id)
@@ -887,10 +925,13 @@ def _load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
         query = query.eq("id", 1)  # legacy singleton fallback
     result = query.execute()
     if result.data:
+        if _cache:
+            _cache.set(cache_key, result.data[0], ttl=300)
         return result.data[0]
-    return {"exam_title": "Exam", "duration_minutes": 60, "access_code": "",
-            "starts_at": None, "ends_at": None,
-            "shuffle_questions": True, "shuffle_options": True}
+    default = {"exam_title": "Exam", "duration_minutes": 60, "access_code": "",
+               "starts_at": None, "ends_at": None,
+               "shuffle_questions": True, "shuffle_options": True}
+    return default
 
 def _get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
     """Load the current exam access code from Supabase."""
@@ -1164,7 +1205,15 @@ def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
     Returns dict with risk_score, label, duration_minutes, and per-type
     breakdown.  Safe to call for in-progress or completed sessions.
     When teacher_id is provided, the violations query is scoped to it.
+    Results are cached in Redis for 30s to avoid N+1 queries on /sessions.
     """
+    # Check Redis cache first
+    cache_key = f"risk_score:{session_id}"
+    if _cache:
+        cached = _cache.get(cache_key)
+        if cached:
+            return cached
+
     query = supabase.table("violations")\
         .select("violation_type,severity,created_at")\
         .eq("session_key", session_id)
@@ -1232,12 +1281,16 @@ def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
     normalized = raw_sum * duration_factor
     risk_score = min(100, round(normalized))
 
-    return {
+    result = {
         "risk_score":       risk_score,
         "label":            _risk_label(risk_score),
         "duration_minutes": round(duration_mins, 1),
         "breakdown":        breakdown,
     }
+    # Cache for 30s — invalidated on new violation in log_event()
+    if _cache:
+        _cache.set(cache_key, result, ttl=30)
+    return result
 
 
 # ─── PUBLIC ENDPOINTS ─────────────────────────────────────────────
@@ -1399,6 +1452,13 @@ def validate_student(request: Request, body: ValidateIn):
             raise HTTPException(
                 status_code=403,
                 detail="Invalid exam access code. Ask your examiner for the correct code.")
+    # Check group-based access restrictions
+    if exam_id and student_tid:
+        if not _check_group_access(student["roll_number"], str(student_tid), exam_id):
+            raise HTTPException(
+                status_code=403,
+                detail="You are not in a group assigned to this exam. Contact your teacher.")
+
     completed_query = supabase.table("exam_sessions").select("session_key")\
         .eq("roll_number", student["roll_number"])\
         .eq("status", "completed")
@@ -1651,7 +1711,7 @@ def _check_session_ownership(claims: dict, session_id: str):
 
 @app.post("/event")
 @limiter.limit("120/minute")
-def log_event(event: EventIn, request: Request):
+async def log_event(event: EventIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, event.session_id)
     tid = claims.get("tid")
@@ -1671,7 +1731,7 @@ def log_event(event: EventIn, request: Request):
             row["teacher_id"] = tid
         if eid:
             row["exam_id"] = eid
-        supabase.table("exam_sessions").upsert(row).execute()
+        await _atable("exam_sessions").upsert(row).execute()
 
     # Alert on submission failure
     if event.event_type == "submit_failed":
@@ -1686,11 +1746,23 @@ def log_event(event: EventIn, request: Request):
     }
     if tid:
         viol_row["teacher_id"] = tid
-    supabase.table("violations").insert(viol_row).execute()
+    await _atable("violations").insert(viol_row).execute()
+
+    # Invalidate cached risk score for this session
+    if _cache:
+        _cache.delete(f"risk_score:{event.session_id}")
+
+    # Publish to Redis for SSE subscribers
+    evt_payload = {"type": event.event_type, "severity": event.severity,
+                   "details": event.details, "session_id": event.session_id}
+    if tid:
+        await _bus_async_publish(f"events:{tid}:{event.session_id}", evt_payload)
+        await _bus_async_publish(f"sessions:{tid}", {**evt_payload, "kind": "violation"})
+
     return {"status": "logged"}
 
 @app.post("/heartbeat")
-def heartbeat(event: EventIn, request: Request):
+async def heartbeat(event: EventIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, event.session_id)
     tid = claims.get("tid")
@@ -1705,7 +1777,13 @@ def heartbeat(event: EventIn, request: Request):
         row["teacher_id"] = tid
     if eid:
         row["exam_id"] = eid
-    supabase.table("exam_sessions").upsert(row).execute()
+    await _atable("exam_sessions").upsert(row).execute()
+
+    # Publish heartbeat to dashboard SSE
+    if tid:
+        await _bus_async_publish(f"sessions:{tid}", {"kind": "heartbeat",
+                     "session_id": event.session_id})
+
     return {"ok": True}
 
 def _canonicalise_student_answer(session_id: str, teacher_id: str,
@@ -1730,12 +1808,13 @@ def _canonicalise_student_answer(session_id: str, teacher_id: str,
 
 
 @app.post("/api/save-answer")
-def save_answer(body: AnswerIn, request: Request):
+async def save_answer(body: AnswerIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, body.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
-    canonical = _canonicalise_student_answer(
+    canonical = await asyncio.to_thread(
+        _canonicalise_student_answer,
         body.session_id, str(tid or ""), str(body.question_id), str(body.answer),
         exam_id=eid)
     row = {
@@ -1747,11 +1826,11 @@ def save_answer(body: AnswerIn, request: Request):
         row["teacher_id"] = tid
     if eid:
         row["exam_id"] = eid
-    supabase.table("answers").upsert(row).execute()
+    await _atable("answers").upsert(row).execute()
     return {"status": "saved"}
 
 @app.post("/api/save-answers-bulk")
-def save_answers_bulk(body: BulkAnswerIn, request: Request):
+async def save_answers_bulk(body: BulkAnswerIn, request: Request):
     """Periodic bulk save of all answers — safety net for failed individual saves."""
     claims = require_auth(request)
     _check_session_ownership(claims, body.session_id)
@@ -1759,33 +1838,38 @@ def save_answers_bulk(body: BulkAnswerIn, request: Request):
         return {"status": "empty", "saved": 0}
     tid = claims.get("tid")
     eid = claims.get("eid")
-    records = []
-    for qid, ans in body.answers.items():
-        canonical = _canonicalise_student_answer(
-            body.session_id, str(tid or ""), str(qid), str(ans),
-            exam_id=eid)
-        rec = {"session_key": body.session_id,
-               "question_id": str(qid),
-               "answer":      canonical}
-        if tid:
-            rec["teacher_id"] = tid
-        if eid:
-            rec["exam_id"] = eid
-        records.append(rec)
-    supabase.table("answers").upsert(records).execute()
+    def _build_records():
+        recs = []
+        for qid, ans in body.answers.items():
+            canonical = _canonicalise_student_answer(
+                body.session_id, str(tid or ""), str(qid), str(ans),
+                exam_id=eid)
+            rec = {"session_key": body.session_id,
+                   "question_id": str(qid),
+                   "answer":      canonical}
+            if tid:
+                rec["teacher_id"] = tid
+            if eid:
+                rec["exam_id"] = eid
+            recs.append(rec)
+        return recs
+    records = await asyncio.to_thread(_build_records)
+    await _atable("answers").upsert(records).execute()
     return {"status": "saved", "saved": len(records)}
 
 @app.post("/api/submit-exam")
 @limiter.limit("10/minute")
-def submit_exam(result: ResultIn, request: Request):
+async def submit_exam(result: ResultIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, result.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
     now = now_ist()
 
-    # Server-side scoring — never trust client score
-    server_score, server_total = _recalculate_score(result.session_id, result.answers, teacher_id=tid, exam_id=eid)
+    # Server-side scoring — never trust client score (sync helper, mostly cached)
+    server_score, server_total = await asyncio.to_thread(
+        _recalculate_score, result.session_id, result.answers,
+        teacher_id=tid, exam_id=eid)
     if server_score == 0 and server_total == 0:
         print(f"[WARN] Score recalculation returned 0/0 for {result.session_id} — check Supabase questions table")
 
@@ -1807,11 +1891,11 @@ def submit_exam(result: ResultIn, request: Request):
         session_row["teacher_id"] = tid
     if eid:
         session_row["exam_id"] = eid
-    supabase.table("exam_sessions").upsert(session_row).execute()
+    await _atable("exam_sessions").upsert(session_row).execute()
 
     # Check time exceeded
     try:
-        config = _load_exam_config(teacher_id=tid, exam_id=eid)
+        config = await asyncio.to_thread(_load_exam_config, teacher_id=tid, exam_id=eid)
         allowed_secs = config.get("duration_minutes", 60) * 60
         if result.time_taken_secs > allowed_secs + 120:  # 2 min grace
             viol = {
@@ -1822,7 +1906,7 @@ def submit_exam(result: ResultIn, request: Request):
             }
             if tid:
                 viol["teacher_id"] = tid
-            supabase.table("violations").insert(viol).execute()
+            await _atable("violations").insert(viol).execute()
     except Exception as e:
         print(f"[TimeCheck] {e}")
 
@@ -1835,20 +1919,25 @@ def submit_exam(result: ResultIn, request: Request):
     }
     if tid:
         submit_viol["teacher_id"] = tid
-    supabase.table("violations").insert(submit_viol).execute()
+    await _atable("violations").insert(submit_viol).execute()
 
     # Cache behavioral risk score
-    risk = compute_risk_score(result.session_id, teacher_id=tid)
-    upd = supabase.table("exam_sessions").update(
-        {"risk_score": risk["risk_score"]}
-    ).eq("session_key", result.session_id)
+    risk = await asyncio.to_thread(compute_risk_score, result.session_id, teacher_id=tid)
+    upd = _atable("exam_sessions").eq("session_key", result.session_id)
     if tid:
         upd = upd.eq("teacher_id", str(tid))
-    upd.execute()
+    await upd.update({"risk_score": risk["risk_score"]}).execute()
 
     get_logger(result.session_id).info(
         f"[SUBMIT] {result.roll_number} score:{server_score}/{server_total} "
         f"risk:{risk['risk_score']}/100")
+
+    # Publish submission to dashboard SSE
+    if tid:
+        await _bus_async_publish(f"sessions:{tid}", {"kind": "submitted",
+                     "session_id": result.session_id,
+                     "score": server_score, "total": server_total})
+
     return {"status": "submitted", "score": server_score,
             "total": server_total, "percentage": pct,
             "risk_score": risk["risk_score"], "risk_label": risk["label"]}
@@ -2055,6 +2144,9 @@ def id_decision(data: IdDecisionIn, request: Request):
         if tid:
             reject_row["teacher_id"] = str(tid)
         supabase.table("violations").insert(reject_row).execute()
+        # Invalidate risk score cache for this session
+        if _cache:
+            _cache.delete(f"risk_score:{data.session_key}")
         # Mark session as rejected so the student can't re-enter
         try:
             supabase.table("exam_sessions").update({
@@ -2096,6 +2188,162 @@ def get_events(session_id: str, request: Request):
             for e in events
         ],
     }
+
+# ─── SSE STREAMING ENDPOINTS ─────────────────────────────────────
+
+@app.get("/api/sse/sessions")
+async def sse_sessions(request: Request, token: str = None):
+    """Server-Sent Events stream for live dashboard updates.
+
+    On connect, sends the full current state. Then yields incremental
+    updates from Redis pub/sub so the dashboard never needs to poll.
+    Token is passed as query param because EventSource doesn't support headers.
+    """
+    if token:
+        try:
+            claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            tid_from_claims = claims.get("tid")
+            if not tid_from_claims:
+                raise HTTPException(status_code=401, detail="Not a teacher token")
+            teacher = _get_teacher_by_id(str(tid_from_claims))
+            if not teacher:
+                raise HTTPException(status_code=401, detail="Teacher not found")
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    else:
+        teacher = require_admin(request)
+    tid = str(teacher["id"])
+
+    async def _generate():
+        # 1. Send initial full state (same as GET /sessions)
+        try:
+            initial = await asyncio.to_thread(_build_sessions_payload, tid)
+            yield f"event: init\ndata: {json.dumps(initial, default=str)}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+
+        # 2. Stream incremental updates from Redis
+        if not _HAS_REDIS:
+            # No Redis — fall back to periodic refresh
+            while True:
+                await asyncio.sleep(5)
+                if await request.is_disconnected():
+                    break
+                try:
+                    payload = await asyncio.to_thread(_build_sessions_payload, tid)
+                    yield f"event: refresh\ndata: {json.dumps(payload, default=str)}\n\n"
+                except Exception:
+                    pass
+            return
+
+        channel = f"sessions:{tid}"
+        async for msg in _bus_subscribe(channel, keepalive_sec=15):
+            if await request.is_disconnected():
+                break
+            if msg.get("_keepalive"):
+                yield ":\n"  # SSE comment keepalive
+            else:
+                yield f"event: update\ndata: {json.dumps(msg, default=str)}\n\n"
+
+    return StreamingResponse(_generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/sse/events/{session_id}")
+async def sse_student_events(session_id: str, request: Request, token: str = None):
+    """SSE stream for per-student violation/force-submit events.
+
+    The Electron client subscribes to this instead of polling GET /events/{sid}.
+    Token is passed as query param because EventSource doesn't support headers.
+    """
+    # Auth: accept token from query param or Authorization header
+    if token:
+        try:
+            claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    else:
+        claims = require_auth(request)
+
+    session_roll = session_id.rsplit("_", 1)[0].upper()
+    if claims.get("roll", "").upper() != session_roll:
+        raise HTTPException(status_code=403, detail="Access denied")
+    tid = claims.get("tid") or ""
+
+    async def _generate():
+        if not _HAS_REDIS:
+            # No Redis — just keepalive, Electron falls back to polling
+            while True:
+                await asyncio.sleep(15)
+                if await request.is_disconnected():
+                    break
+                yield ":\n"
+            return
+
+        channel = f"events:{tid}:{session_id}"
+        async for msg in _bus_subscribe(channel, keepalive_sec=15):
+            if await request.is_disconnected():
+                break
+            if msg.get("_keepalive"):
+                yield ":\n"
+            else:
+                yield f"data: {json.dumps(msg, default=str)}\n\n"
+
+    return StreamingResponse(_generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
+
+
+def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
+    """Build the sessions payload (extracted from get_all_sessions for reuse)."""
+    cutoff = (now_ist() - timedelta(hours=48)).isoformat()
+    evts_query = supabase.table("violations")\
+        .select("session_key,violation_type,severity,created_at,details")\
+        .gte("created_at", cutoff)
+    if tid:
+        evts_query = evts_query.eq("teacher_id", str(tid))
+    evts_result = evts_query.order("created_at", desc=True).execute()
+    events = evts_result.data or []
+
+    sess_query = supabase.table("exam_sessions").select(
+        "session_key,status,risk_score,exam_id")
+    if tid:
+        sess_query = sess_query.eq("teacher_id", str(tid))
+    if exam_id:
+        sess_query = sess_query.eq("exam_id", exam_id)
+    sess_result = sess_query.execute()
+    sess_meta = {r["session_key"]: r for r in (sess_result.data or [])}
+    submitted = {sk for sk, m in sess_meta.items() if m.get("status") == "completed"}
+
+    sessions: dict = {}
+    for e in events:
+        sk = e["session_key"]
+        if exam_id and sk not in sess_meta:
+            continue
+        if sk not in sessions:
+            meta = sess_meta.get(sk, {})
+            cached_risk = meta.get("risk_score")
+            if cached_risk is None and sk not in submitted:
+                try:
+                    cached_risk = compute_risk_score(sk, teacher_id=tid)["risk_score"]
+                except Exception:
+                    cached_risk = None
+            sessions[sk] = {
+                "session_id":    sk,
+                "last_event":    e["violation_type"],
+                "last_severity": e["severity"],
+                "last_seen":     fmt_ist(e.get("created_at", "")),
+                "details":       e.get("details"),
+                "submitted":     sk in submitted,
+                "risk_score":    cached_risk,
+                "risk_label":    _risk_label(cached_risk)
+                                 if cached_risk is not None else None,
+            }
+
+    active = [s for s in sessions.values() if not s["submitted"]]
+    return {"sessions": active, "all_sessions": list(sessions.values())}
+
 
 # ─── ADMIN ENDPOINTS (require teacher Bearer token) ──────────────
 
@@ -2306,7 +2554,8 @@ def get_screenshot(roll: str, filename: str, request: Request):
         raise HTTPException(status_code=404, detail="Screenshot not found")
     suffix = fpath.suffix.lower()
     media = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
-    return FileResponse(str(fpath), media_type=media)
+    return FileResponse(str(fpath), media_type=media,
+                        headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.get("/sessions")
@@ -2764,6 +3013,272 @@ def export_pdf(session_id: str, request: Request):
         print(f"[PDF] {e}")
         raise HTTPException(status_code=500, detail=f"PDF error: {e}")
 
+# ─── SCORECARD PDF (student-facing) ─────────────────────────────
+@app.get("/api/admin/scorecard-pdf/{session_id:path}")
+def scorecard_pdf(session_id: str, request: Request):
+    """Generate a student-facing scorecard PDF with score breakdown and per-question results."""
+    teacher = require_admin(request)
+    tid = teacher["id"]
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.platypus import (SimpleDocTemplate, Table,
+                                         TableStyle, Paragraph, Spacer)
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+        exam = _assert_session_owned(session_id, tid)
+        exam_id = exam.get("exam_id")
+
+        # Load questions for this exam
+        questions = _load_questions(teacher_id=tid, exam_id=exam_id)
+        q_map = {str(q.get("question_id", q.get("id", ""))): q for q in questions}
+
+        # Load student answers
+        ans_rows = (supabase.table("answers").select("question_id,answer")
+                    .eq("session_key", session_id)
+                    .eq("teacher_id", str(tid)).execute()).data or []
+        ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
+
+        # Load exam config for title
+        config = None
+        try:
+            config = _load_exam_config(str(tid), exam_id=exam_id)
+        except Exception:
+            pass
+        exam_title = (config or {}).get("title", "Exam")
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
+        styles = getSampleStyleSheet()
+        story = []
+
+        # Header
+        story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
+        story.append(Spacer(1, 12))
+
+        # Student info + score summary
+        score = exam.get("score", 0)
+        total = exam.get("total", 0)
+        pct = exam.get("percentage", 0)
+        risk = compute_risk_score(session_id, teacher_id=tid)
+        passed = pct >= 40
+
+        info = [
+            ["Field", "Value"],
+            ["Student Name", exam.get("full_name", "")],
+            ["Roll Number", exam.get("roll_number", "")],
+            ["Date", fmt_ist(exam.get("submitted_at", exam.get("started_at", "")))],
+            ["Score", f"{score}/{total}"],
+            ["Percentage", f"{pct}%"],
+            ["Result", "PASS" if passed else "FAIL"],
+            ["Time Taken", f"{exam.get('time_taken_secs', 0) // 60}m {exam.get('time_taken_secs', 0) % 60}s"],
+            ["Risk Level", risk["label"]],
+        ]
+        t = Table(info, colWidths=[140, 330])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+             [colors.HexColor("#f0f4ff"), colors.white]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("PADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 20))
+
+        # Per-question results table
+        story.append(Paragraph("Question-wise Results", styles["Heading2"]))
+        story.append(Spacer(1, 8))
+
+        if questions:
+            qd = [["#", "Question", "Your Answer", "Correct Answer", "Result"]]
+            for i, q in enumerate(questions, 1):
+                qid = str(q.get("question_id", q.get("id", "")))
+                correct_ans = str(q.get("correct", ""))
+                student_ans = ans_map.get(qid, "—")
+                is_right = str(student_ans) == correct_ans
+                q_text = q.get("question", "")
+                if len(q_text) > 60:
+                    q_text = q_text[:57] + "..."
+                qd.append([
+                    str(i),
+                    q_text,
+                    str(student_ans)[:20],
+                    correct_ans[:20],
+                    "\u2713" if is_right else "\u2717",
+                ])
+            qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
+            qt.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+                 [colors.HexColor("#f8f9fa"), colors.white]),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("PADDING", (0, 0), (-1, -1), 6),
+                ("ALIGN", (4, 1), (4, -1), "CENTER"),
+            ]))
+            story.append(qt)
+        else:
+            story.append(Paragraph("No questions available.", styles["Normal"]))
+
+        # Footer
+        story.append(Spacer(1, 20))
+        story.append(Paragraph(
+            f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
+            styles["Normal"]))
+
+        doc.build(story)
+        buf.seek(0)
+        roll = exam.get("roll_number", "unknown")
+        fname = f"scorecard_{roll}_{now_ist().strftime('%Y%m%d')}.pdf"
+        return StreamingResponse(
+            buf, media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Scorecard PDF] {e}")
+        raise HTTPException(status_code=500, detail=f"Scorecard PDF error: {e}")
+
+
+@app.get("/api/admin/scorecard-zip")
+def scorecard_zip(request: Request, exam_id: str = None):
+    """Generate a ZIP of all student scorecards for an exam."""
+    import zipfile
+    teacher = require_admin(request)
+    tid = teacher["id"]
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.platypus import (SimpleDocTemplate, Table,
+                                         TableStyle, Paragraph, Spacer)
+        from reportlab.lib.styles import getSampleStyleSheet
+
+        # Get all completed sessions
+        sess_q = supabase.table("exam_sessions")\
+            .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at,submitted_at,exam_id")\
+            .eq("status", "completed").eq("teacher_id", str(tid))
+        if exam_id:
+            sess_q = sess_q.eq("exam_id", exam_id)
+        sessions = (sess_q.execute()).data or []
+        if not sessions:
+            raise HTTPException(status_code=404, detail="No completed sessions found")
+
+        # Load questions once
+        eid = exam_id or (sessions[0].get("exam_id") if sessions else None)
+        questions = _load_questions(teacher_id=tid, exam_id=eid)
+        q_map = {str(q.get("question_id", q.get("id", ""))): q for q in questions}
+
+        config = None
+        try:
+            config = _load_exam_config(str(tid), exam_id=eid)
+        except Exception:
+            pass
+        exam_title = (config or {}).get("title", "Exam")
+
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for sess in sessions:
+                sid = sess["session_key"]
+                ans_rows = (supabase.table("answers").select("question_id,answer")
+                            .eq("session_key", sid)
+                            .eq("teacher_id", str(tid)).execute()).data or []
+                ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
+
+                pdf_buf = io.BytesIO()
+                doc = SimpleDocTemplate(pdf_buf, pagesize=A4, topMargin=40, bottomMargin=40)
+                styles = getSampleStyleSheet()
+                story = []
+
+                story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
+                story.append(Spacer(1, 12))
+
+                score = sess.get("score", 0)
+                total = sess.get("total", 0)
+                pct = sess.get("percentage", 0)
+                passed = pct >= 40
+
+                info = [
+                    ["Field", "Value"],
+                    ["Student Name", sess.get("full_name", "")],
+                    ["Roll Number", sess.get("roll_number", "")],
+                    ["Date", fmt_ist(sess.get("submitted_at", sess.get("started_at", "")))],
+                    ["Score", f"{score}/{total}"],
+                    ["Percentage", f"{pct}%"],
+                    ["Result", "PASS" if passed else "FAIL"],
+                    ["Time Taken", f"{sess.get('time_taken_secs', 0) // 60}m {sess.get('time_taken_secs', 0) % 60}s"],
+                ]
+                t = Table(info, colWidths=[140, 330])
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 10),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+                     [colors.HexColor("#f0f4ff"), colors.white]),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("PADDING", (0, 0), (-1, -1), 8),
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 20))
+
+                story.append(Paragraph("Question-wise Results", styles["Heading2"]))
+                story.append(Spacer(1, 8))
+
+                if questions:
+                    qd = [["#", "Question", "Your Answer", "Correct", "Result"]]
+                    for i, q in enumerate(questions, 1):
+                        qid = str(q.get("question_id", q.get("id", "")))
+                        correct_ans = str(q.get("correct", ""))
+                        student_ans = ans_map.get(qid, "\u2014")
+                        is_right = str(student_ans) == correct_ans
+                        q_text = q.get("question", "")
+                        if len(q_text) > 60:
+                            q_text = q_text[:57] + "..."
+                        qd.append([str(i), q_text, str(student_ans)[:20], correct_ans[:20],
+                                   "\u2713" if is_right else "\u2717"])
+                    qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
+                    qt.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+                         [colors.HexColor("#f8f9fa"), colors.white]),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("PADDING", (0, 0), (-1, -1), 6),
+                        ("ALIGN", (4, 1), (4, -1), "CENTER"),
+                    ]))
+                    story.append(qt)
+
+                story.append(Spacer(1, 20))
+                story.append(Paragraph(
+                    f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
+                    styles["Normal"]))
+
+                doc.build(story)
+                pdf_buf.seek(0)
+                roll = sess.get("roll_number", "unknown")
+                zf.writestr(f"scorecard_{roll}.pdf", pdf_buf.getvalue())
+
+        zip_buf.seek(0)
+        fname = f"scorecards_{exam_id or 'all'}_{now_ist().strftime('%Y%m%d')}.zip"
+        return StreamingResponse(
+            zip_buf, media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Scorecard ZIP] {e}")
+        raise HTTPException(status_code=500, detail=f"Scorecard ZIP error: {e}")
+
+
 @app.get("/api/admin-failed-sessions")
 def failed_sessions(request: Request, exam_id: str = None):
     """Returns sessions with submit_failed events that never completed."""
@@ -2823,7 +3338,7 @@ def admin_cleanup(request: Request):
 #      deletes the rows. Both the token and the ack string must match.
 # The token is kept in-process (no new table) and expires in 60 s.
 
-_CLEAR_TOKENS: dict[str, dict] = {}
+_CLEAR_TOKENS: dict[str, dict] = {}  # fallback when Redis unavailable
 _CLEAR_TOKEN_TTL = 60  # seconds
 # A session is considered "active" (student currently taking the exam)
 # if we've seen a heartbeat from it within the last _CLEAR_ACTIVE_WINDOW
@@ -2834,17 +3349,21 @@ _CLEAR_ACTIVE_WINDOW = 120
 
 
 def _clear_token_issue(teacher_id: str) -> str:
-    """Mint and remember a one-shot clear-live-sessions token."""
+    """Mint and remember a one-shot clear-live-sessions token (Redis or in-process)."""
     tok = _uuid.uuid4().hex
-    _CLEAR_TOKENS[tok] = {
-        "teacher_id": str(teacher_id),
-        "expires":    time.time() + _CLEAR_TOKEN_TTL,
-    }
-    # Opportunistically prune expired entries so the map doesn't grow.
-    now = time.time()
-    stale = [k for k, v in _CLEAR_TOKENS.items() if v["expires"] < now]
-    for k in stale:
-        _CLEAR_TOKENS.pop(k, None)
+    payload = {"teacher_id": str(teacher_id)}
+    if _cache:
+        _cache.set(f"clear_token:{tok}", payload, ttl=_CLEAR_TOKEN_TTL)
+    else:
+        _CLEAR_TOKENS[tok] = {
+            **payload,
+            "expires": time.time() + _CLEAR_TOKEN_TTL,
+        }
+        # Opportunistically prune expired entries so the map doesn't grow.
+        now = time.time()
+        stale = [k for k, v in _CLEAR_TOKENS.items() if v["expires"] < now]
+        for k in stale:
+            _CLEAR_TOKENS.pop(k, None)
     return tok
 
 
@@ -2977,15 +3496,24 @@ def _partition_live_sessions(teacher_id: str) -> tuple[list[dict], list[dict]]:
 
 
 def _clear_token_consume(token: str, teacher_id: str) -> bool:
-    """Validate and consume a clear-live-sessions token."""
-    rec = _CLEAR_TOKENS.pop(token, None)
-    if not rec:
-        return False
-    if rec["teacher_id"] != str(teacher_id):
-        return False
-    if rec["expires"] < time.time():
-        return False
-    return True
+    """Validate and consume a clear-live-sessions token (Redis or in-process)."""
+    if _cache:
+        rec = _cache.get(f"clear_token:{token}")
+        if not rec:
+            return False
+        if rec.get("teacher_id") != str(teacher_id):
+            return False
+        _cache.delete(f"clear_token:{token}")
+        return True
+    else:
+        rec = _CLEAR_TOKENS.pop(token, None)
+        if not rec:
+            return False
+        if rec["teacher_id"] != str(teacher_id):
+            return False
+        if rec["expires"] < time.time():
+            return False
+        return True
 
 
 @app.post("/api/admin/clear-live-sessions")
@@ -3332,7 +3860,515 @@ def delete_exam(exam_id: str, request: Request):
     # Delete exam config
     supabase.table("exam_config").delete()\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    # Invalidate cache for deleted exam
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
+        _cache.delete(f"questions:{tid}:{exam_id or '_'}")
     return {"status": "deleted", "exam_id": exam_id}
+
+# ─── ANALYTICS ────────────────────────────────────────────────────
+@app.get("/api/admin/analytics")
+def get_analytics(request: Request):
+    """Compute exam analytics: score distribution, question analysis, violations, risk."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    exam_id = request.query_params.get("exam_id")
+
+    # Check Redis cache first
+    cache_key = f"analytics:{tid}:{exam_id or '_'}"
+    if _cache:
+        cached = _cache.get(cache_key)
+        if cached:
+            return cached
+
+    # ── Completed sessions ────────────────────────────────────────
+    sess_q = supabase.table("exam_sessions")\
+        .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at")\
+        .eq("status", "completed")
+    if tid:
+        sess_q = sess_q.eq("teacher_id", tid)
+    if exam_id:
+        sess_q = sess_q.eq("exam_id", exam_id)
+    sessions = (sess_q.execute()).data or []
+
+    if not sessions:
+        empty = {"exam_overview": {"count": 0}, "score_distribution": [],
+                 "question_analysis": [], "violation_summary": {},
+                 "risk_distribution": {"low": 0, "medium": 0, "high": 0}}
+        if _cache:
+            _cache.set(cache_key, empty, ttl=60)
+        return empty
+
+    # ── Exam overview ─────────────────────────────────────────────
+    count = len(sessions)
+    pcts = [s.get("percentage") or 0 for s in sessions]
+    times = [s.get("time_taken_secs") or 0 for s in sessions]
+    scores = [s.get("score") or 0 for s in sessions]
+    totals = [s.get("total") or 1 for s in sessions]
+    avg_score = round(sum(scores) / count, 1)
+    avg_pct = round(sum(pcts) / count, 1)
+    sorted_times = sorted(t for t in times if t > 0)
+    median_time = sorted_times[len(sorted_times)//2] if sorted_times else 0
+    pass_count = sum(1 for p in pcts if p >= 40)
+    overview = {
+        "count": count,
+        "avg_score": avg_score,
+        "avg_total": round(sum(totals) / count, 1),
+        "avg_percentage": avg_pct,
+        "median_time_secs": median_time,
+        "pass_rate": round(pass_count / count * 100, 1),
+    }
+
+    # ── Score distribution (10 buckets) ───────────────────────────
+    buckets = [0] * 10
+    for p in pcts:
+        idx = min(int(p // 10), 9)
+        buckets[idx] += 1
+    score_dist = [{"range": f"{i*10}-{i*10+10}%", "count": buckets[i]} for i in range(10)]
+
+    # ── Question analysis ─────────────────────────────────────────
+    questions = _load_questions(tid, exam_id=exam_id)
+    q_analysis = []
+    if questions:
+        # Load all answers for these sessions
+        skeys = [s["session_key"] for s in sessions]
+        all_answers = {}
+        # Batch fetch answers (in chunks to avoid URL length issues)
+        for i in range(0, len(skeys), 50):
+            chunk = skeys[i:i+50]
+            for sk in chunk:
+                ans_q = supabase.table("answers").select("question_id,answer")\
+                    .eq("session_key", sk)
+                if tid:
+                    ans_q = ans_q.eq("teacher_id", tid)
+                rows = (ans_q.execute()).data or []
+                all_answers[sk] = {r["question_id"]: r["answer"] for r in rows}
+
+        # Sort sessions by score for quartile analysis
+        sorted_sess = sorted(sessions, key=lambda s: s.get("percentage") or 0)
+        q1_cutoff = max(1, count // 4)
+        bottom_keys = set(s["session_key"] for s in sorted_sess[:q1_cutoff])
+        top_keys = set(s["session_key"] for s in sorted_sess[-q1_cutoff:])
+
+        for q in questions:
+            qid = str(q.get("question_id") or q.get("id", ""))
+            correct = str(q.get("correct", ""))
+            total_attempted = 0
+            total_correct = 0
+            top_correct = 0
+            top_total = 0
+            bottom_correct = 0
+            bottom_total = 0
+            for sk, ans_map in all_answers.items():
+                if qid in ans_map:
+                    total_attempted += 1
+                    is_correct = ans_map[qid] == correct
+                    if is_correct:
+                        total_correct += 1
+                    if sk in top_keys:
+                        top_total += 1
+                        if is_correct:
+                            top_correct += 1
+                    if sk in bottom_keys:
+                        bottom_total += 1
+                        if is_correct:
+                            bottom_correct += 1
+            difficulty = round(total_correct / max(total_attempted, 1) * 100, 1)
+            top_rate = top_correct / max(top_total, 1)
+            bottom_rate = bottom_correct / max(bottom_total, 1)
+            discrimination = round(top_rate - bottom_rate, 2)
+            q_analysis.append({
+                "question_id": qid,
+                "question": (q.get("question", "")[:80] + "...") if len(q.get("question", "")) > 80 else q.get("question", ""),
+                "difficulty_pct": difficulty,
+                "discrimination": discrimination,
+                "attempted": total_attempted,
+                "correct": total_correct,
+            })
+
+    # ── Violation summary ─────────────────────────────────────────
+    viol_q = supabase.table("violations")\
+        .select("violation_type,severity,session_key,created_at")
+    if tid:
+        viol_q = viol_q.eq("teacher_id", tid)
+    viols = (viol_q.execute()).data or []
+    # Filter to actual violations
+    scored_viols = [v for v in viols if _is_violation(v.get("violation_type", ""))
+                    and v.get("severity") in ("high", "medium")]
+
+    type_counts = {}
+    for v in scored_viols:
+        vt = v["violation_type"]
+        type_counts[vt] = type_counts.get(vt, 0) + 1
+    viol_summary = {"by_type": type_counts, "total": len(scored_viols)}
+
+    # ── Risk distribution ─────────────────────────────────────────
+    risk_dist = {"low": 0, "medium": 0, "high": 0}
+    for s in sessions:
+        rs = s.get("risk_score") or 0
+        if rs <= 30:
+            risk_dist["low"] += 1
+        elif rs <= 60:
+            risk_dist["medium"] += 1
+        else:
+            risk_dist["high"] += 1
+
+    result = {
+        "exam_overview": overview,
+        "score_distribution": score_dist,
+        "question_analysis": q_analysis,
+        "violation_summary": viol_summary,
+        "risk_distribution": risk_dist,
+    }
+    if _cache:
+        _cache.set(cache_key, result, ttl=60)
+    return result
+
+
+# ─── STUDENT GROUPS ────────────────────────────────────────────────
+@app.get("/api/admin/groups")
+def list_groups(request: Request):
+    """List all groups for the authenticated teacher."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    rows = (supabase.table("student_groups")
+            .select("*").eq("teacher_id", tid)
+            .order("created_at").execute()).data or []
+    # Attach member counts
+    for g in rows:
+        members = (supabase.table("student_group_members")
+                   .select("id", count="exact")
+                   .eq("group_id", g["id"])
+                   .eq("teacher_id", tid).execute())
+        g["member_count"] = members.count if members.count is not None else len(members.data or [])
+    return rows
+
+
+@app.post("/api/admin/groups")
+def create_group(request: Request, body: dict = Body(...)):
+    """Create a new student group."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    name = (body.get("group_name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="group_name is required")
+    try:
+        row = (supabase.table("student_groups")
+               .insert({"teacher_id": tid, "group_name": name}).execute()).data
+        return row[0] if row else {"ok": True}
+    except Exception as e:
+        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+            raise HTTPException(status_code=409, detail="Group name already exists")
+        raise
+
+
+@app.put("/api/admin/groups/{group_id}")
+def rename_group(group_id: str, request: Request, body: dict = Body(...)):
+    """Rename a student group."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    name = (body.get("group_name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="group_name is required")
+    result = (supabase.table("student_groups")
+              .update({"group_name": name})
+              .eq("id", group_id).eq("teacher_id", tid).execute())
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return result.data[0]
+
+
+@app.delete("/api/admin/groups/{group_id}")
+def delete_group(group_id: str, request: Request):
+    """Delete a student group (cascades to members and exam assignments)."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    result = (supabase.table("student_groups")
+              .delete().eq("id", group_id).eq("teacher_id", tid).execute())
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return {"ok": True}
+
+
+@app.get("/api/admin/groups/{group_id}/members")
+def list_group_members(group_id: str, request: Request):
+    """List members of a group."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    rows = (supabase.table("student_group_members")
+            .select("*").eq("group_id", group_id)
+            .eq("teacher_id", tid).execute()).data or []
+    return rows
+
+
+@app.post("/api/admin/groups/{group_id}/members")
+def add_group_members(group_id: str, request: Request, body: dict = Body(...)):
+    """Add students to a group by roll numbers."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    # Verify group ownership
+    grp = (supabase.table("student_groups")
+           .select("id").eq("id", group_id).eq("teacher_id", tid).execute()).data
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found")
+    rolls = body.get("roll_numbers", [])
+    if not rolls:
+        raise HTTPException(status_code=400, detail="roll_numbers list is required")
+    rows = [{"group_id": group_id, "roll_number": str(r).strip(), "teacher_id": tid}
+            for r in rolls if str(r).strip()]
+    if rows:
+        supabase.table("student_group_members").upsert(rows).execute()
+    return {"added": len(rows)}
+
+
+@app.delete("/api/admin/groups/{group_id}/members")
+def remove_group_members(group_id: str, request: Request, body: dict = Body(...)):
+    """Remove students from a group by roll numbers."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    rolls = body.get("roll_numbers", [])
+    if not rolls:
+        raise HTTPException(status_code=400, detail="roll_numbers list is required")
+    for r in rolls:
+        supabase.table("student_group_members")\
+            .delete().eq("group_id", group_id)\
+            .eq("roll_number", str(r).strip())\
+            .eq("teacher_id", tid).execute()
+    return {"removed": len(rolls)}
+
+
+@app.get("/api/admin/exams/{exam_id}/groups")
+def list_exam_groups(exam_id: str, request: Request):
+    """List groups assigned to an exam."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    assignments = (supabase.table("exam_group_assignments")
+                   .select("group_id").eq("exam_id", exam_id)
+                   .eq("teacher_id", tid).execute()).data or []
+    if not assignments:
+        return []
+    gids = [a["group_id"] for a in assignments]
+    groups = (supabase.table("student_groups")
+              .select("*").in_("id", gids).execute()).data or []
+    return groups
+
+
+@app.post("/api/admin/exams/{exam_id}/groups")
+def assign_exam_groups(exam_id: str, request: Request, body: dict = Body(...)):
+    """Assign groups to an exam for access control."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    group_ids = body.get("group_ids", [])
+    if not group_ids:
+        raise HTTPException(status_code=400, detail="group_ids list is required")
+    rows = [{"exam_id": exam_id, "group_id": gid, "teacher_id": tid} for gid in group_ids]
+    supabase.table("exam_group_assignments").upsert(rows).execute()
+    return {"assigned": len(rows)}
+
+
+@app.delete("/api/admin/exams/{exam_id}/groups/{group_id}")
+def unassign_exam_group(exam_id: str, group_id: str, request: Request):
+    """Remove a group assignment from an exam."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    supabase.table("exam_group_assignments")\
+        .delete().eq("exam_id", exam_id)\
+        .eq("group_id", group_id)\
+        .eq("teacher_id", tid).execute()
+    return {"ok": True}
+
+
+# ─── GROUP VALIDATION HOOK ─────────────────────────────────────────
+def _check_group_access(roll_number: str, teacher_id: str, exam_id: str) -> bool:
+    """Check if a student is allowed to take an exam based on group assignments.
+
+    Returns True if:
+    - No groups are assigned to the exam (all students allowed — backward compatible)
+    - The student's roll_number is in a group assigned to the exam
+    """
+    assignments = (supabase.table("exam_group_assignments")
+                   .select("group_id")
+                   .eq("exam_id", exam_id)
+                   .eq("teacher_id", teacher_id).execute()).data or []
+    if not assignments:
+        return True  # No group restrictions
+    gids = [a["group_id"] for a in assignments]
+    for gid in gids:
+        member = (supabase.table("student_group_members")
+                  .select("id")
+                  .eq("group_id", gid)
+                  .eq("roll_number", roll_number)
+                  .eq("teacher_id", teacher_id).execute()).data
+        if member:
+            return True
+    return False
+
+
+# ─── QUESTION BANK ─────────────────────────────────────────────────
+@app.get("/api/admin/question-bank")
+def list_bank_questions(request: Request):
+    """List all question bank entries for the teacher, optionally filtered by tag."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    tag = request.query_params.get("tag")
+    q = supabase.table("question_bank").select("*").eq("teacher_id", tid)\
+        .order("created_at", desc=True)
+    rows = (q.execute()).data or []
+    if tag:
+        rows = [r for r in rows if tag in (r.get("tags") or [])]
+    return rows
+
+
+@app.post("/api/admin/question-bank")
+def add_bank_questions(request: Request, body: dict = Body(...)):
+    """Add one or more questions to the bank."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    questions = body.get("questions", [body] if "question" in body else [])
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions provided")
+    rows = []
+    for q in questions:
+        rows.append({
+            "teacher_id": tid,
+            "question": q.get("question", ""),
+            "question_type": q.get("question_type", "mcq_single"),
+            "options": q.get("options", {}),
+            "correct": str(q.get("correct", "")),
+            "image_url": q.get("image_url", ""),
+            "tags": q.get("tags", []),
+        })
+    result = supabase.table("question_bank").insert(rows).execute()
+    return result.data or []
+
+
+@app.put("/api/admin/question-bank/{qid}")
+def update_bank_question(qid: str, request: Request, body: dict = Body(...)):
+    """Update a question in the bank."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    fields = {}
+    for k in ("question", "question_type", "options", "correct", "image_url", "tags"):
+        if k in body:
+            fields[k] = body[k]
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    fields["updated_at"] = "now()"
+    result = (supabase.table("question_bank")
+              .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return result.data[0]
+
+
+@app.delete("/api/admin/question-bank/{qid}")
+def delete_bank_question(qid: str, request: Request):
+    """Delete a question from the bank."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    supabase.table("question_bank").delete().eq("id", qid).eq("teacher_id", tid).execute()
+    return {"ok": True}
+
+
+@app.post("/api/admin/question-bank/import")
+def import_bank_questions(request: Request, body: dict = Body(...)):
+    """Bulk import questions from CSV-style JSON array.
+
+    Expected format: list of objects with keys:
+    question, type, option_A, option_B, option_C, option_D, correct, image_url, tags
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    items = body.get("questions", [])
+    if not items:
+        raise HTTPException(status_code=400, detail="No questions to import")
+    rows = []
+    for item in items:
+        options = {}
+        for letter in ("A", "B", "C", "D", "E", "F"):
+            val = item.get(f"option_{letter}")
+            if val is not None:
+                options[letter] = val
+        rows.append({
+            "teacher_id": tid,
+            "question": item.get("question", ""),
+            "question_type": item.get("type", item.get("question_type", "mcq_single")),
+            "options": options,
+            "correct": str(item.get("correct", "")),
+            "image_url": item.get("image_url", ""),
+            "tags": item.get("tags", []) if isinstance(item.get("tags"), list)
+                    else [t.strip() for t in str(item.get("tags", "")).split(",") if t.strip()],
+        })
+    result = supabase.table("question_bank").insert(rows).execute()
+    return {"imported": len(result.data or [])}
+
+
+@app.get("/api/admin/question-bank/export")
+def export_bank_questions(request: Request):
+    """Export all bank questions as JSON."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    rows = (supabase.table("question_bank").select("*")
+            .eq("teacher_id", tid)
+            .order("created_at", desc=True).execute()).data or []
+    # Flatten options for CSV-friendly export
+    export = []
+    for r in rows:
+        entry = {
+            "question": r["question"],
+            "type": r["question_type"],
+            "correct": r["correct"],
+            "image_url": r.get("image_url", ""),
+            "tags": ",".join(r.get("tags") or []),
+        }
+        opts = r.get("options") or {}
+        for letter in ("A", "B", "C", "D", "E", "F"):
+            if letter in opts:
+                entry[f"option_{letter}"] = opts[letter]
+        export.append(entry)
+    return export
+
+
+@app.post("/api/admin/question-bank/to-exam")
+def bank_to_exam(request: Request, body: dict = Body(...)):
+    """Copy bank questions into an exam's question list."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    question_ids = body.get("question_ids", [])
+    exam_id = body.get("exam_id")
+    if not question_ids or not exam_id:
+        raise HTTPException(status_code=400, detail="question_ids and exam_id required")
+
+    # Fetch selected bank questions
+    bank_rows = (supabase.table("question_bank").select("*")
+                 .eq("teacher_id", tid).in_("id", question_ids).execute()).data or []
+    if not bank_rows:
+        raise HTTPException(status_code=404, detail="No matching bank questions found")
+
+    # Get current max question_id for this exam
+    existing = _load_questions(teacher_id=tid, exam_id=exam_id)
+    max_id = max((int(q.get("question_id", q.get("id", 0))) for q in existing), default=0)
+
+    # Insert into questions table
+    new_rows = []
+    for i, bq in enumerate(bank_rows, start=max_id + 1):
+        new_rows.append({
+            "teacher_id": tid,
+            "exam_id": exam_id,
+            "question_id": i,
+            "question": bq["question"],
+            "question_type": bq.get("question_type", "mcq_single"),
+            "options": bq.get("options", {}),
+            "correct": bq["correct"],
+            "image_url": bq.get("image_url", ""),
+        })
+    if new_rows:
+        supabase.table("questions").insert(new_rows).execute()
+        # Invalidate questions cache
+        if _cache:
+            _cache.delete(f"questions:{tid}:{exam_id or '_'}")
+    return {"added": len(new_rows), "starting_id": max_id + 1}
+
 
 @app.get("/api/admin/questions")
 def get_admin_questions(request: Request):
@@ -3542,6 +4578,10 @@ def update_questions(request: Request, body: dict):
             except Exception as e2:
                 print(f"[Questions] Rollback also failed: {e2}")
         raise HTTPException(status_code=500, detail="Failed to update questions — rolled back")
+    # Invalidate cached config + questions for this teacher/exam
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
+        _cache.delete(f"questions:{tid}:{exam_id or '_'}")
     return {"status": "updated", "count": len(questions)}
 
 @app.get("/api/admin/access-code")
@@ -3559,6 +4599,9 @@ def set_access_code(request: Request, body: dict):
     exam_id = body.get("exam_id")
     new_code = str(body.get("access_code", "")).strip().upper()
     _set_access_code(new_code, teacher["id"], exam_id=exam_id)
+    # Invalidate cached config (access_code lives inside exam_config)
+    if _cache:
+        _cache.delete(f"exam_config:{teacher['id']}:{exam_id or '_'}")
     return {"access_code": new_code, "enabled": bool(new_code)}
 
 @app.get("/api/admin/registered-count")
@@ -3606,6 +4649,9 @@ def admin_set_schedule(request: Request, body: dict):
         if "ends_at" in body:
             update["ends_at"] = body["ends_at"]
         supabase.table("exam_config").upsert(update).execute()
+    # Invalidate cached config
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
     return {
         "status":    "updated",
         "starts_at": body.get("starts_at"),
@@ -3642,6 +4688,9 @@ def admin_set_shuffle(request: Request, body: dict):
     else:
         update = {**({"teacher_id": tid} if tid else {"id": 1}), **fields}
         supabase.table("exam_config").upsert(update).execute()
+    # Invalidate cached config
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
     return {
         "status": "updated",
         "shuffle_questions": fields.get("shuffle_questions"),

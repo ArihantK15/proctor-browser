@@ -1,3 +1,35 @@
 app.procta.net {
-    reverse_proxy api:8000
+    # ── Static files: served directly by Caddy, never hits FastAPI ──
+    handle /static/* {
+        root * /srv
+        file_server
+        header Cache-Control "public, max-age=86400"
+    }
+
+    # ── HTML pages: served by Caddy from static dir ──
+    handle /dashboard {
+        root * /srv/static
+        rewrite * /dashboard.html
+        file_server
+    }
+    handle /download {
+        root * /srv/static
+        rewrite * /download.html
+        file_server
+    }
+    handle /register {
+        root * /srv/static
+        rewrite * /register.html
+        file_server
+    }
+    handle /student {
+        root * /srv/static
+        rewrite * /student.html
+        file_server
+    }
+
+    # ── Everything else: API ──
+    handle {
+        reverse_proxy api:8000
+    }
 }

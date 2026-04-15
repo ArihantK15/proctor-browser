@@ -13,18 +13,24 @@
     display:flex;align-items:center;justify-content:center}
   #auth-overlay.hidden{display:none}
   .auth-card{background:var(--card);border:1px solid var(--border);
-    border-radius:12px;padding:40px;width:380px;text-align:center}
-  .auth-card h2{color:var(--accent-light);margin-bottom:8px;
-    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif}
+    border-radius:var(--radius-lg);padding:40px;width:380px;text-align:center;
+    position:relative;overflow:hidden}
+  .auth-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent)}
+  .auth-card h2{color:var(--accent);margin-bottom:8px;
+    font-family:var(--font-display);letter-spacing:-0.02em}
   .auth-card p{color:var(--muted);font-size:13px;margin-bottom:20px}
-  .auth-card input{width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);
-    border-radius:8px;padding:10px 14px;color:var(--text);font-size:14px;
-    margin-bottom:12px;font-family:'Inter',system-ui,sans-serif}
-  .auth-card input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
-  .auth-card button{width:100%;padding:12px;border-radius:8px;border:none;
-    background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;
-    font-family:'Inter',system-ui,sans-serif;transition:background 0.2s}
-  .auth-card button:hover{background:var(--accent-light)}
+  .auth-card input{width:100%;background:rgba(255,255,255,0.02);border:1px solid var(--border);
+    border-radius:var(--radius-sm);padding:10px 14px;color:var(--text);font-size:14px;
+    margin-bottom:12px;font-family:var(--font-body);transition:border-color 0.2s,box-shadow 0.2s}
+  .auth-card input:focus{outline:none;border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-glow)}
+  .auth-card button{width:100%;padding:12px;border-radius:var(--radius-sm);border:1px solid var(--accent);
+    background:var(--accent-dark);color:#fff;font-size:14px;font-weight:600;cursor:pointer;
+    font-family:var(--font-body);transition:all 0.15s;
+    box-shadow:0 0 20px var(--accent-glow)}
+  .auth-card button:hover{background:var(--accent);
+    box-shadow:0 0 30px var(--accent-glow-strong);transform:translateY(-1px)}
   .auth-err{color:var(--red);font-size:12px;min-height:18px;margin-top:8px}
 
   /* ── Exam Selector Bar ────────────────────────────────────────── */
@@ -32,8 +38,8 @@
     padding:10px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .exam-bar select{background:rgba(255,255,255,0.05);border:1px solid var(--border);
     border-radius:8px;padding:7px 12px;color:var(--text);font-size:13px;
-    font-family:'Inter',system-ui,sans-serif;min-width:200px;cursor:pointer}
-  .exam-bar select:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+    font-family:var(--font-body);min-width:200px;cursor:pointer}
+  .exam-bar select:focus{outline:none;border-color:var(--accent)}
   .exam-bar .exam-label{font-size:12px;font-weight:600;color:var(--muted);
     text-transform:uppercase;letter-spacing:0.04em}
   .exam-bar .exam-count{font-size:11px;color:var(--muted)}
@@ -42,26 +48,36 @@
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9998;
     display:flex;align-items:center;justify-content:center}
   .modal-overlay.hidden{display:none}
+  .modal-overlay{backdrop-filter:blur(4px)}
   .modal-card{background:var(--card);border:1px solid var(--border);
-    border-radius:12px;padding:32px;width:400px;max-width:90vw}
-  .modal-card h3{color:var(--accent-light);margin:0 0 16px;
-    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif}
-  .modal-card label{display:block;font-size:12px;font-weight:600;
-    color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em}
-  .modal-card input{width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);
-    border-radius:8px;padding:10px 14px;color:var(--text);font-size:14px;
-    margin-bottom:14px;font-family:'Inter',system-ui,sans-serif;box-sizing:border-box}
-  .modal-card input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+    border-radius:var(--radius-lg);padding:32px;width:400px;max-width:90vw;
+    box-shadow:0 24px 80px rgba(0,0,0,0.5);position:relative;overflow:hidden}
+  .modal-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent)}
+  .modal-card h3{color:var(--accent);margin:0 0 16px;
+    font-family:var(--font-display);letter-spacing:-0.02em}
+  .modal-card label{display:block;font-size:10px;font-weight:600;
+    color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em;
+    font-family:var(--font-mono)}
+  .modal-card input{width:100%;background:rgba(255,255,255,0.02);border:1px solid var(--border);
+    border-radius:var(--radius-sm);padding:10px 14px;color:var(--text);font-size:14px;
+    margin-bottom:14px;font-family:var(--font-body);box-sizing:border-box;
+    transition:border-color 0.2s,box-shadow 0.2s}
+  .modal-card input:focus{outline:none;border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-glow)}
   .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
 
   /* ── Layout ───────────────────────────────────────────────────── */
   .topbar{background:var(--card);border-bottom:1px solid var(--border);
     padding:14px 24px;display:flex;align-items:center;justify-content:space-between;
-    gap:16px;min-height:60px;box-sizing:border-box}
+    gap:16px;min-height:60px;box-sizing:border-box;
+    background-image:var(--grain);background-size:200px 200px}
   .topbar-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
-  .brand-icon{width:32px;height:32px;border-radius:8px;background:var(--accent);
-    display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .brand-name{font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;
+  .brand-icon{width:32px;height:32px;border-radius:var(--radius-sm);
+    background:linear-gradient(135deg,var(--accent-dark),var(--accent));
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    box-shadow:0 0 16px var(--accent-glow)}
+  .brand-name{font-family:var(--font-display);
     font-size:17px;font-weight:700;color:white;line-height:1}
   .topbar-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
     justify-content:flex-end}
@@ -75,12 +91,15 @@
     align-items:center;justify-content:center;line-height:1}
   .topbar-logout{color:var(--red)}
   .topbar-logout:hover{border-color:var(--red) !important;color:var(--red) !important}
-  .tabs{display:flex;gap:0;background:var(--card);border-bottom:1px solid var(--border);
+  .tabs{display:flex;gap:2px;background:var(--bg);border-bottom:1px solid var(--border);
     padding:0 24px}
-  .tab{padding:12px 20px;font-size:13px;font-weight:600;cursor:pointer;
-    color:var(--muted);border-bottom:2px solid transparent;transition:.2s}
-  .tab:hover{color:var(--text)}
-  .tab.active{color:var(--accent-light);border-bottom-color:var(--accent)}
+  .tab{padding:10px 18px;font-size:12px;font-weight:600;cursor:pointer;
+    color:var(--muted);border-bottom:2px solid transparent;transition:.2s;
+    font-family:var(--font-mono);letter-spacing:0.03em;text-transform:uppercase;
+    position:relative}
+  .tab:hover{color:var(--text-bright)}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);
+    text-shadow:0 0 12px var(--accent-glow)}
   .container{padding:24px;max-width:1400px;margin:0 auto}
   .panel{display:none}
   .panel.active{display:block}
@@ -88,12 +107,16 @@
   /* ── Stats bar ────────────────────────────────────────────────── */
   .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
     gap:16px;margin-bottom:24px}
-  .stat{background:var(--card);border:1px solid var(--border);border-radius:10px;
-    padding:16px}
-  .stat .label{font-size:11px;color:var(--muted);text-transform:uppercase;
-    font-weight:600;margin-bottom:4px;letter-spacing:0.04em}
-  .stat .value{font-size:28px;font-weight:700;
-    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-md);
+    padding:16px;position:relative;overflow:hidden}
+  .stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;
+    transition:opacity 0.3s}
+  .stat:hover::before{opacity:1}
+  .stat .label{font-size:10px;color:var(--muted);text-transform:uppercase;
+    font-weight:600;margin-bottom:4px;letter-spacing:0.08em;font-family:var(--font-mono)}
+  .stat .value{font-size:28px;font-weight:700;letter-spacing:-0.02em;
+    font-family:var(--font-display)}
   .stat .value.green{color:var(--emerald)}
   .stat .value.red{color:var(--red)}
   .stat .value.blue{color:var(--accent-light)}
@@ -104,30 +127,32 @@
   .toolbar input{background:rgba(255,255,255,0.03);border:1px solid var(--border);
     border-radius:8px;padding:0 12px;color:var(--text);font-size:13px;width:260px;
     height:34px;box-sizing:border-box;
-    font-family:'Inter',system-ui,sans-serif}
-  .toolbar input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+    font-family:var(--font-body)}
+  .toolbar input:focus{outline:none;border-color:var(--accent)}
   .toolbar label{display:inline-flex;align-items:center;gap:8px;font-size:12px;
     color:var(--muted);font-weight:600;height:34px;line-height:1}
   .toolbar label input{height:34px;box-sizing:border-box}
   .toolbar button,.action-btn{background:var(--card);border:1px solid var(--border);
     border-radius:8px;padding:0 16px;color:var(--text);font-size:12px;
     font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.2s;
-    font-family:'Inter',system-ui,sans-serif;
+    font-family:var(--font-body);
     height:34px;display:inline-flex;align-items:center;justify-content:center;
     box-sizing:border-box;line-height:1}
   .toolbar button:hover,.action-btn:hover{border-color:var(--accent);color:var(--accent-light)}
-  .action-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-  .action-btn.primary:hover{background:var(--accent-light);border-color:var(--accent-light);color:#fff}
+  .action-btn.primary{background:var(--accent-dark);border-color:var(--accent);color:#fff;
+    box-shadow:0 0 16px var(--accent-glow)}
+  .action-btn.primary:hover{background:var(--accent);border-color:var(--accent-light);color:#fff;
+    box-shadow:0 0 24px var(--accent-glow-strong);transform:translateY(-1px)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   thead{position:sticky;top:0;z-index:10}
   th{background:var(--card);color:var(--muted);text-align:left;padding:10px 12px;
-    border-bottom:1px solid var(--border);font-weight:600;font-size:11px;
+    border-bottom:1px solid var(--border);font-weight:600;font-size:10px;
     text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap;
-    letter-spacing:0.04em}
+    letter-spacing:0.08em;font-family:var(--font-mono)}
   th:hover{color:var(--accent-light)}
   th .arrow{font-size:10px;margin-left:4px}
   td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
-  tr:hover td{background:rgba(59,130,246,.04)}
+  tr:hover td{background:rgba(61,217,168,.04)}
   .table-wrap{overflow-x:auto;background:var(--card);border:1px solid var(--border);
     border-radius:10px;max-height:65vh;overflow-y:auto}
 
@@ -144,7 +169,7 @@
   .status-badge{display:inline-block;padding:2px 8px;border-radius:10px;
     font-size:11px;font-weight:600}
   .status-live{background:rgba(16,185,129,.12);color:var(--emerald)}
-  .status-submitted{background:rgba(59,130,246,.12);color:var(--accent-light)}
+  .status-submitted{background:rgba(61,217,168,.12);color:var(--accent-light)}
   .status-stale{background:rgba(148,163,184,.08);color:var(--muted)}
 
   /* ── Modal ────────────────────────────────────────────────────── */
@@ -155,7 +180,7 @@
     padding:32px;width:700px;max-width:95vw;max-height:85vh;overflow-y:auto;
     position:relative}
   .modal h3{color:var(--accent-light);margin-bottom:16px;font-size:18px;
-    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif}
+    font-family:var(--font-display)}
   .modal .close{position:absolute;top:16px;right:16px;background:none;
     border:none;color:var(--muted);font-size:20px;cursor:pointer}
   .modal .close:hover{color:var(--text)}
@@ -260,9 +285,9 @@
     text-transform:uppercase;margin-bottom:4px;letter-spacing:0.04em}
   .q-field input,.q-field textarea{width:100%;background:rgba(255,255,255,0.03);
     border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);
-    font-size:13px;font-family:'Inter',system-ui,sans-serif}
+    font-size:13px;font-family:var(--font-body)}
   .q-field textarea{resize:vertical;min-height:60px}
-  .q-field input:focus,.q-field textarea:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .q-field input:focus,.q-field textarea:focus{outline:none;border-color:var(--accent)}
   .q-opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .q-opt{display:flex;align-items:center;gap:8px}
   .q-opt-key{width:34px;height:34px;border-radius:8px;background:var(--bg);
@@ -271,8 +296,8 @@
   .q-opt-key.correct{background:var(--accent);border-color:var(--accent);color:#fff}
   .q-opt input{flex:1;height:34px;box-sizing:border-box;padding:0 12px;
     background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;
-    color:var(--text);font-size:13px;font-family:'Inter',system-ui,sans-serif;min-width:0}
-  .q-opt input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+    color:var(--text);font-size:13px;font-family:var(--font-body);min-width:0}
+  .q-opt input:focus{outline:none;border-color:var(--accent)}
   .q-opt .q-opt-remove{background:none;border:none;color:var(--red);cursor:pointer;
     font-size:18px;width:24px;height:24px;border-radius:6px;display:inline-flex;
     align-items:center;justify-content:center;flex-shrink:0;line-height:1;padding:0}
@@ -283,11 +308,11 @@
     display:inline-flex;align-items:center;height:32px}
   .q-correct-row select{background:rgba(255,255,255,0.03);border:1px solid var(--border);
     border-radius:8px;padding:0 30px 0 12px;color:var(--text);font-size:13px;
-    font-family:'Inter',system-ui,sans-serif;height:32px;box-sizing:border-box;
+    font-family:var(--font-body);height:32px;box-sizing:border-box;
     line-height:1;cursor:pointer;-webkit-appearance:none;appearance:none;
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23748094' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
     background-repeat:no-repeat;background-position:right 10px center}
-  .q-correct-row select:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .q-correct-row select:focus{outline:none;border-color:var(--accent)}
   .q-correct-row .q-correct-status{font-size:12px;display:inline-flex;align-items:center;
     height:32px;line-height:1}
   .q-add-opt{background:none;border:1px dashed var(--border);border-radius:8px;
@@ -306,7 +331,7 @@
   .preview-q .pq-opts{display:flex;flex-direction:column;gap:6px}
   .preview-q .pq-opt{background:var(--bg);border:1px solid var(--border);border-radius:8px;
     padding:10px 14px;font-size:13px;display:flex;align-items:center;gap:10px}
-  .preview-q .pq-opt.pq-correct{border-color:var(--accent);background:rgba(59,130,246,.06)}
+  .preview-q .pq-opt.pq-correct{border-color:var(--accent);background:rgba(61,217,168,.06)}
   .preview-q .pq-opt .pq-key{width:24px;height:24px;border-radius:6px;background:var(--card);
     display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;
     flex-shrink:0;color:var(--muted)}
@@ -316,7 +341,7 @@
   .q-type-row label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:0}
   .q-type-row select{background:rgba(255,255,255,0.03);border:1px solid var(--border);
     border-radius:8px;color:var(--text);padding:6px 10px;font-size:12px;height:32px;cursor:pointer}
-  .q-type-row select:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .q-type-row select:focus{outline:none;border-color:var(--accent)}
   .q-img-wrap{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;flex-wrap:wrap}
   .q-img-thumb{width:120px;height:90px;border-radius:8px;border:1px solid var(--border);
     background:var(--bg) center/contain no-repeat;display:flex;align-items:center;justify-content:center;
@@ -330,8 +355,8 @@
   .q-img-btn.danger:hover{border-color:var(--red);color:var(--red)}
   .q-opt-key.correct-multi{background:var(--emerald,#10b981);border-color:var(--emerald,#10b981);color:#fff}
   .q-card .q-type-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;
-    font-weight:700;text-transform:uppercase;letter-spacing:0.05em;background:rgba(59,130,246,.12);
-    color:var(--accent-light);border:1px solid rgba(59,130,246,.25);margin-left:8px}
+    font-weight:700;text-transform:uppercase;letter-spacing:0.05em;background:rgba(61,217,168,.12);
+    color:var(--accent-light);border:1px solid rgba(61,217,168,.25);margin-left:8px}
   .preview-q .pq-image{max-width:360px;max-height:240px;border-radius:8px;border:1px solid var(--border);
     display:block;margin:0 0 10px 0}
 
@@ -341,7 +366,7 @@
   .tool-card{background:var(--card);border:1px solid var(--border);border-radius:10px;
     padding:24px;display:flex;flex-direction:column;min-height:100%}
   .tool-card h3{font-size:15px;color:var(--accent-light);margin:0 0 8px 0;
-    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;font-weight:700;
+    font-family:var(--font-display);font-weight:700;
     line-height:1.3}
   .tool-card p{font-size:13px;color:var(--muted);margin:0 0 16px 0;line-height:1.5}
   .tool-card-body{flex:1;display:flex;flex-direction:column}
@@ -353,15 +378,15 @@
   .tool-card-field input{width:100%;background:rgba(255,255,255,0.03);
     border:1px solid var(--border);border-radius:8px;padding:0 12px;color:var(--text);
     font-size:13px;height:34px;box-sizing:border-box;
-    font-family:'Inter',system-ui,sans-serif}
-  .tool-card-field input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+    font-family:var(--font-body)}
+  .tool-card-field input:focus{outline:none;border-color:var(--accent)}
   .tool-card-field input.access-code{font-size:16px;font-weight:700;letter-spacing:2px;
     text-transform:uppercase;font-family:monospace}
   .shuffle-toggle{display:flex;align-items:center;gap:10px;padding:10px 12px;
     background:rgba(255,255,255,0.02);border:1px solid var(--border);
     border-radius:8px;margin-bottom:8px;cursor:pointer;font-size:13px;
     color:var(--text);user-select:none;transition:border-color .15s}
-  .shuffle-toggle:hover{border-color:rgba(59,130,246,0.35)}
+  .shuffle-toggle:hover{border-color:rgba(61,217,168,0.35)}
   .shuffle-toggle input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);
     margin:0;cursor:pointer;flex-shrink:0}
 
@@ -383,7 +408,7 @@
   .chat-row{display:flex;align-items:center;gap:10px;padding:10px 16px;
     cursor:pointer;border-left:3px solid transparent;position:relative}
   .chat-row:hover{background:rgba(255,255,255,0.03)}
-  .chat-row.active{background:rgba(59,130,246,0.08);border-left-color:var(--accent)}
+  .chat-row.active{background:rgba(61,217,168,0.08);border-left-color:var(--accent)}
   .chat-row .dot{width:8px;height:8px;border-radius:50%;background:var(--emerald);
     flex-shrink:0;box-shadow:0 0 0 3px rgba(16,185,129,0.15)}
   .chat-row .dot.offline{background:#555;box-shadow:none}
@@ -421,7 +446,7 @@
     border:1px solid var(--border);border-radius:8px;padding:10px 12px;
     color:var(--text);font:inherit;font-size:13px;resize:none;
     max-height:120px;line-height:1.4}
-  .chat-composer textarea:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .chat-composer textarea:focus{outline:none;border-color:var(--accent)}
   .chat-composer textarea:disabled{opacity:0.5;cursor:not-allowed}
   .chat-composer button{height:38px}
 
@@ -435,7 +460,7 @@
     border-radius:16px;font-size:12px;font-weight:600;cursor:pointer;
     background:var(--bg);border:1px solid var(--border);color:var(--muted);transition:.2s}
   .tl-filter-btn:hover{border-color:var(--accent);color:var(--accent-light)}
-  .tl-filter-btn.active{background:rgba(59,130,246,.08);border-color:var(--accent);color:var(--accent-light)}
+  .tl-filter-btn.active{background:rgba(61,217,168,.08);border-color:var(--accent);color:var(--accent-light)}
   .tl-filter-btn input{display:none}
 
   .tl-scrubber{position:relative;height:40px;background:var(--bg);border-radius:8px;
@@ -454,12 +479,12 @@
   .tl-events{max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:0}
   .tl-event{display:flex;gap:12px;padding:10px 12px;border-left:3px solid var(--border);
     position:relative;transition:background .15s}
-  .tl-event:hover{background:rgba(59,130,246,.03)}
+  .tl-event:hover{background:rgba(61,217,168,.03)}
   .tl-event.sev-high{border-left-color:var(--red)}
   .tl-event.sev-medium{border-left-color:var(--amber)}
   .tl-event.sev-low{border-left-color:var(--border)}
   .tl-event.is-violation{background:rgba(239,68,68,.03)}
-  .tl-event.highlighted{background:rgba(59,130,246,.08)}
+  .tl-event.highlighted{background:rgba(61,217,168,.08)}
   .tl-time{width:70px;flex-shrink:0;font-size:11px;color:var(--muted);font-family:monospace;
     padding-top:2px}
   .tl-icon{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;
@@ -522,7 +547,7 @@
           <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8"/>
         </svg>
       </div>
-      <span style="font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;font-size:22px;font-weight:700;color:white">Procta</span>
+      <span style="font-family:var(--font-display);font-size:22px;font-weight:700;color:white">Procta</span>
     </div>
 
     <!-- LOGIN FORM -->
@@ -609,6 +634,7 @@
   <div class="tab" data-tab="chat" onclick="switchTab('chat')">
     Chat<span class="tab-badge" id="chat-tab-badge" style="display:none">0</span>
   </div>
+  <div class="tab" data-tab="analytics" onclick="switchTab('analytics')">Analytics</div>
   <div class="tab" data-tab="tools" onclick="switchTab('tools')">Tools</div>
 </div>
 
@@ -680,6 +706,7 @@
       <input type="text" id="results-search" placeholder="Search by name, roll, email..."
              oninput="filterResults()">
       <button onclick="exportCSV()">Export CSV</button>
+      <button onclick="dlAllScorecards()">All Scorecards (ZIP)</button>
       <button onclick="refreshResults()">Refresh</button>
     </div>
     <div class="table-wrap">
@@ -713,8 +740,39 @@
       <button onclick="togglePreview()">Preview</button>
       <button class="action-btn primary" onclick="saveQuestions()">Save All</button>
       <button onclick="loadQuestions()">Reload</button>
+      <button onclick="toggleBank()" id="btn-toggle-bank" style="margin-left:auto">Question Bank</button>
     </div>
     <div id="q-save-msg" style="font-size:13px;min-height:22px;margin-bottom:8px"></div>
+
+    <!-- QUESTION BANK PANEL (collapsible) -->
+    <div id="q-bank-panel" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h3 style="margin:0;font-size:15px;color:var(--accent-light);font-family:var(--font-display)">Question Bank</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="bank-search" placeholder="Search or filter by tag..." oninput="filterBank()"
+            style="width:200px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px">
+          <button class="action-btn" onclick="showBankImport()">Import CSV</button>
+          <button class="action-btn" onclick="exportBank()">Export</button>
+          <button class="action-btn primary" onclick="bankToExam()">Add Selected to Exam</button>
+        </div>
+      </div>
+      <div id="bank-list" style="max-height:400px;overflow-y:auto"></div>
+      <div id="bank-empty" style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No questions in bank yet. Add questions or import from CSV.</div>
+
+      <!-- Import modal (inline) -->
+      <div id="bank-import-area" style="display:none;margin-top:14px;padding:14px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Bulk Import</div>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Paste CSV/JSON or upload a file. CSV columns: question, type, option_A, option_B, option_C, option_D, correct, image_url, tags</p>
+        <textarea id="bank-import-text" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
+          style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font:13px monospace;resize:vertical;box-sizing:border-box"></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <input type="file" id="bank-import-file" accept=".csv,.json" onchange="loadBankFile(this)" style="font-size:12px;color:var(--muted)">
+          <button class="action-btn primary" onclick="doBankImport()">Import</button>
+          <button class="action-btn" onclick="document.getElementById('bank-import-area').style.display='none'">Cancel</button>
+        </div>
+        <div id="bank-import-status" style="font-size:12px;min-height:18px;margin-top:6px"></div>
+      </div>
+    </div>
 
     <!-- EDITOR VIEW -->
     <div id="q-editor"></div>
@@ -722,7 +780,7 @@
     <!-- PREVIEW VIEW -->
     <div id="q-preview" style="display:none">
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:800px">
-        <h3 style="color:var(--accent-light);margin-bottom:16px;font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif" id="preview-title">Preview</h3>
+        <h3 style="color:var(--accent-light);margin-bottom:16px;font-family:var(--font-display)" id="preview-title">Preview</h3>
         <div id="preview-body"></div>
       </div>
     </div>
@@ -775,6 +833,72 @@
         <button class="action-btn" onclick="closeBroadcastModal()">Cancel</button>
         <button class="action-btn primary" onclick="sendBroadcast()">Send Broadcast</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ANALYTICS -->
+  <div class="panel" id="panel-analytics">
+    <div id="analytics-empty" style="text-align:center;padding:60px 20px;color:var(--muted)">
+      <div style="font-size:40px;margin-bottom:12px;opacity:0.3">&#9776;</div>
+      <div style="font-size:14px">Select an exam to view analytics</div>
+    </div>
+    <div id="analytics-loading" style="display:none;text-align:center;padding:60px 20px;color:var(--muted)">
+      <div class="spinner" style="margin:0 auto 12px"></div>
+      <div style="font-size:13px">Computing analytics&hellip;</div>
+    </div>
+    <div id="analytics-content" style="display:none">
+
+      <!-- Overview cards -->
+      <div class="stats" id="analytics-overview">
+        <div class="stat"><div class="label">Submissions</div><div class="value blue" id="an-count">--</div></div>
+        <div class="stat"><div class="label">Avg Score</div><div class="value green" id="an-avg-score">--</div></div>
+        <div class="stat"><div class="label">Avg Percentage</div><div class="value green" id="an-avg-pct">--</div></div>
+        <div class="stat"><div class="label">Pass Rate</div><div class="value" id="an-pass-rate">--</div></div>
+        <div class="stat"><div class="label">Median Time</div><div class="value blue" id="an-med-time">--</div></div>
+        <div class="stat"><div class="label">Violations</div><div class="value red" id="an-viols">--</div></div>
+      </div>
+
+      <!-- Score Distribution -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
+        <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 16px;font-family:var(--font-display)">Score Distribution</h3>
+        <div id="an-histogram" style="display:flex;align-items:flex-end;gap:6px;height:140px"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--muted)">
+          <span>0%</span><span>50%</span><span>100%</span>
+        </div>
+      </div>
+
+      <!-- Risk Distribution -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
+        <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 16px;font-family:var(--font-display)">Risk Distribution</h3>
+        <div id="an-risk-bars" style="display:flex;gap:12px"></div>
+      </div>
+
+      <!-- Violation Breakdown -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
+        <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 16px;font-family:var(--font-display)">Violations by Type</h3>
+        <div id="an-viol-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
+        <div id="an-viol-none" style="display:none;color:var(--muted);font-size:13px">No violations recorded.</div>
+      </div>
+
+      <!-- Question Analysis -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
+        <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 16px;font-family:var(--font-display)">Question Analysis</h3>
+        <div style="overflow-x:auto">
+          <table class="results-table" style="width:100%">
+            <thead><tr>
+              <th style="width:40px">#</th>
+              <th>Question</th>
+              <th style="width:90px">Difficulty</th>
+              <th style="width:110px">Discrimination</th>
+              <th style="width:80px">Attempted</th>
+              <th style="width:70px">Correct</th>
+            </tr></thead>
+            <tbody id="an-qtable"></tbody>
+          </table>
+        </div>
+        <div id="an-qnone" style="display:none;color:var(--muted);font-size:13px;padding:12px 0">No question data available.</div>
+      </div>
+
     </div>
   </div>
 
@@ -918,6 +1042,51 @@
         </div>
         <div class="tool-card-result" id="schedule-status" style="font-size:12px"></div>
       </div>
+
+      <div class="tool-card" style="grid-column:1/-1">
+        <div class="tool-card-body">
+          <h3>Student Groups</h3>
+          <p>Create groups and assign students. Restrict exam access so only students in assigned groups can enter.</p>
+          <div id="groups-list" style="margin-top:12px"></div>
+          <div id="groups-empty" style="color:var(--muted);font-size:13px;margin-top:8px">No groups yet.</div>
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+            <input type="text" id="new-group-name" placeholder="New group name"
+              style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <button class="action-btn primary" onclick="createGroup()" style="white-space:nowrap">Create Group</button>
+          </div>
+          <div id="group-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--emerald)"></div>
+
+          <!-- Group detail sub-panel (shown when a group is clicked) -->
+          <div id="group-detail" style="display:none;margin-top:16px;padding:16px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <h4 id="group-detail-name" style="margin:0;font-size:14px;color:var(--accent-light)"></h4>
+              <button class="action-btn" onclick="closeGroupDetail()" style="padding:4px 10px;font-size:11px">Close</button>
+            </div>
+            <div id="group-members-list" style="margin-bottom:12px"></div>
+            <div id="group-members-empty" style="color:var(--muted);font-size:12px;margin-bottom:10px">No members yet.</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="add-member-rolls" placeholder="Roll numbers (comma-separated)"
+                style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <button class="action-btn primary" onclick="addGroupMembers()" style="white-space:nowrap">Add</button>
+            </div>
+          </div>
+
+          <!-- Exam group assignment -->
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Exam Access Restriction</div>
+            <div id="exam-groups-list" style="margin-bottom:8px"></div>
+            <div id="exam-groups-none" style="color:var(--muted);font-size:12px;margin-bottom:8px">All students can access this exam (no group restriction).</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="assign-group-select"
+                style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+                <option value="">Select a group to restrict access...</option>
+              </select>
+              <button class="action-btn primary" onclick="assignGroupToExam()" style="white-space:nowrap">Assign</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -1088,10 +1257,67 @@ async function _onAuthed(teacher){
   }
   await loadExams();
   refreshAll();
-  // Poll every 5s so live status / risk score / submission state catches
-  // up almost immediately when a student finishes their exam.
-  autoRefreshTimer = setInterval(()=>{ refreshLive(); refreshIdReviews(); }, 5000);
+  // Try SSE for real-time updates; fall back to polling if unavailable
+  _connectSSE();
   chatConnect();
+}
+
+let _sseSource = null;
+let _sseFallbackTimer = null;
+
+function _connectSSE(){
+  // Clean up any existing connection
+  if(_sseSource){ try{_sseSource.close();}catch(_){} _sseSource=null; }
+  if(_sseFallbackTimer){ clearInterval(_sseFallbackTimer); _sseFallbackTimer=null; }
+
+  try{
+    _sseSource = new EventSource(`${BASE}/api/sse/sessions?token=${encodeURIComponent(authToken)}`);
+
+    _sseSource.addEventListener('init', (e)=>{
+      try{
+        const d=JSON.parse(e.data);
+        liveData=d.all_sessions||[];
+        renderLiveStats(d.sessions||[],liveData);
+        renderLive();
+      }catch(err){ console.error('[SSE] init parse error',err); }
+    });
+
+    _sseSource.addEventListener('update', (e)=>{
+      // Incremental update — refresh live data from server
+      // (Redis sends a lightweight signal; we do a quick fetch to get full state)
+      refreshLive();
+      refreshIdReviews();
+    });
+
+    _sseSource.addEventListener('refresh', (e)=>{
+      // Full refresh (fallback mode when no Redis)
+      try{
+        const d=JSON.parse(e.data);
+        liveData=d.all_sessions||[];
+        renderLiveStats(d.sessions||[],liveData);
+        renderLive();
+      }catch(err){ console.error('[SSE] refresh parse error',err); }
+    });
+
+    _sseSource.onerror = ()=>{
+      console.warn('[SSE] connection error — falling back to polling');
+      try{_sseSource.close();}catch(_){}
+      _sseSource=null;
+      // Fall back to polling
+      _sseFallbackTimer = setInterval(()=>{ refreshLive(); refreshIdReviews(); }, 5000);
+      // Retry SSE after 30s
+      setTimeout(()=>{
+        if(_sseFallbackTimer){
+          clearInterval(_sseFallbackTimer);
+          _sseFallbackTimer=null;
+          _connectSSE();
+        }
+      }, 30000);
+    };
+  }catch(e){
+    console.warn('[SSE] not available, using polling');
+    _sseFallbackTimer = setInterval(()=>{ refreshLive(); refreshIdReviews(); }, 5000);
+  }
 }
 
 // ── EXAM SELECTOR ──────────────────────────────────────────────
@@ -1222,6 +1448,8 @@ async function _tryAutoLogin(){
 function doLogout(){
   _saveTokens('','');
   if(autoRefreshTimer){ clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  if(_sseSource){ try{_sseSource.close();}catch(_){} _sseSource=null; }
+  if(_sseFallbackTimer){ clearInterval(_sseFallbackTimer); _sseFallbackTimer=null; }
   // Wipe in-memory state so a second teacher logging in on the same
   // browser never sees the previous teacher's data even momentarily.
   try{
@@ -1320,6 +1548,7 @@ function switchTab(tab){
     if(typeof chatClearActiveUnread==='function') chatClearActiveUnread();
     if(typeof chatClearTabBadge==='function') chatClearTabBadge();
   }
+  if(tab==='analytics') loadAnalytics();
 }
 
 // ── REFRESH ─────────────────────────────────────────────────────
@@ -1561,6 +1790,7 @@ function renderResults(){
         <button class="action-btn" onclick="openDetail('${sid}')" style="padding:4px 10px;font-size:11px">Detail</button>
         <button class="action-btn" onclick="currentSessionId='${sid}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
         <button class="action-btn" onclick="dlPDF('${sid}')" style="padding:4px 10px;font-size:11px">PDF</button>
+        <button class="action-btn" onclick="dlScorecard('${sid}')" style="padding:4px 10px;font-size:11px">Scorecard</button>
       </td>
     </tr>`;
   }).join('');
@@ -1742,6 +1972,14 @@ function dlPDF(sid){
 }
 function downloadPDF(){
   if(currentSessionId) dlPDF(currentSessionId);
+}
+function dlScorecard(sid){
+  fetchBlob(`${BASE}/api/admin/scorecard-pdf/${encodeURIComponent(sid)}`,`scorecard_${sid.split('_')[0]}.pdf`);
+}
+function dlAllScorecards(){
+  const eid = selectedExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  fetchBlob(`${BASE}/api/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}`,`scorecards_${eid}.zip`);
 }
 
 // ── TOOLS ───────────────────────────────────────────────────────
@@ -2271,6 +2509,7 @@ function renderQEditor(){
           <button class="q-move" onclick="moveQ(${i},-1)" title="Move up" ${i===0?'disabled':''}>&#9650;</button>
           <button class="q-move" onclick="moveQ(${i},1)" title="Move down" ${i===qData.length-1?'disabled':''}>&#9660;</button>
         </div>
+        <button class="action-btn" onclick="saveQuestionToBank(${i})" style="padding:2px 8px;font-size:10px;margin-right:6px" title="Save to question bank">Save to Bank</button>
         <button class="q-del" onclick="deleteQ(${i})">Delete</button>
       </div>
       <div class="q-type-row">
@@ -3184,6 +3423,470 @@ function chatFmtTime(ts){
   if(!ts) return '';
   try{ return new Date(ts).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',hour12:true}); }
   catch(_){ return ''; }
+}
+
+// ── QUESTION BANK ──────────────────────────────────────────────
+let _bankData = [];
+let _bankSelected = new Set();
+
+function toggleBank(){
+  const panel = document.getElementById('q-bank-panel');
+  const visible = panel.style.display !== 'none';
+  panel.style.display = visible ? 'none' : '';
+  if(!visible) loadBank();
+}
+
+async function loadBank(){
+  try{
+    const r = await authFetch(`${BASE}/api/admin/question-bank`);
+    if(!r.ok) return;
+    _bankData = await r.json();
+    _bankSelected.clear();
+    renderBank(_bankData);
+  }catch(e){ console.error('loadBank:', e); }
+}
+
+function renderBank(data){
+  const list = document.getElementById('bank-list');
+  const empty = document.getElementById('bank-empty');
+  if(!data.length){ list.innerHTML=''; empty.style.display=''; return; }
+  empty.style.display='none';
+  list.innerHTML = data.map((q,i)=>{
+    const opts = q.options||{};
+    const optStr = Object.entries(opts).map(([k,v])=>`<span style="margin-right:8px"><b>${_escHtml(k)}.</b> ${_escHtml(String(v).substring(0,40))}</span>`).join('');
+    const tags = (q.tags||[]).map(t=>`<span style="background:rgba(61,217,168,.1);color:var(--accent-light);border-radius:10px;padding:1px 8px;font-size:10px;margin-right:4px">${_escHtml(t)}</span>`).join('');
+    return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-bottom:1px solid var(--border);${i%2===0?'background:rgba(255,255,255,.01)':''}">
+      <input type="checkbox" onchange="_bankToggle('${q.id}',this.checked)" style="margin-top:4px;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;color:var(--text);margin-bottom:4px">${_escHtml(q.question)}</div>
+        <div style="font-size:11px;color:var(--muted)">${optStr}</div>
+        <div style="margin-top:4px;display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--emerald);font-weight:600">Correct: ${_escHtml(q.correct)}</span>
+          <span style="font-size:10px;color:var(--muted)">${_escHtml(q.question_type)}</span>
+          ${tags}
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;flex-shrink:0">
+        <button class="action-btn" onclick="saveBankToExamSingle('${q.id}')" style="padding:2px 8px;font-size:10px" title="Add to current exam">+Exam</button>
+        <button class="action-btn" onclick="deleteBankQ('${q.id}')" style="padding:2px 8px;font-size:10px;color:var(--red)" title="Delete">&times;</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _bankToggle(id, checked){
+  if(checked) _bankSelected.add(id);
+  else _bankSelected.delete(id);
+}
+
+function filterBank(){
+  const term = (document.getElementById('bank-search').value||'').toLowerCase();
+  if(!term){ renderBank(_bankData); return; }
+  const filtered = _bankData.filter(q=>
+    q.question.toLowerCase().includes(term) ||
+    (q.tags||[]).some(t=>t.toLowerCase().includes(term))
+  );
+  renderBank(filtered);
+}
+
+async function deleteBankQ(qid){
+  await authFetch(`${BASE}/api/admin/question-bank/${qid}`,{method:'DELETE'});
+  _bankData = _bankData.filter(q=>q.id!==qid);
+  _bankSelected.delete(qid);
+  renderBank(_bankData);
+}
+
+async function bankToExam(){
+  const eid = selectedExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  const ids = Array.from(_bankSelected);
+  if(!ids.length){ alert('Select questions using the checkboxes first.'); return; }
+  try{
+    const r = await authFetch(`${BASE}/api/admin/question-bank/to-exam`,
+      {method:'POST',body:JSON.stringify({question_ids:ids,exam_id:eid})});
+    const d = await r.json();
+    if(r.ok){
+      alert(`Added ${d.added} questions to exam.`);
+      _bankSelected.clear();
+      loadQuestions();
+      loadBank();
+    }else{ alert(d.detail||'Error'); }
+  }catch(e){ alert('Failed to add questions'); }
+}
+
+async function saveBankToExamSingle(qid){
+  const eid = selectedExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  const r = await authFetch(`${BASE}/api/admin/question-bank/to-exam`,
+    {method:'POST',body:JSON.stringify({question_ids:[qid],exam_id:eid})});
+  if(r.ok){ loadQuestions(); }
+  else{ const d=await r.json(); alert(d.detail||'Error'); }
+}
+
+function showBankImport(){
+  document.getElementById('bank-import-area').style.display='';
+}
+
+function loadBankFile(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const text = e.target.result;
+    // Try to parse CSV
+    if(file.name.endsWith('.csv')){
+      document.getElementById('bank-import-text').value = JSON.stringify(_parseBankCSV(text), null, 2);
+    }else{
+      document.getElementById('bank-import-text').value = text;
+    }
+  };
+  reader.readAsText(file);
+}
+
+function _parseBankCSV(text){
+  const lines = text.trim().split('\n');
+  if(lines.length<2) return [];
+  const headers = lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,''));
+  return lines.slice(1).map(line=>{
+    const vals = line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));
+    const obj = {};
+    headers.forEach((h,i)=>{ obj[h]=vals[i]||''; });
+    return obj;
+  });
+}
+
+async function doBankImport(){
+  const text = document.getElementById('bank-import-text').value.trim();
+  const status = document.getElementById('bank-import-status');
+  if(!text){ status.style.color='var(--red)'; status.textContent='Paste data first'; return; }
+  let questions;
+  try{ questions = JSON.parse(text); }
+  catch(e){ status.style.color='var(--red)'; status.textContent='Invalid JSON'; return; }
+  if(!Array.isArray(questions)) questions = [questions];
+  try{
+    const r = await authFetch(`${BASE}/api/admin/question-bank/import`,
+      {method:'POST',body:JSON.stringify({questions})});
+    const d = await r.json();
+    if(r.ok){
+      status.style.color='var(--emerald)'; status.textContent=`Imported ${d.imported} questions`;
+      document.getElementById('bank-import-text').value='';
+      loadBank();
+    }else{ status.style.color='var(--red)'; status.textContent=d.detail||'Error'; }
+  }catch(e){ status.style.color='var(--red)'; status.textContent='Import failed'; }
+}
+
+async function exportBank(){
+  try{
+    const r = await authFetch(`${BASE}/api/admin/question-bank/export`);
+    const data = await r.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'question_bank.json'; a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){ alert('Export failed'); }
+}
+
+// "Save to Bank" helper — called from question editor cards
+async function saveQuestionToBank(idx){
+  if(!qData[idx]) return;
+  const q = qData[idx];
+  try{
+    const r = await authFetch(`${BASE}/api/admin/question-bank`,
+      {method:'POST',body:JSON.stringify({
+        question: q.question,
+        question_type: q.question_type || 'mcq_single',
+        options: q.options || {},
+        correct: q.correct || '',
+        image_url: q.image_url || '',
+        tags: [],
+      })});
+    if(r.ok) alert('Saved to bank!');
+    else{ const d=await r.json(); alert(d.detail||'Error'); }
+  }catch(e){ alert('Failed to save to bank'); }
+}
+
+// ── STUDENT GROUPS ─────────────────────────────────────────────
+let _groupsData = [];
+let _activeGroupId = null;
+
+async function loadGroups(){
+  try{
+    const r = await authFetch(`${BASE}/api/admin/groups`);
+    if(!r.ok) return;
+    _groupsData = await r.json();
+    renderGroups();
+    populateGroupSelect();
+    loadExamGroups();
+  }catch(e){ console.error('loadGroups:', e); }
+}
+
+function renderGroups(){
+  const list = document.getElementById('groups-list');
+  const empty = document.getElementById('groups-empty');
+  if(!_groupsData.length){ list.innerHTML=''; empty.style.display=''; return; }
+  empty.style.display='none';
+  list.innerHTML = _groupsData.map(g=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;cursor:pointer"
+         onclick="openGroupDetail('${g.id}','${_escGrp(g.group_name)}')">
+      <span style="flex:1;font-size:13px;color:var(--text)">${_escHtml(g.group_name)}</span>
+      <span style="font-size:11px;color:var(--muted)">${g.member_count||0} members</span>
+      <button class="action-btn" onclick="event.stopPropagation();deleteGroup('${g.id}')" style="padding:2px 8px;font-size:10px;color:var(--red)">Delete</button>
+    </div>`).join('');
+}
+
+function _escGrp(s){ return String(s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+
+async function createGroup(){
+  const inp = document.getElementById('new-group-name');
+  const name = inp.value.trim();
+  if(!name) return;
+  const st = document.getElementById('group-status');
+  try{
+    const r = await authFetch(`${BASE}/api/admin/groups`,{method:'POST',body:JSON.stringify({group_name:name})});
+    if(!r.ok){ const d=await r.json(); st.style.color='var(--red)'; st.textContent=d.detail||'Error'; return; }
+    inp.value='';
+    st.style.color='var(--emerald)'; st.textContent='Group created';
+    setTimeout(()=>st.textContent='',3000);
+    loadGroups();
+  }catch(e){ st.style.color='var(--red)'; st.textContent='Failed'; }
+}
+
+async function deleteGroup(gid){
+  if(!confirm('Delete this group? Members and exam assignments will also be removed.')) return;
+  await authFetch(`${BASE}/api/admin/groups/${gid}`,{method:'DELETE'});
+  if(_activeGroupId===gid) closeGroupDetail();
+  loadGroups();
+}
+
+async function openGroupDetail(gid, name){
+  _activeGroupId = gid;
+  document.getElementById('group-detail').style.display='';
+  document.getElementById('group-detail-name').textContent = name;
+  const r = await authFetch(`${BASE}/api/admin/groups/${gid}/members`);
+  const members = r.ok ? await r.json() : [];
+  const list = document.getElementById('group-members-list');
+  const empty = document.getElementById('group-members-empty');
+  if(!members.length){ list.innerHTML=''; empty.style.display=''; return; }
+  empty.style.display='none';
+  list.innerHTML = members.map(m=>`
+    <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(61,217,168,.1);border:1px solid rgba(61,217,168,.2);border-radius:14px;padding:3px 10px;margin:3px 3px;font-size:12px;color:var(--accent-light)">
+      ${_escHtml(m.roll_number)}
+      <span onclick="removeMember('${gid}','${_escGrp(m.roll_number)}')" style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
+    </span>`).join('');
+}
+
+function closeGroupDetail(){
+  _activeGroupId = null;
+  document.getElementById('group-detail').style.display='none';
+}
+
+async function addGroupMembers(){
+  if(!_activeGroupId) return;
+  const inp = document.getElementById('add-member-rolls');
+  const rolls = inp.value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+  if(!rolls.length) return;
+  await authFetch(`${BASE}/api/admin/groups/${_activeGroupId}/members`,
+    {method:'POST',body:JSON.stringify({roll_numbers:rolls})});
+  inp.value='';
+  openGroupDetail(_activeGroupId, document.getElementById('group-detail-name').textContent);
+  loadGroups();
+}
+
+async function removeMember(gid, roll){
+  await authFetch(`${BASE}/api/admin/groups/${gid}/members`,
+    {method:'DELETE',body:JSON.stringify({roll_numbers:[roll]})});
+  openGroupDetail(gid, document.getElementById('group-detail-name').textContent);
+  loadGroups();
+}
+
+function populateGroupSelect(){
+  const sel = document.getElementById('assign-group-select');
+  sel.innerHTML = '<option value="">Select a group to restrict access...</option>' +
+    _groupsData.map(g=>`<option value="${g.id}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
+}
+
+async function loadExamGroups(){
+  const eid = selectedExamId;
+  if(!eid){ document.getElementById('exam-groups-list').innerHTML=''; document.getElementById('exam-groups-none').style.display=''; return; }
+  const r = await authFetch(`${BASE}/api/admin/exams/${encodeURIComponent(eid)}/groups`);
+  const groups = r.ok ? await r.json() : [];
+  const list = document.getElementById('exam-groups-list');
+  const none = document.getElementById('exam-groups-none');
+  if(!groups.length){ list.innerHTML=''; none.style.display=''; return; }
+  none.style.display='none';
+  list.innerHTML = groups.map(g=>`
+    <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:14px;padding:3px 10px;margin:3px 3px;font-size:12px;color:var(--emerald)">
+      ${_escHtml(g.group_name)}
+      <span onclick="unassignGroup('${g.id}')" style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
+    </span>`).join('');
+}
+
+async function assignGroupToExam(){
+  const eid = selectedExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  const gid = document.getElementById('assign-group-select').value;
+  if(!gid) return;
+  await authFetch(`${BASE}/api/admin/exams/${encodeURIComponent(eid)}/groups`,
+    {method:'POST',body:JSON.stringify({group_ids:[gid]})});
+  loadExamGroups();
+}
+
+async function unassignGroup(gid){
+  const eid = selectedExamId;
+  if(!eid) return;
+  await authFetch(`${BASE}/api/admin/exams/${encodeURIComponent(eid)}/groups/${gid}`,{method:'DELETE'});
+  loadExamGroups();
+}
+
+// Load groups when tools tab opens or exam switches
+const _origSwitchTab = switchTab;
+switchTab = function(tab){
+  _origSwitchTab(tab);
+  if(tab==='tools') loadGroups();
+};
+
+// ── ANALYTICS ──────────────────────────────────────────────────
+let _analyticsCache = {};
+let _analyticsLoading = false;
+
+async function loadAnalytics(){
+  const eid = selectedExamId;
+  const empty = document.getElementById('analytics-empty');
+  const loading = document.getElementById('analytics-loading');
+  const content = document.getElementById('analytics-content');
+  if(!eid){ empty.style.display=''; loading.style.display='none'; content.style.display='none'; return; }
+
+  // Use cached if fresh (<60s)
+  const cached = _analyticsCache[eid];
+  if(cached && Date.now()-cached._ts < 60000){ _renderAnalytics(cached); return; }
+
+  empty.style.display='none'; loading.style.display=''; content.style.display='none';
+  if(_analyticsLoading) return;
+  _analyticsLoading = true;
+  try{
+    const r = await authFetch(`${BASE}/api/admin/analytics?exam_id=${encodeURIComponent(eid)}`);
+    if(!r.ok) throw new Error('Failed');
+    const data = await r.json();
+    data._ts = Date.now();
+    _analyticsCache[eid] = data;
+    _renderAnalytics(data);
+  }catch(e){
+    console.error('Analytics load error:', e);
+    empty.style.display=''; empty.querySelector('div:last-child').textContent='Failed to load analytics';
+    loading.style.display='none'; content.style.display='none';
+  }finally{ _analyticsLoading = false; }
+}
+
+function _renderAnalytics(data){
+  document.getElementById('analytics-empty').style.display='none';
+  document.getElementById('analytics-loading').style.display='none';
+  document.getElementById('analytics-content').style.display='';
+
+  const ov = data.exam_overview || {};
+  document.getElementById('an-count').textContent = ov.count || 0;
+  document.getElementById('an-avg-score').textContent = ov.count ? `${ov.avg_score}/${ov.avg_total}` : '--';
+  document.getElementById('an-avg-pct').textContent = ov.count ? `${ov.avg_percentage}%` : '--';
+  const pr = ov.pass_rate || 0;
+  const prEl = document.getElementById('an-pass-rate');
+  prEl.textContent = ov.count ? `${pr}%` : '--';
+  prEl.className = 'value ' + (pr >= 60 ? 'green' : pr >= 40 ? 'yellow' : 'red');
+  document.getElementById('an-med-time').textContent = ov.median_time_secs
+    ? _fmtDuration(ov.median_time_secs) : '--';
+  document.getElementById('an-viols').textContent =
+    (data.violation_summary && data.violation_summary.total) || 0;
+
+  // Score histogram
+  const dist = data.score_distribution || [];
+  const maxCount = Math.max(1, ...dist.map(d=>d.count));
+  const histo = document.getElementById('an-histogram');
+  histo.innerHTML = dist.map((d,i)=>{
+    const pct = Math.max(2, d.count/maxCount*100);
+    const color = i<3 ? 'var(--red)' : i<5 ? 'var(--amber)' : i<8 ? 'var(--accent)' : 'var(--emerald)';
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+      <span style="font-size:10px;color:var(--text);font-weight:600">${d.count}</span>
+      <div style="width:100%;height:${pct}%;min-height:2px;background:${color};border-radius:4px 4px 0 0;transition:height 0.4s"></div>
+      <span style="font-size:9px;color:var(--muted);white-space:nowrap">${d.range.replace('%','')}</span>
+    </div>`;
+  }).join('');
+
+  // Risk distribution
+  const risk = data.risk_distribution || {low:0,medium:0,high:0};
+  const riskTotal = Math.max(1, risk.low+risk.medium+risk.high);
+  document.getElementById('an-risk-bars').innerHTML = [
+    {label:'Low (0-30)',count:risk.low,color:'var(--emerald)'},
+    {label:'Medium (31-60)',count:risk.medium,color:'var(--amber)'},
+    {label:'High (61-100)',count:risk.high,color:'var(--red)'},
+  ].map(r=>{
+    const w = Math.max(4, r.count/riskTotal*100);
+    return `<div style="flex:1;text-align:center">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${r.label}</div>
+      <div style="height:32px;background:rgba(255,255,255,0.03);border-radius:6px;overflow:hidden;position:relative">
+        <div style="height:100%;width:${w}%;background:${r.color};border-radius:6px;transition:width 0.4s"></div>
+      </div>
+      <div style="font-size:18px;font-weight:700;color:${r.color};margin-top:6px">${r.count}</div>
+    </div>`;
+  }).join('');
+
+  // Violation breakdown
+  const viol = data.violation_summary || {};
+  const byType = viol.by_type || {};
+  const vtKeys = Object.keys(byType);
+  const violGrid = document.getElementById('an-viol-grid');
+  const violNone = document.getElementById('an-viol-none');
+  if(vtKeys.length===0){ violGrid.innerHTML=''; violNone.style.display=''; }
+  else{
+    violNone.style.display='none';
+    const maxV = Math.max(1, ...Object.values(byType));
+    violGrid.innerHTML = vtKeys.sort((a,b)=>byType[b]-byType[a]).map(k=>{
+      const c = byType[k];
+      const w = Math.max(8, c/maxV*100);
+      return `<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.03em;margin-bottom:6px">${_escHtml(k.replace(/_/g,' '))}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${w}%;background:var(--red);border-radius:3px"></div>
+          </div>
+          <span style="font-size:14px;font-weight:700;color:var(--red)">${c}</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Question analysis table
+  const qa = data.question_analysis || [];
+  const qtable = document.getElementById('an-qtable');
+  const qnone = document.getElementById('an-qnone');
+  if(qa.length===0){ qtable.innerHTML=''; qnone.style.display=''; }
+  else{
+    qnone.style.display='none';
+    qtable.innerHTML = qa.map((q,i)=>{
+      const diff = q.difficulty_pct;
+      const diffColor = diff>=70 ? 'var(--emerald)' : diff>=40 ? 'var(--amber)' : 'var(--red)';
+      const diffLabel = diff>=70 ? 'Easy' : diff>=40 ? 'Medium' : 'Hard';
+      const disc = q.discrimination;
+      const discColor = disc>=0.3 ? 'var(--emerald)' : disc>=0.1 ? 'var(--amber)' : 'var(--red)';
+      const discLabel = disc>=0.3 ? 'Good' : disc>=0.1 ? 'Fair' : 'Poor';
+      return `<tr>
+        <td style="color:var(--muted)">${i+1}</td>
+        <td style="font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escHtml(q.question)}</td>
+        <td><span style="color:${diffColor};font-weight:600">${diff}%</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:4px">${diffLabel}</span></td>
+        <td><span style="color:${discColor};font-weight:600">${disc}</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:4px">${discLabel}</span></td>
+        <td>${q.attempted}</td>
+        <td>${q.correct}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+function _fmtDuration(secs){
+  const m = Math.floor(secs/60), s = secs%60;
+  return m>0 ? `${m}m ${s}s` : `${s}s`;
+}
+function _escHtml(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 </script>
 </body>

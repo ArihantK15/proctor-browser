@@ -632,6 +632,7 @@ function startPolling(sessionId) {
     try {
       const r    = await fetch(`${SERVER_URL}/events/${sessionId}`,
                                { headers: authHeaders() });
+      if (!r.ok) return; // skip this cycle on server error
       const data = await r.json();
       const events = data.events || [];
 
@@ -956,6 +957,7 @@ function releaseKiosk({ reopenLobby = true } = {}) {
   currentSessionId = null;
   examContext = null;
   studentToken = null;
+  calBiases = null;
 
   if (reopenLobby) {
     setTimeout(() => createLobbyWindow(), 200);
@@ -969,9 +971,12 @@ async function handlePanicUnlock(reason) {
   const sid = currentSessionId;
   if (sid && studentToken) {
     try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 5000);
       await fetch(`${SERVER_URL}/event`, {
         method: 'POST',
         headers: authHeaders(),
+        signal: ac.signal,
         body: JSON.stringify({
           session_id: sid,
           event_type: 'panic_unlock',
@@ -979,6 +984,7 @@ async function handlePanicUnlock(reason) {
           details:    `Panic unlock triggered (${reason}). Session left in_progress for teacher review.`,
         }),
       });
+      clearTimeout(timer);
     } catch(e) { console.error('[Panic] event post failed:', e.message); }
   }
   releaseKiosk({ reopenLobby: true });
@@ -1046,10 +1052,12 @@ ipcMain.handle('get-integrity-flags', () => {
 });
 
 ipcMain.handle('validate-student', async (_, roll, accessCode) => {
+  const body = {roll_number: roll, access_code: accessCode || ''};
+  if (examContext && examContext.examId) body.exam_id = examContext.examId;
   const r = await fetch(`${SERVER_URL}/api/validate-student`, {
     method:  'POST',
     headers: {'Content-Type': 'application/json'},
-    body:    JSON.stringify({roll_number: roll, access_code: accessCode || ''})
+    body:    JSON.stringify(body)
   });
   if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
   const data = await r.json();
@@ -1154,6 +1162,7 @@ ipcMain.handle('lobby-launch-exam', async (_, ctx) => {
     accessCode:  String(ctx.accessCode || '').trim().toUpperCase(),
     examTitle:   ctx.examTitle || '',
     teacherId:   ctx.teacherId || null,
+    examId:      ctx.examId || null,
   };
   console.log('[Lobby] launch exam:', examContext);
   // Hide (don't destroy) the lobby so we can come back to it cleanly.

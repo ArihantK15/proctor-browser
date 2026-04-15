@@ -63,7 +63,7 @@ os.makedirs(SCREENSHOTS_DIR,  exist_ok=True)
 os.makedirs(QUESTION_IMG_DIR, exist_ok=True)
 
 # ─── JWT ──────────────────────────────────────────────────────────
-def create_token(roll_number: str, teacher_id: str = None) -> str:
+def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "roll": roll_number,
@@ -72,6 +72,8 @@ def create_token(roll_number: str, teacher_id: str = None) -> str:
     }
     if teacher_id:
         payload["tid"] = teacher_id
+    if exam_id:
+        payload["eid"] = exam_id
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 def require_auth(request: Request) -> dict:
@@ -679,54 +681,65 @@ async def student_exams(request: Request):
         tid = e.get("teacher_id")
         if not tid:
             continue
-        # exam config (title, schedule, duration)
-        cfg = _load_exam_config(teacher_id=tid) or {}
         # teacher name for display
         teacher = _get_teacher_by_id(tid) or {}
-        # most recent session status for this student (if any)
-        sess_resp = supabase.table("exam_sessions")\
-            .select("session_key,status,started_at,submitted_at")\
+
+        # Load ALL exam configs for this teacher (multi-exam)
+        all_cfg_resp = supabase.table("exam_config")\
+            .select("*")\
             .eq("teacher_id", tid)\
-            .eq("roll_number", e["roll_number"])\
-            .order("started_at", desc=True)\
-            .limit(1)\
             .execute()
-        sess = (sess_resp.data or [{}])[0]
+        all_cfgs = all_cfg_resp.data or []
+        if not all_cfgs:
+            # Fallback: single legacy config
+            all_cfgs = [_load_exam_config(teacher_id=tid) or {}]
 
-        now_utc = datetime.now(timezone.utc)
-        starts_raw = cfg.get("starts_at")
-        ends_raw   = cfg.get("ends_at")
-        starts_at  = None
-        ends_at    = None
-        window = "open"  # default: no schedule → always open
-        if starts_raw:
-            starts_at = datetime.fromisoformat(str(starts_raw).replace("Z", "+00:00"))
-            if now_utc < starts_at:
-                window = "upcoming"
-        if ends_raw:
-            ends_at = datetime.fromisoformat(str(ends_raw).replace("Z", "+00:00"))
-            if now_utc > ends_at:
-                window = "closed"
+        for cfg in all_cfgs:
+            exam_id = cfg.get("exam_id")
 
-        if sess.get("status") == "completed":
-            status = "completed"
-        elif sess.get("status") == "in_progress":
-            status = "in_progress"
-        else:
-            status = window  # upcoming / open / closed
+            # most recent session status for this student+exam (if any)
+            sess_q = supabase.table("exam_sessions")\
+                .select("session_key,status,started_at,submitted_at")\
+                .eq("teacher_id", tid)\
+                .eq("roll_number", e["roll_number"])
+            if exam_id:
+                sess_q = sess_q.eq("exam_id", exam_id)
+            sess_resp = sess_q.order("started_at", desc=True).limit(1).execute()
+            sess = (sess_resp.data or [{}])[0]
 
-        out.append({
-            "teacher_id":       tid,
-            "teacher_name":     teacher.get("full_name", ""),
-            "roll_number":      e["roll_number"],
-            "exam_title":       cfg.get("exam_title", "Exam"),
-            "duration_minutes": cfg.get("duration_minutes", 60),
-            "starts_at":        cfg.get("starts_at"),
-            "ends_at":          cfg.get("ends_at"),
-            "access_code_required": bool(_get_access_code(tid)),
-            "status":           status,
-            "submitted_at":     sess.get("submitted_at"),
-        })
+            now_utc = datetime.now(timezone.utc)
+            starts_raw = cfg.get("starts_at")
+            ends_raw   = cfg.get("ends_at")
+            window = "open"  # default: no schedule → always open
+            if starts_raw:
+                starts_at = datetime.fromisoformat(str(starts_raw).replace("Z", "+00:00"))
+                if now_utc < starts_at:
+                    window = "upcoming"
+            if ends_raw:
+                ends_at = datetime.fromisoformat(str(ends_raw).replace("Z", "+00:00"))
+                if now_utc > ends_at:
+                    window = "closed"
+
+            if sess.get("status") == "completed":
+                status = "completed"
+            elif sess.get("status") == "in_progress":
+                status = "in_progress"
+            else:
+                status = window  # upcoming / open / closed
+
+            out.append({
+                "teacher_id":       tid,
+                "exam_id":          exam_id,
+                "teacher_name":     teacher.get("full_name", ""),
+                "roll_number":      e["roll_number"],
+                "exam_title":       cfg.get("exam_title", "Exam"),
+                "duration_minutes": cfg.get("duration_minutes", 60),
+                "starts_at":        cfg.get("starts_at"),
+                "ends_at":          cfg.get("ends_at"),
+                "access_code_required": bool(_get_access_code(tid, exam_id=exam_id)),
+                "status":           status,
+                "submitted_at":     sess.get("submitted_at"),
+            })
 
     # sort: active first, then upcoming by start time, then completed
     def _sort_key(r):
@@ -770,6 +783,7 @@ class RegisterIn(BaseModel):
 class ValidateIn(BaseModel):
     roll_number: str
     access_code: Optional[str] = None
+    exam_id: Optional[str] = None
 
 class ResultIn(BaseModel):
     session_id:      str
@@ -818,8 +832,8 @@ _NON_VIOLATION_TYPES = {
 def _is_violation(vtype: str) -> bool:
     return vtype not in _NON_VIOLATION_TYPES
 
-def _load_questions(teacher_id: str = None) -> list[dict]:
-    """Load questions from Supabase, optionally scoped to a teacher.
+def _load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
+    """Load questions from Supabase, scoped to teacher and optionally exam.
 
     Uses ``select('*')`` so newly-added columns (``question_type``,
     ``image_url``) are surfaced automatically without a migration step.
@@ -831,6 +845,8 @@ def _load_questions(teacher_id: str = None) -> list[dict]:
         query = supabase.table("questions").select("*")
         if teacher_id:
             query = query.eq("teacher_id", teacher_id)
+        if exam_id:
+            query = query.eq("exam_id", exam_id)
         result = query.order("question_id").execute()
         rows = result.data or []
     except Exception as e:
@@ -856,16 +872,18 @@ def _load_questions(teacher_id: str = None) -> list[dict]:
         })
     return out
 
-def _load_exam_config(teacher_id: str = None) -> dict:
-    """Load exam config from Supabase, scoped to teacher if provided.
+def _load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
+    """Load exam config from Supabase, scoped to teacher and optionally exam.
 
     Uses select('*') so newly-added columns (e.g. shuffle_questions /
     shuffle_options) are picked up automatically without code changes.
     """
     query = supabase.table("exam_config").select("*")
+    if exam_id:
+        query = query.eq("exam_id", exam_id)
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
-    else:
+    elif not exam_id:
         query = query.eq("id", 1)  # legacy singleton fallback
     result = query.execute()
     if result.data:
@@ -874,10 +892,10 @@ def _load_exam_config(teacher_id: str = None) -> dict:
             "starts_at": None, "ends_at": None,
             "shuffle_questions": True, "shuffle_options": True}
 
-def _get_access_code(teacher_id: str = None) -> str:
+def _get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
     """Load the current exam access code from Supabase."""
     try:
-        config = _load_exam_config(teacher_id)
+        config = _load_exam_config(teacher_id, exam_id=exam_id)
         code = config.get("access_code", "")
         if code:
             return str(code).strip().upper()
@@ -885,9 +903,13 @@ def _get_access_code(teacher_id: str = None) -> str:
         pass
     return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
 
-def _set_access_code(code: str, teacher_id: str = None):
+def _set_access_code(code: str, teacher_id: str = None, exam_id: str = None):
     """Persist access code to Supabase exam_config table."""
-    if teacher_id:
+    if teacher_id and exam_id:
+        supabase.table("exam_config").update({
+            "access_code": code,
+        }).eq("teacher_id", teacher_id).eq("exam_id", exam_id).execute()
+    elif teacher_id:
         supabase.table("exam_config").upsert({
             "teacher_id": teacher_id,
             "access_code": code,
@@ -916,7 +938,7 @@ def _answers_match(student_ans: str, correct_ans: str) -> bool:
     return _normalise_answer_set(student_ans) == _normalise_answer_set(correct_ans)
 
 
-def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None) -> tuple[int, int]:
+def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None, exam_id: str = None) -> tuple[int, int]:
     """Calculate score server-side from Supabase questions + saved answers.
 
     Answers saved via /api/save-answer* are already translated to the
@@ -926,7 +948,7 @@ def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str =
     as comma-separated canonical keys (e.g. "A,C") and matched by set.
     """
     try:
-        questions = _load_questions(teacher_id)
+        questions = _load_questions(teacher_id, exam_id=exam_id)
         total = len(questions)
         # DB answers are already canonical
         saved = supabase.table("answers").select("question_id,answer")\
@@ -1331,6 +1353,8 @@ def get_public_schedule(t: str = None):
 @app.post("/api/validate-student")
 @limiter.limit("10/minute")
 def validate_student(request: Request, body: ValidateIn):
+    exam_id = body.exam_id  # optional — set when multi-exam
+
     # Look up student first to get their teacher_id for config loading
     pre_check = supabase.table("students")\
         .select("teacher_id")\
@@ -1339,7 +1363,7 @@ def validate_student(request: Request, body: ValidateIn):
     pre_tid = pre_check.data[0].get("teacher_id") if pre_check.data else None
 
     # Check exam time window using the student's teacher config
-    config = _load_exam_config(pre_tid)
+    config = _load_exam_config(pre_tid, exam_id=exam_id)
     now_utc = datetime.now(timezone.utc)
     if config.get("starts_at"):
         starts = datetime.fromisoformat(str(config["starts_at"]).replace("Z", "+00:00"))
@@ -1369,7 +1393,7 @@ def validate_student(request: Request, body: ValidateIn):
     student_tid = student.get("teacher_id")
 
     # Check exam access code if configured (loaded from Supabase, persists across restarts)
-    current_code = _get_access_code(student_tid)
+    current_code = _get_access_code(student_tid, exam_id=exam_id)
     if current_code:
         if not body.access_code or body.access_code.strip().upper() != current_code:
             raise HTTPException(
@@ -1380,6 +1404,8 @@ def validate_student(request: Request, body: ValidateIn):
         .eq("status", "completed")
     if student_tid:
         completed_query = completed_query.eq("teacher_id", str(student_tid))
+    if exam_id:
+        completed_query = completed_query.eq("exam_id", exam_id)
     completed = completed_query.execute()
     if completed.data:
         raise HTTPException(
@@ -1391,7 +1417,7 @@ def validate_student(request: Request, body: ValidateIn):
         "email":       student.get("email", ""),
         "phone":       student.get("phone", ""),
         "roll_number": student["roll_number"],
-        "token":       create_token(student["roll_number"], student_tid),
+        "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id),
     }
 
 # ─── PUBLIC: INSTALLER DOWNLOADS ─────────────────────────────────
@@ -1497,7 +1523,8 @@ def _get_shuffle_flags(config: dict) -> tuple[bool, bool]:
 
 
 def _translate_student_answer(session_id: str, teacher_id: str,
-                              question_id: str, student_label: str) -> str:
+                              question_id: str, student_label: str,
+                              exam_id: str = None) -> str:
     """Map a student-facing answer label back to the original option key.
 
     Re-derives the deterministic shuffle from (session_id, teacher_id) and
@@ -1510,11 +1537,11 @@ def _translate_student_answer(session_id: str, teacher_id: str,
     try:
         if not student_label:
             return student_label
-        config = _load_exam_config(teacher_id)
+        config = _load_exam_config(teacher_id, exam_id=exam_id)
         shuffle_q, shuffle_o = _get_shuffle_flags(config)
         if not shuffle_o:
             return student_label
-        questions = _load_questions(teacher_id)
+        questions = _load_questions(teacher_id, exam_id=exam_id)
         if not questions:
             return student_label
         _, label_maps = _build_shuffle_view(
@@ -1534,10 +1561,11 @@ def _translate_student_answer(session_id: str, teacher_id: str,
 def get_questions(request: Request):
     claims = require_auth(request)
     tid = claims.get("tid")
-    questions = _load_questions(tid)
+    eid = claims.get("eid")
+    questions = _load_questions(tid, exam_id=eid)
     if not questions:
         raise HTTPException(status_code=404, detail="Questions not found")
-    config = _load_exam_config(tid)
+    config = _load_exam_config(tid, exam_id=eid)
 
     # Deterministic per-session shuffle — same session always gets the same
     # view, but two different students see different question/option orders.
@@ -1562,11 +1590,14 @@ def check_session(roll_number: str, request: Request):
     if claims.get("roll") != roll_number:
         raise HTTPException(status_code=403, detail="Access denied")
     tid = claims.get("tid")
+    eid = claims.get("eid")
     sess_query = supabase.table("exam_sessions").select("*")\
         .eq("roll_number", roll_number)\
         .eq("status", "in_progress")
     if tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
+    if eid:
+        sess_query = sess_query.eq("exam_id", eid)
     result = sess_query.order("started_at", desc=True).limit(1).execute()
     if not result.data:
         return {"exists": False}
@@ -1581,12 +1612,12 @@ def check_session(roll_number: str, request: Request):
     # resumed student sees the correct option highlighted in their own
     # (shuffled) view.
     session_key = session["session_key"]
-    config = _load_exam_config(str(tid or ""))
+    config = _load_exam_config(str(tid or ""), exam_id=eid)
     shuffle_q, shuffle_o = _get_shuffle_flags(config)
     reverse: dict[str, dict[str, str]] = {}
     if shuffle_o:
         try:
-            questions = _load_questions(str(tid or ""))
+            questions = _load_questions(str(tid or ""), exam_id=eid)
             _, label_maps = _build_shuffle_view(
                 questions, session_key, str(tid or ""),
                 shuffle_q=shuffle_q, shuffle_o=shuffle_o)
@@ -1624,6 +1655,7 @@ def log_event(event: EventIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, event.session_id)
     tid = claims.get("tid")
+    eid = claims.get("eid")
     get_logger(event.session_id).info(
         f"[{event.severity.upper()}] {event.event_type} | {event.details}")
 
@@ -1637,6 +1669,8 @@ def log_event(event: EventIn, request: Request):
         }
         if tid:
             row["teacher_id"] = tid
+        if eid:
+            row["exam_id"] = eid
         supabase.table("exam_sessions").upsert(row).execute()
 
     # Alert on submission failure
@@ -1660,6 +1694,7 @@ def heartbeat(event: EventIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, event.session_id)
     tid = claims.get("tid")
+    eid = claims.get("eid")
     row = {
         "session_key":    event.session_id,
         "roll_number":    event.session_id.rsplit("_", 1)[0],
@@ -1668,11 +1703,14 @@ def heartbeat(event: EventIn, request: Request):
     }
     if tid:
         row["teacher_id"] = tid
+    if eid:
+        row["exam_id"] = eid
     supabase.table("exam_sessions").upsert(row).execute()
     return {"ok": True}
 
 def _canonicalise_student_answer(session_id: str, teacher_id: str,
-                                  question_id: str, raw: str) -> str:
+                                  question_id: str, raw: str,
+                                  exam_id: str = None) -> str:
     """Translate a (possibly multi-select) student answer into canonical form.
 
     Multi-select answers arrive as comma-separated student-facing labels
@@ -1685,7 +1723,7 @@ def _canonicalise_student_answer(session_id: str, teacher_id: str,
         return ""
     translated = [
         _translate_student_answer(session_id, str(teacher_id or ""),
-                                  str(question_id), p)
+                                  str(question_id), p, exam_id=exam_id)
         for p in parts
     ]
     return ",".join(sorted(translated))
@@ -1696,8 +1734,10 @@ def save_answer(body: AnswerIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, body.session_id)
     tid = claims.get("tid")
+    eid = claims.get("eid")
     canonical = _canonicalise_student_answer(
-        body.session_id, str(tid or ""), str(body.question_id), str(body.answer))
+        body.session_id, str(tid or ""), str(body.question_id), str(body.answer),
+        exam_id=eid)
     row = {
         "session_key":  body.session_id,
         "question_id":  body.question_id,
@@ -1705,6 +1745,8 @@ def save_answer(body: AnswerIn, request: Request):
     }
     if tid:
         row["teacher_id"] = tid
+    if eid:
+        row["exam_id"] = eid
     supabase.table("answers").upsert(row).execute()
     return {"status": "saved"}
 
@@ -1716,15 +1758,19 @@ def save_answers_bulk(body: BulkAnswerIn, request: Request):
     if not body.answers:
         return {"status": "empty", "saved": 0}
     tid = claims.get("tid")
+    eid = claims.get("eid")
     records = []
     for qid, ans in body.answers.items():
         canonical = _canonicalise_student_answer(
-            body.session_id, str(tid or ""), str(qid), str(ans))
+            body.session_id, str(tid or ""), str(qid), str(ans),
+            exam_id=eid)
         rec = {"session_key": body.session_id,
                "question_id": str(qid),
                "answer":      canonical}
         if tid:
             rec["teacher_id"] = tid
+        if eid:
+            rec["exam_id"] = eid
         records.append(rec)
     supabase.table("answers").upsert(records).execute()
     return {"status": "saved", "saved": len(records)}
@@ -1735,10 +1781,11 @@ def submit_exam(result: ResultIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, result.session_id)
     tid = claims.get("tid")
+    eid = claims.get("eid")
     now = now_ist()
 
     # Server-side scoring — never trust client score
-    server_score, server_total = _recalculate_score(result.session_id, result.answers, teacher_id=tid)
+    server_score, server_total = _recalculate_score(result.session_id, result.answers, teacher_id=tid, exam_id=eid)
     if server_score == 0 and server_total == 0:
         print(f"[WARN] Score recalculation returned 0/0 for {result.session_id} — check Supabase questions table")
 
@@ -1758,11 +1805,13 @@ def submit_exam(result: ResultIn, request: Request):
     }
     if tid:
         session_row["teacher_id"] = tid
+    if eid:
+        session_row["exam_id"] = eid
     supabase.table("exam_sessions").upsert(session_row).execute()
 
     # Check time exceeded
     try:
-        config = _load_exam_config(teacher_id=tid)
+        config = _load_exam_config(teacher_id=tid, exam_id=eid)
         allowed_secs = config.get("duration_minutes", 60) * 60
         if result.time_taken_secs > allowed_secs + 120:  # 2 min grace
             viol = {
@@ -1914,17 +1963,23 @@ def id_verification_status(request: Request, session_id: str = ""):
 
 
 @app.get("/api/admin/pending-verifications")
-def pending_verifications(request: Request):
+def pending_verifications(request: Request, exam_id: str = None):
     """Return all pending ID verifications for this teacher."""
     teacher = require_admin(request)
     tid = teacher["id"]
     import json as _json
-    result = supabase.table("violations")\
+    query = supabase.table("violations")\
         .select("*")\
         .eq("teacher_id", str(tid))\
         .eq("violation_type", "id_verification")\
-        .order("created_at", desc=True)\
-        .execute()
+        .order("created_at", desc=True)
+    # When exam_id is set, only show verifications for sessions in that exam
+    exam_session_keys = None
+    if exam_id:
+        es = supabase.table("exam_sessions").select("session_key")\
+            .eq("teacher_id", str(tid)).eq("exam_id", exam_id).execute()
+        exam_session_keys = {r["session_key"] for r in (es.data or [])}
+    result = query.execute()
     pending = []
     for row in (result.data or []):
         try:
@@ -1932,6 +1987,9 @@ def pending_verifications(request: Request):
         except Exception:
             continue
         if obj.get("status") != "pending":
+            continue
+        # Filter by exam if requested
+        if exam_session_keys is not None and row.get("session_key") not in exam_session_keys:
             continue
         roll = obj.get("roll_number", "")
         pending.append({
@@ -2252,7 +2310,7 @@ def get_screenshot(roll: str, filename: str, request: Request):
 
 
 @app.get("/sessions")
-def get_all_sessions(request: Request):
+def get_all_sessions(request: Request, exam_id: str = None):
     teacher = require_admin(request)
     tid = teacher["id"]
     try:
@@ -2271,9 +2329,11 @@ def get_all_sessions(request: Request):
         # Without this, the list shows just the most recent event's severity
         # which often disagrees with the aggregated risk score.
         sess_query = supabase.table("exam_sessions").select(
-            "session_key,status,risk_score")
+            "session_key,status,risk_score,exam_id")
         if tid:
             sess_query = sess_query.eq("teacher_id", str(tid))
+        if exam_id:
+            sess_query = sess_query.eq("exam_id", exam_id)
         sess_result = sess_query.execute()
         sess_meta = {
             r["session_key"]: r for r in (sess_result.data or [])
@@ -2285,6 +2345,9 @@ def get_all_sessions(request: Request):
         sessions: dict = {}
         for e in events:
             sk = e["session_key"]
+            # When filtering by exam, skip events for other exams' sessions
+            if exam_id and sk not in sess_meta:
+                continue
             if sk not in sessions:
                 meta = sess_meta.get(sk, {})
                 # For live (in_progress) sessions risk_score is null in the
@@ -2338,13 +2401,15 @@ def _violation_counts_by_session(session_keys: list[str]) -> dict[str, int]:
     return counts
 
 
-def _fetch_all_results(teacher_id: str = None) -> list[dict]:
-    """Shared: fetch all exam sessions with violation counts, scoped to teacher."""
+def _fetch_all_results(teacher_id: str = None, exam_id: str = None) -> list[dict]:
+    """Shared: fetch all exam sessions with violation counts, scoped to teacher and optionally exam."""
     query = supabase.table("exam_sessions")\
         .select("*")\
         .eq("status", "completed")
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
+    if exam_id:
+        query = query.eq("exam_id", exam_id)
     sess_result = query.order("submitted_at", desc=True).execute()
     sessions = sess_result.data or []
     vcounts = _violation_counts_by_session([s["session_key"] for s in sessions])
@@ -2368,14 +2433,14 @@ def _fetch_all_results(teacher_id: str = None) -> list[dict]:
 
 
 @app.get("/api/results")
-def get_all_results(request: Request):
+def get_all_results(request: Request, exam_id: str = None):
     teacher = require_admin(request)
-    return {"results": _fetch_all_results(teacher["id"])}
+    return {"results": _fetch_all_results(teacher["id"], exam_id=exam_id)}
 
 @app.get("/api/export-csv")
-def export_csv(request: Request):
+def export_csv(request: Request, exam_id: str = None):
     teacher = require_admin(request)
-    results = _fetch_all_results(teacher["id"])
+    results = _fetch_all_results(teacher["id"], exam_id=exam_id)
     buf = io.StringIO()
     w   = csv.writer(buf)
     w.writerow(["Timestamp","SessionID","RollNumber","FullName","Email",
@@ -2700,7 +2765,7 @@ def export_pdf(session_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"PDF error: {e}")
 
 @app.get("/api/admin-failed-sessions")
-def failed_sessions(request: Request):
+def failed_sessions(request: Request, exam_id: str = None):
     """Returns sessions with submit_failed events that never completed."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
@@ -2710,12 +2775,20 @@ def failed_sessions(request: Request):
         .execute()
     failed_keys = {r["session_key"] for r in (failed.data or [])}
     # Only scan sessions that could match (status != completed) — avoids full table scan
-    submitted = supabase.table("exam_sessions").select("session_key")\
+    sub_query = supabase.table("exam_sessions").select("session_key")\
         .eq("status", "completed")\
         .eq("teacher_id", tid)\
-        .in_("session_key", list(failed_keys) or ["__none__"])\
-        .execute()
+        .in_("session_key", list(failed_keys) or ["__none__"])
+    if exam_id:
+        sub_query = sub_query.eq("exam_id", exam_id)
+    submitted = sub_query.execute()
     submitted_keys = {r["session_key"] for r in (submitted.data or [])}
+    # If filtering by exam, also restrict failed_keys to that exam's sessions
+    if exam_id:
+        es = supabase.table("exam_sessions").select("session_key")\
+            .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+        exam_skeys = {r["session_key"] for r in (es.data or [])}
+        failed_keys = failed_keys & exam_skeys
     unrecovered = [k for k in failed_keys if k not in submitted_keys]
     return {"failed_sessions": unrecovered, "count": len(unrecovered)}
 
@@ -3163,14 +3236,16 @@ def clear_live_sessions(request: Request, body: dict):
 
 
 @app.post("/api/admin/backfill-risk-scores")
-def backfill_risk_scores(request: Request):
+def backfill_risk_scores(request: Request, exam_id: str = None):
     """Recompute and cache risk scores for all completed sessions."""
     teacher = require_admin(request)
     tid = teacher["id"]
-    sessions = supabase.table("exam_sessions").select("session_key")\
+    query = supabase.table("exam_sessions").select("session_key")\
         .eq("status", "completed")\
-        .eq("teacher_id", str(tid))\
-        .execute()
+        .eq("teacher_id", str(tid))
+    if exam_id:
+        query = query.eq("exam_id", exam_id)
+    sessions = query.execute()
     count = 0
     for s in (sessions.data or []):
         risk = compute_risk_score(s["session_key"], teacher_id=tid)
@@ -3182,14 +3257,92 @@ def backfill_risk_scores(request: Request):
         count += 1
     return {"backfilled": count}
 
+# ─── EXAM CRUD (multi-exam) ──────────────────────────────────────
+@app.get("/api/admin/exams")
+def list_exams(request: Request):
+    """List all exams for the calling teacher."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    result = supabase.table("exam_config").select("*").eq("teacher_id", tid).execute()
+    exams = result.data or []
+    # Enrich with question + session counts
+    out = []
+    for ex in exams:
+        eid = ex.get("exam_id")
+        qcount = 0
+        scount = 0
+        try:
+            qr = supabase.table("questions").select("question_id", count="exact")\
+                .eq("teacher_id", tid).eq("exam_id", eid).execute()
+            qcount = qr.count if qr.count is not None else len(qr.data or [])
+        except Exception:
+            pass
+        try:
+            sr = supabase.table("exam_sessions").select("session_key", count="exact")\
+                .eq("teacher_id", tid).eq("exam_id", eid).execute()
+            scount = sr.count if sr.count is not None else len(sr.data or [])
+        except Exception:
+            pass
+        out.append({
+            "exam_id":          eid,
+            "exam_title":       ex.get("exam_title", "Exam"),
+            "duration_minutes": ex.get("duration_minutes", 60),
+            "starts_at":        ex.get("starts_at"),
+            "ends_at":          ex.get("ends_at"),
+            "access_code":      ex.get("access_code", ""),
+            "question_count":   qcount,
+            "session_count":    scount,
+            "created_at":       ex.get("created_at", ""),
+        })
+    return {"exams": out}
+
+@app.post("/api/admin/exams")
+def create_exam(request: Request, body: dict):
+    """Create a new exam for the calling teacher."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    title = str(body.get("exam_title", "New Exam")).strip() or "New Exam"
+    duration = int(body.get("duration_minutes", 60))
+    result = supabase.table("exam_config").insert({
+        "teacher_id":       tid,
+        "exam_title":       title,
+        "duration_minutes": duration,
+    }).execute()
+    row = result.data[0] if result.data else {}
+    return {"exam_id": row.get("exam_id"), "exam_title": title, "duration_minutes": duration}
+
+@app.delete("/api/admin/exams/{exam_id}")
+def delete_exam(exam_id: str, request: Request):
+    """Delete an exam and its questions. Keeps session history."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    # Verify ownership
+    check = supabase.table("exam_config").select("exam_id")\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    if not check.data:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    # Don't allow deleting last exam
+    all_exams = supabase.table("exam_config").select("exam_id")\
+        .eq("teacher_id", tid).execute()
+    if len(all_exams.data or []) <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete your only exam")
+    # Delete questions for this exam
+    supabase.table("questions").delete()\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    # Delete exam config
+    supabase.table("exam_config").delete()\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    return {"status": "deleted", "exam_id": exam_id}
+
 @app.get("/api/admin/questions")
 def get_admin_questions(request: Request):
     """Return all questions including correct answers (admin only)."""
     teacher = require_admin(request)
     tid = teacher["id"]
+    exam_id = request.query_params.get("exam_id")
     try:
-        config = _load_exam_config(str(tid) if tid else None)
-        questions = _load_questions(str(tid) if tid else None)
+        config = _load_exam_config(str(tid) if tid else None, exam_id=exam_id)
+        questions = _load_questions(str(tid) if tid else None, exam_id=exam_id)
         return {
             "exam_title": config.get("exam_title", "Exam"),
             "duration_minutes": config.get("duration_minutes", 60),
@@ -3325,7 +3478,13 @@ def update_questions(request: Request, body: dict):
         })
 
     # Update exam config
-    if tid:
+    exam_id = body.get("exam_id")
+    if tid and exam_id:
+        supabase.table("exam_config").update({
+            "exam_title": body.get("exam_title", "Exam"),
+            "duration_minutes": body.get("duration_minutes", 60),
+        }).eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    elif tid:
         supabase.table("exam_config").upsert({
             "teacher_id": tid,
             "exam_title": body.get("exam_title", "Exam"),
@@ -3338,20 +3497,27 @@ def update_questions(request: Request, body: dict):
             "duration_minutes": body.get("duration_minutes", 60),
         }).execute()
 
-    # Replace teacher's questions: backup, delete, insert — rollback on failure
+    # Replace questions for this exam: backup, delete, insert — rollback on failure
     q_query = supabase.table("questions").select("*")
     if tid:
         q_query = q_query.eq("teacher_id", tid)
+    if exam_id:
+        q_query = q_query.eq("exam_id", exam_id)
     backup = q_query.execute()
     backup_rows = backup.data or []
     try:
-        del_query = supabase.table("questions")
+        del_q = supabase.table("questions").delete()
         if tid:
-            del_query.delete().eq("teacher_id", tid).execute()
-        else:
-            del_query.delete().neq("question_id", -1).execute()
-        records = [{**r, **({"teacher_id": tid} if tid else {})}
-                   for r in normalised]
+            del_q = del_q.eq("teacher_id", tid)
+        if exam_id:
+            del_q = del_q.eq("exam_id", exam_id)
+        del_q.execute() if tid or exam_id else del_q.neq("question_id", -1).execute()
+        extra = {}
+        if tid:
+            extra["teacher_id"] = tid
+        if exam_id:
+            extra["exam_id"] = exam_id
+        records = [{**r, **extra} for r in normalised]
         try:
             supabase.table("questions").insert(records).execute()
         except Exception as e:
@@ -3382,15 +3548,17 @@ def update_questions(request: Request, body: dict):
 def get_access_code(request: Request):
     """Return the current exam access code (persisted in Supabase)."""
     teacher = require_admin(request)
-    code = _get_access_code(teacher["id"])
+    exam_id = request.query_params.get("exam_id")
+    code = _get_access_code(teacher["id"], exam_id=exam_id)
     return {"access_code": code, "enabled": bool(code)}
 
 @app.post("/api/admin/access-code")
 def set_access_code(request: Request, body: dict):
     """Set or clear the exam access code (persisted in Supabase)."""
     teacher = require_admin(request)
+    exam_id = body.get("exam_id")
     new_code = str(body.get("access_code", "")).strip().upper()
-    _set_access_code(new_code, teacher["id"])
+    _set_access_code(new_code, teacher["id"], exam_id=exam_id)
     return {"access_code": new_code, "enabled": bool(new_code)}
 
 @app.get("/api/admin/registered-count")
@@ -3408,7 +3576,8 @@ def registered_count(request: Request):
 def admin_get_schedule(request: Request):
     """Return current exam schedule for the admin dashboard."""
     teacher = require_admin(request)
-    config = _load_exam_config(teacher["id"])
+    exam_id = request.query_params.get("exam_id")
+    config = _load_exam_config(teacher["id"], exam_id=exam_id)
     return {
         "exam_title": config.get("exam_title", "Exam"),
         "starts_at":  config.get("starts_at"),
@@ -3420,15 +3589,23 @@ def admin_set_schedule(request: Request, body: dict):
     """Set or clear exam start/end times (persisted in Supabase)."""
     teacher = require_admin(request)
     tid = teacher["id"]
-    if tid:
-        update = {"teacher_id": tid}
+    exam_id = body.get("exam_id")
+    if tid and exam_id:
+        update = {}
+        if "starts_at" in body:
+            update["starts_at"] = body["starts_at"]
+        if "ends_at" in body:
+            update["ends_at"] = body["ends_at"]
+        if update:
+            supabase.table("exam_config").update(update)\
+                .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     else:
-        update = {"id": 1}
-    if "starts_at" in body:
-        update["starts_at"] = body["starts_at"]
-    if "ends_at" in body:
-        update["ends_at"] = body["ends_at"]
-    supabase.table("exam_config").upsert(update).execute()
+        update = {"teacher_id": tid} if tid else {"id": 1}
+        if "starts_at" in body:
+            update["starts_at"] = body["starts_at"]
+        if "ends_at" in body:
+            update["ends_at"] = body["ends_at"]
+        supabase.table("exam_config").upsert(update).execute()
     return {
         "status":    "updated",
         "starts_at": body.get("starts_at"),
@@ -3440,7 +3617,8 @@ def admin_set_schedule(request: Request, body: dict):
 def admin_get_shuffle(request: Request):
     """Return current per-student shuffle toggles."""
     teacher = require_admin(request)
-    config = _load_exam_config(teacher["id"])
+    exam_id = request.query_params.get("exam_id")
+    config = _load_exam_config(teacher["id"], exam_id=exam_id)
     sq, so = _get_shuffle_flags(config)
     return {"shuffle_questions": sq, "shuffle_options": so}
 
@@ -3450,18 +3628,24 @@ def admin_set_shuffle(request: Request, body: dict):
     """Toggle per-student question / option shuffling."""
     teacher = require_admin(request)
     tid = teacher["id"]
-    update: dict = {"teacher_id": tid} if tid else {"id": 1}
+    exam_id = body.get("exam_id")
+    fields: dict = {}
     if "shuffle_questions" in body:
-        update["shuffle_questions"] = bool(body["shuffle_questions"])
+        fields["shuffle_questions"] = bool(body["shuffle_questions"])
     if "shuffle_options" in body:
-        update["shuffle_options"] = bool(body["shuffle_options"])
-    if len(update) == 1:
+        fields["shuffle_options"] = bool(body["shuffle_options"])
+    if not fields:
         raise HTTPException(status_code=400, detail="No shuffle fields provided")
-    supabase.table("exam_config").upsert(update).execute()
+    if tid and exam_id:
+        supabase.table("exam_config").update(fields)\
+            .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    else:
+        update = {**({"teacher_id": tid} if tid else {"id": 1}), **fields}
+        supabase.table("exam_config").upsert(update).execute()
     return {
         "status": "updated",
-        "shuffle_questions": update.get("shuffle_questions"),
-        "shuffle_options":   update.get("shuffle_options"),
+        "shuffle_questions": fields.get("shuffle_questions"),
+        "shuffle_options":   fields.get("shuffle_options"),
     }
 
 @app.post("/api/admin-submit/{session_id}")
@@ -3521,7 +3705,8 @@ def admin_submit(session_id: str, request: Request):
             except Exception:
                 pass
 
-    score, total = _recalculate_score(session_id, answers_map, tid)
+    existing_eid = existing_session.get("exam_id")
+    score, total = _recalculate_score(session_id, answers_map, tid, exam_id=existing_eid)
 
     pct        = round((score / max(total, 1)) * 100, 1)
     now        = now_ist()
@@ -3531,7 +3716,7 @@ def admin_submit(session_id: str, request: Request):
 
     risk = compute_risk_score(session_id, teacher_id=tid)
 
-    supabase.table("exam_sessions").upsert({
+    sess_row = {
         "session_key":     session_id,
         "teacher_id":      str(tid),
         "roll_number":     roll_number,
@@ -3544,14 +3729,20 @@ def admin_submit(session_id: str, request: Request):
         "status":          "completed",
         "submitted_at":    now.isoformat(),
         "risk_score":      risk["risk_score"],
-    }).execute()
+    }
+    if existing_eid:
+        sess_row["exam_id"] = existing_eid
+    supabase.table("exam_sessions").upsert(sess_row).execute()
 
     if answers_map:
-        supabase.table("answers").upsert([
-            {"session_key": session_id, "teacher_id": str(tid),
-             "question_id": qid, "answer": ans}
-            for qid, ans in answers_map.items()
-        ]).execute()
+        ans_rows = []
+        for qid, ans in answers_map.items():
+            row = {"session_key": session_id, "teacher_id": str(tid),
+                   "question_id": qid, "answer": ans}
+            if existing_eid:
+                row["exam_id"] = existing_eid
+            ans_rows.append(row)
+        supabase.table("answers").upsert(ans_rows).execute()
 
     supabase.table("violations").insert({
         "session_key":    session_id,

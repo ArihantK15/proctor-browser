@@ -838,6 +838,7 @@ async function launchExam(exam, accessCode) {
       accessCode: accessCode || '',
       examTitle:  exam.exam_title || 'Exam',
       teacherId:  exam.teacher_id,
+      examId:     exam.exam_id || null,
     });
     // Main process hides the lobby on success; this JS will stop running.
   } catch (e) {

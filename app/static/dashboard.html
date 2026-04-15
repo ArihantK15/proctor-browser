@@ -27,6 +27,33 @@
   .auth-card button:hover{background:var(--accent-light)}
   .auth-err{color:var(--red);font-size:12px;min-height:18px;margin-top:8px}
 
+  /* ── Exam Selector Bar ────────────────────────────────────────── */
+  .exam-bar{background:var(--card);border-bottom:1px solid var(--border);
+    padding:10px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .exam-bar select{background:rgba(255,255,255,0.05);border:1px solid var(--border);
+    border-radius:8px;padding:7px 12px;color:var(--text);font-size:13px;
+    font-family:'Inter',system-ui,sans-serif;min-width:200px;cursor:pointer}
+  .exam-bar select:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .exam-bar .exam-label{font-size:12px;font-weight:600;color:var(--muted);
+    text-transform:uppercase;letter-spacing:0.04em}
+  .exam-bar .exam-count{font-size:11px;color:var(--muted)}
+
+  /* ── Create Exam Modal ───────────────────────────────────────── */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9998;
+    display:flex;align-items:center;justify-content:center}
+  .modal-overlay.hidden{display:none}
+  .modal-card{background:var(--card);border:1px solid var(--border);
+    border-radius:12px;padding:32px;width:400px;max-width:90vw}
+  .modal-card h3{color:var(--accent-light);margin:0 0 16px;
+    font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif}
+  .modal-card label{display:block;font-size:12px;font-weight:600;
+    color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em}
+  .modal-card input{width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);
+    border-radius:8px;padding:10px 14px;color:var(--text);font-size:14px;
+    margin-bottom:14px;font-family:'Inter',system-ui,sans-serif;box-sizing:border-box}
+  .modal-card input:focus{outline:none;border-color:rgba(59,130,246,0.4)}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+
   /* ── Layout ───────────────────────────────────────────────────── */
   .topbar{background:var(--card);border-bottom:1px solid var(--border);
     padding:14px 24px;display:flex;align-items:center;justify-content:space-between;
@@ -585,6 +612,31 @@
   <div class="tab" data-tab="tools" onclick="switchTab('tools')">Tools</div>
 </div>
 
+<!-- EXAM SELECTOR -->
+<div class="exam-bar" id="exam-bar" style="display:none">
+  <span class="exam-label">Exam</span>
+  <select id="exam-select" onchange="onExamSwitch(this.value)"></select>
+  <button class="action-btn primary" onclick="showCreateExamModal()" style="height:32px;font-size:12px">+ New Exam</button>
+  <button class="action-btn" onclick="confirmDeleteExam()" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
+  <span class="exam-count" id="exam-count"></span>
+</div>
+
+<!-- CREATE EXAM MODAL -->
+<div class="modal-overlay hidden" id="create-exam-modal" onclick="if(event.target===this)hideCreateExamModal()">
+  <div class="modal-card">
+    <h3>Create New Exam</h3>
+    <label>Exam Title</label>
+    <input type="text" id="new-exam-title" placeholder="e.g. Midterm Mathematics" maxlength="200">
+    <label>Duration (minutes)</label>
+    <input type="number" id="new-exam-duration" value="60" min="5" max="600">
+    <div id="create-exam-err" style="color:var(--red);font-size:12px;min-height:18px;margin-bottom:8px"></div>
+    <div class="modal-actions">
+      <button class="action-btn" onclick="hideCreateExamModal()">Cancel</button>
+      <button class="action-btn primary" id="create-exam-btn" onclick="createExam()">Create</button>
+    </div>
+  </div>
+</div>
+
 <!-- PANELS -->
 <div class="container">
 
@@ -925,6 +977,9 @@ let resSortKey = 'submitted_at', resSortAsc = false;
 let currentSessionId = null;
 let autoRefreshTimer = null;
 let currentTeacherId = null;
+let currentExamId = null;
+let examsList = [];
+let _refreshGen = 0; // incremented on exam switch to discard stale responses
 
 // ── AUTH ─────────────────────────────────────────────────────────
 function toggleAuthForm(mode){
@@ -1022,7 +1077,7 @@ async function doSignup(){
   }
 }
 
-function _onAuthed(teacher){
+async function _onAuthed(teacher){
   document.getElementById('auth-overlay').classList.add('hidden');
   if(teacher && teacher.full_name){
     document.getElementById('teacher-name').textContent = teacher.full_name;
@@ -1031,11 +1086,111 @@ function _onAuthed(teacher){
     currentTeacherId = teacher.id;
     _populateShareLinks(teacher.id);
   }
+  await loadExams();
   refreshAll();
   // Poll every 5s so live status / risk score / submission state catches
   // up almost immediately when a student finishes their exam.
   autoRefreshTimer = setInterval(()=>{ refreshLive(); refreshIdReviews(); }, 5000);
   chatConnect();
+}
+
+// ── EXAM SELECTOR ──────────────────────────────────────────────
+async function loadExams(){
+  try{
+    const r = await authFetch(`${BASE}/api/admin/exams`);
+    if(!r.ok){
+      document.getElementById('exam-bar').style.display='flex';
+      document.getElementById('exam-count').textContent='Failed to load exams';
+      document.getElementById('exam-count').style.color='var(--red)';
+      return;
+    }
+    document.getElementById('exam-count').style.color='';
+    const d = await r.json();
+    examsList = d.exams || [];
+    const sel = document.getElementById('exam-select');
+    sel.innerHTML = '';
+    examsList.forEach(ex=>{
+      const opt = document.createElement('option');
+      opt.value = ex.exam_id;
+      opt.textContent = `${ex.exam_title || 'Untitled'} (${ex.question_count}Q, ${ex.session_count} sessions)`;
+      sel.appendChild(opt);
+    });
+    // Restore previous selection or default to first
+    if(currentExamId && examsList.find(e=>e.exam_id===currentExamId)){
+      sel.value = currentExamId;
+    } else if(examsList.length){
+      currentExamId = examsList[0].exam_id;
+      sel.value = currentExamId;
+    }
+    document.getElementById('exam-bar').style.display = 'flex';
+    document.getElementById('exam-count').textContent = `${examsList.length} exam${examsList.length!==1?'s':''}`;
+    // Show delete button only if >1 exam
+    document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
+  }catch(e){ console.error('loadExams', e); }
+}
+
+function onExamSwitch(examId){
+  currentExamId = examId;
+  document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
+  // Reset data and reload everything for the new exam
+  liveData = []; resultsData = []; qData = [];
+  refreshAll();
+}
+
+function _examQuery(sep){
+  // Returns query string fragment like "?exam_id=xxx" or "&exam_id=xxx"
+  return currentExamId ? `${sep}exam_id=${encodeURIComponent(currentExamId)}` : '';
+}
+
+function showCreateExamModal(){
+  document.getElementById('create-exam-modal').classList.remove('hidden');
+  document.getElementById('new-exam-title').value = '';
+  document.getElementById('new-exam-duration').value = '60';
+  document.getElementById('create-exam-err').textContent = '';
+  document.getElementById('new-exam-title').focus();
+}
+
+function hideCreateExamModal(){
+  document.getElementById('create-exam-modal').classList.add('hidden');
+}
+
+async function createExam(){
+  const title = document.getElementById('new-exam-title').value.trim();
+  const dur = parseInt(document.getElementById('new-exam-duration').value) || 60;
+  if(!title){ document.getElementById('create-exam-err').textContent='Title is required'; return; }
+  const btn = document.getElementById('create-exam-btn');
+  btn.disabled = true; btn.textContent = 'Creating...';
+  try{
+    const r = await authFetch(`${BASE}/api/admin/exams`,{
+      method:'POST', body:JSON.stringify({exam_title:title, duration_minutes:dur})
+    });
+    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    const d = await r.json();
+    hideCreateExamModal();
+    currentExamId = d.exam_id;
+    await loadExams();
+    liveData = []; resultsData = []; qData = [];
+    refreshAll();
+  }catch(e){
+    document.getElementById('create-exam-err').textContent = e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = 'Create';
+  }
+}
+
+async function confirmDeleteExam(){
+  if(examsList.length <= 1){ alert('Cannot delete the only exam.'); return; }
+  const ex = examsList.find(e=>e.exam_id===currentExamId);
+  const name = ex ? ex.exam_title : 'this exam';
+  if(!confirm(`Delete "${name}"? This will remove all its questions. Session history is preserved.`)) return;
+  try{
+    const r = await authFetch(`${BASE}/api/admin/exams/${currentExamId}`,{method:'DELETE'});
+    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    currentExamId = null;
+    await loadExams();
+    liveData = []; resultsData = []; qData = [];
+    refreshAll();
+  }catch(e){ alert('Delete failed: '+e.message); }
 }
 
 async function _tryAutoLogin(){
@@ -1073,11 +1228,13 @@ function doLogout(){
     if(typeof liveData    !== 'undefined') liveData    = [];
     if(typeof resultsData !== 'undefined') resultsData = [];
     if(typeof currentSessionId !== 'undefined') currentSessionId = null;
+    currentExamId = null; examsList = [];
     document.querySelectorAll('#live-body, #results-body').forEach(el=>el.innerHTML='');
   }catch(_){}
   chatDisconnect();
   document.getElementById('auth-overlay').classList.remove('hidden');
   document.getElementById('teacher-name').textContent = '';
+  document.getElementById('exam-bar').style.display = 'none';
   toggleAuthForm('login');
 }
 
@@ -1167,8 +1324,10 @@ function switchTab(tab){
 
 // ── REFRESH ─────────────────────────────────────────────────────
 async function refreshAll(){
+  const gen = ++_refreshGen;
   document.getElementById('refresh-spin').style.display='inline-block';
   await Promise.all([refreshLive(), refreshIdReviews(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig()]);
+  if(gen !== _refreshGen) return; // stale — user switched exam during load
   document.getElementById('refresh-spin').style.display='none';
   document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
 }
@@ -1177,7 +1336,7 @@ async function refreshAll(){
 let _prevIdReviewCount = 0;
 async function refreshIdReviews(){
   try{
-    const r = await authFetch(`${BASE}/api/admin/pending-verifications`);
+    const r = await authFetch(`${BASE}/api/admin/pending-verifications${_examQuery('?')}`);
     if(!r.ok) return;
     const d = await r.json();
     const list = d.pending || [];
@@ -1277,7 +1436,7 @@ async function idDecision(violationId, sessionKey, decision, btn){
 // ── LIVE SESSIONS ───────────────────────────────────────────────
 async function refreshLive(){
   try{
-    const r = await authFetch(`${BASE}/sessions`);
+    const r = await authFetch(`${BASE}/sessions${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     liveData = d.all_sessions || [];
@@ -1342,7 +1501,7 @@ function filterLive(){renderLive();}
 // ── RESULTS ─────────────────────────────────────────────────────
 async function refreshResults(){
   try{
-    const r = await authFetch(`${BASE}/api/results`);
+    const r = await authFetch(`${BASE}/api/results${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     resultsData = d.results || [];
@@ -1565,7 +1724,7 @@ function viewRiskDetail(){
 
 // ── EXPORTS ─────────────────────────────────────────────────────
 function exportCSV(){
-  fetchBlob(`${BASE}/api/export-csv`,'results.csv');
+  fetchBlob(`${BASE}/api/export-csv${_examQuery('?')}`,'results.csv');
 }
 async function fetchBlob(url,filename){
   const r = await authFetch(url);
@@ -1591,7 +1750,7 @@ async function doBackfill(){
   btn.disabled=true; btn.textContent='Running...';
   const el=document.getElementById('backfill-result');
   try{
-    const r=await authFetch(`${BASE}/api/admin/backfill-risk-scores`,{method:'POST'});
+    const r=await authFetch(`${BASE}/api/admin/backfill-risk-scores${_examQuery('?')}`,{method:'POST'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     el.style.color='var(--emerald)';
@@ -1756,7 +1915,7 @@ async function clearLiveSessionsStep(){
 async function loadFailed(){
   const el=document.getElementById('failed-result');
   try{
-    const r=await authFetch(`${BASE}/api/admin-failed-sessions`);
+    const r=await authFetch(`${BASE}/api/admin-failed-sessions${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     if(d.count===0){
@@ -1776,7 +1935,7 @@ async function loadFailed(){
 
 async function loadFailedCount(){
   try{
-    const r=await authFetch(`${BASE}/api/admin-failed-sessions`);
+    const r=await authFetch(`${BASE}/api/admin-failed-sessions${_examQuery('?')}`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('tools-failed').textContent=d.count;
@@ -1798,7 +1957,7 @@ async function forceSubmit(sid){
 // ── ACCESS CODE ────────────────────────────────────────────────
 async function loadAccessCode(){
   try{
-    const r=await authFetch(`${BASE}/api/admin/access-code`);
+    const r=await authFetch(`${BASE}/api/admin/access-code${_examQuery('?')}`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('access-code-input').value=d.access_code||'';
@@ -1820,7 +1979,7 @@ async function saveAccessCode(){
   const st=document.getElementById('access-code-status');
   try{
     const r=await authFetch(`${BASE}/api/admin/access-code`,{
-      method:'POST',body:JSON.stringify({access_code:code})
+      method:'POST',body:JSON.stringify({access_code:code, exam_id:currentExamId})
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
@@ -1850,7 +2009,7 @@ async function loadRegisteredCount(){
 // ── EXAM SCHEDULE ───────────────────────────────────────────────
 async function loadSchedule(){
   try{
-    const r=await authFetch(`${BASE}/api/admin/exam-schedule`);
+    const r=await authFetch(`${BASE}/api/admin/exam-schedule${_examQuery('?')}`);
     if(!r.ok) return;
     const d=await r.json();
     if(d.starts_at) document.getElementById('schedule-start').value=utcToLocalInput(d.starts_at);
@@ -1910,7 +2069,7 @@ async function saveSchedule(){
   try{
     const r=await authFetch(`${BASE}/api/admin/exam-schedule`,{
       method:'POST',
-      body:JSON.stringify({starts_at:localInputToUtc(starts),ends_at:localInputToUtc(ends)})
+      body:JSON.stringify({starts_at:localInputToUtc(starts),ends_at:localInputToUtc(ends),exam_id:currentExamId})
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     st.style.color='var(--emerald)';
@@ -1931,7 +2090,7 @@ function clearSchedule(){
 // ── SHUFFLE CONFIG ──────────────────────────────────────────────
 async function loadShuffleConfig(){
   try{
-    const r = await authFetch(`${BASE}/api/admin/shuffle-config`);
+    const r = await authFetch(`${BASE}/api/admin/shuffle-config${_examQuery('?')}`);
     if(!r.ok) return;
     const d = await r.json();
     const qEl = document.getElementById('shuffle-q-toggle');
@@ -1968,6 +2127,7 @@ async function saveShuffleConfig(){
   const body = {
     shuffle_questions: !!qEl.checked,
     shuffle_options:   !!oEl.checked,
+    exam_id: currentExamId,
   };
   try{
     const r = await authFetch(`${BASE}/api/admin/shuffle-config`,{
@@ -1992,7 +2152,7 @@ async function loadQuestions(){
   el.innerHTML='<div class="loading-msg"><span class="spinner"></span> Loading questions...</div>';
   document.getElementById('q-save-msg').textContent='';
   try{
-    const r = await authFetch(`${BASE}/api/admin/questions`);
+    const r = await authFetch(`${BASE}/api/admin/questions${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     qData = d.questions || [];
@@ -2173,7 +2333,7 @@ function renderQEditor(){
     qLoadImgSrc(q.image_url).then(src=>{
       const el=document.getElementById('qimg-'+i);
       if(!el) return;
-      if(src) el.innerHTML=`<img src="${src}" alt="Q${i+1} image">`;
+      if(src){ const img=document.createElement('img'); img.src=src; img.alt=`Q${i+1} image`; el.textContent=''; el.appendChild(img); }
       else el.textContent='Load failed';
     });
   });
@@ -2437,7 +2597,8 @@ async function saveQuestions(){
   const payload={
     exam_title: document.getElementById('q-title').value.trim() || 'Exam',
     duration_minutes: parseInt(document.getElementById('q-duration').value) || 60,
-    questions: qData
+    questions: qData,
+    exam_id: currentExamId
   };
 
   msgEl.innerHTML='<span class="spinner"></span> Saving...';

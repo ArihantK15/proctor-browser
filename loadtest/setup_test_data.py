@@ -84,7 +84,7 @@ def main():
     questions = []
     for i in range(1, args.questions + 1):
         questions.append({
-            "id": f"lt_q{i}",
+            "id": 90000 + i,
             "question": f"Load test question {i}: What is {i} + {i}?",
             "question_type": "mcq_single",
             "options": {

@@ -4566,25 +4566,17 @@ def update_questions(request: Request, body: dict = Body(...)):
             "image_url":     str(q.get("image_url") or "") or None,
         })
 
-    # Update exam config
+    # Update exam config (only if exam_title or duration provided in body)
     exam_id = body.get("exam_id")
     if tid and exam_id:
-        supabase.table("exam_config").update({
-            "exam_title": body.get("exam_title", "Exam"),
-            "duration_minutes": body.get("duration_minutes", 60),
-        }).eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    elif tid:
-        supabase.table("exam_config").upsert({
-            "teacher_id": tid,
-            "exam_title": body.get("exam_title", "Exam"),
-            "duration_minutes": body.get("duration_minutes", 60),
-        }).execute()
-    else:
-        supabase.table("exam_config").upsert({
-            "id": 1,
-            "exam_title": body.get("exam_title", "Exam"),
-            "duration_minutes": body.get("duration_minutes", 60),
-        }).execute()
+        update_fields = {}
+        if "exam_title" in body:
+            update_fields["exam_title"] = body["exam_title"]
+        if "duration_minutes" in body:
+            update_fields["duration_minutes"] = body["duration_minutes"]
+        if update_fields:
+            supabase.table("exam_config").update(update_fields)\
+                .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
 
     # Replace questions for this exam: backup, delete, insert — rollback on failure
     q_query = supabase.table("questions").select("*")
@@ -4630,7 +4622,7 @@ def update_questions(request: Request, body: dict = Body(...)):
                 supabase.table("questions").upsert(backup_rows).execute()
             except Exception as e2:
                 print(f"[Questions] Rollback also failed: {e2}")
-        raise HTTPException(status_code=500, detail="Failed to update questions — rolled back")
+        raise HTTPException(status_code=500, detail=f"Failed to update questions: {e}")
     # Invalidate cached config + questions for this teacher/exam
     if _cache:
         _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")

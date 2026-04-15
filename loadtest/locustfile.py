@@ -27,6 +27,7 @@ from locust import HttpUser, task, between, events, tag
 EXAM_ID = os.environ.get("EXAM_ID", "")
 TEACHER_ID = os.environ.get("TEACHER_ID", "")
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
+LOADTEST_SECRET = os.environ.get("LOADTEST_SECRET", "")
 TEST_STUDENT_PREFIX = "LOADTEST_"
 
 # Track allocated roll numbers so each user gets a unique one
@@ -93,6 +94,8 @@ class ExamStudent(HttpUser):
         h = {"Content-Type": "application/json"}
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
+        if LOADTEST_SECRET:
+            h["X-Loadtest-Key"] = LOADTEST_SECRET
         return h
 
     def _login(self):
@@ -102,9 +105,11 @@ class ExamStudent(HttpUser):
         if ACCESS_CODE:
             payload["access_code"] = ACCESS_CODE
 
+        headers = {"X-Loadtest-Key": LOADTEST_SECRET} if LOADTEST_SECRET else {}
         with self.client.post(
             "/api/validate-student",
             json=payload,
+            headers=headers,
             name="/api/validate-student",
             catch_response=True,
         ) as resp:

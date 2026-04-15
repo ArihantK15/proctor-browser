@@ -286,7 +286,16 @@ def require_student_account(request: Request) -> dict:
     return verify_student_auth_token(auth[7:])
 
 # ─── RATE LIMITER ─────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
+_LOADTEST_SECRET = os.environ.get("LOADTEST_SECRET", "")
+
+def _rate_limit_key(request: Request) -> str:
+    """Rate limit by IP, but exempt load test requests with valid secret."""
+    if _LOADTEST_SECRET and request.headers.get("X-Loadtest-Key") == _LOADTEST_SECRET:
+        # Each load test request gets a unique key → effectively no shared limit
+        return f"loadtest-{id(request)}"
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=_rate_limit_key)
 
 # ─── APP ──────────────────────────────────────────────────────────
 app = FastAPI(title="AI Proctor Server")

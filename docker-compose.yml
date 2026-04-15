@@ -9,6 +9,7 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379
+      - LOADTEST_SECRET=${LOADTEST_SECRET:-}
     depends_on:
       - redis
     volumes:

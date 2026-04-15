@@ -5,15 +5,10 @@ import { Link } from 'react-router-dom'
 export default function Hero() {
   return (
     <section className="relative overflow-hidden pt-32 pb-20 md:pt-44 md:pb-32">
-      {/* Background grid */}
-      <div className="pointer-events-none absolute inset-0 opacity-[0.03]"
-        style={{
-          backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)',
-          backgroundSize: '64px 64px'
-        }}
-      />
+      {/* Grain overlay */}
+      <div className="pointer-events-none absolute inset-0 grain-overlay" />
       {/* Glow */}
-      <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 h-[600px] w-[800px] rounded-full bg-accent/5 blur-[120px]" />
+      <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 h-[600px] w-[800px] rounded-full bg-accent/8 blur-[150px]" />
 
       <div className="relative mx-auto max-w-7xl px-6">
         <motion.div
@@ -22,9 +17,9 @@ export default function Hero() {
           transition={{ duration: 0.6 }}
           className="mx-auto max-w-4xl text-center"
         >
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/5 px-4 py-1.5">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/5 px-4 py-1.5 accent-glow">
             <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-            <span className="text-xs font-medium tracking-wide text-accent-light uppercase">
+            <span className="label-mono text-accent-light" style={{ fontSize: '11px' }}>
               AI-Powered Proctoring
             </span>
           </div>
@@ -46,14 +41,14 @@ export default function Hero() {
           <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
             <Link
               to="/signup"
-              className="group flex items-center gap-2 rounded-xl bg-accent px-7 py-3.5 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-all hover:bg-accent-light hover:shadow-accent/30 no-underline"
+              className="group flex items-center gap-2 rounded-xl bg-accent-dark px-7 py-3.5 text-sm font-semibold text-white glow-btn no-underline"
             >
               Request Demo
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
             </Link>
             <a
               href="#demo"
-              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-7 py-3.5 text-sm font-semibold text-slate-300 transition-all hover:border-white/20 hover:bg-white/[0.06] no-underline"
+              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-7 py-3.5 text-sm font-semibold text-slate-300 transition-all hover:border-accent/30 hover:bg-white/[0.06] no-underline"
             >
               <Play size={16} />
               Watch Demo
@@ -74,12 +69,14 @@ export default function Hero() {
           transition={{ duration: 0.8, delay: 0.3 }}
           className="relative mx-auto mt-16 max-w-5xl"
         >
-          <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-navy-900 shadow-2xl shadow-black/40">
+          <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-navy-900 shadow-2xl shadow-black/40 card-topline grain-overlay" style={{ overflow: 'hidden' }}>
+            {/* Persistent top accent line */}
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent z-10" />
             <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3">
-              <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
-              <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
-              <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
-              <span className="ml-3 text-xs text-slate-500">Procta Dashboard</span>
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500/60" />
+              <span className="h-2.5 w-2.5 rounded-full bg-amber/60" />
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald/60" />
+              <span className="ml-3 label-mono text-slate-500">Procta Dashboard</span>
             </div>
             <div className="p-6 md:p-8">
               <div className="grid grid-cols-4 gap-4 mb-6">
@@ -89,9 +86,9 @@ export default function Hero() {
                   { label: 'Violations', value: '3', color: 'text-amber' },
                   { label: 'Completed', value: '128', color: 'text-slate-300' },
                 ].map(s => (
-                  <div key={s.label} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div key={s.label} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 card-topline">
                     <div className={`font-display text-2xl font-bold ${s.color}`}>{s.value}</div>
-                    <div className="mt-1 text-xs text-slate-500">{s.label}</div>
+                    <div className="mt-1 label-mono text-slate-500">{s.label}</div>
                   </div>
                 ))}
               </div>
@@ -109,7 +106,7 @@ export default function Hero() {
                       </div>
                       <div>
                         <div className="text-sm font-medium text-slate-300">{row.name}</div>
-                        <div className="text-xs text-slate-500">{row.roll}</div>
+                        <div className="label-mono text-slate-500">{row.roll}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -119,13 +116,13 @@ export default function Hero() {
                             className="h-full rounded-full"
                             style={{
                               width: `${row.risk}%`,
-                              backgroundColor: row.risk > 50 ? '#ef4444' : row.risk > 20 ? '#f59e0b' : '#10b981'
+                              backgroundColor: row.risk > 50 ? '#ef4444' : row.risk > 20 ? '#f59e0b' : '#3dd9a8'
                             }}
                           />
                         </div>
-                        <span className="text-xs tabular-nums text-slate-500 w-6 text-right">{row.risk}</span>
+                        <span className="font-mono text-xs tabular-nums text-slate-500 w-6 text-right">{row.risk}</span>
                       </div>
-                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium font-mono ${
                         row.status === 'High Risk' ? 'bg-red-500/10 text-red-400' :
                         row.status === 'Flagged' ? 'bg-amber/10 text-amber' :
                         'bg-emerald/10 text-emerald'

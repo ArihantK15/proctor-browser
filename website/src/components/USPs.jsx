@@ -40,7 +40,7 @@ export default function USPs() {
           transition={{ duration: 0.5 }}
           className="mx-auto max-w-2xl text-center"
         >
-          <span className="text-sm font-medium uppercase tracking-wider text-accent">Why Procta</span>
+          <span className="label-mono text-accent">Why Procta</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Built Different
           </h2>
@@ -57,13 +57,13 @@ export default function USPs() {
               whileInView={{ opacity: 1 }}
               viewport={{ once: true, margin: '-40px' }}
               transition={{ duration: 0.4, delay: i * 0.08 }}
-              className="border-white/[0.04] bg-navy-950 p-8 transition-colors hover:bg-white/[0.02]"
+              className="relative border-white/[0.04] bg-navy-950 p-8 transition-colors hover:bg-white/[0.02] card-topline grain-overlay"
               style={{
                 borderRight: (i + 1) % 3 !== 0 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                 borderBottom: i < 3 ? '1px solid rgba(255,255,255,0.04)' : 'none',
               }}
             >
-              <div className="mb-5 inline-flex rounded-lg border border-accent/20 bg-accent/5 p-2.5">
+              <div className="mb-5 inline-flex rounded-lg border border-accent/20 bg-accent/5 p-2.5 accent-glow">
                 <item.icon size={20} className="text-accent-light" />
               </div>
               <h3 className="mb-2 text-base font-semibold text-white">{item.title}</h3>

@@ -52,7 +52,7 @@ export default function Problem() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-60px' }}
               transition={{ duration: 0.5, delay: i * 0.1 }}
-              className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-white/[0.1] hover:bg-white/[0.04]"
+              className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-red-500/20 hover:bg-white/[0.04] card-topline grain-overlay"
             >
               <div className="mb-6 inline-flex rounded-lg border border-red-500/20 bg-red-500/5 p-2.5">
                 <item.icon size={20} className="text-red-400" />
@@ -61,7 +61,7 @@ export default function Problem() {
               <p className="text-sm leading-relaxed text-slate-400">{item.desc}</p>
               <div className="mt-6 border-t border-white/[0.06] pt-4">
                 <span className="font-display text-2xl font-bold text-red-400">{item.stat}</span>
-                <span className="ml-2 text-xs text-slate-500">{item.statLabel}</span>
+                <span className="ml-2 label-mono text-slate-500">{item.statLabel}</span>
               </div>
             </motion.div>
           ))}

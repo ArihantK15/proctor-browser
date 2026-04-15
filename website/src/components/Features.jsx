@@ -51,7 +51,7 @@ export default function Features() {
           transition={{ duration: 0.5 }}
           className="mx-auto max-w-2xl text-center"
         >
-          <span className="text-sm font-medium uppercase tracking-wider text-accent">Features</span>
+          <span className="label-mono text-accent">Features</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Everything You Need
           </h2>
@@ -69,14 +69,14 @@ export default function Features() {
               viewport={{ once: true, margin: '-40px' }}
               transition={{ duration: 0.5, delay: gi * 0.1 }}
             >
-              <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-slate-500">
+              <h3 className="mb-4 label-mono text-slate-500">
                 {group.label}
               </h3>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {group.items.map(item => (
                   <div
                     key={item.name}
-                    className="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 transition-colors hover:border-accent/20 hover:bg-accent/[0.03]"
+                    className="group relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 transition-all hover:border-accent/20 hover:bg-accent/[0.03] card-topline grain-overlay"
                   >
                     <item.icon size={18} className="mb-3 text-slate-500 transition-colors group-hover:text-accent-light" />
                     <h4 className="mb-1 text-sm font-semibold text-white">{item.name}</h4>

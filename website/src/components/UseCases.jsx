@@ -34,7 +34,7 @@ export default function UseCases() {
           transition={{ duration: 0.5 }}
           className="mx-auto max-w-2xl text-center"
         >
-          <span className="text-sm font-medium uppercase tracking-wider text-accent">Use Cases</span>
+          <span className="label-mono text-accent">Use Cases</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Built for Your Industry
           </h2>
@@ -51,9 +51,9 @@ export default function UseCases() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-40px' }}
               transition={{ duration: 0.5, delay: i * 0.1 }}
-              className="group flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-accent/15 hover:bg-accent/[0.02]"
+              className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-accent/15 hover:bg-accent/[0.02] card-topline grain-overlay"
             >
-              <div className="mb-6 inline-flex self-start rounded-xl border border-accent/20 bg-accent/5 p-3">
+              <div className="mb-6 inline-flex self-start rounded-xl border border-accent/20 bg-accent/5 p-3 accent-glow">
                 <item.icon size={24} className="text-accent-light" />
               </div>
               <h3 className="mb-3 text-xl font-semibold text-white">{item.title}</h3>

@@ -1,20 +1,22 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --color-navy-950: #0a0e1a;
-  --color-navy-900: #0f1629;
-  --color-navy-800: #151d3a;
-  --color-navy-700: #1e2a4a;
-  --color-navy-600: #2a3a5c;
+  --color-navy-950: #06080d;
+  --color-navy-900: #0c1018;
+  --color-navy-800: #121824;
+  --color-navy-700: #1a2233;
+  --color-navy-600: #243044;
   --color-slate-400: #94a3b8;
   --color-slate-300: #cbd5e1;
-  --color-accent: #3b82f6;
-  --color-accent-light: #60a5fa;
-  --color-accent-dark: #2563eb;
-  --color-emerald: #10b981;
+  --color-accent: #3dd9a8;
+  --color-accent-light: #63dfc4;
+  --color-accent-dark: #2bb88a;
+  --color-emerald: #3dd9a8;
   --color-amber: #f59e0b;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  --font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-display: 'Outfit', 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 @layer base {
@@ -42,3 +44,74 @@
     color: white;
   }
 }
+
+/* ── Grain texture overlay ── */
+@layer utilities {
+  .grain-overlay {
+    position: relative;
+  }
+  .grain-overlay::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.3;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    border-radius: inherit;
+  }
+
+  .accent-glow {
+    box-shadow: 0 0 20px rgba(61, 217, 168, 0.12);
+  }
+  .accent-glow-strong {
+    box-shadow: 0 0 30px rgba(61, 217, 168, 0.25);
+  }
+
+  .card-topline {
+    position: relative;
+    overflow: hidden;
+  }
+  .card-topline::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .card-topline:hover::before {
+    opacity: 1;
+  }
+
+  .glow-btn {
+    border: 1px solid var(--color-accent);
+    box-shadow: 0 0 20px rgba(61, 217, 168, 0.12);
+    transition: all 0.2s;
+  }
+  .glow-btn:hover {
+    box-shadow: 0 0 30px rgba(61, 217, 168, 0.25);
+    transform: translateY(-1px);
+  }
+
+  .label-mono {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .focus-glow:focus {
+    box-shadow: 0 0 0 3px rgba(61, 217, 168, 0.1);
+    border-color: rgba(61, 217, 168, 0.4);
+  }
+}
+
+/* ── Custom scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }

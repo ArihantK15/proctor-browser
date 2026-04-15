@@ -35,7 +35,7 @@ export default function PrivacySection() {
             viewport={{ once: true, margin: '-60px' }}
             transition={{ duration: 0.5 }}
           >
-            <span className="text-sm font-medium uppercase tracking-wider text-accent">Privacy & Compliance</span>
+            <span className="label-mono text-accent">Privacy & Compliance</span>
             <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
               Security Without Surveillance
             </h2>
@@ -53,9 +53,9 @@ export default function PrivacySection() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: '-40px' }}
                 transition={{ duration: 0.4, delay: i * 0.08 }}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5"
+                className="relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 card-topline grain-overlay"
               >
-                <item.icon size={18} className="mb-3 text-emerald" />
+                <item.icon size={18} className="mb-3 text-accent-light" />
                 <h3 className="mb-1 text-sm font-semibold text-white">{item.title}</h3>
                 <p className="text-xs leading-relaxed text-slate-400">{item.desc}</p>
               </motion.div>

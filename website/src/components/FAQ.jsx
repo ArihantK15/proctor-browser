@@ -49,7 +49,7 @@ function FAQItem({ item }) {
         <span className="pr-4 text-sm font-medium text-white">{item.q}</span>
         <ChevronDown
           size={18}
-          className={`shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          className={`shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-180 text-accent-light' : ''}`}
         />
       </button>
       <AnimatePresence initial={false}>
@@ -61,7 +61,7 @@ function FAQItem({ item }) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <p className="px-6 pb-5 text-sm leading-relaxed text-slate-400">{item.a}</p>
+            <p className="px-6 pb-5 text-sm leading-relaxed text-slate-400 border-l-2 border-accent/30 ml-6 pl-4">{item.a}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -80,7 +80,7 @@ export default function FAQ() {
           transition={{ duration: 0.5 }}
           className="text-center"
         >
-          <span className="text-sm font-medium uppercase tracking-wider text-accent">FAQ</span>
+          <span className="label-mono text-accent">FAQ</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Common Questions
           </h2>
@@ -91,7 +91,7 @@ export default function FAQ() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-40px' }}
           transition={{ duration: 0.5, delay: 0.1 }}
-          className="mt-12 overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]"
+          className="mt-12 relative overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02] grain-overlay"
         >
           {faqs.map(item => (
             <FAQItem key={item.q} item={item} />

@@ -3877,11 +3877,15 @@ def create_exam(request: Request, body: dict = Body(...)):
     tid = str(teacher["id"])
     title = str(body.get("exam_title", "New Exam")).strip() or "New Exam"
     duration = int(body.get("duration_minutes", 60))
-    result = supabase.table("exam_config").insert({
-        "teacher_id":       tid,
-        "exam_title":       title,
-        "duration_minutes": duration,
-    }).execute()
+    try:
+        result = supabase.table("exam_config").insert({
+            "teacher_id":       tid,
+            "exam_title":       title,
+            "duration_minutes": duration,
+        }).execute()
+    except Exception as e:
+        print(f"[CreateExam] DB error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create exam: {e}")
     row = result.data[0] if result.data else {}
     return {"exam_id": row.get("exam_id"), "exam_title": title, "duration_minutes": duration}
 

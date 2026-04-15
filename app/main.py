@@ -1392,6 +1392,52 @@ def register_student(request: Request, body: RegisterIn):
 
     return {"status": "registered", "roll_number": roll, "full_name": name}
 
+
+@app.post("/api/admin/register-students-bulk")
+def admin_bulk_register(request: Request, body: dict = Body(...)):
+    """Admin-only bulk student registration (no rate limit)."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    students = body.get("students", [])
+    if not students or not isinstance(students, list):
+        raise HTTPException(status_code=400, detail="'students' must be a non-empty list")
+    if len(students) > 500:
+        raise HTTPException(status_code=400, detail="Max 500 students per batch")
+
+    rows = []
+    for s in students:
+        roll = str(s.get("roll_number", "")).strip().upper()
+        name = str(s.get("full_name", "")).strip()
+        email = str(s.get("email", "")).strip().lower()
+        phone = str(s.get("phone", "")).strip() or None
+        if not roll or not name or not email:
+            continue
+        rows.append({
+            "roll_number": roll,
+            "full_name": name,
+            "email": email,
+            "phone": phone,
+            "teacher_id": tid,
+        })
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No valid students in payload")
+
+    registered = 0
+    skipped = 0
+    for row in rows:
+        try:
+            supabase.table("students").insert(row).execute()
+            registered += 1
+        except Exception as e:
+            if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+                skipped += 1
+            else:
+                skipped += 1
+
+    return {"registered": registered, "skipped": skipped, "total": len(rows)}
+
+
 @app.get("/api/exam-schedule")
 def get_public_schedule(t: str = None):
     """Public endpoint — returns exam title and schedule for download/register pages."""

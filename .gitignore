@@ -25,3 +25,10 @@ app/downloads/
 
 # Exam config — managed per-deployment
 questions.json
+
+# Load test reports — generated locally
+Locust_*.html
+
+# PDF reports — generated locally
+Procta_Development_Report.pdf
+generate_report.py

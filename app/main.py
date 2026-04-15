@@ -1813,6 +1813,59 @@ def _check_session_ownership(claims: dict, session_id: str):
         raise HTTPException(status_code=403, detail="Access denied")
 
 
+# ── INTEGRITY REPORT (pre-exam security check) ──────────────────
+BLOCKING_TYPES = {"vm_detected", "remote_desktop_detected", "vpn_detected",
+                  "proxy_detected", "debugger_detected"}
+
+@app.post("/api/integrity-report")
+@limiter.limit("10/minute")
+async def integrity_report(request: Request):
+    """Accept a batch of integrity flags from the Electron client.
+    Returns {allowed: bool, blocked_reasons: [...]} so the client knows
+    whether to proceed or block the exam."""
+    claims = require_auth(request)
+    body = await request.json()
+    session_id = body.get("session_id", "")
+    flags = body.get("flags", [])
+    _check_session_ownership(claims, session_id)
+    tid = claims.get("tid")
+
+    blocked_reasons = []
+    for f in flags:
+        ftype = f.get("type", "")
+        sev = f.get("severity", "low")
+        details = f.get("details", "")
+        # Log each flag as a violation
+        viol_row = {
+            "session_key":    session_id,
+            "violation_type": ftype,
+            "severity":       sev,
+            "details":        f"[Integrity] {details}",
+        }
+        if tid:
+            viol_row["teacher_id"] = tid
+        await _atable("violations").insert(viol_row).execute()
+        # Check if this flag should block exam start
+        if ftype in BLOCKING_TYPES and sev == "high":
+            blocked_reasons.append(f"{ftype}: {details}")
+
+    # Publish summary to teacher dashboard
+    if tid and flags:
+        summary = {
+            "type": "integrity_report",
+            "severity": "high" if blocked_reasons else "medium",
+            "session_id": session_id,
+            "details": f"{len(flags)} integrity flag(s), {len(blocked_reasons)} blocking",
+            "flags": [{"type": f.get("type"), "severity": f.get("severity"),
+                       "details": f.get("details")} for f in flags],
+        }
+        await _bus_async_publish(f"sessions:{tid}", {**summary, "kind": "violation"})
+
+    allowed = len(blocked_reasons) == 0
+    return {"allowed": allowed, "blocked_reasons": blocked_reasons,
+            "flags_received": len(flags)}
+
+
 @app.post("/event")
 @limiter.limit("600/minute")
 async def log_event(event: EventIn, request: Request):

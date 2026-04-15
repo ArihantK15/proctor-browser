@@ -249,6 +249,31 @@
   </div>
 </div>
 
+<!-- INTEGRITY BLOCKED -->
+<div class="screen" id="screen-integrity-blocked">
+  <div class="card" style="width:540px;border-color:#e94560">
+    <div class="logo-wrap">
+      <div class="logo-icon" style="background:#e94560">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2">
+          <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        </svg>
+      </div>
+      <span class="logo-text" style="color:#e94560">Security Alert</span>
+    </div>
+    <h1 style="color:#e94560;margin-bottom:8px">Exam Blocked</h1>
+    <p style="color:#94a3b8;margin-bottom:16px">Your system failed security checks required to take this exam. Please resolve the issues below and try again.</p>
+    <div id="integrity-issues" style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin-bottom:20px;max-height:260px;overflow-y:auto;text-align:left">
+    </div>
+    <p style="color:#64748b;font-size:12px;margin-bottom:16px">Close any VPN, proxy, remote desktop, or screen sharing software, then restart the app.</p>
+    <button class="btn" onclick="location.reload()" style="background:#e94560">
+      Retry
+    </button>
+    <button class="btn" onclick="window.proctor&&window.proctor.exitToLobby()" style="background:transparent;border:1px solid #30363d;color:#94a3b8;margin-top:8px">
+      Return to Lobby
+    </button>
+  </div>
+</div>
+
 <!-- ID VERIFICATION -->
 <div class="screen" id="screen-id-verify">
   <!-- Step 1 & 2: Capture selfie + ID -->
@@ -515,10 +540,38 @@ function logV(type, details){
 }
 
 async function reportIntegrityFlags(){
-  if(!window.proctor||!sessionId) return;
+  if(!window.proctor||!sessionId) return false;
   try{
     const flags = await window.proctor.getIntegrityFlags();
-    if(!flags||!flags.length) return;
+    if(!flags||!flags.length) return false;
+
+    // Send full report to server in one call
+    try{
+      const r = await fetch(`${SERVER}/api/integrity-report`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentToken},
+        body:JSON.stringify({ session_id:sessionId, flags })
+      });
+      if(r.ok){
+        const data = await r.json();
+        if(!data.allowed){
+          // Server says blocked — show integrity screen
+          _showIntegrityBlock(flags.filter(f=>f.blocking));
+          return true; // blocked
+        }
+      }
+    }catch(e2){
+      console.warn('[Integrity] server report failed, checking locally:', e2);
+    }
+
+    // Fallback: check blocking flags client-side if server call failed
+    const blocking = flags.filter(f=>f.blocking);
+    if(blocking.length>0){
+      _showIntegrityBlock(blocking);
+      return true; // blocked
+    }
+
+    // Non-blocking flags — just log them
     for(const f of flags){
       window.proctor.logEvent({
         session_id:sessionId,
@@ -527,8 +580,37 @@ async function reportIntegrityFlags(){
         details:f.details
       });
     }
-    console.log(`[Integrity] Reported ${flags.length} flag(s) to server`);
-  }catch(e){ console.warn('[Integrity] report failed:', e); }
+    console.log(`[Integrity] Reported ${flags.length} flag(s), none blocking`);
+    return false;
+  }catch(e){ console.warn('[Integrity] report failed:', e); return false; }
+}
+
+function _showIntegrityBlock(blockingFlags){
+  const container = document.getElementById('integrity-issues');
+  container.innerHTML = '';
+  const LABELS = {
+    vm_detected: 'Virtual Machine',
+    remote_desktop_detected: 'Remote Desktop',
+    vpn_detected: 'VPN / Tunnel',
+    proxy_detected: 'Proxy',
+    debugger_detected: 'Network Debugger',
+    screen_share_detected: 'Screen Sharing',
+    multiple_monitors: 'Multiple Monitors',
+  };
+  for(const f of blockingFlags){
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #21262d';
+    row.innerHTML = `
+      <div style="flex-shrink:0;width:28px;height:28px;border-radius:8px;background:rgba(233,69,96,0.15);display:flex;align-items:center;justify-content:center;margin-top:2px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e94560" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      </div>
+      <div>
+        <div style="color:#f0f6fc;font-size:13px;font-weight:600">${LABELS[f.type]||f.type}</div>
+        <div style="color:#8b949e;font-size:11px;margin-top:2px">${f.details||''}</div>
+      </div>`;
+    container.appendChild(row);
+  }
+  showScreen('integrity-blocked');
 }
 
 function clearLoginErr(){
@@ -574,7 +656,7 @@ async function doLogin(){
         answers          = existing.answers || {};
         resumedStartedAt = existing.started_at || null;
         _mergeLocalAnswers(); // recover any answers saved offline
-        reportIntegrityFlags();
+        if(await reportIntegrityFlags()) return; // blocked by integrity check
         startIdVerify();
         return;
       }
@@ -582,7 +664,7 @@ async function doLogin(){
 
     sessionId = `${normalizedRoll}_${Date.now()}`;
     _mergeLocalAnswers(); // recover any answers from a crashed prior attempt
-    reportIntegrityFlags();
+    if(await reportIntegrityFlags()) return; // blocked by integrity check
     startIdVerify();
   }catch(e){
     document.getElementById('login-err').textContent=

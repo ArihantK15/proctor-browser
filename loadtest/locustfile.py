@@ -181,9 +181,9 @@ class ExamStudent(HttpUser):
 
         q = self.questions[self.current_q]
         qid = q["id"]
-        # Pick a random option
-        options = q.get("options", [])
-        answer = random.choice(options)["label"] if options else "A"
+        # Pick a random option — options is a dict like {"A": "text", "B": "text"}
+        options = q.get("options", {})
+        answer = random.choice(list(options.keys())) if options else "A"
         self.answers[qid] = answer
         self.current_q += 1
 

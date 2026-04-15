@@ -539,7 +539,7 @@ async def teacher_password_reset(body: PasswordResetIn, request: Request):
 # ─── STUDENT DASHBOARD AUTH ──────────────────────────────────────
 
 @app.get("/api/student/account-exists")
-@limiter.limit("20/minute")
+@limiter.limit("120/minute")
 async def student_account_exists(request: Request, email: str = ""):
     """Check if a student dashboard account exists for this email."""
     email = (email or "").strip().lower()
@@ -618,7 +618,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
 
 
 @app.post("/api/student/auth/login")
-@limiter.limit("10/minute")
+@limiter.limit("120/minute")
 async def student_login(body: StudentLoginIn, request: Request):
     email = body.email.strip().lower()
     try:
@@ -1349,7 +1349,7 @@ def health():
         return {"ok": True}
 
 @app.post("/api/register-student")
-@limiter.limit("5/minute")
+@limiter.limit("120/minute")
 def register_student(request: Request, body: RegisterIn):
     """Public self-registration for students before exam day."""
     roll = body.roll_number.strip().upper()
@@ -1460,7 +1460,7 @@ def get_public_schedule(t: str = None):
     }
 
 @app.post("/api/validate-student")
-@limiter.limit("10/minute")
+@limiter.limit("300/minute")
 def validate_student(request: Request, body: ValidateIn):
     exam_id = body.exam_id  # optional — set when multi-exam
 
@@ -1766,7 +1766,7 @@ def _check_session_ownership(claims: dict, session_id: str):
 
 
 @app.post("/event")
-@limiter.limit("120/minute")
+@limiter.limit("600/minute")
 async def log_event(event: EventIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, event.session_id)
@@ -1914,7 +1914,7 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
     return {"status": "saved", "saved": len(records)}
 
 @app.post("/api/submit-exam")
-@limiter.limit("10/minute")
+@limiter.limit("60/minute")
 async def submit_exam(result: ResultIn, request: Request):
     claims = require_auth(request)
     _check_session_ownership(claims, result.session_id)
@@ -1922,15 +1922,19 @@ async def submit_exam(result: ResultIn, request: Request):
     eid = claims.get("eid")
     now = now_ist()
 
-    # Server-side scoring — never trust client score (sync helper, mostly cached)
-    server_score, server_total = await asyncio.to_thread(
+    # ── Phase 1: Score + config in parallel (both are sync/cached) ──
+    score_fut = asyncio.to_thread(
         _recalculate_score, result.session_id, result.answers,
         teacher_id=tid, exam_id=eid)
+    config_fut = asyncio.to_thread(_load_exam_config, teacher_id=tid, exam_id=eid)
+    (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
+
     if server_score == 0 and server_total == 0:
         print(f"[WARN] Score recalculation returned 0/0 for {result.session_id} — check Supabase questions table")
 
     pct = round((server_score / max(server_total, 1)) * 100, 1)
 
+    # ── Phase 2: Session upsert + submission log + time check in parallel ──
     session_row = {
         "session_key":     result.session_id,
         "roll_number":     result.roll_number,
@@ -1947,26 +1951,7 @@ async def submit_exam(result: ResultIn, request: Request):
         session_row["teacher_id"] = tid
     if eid:
         session_row["exam_id"] = eid
-    await _atable("exam_sessions").upsert(session_row).execute()
 
-    # Check time exceeded
-    try:
-        config = await asyncio.to_thread(_load_exam_config, teacher_id=tid, exam_id=eid)
-        allowed_secs = config.get("duration_minutes", 60) * 60
-        if result.time_taken_secs > allowed_secs + 120:  # 2 min grace
-            viol = {
-                "session_key":    result.session_id,
-                "violation_type": "time_exceeded",
-                "severity":       "high",
-                "details":        f"Submitted {result.time_taken_secs - allowed_secs}s past time limit",
-            }
-            if tid:
-                viol["teacher_id"] = tid
-            await _atable("violations").insert(viol).execute()
-    except Exception as e:
-        print(f"[TimeCheck] {e}")
-
-    # Log submission
     submit_viol = {
         "session_key":    result.session_id,
         "violation_type": "exam_submitted",
@@ -1975,9 +1960,28 @@ async def submit_exam(result: ResultIn, request: Request):
     }
     if tid:
         submit_viol["teacher_id"] = tid
-    await _atable("violations").insert(submit_viol).execute()
 
-    # Cache behavioral risk score
+    parallel_ops = [
+        _atable("exam_sessions").upsert(session_row).execute(),
+        _atable("violations").insert(submit_viol).execute(),
+    ]
+
+    # Time exceeded check
+    allowed_secs = config.get("duration_minutes", 60) * 60
+    if result.time_taken_secs > allowed_secs + 120:
+        time_viol = {
+            "session_key":    result.session_id,
+            "violation_type": "time_exceeded",
+            "severity":       "high",
+            "details":        f"Submitted {result.time_taken_secs - allowed_secs}s past time limit",
+        }
+        if tid:
+            time_viol["teacher_id"] = tid
+        parallel_ops.append(_atable("violations").insert(time_viol).execute())
+
+    await asyncio.gather(*parallel_ops, return_exceptions=True)
+
+    # ── Phase 3: Risk score (needs violations written above) ──────
     risk = await asyncio.to_thread(compute_risk_score, result.session_id, teacher_id=tid)
     upd = _atable("exam_sessions").eq("session_key", result.session_id)
     if tid:
@@ -1988,11 +1992,11 @@ async def submit_exam(result: ResultIn, request: Request):
         f"[SUBMIT] {result.roll_number} score:{server_score}/{server_total} "
         f"risk:{risk['risk_score']}/100")
 
-    # Publish submission to dashboard SSE
+    # Publish submission to dashboard SSE (fire-and-forget)
     if tid:
-        await _bus_async_publish(f"sessions:{tid}", {"kind": "submitted",
+        asyncio.create_task(_bus_async_publish(f"sessions:{tid}", {"kind": "submitted",
                      "session_id": result.session_id,
-                     "score": server_score, "total": server_total})
+                     "score": server_score, "total": server_total}))
 
     return {"status": "submitted", "score": server_score,
             "total": server_total, "percentage": pct,

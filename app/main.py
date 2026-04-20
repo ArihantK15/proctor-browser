@@ -2362,12 +2362,17 @@ def id_verification(data: IdVerifyIn, request: Request):
         raise HTTPException(status_code=500, detail="Failed to save verification images")
 
     try:
+        # Stash exam_id from the student's JWT so the dashboard can filter
+        # pending verifications by exam BEFORE exam_sessions has a row for
+        # this session (the session row is only created when the student
+        # actually starts the exam — which is blocked on this approval).
         detail_obj = {
             "status":       "pending",
             "selfie_file":  selfie_fname,
             "id_file":      id_fname,
             "roll_number":  roll,
             "full_name":    data.full_name,
+            "exam_id":      claims.get("eid") or "",
         }
         viol_row = {
             "session_key":    data.session_id,
@@ -2422,13 +2427,19 @@ def pending_verifications(request: Request, exam_id: str = None):
         .eq("teacher_id", str(tid))\
         .eq("violation_type", "id_verification")\
         .order("created_at", desc=True)
-    # When exam_id is set, only show verifications for sessions in that exam
-    exam_session_keys = None
+    result = query.execute()
+
+    # For pending verifications the student's exam session hasn't been
+    # created yet (approval gates that creation), so we can't cross-join
+    # exam_sessions. Instead we stashed the exam_id inside details when
+    # the student submitted. Fall back to matching via exam_sessions for
+    # legacy rows that were created before this change.
+    legacy_session_keys = None
     if exam_id:
         es = supabase.table("exam_sessions").select("session_key")\
             .eq("teacher_id", str(tid)).eq("exam_id", exam_id).execute()
-        exam_session_keys = {r["session_key"] for r in (es.data or [])}
-    result = query.execute()
+        legacy_session_keys = {r["session_key"] for r in (es.data or [])}
+
     pending = []
     for row in (result.data or []):
         try:
@@ -2437,9 +2448,17 @@ def pending_verifications(request: Request, exam_id: str = None):
             continue
         if obj.get("status") != "pending":
             continue
-        # Filter by exam if requested
-        if exam_session_keys is not None and row.get("session_key") not in exam_session_keys:
-            continue
+        # Filter by exam when requested. Prefer the exam_id stamped inside
+        # details (works for waiting-for-approval students). Fall back to
+        # session_key cross-reference for legacy rows without exam_id.
+        if exam_id:
+            stamped_eid = obj.get("exam_id") or ""
+            if stamped_eid:
+                if stamped_eid != exam_id:
+                    continue
+            else:
+                if row.get("session_key") not in (legacy_session_keys or set()):
+                    continue
         roll = obj.get("roll_number", "")
         pending.append({
             "id":           row.get("id"),
@@ -2655,8 +2674,52 @@ async def sse_student_events(session_id: str, request: Request, token: str = Non
                                       "X-Accel-Buffering": "no"})
 
 
+def _heartbeat_age_seconds(hb) -> float | None:
+    """Seconds since ``hb`` (ISO string or datetime). None if missing/bad."""
+    if not hb:
+        return None
+    try:
+        if isinstance(hb, datetime):
+            dt = hb
+        else:
+            dt = datetime.fromisoformat(str(hb).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+    return (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds()
+
+
+def _derive_live_state(meta: dict) -> tuple[str, int | None]:
+    """Classify a session into (live_state, heartbeat_age_sec).
+
+    States:
+      - "submitted"  — status==completed or submitted_at is set
+      - "live"       — heartbeat within _CLEAR_ACTIVE_WINDOW seconds
+      - "stale"      — in_progress but heartbeat missing or > window
+
+    This is what drives the dashboard's Live/Stale/Submitted badge.
+    The prior behaviour treated anything not-submitted as Live, which
+    left orphaned rows (student crashed, closed laptop, network died)
+    frozen on the Live tab for hours. Heartbeat age fixes that.
+    """
+    status = (meta.get("status") or "").lower()
+    if status in ("completed", "submitted") or meta.get("submitted_at"):
+        return "submitted", None
+    age = _heartbeat_age_seconds(meta.get("last_heartbeat"))
+    if age is not None and age <= _CLEAR_ACTIVE_WINDOW:
+        return "live", int(age)
+    return "stale", (int(age) if age is not None else None)
+
+
 def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
-    """Build the sessions payload (extracted from get_all_sessions for reuse)."""
+    """Build the sessions payload (extracted from get_all_sessions for reuse).
+
+    Each session carries ``live_state`` ("live" | "stale" | "submitted")
+    derived from ``last_heartbeat`` so the dashboard can distinguish a
+    genuinely present student from a crashed/abandoned one. The boolean
+    ``submitted`` is kept for backwards compatibility with older clients.
+    """
     cutoff = (now_ist() - timedelta(hours=48)).isoformat()
     evts_query = supabase.table("violations")\
         .select("session_key,violation_type,severity,created_at,details")\
@@ -2666,15 +2729,19 @@ def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
     evts_result = evts_query.order("created_at", desc=True).execute()
     events = evts_result.data or []
 
+    # Pull the heartbeat + started_at as well so we can classify liveness
+    # server-side; the dashboard only needs to render the derived label.
     sess_query = supabase.table("exam_sessions").select(
-        "session_key,status,risk_score,exam_id")
+        "session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at")
     if tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
     if exam_id:
         sess_query = sess_query.eq("exam_id", exam_id)
     sess_result = sess_query.execute()
     sess_meta = {r["session_key"]: r for r in (sess_result.data or [])}
-    submitted = {sk for sk, m in sess_meta.items() if m.get("status") == "completed"}
+    submitted = {sk for sk, m in sess_meta.items()
+                 if (m.get("status") or "").lower() in ("completed", "submitted")
+                 or m.get("submitted_at")}
 
     sessions: dict = {}
     for e in events:
@@ -2689,6 +2756,7 @@ def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
                     cached_risk = compute_risk_score(sk, teacher_id=tid)["risk_score"]
                 except Exception:
                     cached_risk = None
+            live_state, hb_age = _derive_live_state(meta)
             sessions[sk] = {
                 "session_id":    sk,
                 "last_event":    e["violation_type"],
@@ -2696,12 +2764,17 @@ def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
                 "last_seen":     fmt_ist(e.get("created_at", "")),
                 "details":       e.get("details"),
                 "submitted":     sk in submitted,
+                "live_state":    live_state,           # "live" | "stale" | "submitted"
+                "heartbeat_age_sec": hb_age,           # None if never heartbeat'd
                 "risk_score":    cached_risk,
                 "risk_label":    _risk_label(cached_risk)
                                  if cached_risk is not None else None,
             }
 
-    active = [s for s in sessions.values() if not s["submitted"]]
+    # "Active" — the green counter in the dashboard header — is now strictly
+    # sessions with a fresh heartbeat. Stale/abandoned rows drop off the
+    # count even though they still render on the Live tab with a grey pill.
+    active = [s for s in sessions.values() if s["live_state"] == "live"]
     return {"sessions": active, "all_sessions": list(sessions.values())}
 
 
@@ -2920,69 +2993,13 @@ def get_screenshot(roll: str, filename: str, request: Request):
 
 @app.get("/sessions")
 def get_all_sessions(request: Request, exam_id: str = None):
+    """REST view of the Live tab. Delegates to _build_sessions_payload so
+    the SSE stream and the polling fallback can never disagree on liveness
+    classification."""
     teacher = require_admin(request)
     tid = teacher["id"]
     try:
-        # Limit to last 48h so this never scans the entire violations table
-        cutoff = (now_ist() - timedelta(hours=48)).isoformat()
-        evts_query = supabase.table("violations")\
-            .select("session_key,violation_type,severity,created_at,details")\
-            .gte("created_at", cutoff)
-        if tid:
-            evts_query = evts_query.eq("teacher_id", str(tid))
-        evts_result = evts_query.order("created_at", desc=True).execute()
-        events = evts_result.data or []
-
-        # Pull session metadata (status + cached risk_score) in one shot so
-        # the live tab can show the same risk number as the detail view.
-        # Without this, the list shows just the most recent event's severity
-        # which often disagrees with the aggregated risk score.
-        sess_query = supabase.table("exam_sessions").select(
-            "session_key,status,risk_score,exam_id")
-        if tid:
-            sess_query = sess_query.eq("teacher_id", str(tid))
-        if exam_id:
-            sess_query = sess_query.eq("exam_id", exam_id)
-        sess_result = sess_query.execute()
-        sess_meta = {
-            r["session_key"]: r for r in (sess_result.data or [])
-        }
-        submitted = {
-            sk for sk, m in sess_meta.items() if m.get("status") == "completed"
-        }
-
-        sessions: dict = {}
-        for e in events:
-            sk = e["session_key"]
-            # When filtering by exam, skip events for other exams' sessions
-            if exam_id and sk not in sess_meta:
-                continue
-            if sk not in sessions:
-                meta = sess_meta.get(sk, {})
-                # For live (in_progress) sessions risk_score is null in the
-                # DB, so compute it on the fly. Cheap — bounded by the same
-                # 48h violations slice we already fetched per session.
-                cached_risk = meta.get("risk_score")
-                if cached_risk is None and sk not in submitted:
-                    try:
-                        cached_risk = compute_risk_score(
-                            sk, teacher_id=tid)["risk_score"]
-                    except Exception:
-                        cached_risk = None
-                sessions[sk] = {
-                    "session_id":    sk,
-                    "last_event":    e["violation_type"],
-                    "last_severity": e["severity"],
-                    "last_seen":     fmt_ist(e.get("created_at", "")),
-                    "details":       e.get("details"),
-                    "submitted":     sk in submitted,
-                    "risk_score":    cached_risk,
-                    "risk_label":    _risk_label(cached_risk)
-                                     if cached_risk is not None else None,
-                }
-
-        active = [s for s in sessions.values() if not s["submitted"]]
-        return {"sessions": active, "all_sessions": list(sessions.values())}
+        return _build_sessions_payload(str(tid), exam_id=exam_id)
     except Exception as e:
         print(f"[Sessions] ERROR: {e}")
         import traceback; traceback.print_exc()
@@ -3750,11 +3767,21 @@ def _session_is_active(row: dict) -> bool:
     return age <= _CLEAR_ACTIVE_WINDOW
 
 
-def _partition_live_sessions(teacher_id: str) -> tuple[list[dict], list[dict]]:
+def _partition_live_sessions(
+    teacher_id: str,
+    exam_id: str | None = None,
+    include_active: bool = False,
+) -> tuple[list[dict], list[dict]]:
     """Return (active, stale) in-progress sessions for a teacher.
 
     Active = heartbeat within _CLEAR_ACTIVE_WINDOW seconds. Stale = the
-    rest.
+    rest. When ``include_active`` is True everything is reported as stale
+    — the caller has explicitly opted into force-wiping sessions that
+    are still heartbeating (i.e. students actively taking the exam).
+
+    When ``exam_id`` is provided, only sessions belonging to that exam
+    are included. This keeps multi-exam teachers from nuking unrelated
+    exams when they click Clear Sessions while viewing one exam.
 
     Discovery uses TWO sources — the same approach the live tab uses:
       1. exam_sessions table (in_progress rows)
@@ -3768,27 +3795,39 @@ def _partition_live_sessions(teacher_id: str) -> tuple[list[dict], list[dict]]:
     tid = str(teacher_id)
 
     # ── 1. exam_sessions-based discovery ──
-    result = supabase.table("exam_sessions")\
-        .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")\
+    base = supabase.table("exam_sessions")\
+        .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id")\
         .eq("teacher_id", tid)\
-        .eq("status", "in_progress")\
-        .execute()
+        .eq("status", "in_progress")
+    if exam_id:
+        base = base.eq("exam_id", exam_id)
+    result = base.execute()
     rows = list(result.data or [])
     seen = {r["session_key"] for r in rows}
 
-    # Orphans with NULL/empty teacher_id
-    for fetch_fn in [
-        lambda: supabase.table("exam_sessions")
-            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")
-            .is_("teacher_id", "null")
+    # Orphans with NULL/empty teacher_id. Only chase these when the
+    # teacher did NOT scope to a specific exam — a specific exam_id means
+    # "only touch this exam's sessions", and orphans by definition don't
+    # carry the exam scope we care about.
+    def _q_null():
+        q = supabase.table("exam_sessions")\
+            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id")\
+            .is_("teacher_id", "null")\
             .eq("status", "in_progress")
-            .execute(),
-        lambda: supabase.table("exam_sessions")
-            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id")
-            .eq("teacher_id", "")
+        if exam_id:
+            q = q.eq("exam_id", exam_id)
+        return q.execute()
+
+    def _q_empty():
+        q = supabase.table("exam_sessions")\
+            .select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id")\
+            .eq("teacher_id", "")\
             .eq("status", "in_progress")
-            .execute(),
-    ]:
+        if exam_id:
+            q = q.eq("exam_id", exam_id)
+        return q.execute()
+
+    for fetch_fn in [_q_null, _q_empty]:
         try:
             for r in (fetch_fn().data or []):
                 if r["session_key"] not in seen:
@@ -3851,7 +3890,11 @@ def _partition_live_sessions(teacher_id: str) -> tuple[list[dict], list[dict]]:
 
     active, stale = [], []
     for r in rows:
-        (active if _session_is_active(r) else stale).append(r)
+        if include_active:
+            # Caller opted into force-wipe — every row is deletable.
+            stale.append(r)
+        else:
+            (active if _session_is_active(r) else stale).append(r)
     return active, stale
 
 
@@ -3894,19 +3937,30 @@ def clear_live_sessions(request: Request, body: dict = Body(...)):
 
     # When include_completed is true, wipe completed (submitted) sessions
     # too — a full data reset for this teacher's exam history. Still
-    # protects actively-heartbeating students.
+    # protects actively-heartbeating students unless include_active is
+    # ALSO set, in which case nothing is protected.
     include_completed = bool(body.get("include_completed", False))
+    include_active = bool(body.get("include_active", False))
+    # Optional exam scope — defaults to "all exams for this teacher" for
+    # back-compat, but the dashboard now passes the currently-selected
+    # exam so Clear Sessions only touches that exam's data.
+    raw_eid = body.get("exam_id") or None
+    exam_id_scope: str | None = str(raw_eid).strip() or None if raw_eid else None
 
     if step == "request":
-        active, stale = _partition_live_sessions(tid)
+        active, stale = _partition_live_sessions(
+            tid, exam_id=exam_id_scope, include_active=include_active,
+        )
         # Optionally include completed sessions in the wipe.
         completed_rows: list[dict] = []
         if include_completed:
-            comp = supabase.table("exam_sessions")\
-                .select("session_key,roll_number,full_name,started_at,submitted_at")\
+            comp_q = supabase.table("exam_sessions")\
+                .select("session_key,roll_number,full_name,started_at,submitted_at,exam_id")\
                 .eq("teacher_id", tid)\
-                .eq("status", "completed")\
-                .execute()
+                .eq("status", "completed")
+            if exam_id_scope:
+                comp_q = comp_q.eq("exam_id", exam_id_scope)
+            comp = comp_q.execute()
             completed_rows = comp.data or []
         token = _clear_token_issue(tid)
         return {
@@ -3915,6 +3969,8 @@ def clear_live_sessions(request: Request, body: dict = Body(...)):
             "expires_in":     _CLEAR_TOKEN_TTL,
             "active_window_s": _CLEAR_ACTIVE_WINDOW,
             "include_completed": include_completed,
+            "include_active":    include_active,
+            "exam_id":           exam_id_scope or "",
             # Total live sessions (for display). Only `stale_count` will
             # actually be deleted on confirm — `active_count` students
             # are protected while they're still sending heartbeats.
@@ -3958,17 +4014,23 @@ def clear_live_sessions(request: Request, body: dict = Body(...)):
 
         # Re-classify RIGHT NOW, not off a preview that may be stale.
         # If a student resumed or started since the request step, their
-        # session will now be "active" and we MUST skip it.
-        active, stale = _partition_live_sessions(tid)
+        # session will now be "active" — we skip it UNLESS the caller
+        # explicitly passed include_active=True.
+        active, stale = _partition_live_sessions(
+            tid, exam_id=exam_id_scope, include_active=include_active,
+        )
 
         # Optionally include completed sessions.
         completed_keys: list[str] = []
+        comp = None
         if include_completed:
-            comp = supabase.table("exam_sessions")\
-                .select("session_key,roll_number")\
+            comp_q = supabase.table("exam_sessions")\
+                .select("session_key,roll_number,exam_id")\
                 .eq("teacher_id", tid)\
-                .eq("status", "completed")\
-                .execute()
+                .eq("status", "completed")
+            if exam_id_scope:
+                comp_q = comp_q.eq("exam_id", exam_id_scope)
+            comp = comp_q.execute()
             completed_keys = [r["session_key"] for r in (comp.data or [])]
 
         if not stale and not completed_keys:

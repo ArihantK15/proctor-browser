@@ -991,6 +991,10 @@
             <input type="checkbox" id="clear-include-completed" onchange="_clearLiveReset()">
             <span>Include completed (submitted) sessions</span>
           </label>
+          <label class="shuffle-toggle" style="margin-top:4px;color:var(--red)">
+            <input type="checkbox" id="clear-include-active" onchange="_clearLiveReset()">
+            <span>Also force-wipe <b>active</b> sessions (kicks students out mid-exam)</span>
+          </label>
           <div class="tool-card-result" id="clear-live-preview" style="font-size:12px;color:var(--muted)"></div>
         </div>
         <div class="tool-card-actions">
@@ -1149,7 +1153,10 @@ let resSortKey = 'submitted_at', resSortAsc = false;
 let currentSessionId = null;
 let autoRefreshTimer = null;
 let currentTeacherId = null;
-let currentExamId = null;
+// Restore the previously-selected exam across page refreshes. Without
+// this, F5 silently swaps you to examsList[0], and live sessions / results
+// / schedule all blank out because they filter by exam_id.
+let currentExamId = localStorage.getItem('procta_current_exam') || null;
 let examsList = [];
 let _refreshGen = 0; // incremented on exam switch to discard stale responses
 
@@ -1349,6 +1356,7 @@ async function loadExams(){
       sel.value = currentExamId;
     } else if(examsList.length){
       currentExamId = examsList[0].exam_id;
+      try{ localStorage.setItem('procta_current_exam', currentExamId || ''); }catch(_){}
       sel.value = currentExamId;
     }
     document.getElementById('exam-bar').style.display = 'flex';
@@ -1360,6 +1368,7 @@ async function loadExams(){
 
 function onExamSwitch(examId){
   currentExamId = examId;
+  try{ localStorage.setItem('procta_current_exam', examId || ''); }catch(_){}
   document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
   // Reset data and reload everything for the new exam
   liveData = []; resultsData = []; qData = [];
@@ -1460,6 +1469,7 @@ function doLogout(){
     if(typeof resultsData !== 'undefined') resultsData = [];
     if(typeof currentSessionId !== 'undefined') currentSessionId = null;
     currentExamId = null; examsList = [];
+    try{ localStorage.removeItem('procta_current_exam'); }catch(_){}
     document.querySelectorAll('#live-body, #results-body').forEach(el=>el.innerHTML='');
   }catch(_){}
   chatDisconnect();
@@ -1565,6 +1575,12 @@ function switchTab(tab){
     if(typeof chatClearTabBadge==='function') chatClearTabBadge();
   }
   if(tab==='analytics') loadAnalytics();
+  if(tab==='tools'){
+    try{ if(typeof loadRegisteredCount==='function') loadRegisteredCount(); }catch(_){}
+    try{ if(typeof loadAccessCode==='function') loadAccessCode(); }catch(_){}
+    try{ if(typeof loadSchedule==='function') loadSchedule(); }catch(_){}
+    try{ if(typeof loadShuffleConfig==='function') loadShuffleConfig(); }catch(_){}
+  }
 }
 
 // ── REFRESH ─────────────────────────────────────────────────────
@@ -1692,12 +1708,51 @@ async function refreshLive(){
 
 function renderLiveStats(active, all){
   const el = document.getElementById('live-stats');
-  const submitted = all.filter(s=>s.submitted).length;
+  // Prefer server-side classification. Old servers won't send live_state —
+  // fall back to the legacy `submitted` boolean so the page still works
+  // during a rolling deploy.
+  const hasState = all.some(s=>s.live_state);
+  const liveCount = hasState
+    ? all.filter(s=>s.live_state==='live').length
+    : active.length;
+  const staleCount = hasState
+    ? all.filter(s=>s.live_state==='stale').length
+    : 0;
+  const submitted = hasState
+    ? all.filter(s=>s.live_state==='submitted').length
+    : all.filter(s=>s.submitted).length;
+  // Show a Stale pill only when there's actually something to flag —
+  // keeps the dashboard clean on a quiet exam.
+  const staleCell = staleCount>0
+    ? `<div class="stat"><div class="label">Stale</div><div class="value" style="color:var(--muted)">${staleCount}</div></div>`
+    : '';
   el.innerHTML=`
-    <div class="stat"><div class="label">Active Now</div><div class="value green">${active.length}</div></div>
+    <div class="stat"><div class="label">Active Now</div><div class="value green">${liveCount}</div></div>
+    ${staleCell}
     <div class="stat"><div class="label">Submitted</div><div class="value blue">${submitted}</div></div>
     <div class="stat"><div class="label">Total Sessions</div><div class="value">${all.length}</div></div>
   `;
+}
+
+function _liveStateFor(s){
+  // Centralised so the table row, detail view, and any future pill all
+  // agree. Keep backwards-compat with servers that only send `submitted`.
+  if(s.live_state) return s.live_state;
+  return s.submitted ? 'submitted' : 'live';
+}
+
+function _liveBadge(s){
+  const state = _liveStateFor(s);
+  if(state==='submitted') return {cls:'status-submitted', txt:'Submitted', title:''};
+  if(state==='stale'){
+    const age = s.heartbeat_age_sec;
+    const ago = age==null ? 'no heartbeat received'
+              : age>3600   ? `last heartbeat ${Math.floor(age/3600)}h ago`
+              : age>60     ? `last heartbeat ${Math.floor(age/60)}m ago`
+              : `last heartbeat ${age}s ago`;
+    return {cls:'status-stale', txt:'Stale', title:ago};
+  }
+  return {cls:'status-live', txt:'Live', title:''};
 }
 
 function renderLive(){
@@ -1711,8 +1766,10 @@ function renderLive(){
   });
   const tb = document.getElementById('live-body');
   tb.innerHTML = rows.map(s=>{
-    const statusCls = s.submitted?'status-submitted':'status-live';
-    const statusTxt = s.submitted?'Submitted':'Live';
+    const badge = _liveBadge(s);
+    const statusCls = badge.cls;
+    const statusTxt = badge.txt;
+    const statusTitle = badge.title ? ` title="${esc(badge.title)}"` : '';
     const sevColor = s.last_severity==='high'?'var(--red)':s.last_severity==='medium'?'var(--amber)':'var(--muted)';
     const roll = s.session_id.split('_')[0];
     const sid = esc(s.session_id);
@@ -1727,7 +1784,7 @@ function renderLive(){
       <td style="color:${sevColor};font-weight:600">${esc(s.last_severity.toUpperCase())}</td>
       <td style="color:${riskColor};font-weight:600">${riskTxt}</td>
       <td style="font-size:12px">${esc(s.last_seen)}</td>
-      <td><span class="status-badge ${statusCls}">${statusTxt}</span></td>
+      <td><span class="status-badge ${statusCls}"${statusTitle}>${statusTxt}</span></td>
       <td>
         <button class="action-btn" onclick="viewRisk('${escJs(sid)}')" style="padding:4px 10px;font-size:11px">Risk</button>
         <button class="action-btn" onclick="currentSessionId='${escJs(sid)}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
@@ -2059,6 +2116,9 @@ function _clearLiveReset(){
 function _clearIncludeCompleted(){
   return document.getElementById('clear-include-completed')?.checked || false;
 }
+function _clearIncludeActive(){
+  return document.getElementById('clear-include-active')?.checked || false;
+}
 
 async function clearLiveSessionsStep(){
   const btn=document.getElementById('clear-live-btn');
@@ -2066,6 +2126,11 @@ async function clearLiveSessionsStep(){
   const out=document.getElementById('clear-live-result');
   out.textContent='';
   const inclComp=_clearIncludeCompleted();
+  const inclActive=_clearIncludeActive();
+  // Scope the wipe to the currently-selected exam when one is picked
+  // (multi-exam teachers). Fall back to "" which the backend reads as
+  // "all exams for this teacher" — preserving single-exam behaviour.
+  const examScope=currentExamId||'';
 
   if(_clearLiveState==='idle'){
     btn.disabled=true;
@@ -2074,7 +2139,12 @@ async function clearLiveSessionsStep(){
       const r=await authFetch(`${BASE}/api/admin/clear-live-sessions`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({step:'request', include_completed:inclComp})
+        body:JSON.stringify({
+          step:'request',
+          include_completed:inclComp,
+          include_active:inclActive,
+          exam_id:examScope,
+        })
       });
       if(!r.ok){
         const err=await r.json().catch(()=>({detail:'Request failed'}));
@@ -2126,7 +2196,10 @@ async function clearLiveSessionsStep(){
 
   if(_clearLiveState==='first'){
     _clearLiveState='final';
-    const extra=inclComp?' INCLUDING completed results':'';
+    const bits=[];
+    if(inclComp) bits.push('completed results');
+    if(inclActive) bits.push('ACTIVE students (forced out mid-exam)');
+    const extra=bits.length?' INCLUDING '+bits.join(' + '):'';
     btn.textContent=`This deletes answers, violations & screenshots${extra}. Click once more to wipe ${_clearLiveCount}.`;
     btn.style.color='var(--red)';
     return;
@@ -2139,7 +2212,14 @@ async function clearLiveSessionsStep(){
       const r=await authFetch(`${BASE}/api/admin/clear-live-sessions`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({step:'confirm', token:_clearLiveToken, ack:'DELETE', include_completed:inclComp})
+        body:JSON.stringify({
+          step:'confirm',
+          token:_clearLiveToken,
+          ack:'DELETE',
+          include_completed:inclComp,
+          include_active:inclActive,
+          exam_id:examScope,
+        })
       });
       if(!r.ok){
         const err=await r.json().catch(()=>({detail:'Failed'}));

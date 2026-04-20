@@ -3,7 +3,7 @@ const {
   globalShortcut, powerSaveBlocker, clipboard
 } = require('electron');
 const path    = require('path');
-const { spawn, spawnSync, execSync } = require('child_process');
+const { spawn, spawnSync, execSync, exec } = require('child_process');
 const os      = require('os');
 const fs      = require('fs');
 const https   = require('https');
@@ -34,17 +34,35 @@ let resolvedPython = null;
 let integrityFlags = []; // populated at startup, sent to renderer
 let _monitorInterval = null; // continuous process monitoring during exam
 
-// ── VM / INTEGRITY CHECKS ────────────────────────────────────────
-function runIntegrityChecks() {
+// ── VM / INTEGRITY CHECKS (fully async — never blocks UI) ───────
+//
+// Every shell command uses child_process.exec (async) instead of
+// execSync. On Windows this eliminates the 20-40 second startup freeze
+// caused by `systeminfo` + 3x `tasklist` + `reg query` all running
+// synchronously before the window was created.
+//
+// The flow is:
+//   1. app.whenReady → show lobby window IMMEDIATELY
+//   2. runIntegrityChecks() runs in background (async)
+//   3. Results stored in `integrityFlags` for renderer to fetch
+
+// Promise-wrapped exec helper
+function _exec(cmd, timeout = 8000) {
+  return new Promise(resolve => {
+    exec(cmd, { encoding: 'utf8', timeout }, (err, stdout) => {
+      resolve(err ? '' : stdout);
+    });
+  });
+}
+
+async function runIntegrityChecks() {
   const flags = [];
   const isWin = process.platform === 'win32';
   const isMac = process.platform === 'darwin';
 
-  // 1. VM Detection — GPU renderer string
-  //    Checked after app is ready via webContents GPU info
-  //    (deferred to after window creation — see _checkGPU)
+  // ── Instant checks (no shell, pure Node.js) ──────────────────
 
-  // 2. VM Detection — MAC address prefixes (common VM vendors)
+  // 1. VM Detection — MAC address prefixes
   const VM_MAC_PREFIXES = [
     '00:05:69', '00:0c:29', '00:1c:14', '00:50:56',           // VMware
     '08:00:27',                                                  // VirtualBox
@@ -60,136 +78,196 @@ function runIntegrityChecks() {
         if (a.mac && a.mac !== '00:00:00:00:00:00') {
           const prefix = a.mac.substring(0, 8).toLowerCase();
           if (VM_MAC_PREFIXES.includes(prefix)) {
-            flags.push({
-              type: 'vm_detected',
-              severity: 'high',
-              details: `VM MAC address detected (${a.mac}, interface: ${name})`
-            });
+            flags.push({ type: 'vm_detected', severity: 'high',
+              details: `VM MAC address detected (${a.mac}, interface: ${name})` });
           }
         }
       }
     }
-  } catch(e) { console.error('[Integrity] MAC check error:', e.message); }
+  } catch(e) {}
 
-  // 3. VM Detection — platform-specific checks
-  if (isWin) {
-    try {
-      // Check for VM-related services/drivers in systeminfo
-      const info = execSync('systeminfo', { encoding: 'utf8', timeout: 10000 });
-      const vmKeywords = ['vmware', 'virtualbox', 'hyper-v', 'qemu', 'xen', 'parallels'];
-      const lower = info.toLowerCase();
-      for (const kw of vmKeywords) {
-        if (lower.includes(kw)) {
-          flags.push({
-            type: 'vm_detected',
-            severity: 'high',
-            details: `VM indicator in system info: ${kw}`
-          });
-          break; // one flag is enough
-        }
-      }
-    } catch(e) {}
-
-    // Check for VM-related processes
-    try {
-      const tasks = execSync('tasklist /fo csv /nh', { encoding: 'utf8', timeout: 8000 });
-      const vmProcesses = [
-        'vmtoolsd.exe', 'vmwaretray.exe', 'VBoxService.exe', 'VBoxTray.exe',
-        'vmcompute.exe', 'xenservice.exe',
-      ];
-      const remoteProcesses = [
-        'TeamViewer.exe', 'AnyDesk.exe', 'mstsc.exe', 'vncviewer.exe',
-        'Chrome Remote Desktop Host', 'rustdesk.exe', 'parsec.exe',
-        'ScreenConnect', 'LogMeIn',
-      ];
-      const screenShareProcesses = [
-        'obs64.exe', 'obs32.exe', 'OBS Studio',
-        'DiscordPTB.exe', 'Discord.exe',
-      ];
-      const tasksLower = tasks.toLowerCase();
-
-      for (const p of vmProcesses) {
-        if (tasksLower.includes(p.toLowerCase())) {
-          flags.push({
-            type: 'vm_detected',
-            severity: 'high',
-            details: `VM process running: ${p}`
-          });
-        }
-      }
-      for (const p of remoteProcesses) {
-        if (tasksLower.includes(p.toLowerCase())) {
-          flags.push({
-            type: 'remote_desktop_detected',
-            severity: 'high',
-            details: `Remote desktop software detected: ${p}`
-          });
-        }
-      }
-      for (const p of screenShareProcesses) {
-        if (tasksLower.includes(p.toLowerCase())) {
-          flags.push({
-            type: 'screen_share_detected',
-            severity: 'medium',
-            details: `Screen sharing software detected: ${p}`
-          });
-        }
-      }
-    } catch(e) {}
-  }
-
-  if (isMac) {
-    try {
-      const procs = execSync('ps -eo comm', { encoding: 'utf8', timeout: 5000 });
-      const procsLower = procs.toLowerCase();
-      const macChecks = [
-        { proc: 'vmware', type: 'vm_detected', sev: 'high' },
-        { proc: 'VBoxHeadless', type: 'vm_detected', sev: 'high' },
-        { proc: 'parallels', type: 'vm_detected', sev: 'high' },
-        { proc: 'TeamViewer', type: 'remote_desktop_detected', sev: 'high' },
-        { proc: 'AnyDesk', type: 'remote_desktop_detected', sev: 'high' },
-        { proc: 'screensharingd', type: 'screen_share_detected', sev: 'medium' },
-        { proc: 'obs', type: 'screen_share_detected', sev: 'medium' },
-      ];
-      for (const { proc, type, sev } of macChecks) {
-        if (procsLower.includes(proc.toLowerCase())) {
-          flags.push({
-            type, severity: sev,
-            details: `Detected: ${proc}`
-          });
-        }
-      }
-    } catch(e) {}
-
-    // Check for VM via sysctl (macOS-specific)
-    try {
-      const hw = execSync('sysctl -n machdep.cpu.brand_string', { encoding: 'utf8', timeout: 3000 });
-      if (hw.toLowerCase().includes('qemu') || hw.toLowerCase().includes('virtual')) {
-        flags.push({
-          type: 'vm_detected', severity: 'high',
-          details: `Virtual CPU detected: ${hw.trim()}`
-        });
-      }
-    } catch(e) {}
-  }
-
-  // 4. Multiple monitors check
+  // 2. VPN network interfaces (tun/tap/utun/ppp/wg adapters)
   try {
-    const displays = screen.getAllDisplays();
-    if (displays.length > 1) {
-      flags.push({
-        type: 'multiple_monitors',
-        severity: 'medium',
-        details: `${displays.length} displays detected — potential screen sharing setup`
-      });
+    const nets = os.networkInterfaces();
+    const VPN_IFACE = [/^tun\d/i,/^tap\d/i,/^utun\d/i,/^ppp\d/i,/^wg\d/i,
+      /^tailscale/i,/^zt[a-z0-9]/i,/^gpd\d/i,/^proton/i,/^nordlynx/i];
+    for (const [name, addrs] of Object.entries(nets)) {
+      for (const pat of VPN_IFACE) {
+        if (pat.test(name) && addrs.some(a => !a.internal && a.address !== '127.0.0.1')) {
+          flags.push({ type: 'vpn_detected', severity: 'high',
+            details: `VPN/tunnel network interface active: ${name}` });
+          break;
+        }
+      }
     }
   } catch(e) {}
 
-  // 5. Network integrity — VPN / proxy / tunnel detection
-  flags.push(..._checkNetworkIntegrity());
+  // 3. Multiple monitors
+  try {
+    const displays = screen.getAllDisplays();
+    if (displays.length > 1) {
+      flags.push({ type: 'multiple_monitors', severity: 'medium',
+        details: `${displays.length} displays detected` });
+    }
+  } catch(e) {}
 
-  // 6. Debugger detection
-  flags.push(..._checkDebugger());
+  // 4. Proxy environment variables
+  const PROXY_VARS = ['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY',
+                       'http_proxy','https_proxy','all_proxy','socks_proxy'];
+  for (const v of PROXY_VARS) {
+    if (process.env[v]) {
+      flags.push({ type: 'proxy_detected', severity: 'high',
+        details: `Proxy env var: ${v}=${process.env[v]}` });
+      break;
+    }
+  }
+
+  // 5. Electron debug flags
+  if (process.argv.some(a => a.includes('--inspect') || a.includes('--remote-debugging-port'))) {
+    flags.push({ type: 'debugger_detected', severity: 'high',
+      details: 'Launched with debugging flags (--inspect or --remote-debugging-port)' });
+  }
+
+  // ── Async shell checks (run in parallel, never block UI) ─────
+
+  // All process lists for VM/VPN/remote/debugger detection
+  const ALL_PROCESSES = {
+    vm: [
+      'vmtoolsd', 'vmwaretray', 'VBoxService', 'VBoxTray',
+      'vmcompute', 'xenservice',
+    ],
+    remote: [
+      'TeamViewer', 'AnyDesk', 'mstsc', 'vncviewer',
+      'Chrome Remote Desktop', 'rustdesk', 'parsec',
+      'ScreenConnect', 'LogMeIn',
+    ],
+    screen_share: [
+      'obs64', 'obs32', 'OBS Studio', 'Discord',
+      'screensharingd',
+    ],
+    vpn: [
+      'openvpn', 'nordvpn', 'expressvpn', 'surfshark', 'protonvpn',
+      'cyberghost', 'windscribe', 'privateinternetaccess', 'pia-service',
+      'mullvad', 'wireguard', 'wg.exe', 'tailscale', 'zerotier',
+      'v2ray', 'v2rayn', 'xray', 'clash', 'shadowsocks', 'ss-local',
+      'tor', 'torbrowser', 'hotspotshield', 'tunnelbear',
+      'globalprotect', 'pangps', 'forticlient', 'fortisslvpn',
+      'vpnagent', 'vpnui', 'checkpoint', 'snx',
+      'psiphon', 'ultrasurf', 'freegate',
+    ],
+    debugger: [
+      'fiddler', 'charles', 'wireshark', 'burpsuite',
+      'mitmproxy', 'mitmweb', 'mitmdump', 'proxyman',
+      'httpdebugger', 'httpanalyzer',
+    ],
+  };
+
+  const TYPE_MAP = {
+    vm: 'vm_detected', remote: 'remote_desktop_detected',
+    screen_share: 'screen_share_detected', vpn: 'vpn_detected',
+    debugger: 'debugger_detected',
+  };
+
+  // Fire all async checks in parallel
+  const tasks = [];
+
+  // 6. Process list — ONE call, scan for everything
+  if (isWin) {
+    tasks.push(
+      _exec('tasklist /fo csv /nh', 8000).then(output => {
+        if (!output) return;
+        const lower = output.toLowerCase();
+        for (const [cat, procs] of Object.entries(ALL_PROCESSES)) {
+          for (const p of procs) {
+            if (lower.includes(p.toLowerCase())) {
+              flags.push({ type: TYPE_MAP[cat],
+                severity: cat === 'screen_share' ? 'medium' : 'high',
+                details: `${p} detected` });
+            }
+          }
+        }
+      })
+    );
+  } else if (isMac) {
+    tasks.push(
+      _exec('ps -eo comm', 5000).then(output => {
+        if (!output) return;
+        const lower = output.toLowerCase();
+        for (const [cat, procs] of Object.entries(ALL_PROCESSES)) {
+          for (const p of procs) {
+            if (lower.includes(p.toLowerCase())) {
+              flags.push({ type: TYPE_MAP[cat],
+                severity: cat === 'screen_share' ? 'medium' : 'high',
+                details: `${p} detected` });
+            }
+          }
+        }
+      })
+    );
+  }
+
+  // 7. VM detection via BIOS/model (replaces slow `systeminfo`)
+  if (isWin) {
+    // wmic is instant (<0.5s) vs systeminfo (5-15s)
+    tasks.push(
+      _exec('wmic computersystem get model,manufacturer /format:list', 5000).then(output => {
+        if (!output) return;
+        const lower = output.toLowerCase();
+        const vmKw = ['vmware', 'virtualbox', 'hyper-v', 'qemu', 'xen', 'parallels', 'virtual machine'];
+        for (const kw of vmKw) {
+          if (lower.includes(kw)) {
+            flags.push({ type: 'vm_detected', severity: 'high',
+              details: `VM indicator in hardware info: ${kw}` });
+            break;
+          }
+        }
+      })
+    );
+    // Windows proxy registry check
+    tasks.push(
+      _exec('reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable', 5000)
+        .then(output => {
+          if (output && /ProxyEnable\s+REG_DWORD\s+0x1/i.test(output)) {
+            flags.push({ type: 'proxy_detected', severity: 'high',
+              details: 'Windows system proxy is enabled' });
+          }
+        })
+    );
+  }
+
+  if (isMac) {
+    // macOS VM via CPU brand
+    tasks.push(
+      _exec('sysctl -n machdep.cpu.brand_string', 3000).then(output => {
+        if (!output) return;
+        const lower = output.toLowerCase();
+        if (lower.includes('qemu') || lower.includes('virtual')) {
+          flags.push({ type: 'vm_detected', severity: 'high',
+            details: `Virtual CPU: ${output.trim()}` });
+        }
+      })
+    );
+    // macOS system proxy
+    tasks.push(
+      _exec('scutil --proxy', 3000).then(output => {
+        if (!output) return;
+        const http = /HTTPEnable\s*:\s*1/i.test(output);
+        const https = /HTTPSEnable\s*:\s*1/i.test(output);
+        const socks = /SOCKSEnable\s*:\s*1/i.test(output);
+        if (http || https || socks) {
+          const types = [];
+          if (http) types.push('HTTP');
+          if (https) types.push('HTTPS');
+          if (socks) types.push('SOCKS');
+          flags.push({ type: 'proxy_detected', severity: 'high',
+            details: `System proxy active: ${types.join(', ')}` });
+        }
+      })
+    );
+  }
+
+  // Wait for ALL async checks (they run in parallel, ~1-2s total)
+  await Promise.all(tasks);
 
   console.log(`[Integrity] ${flags.length} flag(s) found`);
   for (const f of flags) {
@@ -198,273 +276,42 @@ function runIntegrityChecks() {
   return flags;
 }
 
-// ── NETWORK INTEGRITY ────────────────────────────────────────────
-// Detects VPNs, proxies, and tunnels by checking network interfaces,
-// running processes, and environment variables.
-function _checkNetworkIntegrity() {
-  const flags = [];
-  const isWin = process.platform === 'win32';
-  const isMac = process.platform === 'darwin';
-
-  // 5a. VPN network interfaces (tun/tap/utun/ppp adapters)
-  try {
-    const nets = os.networkInterfaces();
-    const VPN_IFACE_PATTERNS = [
-      /^tun\d/i, /^tap\d/i, /^utun\d/i, /^ppp\d/i,
-      /^wg\d/i,          // WireGuard
-      /^tailscale/i,     // Tailscale
-      /^zt[a-z0-9]/i,    // ZeroTier
-      /^gpd\d/i,         // GlobalProtect
-      /^proton/i,        // ProtonVPN
-      /^nordlynx/i,      // NordVPN (WireGuard variant)
-    ];
-    for (const [name, addrs] of Object.entries(nets)) {
-      for (const pat of VPN_IFACE_PATTERNS) {
-        if (pat.test(name)) {
-          // Verify the interface actually has a non-link-local address
-          const hasIp = addrs.some(a => !a.internal && a.address !== '127.0.0.1');
-          if (hasIp) {
-            flags.push({
-              type: 'vpn_detected',
-              severity: 'high',
-              details: `VPN/tunnel network interface active: ${name}`
-            });
-          }
-          break;
-        }
-      }
-    }
-  } catch(e) { console.error('[Integrity] network interface check error:', e.message); }
-
-  // 5b. VPN processes
-  const VPN_PROCESSES_WIN = [
-    'openvpn.exe', 'openvpn-gui.exe',
-    'nordvpn.exe', 'nordvpn-service.exe', 'nordlynx-service.exe',
-    'expressvpn.exe', 'expressvpnd.exe',
-    'surfshark.exe', 'surfshark-service.exe',
-    'protonvpn.exe', 'protonvpn-service.exe',
-    'cyberghost.exe', 'cyberghostvpn.exe',
-    'windscribe.exe', 'windscribeservice.exe',
-    'privateinternetaccess.exe', 'pia-service.exe',
-    'mullvad-daemon.exe', 'mullvad-vpn.exe',
-    'wireguard.exe', 'wg.exe',
-    'tailscaled.exe', 'tailscale-ipn.exe',
-    'zerotier-one.exe',
-    'v2ray.exe', 'v2rayn.exe', 'xray.exe', 'clash.exe', 'clash-meta.exe',
-    'shadowsocks.exe', 'ss-local.exe',
-    'tor.exe', 'torbrowser.exe',
-    'hotspotshield.exe', 'hsscp.exe',
-    'tunnelbear.exe',
-    'globalprotect.exe', 'pangps.exe', 'pangpa.exe',
-    'forticlient.exe', 'fortisslvpn.exe',
-    'ciscoampservice.exe', 'vpnagent.exe', 'vpnui.exe',
-    'snx.exe', 'checkpoint.exe',
-    'psiphon3.exe', 'ultrasurf.exe', 'freegate.exe',
-  ];
-  const VPN_PROCESSES_MAC = [
-    'openvpn', 'nordvpnd', 'NordVPN IKE', 'NordVPN',
-    'ExpressVPN', 'expressvpn', 'lightway',
-    'Surfshark', 'surfsharkd',
-    'ProtonVPN', 'protonvpn',
-    'CyberGhost', 'cyberghostvpn',
-    'Windscribe', 'windscribed',
-    'pia-daemon', 'Private Internet Access',
-    'mullvad-daemon', 'Mullvad VPN',
-    'wireguard-go', 'wg-quick',
-    'tailscaled',
-    'zerotier-one',
-    'v2ray', 'xray', 'clash', 'clash-meta',
-    'ss-local', 'sslocal',
-    'tor',
-    'TunnelBear', 'tunnelbeard',
-    'GlobalProtect', 'PanGPS',
-    'FortiClient', 'fortivpn',
-    'Cisco AnyConnect', 'vpnagentd',
-    'Psiphon',
-  ];
-
-  if (isWin) {
-    try {
-      const tasks = execSync('tasklist /fo csv /nh', { encoding: 'utf8', timeout: 8000 });
-      const tasksLower = tasks.toLowerCase();
-      const found = new Set();
-      for (const p of VPN_PROCESSES_WIN) {
-        if (tasksLower.includes(p.toLowerCase()) && !found.has(p.toLowerCase())) {
-          found.add(p.toLowerCase());
-          flags.push({
-            type: 'vpn_detected',
-            severity: 'high',
-            details: `VPN/proxy process running: ${p}`
-          });
-        }
-      }
-    } catch(e) {}
-  }
-
-  if (isMac) {
-    try {
-      const procs = execSync('ps -eo comm', { encoding: 'utf8', timeout: 5000 });
-      const procsLower = procs.toLowerCase();
-      const found = new Set();
-      for (const p of VPN_PROCESSES_MAC) {
-        if (procsLower.includes(p.toLowerCase()) && !found.has(p.toLowerCase())) {
-          found.add(p.toLowerCase());
-          flags.push({
-            type: 'vpn_detected',
-            severity: 'high',
-            details: `VPN/proxy process running: ${p}`
-          });
-        }
-      }
-    } catch(e) {}
-  }
-
-  // 5c. Proxy environment variables
-  const PROXY_VARS = ['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY',
-                       'http_proxy','https_proxy','all_proxy','socks_proxy'];
-  for (const v of PROXY_VARS) {
-    if (process.env[v]) {
-      flags.push({
-        type: 'proxy_detected',
-        severity: 'high',
-        details: `Proxy environment variable set: ${v}=${process.env[v]}`
-      });
-      break; // one is enough
-    }
-  }
-
-  // 5d. System proxy check (macOS)
-  if (isMac) {
-    try {
-      const scutil = execSync('scutil --proxy', { encoding: 'utf8', timeout: 3000 });
-      // Check for active HTTP/HTTPS/SOCKS proxies
-      const httpEnabled = /HTTPEnable\s*:\s*1/i.test(scutil);
-      const httpsEnabled = /HTTPSEnable\s*:\s*1/i.test(scutil);
-      const socksEnabled = /SOCKSEnable\s*:\s*1/i.test(scutil);
-      if (httpEnabled || httpsEnabled || socksEnabled) {
-        const types = [];
-        if (httpEnabled) types.push('HTTP');
-        if (httpsEnabled) types.push('HTTPS');
-        if (socksEnabled) types.push('SOCKS');
-        flags.push({
-          type: 'proxy_detected',
-          severity: 'high',
-          details: `System proxy active: ${types.join(', ')}`
-        });
-      }
-    } catch(e) {}
-  }
-
-  // 5e. System proxy check (Windows)
-  if (isWin) {
-    try {
-      const reg = execSync(
-        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable',
-        { encoding: 'utf8', timeout: 5000 });
-      if (/ProxyEnable\s+REG_DWORD\s+0x1/i.test(reg)) {
-        flags.push({
-          type: 'proxy_detected',
-          severity: 'high',
-          details: 'Windows system proxy is enabled'
-        });
-      }
-    } catch(e) {}
-  }
-
-  // 5f. DNS-over-HTTPS / custom DNS (macOS)
-  if (isMac) {
-    try {
-      const dns = execSync('scutil --dns 2>/dev/null | head -30', { encoding: 'utf8', timeout: 3000 });
-      const SUSPICIOUS_DNS = ['1.1.1.1', '8.8.8.8', '9.9.9.9', '208.67.222.222',
-                              'cloudflare', 'nextdns', 'adguard'];
-      const dnsLower = dns.toLowerCase();
-      for (const d of SUSPICIOUS_DNS) {
-        if (dnsLower.includes(d.toLowerCase())) {
-          flags.push({
-            type: 'custom_dns',
-            severity: 'low',
-            details: `Custom/third-party DNS detected: ${d}`
-          });
-          break;
-        }
-      }
-    } catch(e) {}
-  }
-
-  return flags;
-}
-
-// ── DEBUGGER / DEV TOOLS DETECTION ───────────────────────────────
-function _checkDebugger() {
-  const flags = [];
-  const isWin = process.platform === 'win32';
-  const isMac = process.platform === 'darwin';
-
-  // Check for debugging-related processes
-  const DEBUG_PROCESSES_WIN = [
-    'fiddler.exe', 'charles.exe', 'wireshark.exe',
-    'burpsuite.exe', 'mitmproxy.exe', 'proxyman.exe',
-    'httpdebugger.exe', 'httpanalyzer.exe',
-  ];
-  const DEBUG_PROCESSES_MAC = [
-    'Charles Proxy', 'charles', 'Wireshark', 'wireshark',
-    'Proxyman', 'mitmproxy', 'mitmweb', 'mitmdump',
-    'Burp Suite',
-  ];
-
-  if (isWin) {
-    try {
-      const tasks = execSync('tasklist /fo csv /nh', { encoding: 'utf8', timeout: 8000 });
-      const tasksLower = tasks.toLowerCase();
-      for (const p of DEBUG_PROCESSES_WIN) {
-        if (tasksLower.includes(p.toLowerCase())) {
-          flags.push({
-            type: 'debugger_detected',
-            severity: 'high',
-            details: `Network debugging tool running: ${p}`
-          });
-        }
-      }
-    } catch(e) {}
-  }
-
-  if (isMac) {
-    try {
-      const procs = execSync('ps -eo comm', { encoding: 'utf8', timeout: 5000 });
-      const procsLower = procs.toLowerCase();
-      for (const p of DEBUG_PROCESSES_MAC) {
-        if (procsLower.includes(p.toLowerCase())) {
-          flags.push({
-            type: 'debugger_detected',
-            severity: 'high',
-            details: `Network debugging tool running: ${p}`
-          });
-        }
-      }
-    } catch(e) {}
-  }
-
-  // Check for Electron debug flags
-  if (process.argv.some(a => a.includes('--inspect') || a.includes('--remote-debugging-port'))) {
-    flags.push({
-      type: 'debugger_detected',
-      severity: 'high',
-      details: 'Electron launched with debugging flags (--inspect or --remote-debugging-port)'
-    });
-  }
-
-  return flags;
-}
-
 // ── CONTINUOUS PROCESS MONITORING ────────────────────────────────
-// Runs every 30s during an active exam to catch tools launched AFTER
-// the initial integrity check. New detections are logged as violations.
+// Runs every 30s during an active exam using async exec.
+// Never blocks the main thread.
+
+const THREATS = [
+  { proc: 'TeamViewer', type: 'remote_desktop_detected' },
+  { proc: 'AnyDesk', type: 'remote_desktop_detected' },
+  { proc: 'mstsc', type: 'remote_desktop_detected' },
+  { proc: 'vncviewer', type: 'remote_desktop_detected' },
+  { proc: 'rustdesk', type: 'remote_desktop_detected' },
+  { proc: 'parsec', type: 'remote_desktop_detected' },
+  { proc: 'obs64', type: 'screen_share_detected' },
+  { proc: 'obs32', type: 'screen_share_detected' },
+  { proc: 'screensharingd', type: 'screen_share_detected' },
+  { proc: 'openvpn', type: 'vpn_detected' },
+  { proc: 'nordvpn', type: 'vpn_detected' },
+  { proc: 'expressvpn', type: 'vpn_detected' },
+  { proc: 'surfshark', type: 'vpn_detected' },
+  { proc: 'protonvpn', type: 'vpn_detected' },
+  { proc: 'wireguard', type: 'vpn_detected' },
+  { proc: 'tailscale', type: 'vpn_detected' },
+  { proc: 'clash', type: 'vpn_detected' },
+  { proc: 'v2ray', type: 'vpn_detected' },
+  { proc: 'tor', type: 'vpn_detected' },
+  { proc: 'fiddler', type: 'debugger_detected' },
+  { proc: 'charles', type: 'debugger_detected' },
+  { proc: 'wireshark', type: 'debugger_detected' },
+  { proc: 'burpsuite', type: 'debugger_detected' },
+  { proc: 'mitmproxy', type: 'debugger_detected' },
+  { proc: 'proxyman', type: 'debugger_detected' },
+];
+
 function startProcessMonitor() {
   if (_monitorInterval) return;
   console.log('[Monitor] starting continuous process monitoring');
-  _monitorInterval = setInterval(() => {
-    _scanProcesses();
-  }, 30000);
+  _monitorInterval = setInterval(() => _scanProcesses(), 30000);
 }
 
 function stopProcessMonitor() {
@@ -475,112 +322,44 @@ function stopProcessMonitor() {
   }
 }
 
-function _scanProcesses() {
+async function _scanProcesses() {
   const isWin = process.platform === 'win32';
-  const isMac = process.platform === 'darwin';
+  const cmd = isWin ? 'tasklist /fo csv /nh' : 'ps -eo comm';
 
-  // Combined threat list: remote desktop + screen share + VPN + debugger
-  const THREATS_WIN = [
-    { proc: 'TeamViewer.exe', type: 'remote_desktop_detected' },
-    { proc: 'AnyDesk.exe', type: 'remote_desktop_detected' },
-    { proc: 'mstsc.exe', type: 'remote_desktop_detected' },
-    { proc: 'vncviewer.exe', type: 'remote_desktop_detected' },
-    { proc: 'rustdesk.exe', type: 'remote_desktop_detected' },
-    { proc: 'parsec.exe', type: 'remote_desktop_detected' },
-    { proc: 'obs64.exe', type: 'screen_share_detected' },
-    { proc: 'obs32.exe', type: 'screen_share_detected' },
-    { proc: 'openvpn.exe', type: 'vpn_detected' },
-    { proc: 'nordvpn.exe', type: 'vpn_detected' },
-    { proc: 'expressvpn.exe', type: 'vpn_detected' },
-    { proc: 'surfshark.exe', type: 'vpn_detected' },
-    { proc: 'protonvpn.exe', type: 'vpn_detected' },
-    { proc: 'wireguard.exe', type: 'vpn_detected' },
-    { proc: 'tailscaled.exe', type: 'vpn_detected' },
-    { proc: 'clash.exe', type: 'vpn_detected' },
-    { proc: 'v2ray.exe', type: 'vpn_detected' },
-    { proc: 'tor.exe', type: 'vpn_detected' },
-    { proc: 'fiddler.exe', type: 'debugger_detected' },
-    { proc: 'charles.exe', type: 'debugger_detected' },
-    { proc: 'wireshark.exe', type: 'debugger_detected' },
-    { proc: 'burpsuite.exe', type: 'debugger_detected' },
-    { proc: 'mitmproxy.exe', type: 'debugger_detected' },
-  ];
-  const THREATS_MAC = [
-    { proc: 'TeamViewer', type: 'remote_desktop_detected' },
-    { proc: 'AnyDesk', type: 'remote_desktop_detected' },
-    { proc: 'screensharingd', type: 'screen_share_detected' },
-    { proc: 'obs', type: 'screen_share_detected' },
-    { proc: 'openvpn', type: 'vpn_detected' },
-    { proc: 'nordvpnd', type: 'vpn_detected' },
-    { proc: 'ExpressVPN', type: 'vpn_detected' },
-    { proc: 'Surfshark', type: 'vpn_detected' },
-    { proc: 'ProtonVPN', type: 'vpn_detected' },
-    { proc: 'wireguard-go', type: 'vpn_detected' },
-    { proc: 'tailscaled', type: 'vpn_detected' },
-    { proc: 'clash', type: 'vpn_detected' },
-    { proc: 'v2ray', type: 'vpn_detected' },
-    { proc: 'tor', type: 'vpn_detected' },
-    { proc: 'Charles Proxy', type: 'debugger_detected' },
-    { proc: 'Wireshark', type: 'debugger_detected' },
-    { proc: 'Proxyman', type: 'debugger_detected' },
-    { proc: 'mitmproxy', type: 'debugger_detected' },
-  ];
+  const output = await _exec(cmd, 8000);
+  if (!output) return;
+  const lower = output.toLowerCase();
 
-  try {
-    let procList = '';
-    if (isWin) {
-      procList = execSync('tasklist /fo csv /nh', { encoding: 'utf8', timeout: 8000 });
-    } else if (isMac) {
-      procList = execSync('ps -eo comm', { encoding: 'utf8', timeout: 5000 });
-    }
-    const lower = procList.toLowerCase();
-    const threats = isWin ? THREATS_WIN : THREATS_MAC;
-
-    for (const { proc, type } of threats) {
-      if (lower.includes(proc.toLowerCase())) {
-        const flag = {
-          type,
-          severity: 'high',
-          details: `[Live scan] ${proc} detected during exam`
-        };
-        // Report to server immediately
-        if (currentSessionId && studentToken) {
-          fetch(`${SERVER_URL}/event`, {
-            method: 'POST',
-            headers: authHeaders(),
-            body: JSON.stringify({
-              session_id: currentSessionId,
-              event_type: type,
-              severity: 'high',
-              details: flag.details,
-            }),
-          }).catch(() => {});
-        }
-        // Also push to renderer for live warning
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('violation-detected', flag);
-        }
-        console.log(`[Monitor] THREAT: ${proc} (${type})`);
-      }
-    }
-  } catch(e) { console.error('[Monitor] scan error:', e.message); }
-
-  // Also check for new displays (external monitor plugged in during exam)
-  try {
-    const displays = screen.getAllDisplays();
-    if (displays.length > 1) {
+  for (const { proc, type } of THREATS) {
+    if (lower.includes(proc.toLowerCase())) {
+      const flag = { type, severity: 'high',
+        details: `[Live scan] ${proc} detected during exam` };
+      // Report to server
       if (currentSessionId && studentToken) {
         fetch(`${SERVER_URL}/event`, {
-          method: 'POST',
-          headers: authHeaders(),
-          body: JSON.stringify({
-            session_id: currentSessionId,
-            event_type: 'multiple_monitors',
-            severity: 'medium',
-            details: `[Live scan] ${displays.length} displays detected during exam`,
-          }),
+          method: 'POST', headers: authHeaders(),
+          body: JSON.stringify({ session_id: currentSessionId,
+            event_type: type, severity: 'high', details: flag.details }),
         }).catch(() => {});
       }
+      // Push to renderer
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('violation-detected', flag);
+      }
+      console.log(`[Monitor] THREAT: ${proc} (${type})`);
+    }
+  }
+
+  // Check for new displays
+  try {
+    const displays = screen.getAllDisplays();
+    if (displays.length > 1 && currentSessionId && studentToken) {
+      fetch(`${SERVER_URL}/event`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ session_id: currentSessionId,
+          event_type: 'multiple_monitors', severity: 'medium',
+          details: `[Live scan] ${displays.length} displays detected` }),
+      }).catch(() => {});
     }
   } catch(e) {}
 }
@@ -1486,15 +1265,29 @@ async function handlePanicUnlock(reason) {
 
 // ── APP START ─────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  // Phase 2: NO global shortcut capture at boot — the lobby is unlocked.
-  // Shortcut registration happens inside createExamWindow() when the
-  // student actively enters a proctored exam.
+  // ── STEP 1: Show the lobby window IMMEDIATELY ──────────────────
+  // The user sees the app within milliseconds. Everything else runs
+  // in the background. This fixes the Windows "Not Responding" freeze.
+  createLobbyWindow();
 
-  // Run integrity checks before window creation
-  integrityFlags = runIntegrityChecks();
+  // ── STEP 2: Run integrity checks in background (async) ────────
+  // All shell commands use async exec — zero main-thread blocking.
+  runIntegrityChecks().then(flags => {
+    integrityFlags = flags;
+    console.log(`[Integrity] async checks complete: ${flags.length} flag(s)`);
+  }).catch(e => {
+    console.error('[Integrity] check failed:', e.message);
+    integrityFlags = [];
+  });
 
-  // Windows: auto-setup Python if needed (runs in background while the
-  // lobby is already visible — no need to block the dashboard on this).
+  // ── STEP 3: GPU-based VM check (needs a window) ───────────────
+  if (lobbyWindow) {
+    lobbyWindow.webContents.on('did-finish-load', () => {
+      _checkGPU(lobbyWindow);
+    });
+  }
+
+  // ── STEP 4: Windows Python setup (background, non-blocking) ───
   if (process.platform === 'win32') {
     const python = findPython();
     const packagesOk = python && checkPackagesReady(python);
@@ -1513,15 +1306,6 @@ app.whenReady().then(async () => {
     } else {
       console.log('[Setup] Python ready, skipping setup');
     }
-  }
-
-  createLobbyWindow();
-
-  // Deferred GPU-based VM check (needs any window)
-  if (lobbyWindow) {
-    lobbyWindow.webContents.on('did-finish-load', () => {
-      _checkGPU(lobbyWindow);
-    });
   }
 });
 

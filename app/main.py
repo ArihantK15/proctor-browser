@@ -15,6 +15,7 @@ from typing import Optional
 import asyncio
 import uuid as _uuid
 from collections import deque
+import httpx
 from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect, Body
 from fastapi.responses import StreamingResponse, RedirectResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -67,6 +68,12 @@ QUESTION_IMG_DIR = os.getenv("QUESTION_IMG_DIR", "/app/question_images")
 DOWNLOAD_MAC_ARM = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN     = os.getenv("DOWNLOAD_WIN", "")
+# Auto-discovery of the latest GitHub Release so we don't have to edit the
+# .env on the droplet for every version bump. Env var overrides above still
+# win (useful for pinning to a known-good version during staged rollouts).
+RELEASE_REPO     = os.getenv("RELEASE_REPO", "ArihantK15/proctor-browser")
+RELEASE_TTL_SEC  = int(os.getenv("RELEASE_TTL_SEC", "600"))  # 10 min cache
+GITHUB_TOKEN     = os.getenv("GITHUB_TOKEN", "")  # optional, raises rate limit
 TOKEN_TTL_HOURS  = 10
 ADMIN_TOKEN_TTL_HOURS = 12
 STUDENT_AUTH_TTL_HOURS = 12  # student dashboard session (not the exam JWT)
@@ -1585,35 +1592,144 @@ def validate_student(request: Request, body: ValidateIn):
     }
 
 # ─── PUBLIC: INSTALLER DOWNLOADS ─────────────────────────────────
+#
+# Resolution order for each platform:
+#   1. Explicit DOWNLOAD_* env var (overrides everything — use for pinning)
+#   2. Latest GitHub Release, cached for RELEASE_TTL_SEC (default 10 min)
+#   3. Local fallback file under /app/downloads
+#   4. 404 with a useful message
+#
+# The GitHub API call is cheap (~100ms on a cache miss, 0ms on hit). We
+# cache the three resolved URLs — not the full release JSON — so the hot
+# path is a dict lookup protected by an asyncio.Lock against the thundering
+# herd problem (many students hitting /download/mac simultaneously after
+# an exam announcement).
+
+# Asset-name matchers. electron-builder produces:
+#   macOS arm64 : Procta-Browser-<ver>-arm64.dmg
+#   macOS x64   : Procta-Browser-<ver>.dmg  (no -arm64 suffix)
+#   Windows x64 : Procta-Browser-Setup-<ver>.exe
+def _match_mac_arm64(name: str) -> bool:
+    n = name.lower()
+    return n.endswith("-arm64.dmg")
+
+def _match_mac_x64(name: str) -> bool:
+    n = name.lower()
+    return n.endswith(".dmg") and "-arm64" not in n and "-mac" not in n.replace("-macos", "")
+
+def _match_win(name: str) -> bool:
+    n = name.lower()
+    return n.endswith(".exe") and "setup" in n
+
+_RELEASE_CACHE: dict = {"mac_arm": "", "mac_x64": "", "win": "", "tag": ""}
+_RELEASE_CACHE_EXPIRES: float = 0.0
+_RELEASE_CACHE_LOCK = asyncio.Lock()
+
+async def _refresh_release_cache() -> None:
+    """Fetch the latest release from GitHub and populate _RELEASE_CACHE.
+    Runs under _RELEASE_CACHE_LOCK so concurrent callers don't duplicate
+    the API request. Failures are swallowed — the cache keeps its last
+    good values and the routes fall through to the env-var / local-file
+    tiers."""
+    global _RELEASE_CACHE, _RELEASE_CACHE_EXPIRES
+    url = f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"
+    headers = {"Accept": "application/vnd.github+json",
+               "User-Agent": "procta-backend"}
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as c:
+            r = await c.get(url, headers=headers)
+            if r.status_code != 200:
+                print(f"[Release] GitHub API returned {r.status_code}: {r.text[:200]}")
+                # Extend the cache a little even on failure so we don't
+                # hammer the API while it's angry at us.
+                _RELEASE_CACHE_EXPIRES = time.time() + 60
+                return
+            data = r.json()
+    except Exception as e:
+        print(f"[Release] Fetch failed: {e}")
+        _RELEASE_CACHE_EXPIRES = time.time() + 60
+        return
+
+    assets = data.get("assets", []) or []
+    tag    = data.get("tag_name", "")
+    found = {"mac_arm": "", "mac_x64": "", "win": ""}
+    for a in assets:
+        name = a.get("name", "") or ""
+        url_ = a.get("browser_download_url", "") or ""
+        if not url_:
+            continue
+        if not found["mac_arm"] and _match_mac_arm64(name):
+            found["mac_arm"] = url_
+        elif not found["mac_x64"] and _match_mac_x64(name):
+            found["mac_x64"] = url_
+        elif not found["win"] and _match_win(name):
+            found["win"] = url_
+
+    _RELEASE_CACHE = {**found, "tag": tag}
+    _RELEASE_CACHE_EXPIRES = time.time() + RELEASE_TTL_SEC
+    print(f"[Release] Auto-discovered {tag}: "
+          f"mac_arm={'✓' if found['mac_arm'] else '✗'} "
+          f"mac_x64={'✓' if found['mac_x64'] else '✗'} "
+          f"win={'✓' if found['win'] else '✗'}")
+
+async def _resolve_release_asset(key: str) -> str:
+    """Return the current URL for key in {'mac_arm','mac_x64','win'}, or ''."""
+    if time.time() >= _RELEASE_CACHE_EXPIRES:
+        async with _RELEASE_CACHE_LOCK:
+            # Re-check inside the lock — another coroutine may have just
+            # refreshed while we were waiting.
+            if time.time() >= _RELEASE_CACHE_EXPIRES:
+                await _refresh_release_cache()
+    return _RELEASE_CACHE.get(key, "") or ""
+
+async def _download_redirect(env_url: str, release_key: str,
+                              fallback_path: str, fallback_name: str):
+    if env_url:
+        return RedirectResponse(url=env_url)
+    auto = await _resolve_release_asset(release_key)
+    if auto:
+        return RedirectResponse(url=auto)
+    if os.path.exists(fallback_path):
+        return FileResponse(fallback_path, filename=fallback_name,
+                            media_type="application/octet-stream")
+    raise HTTPException(status_code=404,
+        detail="Installer not available — no GitHub release found and no local fallback")
+
 @app.get("/download/mac")
-def download_mac():
-    if DOWNLOAD_MAC_ARM:
-        return RedirectResponse(url=DOWNLOAD_MAC_ARM)
-    path = "/app/downloads/ProctorBrowser-arm64.dmg"
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Installer not found")
-    return FileResponse(path, filename="ProctorBrowser-arm64.dmg",
-                        media_type="application/octet-stream")
+async def download_mac():
+    return await _download_redirect(DOWNLOAD_MAC_ARM, "mac_arm",
+        "/app/downloads/ProctorBrowser-arm64.dmg", "ProctorBrowser-arm64.dmg")
 
 @app.get("/download/mac-x64")
-def download_mac_x64():
-    if DOWNLOAD_MAC_X64:
-        return RedirectResponse(url=DOWNLOAD_MAC_X64)
-    path = "/app/downloads/ProctorBrowser-x64.dmg"
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Installer not found")
-    return FileResponse(path, filename="ProctorBrowser-x64.dmg",
-                        media_type="application/octet-stream")
+async def download_mac_x64():
+    return await _download_redirect(DOWNLOAD_MAC_X64, "mac_x64",
+        "/app/downloads/ProctorBrowser-x64.dmg", "ProctorBrowser-x64.dmg")
 
 @app.get("/download/win")
-def download_win():
-    if DOWNLOAD_WIN:
-        return RedirectResponse(url=DOWNLOAD_WIN)
-    path = "/app/downloads/ProctorBrowser-Setup.exe"
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Installer not found")
-    return FileResponse(path, filename="ProctorBrowser-Setup.exe",
-                        media_type="application/octet-stream")
+async def download_win():
+    return await _download_redirect(DOWNLOAD_WIN, "win",
+        "/app/downloads/ProctorBrowser-Setup.exe", "ProctorBrowser-Setup.exe")
+
+@app.get("/download/latest-info")
+async def download_latest_info():
+    """Debug / health endpoint — shows what the server currently resolves
+    for each platform and the last seen release tag."""
+    # Force a refresh if stale so the response reflects reality.
+    await _resolve_release_asset("mac_arm")
+    return {
+        "tag":       _RELEASE_CACHE.get("tag", ""),
+        "mac_arm":   _RELEASE_CACHE.get("mac_arm", ""),
+        "mac_x64":   _RELEASE_CACHE.get("mac_x64", ""),
+        "win":       _RELEASE_CACHE.get("win", ""),
+        "cache_expires_in_sec": max(0, int(_RELEASE_CACHE_EXPIRES - time.time())),
+        "env_overrides": {
+            "DOWNLOAD_MAC_ARM": bool(DOWNLOAD_MAC_ARM),
+            "DOWNLOAD_MAC_X64": bool(DOWNLOAD_MAC_X64),
+            "DOWNLOAD_WIN":     bool(DOWNLOAD_WIN),
+        },
+    }
 
 def _shuffle_seed(session_id: str, teacher_id: str) -> int:
     """Derive a deterministic 32-bit seed from (session_id, teacher_id).

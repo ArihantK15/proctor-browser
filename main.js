@@ -1,12 +1,13 @@
 const {
   app, BrowserWindow, ipcMain, screen,
-  globalShortcut, powerSaveBlocker, clipboard
+  globalShortcut, powerSaveBlocker, clipboard, dialog
 } = require('electron');
 const path    = require('path');
 const { spawn, spawnSync, exec } = require('child_process');
 const os      = require('os');
 const fs      = require('fs');
 const https   = require('https');
+const { autoUpdater } = require('electron-updater');
 
 const SERVER_URL = process.env.PROCTOR_SERVER_URL || 'https://app.procta.net';
 const ADMIN_CODE = process.env.EXIT_CODE || 'EXIT2026';
@@ -34,6 +35,91 @@ let resolvedPython = null;
 let integrityFlags = []; // populated at startup, sent to renderer
 let _integrityReady = null; // promise that resolves when checks are done
 let _monitorInterval = null; // continuous process monitoring during exam
+
+// ── AUTO-UPDATE (electron-updater) ──────────────────────────────
+//
+// Checks GitHub Releases for a newer version on every launch.
+// Flow: check → download silently → prompt user → restart.
+// All non-blocking — the lobby window is already visible.
+function initAutoUpdater() {
+  // Don't auto-update in dev (no packaged app)
+  if (!app.isPackaged) {
+    console.log('[AutoUpdate] Skipping — app not packaged (dev mode)');
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[AutoUpdate] Checking for updates...');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    console.log(`[AutoUpdate] Update available: v${info.version}`);
+    // Notify user via lobby window
+    if (lobbyWindow && !lobbyWindow.isDestroyed()) {
+      lobbyWindow.webContents.executeJavaScript(
+        `if(document.getElementById('update-banner')){document.getElementById('update-banner').style.display='flex'}` +
+        `else{var b=document.createElement('div');b.id='update-banner';` +
+        `b.style.cssText='position:fixed;top:0;left:0;right:0;padding:10px 20px;background:#1a73e8;color:#fff;font-size:14px;font-family:system-ui;display:flex;align-items:center;justify-content:center;gap:8px;z-index:99999;';` +
+        `b.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Downloading update v${info.version}...';` +
+        `document.body.prepend(b)}`
+      ).catch(() => {});
+    }
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    console.log('[AutoUpdate] App is up to date');
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    const pct = Math.round(progress.percent);
+    console.log(`[AutoUpdate] Download: ${pct}%`);
+    if (lobbyWindow && !lobbyWindow.isDestroyed()) {
+      lobbyWindow.webContents.executeJavaScript(
+        `var b=document.getElementById('update-banner');if(b)b.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Downloading update... ${pct}%'`
+      ).catch(() => {});
+    }
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log(`[AutoUpdate] Update downloaded: v${info.version}`);
+    // Show restart prompt — only if NOT in an active exam
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // Exam is active — install on next quit
+      console.log('[AutoUpdate] Exam in progress — update will install on quit');
+      if (lobbyWindow && !lobbyWindow.isDestroyed()) {
+        lobbyWindow.webContents.executeJavaScript(
+          `var b=document.getElementById('update-banner');if(b){b.style.background='#34a853';b.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg> Update ready — will install when you close the app'}`
+        ).catch(() => {});
+      }
+    } else {
+      // No exam active — prompt restart
+      dialog.showMessageBox(lobbyWindow || null, {
+        type: 'info',
+        title: 'Update Ready',
+        message: `Procta Browser v${info.version} has been downloaded.`,
+        detail: 'The app will restart to apply the update.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0
+      }).then(({ response }) => {
+        if (response === 0) {
+          autoUpdater.quitAndInstall(false, true);
+        }
+      });
+    }
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('[AutoUpdate] Error:', err.message);
+  });
+
+  // Fire the check
+  autoUpdater.checkForUpdates().catch(err => {
+    console.error('[AutoUpdate] Check failed:', err.message);
+  });
+}
 
 // ── VM / INTEGRITY CHECKS (fully async — never blocks UI) ───────
 //
@@ -1270,6 +1356,9 @@ app.whenReady().then(async () => {
   // The user sees the app within milliseconds. Everything else runs
   // in the background. This fixes the Windows "Not Responding" freeze.
   createLobbyWindow();
+
+  // ── STEP 1b: Check for app updates (silent, non-blocking) ─────
+  initAutoUpdater();
 
   // ── STEP 2: Run integrity checks in background (async) ────────
   // All shell commands use async exec — zero main-thread blocking.

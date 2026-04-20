@@ -3,9 +3,12 @@
 <head>
   <meta charset="utf-8">
   <title>Procta — Proctored Exam</title>
+  <!-- Non-blocking font load — prevents white screen if Google Fonts is slow/blocked -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
   <style>
     *{margin:0;padding:0;box-sizing:border-box;user-select:none}
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
     body{font-family:'Space Grotesk',system-ui,sans-serif;
          background:#06080d;color:#c8d1dc;height:100vh;overflow:hidden}
     .screen{position:absolute;inset:0;display:none;

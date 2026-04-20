@@ -1,4 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
+/* Google Fonts are loaded via <link> tags in each HTML file instead of
+   @import here, because @import blocks rendering — causing white screen
+   on slow networks. If fonts haven't loaded yet, system-ui kicks in. */
 
 :root {
   /* ── Surface system ──────────────────────────────────────────── */

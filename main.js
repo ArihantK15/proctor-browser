@@ -487,7 +487,10 @@ async function _checkGPU(win) {
 }
 
 // ── PYTHON FINDER ─────────────────────────────────────────────────
-function findPython() {
+// Async version — uses _exec instead of spawnSync to avoid blocking
+// the main thread. Falls back to sync fs.existsSync for file checks
+// (instant) and only goes async for command probing.
+async function findPython() {
   if (resolvedPython) return resolvedPython;
 
   const isWin = process.platform === 'win32';
@@ -510,6 +513,7 @@ function findPython() {
     '/usr/bin/python3',
   ];
 
+  // File existence checks — instant, no blocking
   for (const p of candidates) {
     try {
       if (p.includes('/') || p.includes('\\')) {
@@ -521,16 +525,13 @@ function findPython() {
     } catch(e) {}
   }
 
-  // Try system commands
+  // Probe system commands — async to avoid blocking main thread
   for (const cmd of (isWin ? ['python','py','python3'] : ['python3','python'])) {
-    try {
-      const r = spawnSync(cmd, ['--version'],
-        { encoding:'utf8', timeout:3000 });
-      if (r.status === 0) {
-        resolvedPython = cmd;
-        return cmd;
-      }
-    } catch(e) {}
+    const output = await _exec(`${cmd} --version`, 3000);
+    if (output) {
+      resolvedPython = cmd;
+      return cmd;
+    }
   }
 
   return null;
@@ -549,13 +550,13 @@ function getScriptPath() {
 }
 
 // ── CHECK IF PACKAGES READY ───────────────────────────────────────
-function checkPackagesReady(python) {
-  try {
-    const r = spawnSync(python,
-      ['-c', 'import cv2, mediapipe, ultralytics, sounddevice'],
-      { encoding:'utf8', timeout:10000 });
-    return r.status === 0;
-  } catch(e) { return false; }
+async function checkPackagesReady(python) {
+  return new Promise(resolve => {
+    exec(`${python} -c "import cv2, mediapipe, ultralytics, sounddevice"`,
+      { encoding: 'utf8', timeout: 10000 }, (err) => {
+        resolve(!err);
+      });
+  });
 }
 
 // ── DOWNLOAD FILE ─────────────────────────────────────────────────
@@ -599,6 +600,7 @@ function createSetupWindow() {
     frame:    true,
     resizable: false,
     alwaysOnTop: true,
+    backgroundColor: '#0d1117',
     webPreferences: {
       nodeIntegration:  true,
       contextIsolation: false,
@@ -657,7 +659,7 @@ function sendSetupStatus(msg) {
 }
 
 async function runWindowsSetup() {
-  let python = findPython();
+  let python = await findPython();
 
   if (!python) {
     sendSetupStatus('Python not found. Downloading Python 3.11...');
@@ -668,13 +670,14 @@ async function runWindowsSetup() {
         installerPath
       );
       sendSetupStatus('Installing Python 3.11 silently...');
+      // Python installer must be sync — it's a one-time operation
       const r = spawnSync(installerPath,
         ['/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1'],
         { timeout: 300000 });
       if (r.status === 0) {
         sendSetupStatus('✅ Python installed!');
         resolvedPython = null; // reset cache
-        python = findPython();
+        python = await findPython();
       } else {
         sendSetupStatus('⚠️ Python install failed. Trying pip packages anyway...');
         python = 'python';
@@ -688,12 +691,12 @@ async function runWindowsSetup() {
   }
 
   // Check if packages already installed
-  if (checkPackagesReady(python)) {
+  if (await checkPackagesReady(python)) {
     sendSetupStatus('✅ All AI packages ready!');
     return true;
   }
 
-  // Install packages
+  // Install packages — each pip install runs async to avoid blocking UI
   const packages = [
     'opencv-python',
     'mediapipe',
@@ -711,11 +714,11 @@ async function runWindowsSetup() {
     const elapsed = Math.round((Date.now() - setupStart) / 1000);
     sendSetupStatus(`  [${idx+1}/${packages.length}] Installing ${pkg}... (${elapsed}s elapsed)`);
     try {
-      const r = spawnSync(python,
-        ['-m', 'pip', 'install', pkg,
-         '--quiet', '--no-warn-script-location'],
-        { encoding:'utf8', timeout:120000 });
-      sendSetupStatus(r.status === 0 ? `  ✅ ${pkg}` : `  ⚠️ ${pkg} failed`);
+      const ok = await new Promise(resolve => {
+        exec(`${python} -m pip install ${pkg} --quiet --no-warn-script-location`,
+          { encoding: 'utf8', timeout: 120000 }, (err) => resolve(!err));
+      });
+      sendSetupStatus(ok ? `  ✅ ${pkg}` : `  ⚠️ ${pkg} failed`);
     } catch(e) {
       sendSetupStatus(`  ⚠️ ${pkg} error`);
     }
@@ -723,7 +726,7 @@ async function runWindowsSetup() {
   const totalSecs = Math.round((Date.now() - setupStart) / 1000);
   sendSetupStatus(`Setup complete in ${totalSecs}s.`);
 
-  const ready = checkPackagesReady(python);
+  const ready = await checkPackagesReady(python);
   sendSetupStatus(ready ?
     '✅ All packages ready! Starting exam...' :
     '⚠️ Some packages missing — AI features may be limited');
@@ -731,10 +734,10 @@ async function runWindowsSetup() {
 }
 
 // ── START/STOP PYTHON ─────────────────────────────────────────────
-function startPython(sessionId) {
+async function startPython(sessionId) {
   pythonShouldRun = true; // mark intent; stopPython() sets this to false
 
-  const python = findPython();
+  const python = await findPython();
   const script = getScriptPath();
 
   console.log('[AI] Python:', python);
@@ -810,10 +813,10 @@ function stopPython() {
 // Spawns proctor.py with PROCTOR_CALIBRATION_MODE=1 so it streams
 // gaze/head readings as CAL:{...} JSON lines on stdout. The renderer
 // uses these to verify the student is looking at each calibration dot.
-function startCalibration(sessionId) {
+async function startCalibration(sessionId) {
   stopCalibration(); // kill any prior instance
 
-  const python = findPython();
+  const python = await findPython();
   const script = getScriptPath();
   if (!python || !fs.existsSync(script)) {
     console.error('[CAL] Python or script not found — calibration unavailable');
@@ -1059,6 +1062,9 @@ function createLobbyWindow() {
     closable:        true,
     autoHideMenuBar: true,
     title:           'Procta',
+    // Match theme.css --bg so the window is never white, even before CSS loads
+    backgroundColor: '#06080d',
+    show:            false,
     webPreferences: {
       preload:          path.join(__dirname, 'lobby_preload.js'),
       contextIsolation: true,
@@ -1066,6 +1072,9 @@ function createLobbyWindow() {
       devTools:         true,
     }
   });
+
+  // Show window only after first paint — prevents white flash on slow systems
+  lobbyWindow.once('ready-to-show', () => lobbyWindow.show());
 
   // Phase 2 fix: the lobby HTML lives inside the Electron bundle, not on
   // the server. The student dashboard is a shell that talks to the
@@ -1077,6 +1086,15 @@ function createLobbyWindow() {
   const lobbyHtml = findLobbyHtml();
   console.log('[Lobby] loading:', lobbyHtml);
   lobbyWindow.loadFile(lobbyHtml);
+
+  lobbyWindow.webContents.on('dom-ready', () => {
+    console.log('[Lobby] DOM ready');
+    // Inject fallback background in case theme.css fails to load (e.g. ASAR
+    // path issue on Windows, or Google Fonts @import blocking the stylesheet)
+    lobbyWindow.webContents.insertCSS(
+      'html,body{background:#06080d !important;color:#c8d1dc !important}'
+    ).catch(() => {});
+  });
 
   lobbyWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
     if (errorCode === -3) return; // user-initiated abort
@@ -1172,6 +1190,7 @@ function createExamWindow() {
     width:           1280,
     height:          900,
     autoHideMenuBar: true,
+    backgroundColor: '#06080d',
     webPreferences: {
       preload:          path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1378,25 +1397,33 @@ app.whenReady().then(async () => {
     });
   }
 
-  // ── STEP 4: Windows Python setup (background, non-blocking) ───
+  // ── STEP 4: Windows Python setup (async, non-blocking) ────────
+  // findPython() and checkPackagesReady() are fully async. We still defer
+  // with setTimeout to let the lobby window render first.
   if (process.platform === 'win32') {
-    const python = findPython();
-    const packagesOk = python && checkPackagesReady(python);
-
-    if (!packagesOk) {
-      createSetupWindow();
+    setTimeout(async () => {
       try {
-        await runWindowsSetup();
-        await new Promise(r => setTimeout(r, 2000));
+        const python = await findPython();
+        const packagesOk = python && await checkPackagesReady(python);
+
+        if (!packagesOk) {
+          createSetupWindow();
+          try {
+            await runWindowsSetup();
+            await new Promise(r => setTimeout(r, 2000));
+          } catch(e) {
+            console.error('[Setup] Failed:', e);
+          }
+          if (setupWindow && !setupWindow.isDestroyed()) {
+            setupWindow.close();
+          }
+        } else {
+          console.log('[Setup] Python ready, skipping setup');
+        }
       } catch(e) {
-        console.error('[Setup] Failed:', e);
+        console.error('[Setup] Error:', e);
       }
-      if (setupWindow && !setupWindow.isDestroyed()) {
-        setupWindow.close();
-      }
-    } else {
-      console.log('[Setup] Python ready, skipping setup');
-    }
+    }, 500);  // 500ms delay — enough for lobby to render
   }
 });
 
@@ -1486,10 +1513,10 @@ ipcMain.handle('get-events', async (_, sessionId) => {
   return r.json();
 });
 
-ipcMain.handle('start-calibration', (_, data) => {
+ipcMain.handle('start-calibration', async (_, data) => {
   const sessionId = data && data.sessionId;
   if (sessionId) currentSessionId = sessionId;
-  startCalibration(sessionId);
+  await startCalibration(sessionId);
   return { started: true };
 });
 
@@ -1503,10 +1530,10 @@ ipcMain.handle('stop-calibration', (_, data) => {
   return { stopped: true };
 });
 
-ipcMain.handle('start-proctor', (_, data) => {
+ipcMain.handle('start-proctor', async (_, data) => {
   const sessionId = data && data.sessionId;
   if (sessionId) currentSessionId = sessionId;
-  startPython(sessionId);
+  await startPython(sessionId);
   return { started: true };
 });
 

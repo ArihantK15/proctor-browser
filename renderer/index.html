@@ -1256,6 +1256,17 @@ async function startExam(){
       });
       document.addEventListener('contextmenu', e=>e.preventDefault());
       document.addEventListener('keydown', e=>{
+        // Panic chord: Ctrl/Cmd+Shift+F12. Checked BEFORE the F12
+        // preventDefault() below so Windows users whose globalShortcut
+        // registration silently failed still have an in-app way out.
+        // This re-uses the same panicUnlock() renderer function that
+        // the on-screen "Emergency unlock" link calls, so there's a
+        // single confirm prompt and a single code path.
+        if((e.ctrlKey||e.metaKey) && e.shiftKey && e.key==='F12'){
+          e.preventDefault();
+          try { panicUnlock(); } catch(err) { console.error('[Panic fallback]', err); }
+          return;
+        }
         if(['F12','F11','F5','PrintScreen'].includes(e.key))
           e.preventDefault();
         if(!examActive) return;

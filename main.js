@@ -1294,8 +1294,52 @@ function createExamWindow() {
     mainWindow.on('close', e  => e.preventDefault());
     powerBlockId = powerSaveBlocker.start('prevent-display-sleep');
 
-    // Global shortcut capture — kiosk lockdown keys. Only registered while
-    // the exam window is alive; released by releaseKiosk() on submit/panic.
+    // ── Panic unlock chord ──────────────────────────────────────
+    // Cmd/Ctrl+Shift+F12 → confirmation → full app quit + flag session.
+    //
+    // Registration ORDER matters on Windows. Electron's globalShortcut
+    // uses Win32 RegisterHotKey under the hood; when the same root key
+    // (F12) is later registered as a no-op blocker via registerAll(),
+    // the specific-modifier chord registered AFTER could fail silently
+    // on some Windows builds. Registering the panic chord FIRST gives
+    // it uncontested ownership of (Ctrl+Shift+F12) before the block
+    // list claims plain F12. This is the fix for the reported bug
+    // "panic shortcut didn't close the app on Windows".
+    const panicAccel = 'CommandOrControl+Shift+F12';
+    const panicOk = globalShortcut.register(panicAccel, async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      try {
+        const confirmed = await mainWindow.webContents.executeJavaScript(`
+          (function() {
+            return confirm(
+              'PANIC UNLOCK\\n\\n' +
+              'This closes the app and flags your session for your teacher to review.\\n\\n' +
+              'Your work will NOT be submitted automatically.\\n\\n' +
+              'Continue?'
+            );
+          })()
+        `);
+        if (!confirmed) return;
+        await handlePanicUnlock('student-triggered');
+      } catch(e) {
+        console.error('[Panic] chord error:', e.message);
+      }
+    });
+    if (!panicOk || !globalShortcut.isRegistered(panicAccel)) {
+      // On Windows this can happen if another app already owns the
+      // hotkey, or if the F12 block below races us. The renderer-side
+      // keydown fallback (see renderer/index.html) and the on-screen
+      // "Emergency unlock" link still work, so the student isn't
+      // stranded — but log loudly so we notice in support cases.
+      console.error(`[Panic] globalShortcut.register('${panicAccel}') FAILED; relying on renderer fallback`);
+    } else {
+      console.log(`[Panic] chord armed: ${panicAccel}`);
+    }
+
+    // Global shortcut capture — kiosk lockdown keys. Registered AFTER
+    // the panic chord so Ctrl+Shift+F12 wins priority on Windows.
+    // Only registered while the exam window is alive; released by
+    // releaseKiosk() on submit/panic.
     globalShortcut.registerAll([
       'Alt+F4','Cmd+Q','Cmd+W','Cmd+M','Cmd+H',
       'Cmd+Tab','Alt+Tab','F11','F12','Escape',
@@ -1315,31 +1359,6 @@ function createExamWindow() {
             window.proctor && window.proctor.adminExit(code);
           })()
         `);
-      }
-    });
-
-    // ── Panic unlock chord ──────────────────────────────────────
-    // Cmd/Ctrl+Shift+F12 → confirmation → release kiosk + flag session.
-    // Never auto-submits. The session remains in_progress and the teacher
-    // sees a high-severity `panic_unlock` event on their dashboard so they
-    // can decide whether to accept the partial work or void the session.
-    globalShortcut.register('CommandOrControl+Shift+F12', async () => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      try {
-        const confirmed = await mainWindow.webContents.executeJavaScript(`
-          (function() {
-            return confirm(
-              'PANIC UNLOCK\\n\\n' +
-              'This releases the exam lockdown and flags your session for your teacher to review.\\n\\n' +
-              'Your work will NOT be submitted automatically.\\n\\n' +
-              'Continue?'
-            );
-          })()
-        `);
-        if (!confirmed) return;
-        await handlePanicUnlock('student-triggered');
-      } catch(e) {
-        console.error('[Panic] chord error:', e.message);
       }
     });
   }
@@ -1408,8 +1427,23 @@ function releaseKiosk({ reopenLobby = true } = {}) {
 }
 
 // ── PANIC UNLOCK HANDLER ─────────────────────────────────────────
-// Flags the active session with a high-severity event (so the teacher can
-// see it), then releases kiosk and returns to the lobby. No auto-submit.
+// Flags the active session with a high-severity event, then tears down
+// the kiosk AND quits the app entirely — the student wanted off. We do
+// NOT auto-submit; the session stays in_progress so the teacher can
+// review what's there and decide whether to accept or void it.
+//
+// Why full quit (instead of "return to lobby" like submit does):
+//   - A panic user is usually blocked on a hard OS/hardware problem
+//     (camera died, browser froze, VM popped up). Dumping them back in
+//     the lobby invites an infinite loop of re-entering the exam.
+//   - Windows users specifically reported the old "back to lobby"
+//     behaviour as "the app didn't close" — which is the report that
+//     prompted this rewrite.
+//
+// Watchdog: if Electron's graceful `app.quit()` gets stuck waiting on
+// a lingering child process or GPU shutdown, `app.exit(0)` fires 2s
+// later and hard-terminates. On Windows that's the difference between
+// a zombie tray icon and a truly-closed app.
 async function handlePanicUnlock(reason) {
   const sid = currentSessionId;
   if (sid && studentToken) {
@@ -1430,7 +1464,22 @@ async function handlePanicUnlock(reason) {
       clearTimeout(timer);
     } catch(e) { console.error('[Panic] event post failed:', e.message); }
   }
-  releaseKiosk({ reopenLobby: true });
+  console.log(`[Panic] reason=${reason} — quitting app`);
+  try { releaseKiosk({ reopenLobby: false }); }
+  catch(e) { console.error('[Panic] releaseKiosk threw:', e.message); }
+
+  // Also close the lobby window if it's floating around, so Electron's
+  // window-all-closed handler fires cleanly.
+  try {
+    if (lobbyWindow && !lobbyWindow.isDestroyed()) lobbyWindow.destroy();
+  } catch(e) {}
+
+  try { app.quit(); } catch(e) { console.error('[Panic] app.quit:', e.message); }
+  // Watchdog — if we're still alive 2s later, nuke from orbit.
+  setTimeout(() => {
+    console.error('[Panic] graceful quit did not take — app.exit(0)');
+    try { app.exit(0); } catch(e) { process.exit(0); }
+  }, 2000);
 }
 
 // ── APP START ─────────────────────────────────────────────────────
@@ -1660,11 +1709,16 @@ ipcMain.handle('exit-exam-to-lobby', () => {
 });
 
 ipcMain.handle('admin-exit', (_, code) => {
-  // AUTO_CLOSE is fired by the renderer after a successful submit. In
+  // AUTO_CLOSE is fired by the renderer after a SUCCESSFUL submit. In
   // Phase 2 we treat it as "return to lobby" instead of "quit app" so the
   // student lands back on their dashboard to see the submitted status and
   // browse practice, etc. The manual admin-code path (typed by a teacher)
   // still quits the entire app.
+  //
+  // IMPORTANT: this path is DISTINCT from panic. Panic → app.quit() (full
+  // close). AUTO_CLOSE → releaseKiosk + re-show lobby (graceful return).
+  // If you ever unify them, read the comment on handlePanicUnlock first —
+  // students use each path for different reasons and the UX diverges.
   if (code === 'AUTO_CLOSE') {
     console.log('[admin-exit] AUTO_CLOSE received');
     // Capture a ref before releaseKiosk nulls it, so the outer watchdog

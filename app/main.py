@@ -4563,12 +4563,27 @@ def delete_group(group_id: str, request: Request):
 
 @app.get("/api/admin/groups/{group_id}/members")
 def list_group_members(group_id: str, request: Request):
-    """List members of a group."""
+    """List members of a group, enriched with email/full_name if the student
+    is registered. Used by the Invites UI to skip re-typing emails when
+    sending to a whole group."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
     rows = (supabase.table("student_group_members")
             .select("*").eq("group_id", group_id)
             .eq("teacher_id", tid).execute()).data or []
+    if not rows:
+        return []
+    rolls = [r["roll_number"] for r in rows if r.get("roll_number")]
+    if rolls:
+        students = (supabase.table("students")
+                    .select("roll_number,email,full_name")
+                    .eq("teacher_id", tid)
+                    .in_("roll_number", rolls).execute()).data or []
+        by_roll = {s["roll_number"]: s for s in students}
+        for r in rows:
+            s = by_roll.get(r.get("roll_number")) or {}
+            r["email"] = s.get("email") or ""
+            r["full_name"] = s.get("full_name") or ""
     return rows
 
 

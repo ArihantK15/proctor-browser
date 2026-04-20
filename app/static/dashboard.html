@@ -943,6 +943,62 @@
         </div>
       </div>
 
+      <div class="tool-card" style="grid-column:1/-1">
+        <div class="tool-card-body">
+          <h3>Email Invites</h3>
+          <p>Mint one-click join links and mail them to students. Each invite carries a unique token (and optional per-student access code) so teachers never have to read out codes on speaker-phone. Bounces and opens update automatically. Daily cap: 500/day per teacher.</p>
+
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">
+            <div style="flex:1;min-width:280px">
+              <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Recipients — one per line: <code>name, email, roll</code></label>
+              <textarea id="invite-recipients" rows="6" placeholder="Alice Smith, alice@school.edu, R001&#10;Bob Jones, bob@school.edu, R002"
+                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace;resize:vertical"></textarea>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+                <label class="action-btn" style="cursor:pointer;margin:0">
+                  <input type="file" id="invite-csv" accept=".csv,.txt" style="display:none" onchange="importInviteCsv(event)">
+                  Import CSV
+                </label>
+                <select id="invite-from-group"
+                  style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px">
+                  <option value="">— or pull from a group —</option>
+                </select>
+                <button class="action-btn" onclick="pullGroupIntoInvites()" style="padding:6px 12px;font-size:12px">Load Group</button>
+                <a href="data:text/csv;charset=utf-8,full_name,email,roll_number%0AAlice%20Smith,alice@school.edu,R001" download="invite-template.csv"
+                  style="color:var(--muted);font-size:11px;text-decoration:underline">template</a>
+              </div>
+            </div>
+
+            <div style="flex:1;min-width:240px">
+              <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Custom Message (optional)</label>
+              <textarea id="invite-message" rows="3" maxlength="500" placeholder="Hi! This exam opens at 10am sharp. Make sure your webcam works."
+                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;resize:vertical"></textarea>
+              <label class="shuffle-toggle" style="margin-top:8px">
+                <input type="checkbox" id="invite-per-code" checked>
+                <span>Generate a one-time access code per student</span>
+              </label>
+              <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:10px;margin-bottom:6px">Expires At (optional)</label>
+              <input type="datetime-local" id="invite-expires"
+                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            </div>
+          </div>
+        </div>
+        <div class="tool-card-actions" style="margin-top:8px">
+          <button class="action-btn primary" id="btn-invite-send" onclick="sendInvites()">Send Invites</button>
+          <button class="action-btn" onclick="loadInvites()">Refresh List</button>
+          <button class="action-btn" onclick="resendBouncedInvites()" style="color:var(--amber)">Resend Bounced</button>
+        </div>
+        <div class="tool-card-result" id="invite-result" style="font-size:12px;min-height:18px"></div>
+
+        <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Sent Invites</div>
+            <div id="invite-count" style="font-size:11px;color:var(--muted)"></div>
+          </div>
+          <div id="invite-list"></div>
+          <div id="invite-empty" style="color:var(--muted);font-size:13px">No invites sent yet.</div>
+        </div>
+      </div>
+
       <div class="tool-card">
         <div class="tool-card-body">
           <h3>Per-Student Randomization</h3>
@@ -1587,7 +1643,7 @@ function switchTab(tab){
 async function refreshAll(){
   const gen = ++_refreshGen;
   document.getElementById('refresh-spin').style.display='inline-block';
-  await Promise.all([refreshLive(), refreshIdReviews(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig()]);
+  await Promise.all([refreshLive(), refreshIdReviews(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig(), loadInvites()]);
   if(gen !== _refreshGen) return; // stale — user switched exam during load
   document.getElementById('refresh-spin').style.display='none';
   document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
@@ -3839,8 +3895,228 @@ async function unassignGroup(gid){
 const _origSwitchTab = switchTab;
 switchTab = function(tab){
   _origSwitchTab(tab);
-  if(tab==='tools') loadGroups();
+  if(tab==='tools'){ loadGroups(); loadInvites(); _populateInviteGroupSelect(); }
 };
+
+// ── EMAIL INVITES ──────────────────────────────────────────────
+let _invitesData = [];
+
+function _populateInviteGroupSelect(){
+  const sel = document.getElementById('invite-from-group');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">— or pull from a group —</option>' +
+    (_groupsData||[]).map(g=>`<option value="${g.id}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
+}
+
+function importInviteCsv(evt){
+  const f = evt.target.files && evt.target.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = String(e.target.result||'');
+    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+    // Drop header if it looks like one
+    if(lines.length && /email/i.test(lines[0]) && /name/i.test(lines[0])) lines.shift();
+    // Normalize "name,email,roll" — accept any ordering with header sniffing is overkill here; keep simple
+    const out = lines.map(l => {
+      const parts = l.split(',').map(s=>s.trim());
+      // If first looks like email, reorder
+      if(parts.length>=3 && /@/.test(parts[0])) return `${parts[1]||''}, ${parts[0]}, ${parts[2]||''}`;
+      return parts.slice(0,3).join(', ');
+    });
+    document.getElementById('invite-recipients').value = out.join('\n');
+    evt.target.value = '';
+  };
+  reader.readAsText(f);
+}
+
+async function pullGroupIntoInvites(){
+  const gid = document.getElementById('invite-from-group').value;
+  if(!gid){ return; }
+  const st = document.getElementById('invite-result');
+  st.style.color='var(--muted)'; st.textContent='Loading group members…';
+  try{
+    const r = await authFetch(`${BASE}/api/admin/groups/${gid}/members`);
+    if(!r.ok){ st.style.color='var(--red)'; st.textContent='Failed to load members'; return; }
+    const members = await r.json();
+    if(!members.length){ st.style.color='var(--amber)'; st.textContent='Group has no members'; return; }
+    const missing = [];
+    const rows = members.map(m => {
+      const roll = String(m.roll_number||'').toUpperCase();
+      if(!m.email){ missing.push(roll); return `, , ${roll}`; }
+      return `${m.full_name||''}, ${m.email}, ${roll}`;
+    });
+    const ta = document.getElementById('invite-recipients');
+    const existing = ta.value.trim();
+    ta.value = (existing ? existing + '\n' : '') + rows.join('\n');
+    if(missing.length){
+      st.style.color='var(--amber)';
+      st.textContent = `Loaded ${rows.length}. Missing email for: ${missing.slice(0,5).join(', ')}${missing.length>5?'…':''} — fill in manually before sending.`;
+    }else{
+      st.style.color='var(--emerald)';
+      st.textContent = `Loaded ${rows.length} members.`;
+      setTimeout(()=>st.textContent='',3000);
+    }
+  }catch(e){ st.style.color='var(--red)'; st.textContent='Failed to pull group'; }
+}
+
+function _parseInviteRows(){
+  const text = document.getElementById('invite-recipients').value || '';
+  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const out = []; const bad = [];
+  for(const l of lines){
+    const parts = l.split(',').map(s=>s.trim());
+    const [full_name, email, roll_number] = [parts[0]||'', parts[1]||'', (parts[2]||'').toUpperCase()];
+    if(!email || !/@/.test(email) || !full_name || !roll_number){ bad.push(l); continue; }
+    out.push({full_name, email, roll_number});
+  }
+  return {rows: out, bad};
+}
+
+async function sendInvites(){
+  const eid = currentExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  const {rows, bad} = _parseInviteRows();
+  if(!rows.length){ alert('Add at least one recipient as: name, email, roll'); return; }
+  const st = document.getElementById('invite-result');
+  if(bad.length){
+    if(!confirm(`${bad.length} row(s) are malformed and will be skipped. Continue with ${rows.length} valid row(s)?`)) return;
+  }else{
+    if(!confirm(`Send invite emails to ${rows.length} student(s) for this exam?`)) return;
+  }
+  const btn = document.getElementById('btn-invite-send');
+  btn.disabled = true;
+  st.style.color='var(--muted)'; st.textContent=`Sending ${rows.length} invite(s)…`;
+  const payload = {
+    exam_id: eid,
+    recipients: rows,
+    custom_message: document.getElementById('invite-message').value.trim(),
+    per_invite_code: document.getElementById('invite-per-code').checked,
+  };
+  const exp = document.getElementById('invite-expires').value;
+  if(exp) payload.expires_at = new Date(exp).toISOString();
+  try{
+    const r = await authFetch(`${BASE}/api/admin/invites/send`, {method:'POST', body:JSON.stringify(payload)});
+    const d = await r.json();
+    if(!r.ok){ st.style.color='var(--red)'; st.textContent = d.detail || 'Send failed'; return; }
+    const sent = d.sent||0, failed = d.failed||0, skipped = d.skipped||0;
+    st.style.color = failed ? 'var(--amber)' : 'var(--emerald)';
+    st.textContent = `Sent ${sent}${failed?`, ${failed} failed`:''}${skipped?`, ${skipped} skipped (duplicate)`:''}.`;
+    document.getElementById('invite-recipients').value = '';
+    loadInvites();
+  }catch(e){ st.style.color='var(--red)'; st.textContent='Network error'; }
+  finally{ btn.disabled = false; }
+}
+
+async function loadInvites(){
+  const eid = currentExamId;
+  const list = document.getElementById('invite-list');
+  const empty = document.getElementById('invite-empty');
+  const countEl = document.getElementById('invite-count');
+  if(!list) return;
+  if(!eid){ list.innerHTML=''; empty.style.display=''; empty.textContent='Select an exam to see invites.'; countEl.textContent=''; return; }
+  try{
+    const r = await authFetch(`${BASE}/api/admin/invites?exam_id=${encodeURIComponent(eid)}`);
+    if(!r.ok){ list.innerHTML=''; empty.style.display=''; empty.textContent='Failed to load invites.'; return; }
+    _invitesData = await r.json();
+    _renderInvites();
+  }catch(e){ list.innerHTML=''; empty.style.display=''; empty.textContent='Network error.'; }
+}
+
+function _inviteBadge(status){
+  const palette = {
+    queued:   ['rgba(148,163,184,.15)','var(--muted)','#94a3b8'],
+    sent:     ['rgba(59,130,246,.15)','#60a5fa','#60a5fa'],
+    opened:   ['rgba(139,92,246,.15)','#a78bfa','#a78bfa'],
+    accepted: ['rgba(16,185,129,.15)','var(--emerald)','#10b981'],
+    bounced:  ['rgba(239,68,68,.15)','var(--red)','#ef4444'],
+    failed:   ['rgba(239,68,68,.15)','var(--red)','#ef4444'],
+    revoked:  ['rgba(100,116,139,.15)','var(--muted)','#64748b'],
+  };
+  const [bg, fg, brd] = palette[status] || palette.queued;
+  return `<span style="display:inline-block;background:${bg};color:${fg};border:1px solid ${brd};border-radius:10px;padding:2px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.04em">${status}</span>`;
+}
+
+function _renderInvites(){
+  const list = document.getElementById('invite-list');
+  const empty = document.getElementById('invite-empty');
+  const countEl = document.getElementById('invite-count');
+  if(!_invitesData.length){ list.innerHTML=''; empty.style.display=''; empty.textContent='No invites sent yet.'; countEl.textContent=''; return; }
+  empty.style.display='none';
+  const counts = _invitesData.reduce((a,i)=>{ a[i.status]=(a[i.status]||0)+1; return a; }, {});
+  countEl.textContent = Object.entries(counts).map(([k,v])=>`${v} ${k}`).join(' · ');
+  const rows = _invitesData.map(i => {
+    const sentAt = i.sent_at ? new Date(i.sent_at).toLocaleString() : '—';
+    const safeLink = _escHtml(i.invite_url||'');
+    const actions = [
+      i.invite_url ? `<button class="action-btn" onclick="_copyInviteLink('${_escGrp(i.invite_url)}')" style="padding:2px 8px;font-size:10px">Copy</button>` : '',
+      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="action-btn" onclick="resendInvite('${i.id}')" style="padding:2px 8px;font-size:10px">Resend</button>` : '',
+      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="action-btn" onclick="revokeInvite('${i.id}')" style="padding:2px 8px;font-size:10px;color:var(--red)">Revoke</button>` : '',
+    ].filter(Boolean).join(' ');
+    return `<tr>
+      <td style="padding:6px 8px;font-size:12px">${_escHtml(i.full_name||'')}</td>
+      <td style="padding:6px 8px;font-size:12px;color:var(--muted)">${_escHtml(i.email||'')}</td>
+      <td style="padding:6px 8px;font-size:11px;font-family:monospace">${_escHtml(i.roll_number||'')}</td>
+      <td style="padding:6px 8px">${_inviteBadge(i.status)}</td>
+      <td style="padding:6px 8px;font-size:11px;color:var(--muted)">${sentAt}</td>
+      <td style="padding:6px 8px;white-space:nowrap">${actions}</td>
+    </tr>`;
+  }).join('');
+  list.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+    <thead><tr style="border-bottom:1px solid var(--border);text-align:left">
+      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Name</th>
+      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Email</th>
+      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Roll</th>
+      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Status</th>
+      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Sent</th>
+      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Actions</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function _copyInviteLink(url){
+  navigator.clipboard.writeText(url).then(()=>{
+    const st = document.getElementById('invite-result');
+    st.style.color='var(--emerald)'; st.textContent='Link copied.';
+    setTimeout(()=>st.textContent='',2000);
+  });
+}
+
+async function resendInvite(id){
+  if(!confirm('Resend this invite? A fresh token will be generated and the old link will stop working.')) return;
+  const st = document.getElementById('invite-result');
+  st.style.color='var(--muted)'; st.textContent='Resending…';
+  try{
+    const r = await authFetch(`${BASE}/api/admin/invites/${id}/resend`, {method:'POST'});
+    if(!r.ok){ const d=await r.json(); st.style.color='var(--red)'; st.textContent=d.detail||'Failed'; return; }
+    st.style.color='var(--emerald)'; st.textContent='Resent.';
+    setTimeout(()=>st.textContent='',2500);
+    loadInvites();
+  }catch(e){ st.style.color='var(--red)'; st.textContent='Network error'; }
+}
+
+async function revokeInvite(id){
+  if(!confirm('Revoke this invite? The student will no longer be able to join using this link.')) return;
+  try{
+    const r = await authFetch(`${BASE}/api/admin/invites/${id}`, {method:'DELETE'});
+    if(!r.ok){ const d=await r.json(); alert(d.detail||'Failed'); return; }
+    loadInvites();
+  }catch(e){ alert('Network error'); }
+}
+
+async function resendBouncedInvites(){
+  if(!confirm('Resend all invites that bounced or failed for this exam?')) return;
+  const eid = currentExamId;
+  const st = document.getElementById('invite-result');
+  st.style.color='var(--muted)'; st.textContent='Resending bounced invites…';
+  try{
+    const r = await authFetch(`${BASE}/api/admin/invites/resend-bounced`,
+      {method:'POST', body: JSON.stringify(eid ? {exam_id: eid} : {})});
+    const d = await r.json();
+    if(!r.ok){ st.style.color='var(--red)'; st.textContent=d.detail||'Failed'; return; }
+    st.style.color='var(--emerald)'; st.textContent=`Requeued ${d.requeued||0}${d.failed?`, ${d.failed} still failed`:''}.`;
+    loadInvites();
+  }catch(e){ st.style.color='var(--red)'; st.textContent='Network error'; }
+}
 
 // ── ANALYTICS ──────────────────────────────────────────────────
 let _analyticsCache = {};

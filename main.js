@@ -174,17 +174,57 @@ async function runIntegrityChecks() {
   } catch(e) {}
 
   // 2. VPN network interfaces (tun/tap/utun/ppp/wg adapters)
+  //
+  // FALSE-POSITIVE GUARD: macOS always creates utun0-utun4 for Apple
+  // services (iCloud Private Relay, AirDrop, Handoff, Continuity). These
+  // interfaces have only IPv6 link-local (fe80::, scopeid !== 0) addresses
+  // — no real routable address. User VPNs (Cloudflare WARP, NordVPN,
+  // WireGuard, Tailscale, …) always assign a routable IPv4 or non-link-local
+  // IPv6 address. So we flag an interface only when it has at least one
+  // ROUTABLE address, not merely "not internal".
+  //
+  // High-confidence named interfaces (tailscale0, wg0, nordlynx, proton…)
+  // are still flagged unconditionally — those names never appear without
+  // an active user VPN.
   try {
     const nets = os.networkInterfaces();
-    const VPN_IFACE = [/^tun\d/i,/^tap\d/i,/^utun\d/i,/^ppp\d/i,/^wg\d/i,
-      /^tailscale/i,/^zt[a-z0-9]/i,/^gpd\d/i,/^proton/i,/^nordlynx/i];
+    const NAMED_VPN = [/^tailscale/i, /^zt[a-z0-9]/i, /^gpd\d/i,
+                       /^proton/i, /^nordlynx/i, /^wg\d+$/i];
+    const GENERIC_TUNNEL = [/^tun\d+$/i, /^tap\d+$/i, /^utun\d+$/i, /^ppp\d+$/i];
+
+    const isRoutable = (a) => {
+      if (!a || a.internal) return false;
+      if (a.address === '127.0.0.1' || a.address === '::1') return false;
+      if (a.family === 'IPv4') {
+        // Exclude APIPA (link-local)
+        if (a.address.startsWith('169.254.')) return false;
+        return true;
+      }
+      if (a.family === 'IPv6') {
+        // Exclude link-local (fe80::/10) — these are used by Apple
+        // services on utun interfaces without any real VPN
+        if (a.scopeid && a.scopeid !== 0) return false;
+        const lower = a.address.toLowerCase();
+        if (lower.startsWith('fe80:') || lower.startsWith('fe80::')) return false;
+        return true;
+      }
+      return false;
+    };
+
     for (const [name, addrs] of Object.entries(nets)) {
-      for (const pat of VPN_IFACE) {
-        if (pat.test(name) && addrs.some(a => !a.internal && a.address !== '127.0.0.1')) {
-          flags.push({ type: 'vpn_detected', severity: 'high',
-            details: `VPN/tunnel network interface active: ${name}` });
-          break;
-        }
+      // High-confidence: user-space VPNs named unambiguously
+      const named = NAMED_VPN.some(p => p.test(name));
+      if (named && addrs.some(a => !a.internal)) {
+        flags.push({ type: 'vpn_detected', severity: 'high',
+          details: `VPN interface active: ${name}` });
+        continue;
+      }
+      // Generic tunnel: only flag if at least one ROUTABLE address is
+      // assigned. This filters out Apple's always-on utun0..utun4.
+      const generic = GENERIC_TUNNEL.some(p => p.test(name));
+      if (generic && addrs.some(isRoutable)) {
+        flags.push({ type: 'vpn_detected', severity: 'high',
+          details: `Tunnel interface with routable address: ${name}` });
       }
     }
   } catch(e) {}
@@ -217,35 +257,56 @@ async function runIntegrityChecks() {
 
   // ── Async shell checks (run in parallel, never block UI) ─────
 
-  // All process lists for VM/VPN/remote/debugger detection
+  // All process lists for VM/VPN/remote/debugger detection.
+  //
+  // FALSE-POSITIVE NOTES:
+  //   • 'tor' as a bare substring matches storedownloadd, storekitagent,
+  //     NVIDIA Container, directory, monitor, accelerator, etc. Use
+  //     \btor\b with regex word boundaries instead.
+  //   • Discord runs idle on most student machines without screen
+  //     sharing — removed from the screen_share list. OBS is kept.
+  //   • 'snx' was a 3-char substring causing false matches; dropped in
+  //     favour of the more specific 'snxctl'/'snx_install' patterns.
+  //
+  // Each entry is a regex matched against the full process-list output
+  // (lowercased). \b gives a safe word boundary that still matches
+  // process basenames like "tor.exe" or "clash.exe" because '.' is
+  // non-word, but won't match "stor" or "container".
   const ALL_PROCESSES = {
     vm: [
-      'vmtoolsd', 'vmwaretray', 'VBoxService', 'VBoxTray',
-      'vmcompute', 'xenservice',
+      /\bvmtoolsd\b/, /\bvmwaretray\b/, /\bvboxservice\b/, /\bvboxtray\b/,
+      /\bvmcompute\b/, /\bxenservice\b/,
     ],
     remote: [
-      'TeamViewer', 'AnyDesk', 'mstsc', 'vncviewer',
-      'Chrome Remote Desktop', 'rustdesk', 'parsec',
-      'ScreenConnect', 'LogMeIn',
+      /\bteamviewer\b/, /\banydesk\b/, /\bmstsc\b/, /\bvncviewer\b/,
+      /chrome remote desktop/, /\brustdesk\b/, /\bparsec\b/,
+      /\bscreenconnect\b/, /\blogmein\b/,
     ],
     screen_share: [
-      'obs64', 'obs32', 'OBS Studio', 'Discord',
-      'screensharingd',
+      /\bobs64\b/, /\bobs32\b/, /\bobs studio\b/, /\bobs\.app\b/,
+      /\bscreensharingd\b/,
+      // NOTE: Discord removed — running ≠ screen-sharing. OBS is a
+      // better signal because it's rarely running outside content
+      // creation contexts.
     ],
     vpn: [
-      'openvpn', 'nordvpn', 'expressvpn', 'surfshark', 'protonvpn',
-      'cyberghost', 'windscribe', 'privateinternetaccess', 'pia-service',
-      'mullvad', 'wireguard', 'wg.exe', 'tailscale', 'zerotier',
-      'v2ray', 'v2rayn', 'xray', 'clash', 'shadowsocks', 'ss-local',
-      'tor', 'torbrowser', 'hotspotshield', 'tunnelbear',
-      'globalprotect', 'pangps', 'forticlient', 'fortisslvpn',
-      'vpnagent', 'vpnui', 'checkpoint', 'snx',
-      'psiphon', 'ultrasurf', 'freegate',
+      /\bopenvpn\b/, /\bnordvpn\b/, /\bexpressvpn\b/, /\bsurfshark\b/,
+      /\bprotonvpn\b/, /\bcyberghost\b/, /\bwindscribe\b/,
+      /\bprivateinternetaccess\b/, /\bpia-service\b/, /\bmullvad\b/,
+      /\bwireguard\b/, /\bwg\.exe\b/, /\btailscale\b/, /\bzerotier\b/,
+      /\bv2ray\b/, /\bv2rayn\b/, /\bxray\.exe\b/, /\bclash\b/,
+      /\bshadowsocks\b/, /\bss-local\b/, /\btorbrowser\b/,
+      /\btor\.exe\b/, /\/tor\b/, // explicit tor binary, not substring
+      /\bhotspotshield\b/, /\btunnelbear\b/,
+      /\bglobalprotect\b/, /\bpangps\b/, /\bforticlient\b/,
+      /\bfortisslvpn\b/, /\bvpnagent\b/, /\bvpnui\b/,
+      /\bcheckpoint\b/, /\bsnxctl\b/,
+      /\bpsiphon\b/, /\bultrasurf\b/, /\bfreegate\b/,
     ],
     debugger: [
-      'fiddler', 'charles', 'wireshark', 'burpsuite',
-      'mitmproxy', 'mitmweb', 'mitmdump', 'proxyman',
-      'httpdebugger', 'httpanalyzer',
+      /\bfiddler\b/, /\bcharles\.exe\b/, /\bwireshark\b/,
+      /\bburpsuite\b/, /\bmitmproxy\b/, /\bmitmweb\b/, /\bmitmdump\b/,
+      /\bproxyman\b/, /\bhttpdebugger\b/, /\bhttpanalyzer\b/,
     ],
   };
 
@@ -255,42 +316,29 @@ async function runIntegrityChecks() {
     debugger: 'debugger_detected',
   };
 
+  function scanProcessOutput(output) {
+    if (!output) return;
+    const lower = output.toLowerCase();
+    for (const [cat, patterns] of Object.entries(ALL_PROCESSES)) {
+      for (const rx of patterns) {
+        const m = lower.match(rx);
+        if (m) {
+          flags.push({ type: TYPE_MAP[cat],
+            severity: cat === 'screen_share' ? 'medium' : 'high',
+            details: `Process match: ${m[0]}` });
+        }
+      }
+    }
+  }
+
   // Fire all async checks in parallel
   const tasks = [];
 
   // 6. Process list — ONE call, scan for everything
   if (isWin) {
-    tasks.push(
-      _exec('tasklist /fo csv /nh', 8000).then(output => {
-        if (!output) return;
-        const lower = output.toLowerCase();
-        for (const [cat, procs] of Object.entries(ALL_PROCESSES)) {
-          for (const p of procs) {
-            if (lower.includes(p.toLowerCase())) {
-              flags.push({ type: TYPE_MAP[cat],
-                severity: cat === 'screen_share' ? 'medium' : 'high',
-                details: `${p} detected` });
-            }
-          }
-        }
-      })
-    );
+    tasks.push(_exec('tasklist /fo csv /nh', 8000).then(scanProcessOutput));
   } else if (isMac) {
-    tasks.push(
-      _exec('ps -eo comm', 5000).then(output => {
-        if (!output) return;
-        const lower = output.toLowerCase();
-        for (const [cat, procs] of Object.entries(ALL_PROCESSES)) {
-          for (const p of procs) {
-            if (lower.includes(p.toLowerCase())) {
-              flags.push({ type: TYPE_MAP[cat],
-                severity: cat === 'screen_share' ? 'medium' : 'high',
-                details: `${p} detected` });
-            }
-          }
-        }
-      })
-    );
+    tasks.push(_exec('ps -eo comm', 5000).then(scanProcessOutput));
   }
 
   // 7. VM detection via BIOS/model (replaces slow `systeminfo`)
@@ -367,32 +415,36 @@ async function runIntegrityChecks() {
 // Runs every 30s during an active exam using async exec.
 // Never blocks the main thread.
 
+// Regex patterns with word boundaries — see notes on ALL_PROCESSES above
+// for why substring matching (e.g. bare 'tor') is unsafe.
 const THREATS = [
-  { proc: 'TeamViewer', type: 'remote_desktop_detected' },
-  { proc: 'AnyDesk', type: 'remote_desktop_detected' },
-  { proc: 'mstsc', type: 'remote_desktop_detected' },
-  { proc: 'vncviewer', type: 'remote_desktop_detected' },
-  { proc: 'rustdesk', type: 'remote_desktop_detected' },
-  { proc: 'parsec', type: 'remote_desktop_detected' },
-  { proc: 'obs64', type: 'screen_share_detected' },
-  { proc: 'obs32', type: 'screen_share_detected' },
-  { proc: 'screensharingd', type: 'screen_share_detected' },
-  { proc: 'openvpn', type: 'vpn_detected' },
-  { proc: 'nordvpn', type: 'vpn_detected' },
-  { proc: 'expressvpn', type: 'vpn_detected' },
-  { proc: 'surfshark', type: 'vpn_detected' },
-  { proc: 'protonvpn', type: 'vpn_detected' },
-  { proc: 'wireguard', type: 'vpn_detected' },
-  { proc: 'tailscale', type: 'vpn_detected' },
-  { proc: 'clash', type: 'vpn_detected' },
-  { proc: 'v2ray', type: 'vpn_detected' },
-  { proc: 'tor', type: 'vpn_detected' },
-  { proc: 'fiddler', type: 'debugger_detected' },
-  { proc: 'charles', type: 'debugger_detected' },
-  { proc: 'wireshark', type: 'debugger_detected' },
-  { proc: 'burpsuite', type: 'debugger_detected' },
-  { proc: 'mitmproxy', type: 'debugger_detected' },
-  { proc: 'proxyman', type: 'debugger_detected' },
+  { rx: /\bteamviewer\b/, label: 'TeamViewer', type: 'remote_desktop_detected' },
+  { rx: /\banydesk\b/,    label: 'AnyDesk',    type: 'remote_desktop_detected' },
+  { rx: /\bmstsc\b/,      label: 'mstsc',      type: 'remote_desktop_detected' },
+  { rx: /\bvncviewer\b/,  label: 'VNC',        type: 'remote_desktop_detected' },
+  { rx: /\brustdesk\b/,   label: 'RustDesk',   type: 'remote_desktop_detected' },
+  { rx: /\bparsec\b/,     label: 'Parsec',     type: 'remote_desktop_detected' },
+  { rx: /\bobs64\b/,      label: 'OBS (64)',   type: 'screen_share_detected' },
+  { rx: /\bobs32\b/,      label: 'OBS (32)',   type: 'screen_share_detected' },
+  { rx: /\bobs studio\b/, label: 'OBS Studio', type: 'screen_share_detected' },
+  { rx: /\bscreensharingd\b/, label: 'screensharingd', type: 'screen_share_detected' },
+  { rx: /\bopenvpn\b/,    label: 'OpenVPN',    type: 'vpn_detected' },
+  { rx: /\bnordvpn\b/,    label: 'NordVPN',    type: 'vpn_detected' },
+  { rx: /\bexpressvpn\b/, label: 'ExpressVPN', type: 'vpn_detected' },
+  { rx: /\bsurfshark\b/,  label: 'Surfshark',  type: 'vpn_detected' },
+  { rx: /\bprotonvpn\b/,  label: 'ProtonVPN',  type: 'vpn_detected' },
+  { rx: /\bwireguard\b/,  label: 'WireGuard',  type: 'vpn_detected' },
+  { rx: /\btailscale\b/,  label: 'Tailscale',  type: 'vpn_detected' },
+  { rx: /\bclash\b/,      label: 'Clash',      type: 'vpn_detected' },
+  { rx: /\bv2ray\b/,      label: 'V2Ray',      type: 'vpn_detected' },
+  { rx: /\btorbrowser\b/, label: 'Tor Browser',type: 'vpn_detected' },
+  { rx: /\btor\.exe\b/,   label: 'Tor',        type: 'vpn_detected' },
+  { rx: /\bfiddler\b/,    label: 'Fiddler',    type: 'debugger_detected' },
+  { rx: /\bcharles\.exe\b/, label: 'Charles',  type: 'debugger_detected' },
+  { rx: /\bwireshark\b/,  label: 'Wireshark',  type: 'debugger_detected' },
+  { rx: /\bburpsuite\b/,  label: 'Burp Suite', type: 'debugger_detected' },
+  { rx: /\bmitmproxy\b/,  label: 'mitmproxy',  type: 'debugger_detected' },
+  { rx: /\bproxyman\b/,   label: 'Proxyman',   type: 'debugger_detected' },
 ];
 
 function startProcessMonitor() {
@@ -417,10 +469,10 @@ async function _scanProcesses() {
   if (!output) return;
   const lower = output.toLowerCase();
 
-  for (const { proc, type } of THREATS) {
-    if (lower.includes(proc.toLowerCase())) {
+  for (const { rx, label, type } of THREATS) {
+    if (rx.test(lower)) {
       const flag = { type, severity: 'high',
-        details: `[Live scan] ${proc} detected during exam` };
+        details: `[Live scan] ${label} detected during exam` };
       // Report to server
       if (currentSessionId && studentToken) {
         fetch(`${SERVER_URL}/event`, {
@@ -433,7 +485,7 @@ async function _scanProcesses() {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('violation-detected', flag);
       }
-      console.log(`[Monitor] THREAT: ${proc} (${type})`);
+      console.log(`[Monitor] THREAT: ${label} (${type})`);
     }
   }
 
@@ -766,12 +818,24 @@ async function startPython(sessionId) {
     PROCTOR_WRONG_PERSON_THRESHOLD:  '0.25',
     PROCTOR_VOICE_THRESHOLD:         '0.035',
   };
-  // Pass calibration biases from the dot-calibration step (if available)
+  // Pass calibration biases from the dot-calibration step (if available).
+  // Bias  = the student's personal "looking at centre" readings
+  //         (already subtracted by proctor.py to zero-centre the signal).
+  // Range = max deviation observed when the student looked at the 4 screen
+  //         corners — lets proctor.py tune per-student off-screen thresholds
+  //         instead of the one-size-fits-all GAZE_YAW_RAD=0.30 default.
   if (calBiases) {
-    envVars.PROCTOR_GAZE_YAW_BIAS  = String(calBiases.gaze_yaw);
+    envVars.PROCTOR_GAZE_YAW_BIAS   = String(calBiases.gaze_yaw);
     envVars.PROCTOR_GAZE_PITCH_BIAS = String(calBiases.gaze_pitch);
-    envVars.PROCTOR_HEAD_YAW_BIAS  = String(calBiases.head_yaw);
+    envVars.PROCTOR_HEAD_YAW_BIAS   = String(calBiases.head_yaw);
     envVars.PROCTOR_HEAD_PITCH_BIAS = String(calBiases.head_pitch);
+
+    if (calBiases.gaze_yaw_range != null) {
+      envVars.PROCTOR_GAZE_YAW_RANGE   = String(calBiases.gaze_yaw_range);
+      envVars.PROCTOR_GAZE_PITCH_RANGE = String(calBiases.gaze_pitch_range);
+      envVars.PROCTOR_HEAD_YAW_RANGE   = String(calBiases.head_yaw_range);
+      envVars.PROCTOR_HEAD_PITCH_RANGE = String(calBiases.head_pitch_range);
+    }
   }
 
   pythonProcess = spawn(python, [script], { env: envVars });

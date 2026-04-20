@@ -169,6 +169,55 @@ HEAD_YAW_THRESHOLD    = 22     # degrees from calibrated centre (medium)
 HEAD_PITCH_THRESHOLD  = 28
 HEAD_YAW_EXTREME      = 40     # clearly turned away from monitor (high)
 HEAD_PITCH_EXTREME    = 45
+
+# ─── PER-STUDENT THRESHOLD OVERRIDES (from edge-dot calibration) ─────────────
+# When the renderer's dot-calibration measures how far a student's gaze/head
+# actually moves to reach each screen corner, it sends the max observed
+# deviation in these env vars. We scale that by MEDIUM_MARGIN / EXTREME_MARGIN
+# to derive per-student thresholds. Clamped with FLOOR / CEIL so a lazy or
+# noisy calibration can't make the proctor paranoid (too low) or toothless
+# (too high).
+#
+# Intuition: if the student had to rotate their eyes by 0.28 rad to look at
+# the bottom-right corner of their screen, anything > 0.28 * 1.30 = 0.36 rad
+# is definitely past the edge, i.e. off-screen. Students with small laptops
+# get stricter thresholds; students with 32" monitors get looser ones.
+_MEDIUM_MARGIN = 1.30   # flag when 30% past the edge
+_EXTREME_MARGIN = 1.90  # extreme tier at ~90% past the edge
+
+def _tune_threshold(env_key, default, extreme_default, floor, ceil):
+    """Return (medium, extreme) thresholds scaled from a calibration range."""
+    raw = os.environ.get(env_key)
+    if not raw:
+        return default, extreme_default
+    try:
+        r = abs(float(raw))
+    except ValueError:
+        return default, extreme_default
+    if r <= 0:
+        return default, extreme_default
+    med = max(floor, min(ceil, r * _MEDIUM_MARGIN))
+    ext = max(med * 1.40, min(ceil * 1.55, r * _EXTREME_MARGIN))
+    return med, ext
+
+# Apply overrides. Floors/ceilings chosen so even weird calibrations stay
+# in a sensible proctoring range.
+GAZE_YAW_RAD,   GAZE_YAW_EXTREME    = _tune_threshold(
+    "PROCTOR_GAZE_YAW_RANGE",   GAZE_YAW_RAD,   GAZE_YAW_EXTREME,   0.22, 0.50)
+GAZE_PITCH_RAD, GAZE_PITCH_EXTREME  = _tune_threshold(
+    "PROCTOR_GAZE_PITCH_RANGE", GAZE_PITCH_RAD, GAZE_PITCH_EXTREME, 0.25, 0.55)
+HEAD_YAW_THRESHOLD,  HEAD_YAW_EXTREME  = _tune_threshold(
+    "PROCTOR_HEAD_YAW_RANGE",   HEAD_YAW_THRESHOLD,  HEAD_YAW_EXTREME,  15, 30)
+HEAD_PITCH_THRESHOLD, HEAD_PITCH_EXTREME = _tune_threshold(
+    "PROCTOR_HEAD_PITCH_RANGE", HEAD_PITCH_THRESHOLD, HEAD_PITCH_EXTREME, 20, 35)
+
+# Report whether per-student thresholds are in effect.
+if os.environ.get("PROCTOR_GAZE_YAW_RANGE"):
+    print(f"[PROCTOR] 🎯 Per-student thresholds active — "
+          f"gaze yaw:{GAZE_YAW_RAD:.2f}/{GAZE_YAW_EXTREME:.2f}rad "
+          f"pitch:{GAZE_PITCH_RAD:.2f}/{GAZE_PITCH_EXTREME:.2f}rad "
+          f"head yaw:{HEAD_YAW_THRESHOLD:.0f}/{HEAD_YAW_EXTREME:.0f}° "
+          f"pitch:{HEAD_PITCH_THRESHOLD:.0f}/{HEAD_PITCH_EXTREME:.0f}°")
 HEAD_FRAMES_NEEDED    = 12
 HEAD_EXTREME_FRAMES   = 5
 FACE_MISSING_FRAMES   = 24     # ~1.6s at 15fps — survives any blip

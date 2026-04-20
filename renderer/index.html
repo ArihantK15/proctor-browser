@@ -1015,7 +1015,8 @@ async function finishCalibration() {
   calSetStatus('Calibration complete! Starting exam...');
   document.getElementById('cal-pf').style.width = '100%';
 
-  // Compute biases: centre point averages
+  // Centre offsets (existing behaviour) — subtracted by proctor.py so
+  // "looking at centre" sits at 0,0 regardless of camera mounting.
   const centre = calResults[0];
   const biases = {
     gaze_yaw:   centre.gaze_yaw,
@@ -1024,8 +1025,36 @@ async function finishCalibration() {
     head_pitch: centre.head_pitch,
   };
 
+  // Per-student range — largest signed deviation each corner produced
+  // relative to centre. This tells proctor.py how much yaw/pitch the
+  // student actually needed to move to look at the physical edges of
+  // THEIR screen (accounts for monitor size, viewing distance, camera
+  // height, and individual eye range of motion). proctor.py uses this
+  // to scale its "looking away" thresholds per student instead of
+  // using the fixed 0.30 rad / 22° defaults.
+  //
+  // Corners: 1=top-left, 2=top-right, 3=bottom-left, 4=bottom-right
+  const corners = [1, 2, 3, 4]
+    .map(i => calResults[i])
+    .filter(Boolean);
+
+  const maxDev = (key) => Math.max(
+    ...corners.map(c => Math.abs(c[key] - centre[key])),
+    0
+  );
+
+  biases.gaze_yaw_range   = maxDev('gaze_yaw');
+  biases.gaze_pitch_range = maxDev('gaze_pitch');
+  biases.head_yaw_range   = maxDev('head_yaw');
+  biases.head_pitch_range = maxDev('head_pitch');
+
   console.log('[Cal] Biases:', biases);
   console.log('[Cal] Edge readings:', calResults);
+  console.log('[Cal] Per-student ranges →',
+    `gaze yaw:±${biases.gaze_yaw_range.toFixed(2)}rad`,
+    `pitch:±${biases.gaze_pitch_range.toFixed(2)}rad`,
+    `head yaw:±${biases.head_yaw_range.toFixed(1)}°`,
+    `pitch:±${biases.head_pitch_range.toFixed(1)}°`);
 
   // Stop calibration proctor and pass biases
   if (window.proctor) {
@@ -1037,7 +1066,9 @@ async function finishCalibration() {
       await window.proctor.logEvent({
         session_id: sessionId, event_type: 'calibration_complete',
         severity: 'low',
-        details: `Dot calibration — gaze bias: (${biases.gaze_yaw.toFixed(2)}, ${biases.gaze_pitch.toFixed(2)})`
+        details: `Dot calibration — bias gaze:(${biases.gaze_yaw.toFixed(2)},${biases.gaze_pitch.toFixed(2)}) ` +
+                 `range gaze:±(${biases.gaze_yaw_range.toFixed(2)},${biases.gaze_pitch_range.toFixed(2)}) ` +
+                 `head:±(${biases.head_yaw_range.toFixed(0)}°,${biases.head_pitch_range.toFixed(0)}°)`
       });
     } catch (e) {}
 

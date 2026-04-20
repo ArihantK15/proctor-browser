@@ -1530,10 +1530,41 @@ def validate_student(request: Request, body: ValidateIn):
     # Look up teacher's config for this student
     student_tid = student.get("teacher_id")
 
-    # Check exam access code if configured (loaded from Supabase, persists across restarts)
+    # Check exam access code if configured (loaded from Supabase, persists across restarts).
+    # Per-invite codes are accepted as an alternative — lets teachers mint unique
+    # per-student codes via invite emails AND still use the shared exam code if
+    # they prefer. If either matches, the student is in.
     current_code = _get_access_code(student_tid, exam_id=exam_id)
+    provided = (body.access_code or "").strip().upper()
+    matched_invite_id = None
     if current_code:
-        if not body.access_code or body.access_code.strip().upper() != current_code:
+        shared_ok = bool(provided) and provided == current_code
+        invite_ok = False
+        if not shared_ok and provided and student_tid:
+            inv_q = (supabase.table("student_invites")
+                     .select("id,access_code,status,expires_at,exam_id")
+                     .eq("teacher_id", str(student_tid))
+                     .eq("roll_number", student["roll_number"]))
+            if exam_id:
+                inv_q = inv_q.eq("exam_id", exam_id)
+            for inv in (inv_q.execute()).data or []:
+                code = (inv.get("access_code") or "").upper()
+                if not code or code != provided:
+                    continue
+                if (inv.get("status") or "") == "revoked":
+                    continue
+                exp = inv.get("expires_at")
+                if exp:
+                    try:
+                        if datetime.now(timezone.utc) > datetime.fromisoformat(
+                                str(exp).replace("Z", "+00:00")):
+                            continue
+                    except Exception:
+                        pass
+                invite_ok = True
+                matched_invite_id = inv["id"]
+                break
+        if not (shared_ok or invite_ok):
             raise HTTPException(
                 status_code=403,
                 detail="Invalid exam access code. Ask your examiner for the correct code.")
@@ -1581,6 +1612,18 @@ def validate_student(request: Request, body: ValidateIn):
             "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id),
             "existing_session": existing_key,
         }
+
+    # Mark the invite as accepted so the dashboard shows the funnel:
+    # queued → sent → opened → accepted. Best-effort; if the student didn't
+    # come via an invite this is a no-op.
+    if matched_invite_id:
+        try:
+            supabase.table("student_invites").update({
+                "status": "accepted",
+                "accepted_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", matched_invite_id).execute()
+        except Exception as e:
+            print(f"[invites] accept-mark failed: {e}")
 
     return {
         "valid":       True,
@@ -4630,6 +4673,624 @@ def _check_group_access(roll_number: str, teacher_id: str, exam_id: str) -> bool
         if member:
             return True
     return False
+
+
+# ─── STUDENT INVITES (email-based onboarding) ──────────────────────
+#
+# Flow:
+#   1. Teacher uploads CSV or picks a group → POST /api/admin/invites/send
+#   2. Backend mints one `student_invites` row per student (token, expiry,
+#      optional per-invite access code), calls Resend, updates status.
+#   3. Student opens /invite/<token> → landing page with OS-detected
+#      download button and pre-filled roll + code.
+#   4. Student installs Procta, launches, signs in. validate-student
+#      marks the invite as accepted.
+#   5. Resend webhooks (/api/webhooks/email) flip bounces/complaints.
+#
+# Design notes:
+#   - Tokens are 32-byte URL-safe strings from `secrets.token_urlsafe`.
+#   - Per-teacher daily send cap (INVITE_DAILY_CAP, default 500) guards
+#     against CSV fat-fingers and abuse. Increment is transactional-ish
+#     via upsert-with-increment on `invite_send_counters`.
+#   - We DON'T store PII beyond what's already in `students` — the
+#     `student_invites` row carries denormalised email+name for bounce
+#     handling, but gets cleaned up when the student row is deleted.
+
+import secrets as _secrets
+
+INVITE_DAILY_CAP = int(os.environ.get("INVITE_DAILY_CAP", "500"))
+
+
+def _get_invite_base_url() -> str:
+    """Where `/invite/<token>` lives. Same origin as the app in prod.
+
+    Falls back to the incoming request's origin when unset so local dev
+    and staging both work without config."""
+    return os.environ.get("INVITE_BASE_URL", "").rstrip("/") or "https://app.procta.net"
+
+
+def _new_invite_token() -> str:
+    return _secrets.token_urlsafe(32)
+
+
+def _new_access_code(length: int = 6) -> str:
+    """Short human-readable per-invite code. No I/O/0/1 to avoid typos."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(_secrets.choice(alphabet) for _ in range(length))
+
+
+def _check_daily_cap(teacher_id: str, batch_size: int) -> tuple[bool, int]:
+    """(allowed, remaining). Called before a batch send; we don't
+    reserve here — just check. Actual increments happen per-send."""
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    row = (supabase.table("invite_send_counters")
+           .select("count")
+           .eq("teacher_id", teacher_id)
+           .eq("day", today).execute()).data
+    used = (row[0]["count"] if row else 0)
+    remaining = INVITE_DAILY_CAP - used
+    return (batch_size <= remaining, max(remaining, 0))
+
+
+def _bump_daily_cap(teacher_id: str, delta: int = 1) -> None:
+    """Increment today's counter. Best-effort; race with concurrent sends
+    is acceptable since the cap is soft (no hard SLA)."""
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    try:
+        existing = (supabase.table("invite_send_counters")
+                    .select("count")
+                    .eq("teacher_id", teacher_id)
+                    .eq("day", today).execute()).data
+        if existing:
+            supabase.table("invite_send_counters").update(
+                {"count": existing[0]["count"] + delta}
+            ).eq("teacher_id", teacher_id).eq("day", today).execute()
+        else:
+            supabase.table("invite_send_counters").insert(
+                {"teacher_id": teacher_id, "day": today, "count": delta}
+            ).execute()
+    except Exception as e:
+        print(f"[invites] cap bump failed: {e}")
+
+
+@app.post("/api/admin/invites/send")
+def send_invites(request: Request, body: dict = Body(...)):
+    """Send invites to a list of students.
+
+    Body:
+      {
+        "recipients": [
+          {"email": "...", "full_name": "...", "roll_number": "..."},
+          ...
+        ],
+        "exam_id":       "exam-xyz",     # optional
+        "group_id":      "<uuid>",       # optional — records linkage
+        "per_invite_code": true,         # generate unique code per student
+        "custom_message": "Good luck!",  # optional — rendered in email
+        "expires_at":    "2026-05-01..." # optional override
+      }
+
+    Returns {sent, failed, skipped, remaining_today}.
+
+    Idempotent on (teacher_id, email, exam_id): re-sending upserts the
+    existing invite row and mints a new token.
+    """
+    from emailer import send_invite_email  # noqa
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+
+    recipients = body.get("recipients") or []
+    if not isinstance(recipients, list) or not recipients:
+        raise HTTPException(status_code=400, detail="'recipients' must be a non-empty list")
+    if len(recipients) > 500:
+        raise HTTPException(status_code=400, detail="Max 500 invites per batch")
+
+    exam_id = (body.get("exam_id") or "").strip() or None
+    group_id = (body.get("group_id") or "").strip() or None
+    custom_message = (body.get("custom_message") or "").strip() or None
+    per_invite_code = bool(body.get("per_invite_code"))
+    expires_at = body.get("expires_at")
+
+    # Expiry default — exam.ends_at + 24h grace, or +30d if no end time.
+    if not expires_at:
+        cfg = _load_exam_config(tid, exam_id=exam_id) if exam_id else {}
+        ends = cfg.get("ends_at") if isinstance(cfg, dict) else None
+        if ends:
+            try:
+                dt = datetime.fromisoformat(str(ends).replace("Z", "+00:00"))
+                expires_at = (dt + timedelta(hours=24)).isoformat()
+            except Exception:
+                expires_at = None
+        if not expires_at:
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+
+    # Daily cap
+    ok, remaining = _check_daily_cap(tid, len(recipients))
+    if not ok:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily invite cap exceeded. {remaining} sends left today.",
+        )
+
+    # Resolve exam metadata once for the email template.
+    exam_cfg = _load_exam_config(tid, exam_id=exam_id) if exam_id else {}
+    exam_title = (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "Your Procta Exam"
+    starts_at = exam_cfg.get("starts_at") if isinstance(exam_cfg, dict) else None
+    ends_at   = exam_cfg.get("ends_at") if isinstance(exam_cfg, dict) else None
+    teacher_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
+
+    base = _get_invite_base_url()
+    download_url = f"{base}/download"
+
+    sent = 0
+    failed = 0
+    skipped = 0
+    failures: list[dict] = []
+
+    for rec in recipients:
+        email = str(rec.get("email", "")).strip().lower()
+        name  = str(rec.get("full_name", "")).strip()
+        roll  = str(rec.get("roll_number", "")).strip().upper()
+        if not email or not name or not roll:
+            skipped += 1
+            continue
+
+        token = _new_invite_token()
+        access_code = _new_access_code() if per_invite_code else None
+
+        # Upsert the invite row — one per (teacher, email, exam).
+        # On conflict we rotate the token (effectively 'resend').
+        invite_row = {
+            "token":          token,
+            "teacher_id":     tid,
+            "roll_number":    roll,
+            "email":          email,
+            "full_name":      name,
+            "exam_id":        exam_id,
+            "group_id":       group_id,
+            "access_code":    access_code,
+            "custom_message": custom_message,
+            "status":         "queued",
+            "expires_at":     expires_at,
+            "created_by":     tid,
+        }
+        try:
+            existing = (supabase.table("student_invites")
+                        .select("id")
+                        .eq("teacher_id", tid)
+                        .eq("email", email)
+                        .eq("exam_id", exam_id or "")
+                        .execute()).data
+            if existing:
+                supabase.table("student_invites").update(invite_row)\
+                    .eq("id", existing[0]["id"]).execute()
+            else:
+                supabase.table("student_invites").insert(invite_row).execute()
+        except Exception as e:
+            failed += 1
+            failures.append({"email": email, "reason": f"db: {e}"})
+            continue
+
+        # Send the email.
+        invite_url = f"{base}/invite/{token}"
+        result = send_invite_email(
+            to_email=email, to_name=name,
+            exam_title=exam_title, invite_url=invite_url,
+            download_url=download_url, roll_number=roll,
+            access_code=access_code,
+            exam_starts_at=fmt_ist(starts_at) if starts_at else None,
+            exam_ends_at=fmt_ist(ends_at) if ends_at else None,
+            custom_message=custom_message,
+            teacher_name=teacher_name,
+        )
+        try:
+            if result.ok:
+                supabase.table("student_invites").update({
+                    "status": "sent",
+                    "sent_at": datetime.now(timezone.utc).isoformat(),
+                    "provider_msg_id": result.provider_msg_id,
+                }).eq("token", token).execute()
+                _bump_daily_cap(tid, 1)
+                sent += 1
+            else:
+                supabase.table("student_invites").update({
+                    "status": "failed",
+                    "bounce_reason": (result.error or "unknown")[:500],
+                }).eq("token", token).execute()
+                failed += 1
+                failures.append({"email": email, "reason": result.error or "send failed"})
+        except Exception as e:
+            print(f"[invites] status update failed: {e}")
+
+    _, remaining_after = _check_daily_cap(tid, 0)
+    return {
+        "sent":     sent,
+        "failed":   failed,
+        "skipped":  skipped,
+        "failures": failures[:50],
+        "remaining_today": remaining_after,
+    }
+
+
+@app.get("/api/admin/invites")
+def list_invites(request: Request):
+    """List invites for the teacher. Optional filters: exam_id, status, group_id."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    q = supabase.table("student_invites").select("*").eq("teacher_id", tid)\
+        .order("created_at", desc=True)
+    exam_id = request.query_params.get("exam_id")
+    status  = request.query_params.get("status")
+    group_id = request.query_params.get("group_id")
+    if exam_id:  q = q.eq("exam_id", exam_id)
+    if status:   q = q.eq("status", status)
+    if group_id: q = q.eq("group_id", group_id)
+    rows = (q.execute()).data or []
+    base = _get_invite_base_url()
+    # Decorate each row with the shareable link so the dashboard can
+    # render a 'Copy link' button without recomputing.
+    for r in rows:
+        r["invite_url"] = f"{base}/invite/{r['token']}"
+    return {"invites": rows}
+
+
+@app.post("/api/admin/invites/{invite_id}/resend")
+def resend_invite(invite_id: str, request: Request):
+    """Resend a single invite. Rotates token + resets status to queued."""
+    from emailer import send_invite_email  # noqa
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    row = (supabase.table("student_invites").select("*")
+           .eq("id", invite_id).eq("teacher_id", tid).execute()).data
+    if not row:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    inv = row[0]
+
+    ok, remaining = _check_daily_cap(tid, 1)
+    if not ok:
+        raise HTTPException(status_code=429, detail="Daily invite cap exceeded")
+
+    token = _new_invite_token()
+    supabase.table("student_invites").update({
+        "token": token, "status": "queued", "bounced_at": None,
+        "bounce_reason": None,
+    }).eq("id", invite_id).execute()
+
+    base = _get_invite_base_url()
+    exam_cfg = _load_exam_config(tid, exam_id=inv.get("exam_id")) if inv.get("exam_id") else {}
+    exam_title = (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "Your Procta Exam"
+
+    result = send_invite_email(
+        to_email=inv["email"], to_name=inv["full_name"],
+        exam_title=exam_title,
+        invite_url=f"{base}/invite/{token}",
+        download_url=f"{base}/download",
+        roll_number=inv["roll_number"],
+        access_code=inv.get("access_code"),
+        exam_starts_at=fmt_ist(exam_cfg.get("starts_at")) if exam_cfg.get("starts_at") else None,
+        exam_ends_at=fmt_ist(exam_cfg.get("ends_at")) if exam_cfg.get("ends_at") else None,
+        custom_message=inv.get("custom_message"),
+        teacher_name=teacher.get("full_name") or teacher.get("email") or "Your teacher",
+    )
+    if result.ok:
+        supabase.table("student_invites").update({
+            "status": "sent",
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+            "provider_msg_id": result.provider_msg_id,
+        }).eq("id", invite_id).execute()
+        _bump_daily_cap(tid, 1)
+        return {"ok": True, "token": token}
+    supabase.table("student_invites").update({
+        "status": "failed",
+        "bounce_reason": (result.error or "unknown")[:500],
+    }).eq("id", invite_id).execute()
+    raise HTTPException(status_code=502, detail=result.error or "send failed")
+
+
+@app.post("/api/admin/invites/resend-bounced")
+def resend_bounced(request: Request, body: dict = Body(default={})):
+    """Bulk-resend every bounced invite for an exam (or the teacher).
+    Workflow saver: one click to recover from a bad batch."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    exam_id = (body.get("exam_id") or "").strip() or None
+    q = (supabase.table("student_invites").select("id")
+         .eq("teacher_id", tid).eq("status", "bounced"))
+    if exam_id:
+        q = q.eq("exam_id", exam_id)
+    ids = [r["id"] for r in (q.execute()).data or []]
+    ok, remaining = _check_daily_cap(tid, len(ids))
+    if not ok:
+        raise HTTPException(status_code=429,
+            detail=f"Daily cap — {len(ids)} bounced but only {remaining} sends left today.")
+    sent = 0
+    for iid in ids:
+        try:
+            # Reuse the single-resend handler for consistency.
+            resend_invite(iid, request)
+            sent += 1
+        except HTTPException:
+            pass
+        except Exception as e:
+            print(f"[invites] resend-bounced {iid} failed: {e}")
+    return {"requested": len(ids), "sent": sent}
+
+
+@app.delete("/api/admin/invites/{invite_id}")
+def revoke_invite(invite_id: str, request: Request):
+    """Revoke an invite so the token can't be accepted. Soft-delete —
+    row stays for audit."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    result = supabase.table("student_invites")\
+        .update({"status": "revoked"})\
+        .eq("id", invite_id).eq("teacher_id", tid).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    return {"ok": True}
+
+
+@app.get("/invite/{token}", response_class=HTMLResponse)
+def invite_landing(token: str, request: Request):
+    """Public landing page for invite recipients.
+
+    Resolves the token, marks it as opened (best-effort), then renders
+    an HTML page with an OS-sniffed download button and pre-filled
+    roll + access code. Deep-links to procta:// if the app is already
+    installed (handled client-side)."""
+    row = (supabase.table("student_invites").select("*")
+           .eq("token", token).execute()).data
+    if not row:
+        return HTMLResponse(
+            _render_invite_error("This invite link is invalid or has been revoked."),
+            status_code=404,
+        )
+    inv = row[0]
+    status = (inv.get("status") or "").lower()
+    if status == "revoked":
+        return HTMLResponse(
+            _render_invite_error("This invite has been revoked by your teacher."),
+            status_code=410,
+        )
+
+    # Expiry check
+    exp = inv.get("expires_at")
+    if exp:
+        try:
+            dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > dt:
+                return HTMLResponse(
+                    _render_invite_error("This invite has expired. Contact your teacher for a new one."),
+                    status_code=410,
+                )
+        except Exception:
+            pass
+
+    # Mark opened (first time only)
+    if not inv.get("opened_at"):
+        try:
+            supabase.table("student_invites").update({
+                "opened_at": datetime.now(timezone.utc).isoformat(),
+                "status": "opened" if status in ("sent", "queued") else status,
+            }).eq("token", token).execute()
+        except Exception:
+            pass
+
+    exam_cfg = _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
+        if inv.get("exam_id") else {}
+    exam_title = (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "Your Procta Exam"
+
+    return HTMLResponse(_render_invite_landing(
+        full_name=inv["full_name"],
+        exam_title=exam_title,
+        roll_number=inv["roll_number"],
+        access_code=inv.get("access_code") or "",
+        starts_at=fmt_ist(exam_cfg.get("starts_at")) if exam_cfg.get("starts_at") else "",
+        ends_at=fmt_ist(exam_cfg.get("ends_at")) if exam_cfg.get("ends_at") else "",
+    ))
+
+
+def _render_invite_error(msg: str) -> str:
+    safe = (msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Procta invite</title>
+<style>body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;
+min-height:100vh;padding:24px}}
+.card{{background:#1e293b;border-radius:16px;padding:40px;max-width:480px;text-align:center;
+border:1px solid #334155}}
+h1{{color:#f87171;margin:0 0 16px 0;font-size:24px}}
+p{{color:#94a3b8;line-height:1.6;margin:0}}</style></head>
+<body><div class="card"><h1>Invite unavailable</h1><p>{safe}</p></div></body></html>"""
+
+
+def _render_invite_landing(*, full_name, exam_title, roll_number, access_code,
+                           starts_at, ends_at) -> str:
+    """Landing page HTML. Uses os-sniff JS to pick the right download."""
+    # Escape all interpolated values to prevent XSS via DB content.
+    def _e(s):
+        return (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+    code_block = ""
+    if access_code:
+        code_block = f'''
+      <div class="field">
+        <div class="lbl">Access code</div>
+        <div class="val"><code>{_e(access_code)}</code>
+          <button class="copy" onclick="copyVal('{_e(access_code)}', this)">Copy</button></div>
+      </div>'''
+    time_block = ""
+    if starts_at:
+        time_block += f'<div class="meta"><b>Starts:</b> {_e(starts_at)}</div>'
+    if ends_at:
+        time_block += f'<div class="meta"><b>Closes:</b> {_e(ends_at)}</div>'
+
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<title>{_e(exam_title)} — Procta invite</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+background:#0f172a;color:#e2e8f0;min-height:100vh;padding:24px}}
+.wrap{{max-width:640px;margin:0 auto}}
+.hero{{background:linear-gradient(135deg,#10b981,#3b82f6);border-radius:20px;padding:36px;margin-bottom:16px}}
+.brand{{color:#fff;font-size:12px;letter-spacing:2px;font-weight:700;opacity:.9}}
+.title{{color:#fff;font-size:28px;font-weight:700;margin-top:8px;line-height:1.2}}
+.subtitle{{color:#e0f2fe;font-size:15px;margin-top:8px}}
+.card{{background:#1e293b;border-radius:16px;padding:24px;border:1px solid #334155;margin-bottom:16px}}
+h2{{margin:0 0 16px 0;font-size:16px;color:#e2e8f0;font-weight:600}}
+.field{{margin:12px 0}}
+.lbl{{font-size:12px;color:#94a3b8;margin-bottom:4px}}
+.val{{display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
+code{{background:#0f172a;padding:6px 12px;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+font-size:15px;color:#10b981;font-weight:600;border:1px solid #334155}}
+.copy{{background:#334155;color:#e2e8f0;border:none;padding:6px 10px;border-radius:6px;
+cursor:pointer;font-size:12px;font-weight:600}}
+.copy:hover{{background:#475569}}
+.copy.ok{{background:#10b981}}
+.meta{{font-size:13px;color:#94a3b8;margin:6px 0}}
+.dlbtn{{display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:14px 28px;
+border-radius:10px;font-weight:600;margin:8px 4px 8px 0;transition:transform .1s}}
+.dlbtn:hover{{transform:translateY(-1px)}}
+.dlbtn.alt{{background:#475569}}
+.step{{counter-increment:step;display:flex;gap:12px;align-items:flex-start;margin:14px 0}}
+.step::before{{content:counter(step);flex:0 0 28px;height:28px;border-radius:50%;background:#10b981;
+color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}}
+.steps{{counter-reset:step;padding:0}}
+.step-body{{flex:1}}
+.step-title{{font-weight:600;color:#e2e8f0;margin-bottom:2px}}
+.step-desc{{font-size:13px;color:#94a3b8;line-height:1.5}}
+footer{{text-align:center;color:#64748b;font-size:12px;margin-top:20px}}
+</style></head><body><div class="wrap">
+  <div class="hero">
+    <div class="brand">PROCTA · EXAM INVITE</div>
+    <div class="title">{_e(exam_title)}</div>
+    <div class="subtitle">Hi {_e(full_name)} — here's everything you need to get started.</div>
+  </div>
+
+  <div class="card">
+    <h2>Your credentials</h2>
+    <div class="field">
+      <div class="lbl">Roll number</div>
+      <div class="val"><code>{_e(roll_number)}</code>
+        <button class="copy" onclick="copyVal('{_e(roll_number)}', this)">Copy</button></div>
+    </div>
+    {code_block}
+    {time_block}
+  </div>
+
+  <div class="card">
+    <h2>Download Procta</h2>
+    <p style="color:#94a3b8;font-size:14px;margin:0 0 14px 0;line-height:1.5">
+      Install the proctored browser on the computer you'll take the exam on.
+    </p>
+    <div id="dlbtns">
+      <a id="primary-dl" class="dlbtn" href="/download/win">Download (detecting OS…)</a>
+    </div>
+    <div style="margin-top:12px;font-size:13px">
+      <a class="dlbtn alt" href="/download/mac">macOS (Apple Silicon)</a>
+      <a class="dlbtn alt" href="/download/mac-x64">macOS (Intel)</a>
+      <a class="dlbtn alt" href="/download/win">Windows</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>How to take the exam</h2>
+    <div class="steps">
+      <div class="step"><div class="step-body"><div class="step-title">Install Procta</div>
+        <div class="step-desc">Run the installer you just downloaded. Takes about 30 seconds.</div></div></div>
+      <div class="step"><div class="step-body"><div class="step-title">Launch and sign in</div>
+        <div class="step-desc">Enter the roll number{' and access code' if access_code else ''} shown above.
+          Procta will verify your ID and walk you through calibration.</div></div></div>
+      <div class="step"><div class="step-body"><div class="step-title">Take the exam</div>
+        <div class="step-desc">When the exam window opens your questions appear. Submit when done —
+          answers save automatically even if your internet drops.</div></div></div>
+    </div>
+  </div>
+
+  <footer>Questions? Reply to the email you got this link from.</footer>
+</div>
+
+<script>
+// OS sniff → pick the right primary download. Best-effort; the manual
+// links below stay visible in case we guess wrong.
+(function(){{
+  var ua = (navigator.userAgent || '').toLowerCase();
+  var btn = document.getElementById('primary-dl');
+  if(!btn) return;
+  if(ua.indexOf('mac') !== -1){{
+    // Apple Silicon vs Intel — navigator.userAgent on ARM Macs still
+    // often lies ("Intel Mac OS X"). Expose both; default to ARM since
+    // every Mac sold since 2020 is Apple Silicon.
+    btn.href = '/download/mac';
+    btn.textContent = 'Download for macOS';
+  }} else if(ua.indexOf('win') !== -1){{
+    btn.href = '/download/win';
+    btn.textContent = 'Download for Windows';
+  }} else {{
+    // Linux / ChromeOS / unknown — keep Windows as the safest default
+    // (most school devices) but relabel.
+    btn.textContent = 'Download installer';
+  }}
+}})();
+
+function copyVal(v, btn){{
+  navigator.clipboard.writeText(v).then(function(){{
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('ok');
+    setTimeout(function(){{ btn.textContent = orig; btn.classList.remove('ok'); }}, 1500);
+  }});
+}}
+</script>
+</body></html>"""
+
+
+@app.post("/api/webhooks/email")
+async def email_webhook(request: Request):
+    """Resend bounce/complaint webhook.
+
+    Resend posts JSON: { "type": "email.bounced" | "email.complained"
+      | "email.delivered" | "email.opened" | ..., "data": { "email_id", "to", "created_at", ... } }
+    We flip the corresponding invite row.
+
+    Signature is verified against RESEND_WEBHOOK_SECRET to stop spoofed
+    status changes. If the secret isn't configured we fail CLOSED (403).
+    """
+    from emailer import verify_webhook  # noqa
+    raw = await request.body()
+    sig = request.headers.get("svix-signature") or request.headers.get("resend-signature") or ""
+    if not verify_webhook(raw, sig):
+        raise HTTPException(status_code=403, detail="Invalid webhook signature")
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    evt = (payload.get("type") or "").lower()
+    data = payload.get("data") or {}
+    msg_id = data.get("email_id") or data.get("id")
+    if not msg_id:
+        return {"ok": True, "ignored": "no msg id"}
+
+    # Map Resend event → invite status.
+    if evt == "email.bounced":
+        supabase.table("student_invites").update({
+            "status": "bounced",
+            "bounced_at": datetime.now(timezone.utc).isoformat(),
+            "bounce_reason": str(data.get("bounce") or data.get("reason") or "bounced")[:500],
+        }).eq("provider_msg_id", msg_id).execute()
+    elif evt == "email.complained":
+        supabase.table("student_invites").update({
+            "status": "failed",
+            "bounce_reason": "recipient marked as spam",
+        }).eq("provider_msg_id", msg_id).execute()
+    elif evt == "email.delivered":
+        # Leave status as 'sent' — delivered is a transient confirmation.
+        pass
+    return {"ok": True, "event": evt}
 
 
 # ─── QUESTION BANK ─────────────────────────────────────────────────

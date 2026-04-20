@@ -1,86 +1,61 @@
 name: Build & Release Electron App
 
+# Triggered by pushing a version tag (e.g. `git tag v2.1.4 && git push --tags`).
+# Each runner builds its own OS target and publishes straight to the GitHub
+# Release associated with the tag — including the latest.yml / latest-mac.yml
+# manifests and .blockmap files that electron-updater needs.
+
 on:
   push:
     tags:
       - 'v*'
+  # Manual trigger for debugging without creating a new tag
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write  # needed so electron-builder can create/update the Release
 
 jobs:
-  build-mac:
-    runs-on: macos-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: mac
+          - os: windows-latest
+            target: win
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install dependencies
-        run: npm install
-      - name: Build Mac (ARM64)
-        run: npx electron-builder --mac --arm64
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build Mac (x64)
-        run: npx electron-builder --mac --x64
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: List build output
-        run: ls -la dist/
-      - name: Upload Mac artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-installers
-          path: |
-            dist/*.dmg
-            dist/*.zip
-          retention-days: 5
+          cache: npm
 
-  build-win:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
       - name: Install dependencies
-        run: npm install
-      - name: Build Windows
-        run: npx electron-builder --win
+        run: npm ci || npm install
+
+      # Build BOTH mac archs in a single invocation so latest-mac.yml
+      # references both DMGs. Separate runs would overwrite the manifest.
+      - name: Build & publish (macOS)
+        if: matrix.target == 'mac'
+        run: npx electron-builder --mac --arm64 --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: List build output
-        run: dir dist\
-      - name: Upload Win artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: win-installer
-          path: |
-            dist/*.exe
-          retention-days: 5
+          # Disable code signing for now — when you buy a cert, add:
+          #   CSC_LINK, CSC_KEY_PASSWORD (macOS)
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
-  release:
-    needs: [build-mac, build-win]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download Mac artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: mac-installers
-          path: dist/
-      - name: Download Win artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: win-installer
-          path: dist/
-      - name: List all artifacts
-        run: ls -la dist/
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          draft: false
-          generate_release_notes: true
+      - name: Build & publish (Windows)
+        if: matrix.target == 'win'
+        run: npx electron-builder --win --x64 --publish always
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No Windows cert yet — unsigned binaries will trigger SmartScreen
+          # on first-run until you add Azure Trusted Signing.
+
+      - name: Show dist contents
+        shell: bash
+        run: ls -lh dist/ || true

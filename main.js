@@ -3,7 +3,7 @@ const {
   globalShortcut, powerSaveBlocker, clipboard
 } = require('electron');
 const path    = require('path');
-const { spawn, spawnSync, execSync, exec } = require('child_process');
+const { spawn, spawnSync, exec } = require('child_process');
 const os      = require('os');
 const fs      = require('fs');
 const https   = require('https');
@@ -32,6 +32,7 @@ let currentSessionId = null;  // set once an exam session is active
 let examContext      = null;  // {rollNumber, accessCode, examTitle, teacherId} stashed by lobby
 let resolvedPython = null;
 let integrityFlags = []; // populated at startup, sent to renderer
+let _integrityReady = null; // promise that resolves when checks are done
 let _monitorInterval = null; // continuous process monitoring during exam
 
 // ── VM / INTEGRITY CHECKS (fully async — never blocks UI) ───────
@@ -251,14 +252,14 @@ async function runIntegrityChecks() {
     tasks.push(
       _exec('scutil --proxy', 3000).then(output => {
         if (!output) return;
-        const http = /HTTPEnable\s*:\s*1/i.test(output);
-        const https = /HTTPSEnable\s*:\s*1/i.test(output);
-        const socks = /SOCKSEnable\s*:\s*1/i.test(output);
-        if (http || https || socks) {
+        const httpOn = /HTTPEnable\s*:\s*1/i.test(output);
+        const httpsOn = /HTTPSEnable\s*:\s*1/i.test(output);
+        const socksOn = /SOCKSEnable\s*:\s*1/i.test(output);
+        if (httpOn || httpsOn || socksOn) {
           const types = [];
-          if (http) types.push('HTTP');
-          if (https) types.push('HTTPS');
-          if (socks) types.push('SOCKS');
+          if (httpOn) types.push('HTTP');
+          if (httpsOn) types.push('HTTPS');
+          if (socksOn) types.push('SOCKS');
           flags.push({ type: 'proxy_detected', severity: 'high',
             details: `System proxy active: ${types.join(', ')}` });
         }
@@ -1272,7 +1273,8 @@ app.whenReady().then(async () => {
 
   // ── STEP 2: Run integrity checks in background (async) ────────
   // All shell commands use async exec — zero main-thread blocking.
-  runIntegrityChecks().then(flags => {
+  // Store the promise so the IPC handler can await it.
+  _integrityReady = runIntegrityChecks().then(flags => {
     integrityFlags = flags;
     console.log(`[Integrity] async checks complete: ${flags.length} flag(s)`);
   }).catch(e => {
@@ -1325,8 +1327,13 @@ app.on('window-all-closed', () => {
 });
 
 // ── IPC ───────────────────────────────────────────────────────────
-ipcMain.handle('get-integrity-flags', () => {
-  // Tag each flag with whether it should block exam start
+ipcMain.handle('get-integrity-flags', async () => {
+  // Wait for async checks to finish before returning results.
+  // Without this, the renderer could get an empty array if it asks
+  // before the background checks complete.
+  if (_integrityReady) {
+    try { await _integrityReady; } catch(e) {}
+  }
   const BLOCKING_TYPES = new Set([
     'vm_detected', 'remote_desktop_detected', 'vpn_detected',
     'proxy_detected', 'debugger_detected',

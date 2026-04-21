@@ -4884,6 +4884,10 @@ def send_invites(request: Request, body: dict = Body(...)):
             else:
                 supabase.table("student_invites").insert(invite_row).execute()
         except Exception as e:
+            import traceback
+            print(f"[invites][DB_ERROR] email={email} tid={tid} exam_id={exam_id!r} err={e!r}", flush=True)
+            print(f"[invites][DB_ERROR] payload_keys={list(invite_row.keys())}", flush=True)
+            traceback.print_exc()
             failed += 1
             failures.append({"email": email, "reason": f"db: {e}"})
             continue
@@ -4909,6 +4913,7 @@ def send_invites(request: Request, body: dict = Body(...)):
                 }).eq("token", token).execute()
                 _bump_daily_cap(tid, 1)
                 sent += 1
+                print(f"[invites][SENT] email={email} msg_id={result.provider_msg_id}", flush=True)
             else:
                 supabase.table("student_invites").update({
                     "status": "failed",
@@ -4916,8 +4921,11 @@ def send_invites(request: Request, body: dict = Body(...)):
                 }).eq("token", token).execute()
                 failed += 1
                 failures.append({"email": email, "reason": result.error or "send failed"})
+                print(f"[invites][SEND_ERROR] email={email} reason={result.error!r}", flush=True)
         except Exception as e:
-            print(f"[invites] status update failed: {e}")
+            import traceback
+            print(f"[invites][STATUS_UPDATE_ERROR] email={email} err={e!r}", flush=True)
+            traceback.print_exc()
 
     _, remaining_after = _check_daily_cap(tid, 0)
     return {

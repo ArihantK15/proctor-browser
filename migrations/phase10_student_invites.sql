@@ -58,3 +58,38 @@ create table if not exists invite_send_counters (
   primary key (teacher_id, day)
 );
 create index if not exists idx_isc_day on invite_send_counters(day);
+
+-- ── Row Level Security ──────────────────────────────────────────
+-- Same pattern as other teacher-owned tables (see rls_policies.sql):
+-- teachers can CRUD their own rows; the anon role gets a narrow SELECT
+-- by token so the public /invite/<token> landing page resolves without
+-- a service_role hop. Service_role (used by migrations & admin tools)
+-- bypasses RLS unconditionally, which is the documented contract.
+
+alter table student_invites enable row level security;
+
+create policy student_invites_teacher_select on student_invites
+  for select using (teacher_id::text = public.get_my_teacher_id());
+create policy student_invites_teacher_insert on student_invites
+  for insert with check (teacher_id::text = public.get_my_teacher_id());
+create policy student_invites_teacher_update on student_invites
+  for update using (teacher_id::text = public.get_my_teacher_id());
+create policy student_invites_teacher_delete on student_invites
+  for delete using (teacher_id::text = public.get_my_teacher_id());
+-- Anonymous token lookup for the public landing page. Restricted to
+-- rows that haven't been revoked and haven't expired — acceptance flip
+-- still needs the teacher or service_role path.
+create policy student_invites_anon_token_select on student_invites
+  for select to anon using (
+    status <> 'revoked'
+    and (expires_at is null or expires_at > now())
+  );
+
+alter table invite_send_counters enable row level security;
+
+create policy invite_send_counters_teacher_select on invite_send_counters
+  for select using (teacher_id::text = public.get_my_teacher_id());
+create policy invite_send_counters_teacher_insert on invite_send_counters
+  for insert with check (teacher_id::text = public.get_my_teacher_id());
+create policy invite_send_counters_teacher_update on invite_send_counters
+  for update using (teacher_id::text = public.get_my_teacher_id());

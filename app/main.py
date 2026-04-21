@@ -5186,12 +5186,29 @@ color:#fff;font-weight:700;display:flex;align-items:center;justify-content:cente
 .step-body{{flex:1}}
 .step-title{{font-weight:600;color:#e2e8f0;margin-bottom:2px}}
 .step-desc{{font-size:13px;color:#94a3b8;line-height:1.5}}
+.notice{{display:flex;gap:14px;align-items:flex-start;background:rgba(245,158,11,.08);
+border:1px solid rgba(245,158,11,.35);border-radius:14px;padding:16px 20px;margin-bottom:16px}}
+.notice .icon{{flex:0 0 28px;height:28px;border-radius:50%;background:#f59e0b;color:#1f2937;
+font-weight:800;display:flex;align-items:center;justify-content:center;font-size:16px}}
+.notice .body{{flex:1}}
+.notice .t{{color:#fbbf24;font-weight:700;font-size:14px;margin-bottom:4px;letter-spacing:.02em}}
+.notice .d{{color:#fde68a;font-size:13px;line-height:1.55}}
 footer{{text-align:center;color:#64748b;font-size:12px;margin-top:20px}}
 </style></head><body><div class="wrap">
   <div class="hero">
     <div class="brand">PROCTA · EXAM INVITE</div>
     <div class="title">{_e(exam_title)}</div>
     <div class="subtitle">Hi {_e(full_name)} — here's everything you need to get started.</div>
+  </div>
+
+  <div class="notice">
+    <div class="icon">!</div>
+    <div class="body">
+      <div class="t">Desktop or laptop only</div>
+      <div class="d">Procta runs as a secure desktop app on <b>Windows</b> and <b>macOS</b>.
+        You can't take the exam on a phone or tablet. A mobile app is on the way —
+        for now, open this invite on the computer you'll take the exam on.</div>
+    </div>
   </div>
 
   <div class="card">
@@ -5208,7 +5225,8 @@ footer{{text-align:center;color:#64748b;font-size:12px;margin-top:20px}}
   <div class="card">
     <h2>Download Procta</h2>
     <p style="color:#94a3b8;font-size:14px;margin:0 0 14px 0;line-height:1.5">
-      Install the proctored browser on the computer you'll take the exam on.
+      Install on the <b>Windows or macOS computer</b> you'll take the exam on.
+      The installer takes about 30 seconds.
     </p>
     <div id="dlbtns">
       <a id="primary-dl" class="dlbtn" href="/download/win">Download (detecting OS…)</a>

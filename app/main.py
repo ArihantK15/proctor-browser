@@ -5106,6 +5106,7 @@ def invite_landing(token: str, request: Request):
     exam_title = (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "Your Procta Exam"
 
     return HTMLResponse(_render_invite_landing(
+        token=token,
         full_name=inv["full_name"],
         exam_title=exam_title,
         roll_number=inv["roll_number"],
@@ -5113,6 +5114,111 @@ def invite_landing(token: str, request: Request):
         starts_at=fmt_ist(exam_cfg.get("starts_at")) if exam_cfg.get("starts_at") else "",
         ends_at=fmt_ist(exam_cfg.get("ends_at")) if exam_cfg.get("ends_at") else "",
     ))
+
+
+@app.get("/api/invite/{token}/resolve")
+def resolve_invite(token: str):
+    """Public JSON lookup for an invite token.
+
+    Called by the Electron lobby after the student clicks
+    `procta://invite/<token>` — we return the minimum pre-fill data
+    (email, name, exam title, roll number, access code) so the desktop
+    app can auto-fill the sign-in form instead of making the student
+    retype what we already know.
+
+    Public on purpose: the same information is already visible on the
+    HTML landing page. No teacher PII, no secrets beyond the access
+    code (which is per-invite and exam-scoped anyway). Revoked /
+    expired invites return 410 so the renderer can show the right copy.
+    """
+    row = (supabase.table("student_invites").select("*")
+           .eq("token", token).execute()).data
+    if not row:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    inv = row[0]
+    status = (inv.get("status") or "").lower()
+    if status == "revoked":
+        raise HTTPException(status_code=410, detail="Invite revoked")
+    exp = inv.get("expires_at")
+    if exp:
+        try:
+            dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > dt:
+                raise HTTPException(status_code=410, detail="Invite expired")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    exam_cfg = _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
+        if inv.get("exam_id") else {}
+    exam_title = (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "Your Procta Exam"
+
+    return {
+        "ok":           True,
+        "email":        inv.get("email"),
+        "full_name":    inv.get("full_name"),
+        "roll_number":  inv.get("roll_number"),
+        "access_code":  inv.get("access_code") or "",
+        "exam_id":      inv.get("exam_id"),
+        "exam_title":   exam_title,
+        "starts_at":    exam_cfg.get("starts_at") if isinstance(exam_cfg, dict) else None,
+        "ends_at":      exam_cfg.get("ends_at")   if isinstance(exam_cfg, dict) else None,
+        "status":       status or "sent",
+        "accepted":     bool(inv.get("accepted_at")),
+    }
+
+
+@app.post("/api/invite/{token}/accept")
+def accept_invite(token: str, request: Request):
+    """Link a signed-in student account to an invite.
+
+    Called by student.html after a successful signup/login that was
+    triggered by the procta:// deep-link. Requires the student JWT
+    because we're permanently binding their account id to the invite
+    row (and flipping status to 'accepted'). The token's email must
+    match the authenticated student's email — this stops a malicious
+    student from claiming someone else's invite by guessing tokens.
+    """
+    student = require_student_account(request)
+    row = (supabase.table("student_invites").select("*")
+           .eq("token", token).execute()).data
+    if not row:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    inv = row[0]
+    status = (inv.get("status") or "").lower()
+    if status == "revoked":
+        raise HTTPException(status_code=410, detail="Invite revoked")
+    exp = inv.get("expires_at")
+    if exp:
+        try:
+            dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > dt:
+                raise HTTPException(status_code=410, detail="Invite expired")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    inv_email = (inv.get("email") or "").strip().lower()
+    stu_email = (student.get("email") or "").strip().lower()
+    if not inv_email or inv_email != stu_email:
+        # Either the student signed in with a different address, or
+        # the invite was addressed to someone else. Don't reveal which.
+        raise HTTPException(status_code=403, detail="This invite is for a different email address")
+
+    supabase.table("student_invites").update({
+        "status":      "accepted",
+        "accepted_at": datetime.now(timezone.utc).isoformat(),
+        "student_id":  str(student["id"]),
+    }).eq("token", token).execute()
+
+    return {
+        "ok":          True,
+        "exam_id":     inv.get("exam_id"),
+        "roll_number": inv.get("roll_number"),
+        "access_code": inv.get("access_code") or "",
+    }
 
 
 def _render_invite_error(msg: str) -> str:
@@ -5129,9 +5235,15 @@ p{{color:#94a3b8;line-height:1.6;margin:0}}</style></head>
 <body><div class="card"><h1>Invite unavailable</h1><p>{safe}</p></div></body></html>"""
 
 
-def _render_invite_landing(*, full_name, exam_title, roll_number, access_code,
+def _render_invite_landing(*, token, full_name, exam_title, roll_number, access_code,
                            starts_at, ends_at) -> str:
-    """Landing page HTML. Uses os-sniff JS to pick the right download."""
+    """Landing page HTML. Uses os-sniff JS to pick the right download.
+
+    Also attempts a ``procta://invite/<token>`` deep-link on page load —
+    if the student already has the desktop app installed, that fires
+    and the browser never sees a navigation (the fallback download
+    section stays visible for the case where it's not installed).
+    """
     # Escape all interpolated values to prevent XSS via DB content.
     def _e(s):
         return (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
@@ -5211,6 +5323,18 @@ footer{{text-align:center;color:#64748b;font-size:12px;margin-top:20px}}
     </div>
   </div>
 
+  <div class="card" id="app-launch-card" style="text-align:center">
+    <h2 style="margin-bottom:6px">Already have Procta installed?</h2>
+    <p style="color:#94a3b8;font-size:13px;margin:0 0 16px 0">
+      Open the invite straight in the app — your email and exam will be pre-filled.
+    </p>
+    <a id="open-in-app" class="dlbtn" href="procta://invite/{_e(token)}"
+       onclick="openInApp(event)">Open in Procta app</a>
+    <div id="open-in-app-hint" style="display:none;color:#94a3b8;font-size:12px;margin-top:10px">
+      Nothing happened? You probably don't have Procta installed yet — download it below.
+    </div>
+  </div>
+
   <div class="card">
     <h2>Your credentials</h2>
     <div class="field">
@@ -5285,6 +5409,27 @@ function copyVal(v, btn){{
     btn.classList.add('ok');
     setTimeout(function(){{ btn.textContent = orig; btn.classList.remove('ok'); }}, 1500);
   }});
+}}
+
+// Deep-link into the installed desktop app. If the OS hands the URL
+// off to Procta the browser's visibility/blur changes within ~1s;
+// otherwise we assume it's not installed and reveal the download hint.
+function openInApp(e){{
+  var hint = document.getElementById('open-in-app-hint');
+  if(hint) hint.style.display = 'none';
+  var launched = false;
+  function markLaunched(){{ launched = true; }}
+  window.addEventListener('blur', markLaunched, {{once:true}});
+  document.addEventListener('visibilitychange', function h(){{
+    if(document.hidden) markLaunched();
+  }}, {{once:true}});
+  // Let the default <a href="procta://..."> navigation fire; don't
+  // preventDefault — some browsers only honour custom schemes for
+  // user-initiated navigations, not scripted location changes.
+  setTimeout(function(){{
+    window.removeEventListener('blur', markLaunched);
+    if(!launched && hint) hint.style.display = 'block';
+  }}, 1800);
 }}
 </script>
 </body></html>"""

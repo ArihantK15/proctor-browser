@@ -456,7 +456,12 @@ let curQ=0, timerSecs=0, timerInt=null;
 let startTime=null, stream=null;
 let resumedStartedAt=null;
 let lastFocusLost=0;
-let isOffline=false;
+// Initialise from the browser's own connectivity signal so a student
+// who launches the app with no network sees the offline indicator
+// immediately — rather than one failed fetch later. `navigator.onLine`
+// is pessimistic (can be false-negative on some VPN stacks) but it's
+// correct for the overwhelmingly common "wifi is off" case.
+let isOffline = (typeof navigator !== 'undefined' && navigator.onLine === false);
 
 // ── Offline Answer Resilience ─────────────────────────────────────
 function _persistAnswers(){
@@ -490,6 +495,11 @@ window.addEventListener('online', ()=>{
   if(!isOffline) return;
   isOffline = false;
   console.log('[Offline] back online — syncing answers');
+  // Signal the transition visibly while the bulk save is in flight —
+  // without this the indicator stays "Offline — saved locally" until
+  // doBulkSave() returns, which can look stuck for a few seconds.
+  const s = document.getElementById('save-status');
+  if(s){ s.textContent='Reconnecting…'; s.style.color='#58a6ff'; s.style.opacity='1'; }
   doBulkSave();
 });
 window.addEventListener('offline', ()=>{
@@ -1416,7 +1426,10 @@ function selAns(l){
     });
   }
   // Autosave answer — skip server call when offline (localStorage already saved).
-  // Retry once on failure; on second failure mark offline.
+  // Retry once on failure; on second failure mark offline so the
+  // 60s bulk timer takes over as the catch-up mechanism when we
+  // reconnect. We don't need to persist again here — ansWrite() just
+  // called _persistAnswers() before this block ran.
   if(sessionId && !isOffline){
     const savePayload={
       session_id:sessionId,

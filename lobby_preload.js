@@ -20,4 +20,17 @@ contextBridge.exposeInMainWorld('procta_native', {
   // to retype what the lobby already knows.
   //   ctx = { rollNumber, accessCode, examTitle, teacherId }
   launchExam: (ctx) => ipcRenderer.invoke('lobby-launch-exam', ctx),
+  // ── Invite deep-link (procta://invite/<token>) ────────────────
+  // The dashboard calls consumeInviteToken() on load. If the user
+  // launched the app by clicking a procta:// link, this returns the
+  // token once (subsequent calls return null). onInviteToken(cb)
+  // covers the race where a SECOND link is clicked after the lobby
+  // already loaded — main.js pushes via IPC in that case.
+  consumeInviteToken: () => ipcRenderer.invoke('consume-invite-token'),
+  onInviteToken: (cb) => {
+    ipcRenderer.removeAllListeners('invite-token-available');
+    ipcRenderer.on('invite-token-available', (_, token) => {
+      try { cb(token); } catch(e) { console.error('[invite] cb failed', e); }
+    });
+  },
 });

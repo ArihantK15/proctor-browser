@@ -602,6 +602,11 @@ async function doAuth() {
     localStorage.setItem('procta_student_token',    authToken);
     localStorage.setItem('procta_student_refresh',  refreshTok);
     await showDashboard(d.account);
+    // If this sign-in was triggered by a procta://invite/<token>
+    // deep-link, link the account to the invite row now that we have
+    // a live JWT. Acceptance is idempotent on the server, so it's
+    // safe to also call this if the student was already signed in.
+    if (_pendingInvite) await _acceptPendingInvite();
   } catch (e) {
     errEl.textContent = e.message || 'Something went wrong';
   } finally {
@@ -884,6 +889,88 @@ function escapeHtml(s) {
   })[c]);
 }
 
+// ─── invite deep-link (procta://invite/<token>) ──────────────
+// When the student clicks "Open in Procta app" on their email landing
+// page, the OS launches (or focuses) this app with the invite token.
+// main.js parks it until the lobby DOM is ready, then exposes it via
+// the preload. We resolve it to {email, full_name, exam_title} and
+// pre-fill the auth form. After a successful login/signup the bound
+// accept call links the student account to the invite row.
+let _pendingInvite = null; // {token, email, full_name, exam_title, exam_id}
+async function _handleInviteToken(token){
+  if (!token || _pendingInvite) return;
+  try {
+    const r = await fetch(apiUrl('/api/invite/' + encodeURIComponent(token) + '/resolve'));
+    if (!r.ok) {
+      const d = await r.json().catch(()=>({}));
+      console.warn('[invite] resolve failed:', r.status, d.detail || '');
+      return; // silent — fall back to the normal login form
+    }
+    const inv = await r.json();
+    _pendingInvite = {
+      token,
+      email:       (inv.email || '').trim().toLowerCase(),
+      full_name:   inv.full_name || '',
+      exam_title:  inv.exam_title || '',
+      exam_id:     inv.exam_id || '',
+    };
+    _applyInvitePrefill();
+  } catch(e) {
+    console.error('[invite] resolve error:', e);
+  }
+}
+function _applyInvitePrefill(){
+  if (!_pendingInvite) return;
+  // If we already have a live session, don't override — just try
+  // acceptance immediately.
+  if (authToken) { _acceptPendingInvite(); return; }
+  // Pre-fill the email and lock it so the student can't accidentally
+  // type a different address (which would fail server-side anyway).
+  const em = document.getElementById('inp-email');
+  if (em) { em.value = _pendingInvite.email; em.readOnly = true; }
+  // Show a small banner above the auth card.
+  let banner = document.getElementById('invite-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'invite-banner';
+    banner.style.cssText = 'background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.35);'
+      + 'border-radius:10px;padding:12px 14px;margin:0 0 14px 0;color:#6ee7b7;font-size:13px;line-height:1.5';
+    const card = document.querySelector('.auth-card');
+    if (card) card.insertBefore(banner, card.firstChild.nextSibling);
+  }
+  banner.innerHTML = 'You\'re accepting an invite for <b>'
+    + escapeHtml(_pendingInvite.exam_title || 'your exam') + '</b>.'
+    + ' Sign in or sign up with <b>' + escapeHtml(_pendingInvite.email) + '</b> to continue.';
+  // If the email doesn't exist yet on Procta, signup makes more sense
+  // than login. Default to signup and pre-fill the name.
+  setAuthMode('signup');
+  const nm = document.getElementById('inp-name');
+  if (nm && _pendingInvite.full_name) nm.value = _pendingInvite.full_name;
+}
+async function _acceptPendingInvite(){
+  if (!_pendingInvite || !authToken) return;
+  const token = _pendingInvite.token;
+  _pendingInvite = null; // one-shot
+  try {
+    const r = await authed('/api/invite/' + encodeURIComponent(token) + '/accept', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: '{}',
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(()=>({}));
+      console.warn('[invite] accept failed:', r.status, d.detail || '');
+      return;
+    }
+    // The invite is now linked to this student_account. Upcoming
+    // exam list refresh will pick up the exam assignment.
+    console.log('[invite] accepted, refreshing exam list');
+    try { await loadExams({ silent: false }); } catch(e){}
+  } catch(e) {
+    console.error('[invite] accept error:', e);
+  }
+}
+
 // ─── boot: route between web landing vs Electron dashboard ──
 (async function init(){
   if (!INSIDE_PROCTA_APP) {
@@ -896,12 +983,30 @@ function escapeHtml(s) {
   document.getElementById('web-landing').style.display = 'none';
   document.getElementById('auth-view').style.display = '';
 
+  // Attach invite-token listeners BEFORE the auto-login check so that
+  // cold-launch via procta:// never misses the token. The preload
+  // exposes two paths — consumeInviteToken() for tokens that arrived
+  // before we registered, and onInviteToken() for ones that arrive
+  // after the lobby is already up (second click while running).
+  try {
+    if (window.procta_native && window.procta_native.onInviteToken) {
+      window.procta_native.onInviteToken((tok) => { _handleInviteToken(tok); });
+    }
+    if (window.procta_native && window.procta_native.consumeInviteToken) {
+      const tok = await window.procta_native.consumeInviteToken();
+      if (tok) await _handleInviteToken(tok);
+    }
+  } catch(e) { console.error('[invite] wire-up failed', e); }
+
   if (!authToken) return;
   try {
     const r = await authed('/api/student/auth/me');
     if (r.ok) {
       const me = await r.json();
       await showDashboard(me);
+      // If a token resolved BEFORE we knew we were already signed in,
+      // accept it now against the live session.
+      if (_pendingInvite) await _acceptPendingInvite();
     } else if (r.status === 401) {
       // stored tokens are both expired
       doLogout();

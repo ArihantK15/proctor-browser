@@ -36,6 +36,44 @@ let integrityFlags = []; // populated at startup, sent to renderer
 let _integrityReady = null; // promise that resolves when checks are done
 let _monitorInterval = null; // continuous process monitoring during exam
 
+// ── Invite deep-link (procta://invite/<token>) ──────────────────
+// Students click this scheme from their browser after receiving the
+// HTML landing page at /invite/<token>. The OS hands the URL off to
+// this app; we park the token here until the lobby window has loaded,
+// then push it over IPC so student.html can pre-fill the sign-in form.
+// `pendingInviteToken` holds the most recent token we've seen but
+// haven't yet delivered to the renderer (typical on cold-launch where
+// the protocol fires BEFORE the lobby exists).
+let pendingInviteToken = null;
+// Extract a token from either `procta://invite/<token>` or the Windows
+// argv form `procta://invite/<token>/` that Electron sometimes hands
+// through with a trailing slash. Returns null for anything that
+// doesn't look like one of our invite URLs.
+function _extractInviteToken(urlOrArg) {
+  try {
+    if (!urlOrArg) return null;
+    const s = String(urlOrArg);
+    const m = s.match(/^procta:\/\/invite\/([A-Za-z0-9_\-]{8,128})\/?$/i);
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+function _receiveInviteToken(token, source) {
+  if (!token) return;
+  console.log(`[Invite] received token via ${source} (len=${token.length})`);
+  pendingInviteToken = token;
+  // If the lobby is already up and listening, hand it over immediately.
+  // Otherwise `createLobbyWindow`'s did-finish-load hook will pick it up.
+  if (lobbyWindow && !lobbyWindow.isDestroyed()) {
+    try {
+      lobbyWindow.webContents.send('invite-token-available', token);
+      lobbyWindow.show();
+      lobbyWindow.focus();
+    } catch(e) {
+      console.error('[Invite] failed to notify lobby:', e.message);
+    }
+  }
+}
+
 // ── AUTO-UPDATE (electron-updater) ──────────────────────────────
 //
 // Checks GitHub Releases for a newer version on every launch.
@@ -1187,6 +1225,18 @@ function createLobbyWindow() {
 
   lobbyWindow.webContents.on('did-finish-load', () => {
     console.log('[Lobby] did-finish-load OK');
+    // If a procta://invite/<token> arrived before the renderer was ready
+    // (cold-launch via protocol, or open-url fired mid-boot), hand it
+    // over now. The preload exposes a `consumeInviteToken` fallback for
+    // any race where this IPC beats the listener attach — the renderer
+    // checks both paths on load.
+    if (pendingInviteToken) {
+      try {
+        lobbyWindow.webContents.send('invite-token-available', pendingInviteToken);
+      } catch(e) {
+        console.error('[Invite] failed to push token post-load:', e.message);
+      }
+    }
   });
 
   lobbyWindow.webContents.on('will-navigate', (e, url) => {
@@ -1482,12 +1532,84 @@ async function handlePanicUnlock(reason) {
   }, 2000);
 }
 
+// ── SINGLE-INSTANCE LOCK (for procta:// deep-links) ──────────────
+// Without this, clicking a procta://invite/<token> link while Procta
+// is already running would spawn a SECOND app instance on Windows/Linux
+// — the second would exit immediately after firing `second-instance`
+// on the first with the full argv. We intercept that argv to pluck the
+// invite token and focus the existing lobby instead of cold-launching.
+// macOS uses `open-url` (handled below) and doesn't need this, but
+// requestSingleInstanceLock() is safe on every platform.
+const _gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!_gotSingleInstanceLock) {
+  // A primary instance is already running. Bail — the primary will
+  // get our argv via the 'second-instance' event below.
+  app.quit();
+} else {
+  app.on('second-instance', (_evt, argv /*, workingDir, additionalData */) => {
+    try {
+      // The protocol URL is usually the last argv entry on Windows.
+      // On Linux it's whichever arg matches our scheme.
+      for (let i = argv.length - 1; i >= 0; i--) {
+        const tok = _extractInviteToken(argv[i]);
+        if (tok) { _receiveInviteToken(tok, 'second-instance'); break; }
+      }
+    } catch(e) { console.error('[Invite] second-instance parse error:', e.message); }
+    // Always bring the existing lobby forward even if no invite token
+    // was in argv — that's the whole point of single-instance.
+    if (lobbyWindow && !lobbyWindow.isDestroyed()) {
+      if (lobbyWindow.isMinimized()) lobbyWindow.restore();
+      lobbyWindow.show();
+      lobbyWindow.focus();
+    }
+  });
+}
+
+// macOS: the OS delivers protocol URLs via this event rather than via
+// process.argv. It may fire BEFORE or AFTER `whenReady`, so we stash
+// the token either way; createLobbyWindow picks it up on did-finish-load.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  const tok = _extractInviteToken(url);
+  if (tok) _receiveInviteToken(tok, 'open-url');
+});
+
+// Register procta:// as our scheme. `setAsDefaultProtocolClient` is a
+// no-op in dev on macOS (only registered app bundles can own schemes),
+// but works fine on packaged builds and on Windows. electron-builder
+// also writes the Windows registry keys from the `protocols` block in
+// package.json, so this call is belt-and-suspenders for the registered
+// case and essential for the dev case on Windows.
+if (!app.isDefaultProtocolClient('procta')) {
+  try {
+    if (process.defaultApp && process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient('procta', process.execPath, [
+        path.resolve(process.argv[1])
+      ]);
+    } else {
+      app.setAsDefaultProtocolClient('procta');
+    }
+  } catch(e) {
+    console.error('[Invite] setAsDefaultProtocolClient failed:', e.message);
+  }
+}
+
 // ── APP START ─────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   // ── STEP 1: Show the lobby window IMMEDIATELY ──────────────────
   // The user sees the app within milliseconds. Everything else runs
   // in the background. This fixes the Windows "Not Responding" freeze.
   createLobbyWindow();
+
+  // Cold-launch via protocol: on Windows/Linux the URL arrives in
+  // process.argv (not via 'open-url', which is macOS-only). Sniff it
+  // now so the token is parked before the lobby has even loaded.
+  try {
+    for (let i = process.argv.length - 1; i >= 0; i--) {
+      const tok = _extractInviteToken(process.argv[i]);
+      if (tok) { _receiveInviteToken(tok, 'argv'); break; }
+    }
+  } catch(e) { console.error('[Invite] argv parse error:', e.message); }
 
   // ── STEP 1b: Check for app updates (silent, non-blocking) ─────
   initAutoUpdater();
@@ -1667,6 +1789,16 @@ ipcMain.handle('stop-proctor', () => {
 // exam title) stashed by the lobby bridge so the student doesn't have to
 // retype what they already entered on the web dashboard. Returns null if
 // the exam window was opened directly (legacy / debug).
+// One-shot token consumer. Student.html calls this on load in addition
+// to attaching the push listener — whichever fires first wins, and the
+// token is cleared here so we don't re-trigger the invite flow on a
+// subsequent page reload.
+ipcMain.handle('consume-invite-token', () => {
+  const t = pendingInviteToken;
+  pendingInviteToken = null;
+  return t;
+});
+
 ipcMain.handle('get-exam-context', () => {
   return examContext;
 });

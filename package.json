@@ -1,6 +1,6 @@
 {
   "name": "proctor-browser",
-  "version": "2.1.3",
+  "version": "2.2.0",
   "description": "AI Proctored Exam Browser",
   "main": "main.js",
   "scripts": {
@@ -44,6 +44,12 @@
       "owner": "ArihantK15",
       "repo": "proctor-browser"
     },
+    "protocols": [
+      {
+        "name": "Procta Invite",
+        "schemes": ["procta"]
+      }
+    ],
     "mac": {
       "icon": "build/icon.icns",
       "target": [

@@ -768,7 +768,11 @@
       <!-- Import modal (inline) -->
       <div id="bank-import-area" style="display:none;margin-top:14px;padding:14px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px">
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Bulk Import</div>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Paste CSV/JSON or upload a file. CSV columns: question, type, option_A, option_B, option_C, option_D, correct, image_url, tags</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px">
+          Paste CSV/JSON or upload a file. CSV columns: question, question_type, option_A, option_B, option_C, option_D, correct, image_url, tags.
+          Wrap fields containing commas in <code style="color:var(--accent-light)">"double quotes"</code>; separate multiple tags with <code style="color:var(--accent-light)">|</code>.
+          <a href="#" onclick="downloadBankCSVTemplate();return false;" style="color:var(--accent-light);text-decoration:underline;margin-left:4px">Download template</a>
+        </p>
         <textarea id="bank-import-text" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
           style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font:13px monospace;resize:vertical;box-sizing:border-box"></textarea>
         <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
@@ -3706,6 +3710,7 @@ function renderBank(data){
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0">
         <button class="action-btn" onclick="saveBankToExamSingle('${q.id}')" style="padding:2px 8px;font-size:10px" title="Add to current exam">+Exam</button>
+        <button class="action-btn" onclick="editBankQ('${q.id}')" style="padding:2px 8px;font-size:10px" title="Edit question">Edit</button>
         <button class="action-btn" onclick="deleteBankQ('${q.id}')" style="padding:2px 8px;font-size:10px;color:var(--red)" title="Delete">&times;</button>
       </div>
     </div>`;
@@ -3781,16 +3786,71 @@ function loadBankFile(input){
   reader.readAsText(file);
 }
 
+// Quote-aware CSV parser — naive split-on-comma corrupts any question
+// that contains a comma (which is most non-trivial questions). Walks
+// the file character-by-character, tracking whether we're inside a
+// quoted field. Handles RFC 4180 doubled quotes ("" → ") and CRLF
+// line endings. Tags column gets split on `|` so a CSV row can carry
+// multiple tags without colliding with the field delimiter.
 function _parseBankCSV(text){
-  const lines = text.trim().split('\n');
-  if(lines.length<2) return [];
-  const headers = lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,''));
-  return lines.slice(1).map(line=>{
-    const vals = line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));
-    const obj = {};
-    headers.forEach((h,i)=>{ obj[h]=vals[i]||''; });
-    return obj;
-  });
+  // Strip BOM if Excel exported with one — otherwise the first header
+  // would be `\ufeffquestion` and not match the server schema.
+  if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+  for(let i=0; i<text.length; i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ cell += '"'; i++; }  // escaped quote
+        else { inQuotes = false; }
+      } else { cell += c; }
+    } else {
+      if(c === '"'){ inQuotes = true; }
+      else if(c === ','){ row.push(cell); cell=''; }
+      else if(c === '\r'){ /* swallow — handled by \n */ }
+      else if(c === '\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
+      else { cell += c; }
+    }
+  }
+  // Flush trailing cell/row if file didn't end with a newline
+  if(cell.length || row.length){ row.push(cell); rows.push(row); }
+  if(rows.length < 2) return [];
+  const headers = rows[0].map(h=>h.trim().toLowerCase());
+  return rows.slice(1)
+    .filter(r => r.some(v => v && v.trim()))  // skip blank rows
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, idx)=>{
+        let v = (r[idx] || '').trim();
+        // Tags column: split on `|` so "easy|algebra|grade-10" → ["easy","algebra","grade-10"]
+        if(h === 'tags'){
+          obj.tags = v ? v.split('|').map(t=>t.trim()).filter(Boolean) : [];
+        } else {
+          obj[h] = v;
+        }
+      });
+      return obj;
+    });
+}
+
+// Hands the teacher a working starter CSV — saves them from
+// reverse-engineering the column layout from the modal hint text.
+// Includes one realistic example row so they can pattern-match
+// rather than guess at how to encode options.
+function downloadBankCSVTemplate(){
+  const csv = [
+    'question,question_type,option_A,option_B,option_C,option_D,correct,image_url,tags',
+    '"What is 2 + 2?",mcq_single,"3","4","5","6",B,,easy|math',
+    '"Pick the prime numbers.",mcq_multi,"2","3","4","6","A,B",,medium|math|primes',
+  ].join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'question_bank_template.csv'; a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function doBankImport(){
@@ -3825,10 +3885,20 @@ async function exportBank(){
   }catch(e){ alert('Export failed'); }
 }
 
-// "Save to Bank" helper — called from question editor cards
+// "Save to Bank" helper — called from question editor cards. Prompts
+// for tags so the bank stays organised; tags are how teachers find
+// questions later. Comma-separated input is normalised to an array of
+// trimmed non-empty strings before sending.
 async function saveQuestionToBank(idx){
   if(!qData[idx]) return;
   const q = qData[idx];
+  if(!q.question || !String(q.question).trim()){ alert('Question text is empty.'); return; }
+  const tagsRaw = prompt(
+    'Add tags (comma-separated) to organise this question in the bank. Leave blank for none.\n\nExample: easy, algebra, grade-10',
+    ''
+  );
+  if(tagsRaw === null) return; // cancelled
+  const tags = tagsRaw.split(',').map(t=>t.trim()).filter(Boolean);
   try{
     const r = await authFetch(`${BASE}/api/admin/question-bank`,
       {method:'POST',body:JSON.stringify({
@@ -3837,11 +3907,41 @@ async function saveQuestionToBank(idx){
         options: q.options || {},
         correct: q.correct || '',
         image_url: q.image_url || '',
-        tags: [],
+        tags,
       })});
-    if(r.ok) alert('Saved to bank!');
-    else{ const d=await r.json(); alert(d.detail||'Error'); }
+    if(r.ok){
+      const msg = document.getElementById('q-save-msg');
+      if(msg){ msg.style.color='var(--emerald)'; msg.textContent='Saved to bank.'; setTimeout(()=>msg.textContent='',2500); }
+      else alert('Saved to bank!');
+    } else { const d=await r.json(); alert(d.detail||'Error'); }
   }catch(e){ alert('Failed to save to bank'); }
+}
+
+// Edit a question already in the bank. The PUT endpoint accepts a
+// partial fields dict, so we only ship what changed. We use simple
+// prompts rather than a modal — bank edits are rare (typo fixes,
+// tag corrections) and a modal here would mean ~80 lines of HTML for
+// something teachers will use once a month.
+async function editBankQ(qid){
+  const q = _bankData.find(x=>x.id===qid);
+  if(!q) return;
+  const newQ = prompt('Edit question text:', q.question);
+  if(newQ === null) return;
+  const newCorrect = prompt('Correct answer (e.g. A or A,B for multi):', q.correct || '');
+  if(newCorrect === null) return;
+  const tagsRaw = prompt('Tags (comma-separated):', (q.tags||[]).join(', '));
+  if(tagsRaw === null) return;
+  const fields = {
+    question: newQ.trim(),
+    correct: newCorrect.trim(),
+    tags: tagsRaw.split(',').map(t=>t.trim()).filter(Boolean),
+  };
+  try{
+    const r = await authFetch(`${BASE}/api/admin/question-bank/${qid}`,
+      {method:'PUT',body:JSON.stringify(fields)});
+    if(r.ok) loadBank();
+    else { const d=await r.json(); alert(d.detail||'Error'); }
+  }catch(e){ alert('Edit failed'); }
 }
 
 // ── STUDENT GROUPS ─────────────────────────────────────────────

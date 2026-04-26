@@ -646,6 +646,7 @@
   <span class="exam-label">Exam</span>
   <select id="exam-select" onchange="onExamSwitch(this.value)"></select>
   <button class="action-btn primary" onclick="showCreateExamModal()" style="height:32px;font-size:12px">+ New Exam</button>
+  <button class="action-btn" onclick="duplicateCurrentExam()" id="duplicate-exam-btn" style="height:32px;font-size:12px;display:none" title="Clone this exam's config + questions into a new exam">Duplicate</button>
   <button class="action-btn" onclick="confirmDeleteExam()" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
   <span class="exam-count" id="exam-count"></span>
 </div>
@@ -709,7 +710,9 @@
       <input type="text" id="results-search" placeholder="Search by name, roll, email..."
              oninput="filterResults()">
       <button onclick="exportCSV()">Export CSV</button>
+      <button onclick="exportExcel()">Export Excel</button>
       <button onclick="dlAllScorecards()">All Scorecards (ZIP)</button>
+      <button onclick="emailAllScorecards()" title="Email each student their scorecard PDF">Email Scorecards</button>
       <button onclick="refreshResults()">Refresh</button>
     </div>
     <div class="table-wrap">
@@ -1419,6 +1422,8 @@ async function loadExams(){
     document.getElementById('exam-count').textContent = `${examsList.length} exam${examsList.length!==1?'s':''}`;
     // Show delete button only if >1 exam
     document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
+    // Duplicate is always available once an exam is selected
+    document.getElementById('duplicate-exam-btn').style.display = currentExamId ? '' : 'none';
   }catch(e){ console.error('loadExams', e); }
 }
 
@@ -1426,6 +1431,7 @@ function onExamSwitch(examId){
   currentExamId = examId;
   try{ localStorage.setItem('procta_current_exam', examId || ''); }catch(_){}
   document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
+  document.getElementById('duplicate-exam-btn').style.display = currentExamId ? '' : 'none';
   // Reset data and reload everything for the new exam
   liveData = []; resultsData = []; qData = [];
   refreshAll();
@@ -1485,6 +1491,47 @@ async function confirmDeleteExam(){
     liveData = []; resultsData = []; qData = [];
     refreshAll();
   }catch(e){ alert('Delete failed: '+e.message); }
+}
+
+// Clone current exam's config + questions into a new exam. The copy
+// clears the schedule + access code (so the old window can't run
+// twice) and shows up as the active exam immediately after creation.
+async function duplicateCurrentExam(){
+  if(!currentExamId){ alert('Select an exam first.'); return; }
+  const ex = examsList.find(e => e.exam_id === currentExamId);
+  const srcTitle = ex ? ex.exam_title : 'this exam';
+  const defaultTitle = `${srcTitle} (copy)`;
+  const newTitle = prompt(
+    `Duplicate "${srcTitle}"?\n\n` +
+    `A new exam will be created with the same questions, duration, and\n` +
+    `shuffle settings. The schedule and access code will be cleared so\n` +
+    `you can set them fresh.\n\n` +
+    `Title for the new exam:`,
+    defaultTitle
+  );
+  if (newTitle === null) return; // cancelled
+  try {
+    const r = await authFetch(
+      `${BASE}/api/admin/exams/${encodeURIComponent(currentExamId)}/duplicate`,
+      { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_title: (newTitle || '').trim() }) }
+    );
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    // Switch to the new exam immediately so the teacher lands in
+    // editing mode on their fresh copy.
+    currentExamId = d.exam_id;
+    try { localStorage.setItem('procta_current_exam', d.exam_id || ''); } catch(_) {}
+    await loadExams();
+    const sel = document.getElementById('exam-select');
+    if (sel) sel.value = d.exam_id;
+    liveData = []; resultsData = []; qData = [];
+    refreshAll();
+    alert(`Created "${d.exam_title}" with ${d.questions_copied} question(s).`);
+  } catch (e) {
+    alert('Duplicate failed: ' + e.message);
+  }
 }
 
 async function _tryAutoLogin(){
@@ -2082,6 +2129,10 @@ function viewRiskDetail(){
 }
 
 // ── EXPORTS ─────────────────────────────────────────────────────
+function exportExcel(){
+  const eid = currentExamId || 'all';
+  fetchBlob(`${BASE}/api/export-excel${_examQuery('?')}`, `results_${eid}.xlsx`);
+}
 function exportCSV(){
   fetchBlob(`${BASE}/api/export-csv${_examQuery('?')}`,'results.csv');
 }
@@ -2109,6 +2160,41 @@ function dlAllScorecards(){
   const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
   fetchBlob(`${BASE}/api/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}`,`scorecards_${eid}.zip`);
+}
+
+// Email each student their scorecard PDF. Server is idempotent by
+// default (scorecard_emailed_at column) — safe to click twice.
+async function emailAllScorecards(){
+  const eid = currentExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  const msg = prompt(
+    "Email scorecards to all completed students?\n\n" +
+    "Students who have already been emailed will be skipped.\n" +
+    "Optionally add a short note (shown in every email), or leave blank:",
+    ""
+  );
+  if (msg === null) return;  // user cancelled
+  const body = { custom_message: (msg || "").trim() };
+  try {
+    const r = await authFetch(
+      `${BASE}/api/admin/exams/${encodeURIComponent(eid)}/email-scorecards`,
+      { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body) }
+    );
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    const parts = [
+      `Sent: ${d.sent || 0}`,
+      `Already emailed: ${d.already_sent || 0}`,
+      `No email on file: ${d.skipped_no_email || 0}`,
+      `Failed: ${d.failed || 0}`,
+      `Total sessions: ${d.total || 0}`,
+    ];
+    alert("Scorecard email batch complete.\n\n" + parts.join("\n"));
+  } catch (e) {
+    alert("Failed to email scorecards: " + e.message);
+  }
 }
 
 // ── TOOLS ───────────────────────────────────────────────────────

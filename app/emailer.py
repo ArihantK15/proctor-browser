@@ -27,6 +27,7 @@ with the key present.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -93,6 +94,105 @@ def send_invite_email(
         return SendResult(ok=False, error=str(e))
 
 
+def send_exam_reminder(
+    *,
+    to_email: str,
+    to_name: str,
+    exam_title: str,
+    invite_url: str,
+    roll_number: str,
+    hours_until: int,             # 1 or 24 — drives copy
+    exam_starts_at_display: str,  # already-formatted IST string
+    access_code: Optional[str] = None,
+    teacher_name: Optional[str] = None,
+) -> SendResult:
+    """Send a "your exam starts in N hours" reminder.
+
+    Same contract as ``send_invite_email`` — never raises, returns
+    SendResult(ok=False) on provider failure so the reminder loop can
+    retry on the next tick (the ``reminder_XX_at`` timestamp is only
+    written AFTER this returns ok, so a failed send leaves the row
+    claimable again)."""
+    html, text = _render_reminder(
+        to_name=to_name,
+        exam_title=exam_title,
+        invite_url=invite_url,
+        roll_number=roll_number,
+        hours_until=hours_until,
+        exam_starts_at_display=exam_starts_at_display,
+        access_code=access_code,
+        teacher_name=teacher_name,
+    )
+    if hours_until >= 24:
+        subject = f"{exam_title} — starts tomorrow"
+    else:
+        subject = f"{exam_title} — starts in 1 hour"
+    try:
+        backend = _pick_backend()
+        return backend.send(
+            to_email=to_email,
+            to_name=to_name,
+            subject=subject,
+            html=html,
+            text=text,
+        )
+    except Exception as e:
+        log.exception("send_exam_reminder failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
+def send_scorecard_email(
+    *,
+    to_email: str,
+    to_name: str,
+    exam_title: str,
+    score: int,
+    total: int,
+    percentage: float,
+    passed: bool,
+    pdf_bytes: bytes,
+    pdf_filename: str,
+    teacher_name: Optional[str] = None,
+    custom_message: Optional[str] = None,
+) -> SendResult:
+    """Email a student their graded scorecard with the PDF attached.
+
+    Triggered by the teacher pressing "Email all scorecards" after
+    results are published. Same no-raise contract as the other
+    senders — the caller (a bulk loop over completed sessions) needs
+    a partial-failure-tolerant API so one bad address doesn't kill
+    the whole batch. The endpoint records ``scorecard_emailed_at``
+    only when this returns ok=True."""
+    html, text = _render_scorecard_email(
+        to_name=to_name,
+        exam_title=exam_title,
+        score=score,
+        total=total,
+        percentage=percentage,
+        passed=passed,
+        teacher_name=teacher_name,
+        custom_message=custom_message,
+    )
+    verdict = "passed" if passed else "results"
+    subject = f"{exam_title} — your {verdict}"
+    try:
+        backend = _pick_backend()
+        return backend.send(
+            to_email=to_email,
+            to_name=to_name,
+            subject=subject,
+            html=html,
+            text=text,
+            attachments=[{
+                "filename": pdf_filename,
+                "content": pdf_bytes,
+            }] if pdf_bytes else None,
+        )
+    except Exception as e:
+        log.exception("send_scorecard_email failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
 def verify_webhook(raw_body: bytes, signature_header: str) -> bool:
     """True if the webhook signature is valid. Resend signs with HMAC-SHA256
     over the raw body keyed by RESEND_WEBHOOK_SECRET.
@@ -117,17 +217,27 @@ def verify_webhook(raw_body: bytes, signature_header: str) -> bool:
 # ─── Backends ──────────────────────────────────────────────────────
 
 class _Backend:
-    def send(self, *, to_email, to_name, subject, html, text) -> SendResult:
+    def send(self, *, to_email, to_name, subject, html, text,
+             attachments: Optional[list[dict]] = None) -> SendResult:
+        """Send a transactional email.
+
+        ``attachments`` (optional) is a list of ``{"filename": str,
+        "content": bytes}`` dicts. Backends that support attachments
+        base64-encode the bytes before putting them on the wire; the
+        noop backend just logs metadata. Keeping the caller interface
+        as raw bytes means we only encode once, at the edge."""
         raise NotImplementedError
 
 
 class _NoopBackend(_Backend):
     """Logs only. Used in tests and when no provider is configured."""
 
-    def send(self, *, to_email, to_name, subject, html, text) -> SendResult:
+    def send(self, *, to_email, to_name, subject, html, text,
+             attachments: Optional[list[dict]] = None) -> SendResult:
+        att_bytes = sum(len(a.get("content", b"")) for a in (attachments or []))
         log.info(
-            "[emailer:noop] would send to=%s subject=%s bytes=%d",
-            to_email, subject, len(html),
+            "[emailer:noop] would send to=%s subject=%s html_bytes=%d attachments=%d(%d bytes)",
+            to_email, subject, len(html), len(attachments or []), att_bytes,
         )
         # Deterministic fake id so tests can assert on it.
         fake_id = "noop-" + hashlib.sha1(
@@ -148,7 +258,8 @@ class _ResendBackend(_Backend):
         self.from_name = os.environ.get("EMAIL_FROM_NAME", "Procta")
         self.reply_to = os.environ.get("EMAIL_REPLY_TO") or None
 
-    def send(self, *, to_email, to_name, subject, html, text) -> SendResult:
+    def send(self, *, to_email, to_name, subject, html, text,
+             attachments: Optional[list[dict]] = None) -> SendResult:
         # Lazy import so the noop backend doesn't need httpx.
         import httpx
 
@@ -161,6 +272,16 @@ class _ResendBackend(_Backend):
         }
         if self.reply_to:
             payload["reply_to"] = self.reply_to
+        if attachments:
+            # Resend expects base64-encoded content. Each item: {filename, content}.
+            payload["attachments"] = [
+                {
+                    "filename": a["filename"],
+                    "content": base64.b64encode(a["content"]).decode("ascii"),
+                }
+                for a in attachments
+                if a.get("content") is not None
+            ]
 
         try:
             r = httpx.post(
@@ -352,6 +473,250 @@ def _render_invite(**ctx) -> tuple[str, str]:
           <p style="margin:20px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.55;">
             If you weren't expecting this email you can safely ignore it.
             Your invite link is personal — please don't forward it.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
+          Procta — proctored exams, made simple.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+    return html, text
+
+
+def _render_reminder(**ctx) -> tuple[str, str]:
+    """Return (html, text) for a "your exam starts in N hours" reminder.
+
+    Intentionally terser than the full invite email: the student has
+    already opened the original invite, so the only jobs here are
+    (a) remind them it's happening and (b) give them a one-click
+    entrypoint. No download links unless they ask — if they've got
+    this far without installing Procta the 1-hour reminder is the
+    wrong moment to suggest they start now."""
+    to_name                = ctx.get("to_name") or "Student"
+    exam_title             = ctx.get("exam_title") or "Your exam"
+    invite_url             = ctx["invite_url"]
+    roll_number            = ctx.get("roll_number") or ""
+    hours_until            = int(ctx.get("hours_until") or 1)
+    starts_at_display      = ctx.get("exam_starts_at_display") or ""
+    access_code            = ctx.get("access_code")
+    teacher_name           = ctx.get("teacher_name") or "your teacher"
+
+    if hours_until >= 24:
+        headline_short = "Your exam is tomorrow"
+        lead = f"A quick heads-up — <b>{_esc(exam_title)}</b> opens tomorrow."
+        hero_tag = "24-HOUR REMINDER"
+    else:
+        headline_short = "Your exam starts in 1 hour"
+        lead = (f"Just a reminder — <b>{_esc(exam_title)}</b> opens in about "
+                f"one hour. Make sure Procta is already installed and you're "
+                f"in a quiet spot with stable internet.")
+        hero_tag = "1-HOUR REMINDER"
+
+    # ── Plaintext ──
+    text_lines = [
+        f"Hi {to_name},",
+        "",
+    ]
+    if hours_until >= 24:
+        text_lines.append(f"Your exam '{exam_title}' is scheduled for tomorrow.")
+    else:
+        text_lines.append(f"Your exam '{exam_title}' starts in about 1 hour.")
+    if starts_at_display:
+        text_lines.append(f"Starts: {starts_at_display}")
+    text_lines.append(f"Roll number: {roll_number}")
+    if access_code:
+        text_lines.append(f"Access code: {access_code}")
+    text_lines += [
+        "",
+        "Open your invite page:",
+        f"  {invite_url}",
+        "",
+        "If Procta isn't already installed on your computer, install it now —",
+        "the invite page has the right download for your operating system.",
+        "",
+        "— Procta",
+    ]
+    text = "\n".join(text_lines)
+
+    # ── HTML ──
+    access_block = (
+        f'<div style="margin-top:6px;color:#334155;"><b>Access code:</b> '
+        f'<code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;'
+        f'font-family:monospace;font-size:14px;">{_esc(access_code)}</code></div>'
+        if access_code else ""
+    )
+    starts_block = ""
+    if starts_at_display:
+        starts_block = (f'<div style="color:#475569;margin-top:4px;">'
+                        f'<b>Starts:</b> {_esc(starts_at_display)}</div>')
+
+    html = f"""\
+<!doctype html>
+<html><head><meta charset="utf-8"><title>{_esc(headline_short)} — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
+             style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;">
+        <tr><td style="background:linear-gradient(135deg,#f59e0b,#ef4444);padding:28px 32px;">
+          <div style="color:#ffffff;font-size:12px;letter-spacing:2px;font-weight:600;opacity:.9;">PROCTA · {hero_tag}</div>
+          <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:6px;">{_esc(headline_short)}</div>
+        </td></tr>
+        <tr><td style="padding:32px;color:#0f172a;">
+          <p style="margin:0 0 16px 0;font-size:16px;">Hi {_esc(to_name)},</p>
+          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.55;color:#334155;">{lead}</p>
+
+          <div style="background:#f8fafc;border-radius:10px;padding:16px 18px;margin:20px 0;border:1px solid #e2e8f0;">
+            <div style="color:#334155;"><b>Roll number:</b>
+              <code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;font-family:monospace;font-size:14px;">
+                {_esc(roll_number)}
+              </code>
+            </div>
+            {access_block}
+            {starts_block}
+          </div>
+
+          <div style="margin:16px 0;">
+            <a href="{_esc(invite_url)}"
+               style="display:inline-block;background:#10b981;color:#ffffff;text-decoration:none;
+                      padding:12px 24px;border-radius:8px;font-weight:600;font-size:15px;">
+              Open my invite page
+            </a>
+          </div>
+
+          <p style="margin:20px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.55;">
+            Good luck! If anything's unclear, reply to this email and your
+            teacher will get back to you.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
+          Procta — proctored exams, made simple.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+    return html, text
+
+
+def _render_scorecard_email(**ctx) -> tuple[str, str]:
+    """Return (html, text) for the "here are your results" email.
+
+    Colour scheme: emerald for pass, slate for fail — deliberately
+    restrained on the fail path so a borderline student doesn't feel
+    kicked while down. The PDF has the full per-question breakdown;
+    this email is a summary + "open the attachment for details"."""
+    to_name        = ctx.get("to_name") or "Student"
+    exam_title     = ctx.get("exam_title") or "Your exam"
+    score          = int(ctx.get("score") or 0)
+    total          = int(ctx.get("total") or 0)
+    percentage     = float(ctx.get("percentage") or 0.0)
+    passed         = bool(ctx.get("passed"))
+    teacher_name   = ctx.get("teacher_name") or "your teacher"
+    custom_message = ctx.get("custom_message")
+
+    verdict_label = "Passed" if passed else "Results available"
+    # Greens for pass, slate-blue for non-pass — keeps the visual
+    # language familiar (same palette family as invite/reminder emails)
+    # but distinct enough that students can tell at a glance which
+    # email this is in their inbox.
+    if passed:
+        gradient = "linear-gradient(135deg,#10b981,#059669)"
+        hero_tag = "RESULT · PASSED"
+    else:
+        gradient = "linear-gradient(135deg,#64748b,#334155)"
+        hero_tag = "RESULT"
+
+    pct_display = f"{percentage:.1f}%"
+
+    # ── Plaintext ──
+    text_lines = [
+        f"Hi {to_name},",
+        "",
+        f"Your results for '{exam_title}' are ready.",
+        "",
+        f"Score:      {score} / {total}",
+        f"Percentage: {pct_display}",
+        f"Verdict:    {verdict_label}",
+        "",
+        "The full scorecard with per-question breakdown is attached as a PDF.",
+    ]
+    if custom_message:
+        text_lines += ["", f"— Note from {teacher_name} —", custom_message]
+    text_lines += [
+        "",
+        "If you have questions about any specific question, reply to this",
+        "email and your teacher will get back to you.",
+        "",
+        "— Procta",
+    ]
+    text = "\n".join(text_lines)
+
+    # ── HTML ──
+    custom_block = ""
+    if custom_message:
+        custom_block = (
+            f'<div style="background:#fff7ed;border-left:3px solid #f59e0b;'
+            f'padding:12px 16px;margin:20px 0;border-radius:6px;color:#78350f;'
+            f'font-size:14px;line-height:1.5;">'
+            f'<div style="font-weight:600;margin-bottom:4px;color:#92400e;">'
+            f'Note from {_esc(teacher_name)}</div>'
+            f'{_esc(custom_message).replace(chr(10), "<br>")}'
+            f'</div>'
+        )
+
+    html = f"""\
+<!doctype html>
+<html><head><meta charset="utf-8"><title>{_esc(exam_title)} — Results</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
+             style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;">
+        <tr><td style="background:{gradient};padding:28px 32px;">
+          <div style="color:#ffffff;font-size:12px;letter-spacing:2px;font-weight:600;opacity:.9;">PROCTA · {hero_tag}</div>
+          <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:6px;">Your results are in</div>
+        </td></tr>
+        <tr><td style="padding:32px;color:#0f172a;">
+          <p style="margin:0 0 16px 0;font-size:16px;">Hi {_esc(to_name)},</p>
+          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.55;color:#334155;">
+            Your scorecard for <b>{_esc(exam_title)}</b> is ready.
+          </p>
+
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                 style="background:#f8fafc;border-radius:12px;margin:20px 0;border:1px solid #e2e8f0;">
+            <tr>
+              <td style="padding:18px 20px;border-right:1px solid #e2e8f0;text-align:center;">
+                <div style="color:#64748b;font-size:11px;letter-spacing:1.5px;font-weight:600;">SCORE</div>
+                <div style="color:#0f172a;font-size:26px;font-weight:700;margin-top:4px;">{score}<span style="color:#94a3b8;font-size:16px;font-weight:500;"> / {total}</span></div>
+              </td>
+              <td style="padding:18px 20px;border-right:1px solid #e2e8f0;text-align:center;">
+                <div style="color:#64748b;font-size:11px;letter-spacing:1.5px;font-weight:600;">PERCENTAGE</div>
+                <div style="color:#0f172a;font-size:26px;font-weight:700;margin-top:4px;">{pct_display}</div>
+              </td>
+              <td style="padding:18px 20px;text-align:center;">
+                <div style="color:#64748b;font-size:11px;letter-spacing:1.5px;font-weight:600;">VERDICT</div>
+                <div style="color:{'#059669' if passed else '#475569'};font-size:18px;font-weight:700;margin-top:6px;">{verdict_label}</div>
+              </td>
+            </tr>
+          </table>
+
+          {custom_block}
+
+          <div style="margin:20px 0;padding:14px 16px;background:#eff6ff;border-radius:8px;color:#1e3a8a;font-size:14px;">
+            📄 <b>Full scorecard attached</b> — open the PDF for per-question
+            results (your answer, the correct answer, and whether it was right).
+          </div>
+
+          <p style="margin:20px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.55;">
+            Questions about a specific answer? Reply to this email and
+            {_esc(teacher_name)} will get back to you.
           </p>
         </td></tr>
         <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">

@@ -3135,6 +3135,124 @@ def export_csv(request: Request, exam_id: str = None):
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=results.csv"})
 
+
+@app.get("/api/export-excel")
+def export_excel(request: Request, exam_id: str = None):
+    """Results export as a formatted .xlsx workbook.
+
+    CSV works for data pipelines, but teachers who live in Excel
+    (most of them) want colour-coded cells, a frozen header, filter
+    arrows, and auto-sized columns they can hand to a department
+    head. openpyxl gives us all of that in ~60 lines.
+
+    Design notes:
+      • One sheet named after the exam_id so teachers who paste
+        several workbooks into one don't collide.
+      • Risk Label gets conditional fill — green/amber/red — because
+        that's the column everyone scans first.
+      • Percentages are stored as real numbers (not strings) so Excel
+        sorting works. Same for time_taken_secs -> minutes.
+      • Header row is frozen + auto-filtered; this is the only
+        formatting detail that differentiates a usable export from
+        "I'll just copy it into another spreadsheet".
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    teacher = require_admin(request)
+    results = _fetch_all_results(teacher["id"], exam_id=exam_id)
+
+    wb = Workbook()
+    ws = wb.active
+    # Sheet names max 31 chars, no [ ] * ? : / \
+    safe_eid = "".join(c for c in (exam_id or "all") if c.isalnum() or c in "-_")[:24]
+    ws.title = f"Results_{safe_eid}" if safe_eid else "Results"
+
+    headers = ["Timestamp", "Session ID", "Roll Number", "Full Name",
+               "Email", "Score", "Total", "Percentage", "Time (min)",
+               "Violations", "Risk Score", "Risk Label"]
+    ws.append(headers)
+
+    # Header styling — dark slate with white text, matches PDF scorecards.
+    hdr_fill = PatternFill("solid", fgColor="1A1A2E")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    for col_idx in range(1, len(headers) + 1):
+        c = ws.cell(row=1, column=col_idx)
+        c.fill = hdr_fill
+        c.font = hdr_font
+        c.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Risk fills — applied per row on the Risk Label column.
+    risk_fills = {
+        "Low":    PatternFill("solid", fgColor="D1FAE5"),   # emerald-100
+        "Medium": PatternFill("solid", fgColor="FEF3C7"),   # amber-100
+        "High":   PatternFill("solid", fgColor="FEE2E2"),   # red-100
+    }
+
+    for s in results:
+        # Convert percentage/time to numerics so Excel sorts correctly.
+        try:
+            pct_val = float(s.get("percentage") or 0)
+        except Exception:
+            pct_val = 0.0
+        try:
+            secs = int(s.get("time_taken_secs") or 0)
+        except Exception:
+            secs = 0
+        mins = round(secs / 60, 2) if secs else 0
+
+        ws.append([
+            s.get("submitted_at", ""),
+            s.get("session_id", ""),
+            s.get("roll_number", ""),
+            s.get("full_name", ""),
+            s.get("email", ""),
+            s.get("score", 0),
+            s.get("total", 0),
+            pct_val,
+            mins,
+            s.get("violation_count", 0),
+            s.get("risk_score", ""),
+            s.get("risk_label", ""),
+        ])
+        # Colour the Risk Label cell on the row we just wrote.
+        label = s.get("risk_label")
+        fill = risk_fills.get(label)
+        if fill:
+            ws.cell(row=ws.max_row, column=12).fill = fill
+
+    # Freeze header + enable autofilter across the populated range.
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(ws.max_row,1)}"
+
+    # Percentage column → Excel percent format / 100 style number.
+    # We keep it as a plain number with a trailing "%" label because
+    # teachers mix 0-100 and 0-1 conventions, and "78.5%" is the least
+    # surprising display.
+    for row in range(2, ws.max_row + 1):
+        ws.cell(row=row, column=8).number_format = '0.0"%"'
+        ws.cell(row=row, column=9).number_format = '0.00'
+
+    # Rough column width autosize: cap at 40 so a stray 200-char cell
+    # doesn't blow out the layout.
+    widths = [0] * len(headers)
+    for row in ws.iter_rows(values_only=True):
+        for i, v in enumerate(row):
+            widths[i] = max(widths[i], min(len(str(v or "")), 40))
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = max(w + 2, 10)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"results_{safe_eid or 'all'}_{now_ist().strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
 @app.get("/api/export-pdf/{session_id:path}")
 def export_pdf(session_id: str, request: Request):
     teacher = require_admin(request)
@@ -3434,131 +3552,145 @@ def export_pdf(session_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"PDF error: {e}")
 
 # ─── SCORECARD PDF (student-facing) ─────────────────────────────
+def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]:
+    """Render a single student's scorecard as a PDF and return
+    ``(bytes, filename, exam_summary)``.
+
+    Centralised so the /scorecard-pdf endpoint, the bulk ZIP route,
+    and the "email scorecards to students" flow all produce the exact
+    same document. ``teacher_id`` must already be validated — this
+    helper is trusted-internal; it assumes ownership was asserted by
+    the caller.
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.platypus import (SimpleDocTemplate, Table,
+                                     TableStyle, Paragraph, Spacer)
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    tid = teacher_id
+    exam = _assert_session_owned(session_id, tid)
+    exam_id = exam.get("exam_id")
+
+    questions = _load_questions(teacher_id=tid, exam_id=exam_id)
+    ans_rows = (supabase.table("answers").select("question_id,answer")
+                .eq("session_key", session_id)
+                .eq("teacher_id", str(tid)).execute()).data or []
+    ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
+
+    config = None
+    try:
+        config = _load_exam_config(str(tid), exam_id=exam_id)
+    except Exception:
+        pass
+    exam_title = (config or {}).get("exam_title") or (config or {}).get("title") or "Exam"
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
+    story.append(Spacer(1, 12))
+
+    score = exam.get("score", 0)
+    total = exam.get("total", 0)
+    pct = exam.get("percentage", 0)
+    risk = compute_risk_score(session_id, teacher_id=tid)
+    passed = pct >= 40
+
+    info = [
+        ["Field", "Value"],
+        ["Student Name", exam.get("full_name", "")],
+        ["Roll Number", exam.get("roll_number", "")],
+        ["Date", fmt_ist(exam.get("submitted_at", exam.get("started_at", "")))],
+        ["Score", f"{score}/{total}"],
+        ["Percentage", f"{pct}%"],
+        ["Result", "PASS" if passed else "FAIL"],
+        ["Time Taken", f"{exam.get('time_taken_secs', 0) // 60}m {exam.get('time_taken_secs', 0) % 60}s"],
+        ["Risk Level", risk["label"]],
+    ]
+    t = Table(info, colWidths=[140, 330])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+         [colors.HexColor("#f0f4ff"), colors.white]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("PADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 20))
+
+    story.append(Paragraph("Question-wise Results", styles["Heading2"]))
+    story.append(Spacer(1, 8))
+
+    if questions:
+        qd = [["#", "Question", "Your Answer", "Correct Answer", "Result"]]
+        for i, q in enumerate(questions, 1):
+            qid = str(q.get("question_id", q.get("id", "")))
+            correct_ans = str(q.get("correct", ""))
+            student_ans = ans_map.get(qid, "—")
+            is_right = str(student_ans) == correct_ans
+            q_text = q.get("question", "")
+            if len(q_text) > 60:
+                q_text = q_text[:57] + "..."
+            qd.append([
+                str(i),
+                q_text,
+                str(student_ans)[:20],
+                correct_ans[:20],
+                "\u2713" if is_right else "\u2717",
+            ])
+        qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
+        qt.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+             [colors.HexColor("#f8f9fa"), colors.white]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("PADDING", (0, 0), (-1, -1), 6),
+            ("ALIGN", (4, 1), (4, -1), "CENTER"),
+        ]))
+        story.append(qt)
+    else:
+        story.append(Paragraph("No questions available.", styles["Normal"]))
+
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(
+        f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
+        styles["Normal"]))
+
+    doc.build(story)
+    buf.seek(0)
+    roll = exam.get("roll_number", "unknown")
+    fname = f"scorecard_{roll}_{now_ist().strftime('%Y%m%d')}.pdf"
+    summary = {
+        "exam": exam,
+        "exam_title": exam_title,
+        "score": score,
+        "total": total,
+        "percentage": pct,
+        "passed": passed,
+        "risk_label": risk["label"],
+    }
+    return buf.getvalue(), fname, summary
+
+
 @app.get("/api/admin/scorecard-pdf/{session_id:path}")
 def scorecard_pdf(session_id: str, request: Request):
     """Generate a student-facing scorecard PDF with score breakdown and per-question results."""
     teacher = require_admin(request)
     tid = teacher["id"]
     try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.platypus import (SimpleDocTemplate, Table,
-                                         TableStyle, Paragraph, Spacer)
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-
-        exam = _assert_session_owned(session_id, tid)
-        exam_id = exam.get("exam_id")
-
-        # Load questions for this exam
-        questions = _load_questions(teacher_id=tid, exam_id=exam_id)
-        q_map = {str(q.get("question_id", q.get("id", ""))): q for q in questions}
-
-        # Load student answers
-        ans_rows = (supabase.table("answers").select("question_id,answer")
-                    .eq("session_key", session_id)
-                    .eq("teacher_id", str(tid)).execute()).data or []
-        ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
-
-        # Load exam config for title
-        config = None
-        try:
-            config = _load_exam_config(str(tid), exam_id=exam_id)
-        except Exception:
-            pass
-        exam_title = (config or {}).get("title", "Exam")
-
-        buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
-        styles = getSampleStyleSheet()
-        story = []
-
-        # Header
-        story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
-        story.append(Spacer(1, 12))
-
-        # Student info + score summary
-        score = exam.get("score", 0)
-        total = exam.get("total", 0)
-        pct = exam.get("percentage", 0)
-        risk = compute_risk_score(session_id, teacher_id=tid)
-        passed = pct >= 40
-
-        info = [
-            ["Field", "Value"],
-            ["Student Name", exam.get("full_name", "")],
-            ["Roll Number", exam.get("roll_number", "")],
-            ["Date", fmt_ist(exam.get("submitted_at", exam.get("started_at", "")))],
-            ["Score", f"{score}/{total}"],
-            ["Percentage", f"{pct}%"],
-            ["Result", "PASS" if passed else "FAIL"],
-            ["Time Taken", f"{exam.get('time_taken_secs', 0) // 60}m {exam.get('time_taken_secs', 0) % 60}s"],
-            ["Risk Level", risk["label"]],
-        ]
-        t = Table(info, colWidths=[140, 330])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 10),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1),
-             [colors.HexColor("#f0f4ff"), colors.white]),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("PADDING", (0, 0), (-1, -1), 8),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 20))
-
-        # Per-question results table
-        story.append(Paragraph("Question-wise Results", styles["Heading2"]))
-        story.append(Spacer(1, 8))
-
-        if questions:
-            qd = [["#", "Question", "Your Answer", "Correct Answer", "Result"]]
-            for i, q in enumerate(questions, 1):
-                qid = str(q.get("question_id", q.get("id", "")))
-                correct_ans = str(q.get("correct", ""))
-                student_ans = ans_map.get(qid, "—")
-                is_right = str(student_ans) == correct_ans
-                q_text = q.get("question", "")
-                if len(q_text) > 60:
-                    q_text = q_text[:57] + "..."
-                qd.append([
-                    str(i),
-                    q_text,
-                    str(student_ans)[:20],
-                    correct_ans[:20],
-                    "\u2713" if is_right else "\u2717",
-                ])
-            qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
-            qt.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1),
-                 [colors.HexColor("#f8f9fa"), colors.white]),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("PADDING", (0, 0), (-1, -1), 6),
-                ("ALIGN", (4, 1), (4, -1), "CENTER"),
-            ]))
-            story.append(qt)
-        else:
-            story.append(Paragraph("No questions available.", styles["Normal"]))
-
-        # Footer
-        story.append(Spacer(1, 20))
-        story.append(Paragraph(
-            f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
-            styles["Normal"]))
-
-        doc.build(story)
-        buf.seek(0)
-        roll = exam.get("roll_number", "unknown")
-        fname = f"scorecard_{roll}_{now_ist().strftime('%Y%m%d')}.pdf"
+        pdf_bytes, fname, _ = _build_scorecard_pdf(session_id, tid)
         return StreamingResponse(
-            buf, media_type="application/pdf",
+            io.BytesIO(pdf_bytes), media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={fname}"})
-
     except HTTPException:
         raise
     except Exception as e:
@@ -3697,6 +3829,167 @@ def scorecard_zip(request: Request, exam_id: str = None):
     except Exception as e:
         print(f"[Scorecard ZIP] {e}")
         raise HTTPException(status_code=500, detail=f"Scorecard ZIP error: {e}")
+
+
+@app.post("/api/admin/exams/{exam_id}/email-scorecards")
+def email_scorecards(exam_id: str, request: Request, body: dict = Body(default={})):
+    """Email every completed student their scorecard PDF for this exam.
+
+    Idempotency: each session row has ``scorecard_emailed_at``; we
+    claim the row via an UPDATE-that-filters-on-NULL before sending
+    (same pattern as the reminder loop) so the teacher can safely
+    double-click the button, reload the page, or run this from two
+    tabs without double-emailing anyone. If the send fails the
+    claim is rolled back so a later retry re-claims cleanly.
+
+    Body (all optional):
+      {
+        "resend_all":    false,   // ignore scorecard_emailed_at; re-send to everyone
+        "custom_message": "...",  // appears in each email under "note from teacher"
+      }
+
+    Returns {sent, skipped_no_email, failed, already_sent, total}.
+    """
+    from emailer import send_scorecard_email  # noqa
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+
+    resend_all = bool(body.get("resend_all"))
+    custom_message = (body.get("custom_message") or "").strip() or None
+    teacher_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
+
+    # All completed sessions for this exam, owned by this teacher.
+    sess_q = supabase.table("exam_sessions").select(
+        "session_key,roll_number,full_name,exam_id,scorecard_emailed_at"
+    ).eq("teacher_id", tid).eq("status", "completed").eq("exam_id", exam_id)
+    sessions = (sess_q.execute()).data or []
+    if not sessions:
+        raise HTTPException(status_code=404, detail="No completed sessions found for this exam")
+
+    # Build roll→email map from BOTH invites (explicit recipients) and
+    # the students table (self-registered). Invites win on collision
+    # because that's the address the teacher actually chose to send to.
+    roll_emails: dict[str, str] = {}
+    try:
+        inv_rows = (supabase.table("student_invites").select("roll_number,email")
+                    .eq("teacher_id", tid).eq("exam_id", exam_id).execute()).data or []
+        for r in inv_rows:
+            roll = str(r.get("roll_number") or "").strip().upper()
+            email = str(r.get("email") or "").strip().lower()
+            if roll and email:
+                roll_emails[roll] = email
+    except Exception as e:
+        print(f"[email-scorecards] invite lookup failed: {e}", flush=True)
+    try:
+        stud_rows = (supabase.table("students").select("roll_number,email")
+                     .eq("teacher_id", tid).execute()).data or []
+        for r in stud_rows:
+            roll = str(r.get("roll_number") or "").strip().upper()
+            email = str(r.get("email") or "").strip().lower()
+            if roll and email and roll not in roll_emails:
+                roll_emails[roll] = email
+    except Exception as e:
+        print(f"[email-scorecards] student lookup failed: {e}", flush=True)
+
+    sent = 0
+    failed = 0
+    already_sent = 0
+    skipped_no_email = 0
+    failures: list[dict] = []
+
+    for sess in sessions:
+        sid = sess["session_key"]
+        roll = str(sess.get("roll_number") or "").strip().upper()
+        full_name = sess.get("full_name") or "Student"
+
+        if sess.get("scorecard_emailed_at") and not resend_all:
+            already_sent += 1
+            continue
+
+        email = roll_emails.get(roll)
+        if not email:
+            skipped_no_email += 1
+            failures.append({"roll": roll, "reason": "no email on file"})
+            continue
+
+        # Claim the row first — race-safe under concurrent clicks.
+        # When resend_all is set we skip the claim and just overwrite.
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if not resend_all:
+            claim = (supabase.table("exam_sessions")
+                     .update({"scorecard_emailed_at": now_iso})
+                     .eq("session_key", sid)
+                     .eq("teacher_id", tid)
+                     .is_("scorecard_emailed_at", "null")
+                     .execute())
+            if not claim.data:
+                # Lost the race — someone else just emailed it.
+                already_sent += 1
+                continue
+
+        # Build the PDF + summary. If this raises we roll the claim
+        # back so the next run will re-try.
+        try:
+            pdf_bytes, fname, summary = _build_scorecard_pdf(sid, tid)
+        except Exception as e:
+            print(f"[email-scorecards] PDF build failed sid={sid} err={e}", flush=True)
+            if not resend_all:
+                try:
+                    (supabase.table("exam_sessions")
+                     .update({"scorecard_emailed_at": None})
+                     .eq("session_key", sid).eq("teacher_id", tid).execute())
+                except Exception:
+                    pass
+            failed += 1
+            failures.append({"roll": roll, "reason": f"pdf: {e}"})
+            continue
+
+        result = send_scorecard_email(
+            to_email=email,
+            to_name=full_name,
+            exam_title=summary.get("exam_title") or "Exam",
+            score=int(summary.get("score") or 0),
+            total=int(summary.get("total") or 0),
+            percentage=float(summary.get("percentage") or 0.0),
+            passed=bool(summary.get("passed")),
+            pdf_bytes=pdf_bytes,
+            pdf_filename=fname,
+            teacher_name=teacher_name,
+            custom_message=custom_message,
+        )
+
+        if result.ok:
+            # Stamp msg_id for audit. (The claim timestamp is already set.)
+            try:
+                update_row = {"scorecard_email_msg_id": result.provider_msg_id}
+                if resend_all:
+                    update_row["scorecard_emailed_at"] = now_iso
+                (supabase.table("exam_sessions").update(update_row)
+                 .eq("session_key", sid).eq("teacher_id", tid).execute())
+            except Exception as e:
+                print(f"[email-scorecards] msg_id update failed sid={sid}: {e}", flush=True)
+            sent += 1
+        else:
+            # Roll the claim back so the next run re-tries.
+            if not resend_all:
+                try:
+                    (supabase.table("exam_sessions")
+                     .update({"scorecard_emailed_at": None})
+                     .eq("session_key", sid).eq("teacher_id", tid).execute())
+                except Exception:
+                    pass
+            failed += 1
+            failures.append({"roll": roll, "reason": result.error or "send failed"})
+            print(f"[email-scorecards][SEND_ERROR] roll={roll} reason={result.error!r}", flush=True)
+
+    return {
+        "sent": sent,
+        "failed": failed,
+        "already_sent": already_sent,
+        "skipped_no_email": skipped_no_email,
+        "total": len(sessions),
+        "failures": failures[:50],
+    }
 
 
 @app.get("/api/admin-failed-sessions")
@@ -4337,6 +4630,127 @@ def delete_exam(exam_id: str, request: Request):
         _cache.delete(f"questions:{tid}:{exam_id or '_'}")
     return {"status": "deleted", "exam_id": exam_id}
 
+
+@app.post("/api/admin/exams/{exam_id}/duplicate")
+def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})):
+    """Clone an exam's config + questions into a fresh exam_id.
+
+    Teachers rebuild the same exam every semester — midterm, final,
+    "here's the same quiz for next year's cohort". Without this they
+    either edit in place (destroying the original) or re-type from
+    scratch. The clone copies:
+
+      • exam_config row  (title, duration, shuffle flags, etc.)
+      • questions        (via the `questions` table, renumbered)
+
+    It deliberately does NOT copy:
+
+      • starts_at / ends_at     (always cleared — old window is stale)
+      • access_code             (regenerated, else both exams share it)
+      • exam_group_assignments  (new exam starts open until reassigned)
+      • sessions / answers      (obviously per-attempt, not per-template)
+
+    Body (all optional):
+      {
+        "new_title": "Midterm — Spring 2026"   // default: "<original> (copy)"
+      }
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+
+    # Fetch the source config, verifying ownership in the same query.
+    src_q = (supabase.table("exam_config").select("*")
+             .eq("teacher_id", tid).eq("exam_id", exam_id).execute())
+    if not src_q.data:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    src = src_q.data[0]
+
+    new_exam_id = str(_uuid.uuid4())
+    src_title = src.get("exam_title") or "Exam"
+    new_title = (str(body.get("new_title") or "").strip()
+                 or f"{src_title} (copy)")
+
+    # Whitelist columns we want to copy. Anything else (id, created_at,
+    # usage counters, etc.) stays with the original. Using a whitelist
+    # instead of `dict(src)` means new columns added later don't
+    # silently leak into clones with a potentially wrong value.
+    COPYABLE = [
+        "duration_minutes",
+        "shuffle_questions", "shuffle_options",
+        # schedule fields intentionally omitted (cleared below)
+    ]
+    new_cfg = {
+        "exam_id":    new_exam_id,
+        "teacher_id": tid,
+        "exam_title": new_title,
+        "starts_at":  None,
+        "ends_at":    None,
+        "access_code": "",
+    }
+    for col in COPYABLE:
+        if col in src and src[col] is not None:
+            new_cfg[col] = src[col]
+
+    try:
+        supabase.table("exam_config").insert(new_cfg).execute()
+    except Exception as e:
+        print(f"[DuplicateExam] config insert failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clone config: {e}")
+
+    # Copy questions. We strip primary keys and scope FKs to the new
+    # exam_id; the DB will mint fresh uuids on insert.
+    try:
+        qsrc = (supabase.table("questions").select("*")
+                .eq("teacher_id", tid).eq("exam_id", exam_id)
+                .order("order_index").execute()).data or []
+    except Exception as e:
+        print(f"[DuplicateExam] question fetch failed: {e}")
+        qsrc = []
+
+    questions_copied = 0
+    if qsrc:
+        new_rows = []
+        for q in qsrc:
+            row = dict(q)
+            # Drop DB-managed + linkage columns — the new row gets fresh ones.
+            for k in ("id", "question_id", "created_at", "updated_at"):
+                row.pop(k, None)
+            row["exam_id"] = new_exam_id
+            row["teacher_id"] = tid
+            new_rows.append(row)
+        try:
+            # Chunk to avoid hitting PostgREST's 1000-row insert ceiling
+            # on very large question sets.
+            for i in range(0, len(new_rows), 500):
+                supabase.table("questions").insert(new_rows[i:i+500]).execute()
+                questions_copied += len(new_rows[i:i+500])
+        except Exception as e:
+            print(f"[DuplicateExam] question insert failed: {e}")
+            # Rollback the config — leaving a questionless orphan is worse
+            # than failing loudly.
+            try:
+                supabase.table("exam_config").delete()\
+                    .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
+                supabase.table("questions").delete()\
+                    .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail=f"Failed to clone questions: {e}")
+
+    # Invalidate any cached config/questions keyed by teacher+exam.
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{new_exam_id}")
+        _cache.delete(f"questions:{tid}:{new_exam_id}")
+
+    return {
+        "status":           "duplicated",
+        "source_exam_id":   exam_id,
+        "exam_id":          new_exam_id,
+        "exam_title":       new_title,
+        "questions_copied": questions_copied,
+    }
+
+
 # ─── ANALYTICS ────────────────────────────────────────────────────
 @app.get("/api/admin/analytics")
 def get_analytics(request: Request):
@@ -4768,6 +5182,171 @@ def _bump_daily_cap(teacher_id: str, delta: int = 1) -> None:
             ).execute()
     except Exception as e:
         print(f"[invites] cap bump failed: {e}")
+
+
+# ─── EXAM REMINDER LOOP ────────────────────────────────────────────
+#
+# Wakes up every REMINDER_POLL_SECONDS and sends "your exam starts
+# in N hours" emails to invited students whose exam falls inside the
+# T-1h or T-24h window. Race-safe across multiple uvicorn workers
+# because the UPDATE that stakes our claim on a row is the atomic
+# unit — the row's reminder_*_at column flips from NULL to now() in
+# a single UPDATE ... WHERE reminder_*_at IS NULL. Workers that lose
+# the race get resp.data=[] back and skip the send.
+#
+# Disabled entirely when REMINDER_LOOP_DISABLED=1 (useful for tests
+# or when running a separate reminder worker process in future).
+
+REMINDER_POLL_SECONDS = int(os.environ.get("REMINDER_POLL_SECONDS", "300"))  # 5 min
+REMINDER_1H_WINDOW_MIN  = 10   # send if exam starts in (55, 65) min
+REMINDER_24H_WINDOW_MIN = 20   # send if exam starts in (23h50m, 24h10m)
+
+
+def _reminder_window(target_minutes: int, half_width_min: int):
+    """Return (lo, hi) datetimes centred on now()+target_minutes.
+
+    Sized so that a 5-minute poll cadence cannot miss a student whose
+    exam falls inside the window — the window is 2× the poll interval
+    plus a margin. Overlapping polls are fine because the UPDATE-with-
+    null-guard prevents duplicate sends."""
+    now = datetime.now(timezone.utc)
+    centre = now + timedelta(minutes=target_minutes)
+    return (centre - timedelta(minutes=half_width_min),
+            centre + timedelta(minutes=half_width_min))
+
+
+def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bool:
+    """Stake a claim on the row, then send. Returns True if we sent."""
+    from emailer import send_exam_reminder  # noqa
+
+    col = "reminder_1h_at" if hours_until < 24 else "reminder_24h_at"
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # The UPDATE is the atomic claim — only rows where the column is
+    # still NULL will match, so at most one worker wins per row.
+    try:
+        claim = (supabase.table("student_invites")
+                 .update({col: now_iso})
+                 .eq("token", inv["token"])
+                 .is_(col, "null")
+                 .execute())
+    except Exception as e:
+        print(f"[reminders] claim failed token={inv.get('token','?')[:8]} err={e}", flush=True)
+        return False
+    if not claim.data:
+        return False  # another worker got there first (or row disappeared)
+
+    base = os.environ.get("INVITE_BASE_URL", "https://app.procta.net").rstrip("/")
+    invite_url = f"{base}/invite/{inv['token']}"
+    starts_display = fmt_ist(exam_cfg.get("starts_at")) if exam_cfg.get("starts_at") else ""
+
+    try:
+        result = send_exam_reminder(
+            to_email=inv["email"],
+            to_name=inv.get("full_name") or "",
+            exam_title=exam_cfg.get("exam_title") or "Your exam",
+            invite_url=invite_url,
+            roll_number=inv.get("roll_number") or "",
+            hours_until=hours_until,
+            exam_starts_at_display=starts_display,
+            access_code=inv.get("access_code") or None,
+        )
+    except Exception as e:
+        print(f"[reminders] send raised: {e}", flush=True)
+        result = None
+
+    # On provider failure, roll back the claim so the next poll can retry.
+    # Skip the rollback on success — the timestamp is now the audit record
+    # that says "we notified this student at time T".
+    if result is None or not getattr(result, "ok", False):
+        try:
+            supabase.table("student_invites").update({col: None})\
+                .eq("token", inv["token"]).execute()
+        except Exception:
+            pass
+        print(f"[reminders] FAILED {hours_until}h reminder to={inv.get('email')} "
+              f"err={getattr(result,'error',None)!r}", flush=True)
+        return False
+
+    print(f"[reminders] SENT {hours_until}h reminder to={inv.get('email')} "
+          f"exam={exam_cfg.get('exam_id') or '?'}", flush=True)
+    return True
+
+
+async def _reminder_tick():
+    """One iteration of the reminder loop. Safe to call directly from tests."""
+    # The two windows we care about.
+    buckets = [
+        ("reminder_1h_at",  60,             REMINDER_1H_WINDOW_MIN,  1),
+        ("reminder_24h_at", 24 * 60,        REMINDER_24H_WINDOW_MIN, 24),
+    ]
+    for col, target_min, half_width, hours_until in buckets:
+        lo, hi = _reminder_window(target_min, half_width)
+        # Find exams starting in this window.
+        try:
+            exams_resp = (supabase.table("exam_config")
+                          .select("exam_id,teacher_id,exam_title,starts_at,access_code,ends_at")
+                          .gte("starts_at", lo.isoformat())
+                          .lte("starts_at", hi.isoformat())
+                          .execute())
+        except Exception as e:
+            print(f"[reminders] exam query failed: {e}", flush=True)
+            continue
+        exams = exams_resp.data or []
+        if not exams:
+            continue
+
+        for exam_cfg in exams:
+            eid = exam_cfg.get("exam_id")
+            if not eid:
+                continue
+            # Get all invited students for this exam who haven't received
+            # this tier of reminder yet and whose invite is still live.
+            try:
+                inv_resp = (supabase.table("student_invites")
+                            .select("token,email,full_name,roll_number,access_code,exam_id,status")
+                            .eq("exam_id", eid)
+                            .is_(col, "null")
+                            .in_("status", ["sent", "opened", "accepted"])
+                            .execute())
+            except Exception as e:
+                print(f"[reminders] invites query failed exam={eid}: {e}", flush=True)
+                continue
+            for inv in (inv_resp.data or []):
+                if not inv.get("email"):
+                    continue
+                try:
+                    _send_reminder_for_invite(inv, exam_cfg, hours_until)
+                except Exception as e:
+                    print(f"[reminders] per-invite error: {e}", flush=True)
+
+
+async def _reminder_loop():
+    """Long-running background task: tick every REMINDER_POLL_SECONDS."""
+    import asyncio as _asyncio
+    while True:
+        try:
+            await _reminder_tick()
+        except Exception as e:
+            print(f"[reminders] tick crashed: {e}", flush=True)
+        await _asyncio.sleep(REMINDER_POLL_SECONDS)
+
+
+@app.on_event("startup")
+async def _start_reminder_loop():
+    """Spawn the reminder loop on app startup.
+
+    Gated by REMINDER_LOOP_DISABLED so we can turn it off in tests or
+    when a dedicated reminder worker is running separately. The poll
+    interval itself absorbs retries — we don't need a supervisor here
+    because asyncio.sleep survives per-tick exceptions.
+    """
+    import asyncio as _asyncio
+    if os.environ.get("REMINDER_LOOP_DISABLED", "") == "1":
+        print("[reminders] loop disabled via REMINDER_LOOP_DISABLED=1", flush=True)
+        return
+    _asyncio.create_task(_reminder_loop())
+    print(f"[reminders] loop started (poll={REMINDER_POLL_SECONDS}s)", flush=True)
 
 
 @app.post("/api/admin/invites/send")

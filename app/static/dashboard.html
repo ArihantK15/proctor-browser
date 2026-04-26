@@ -4153,6 +4153,7 @@ function _inviteBadge(status){
     queued:   ['rgba(148,163,184,.15)','var(--muted)','#94a3b8'],
     sent:     ['rgba(59,130,246,.15)','#60a5fa','#60a5fa'],
     opened:   ['rgba(139,92,246,.15)','#a78bfa','#a78bfa'],
+    clicked:  ['rgba(56,189,248,.15)','#38bdf8','#38bdf8'],
     accepted: ['rgba(16,185,129,.15)','var(--emerald)','#10b981'],
     bounced:  ['rgba(239,68,68,.15)','var(--red)','#ef4444'],
     failed:   ['rgba(239,68,68,.15)','var(--red)','#ef4444'],
@@ -4170,9 +4171,19 @@ function _renderInvites(){
   empty.style.display='none';
   const counts = _invitesData.reduce((a,i)=>{ a[i.status]=(a[i.status]||0)+1; return a; }, {});
   countEl.textContent = Object.entries(counts).map(([k,v])=>`${v} ${k}`).join(' · ');
+  const _fmtTime = (iso) => iso ? new Date(iso).toLocaleString() : '—';
+  // Clicks (server-side redirect hits) and exam-session starts are
+  // both reliable engagement signals — opens are not. Surfacing all
+  // three lets a teacher see at a glance who actually showed up vs
+  // who just had their pixel pre-fetched by Apple Mail.
   const rows = _invitesData.map(i => {
-    const sentAt = i.sent_at ? new Date(i.sent_at).toLocaleString() : '—';
     const safeLink = _escHtml(i.invite_url||'');
+    const clickCell = i.clicked_at
+      ? `<span style="color:#38bdf8">${_fmtTime(i.clicked_at)}${(i.click_count>1)?` <span style="color:var(--muted)">×${i.click_count}</span>`:''}</span>`
+      : '<span style="color:var(--muted)">—</span>';
+    const startCell = i.started_at
+      ? `<span style="color:var(--emerald)">${_fmtTime(i.started_at)}</span>`
+      : '<span style="color:var(--muted)">—</span>';
     const actions = [
       i.invite_url ? `<button class="action-btn" onclick="_copyInviteLink('${_escGrp(i.invite_url)}')" style="padding:2px 8px;font-size:10px">Copy</button>` : '',
       (i.status!=='accepted' && i.status!=='revoked') ? `<button class="action-btn" onclick="resendInvite('${i.id}')" style="padding:2px 8px;font-size:10px">Resend</button>` : '',
@@ -4183,18 +4194,23 @@ function _renderInvites(){
       <td style="padding:6px 8px;font-size:12px;color:var(--muted)">${_escHtml(i.email||'')}</td>
       <td style="padding:6px 8px;font-size:11px;font-family:monospace">${_escHtml(i.roll_number||'')}</td>
       <td style="padding:6px 8px">${_inviteBadge(i.status)}</td>
-      <td style="padding:6px 8px;font-size:11px;color:var(--muted)">${sentAt}</td>
+      <td style="padding:6px 8px;font-size:11px;color:var(--muted)">${_fmtTime(i.sent_at)}</td>
+      <td style="padding:6px 8px;font-size:11px">${clickCell}</td>
+      <td style="padding:6px 8px;font-size:11px">${startCell}</td>
       <td style="padding:6px 8px;white-space:nowrap">${actions}</td>
     </tr>`;
   }).join('');
+  const th = (label, hint) => `<th title="${hint||''}" style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">${label}</th>`;
   list.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
     <thead><tr style="border-bottom:1px solid var(--border);text-align:left">
-      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Name</th>
-      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Email</th>
-      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Roll</th>
-      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Status</th>
-      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Sent</th>
-      <th style="padding:6px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Actions</th>
+      ${th('Name')}
+      ${th('Email')}
+      ${th('Roll')}
+      ${th('Status')}
+      ${th('Sent')}
+      ${th('Clicked', 'Server-side redirect hit — reliable signal, immune to Outlook/Apple Mail pixel blocking')}
+      ${th('Started', 'Student actually opened the exam in Procta — ground truth for engagement')}
+      ${th('Actions')}
     </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 

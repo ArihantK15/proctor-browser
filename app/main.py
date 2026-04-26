@@ -5535,6 +5535,44 @@ def list_invites(request: Request):
     # render a 'Copy link' button without recomputing.
     for r in rows:
         r["invite_url"] = f"{base}/invite/{r['token']}"
+
+    # Cross-reference exam_sessions to surface "actually started the
+    # exam" — the most honest engagement signal we have, and the only
+    # one that survives Outlook/Apple Mail tracking suppression. Match
+    # on (teacher_id, exam_id, roll_number); a single batched query
+    # avoids the N+1 trap when a teacher has 500-row invite lists.
+    if rows:
+        keys = {(r.get("exam_id"), r.get("roll_number")) for r in rows
+                if r.get("exam_id") and r.get("roll_number")}
+        if keys:
+            try:
+                exam_ids = list({k[0] for k in keys})
+                roll_nums = list({k[1] for k in keys})
+                sess_rows = (supabase.table("exam_sessions")
+                             .select("exam_id,roll_number,started_at,status")
+                             .eq("teacher_id", tid)
+                             .in_("exam_id", exam_ids)
+                             .in_("roll_number", roll_nums)
+                             .execute()).data or []
+                # Keep the earliest started_at per (exam, roll) pair —
+                # if a student bailed and rejoined, we want their first
+                # attempt timestamp, not the latest reset.
+                started_map: dict[tuple[str, str], dict] = {}
+                for s in sess_rows:
+                    if not s.get("started_at"):
+                        continue
+                    k = (s["exam_id"], s["roll_number"])
+                    prev = started_map.get(k)
+                    if prev is None or s["started_at"] < prev["started_at"]:
+                        started_map[k] = {"started_at": s["started_at"],
+                                          "session_status": s.get("status")}
+                for r in rows:
+                    k = (r.get("exam_id"), r.get("roll_number"))
+                    s = started_map.get(k)
+                    r["started_at"] = s["started_at"] if s else None
+                    r["session_status"] = s["session_status"] if s else None
+            except Exception as e:
+                print(f"[invites] session join failed: {e}", flush=True)
     return {"invites": rows}
 
 
@@ -6103,6 +6141,33 @@ async def email_webhook(request: Request):
                 .eq("provider_msg_id", msg_id).eq("status", "sent").execute()
         except Exception as e:
             print(f"[webhook] opened update failed msg_id={msg_id}: {e}", flush=True)
+    elif evt == "email.clicked":
+        # Clicks are the reliable engagement signal — they go through
+        # Resend's redirect domain (server-side hit), not a pixel, so
+        # Outlook/Apple Mail privacy filters can't suppress them.
+        # Stamp first-click timestamp + bump counter, and promote
+        # status sent/opened → 'clicked'. Don't downgrade 'accepted'.
+        try:
+            # Look up the row first so we can increment click_count
+            # without a SQL `col = col + 1` (PostgREST doesn't expose
+            # raw SQL through the supabase client). Two-statement read
+            # then update is fine — clicks are low-volume and the
+            # webhook is already the source of truth on ordering.
+            existing = (supabase.table("student_invites")
+                        .select("id,status,clicked_at,click_count")
+                        .eq("provider_msg_id", msg_id).limit(1).execute()).data or []
+            if existing:
+                row = existing[0]
+                update = {"click_count": int(row.get("click_count") or 0) + 1}
+                if not row.get("clicked_at"):
+                    update["clicked_at"] = now_iso
+                supabase.table("student_invites").update(update)\
+                    .eq("id", row["id"]).execute()
+                if row.get("status") in ("sent", "opened"):
+                    supabase.table("student_invites").update({"status": "clicked"})\
+                        .eq("id", row["id"]).execute()
+        except Exception as e:
+            print(f"[webhook] clicked update failed msg_id={msg_id}: {e}", flush=True)
     elif evt == "email.delivered":
         # Leave status as 'sent' — delivered is a transient confirmation.
         pass

@@ -4140,7 +4140,10 @@ async function loadInvites(){
   try{
     const r = await authFetch(`${BASE}/api/admin/invites?exam_id=${encodeURIComponent(eid)}`);
     if(!r.ok){ list.innerHTML=''; empty.style.display=''; empty.textContent='Failed to load invites.'; return; }
-    _invitesData = await r.json();
+    // API contract is {invites:[...]} — be tolerant of either shape so a future
+    // contract change (return a bare array) doesn't silently empty the UI.
+    const data = await r.json();
+    _invitesData = Array.isArray(data) ? data : (data.invites || []);
     _renderInvites();
   }catch(e){ list.innerHTML=''; empty.style.display=''; empty.textContent='Network error.'; }
 }

@@ -5903,16 +5903,21 @@ footer{{text-align:center;color:#64748b;font-size:12px;margin-top:20px}}
   </div>
 
   <div class="card" id="app-launch-card" style="text-align:center">
-    <h2 style="margin-bottom:6px">Already have Procta installed?</h2>
-    <p style="color:#94a3b8;font-size:13px;margin:0 0 16px 0">
-      Open the invite straight in the app — your email and exam will be pre-filled.
+    <h2 style="margin-bottom:6px">Already installed Procta?</h2>
+    <p style="color:#94a3b8;font-size:13px;margin:0 0 14px 0">
+      Skip the download — open this invite directly in your installed app.
     </p>
     <a id="open-in-app" class="dlbtn" href="#"
        onclick="openInApp(event); return false;"
-       data-token="{_e(token)}">Open in Procta app</a>
-    <div id="open-in-app-hint" style="display:none;color:#94a3b8;font-size:12px;margin-top:10px">
-      Nothing happened? You probably don't have Procta installed yet — download it below.
-    </div>
+       data-token="{_e(token)}"
+       style="background:#1e293b;border:1px solid #334155;color:#e2e8f0">
+      Open in Procta app
+    </a>
+    <p style="color:#64748b;font-size:11px;margin:14px 0 0 0;line-height:1.5">
+      Don't have it installed? Skip this and use the download buttons below —
+      clicking the button without Procta installed will show a "Safari can't open
+      the page" dialog. That's normal; just close it.
+    </p>
   </div>
 
   <div class="card">

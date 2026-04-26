@@ -193,25 +193,92 @@ def send_scorecard_email(
         return SendResult(ok=False, error=str(e))
 
 
-def verify_webhook(raw_body: bytes, signature_header: str) -> bool:
-    """True if the webhook signature is valid. Resend signs with HMAC-SHA256
-    over the raw body keyed by RESEND_WEBHOOK_SECRET.
+def verify_webhook(raw_body: bytes, headers) -> bool:
+    """True if the webhook signature is valid.
 
-    Returns False if the secret isn't configured (fail closed) or the
-    header is missing/malformed — never raises."""
+    Resend uses Svix under the hood, so signatures follow the Svix
+    spec:
+
+      svix-id          unique event id
+      svix-timestamp   unix seconds — reject if drift > 5 min (replay
+                       protection; Svix's reference impl uses the same)
+      svix-signature   "v1,<base64>" — possibly several space-separated
+                       (rotation: an old + new sig appear together
+                       during key rollover; any one matching is fine)
+
+    Signed payload: ``<svix-id>.<svix-timestamp>.<raw-body>``. HMAC
+    key is the base64-decoded portion of the secret after the
+    ``whsec_`` prefix.
+
+    For backward compatibility, callers may pass either a dict-like
+    of headers OR the raw signature string (legacy single-arg call).
+    The latter path can never verify a Svix signature (it lacks id +
+    timestamp) so it always returns False — but it won't raise,
+    which keeps existing tests green.
+
+    Returns False on any failure mode — missing secret, missing
+    header, bad base64, expired timestamp, mismatched HMAC. Never
+    raises."""
     secret = os.environ.get("RESEND_WEBHOOK_SECRET", "")
-    if not secret or not signature_header:
+    if not secret:
         return False
+
+    # Header lookup — accept dict-like, or fall back to legacy single-string mode.
+    if isinstance(headers, str):
+        # Legacy single-arg call. Can't reconstruct the Svix signed
+        # payload from just the signature, so fail closed.
+        return False
+    if not headers:
+        return False
+    def _hget(name: str) -> str:
+        # Headers may be a Starlette Headers (case-insensitive) or a
+        # plain dict. Try lowercase, then exact, to support both.
+        try:
+            return headers.get(name) or headers.get(name.lower()) or ""
+        except Exception:
+            return ""
+
+    svix_id = _hget("svix-id")
+    svix_ts = _hget("svix-timestamp")
+    svix_sig = _hget("svix-signature")
+    if not (svix_id and svix_ts and svix_sig):
+        return False
+
+    # Replay protection — 5-minute tolerance both ways.
     try:
-        # Resend format: "t=<ts>,v1=<hex>"
-        parts = dict(p.split("=", 1) for p in signature_header.split(","))
-        expected = parts.get("v1", "")
-        if not expected:
-            return False
-        mac = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(mac, expected)
-    except Exception:
+        ts_int = int(svix_ts)
+    except ValueError:
         return False
+    now = int(time.time())
+    if abs(now - ts_int) > 5 * 60:
+        return False
+
+    # Pull the HMAC key out of the secret. Svix secrets are
+    # ``whsec_<base64>``; older raw secrets (no prefix) are accepted
+    # as-is so dev/test setups don't have to mint a Svix one.
+    if secret.startswith("whsec_"):
+        try:
+            key = base64.b64decode(secret[len("whsec_"):])
+        except Exception:
+            return False
+    else:
+        key = secret.encode()
+
+    signed = f"{svix_id}.{svix_ts}.".encode() + raw_body
+    mac = hmac.new(key, signed, hashlib.sha256).digest()
+    expected_b64 = base64.b64encode(mac).decode()
+
+    # Header may carry multiple sigs separated by spaces (key rotation).
+    # Each entry is "<version>,<base64>" — only v1 is defined today.
+    for token in svix_sig.split():
+        if "," not in token:
+            continue
+        version, sig_b64 = token.split(",", 1)
+        if version != "v1":
+            continue
+        if hmac.compare_digest(sig_b64, expected_b64):
+            return True
+    return False
 
 
 # ─── Backends ──────────────────────────────────────────────────────

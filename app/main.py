@@ -6027,8 +6027,12 @@ async def email_webhook(request: Request):
     """
     from emailer import verify_webhook  # noqa
     raw = await request.body()
-    sig = request.headers.get("svix-signature") or request.headers.get("resend-signature") or ""
-    if not verify_webhook(raw, sig):
+    if not verify_webhook(raw, request.headers):
+        # Log the Svix id so a flood of 403s in production can be
+        # cross-referenced with the Resend dashboard. Never log the
+        # signature itself — that's a secret-equivalent.
+        sid = request.headers.get("svix-id") or "?"
+        print(f"[webhook] rejected svix-id={sid}", flush=True)
         raise HTTPException(status_code=403, detail="Invalid webhook signature")
     try:
         payload = json.loads(raw)
@@ -6040,11 +6044,15 @@ async def email_webhook(request: Request):
     if not msg_id:
         return {"ok": True, "ignored": "no msg id"}
 
-    # Map Resend event → invite status.
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Map Resend event → invite status. Don't downgrade — once an
+    # invite is 'accepted' (student logged in) we leave it alone, and
+    # we never let a late 'opened' overwrite a 'bounced' from earlier.
     if evt == "email.bounced":
         supabase.table("student_invites").update({
             "status": "bounced",
-            "bounced_at": datetime.now(timezone.utc).isoformat(),
+            "bounced_at": now_iso,
             "bounce_reason": str(data.get("bounce") or data.get("reason") or "bounced")[:500],
         }).eq("provider_msg_id", msg_id).execute()
     elif evt == "email.complained":
@@ -6052,9 +6060,21 @@ async def email_webhook(request: Request):
             "status": "failed",
             "bounce_reason": "recipient marked as spam",
         }).eq("provider_msg_id", msg_id).execute()
+    elif evt == "email.opened":
+        # Stamp opened_at on every event, but only flip the status
+        # to 'opened' if it's currently 'sent' — don't overwrite
+        # 'accepted' or 'bounced'.
+        try:
+            supabase.table("student_invites").update({"opened_at": now_iso})\
+                .eq("provider_msg_id", msg_id).execute()
+            supabase.table("student_invites").update({"status": "opened"})\
+                .eq("provider_msg_id", msg_id).eq("status", "sent").execute()
+        except Exception as e:
+            print(f"[webhook] opened update failed msg_id={msg_id}: {e}", flush=True)
     elif evt == "email.delivered":
         # Leave status as 'sent' — delivered is a transient confirmation.
         pass
+    print(f"[webhook] {evt} msg_id={msg_id}", flush=True)
     return {"ok": True, "event": evt}
 
 

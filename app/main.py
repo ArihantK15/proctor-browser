@@ -5907,8 +5907,9 @@ footer{{text-align:center;color:#64748b;font-size:12px;margin-top:20px}}
     <p style="color:#94a3b8;font-size:13px;margin:0 0 16px 0">
       Open the invite straight in the app — your email and exam will be pre-filled.
     </p>
-    <a id="open-in-app" class="dlbtn" href="procta://invite/{_e(token)}"
-       onclick="openInApp(event)">Open in Procta app</a>
+    <a id="open-in-app" class="dlbtn" href="#"
+       onclick="openInApp(event); return false;"
+       data-token="{_e(token)}">Open in Procta app</a>
     <div id="open-in-app-hint" style="display:none;color:#94a3b8;font-size:12px;margin-top:10px">
       Nothing happened? You probably don't have Procta installed yet — download it below.
     </div>
@@ -5990,10 +5991,27 @@ function copyVal(v, btn){{
   }});
 }}
 
-// Deep-link into the installed desktop app. If the OS hands the URL
-// off to Procta the browser's visibility/blur changes within ~1s;
-// otherwise we assume it's not installed and reveal the download hint.
+// Deep-link into the installed desktop app via a hidden iframe.
+//
+// Why iframe and not window.location: Safari (and Edge) pop a native
+// "address is invalid" alert if you set window.location to a custom
+// scheme that no app is registered for. There's no JS API to ask
+// "is this scheme installed?" so we have to attempt the launch and
+// detect success by side-effect. Iframes silently swallow the
+// failure — if no app handles `procta://`, nothing user-visible
+// happens; if an app does handle it, the OS focuses that app and
+// the page goes hidden/blurred, which we detect.
+//
+// After the timeout, if neither blur nor visibilitychange fired, we
+// assume Procta isn't installed and reveal the "download below" hint.
+// We also try a real navigation as a last-resort on Chrome where
+// iframes get sandboxed away from custom schemes — that path will
+// only get to navigate if the scheme IS registered (no Chrome alert
+// for registered schemes).
 function openInApp(e){{
+  var btn = document.getElementById('open-in-app');
+  var token = btn ? btn.getAttribute('data-token') : '';
+  if(!token) return;
   var hint = document.getElementById('open-in-app-hint');
   if(hint) hint.style.display = 'none';
   var launched = false;
@@ -6002,11 +6020,20 @@ function openInApp(e){{
   document.addEventListener('visibilitychange', function h(){{
     if(document.hidden) markLaunched();
   }}, {{once:true}});
-  // Let the default <a href="procta://..."> navigation fire; don't
-  // preventDefault — some browsers only honour custom schemes for
-  // user-initiated navigations, not scripted location changes.
+
+  var url = 'procta://invite/' + encodeURIComponent(token);
+  // Primary attempt: hidden iframe (silent on Safari/Edge).
+  try {{
+    var f = document.createElement('iframe');
+    f.style.display = 'none';
+    f.src = url;
+    document.body.appendChild(f);
+    setTimeout(function(){{ try {{ f.remove(); }} catch(_){{}} }}, 2000);
+  }} catch(_) {{}}
+
+  // After ~1.8s, if nothing focused away from the page, Procta isn't
+  // installed (or the iframe approach was blocked) — show the hint.
   setTimeout(function(){{
-    window.removeEventListener('blur', markLaunched);
     if(!launched && hint) hint.style.display = 'block';
   }}, 1800);
 }}

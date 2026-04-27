@@ -866,6 +866,39 @@ class FrameIn(BaseModel):
     event_type: Optional[str] = None
 
 # ─── HELPERS ──────────────────────────────────────────────────────
+def _xlsx_safe(v):
+    """Neutralise Excel formula injection.
+
+    Excel/LibreOffice/Numbers all interpret a leading ``=``, ``+``, ``-``,
+    ``@``, tab or CR in a *string* cell as the start of a formula. A
+    student registering as ``=cmd|'/c calc'!A1`` would execute that
+    formula the moment a teacher opens the export. The fix is to prefix
+    a single apostrophe so the cell is treated as text — Excel hides
+    the apostrophe in display but never evaluates the content.
+
+    Numbers and other types are passed through unchanged so sort /
+    number-format columns still work.
+    """
+    if isinstance(v, str) and v and v[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v
+    return v
+
+
+def _safe_filename(s: str, fallback: str = "file") -> str:
+    """Strip everything that isn't a safe filename char.
+
+    Used in ``Content-Disposition`` headers — a roll number like
+    ``"abc\\r\\nSet-Cookie: x=y"`` would otherwise inject HTTP headers
+    via the ``filename=`` parameter. Whitelist alnum + ``-_.`` and
+    truncate to 80 chars; an empty result falls back to a placeholder
+    so the response still has a usable filename.
+    """
+    if not s:
+        return fallback
+    cleaned = "".join(c for c in str(s) if c.isalnum() or c in "-_.") [:80]
+    return cleaned or fallback
+
+
 def ts_to_id(ts_str: str) -> int:
     try:
         dt = datetime.fromisoformat(str(ts_str).replace('Z', '+00:00'))
@@ -3202,19 +3235,24 @@ def export_excel(request: Request, exam_id: str = None):
             secs = 0
         mins = round(secs / 60, 2) if secs else 0
 
+        # _xlsx_safe on every string-typed user-controlled cell —
+        # student/teacher-supplied fields can contain leading `=`/`+`/`-`/`@`
+        # which Excel would evaluate as a formula on open. Numerics are
+        # passed through; risk_label is from a fixed enum so it's safe
+        # but cheap to harden anyway.
         ws.append([
-            s.get("submitted_at", ""),
-            s.get("session_id", ""),
-            s.get("roll_number", ""),
-            s.get("full_name", ""),
-            s.get("email", ""),
+            _xlsx_safe(s.get("submitted_at", "")),
+            _xlsx_safe(s.get("session_id", "")),
+            _xlsx_safe(s.get("roll_number", "")),
+            _xlsx_safe(s.get("full_name", "")),
+            _xlsx_safe(s.get("email", "")),
             s.get("score", 0),
             s.get("total", 0),
             pct_val,
             mins,
             s.get("violation_count", 0),
             s.get("risk_score", ""),
-            s.get("risk_label", ""),
+            _xlsx_safe(s.get("risk_label", "")),
         ])
         # Colour the Risk Label cell on the row we just wrote.
         label = s.get("risk_label")
@@ -3539,7 +3577,7 @@ def export_pdf(session_id: str, request: Request):
 
         doc.build(story)
         buf.seek(0)
-        fname = (f"report_{exam['roll_number']}_"
+        fname = (f"report_{_safe_filename(exam.get('roll_number'), 'unknown')}_"
                  f"{now_ist().strftime('%Y%m%d')}.pdf")
         return StreamingResponse(
             buf, media_type="application/pdf",
@@ -3667,7 +3705,7 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
 
     doc.build(story)
     buf.seek(0)
-    roll = exam.get("roll_number", "unknown")
+    roll = _safe_filename(exam.get("roll_number"), "unknown")
     fname = f"scorecard_{roll}_{now_ist().strftime('%Y%m%d')}.pdf"
     summary = {
         "exam": exam,
@@ -3815,11 +3853,11 @@ def scorecard_zip(request: Request, exam_id: str = None):
 
                 doc.build(story)
                 pdf_buf.seek(0)
-                roll = sess.get("roll_number", "unknown")
+                roll = _safe_filename(sess.get("roll_number"), "unknown")
                 zf.writestr(f"scorecard_{roll}.pdf", pdf_buf.getvalue())
 
         zip_buf.seek(0)
-        fname = f"scorecards_{exam_id or 'all'}_{now_ist().strftime('%Y%m%d')}.zip"
+        fname = f"scorecards_{_safe_filename(exam_id, 'all')}_{now_ist().strftime('%Y%m%d')}.zip"
         return StreamingResponse(
             zip_buf, media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename={fname}"})
@@ -3859,9 +3897,14 @@ def email_scorecards(exam_id: str, request: Request, body: dict = Body(default={
     teacher_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
 
     # All completed sessions for this exam, owned by this teacher.
-    sess_q = supabase.table("exam_sessions").select(
+    # Hard cap at 1000 — well above any realistic class size, and
+    # blocks a misbehaving caller from queueing tens of thousands of
+    # PDF builds per request (each one is a synchronous ReportLab
+    # render that holds a worker for ~200 ms).
+    sess_q = (supabase.table("exam_sessions").select(
         "session_key,roll_number,full_name,exam_id,scorecard_emailed_at"
     ).eq("teacher_id", tid).eq("status", "completed").eq("exam_id", exam_id)
+        .limit(1000))
     sessions = (sess_q.execute()).data or []
     if not sessions:
         raise HTTPException(status_code=404, detail="No completed sessions found for this exam")
@@ -4815,19 +4858,25 @@ def get_analytics(request: Request):
     questions = _load_questions(tid, exam_id=exam_id)
     q_analysis = []
     if questions:
-        # Load all answers for these sessions
+        # Load all answers for these sessions in batched .in_() queries
+        # — one round-trip per chunk of 50 sessions. The previous code
+        # was N+1 (one query per session) inside the chunking loop,
+        # which was the dominant cost on large exams: 5 000 sessions →
+        # 5 000 round-trips and a ~30 s analytics page load.
         skeys = [s["session_key"] for s in sessions]
-        all_answers = {}
-        # Batch fetch answers (in chunks to avoid URL length issues)
+        all_answers = {sk: {} for sk in skeys}
         for i in range(0, len(skeys), 50):
             chunk = skeys[i:i+50]
-            for sk in chunk:
-                ans_q = supabase.table("answers").select("question_id,answer")\
-                    .eq("session_key", sk)
-                if tid:
-                    ans_q = ans_q.eq("teacher_id", tid)
-                rows = (ans_q.execute()).data or []
-                all_answers[sk] = {r["question_id"]: r["answer"] for r in rows}
+            ans_q = (supabase.table("answers")
+                     .select("session_key,question_id,answer")
+                     .in_("session_key", chunk))
+            if tid:
+                ans_q = ans_q.eq("teacher_id", tid)
+            for r in (ans_q.execute()).data or []:
+                sk = r.get("session_key")
+                qid = r.get("question_id")
+                if sk and qid is not None:
+                    all_answers.setdefault(sk, {})[qid] = r.get("answer")
 
         # Sort sessions by score for quartile analysis
         sorted_sess = sorted(sessions, key=lambda s: s.get("percentage") or 0)
@@ -4919,13 +4968,25 @@ def list_groups(request: Request):
     rows = (supabase.table("student_groups")
             .select("*").eq("teacher_id", tid)
             .order("created_at").execute()).data or []
-    # Attach member counts
-    for g in rows:
+    # Single round-trip for all member counts — was N+1 (one query
+    # per group) before. We pull just the group_id column and bucket
+    # client-side. Limit guards against a misbehaving teacher with
+    # millions of stale memberships; a teacher with that many
+    # students has bigger problems than an inaccurate count.
+    counts: dict[str, int] = {}
+    if rows:
+        gids = [g["id"] for g in rows]
         members = (supabase.table("student_group_members")
-                   .select("id", count="exact")
-                   .eq("group_id", g["id"])
-                   .eq("teacher_id", tid).execute())
-        g["member_count"] = members.count if members.count is not None else len(members.data or [])
+                   .select("group_id")
+                   .in_("group_id", gids)
+                   .eq("teacher_id", tid)
+                   .limit(50000).execute()).data or []
+        for m in members:
+            gid = m.get("group_id")
+            if gid:
+                counts[gid] = counts.get(gid, 0) + 1
+    for g in rows:
+        g["member_count"] = counts.get(g["id"], 0)
     return rows
 
 
@@ -5091,17 +5152,20 @@ def _check_group_access(roll_number: str, teacher_id: str, exam_id: str) -> bool
                    .eq("exam_id", exam_id)
                    .eq("teacher_id", teacher_id).execute()).data or []
     if not assignments:
-        return True  # No group restrictions
+        return True  # No group restrictions — backward-compatible
     gids = [a["group_id"] for a in assignments]
-    for gid in gids:
-        member = (supabase.table("student_group_members")
-                  .select("id")
-                  .eq("group_id", gid)
-                  .eq("roll_number", roll_number)
-                  .eq("teacher_id", teacher_id).execute()).data
-        if member:
-            return True
-    return False
+    # Single .in_() query instead of looping per group — this runs on
+    # every exam-start, so an N+1 here multiplies the validate-student
+    # round-trip count by the number of groups assigned to the exam.
+    # `.limit(1)` keeps PostgREST from serialising more rows than we
+    # need; we only care whether at least one row exists.
+    member = (supabase.table("student_group_members")
+              .select("id")
+              .in_("group_id", gids)
+              .eq("roll_number", roll_number)
+              .eq("teacher_id", teacher_id)
+              .limit(1).execute()).data
+    return bool(member)
 
 
 # ─── STUDENT INVITES (email-based onboarding) ──────────────────────
@@ -5324,11 +5388,18 @@ async def _reminder_tick():
 async def _reminder_loop():
     """Long-running background task: tick every REMINDER_POLL_SECONDS."""
     import asyncio as _asyncio
+    import traceback as _tb
     while True:
         try:
             await _reminder_tick()
         except Exception as e:
+            # Bare exception message hides the stack — a None invite
+            # row or a missed schema column would just print "tick
+            # crashed: 'NoneType' has no attribute 'get'" every 5 min
+            # with no clue where. Full traceback turns a multi-day
+            # debug session into a 30-second one.
             print(f"[reminders] tick crashed: {e}", flush=True)
+            _tb.print_exc()
         await _asyncio.sleep(REMINDER_POLL_SECONDS)
 
 
@@ -5521,8 +5592,15 @@ def list_invites(request: Request):
     """List invites for the teacher. Optional filters: exam_id, status, group_id."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    q = supabase.table("student_invites").select("*").eq("teacher_id", tid)\
-        .order("created_at", desc=True)
+    # Hard cap at 2000 — PostgREST default cap is 1000 and silently
+    # truncates above that, which would leave the dashboard showing
+    # "we sent 1000" when 1500 were actually sent. Setting an explicit
+    # limit makes the truncation visible (the count badge will say
+    # "2000 sent" exactly) and bounds the JSON payload to ~2 MB.
+    q = (supabase.table("student_invites").select("*")
+         .eq("teacher_id", tid)
+         .order("created_at", desc=True)
+         .limit(2000))
     exam_id = request.query_params.get("exam_id")
     status  = request.query_params.get("status")
     group_id = request.query_params.get("group_id")
@@ -6116,29 +6194,44 @@ async def email_webhook(request: Request):
 
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # Map Resend event → invite status. Don't downgrade — once an
-    # invite is 'accepted' (student logged in) we leave it alone, and
-    # we never let a late 'opened' overwrite a 'bounced' from earlier.
+    # Map Resend event → invite status. Status flips are guarded so
+    # late/out-of-order webhooks can't downgrade a row:
+    #   - 'accepted' is terminal (student logged in) — never overwritten.
+    #   - 'bounced' is terminal — a stray 'opened' or 'clicked' that
+    #     arrives later (Resend re-deliveries do this rarely) won't
+    #     reverse the bounce.
+    # Each UPDATE pins the predecessor states explicitly via .in_(),
+    # which Supabase translates to a `status IN (...)` filter — atomic
+    # at the row level even under concurrent webhook deliveries.
+    _SENT_LIKE = ["queued", "sent", "opened", "clicked"]
+
     if evt == "email.bounced":
         supabase.table("student_invites").update({
             "status": "bounced",
             "bounced_at": now_iso,
             "bounce_reason": str(data.get("bounce") or data.get("reason") or "bounced")[:500],
-        }).eq("provider_msg_id", msg_id).execute()
+        }).eq("provider_msg_id", msg_id).in_("status", _SENT_LIKE).execute()
     elif evt == "email.complained":
         supabase.table("student_invites").update({
             "status": "failed",
             "bounce_reason": "recipient marked as spam",
-        }).eq("provider_msg_id", msg_id).execute()
+        }).eq("provider_msg_id", msg_id).in_("status", _SENT_LIKE).execute()
     elif evt == "email.opened":
-        # Stamp opened_at on every event, but only flip the status
-        # to 'opened' if it's currently 'sent' — don't overwrite
-        # 'accepted' or 'bounced'.
+        # Stamp opened_at + flip status sent → opened in a single
+        # update so a 'bounced' event can't slip in between the two
+        # writes and end up with status='opened' on a bounced row.
+        # Guard predecessor: only bare 'sent' rows are eligible — we
+        # don't want to clobber 'clicked' (a stronger signal) or
+        # 'accepted'/'bounced' (terminal).
         try:
-            supabase.table("student_invites").update({"opened_at": now_iso})\
-                .eq("provider_msg_id", msg_id).execute()
-            supabase.table("student_invites").update({"status": "opened"})\
-                .eq("provider_msg_id", msg_id).eq("status", "sent").execute()
+            (supabase.table("student_invites")
+             .update({"opened_at": now_iso, "status": "opened"})
+             .eq("provider_msg_id", msg_id).eq("status", "sent").execute())
+            # Even if status didn't flip (already clicked/accepted),
+            # stamp opened_at so analytics has the data.
+            (supabase.table("student_invites")
+             .update({"opened_at": now_iso})
+             .eq("provider_msg_id", msg_id).is_("opened_at", "null").execute())
         except Exception as e:
             print(f"[webhook] opened update failed msg_id={msg_id}: {e}", flush=True)
     elif evt == "email.clicked":
@@ -6163,9 +6256,12 @@ async def email_webhook(request: Request):
                     update["clicked_at"] = now_iso
                 supabase.table("student_invites").update(update)\
                     .eq("id", row["id"]).execute()
-                if row.get("status") in ("sent", "opened"):
-                    supabase.table("student_invites").update({"status": "clicked"})\
-                        .eq("id", row["id"]).execute()
+                # Predecessor guard via .in_() — even though we just
+                # read the row, a concurrent webhook (Resend retries)
+                # could have flipped it; the IN-filter makes the
+                # promotion idempotent and impossible to downgrade.
+                supabase.table("student_invites").update({"status": "clicked"})\
+                    .eq("id", row["id"]).in_("status", ["sent", "opened"]).execute()
         except Exception as e:
             print(f"[webhook] clicked update failed msg_id={msg_id}: {e}", flush=True)
     elif evt == "email.delivered":
@@ -6182,8 +6278,13 @@ def list_bank_questions(request: Request):
     teacher = require_admin(request)
     tid = str(teacher["id"])
     tag = request.query_params.get("tag")
-    q = supabase.table("question_bank").select("*").eq("teacher_id", tid)\
-        .order("created_at", desc=True)
+    # Cap at 5000 — large enough for any realistic bank, well under
+    # the JSON-payload pain threshold (~5 MB), and prevents PostgREST's
+    # silent 1000-row truncation from masking the cap.
+    q = (supabase.table("question_bank").select("*")
+         .eq("teacher_id", tid)
+         .order("created_at", desc=True)
+         .limit(5000))
     rows = (q.execute()).data or []
     if tag:
         rows = [r for r in rows if tag in (r.get("tags") or [])]
@@ -6224,7 +6325,10 @@ def update_bank_question(qid: str, request: Request, body: dict = Body(...)):
             fields[k] = body[k]
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
-    fields["updated_at"] = "now()"
+    # PostgREST stores `"now()"` as a literal 5-char string (it's not
+    # SQL — the JSON body goes straight into the column). Send an ISO
+    # timestamp so the column actually gets a real value.
+    fields["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = (supabase.table("question_bank")
               .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
     if not result.data:
@@ -6253,6 +6357,12 @@ def import_bank_questions(request: Request, body: dict = Body(...)):
     items = body.get("questions", [])
     if not items:
         raise HTTPException(status_code=400, detail="No questions to import")
+    # Cap bulk imports — protects the DB from a 100k-row CSV paste
+    # and bounds memory used to build the insert payload. Teachers
+    # who legitimately need more should split the file.
+    if len(items) > 2000:
+        raise HTTPException(status_code=413,
+            detail=f"Too many questions ({len(items)}). Max 2000 per import — split into smaller files.")
     rows = []
     for item in items:
         options = {}
@@ -6281,7 +6391,8 @@ def export_bank_questions(request: Request):
     tid = str(teacher["id"])
     rows = (supabase.table("question_bank").select("*")
             .eq("teacher_id", tid)
-            .order("created_at", desc=True).execute()).data or []
+            .order("created_at", desc=True)
+            .limit(5000).execute()).data or []
     # Flatten options for CSV-friendly export
     export = []
     for r in rows:
@@ -6309,6 +6420,22 @@ def bank_to_exam(request: Request, body: dict = Body(...)):
     exam_id = body.get("exam_id")
     if not question_ids or not exam_id:
         raise HTTPException(status_code=400, detail="question_ids and exam_id required")
+    if len(question_ids) > 500:
+        raise HTTPException(status_code=413,
+            detail="Too many questions. Max 500 per copy.")
+
+    # Verify the target exam belongs to the requesting teacher. Without
+    # this check, a teacher could write questions with their own
+    # teacher_id but a foreign exam_id — the rows would be orphaned
+    # (the other teacher's _load_questions filters by their own tid)
+    # but they'd still consume DB rows and could collide on
+    # question_id sequencing if the exam_id was ever reassigned. Cheap
+    # to verify — exam_config is keyed (teacher_id, exam_id).
+    own_exam = (supabase.table("exam_config")
+                .select("exam_id").eq("teacher_id", tid)
+                .eq("exam_id", exam_id).limit(1).execute()).data
+    if not own_exam:
+        raise HTTPException(status_code=404, detail="Exam not found.")
 
     # Fetch selected bank questions
     bank_rows = (supabase.table("question_bank").select("*")

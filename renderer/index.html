@@ -464,10 +464,29 @@ let lastFocusLost=0;
 let isOffline = (typeof navigator !== 'undefined' && navigator.onLine === false);
 
 // ── Offline Answer Resilience ─────────────────────────────────────
-function _persistAnswers(){
+// _persistAnswers is called from ansWrite() on every answer change,
+// including every keystroke in fill-in-the-blank fields. JSON.stringify
+// of the full answers map on each keystroke jankd typing on long
+// essays (and could silently QuotaExceededError on huge inputs since
+// the catch swallows it). 400ms debounce smooths that out — short
+// enough that an offline crash loses at most ~half a sentence, long
+// enough that bursty typing collapses to one write. _persistAnswersNow
+// is the synchronous version used by doBulkSave + onbeforeunload —
+// places where we MUST flush before continuing.
+let _persistTimer = null;
+function _persistAnswersNow(){
   if(!sessionId) return;
   try{ localStorage.setItem('answers_'+sessionId, JSON.stringify(answers)); }catch(_){}
 }
+function _persistAnswers(){
+  if(_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(_persistAnswersNow, 400);
+}
+// Flush pending writes if the window is about to be torn down — the
+// renderer may close abruptly (battery cutoff, force quit) and a
+// pending debounced write would lose the last keystrokes otherwise.
+window.addEventListener('beforeunload', _persistAnswersNow);
+window.addEventListener('pagehide', _persistAnswersNow);
 function _loadLocalAnswers(){
   if(!sessionId) return {};
   try{
@@ -1458,7 +1477,7 @@ function startBulkSave(){
 
 async function doBulkSave(){
   if(!sessionId || !examActive || Object.keys(answers).length === 0) return;
-  _persistAnswers(); // always persist locally first
+  _persistAnswersNow(); // bulk save MUST flush — bypass the debounce timer
   const statusEl = document.getElementById('save-status');
   if(isOffline){
     statusEl.textContent = 'Offline — saved locally';

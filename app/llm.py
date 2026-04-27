@@ -214,6 +214,78 @@ Return JSON in exactly this shape (no extra keys, no commentary):
     return cleaned
 
 
+# ── Scorecard insights ──────────────────────────────────────────────
+
+_INSIGHT_SYSTEM = """You are a supportive teacher writing a brief personalised note \
+to a student about their exam result. You speak directly to the student in second person ("you"). \
+Your tone is warm but honest — you celebrate what went well, name what went wrong specifically, \
+and end with one concrete next step.
+
+Rules:
+- Total length: 2 to 4 short sentences. No lists. No headings.
+- Be specific. Reference actual question topics from the input. Do not say "you did well overall" or \
+"keep practising" — those phrases are banned.
+- If the student passed, lead with the strength. If they failed, lead with empathy then the next step.
+- Never reveal the correct answer to questions they got wrong — they may retake the exam.
+- No emojis. No exclamation marks. No "great job!"-style filler."""
+
+
+def scorecard_insight(summary: dict, per_question: list[dict]) -> str:
+    """Generate a 2-4 sentence personalised note for a student's scorecard.
+
+    ``summary`` is the dict from ``_build_scorecard_pdf`` — has score,
+    total, percentage, passed, exam_title, plus the original exam dict.
+    ``per_question`` is the list of {question, student_answer,
+    correct_answer, is_correct} rows from the same builder.
+
+    Returns a single string. On any failure (LLM down, bad JSON,
+    empty input), returns ``""`` — the caller treats empty as
+    "no insight, render the PDF without it" rather than crashing.
+    Insights are nice-to-have; they must never block a scorecard.
+    """
+    if not is_configured():
+        return ""
+    if not per_question:
+        return ""
+
+    # Build a compact representation — we don't need full question text
+    # in the prompt, just enough for the model to identify topic
+    # patterns. Truncate at 25 questions to keep tokens bounded; if a
+    # student took a 100-question exam, the model only sees the first
+    # 25 but that's enough to spot the strength/weakness pattern.
+    correct = sum(1 for q in per_question if q.get("is_correct"))
+    wrong = [q.get("question", "")[:120] for q in per_question[:25]
+             if not q.get("is_correct")][:8]
+    right = [q.get("question", "")[:120] for q in per_question[:25]
+             if q.get("is_correct")][:8]
+
+    score = summary.get("score", 0)
+    total = summary.get("total", len(per_question))
+    pct = summary.get("percentage", 0)
+    passed = bool(summary.get("passed"))
+
+    user = f"""Student score: {score}/{total} ({pct}%). {'PASSED.' if passed else 'DID NOT PASS.'}
+Exam: {summary.get("exam_title") or "Exam"}
+
+Questions they got RIGHT (sample, truncated):
+{chr(10).join(f"- {q}" for q in right) or "(none)"}
+
+Questions they got WRONG (sample, truncated):
+{chr(10).join(f"- {q}" for q in wrong) or "(none)"}
+
+Write the personalised note. Return JSON: {{"note": "..."}}."""
+
+    try:
+        parsed = _chat_json(_INSIGHT_SYSTEM, user, max_tokens=300, temperature=0.6)
+        note = str(parsed.get("note") or "").strip()
+        # Hard cap so a runaway model can't blow out the PDF layout.
+        # 600 chars is roughly 4 sentences.
+        return note[:600]
+    except Exception as e:
+        log.warning("scorecard_insight failed: %s", e)
+        return ""
+
+
 def _looks_like_multi(s: str) -> bool:
     """Whether a 'correct' string looks like a valid multi-answer key
     (e.g. 'A,C' or 'B, D'). Used to skip the option-text fallback for

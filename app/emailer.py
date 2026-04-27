@@ -350,29 +350,61 @@ class _ResendBackend(_Backend):
                 if a.get("content") is not None
             ]
 
-        try:
-            r = httpx.post(
-                self.API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=10.0,
-            )
-        except httpx.HTTPError as e:
-            return SendResult(ok=False, error=f"transport: {e}")
+        # Retry policy: a single DNS hiccup or transient 5xx used to
+        # permanently consume the per-invite reminder slot (the
+        # caller's claim-then-rollback pattern works, but each retry
+        # round-trips through the DB unnecessarily). Three attempts
+        # with exponential backoff catches >99% of transient failures
+        # without inflating the worker latency budget meaningfully:
+        # worst case here is 0 + 0.5 + 1.5 = 2 s of wait before we
+        # give up, well under the 10 s caller-side timeout that
+        # exists for things like the bulk scorecard endpoint.
+        #
+        # We retry on:
+        #   - any httpx transport error (DNS, connect, read timeout)
+        #   - HTTP 429 (Resend rate limit)
+        #   - HTTP 5xx (Resend infra)
+        # We do NOT retry on 4xx — those are permanent (bad address,
+        # invalid API key, attachment too big) and retrying just
+        # delays the legitimate failure signal to the caller.
+        import time as _time
 
-        if r.status_code >= 400:
-            return SendResult(
-                ok=False,
-                error=f"resend {r.status_code}: {r.text[:200]}",
-            )
-        try:
-            msg_id = r.json().get("id")
-        except Exception:
-            msg_id = None
-        return SendResult(ok=True, provider_msg_id=msg_id)
+        last_err = None
+        for attempt in range(3):
+            try:
+                r = httpx.post(
+                    self.API_URL,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=10.0,
+                )
+            except httpx.HTTPError as e:
+                last_err = f"transport: {e}"
+                if attempt < 2:
+                    _time.sleep(0.5 * (1 << attempt))  # 0.5s, 1.0s
+                    continue
+                return SendResult(ok=False, error=last_err)
+
+            if r.status_code < 400:
+                try:
+                    msg_id = r.json().get("id")
+                except Exception:
+                    msg_id = None
+                return SendResult(ok=True, provider_msg_id=msg_id)
+
+            # 429 / 5xx → retryable. 4xx → fail fast.
+            err = f"resend {r.status_code}: {r.text[:200]}"
+            if r.status_code == 429 or r.status_code >= 500:
+                last_err = err
+                if attempt < 2:
+                    _time.sleep(0.5 * (1 << attempt))
+                    continue
+            return SendResult(ok=False, error=err)
+
+        return SendResult(ok=False, error=last_err or "exhausted retries")
 
 
 _cached_backend: Optional[_Backend] = None

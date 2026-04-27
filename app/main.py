@@ -3682,6 +3682,18 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
                 correct_ans[:20],
                 "\u2713" if is_right else "\u2717",
             ])
+        # Snapshot per-question rows for the AI insight prompt below \u2014
+        # we build this from the same data the table renders so the
+        # model sees exactly what the student sees.
+        _per_question_for_insight = [
+            {
+                "question": q.get("question", ""),
+                "student_answer": str(ans_map.get(str(q.get("question_id", q.get("id", ""))), "")),
+                "correct_answer": str(q.get("correct", "")),
+                "is_correct": str(ans_map.get(str(q.get("question_id", q.get("id", ""))), "")) == str(q.get("correct", "")),
+            }
+            for q in questions
+        ]
         qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
         qt.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
@@ -3697,6 +3709,57 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
         story.append(qt)
     else:
         story.append(Paragraph("No questions available.", styles["Normal"]))
+        _per_question_for_insight = []
+
+    # ── AI personalised note (best-effort) ─────────────────────────
+    # Cached per-session in exam_sessions.scorecard_insight so we don't
+    # regenerate on every PDF download (a teacher hitting "download
+    # all" twice would otherwise burn 2× the LLM budget for identical
+    # output). On cache miss we generate, write back, and continue.
+    # Failures here NEVER block the PDF — we just skip the section,
+    # so a Groq outage degrades to "no insights" instead of "no
+    # scorecards."
+    try:
+        from llm import scorecard_insight  # noqa
+        cached = exam.get("scorecard_insight") or ""
+        if cached:
+            note = cached
+        else:
+            note_summary = {
+                "exam_title": exam_title,
+                "score": score,
+                "total": total,
+                "percentage": pct,
+                "passed": passed,
+            }
+            note = scorecard_insight(note_summary, _per_question_for_insight)
+            if note:
+                try:
+                    (supabase.table("exam_sessions")
+                     .update({"scorecard_insight": note})
+                     .eq("session_key", session_id)
+                     .eq("teacher_id", str(tid)).execute())
+                except Exception as e:
+                    # Cache write is best-effort — if the column
+                    # doesn't exist yet (migration not run), we
+                    # still render the note this time, just won't
+                    # cache it for the next download.
+                    print(f"[scorecard] insight cache write failed: {e}", flush=True)
+        if note:
+            story.append(Spacer(1, 16))
+            story.append(Paragraph("Personalised Note", styles["Heading2"]))
+            story.append(Spacer(1, 6))
+            note_style = styles["Normal"].clone("InsightNote")
+            note_style.fontSize = 10
+            note_style.leading = 14
+            note_style.textColor = colors.HexColor("#2d3748")
+            # ReportLab's Paragraph parses a mini-HTML; un-escaped &/< from
+            # the model would either raise or render wrong.
+            safe_note = (note.replace("&", "&amp;")
+                              .replace("<", "&lt;").replace(">", "&gt;"))
+            story.append(Paragraph(safe_note, note_style))
+    except Exception as e:
+        print(f"[scorecard] insight render skipped: {e}", flush=True)
 
     story.append(Spacer(1, 20))
     story.append(Paragraph(

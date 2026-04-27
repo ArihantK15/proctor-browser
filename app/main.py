@@ -6411,6 +6411,97 @@ def export_bank_questions(request: Request):
     return export
 
 
+@app.post("/api/admin/question-bank/generate")
+@limiter.limit("20/minute")
+def generate_bank_questions(request: Request, body: dict = Body(...)):
+    """Generate question-bank rows from a topic / source text via LLM.
+
+    Returns a *preview* — the teacher reviews and explicitly clicks
+    'Add to Bank' to actually persist. We never auto-insert generated
+    content because:
+      1) LLMs occasionally produce wrong correct-answer keys, and a
+         silent insert would seed the bank with bad questions that
+         get used in real exams.
+      2) The Save flow is also where teachers add exam-specific tags
+         and tweak wording — short-circuiting it loses that hook.
+
+    Rate-limited at 20/min/teacher to keep one teacher's runaway
+    "generate 100 batches" session from starving the worker pool or
+    burning the Groq budget. Each call is also capped server-side at
+    25 questions in llm.generate_questions.
+    """
+    teacher = require_admin(request)
+    _ = str(teacher["id"])  # auth side-effect; tid not needed for preview
+
+    from llm import is_configured, generate_questions  # noqa
+    if not is_configured():
+        raise HTTPException(status_code=503,
+            detail="AI features unavailable. Set GROQ_API_KEY on the server.")
+
+    topic = (body.get("topic") or "").strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="topic is required")
+    if len(topic) > 500:
+        raise HTTPException(status_code=400, detail="topic too long (max 500 chars)")
+
+    count = body.get("count", 10)
+    difficulty = (body.get("difficulty") or "mixed").strip().lower()
+    qtype = (body.get("question_type") or "mcq_single").strip()
+    grade_level = (body.get("grade_level") or "").strip() or None
+    source_text = body.get("source_text") or None
+    if source_text and len(source_text) > 20000:
+        raise HTTPException(status_code=400,
+            detail="source_text too long (max 20000 chars)")
+
+    try:
+        questions = generate_questions(
+            topic=topic,
+            count=count,
+            difficulty=difficulty,
+            question_type=qtype,
+            source_text=source_text,
+            grade_level=grade_level,
+        )
+    except httpx.HTTPStatusError as e:
+        # Groq returned a 4xx/5xx — surface as 502 (bad gateway) so
+        # the dashboard can show a retry button. Don't echo the model
+        # error body to the client.
+        print(f"[llm] groq error: {e}", flush=True)
+        raise HTTPException(status_code=502, detail="AI provider error. Try again.")
+    except Exception as e:
+        print(f"[llm] generate failed: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+
+    if not questions:
+        raise HTTPException(status_code=502,
+            detail="AI returned no usable questions. Try a more specific topic.")
+    return {"questions": questions, "count": len(questions)}
+
+
+@app.post("/api/admin/question-bank/suggest-tags")
+@limiter.limit("60/minute")
+def suggest_question_tags(request: Request, body: dict = Body(...)):
+    """Suggest 3-5 tags for a single question. Powers the 'Auto-tag'
+    button on the Save-to-Bank flow. Higher rate limit than generate
+    because it's tiny and called per-question."""
+    require_admin(request)
+    from llm import is_configured, suggest_tags  # noqa
+    if not is_configured():
+        raise HTTPException(status_code=503,
+            detail="AI features unavailable. Set GROQ_API_KEY on the server.")
+    question = (body.get("question") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    options = body.get("options") or {}
+    correct = body.get("correct") or ""
+    try:
+        tags = suggest_tags(question[:2000], options, str(correct)[:50])
+    except Exception as e:
+        print(f"[llm] suggest_tags failed: {e}", flush=True)
+        raise HTTPException(status_code=502, detail="AI provider error.")
+    return {"tags": tags}
+
+
 @app.post("/api/admin/question-bank/to-exam")
 def bank_to_exam(request: Request, body: dict = Body(...)):
     """Copy bank questions into an exam's question list."""

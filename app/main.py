@@ -28,18 +28,33 @@ from slowapi.errors import RateLimitExceeded
 
 from database import supabase, async_table as _atable
 from logger import get_logger
+
+# Redis-backed event bus and cache are imported defensively because
+# the legacy single-worker dev setup can run without them. In prod
+# the silent fallback was a real footgun: a misconfigured REDIS_URL
+# would degrade SSE multi-worker fanout to in-memory-only without
+# any signal in the logs. We now log a WARNING on import failure so
+# operators see the regression at deploy time, not during an outage.
+import logging as _logging
+_boot_log = _logging.getLogger("boot")
 try:
     from event_bus import publish as _bus_publish, async_publish as _bus_async_publish, subscribe as _bus_subscribe
     _HAS_REDIS = True
-except Exception:
+except Exception as _e:
     _HAS_REDIS = False
+    _boot_log.warning(
+        "event_bus import failed (%s) — falling back to in-memory pub/sub. "
+        "SSE will not fan out across workers. Check REDIS_URL.", _e)
     def _bus_publish(*a, **kw): pass
     async def _bus_async_publish(*a, **kw): pass
 
 try:
     import cache as _cache
-except Exception:
+except Exception as _e:
     _cache = None
+    _boot_log.warning(
+        "cache import failed (%s) — running without Redis cache. "
+        "Hot endpoints will hit Postgres on every call.", _e)
 
 # ─── CONFIG ───────────────────────────────────────────────────────
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -1469,8 +1484,11 @@ def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
 def root():
     return {"status": "AI Proctor Server running"}
 
-@app.get("/sitemap.xml", response_class=HTMLResponse)
+@app.get("/sitemap.xml")
 def sitemap():
+    # Decorator no longer claims `response_class=HTMLResponse` because
+    # we return `application/xml` — search engines and the OpenAPI
+    # schema would otherwise see this advertised as text/html.
     fpath = os.path.join(os.path.dirname(__file__), "static", "sitemap.xml")
     if not os.path.exists(fpath):
         raise HTTPException(status_code=404, detail="sitemap.xml not found")
@@ -1479,7 +1497,7 @@ def sitemap():
     from starlette.responses import Response
     return Response(content=content, media_type="application/xml")
 
-@app.get("/robots.txt", response_class=HTMLResponse)
+@app.get("/robots.txt")
 def robots_txt():
     content = (
         "User-agent: *\n"

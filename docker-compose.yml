@@ -43,7 +43,13 @@ services:
     mem_limit: 128m
     memswap_limit: 128m
     depends_on:
-      - api
+      # Wait for the API healthcheck to pass before Caddy starts —
+      # otherwise the proxy boots first and serves 502 to anyone
+      # hitting the site during the ~15 s API warm-up after deploy.
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_started
     logging:
       driver: "json-file"
       options:

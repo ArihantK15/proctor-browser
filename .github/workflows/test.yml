@@ -1,0 +1,68 @@
+name: Tests
+
+# Run the Python test suite on every push and PR. The Electron build
+# workflow only fires on version tags, which means main could rot for
+# weeks before CI noticed. This job catches regressions immediately.
+#
+# Tests use a stubbed Supabase client (see tests/conftest.py) so we
+# don't need real DB credentials in CI — that's also why this job is
+# safe to run on PRs from forks.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install runtime + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Compile-check Python sources
+        # Catches syntax errors before pytest tries to collect — gives
+        # a much clearer failure message than the test runner would.
+        run: |
+          python -c "
+          import ast, os, sys
+          bad = []
+          for root, _, files in os.walk('app'):
+              if '__pycache__' in root: continue
+              for f in files:
+                  if f.endswith('.py'):
+                      p = os.path.join(root, f)
+                      try: ast.parse(open(p).read())
+                      except SyntaxError as e: bad.append(f'{p}:{e.lineno}: {e.msg}')
+          if bad:
+              for b in bad: print(b)
+              sys.exit(1)
+          print('All Python files parse cleanly.')
+          "
+
+      - name: Run pytest
+        env:
+          # Stub values — tests/conftest.py replaces the real client
+          # before any test imports app.main. These just satisfy the
+          # `os.environ[...]` reads at import time.
+          SUPABASE_URL: "http://stub"
+          SUPABASE_SERVICE_ROLE_KEY: "stub"
+          SUPABASE_JWT_SECRET: "stub-jwt-secret-please-rotate"
+          ADMIN_PASSWORD: "stub-admin-password"
+        run: pytest tests/ -v --tb=short -x

@@ -96,11 +96,15 @@
   .topbar-logout:hover{border-color:var(--red) !important;color:var(--red) !important}
   .tabs{display:flex;gap:2px;background:var(--bg);border-bottom:1px solid var(--border);
     padding:0 24px}
+  /* `.tab` is now a <button> for keyboard accessibility — strip the
+     default button chrome so visual identity is unchanged from the
+     prior <div onclick> implementation. */
   .tab{padding:10px 18px;font-size:12px;font-weight:600;cursor:pointer;
-    color:var(--muted);border-bottom:2px solid transparent;transition:.2s;
+    color:var(--muted);border:0;border-bottom:2px solid transparent;transition:.2s;
     font-family:var(--font-mono);letter-spacing:0.03em;text-transform:uppercase;
-    position:relative}
+    position:relative;background:transparent}
   .tab:hover{color:var(--text-bright)}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:-4px;border-radius:4px}
   .tab.active{color:var(--accent);border-bottom-color:var(--accent);
     text-shadow:0 0 12px var(--accent-glow)}
   .container{padding:24px;max-width:1400px;margin:0 auto}
@@ -267,6 +271,23 @@
      scroll appearing on zoom out is what was making the layout
      jump around. */
   html,body{overflow-x:hidden;max-width:100vw}
+
+  /* ── Print ────────────────────────────────────────────────────────
+     Cmd+P on the dashboard previously rendered the dark theme as
+     solid black + ink-eating overlays. Hide everything chromey
+     (auth modal, tabs, action bars, fixed FABs) and force a plain
+     light palette. Teachers occasionally print the live-sessions
+     view as a record; this makes that work without surprise. */
+  @media print {
+    body { background:#fff !important; color:#000 !important; padding-top:0 !important; }
+    #auth-overlay, .modal-overlay, .tabs, .topbar, .exam-bar,
+    .action-btn, .tool-card-actions, #chat-fab, #chat-panel,
+    #practice-banner, [role="dialog"] { display:none !important; }
+    .panel:not(.active) { display:none !important; }
+    table { page-break-inside:auto; }
+    tr { page-break-inside:avoid; page-break-after:auto; }
+    a { color:#000 !important; text-decoration:none; }
+  }
 
   /* ── Loading ──────────────────────────────────────────────────── */
   .loading-msg{text-align:center;padding:40px;color:var(--muted);font-size:14px}
@@ -629,16 +650,18 @@
   </div>
 </div>
 
-<!-- TABS -->
-<div class="tabs">
-  <div class="tab active" data-tab="live" onclick="switchTab('live')">Live Sessions</div>
-  <div class="tab" data-tab="results" onclick="switchTab('results')">Results</div>
-  <div class="tab" data-tab="questions" onclick="switchTab('questions')">Questions</div>
-  <div class="tab" data-tab="chat" onclick="switchTab('chat')">
+<!-- TABS — buttons (not <div onclick>) so keyboard users can reach them.
+     role="tab" + aria-selected lets assistive tech announce active state.
+     Arrow-key navigation wired up in dashboard JS (see _initTabKeyboard). -->
+<div class="tabs" role="tablist" aria-label="Dashboard sections">
+  <button type="button" class="tab active" data-tab="live"      role="tab" aria-selected="true"  onclick="switchTab('live')">Live Sessions</button>
+  <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" onclick="switchTab('results')">Results</button>
+  <button type="button" class="tab"        data-tab="questions" role="tab" aria-selected="false" onclick="switchTab('questions')">Questions</button>
+  <button type="button" class="tab"        data-tab="chat"      role="tab" aria-selected="false" onclick="switchTab('chat')">
     Chat<span class="tab-badge" id="chat-tab-badge" style="display:none">0</span>
-  </div>
-  <div class="tab" data-tab="analytics" onclick="switchTab('analytics')">Analytics</div>
-  <div class="tab" data-tab="tools" onclick="switchTab('tools')">Tools</div>
+  </button>
+  <button type="button" class="tab"        data-tab="analytics" role="tab" aria-selected="false" onclick="switchTab('analytics')">Analytics</button>
+  <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" onclick="switchTab('tools')">Tools</button>
 </div>
 
 <!-- EXAM SELECTOR -->
@@ -1527,7 +1550,16 @@ async function confirmDeleteExam(){
   if(examsList.length <= 1){ alert('Cannot delete the only exam.'); return; }
   const ex = examsList.find(e=>e.exam_id===currentExamId);
   const name = ex ? ex.exam_title : 'this exam';
-  if(!confirm(`Delete "${name}"? This will remove all its questions. Session history is preserved.`)) return;
+  // Two-step confirm — bare confirm() is too easy to muscle-memory-OK
+  // for an action that wipes every question on the exam. Type-to-confirm
+  // forces the teacher to read the exam name back.
+  if(!confirm(`Delete "${name}"? This removes ALL its questions. Session history is preserved.`)) return;
+  const typed = prompt(`To confirm, type the exam name exactly:\n\n${name}`, '');
+  if(typed === null) return; // cancelled
+  if((typed || '').trim() !== (name || '').trim()){
+    alert('Names do not match — delete cancelled.');
+    return;
+  }
   try{
     const r = await authFetch(`${BASE}/api/admin/exams/${currentExamId}`,{method:'DELETE'});
     if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
@@ -1714,7 +1746,14 @@ window.addEventListener('pageshow', (e) => {
 
 // ── TABS ────────────────────────────────────────────────────────
 function switchTab(tab){
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
+  // Update both the visual active state and the ARIA state in lockstep
+  // so screen readers announce the change. Without aria-selected,
+  // keyboard users hear no feedback when they arrow between tabs.
+  document.querySelectorAll('.tab').forEach(t => {
+    const on = t.dataset.tab === tab;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
   if(tab==='results' && resultsData.length===0) refreshResults();
   if(tab==='questions' && qData.length===0) loadQuestions();
@@ -1730,6 +1769,29 @@ function switchTab(tab){
     try{ if(typeof loadShuffleConfig==='function') loadShuffleConfig(); }catch(_){}
   }
 }
+
+// Standard ARIA tablist keyboard pattern: ArrowLeft / ArrowRight cycle
+// through tabs (wrapping at the ends), Home/End jump to first/last.
+// Wired once on page load so dynamically rendered tab content doesn't
+// need to re-bind. Idempotent.
+(function _initTabKeyboard(){
+  const tabs = document.querySelectorAll('.tabs [role="tab"]');
+  if(!tabs.length) return;
+  tabs.forEach((tab, idx) => {
+    tab.addEventListener('keydown', (e) => {
+      let target = null;
+      if(e.key === 'ArrowRight') target = tabs[(idx + 1) % tabs.length];
+      else if(e.key === 'ArrowLeft') target = tabs[(idx - 1 + tabs.length) % tabs.length];
+      else if(e.key === 'Home') target = tabs[0];
+      else if(e.key === 'End') target = tabs[tabs.length - 1];
+      if(target){
+        e.preventDefault();
+        target.focus();
+        switchTab(target.dataset.tab);
+      }
+    });
+  });
+})();
 
 // ── REFRESH ─────────────────────────────────────────────────────
 async function refreshAll(){

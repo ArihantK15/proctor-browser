@@ -35,7 +35,11 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci || npm install
+        # Strict — if package-lock.json is out of sync, fail loudly. The
+        # earlier `|| npm install` fallback silently regenerated the lock
+        # in CI which defeated the lockfile's purpose and let drift land
+        # in release builds.
+        run: npm ci
 
       # Build BOTH mac archs in a single invocation so latest-mac.yml
       # references both DMGs. Separate runs would overwrite the manifest.

@@ -53,6 +53,20 @@ For `mail.procta.net`:
 docker compose build api && docker compose up -d api
 ```
 
+### 1.4b Operational follow-ups (one-time, do soon)
+
+1. **Rotate secrets if `.env` ever escaped local disk** — the audit
+   confirmed `.env` contains real Supabase service-role key, JWT secret,
+   and admin password. `.env` IS gitignored and dockerignored, so if you
+   never shared it / pushed it / sent it, you're fine. If unsure, rotate
+   all three in Supabase + redeploy.
+2. **Add a screenshots cleanup cron** — `find /app/screenshots -type f
+   -mtime +90 -delete` weekly, or earlier if disk pressure. The bind
+   mount has no rotation today (see TODO §2.A28).
+3. **Document a backup target for `screenshots/`** — Supabase covers
+   the DB; forensic screenshot evidence is on droplet ephemeral disk
+   only (TODO §2.A27). At minimum: nightly `restic` snapshot to S3.
+
 ### 1.5 Smoke tests after deploy
 
 | Feature | Test |
@@ -163,6 +177,219 @@ sessions, 500 questions) keep memory usage well under the worker's 1.2 GB
 limit at current scale.
 
 ### 2.8 Cross-tenant roll_number collision — LOW
+
+(description follows the §2 audit additions below.)
+
+---
+
+## §2 audit (2026-04-30) — additional findings, deferred
+
+A second-pass audit covering security, code quality, frontend/a11y, and
+ops. Items below are real but were judged either too large for a
+hardening sprint, too risky to fix without integration tests, or both.
+Listed by severity then file.
+
+### 2.A1 Dependency pins — supply-chain hygiene — HIGH (deferred)
+
+`requirements.txt` uses `>=` for every dep. Reproducible builds are not
+guaranteed; a transient FastAPI/pydantic minor bump can break prod.
+
+**Why deferred:** pinning blindly with `==` could break the next build
+without any test signal — we only just added the CI test job in this
+pass. Plan: after CI is green twice, run `pip-compile` from the current
+`requirements.txt`, commit the lockfile, and switch the Dockerfile to
+install from it.
+
+### 2.A2 Hot-path sync Supabase blocking the event loop — HIGH (deferred)
+
+`validate_student` (~168 lines), `analyze_frame`, `id_verification`,
+`register_student`, `get_events` all use the sync supabase client inside
+`def` (sync) endpoints. With one async worker, every call blocks ALL
+other requests including `/health`.
+
+**Fix sketch:** expand `app/database.py:AsyncTable` to support `.in_()`,
+`.gte()`, `.lte()`, `.limit()`, `.range()` (currently missing), then
+migrate the five hot endpoints. ~300 LOC; needs careful test coverage
+because the sync path is the production code path today.
+
+### 2.A3 23 endpoints take `body: dict = Body(...)` — HIGH (deferred)
+
+Inconsistent input validation; every handler hand-rolls `body.get(...)`.
+A `body: SomeModel` would centralise length caps + type coercion +
+required-field checks.
+
+**Why deferred:** ~23 endpoints × ~3 fields each = a Pydantic model
+sprint. Worth doing as a focused refactor with one PR per logical
+group (invites, bank, groups, etc.), not as part of a hardening pass.
+
+### 2.A4 `app/main.py` is 7642 lines — HIGH (deferred)
+
+Natural seams identified in the audit:
+`auth/teachers`, `auth/students`, `students/exams`,
+`risk/scoring/screenshots`, `proctoring frames+ID`, `live/SSE`,
+`exports/PDF/CSV/Excel`, `invites + reminders + landing`,
+`email webhooks`, `question-bank`, `chat WS hub`.
+
+**Why deferred:** any module split forces every test to be re-rooted;
+given test coverage is at ~35%, the safe path is to grow the suite first
+and split once tests catch regressions reliably.
+
+### 2.A5 Test coverage 35% (39 tests / 110 endpoints) — HIGH (deferred)
+
+Uncovered critical paths: invite-bounce flow, `email_scorecards`,
+`export_excel`/`export_pdf`/`scorecard_pdf`, `bank_to_exam`,
+`generate_bank_questions` (LLM path), `analyze_frame`,
+chat WebSocket (`ws_chat_student/teacher`), `id_decision`,
+`duplicate_exam`, `admin_submit`.
+
+**Plan:** with the new CI job in place, every PR going forward should
+add a test for the path it touches. Backfill the existing gap as a
+focused sprint before the main.py split.
+
+### 2.A6 ~120 `except Exception` blocks, many silent — HIGH (deferred)
+
+Real bugs (DB outage, malformed data) indistinguishable from "expected"
+errors in `main.py:34, 41, 1267, 1410, 2678, 3417, 3421, 5719, 6036,
+6046, 6095, 6145` and many more.
+
+**Fix sketch:** case-by-case audit to either narrow the exception
+class, log at WARNING, or re-raise. Cannot be done en masse — needs
+domain knowledge per call site.
+
+### 2.A7 `dashboard.html` 4729 lines mixed HTML/CSS/JS — MED (deferred)
+
+Should split into `dashboard.css` + `dashboard.js` modules. Currently
+single-file structure makes diffing painful and prevents minification /
+SRI / proper caching.
+
+### 2.A8 Status strings stringly-typed everywhere — MED (deferred)
+
+`"in_progress"`, `"completed"`, `"submitted"`, `"pending"` repeated
+20+ times across `main.py`. No `Enum`. Typo risk.
+
+### 2.A9 `tid` / `teacher_id` / `safe_tid` / `pre_tid` naming split — MED (deferred)
+
+Same data, four spellings. Worth introducing a single
+`AuthCtx`-shaped dependency that returns `teacher_id`, `exam_id`, `roll`
+as one typed object.
+
+### 2.A10 Filesystem-sanitization snippet duplicated — MED (deferred)
+
+`main.py:2532, 2594` and `_safe_filename` (887) all do near-identical
+sanitization differently. Consolidate.
+
+### 2.A11 HTML escape helpers redefined per file — MED (deferred)
+
+`_escHtml` (dashboard), `escapeHtml` (student), `_e` (main.py landing),
+`_escGrp` (dashboard, quote-only), `chatEscape` (renderer) all do the
+same job. Move to a shared `app/static/_safe.js` and import.
+
+### 2.A12 Long functions doing 5+ things — MED (deferred)
+
+`clear_live_sessions` (266 LOC), `export_pdf` (298), `_render_invite_landing`
+(233), `_build_scorecard_pdf` (193), `validate_student` (168),
+`send_invites` (167), `email_scorecards` (166), `get_analytics` (165),
+`update_questions` (150), `submit_exam` (138), `admin_submit` (126),
+`duplicate_exam` (121).
+
+### 2.A13 `AsyncTable` lacks `.in_/.gte/.lte/.limit/.range` — MED (deferred)
+
+Blocker for migrating sync endpoints to async (#2.A2). Fix this first.
+
+### 2.A14 Folder hygiene — MED (deferred)
+
+- `app/proctoring.db` (SQLite committed in source) → move to `data/`
+  and `.gitignore`.
+- Two `Locust_*.html` reports at repo root → `loadtest/reports/`.
+- `proctor.py` exists at both repo root and `app/proctor.py` —
+  duplicate or import-shadowing risk; verify and remove one.
+
+### 2.A15 Mobile breakpoints on bank-generate grid — MED (deferred)
+
+`dashboard.html:778` `grid-template-columns: 1fr 90px 110px 110px` has
+no breakpoint override; below ~600px the fixed columns crush the
+topic input. Wrap in `@media(max-width:768px){ .gen-grid{grid-template-columns:1fr 1fr} }`.
+
+### 2.A16 Modals lack focus-trap / Esc / aria-modal — MED (deferred)
+
+Auth modal, create-exam modal, code modal — none use `<dialog>`, none
+trap focus, background still tabbable. Migrate to native `<dialog>`
+or add a small focus-trap helper.
+
+### 2.A17 `--muted` color contrast fails WCAG AA — MED (deferred)
+
+~4.0:1 against the dark `--bg`. Lighten `--muted` to ≥4.5:1 (e.g.
+`#a8b3c0`) or reserve it for ≥18px text only.
+
+### 2.A18 No spinner / disabled state on slow exports — MED (deferred)
+
+`exportCSV`, `exportExcel`, `dlPDF`, `dlAllScorecards` fire
+`fetchBlob` with no feedback — can take 30s+ on big rosters.
+
+### 2.A19 Long question text breaks bank-row layout — MED (deferred)
+
+Bank renderer doesn't clamp question text height; pushes trash button
+off-screen on narrow panels. Add `max-height:200px;overflow-y:auto`.
+
+### 2.A20 Auth forms not wrapped in `<form>` — MED (deferred)
+
+Inline `onkeydown="if(event.key==='Enter')..."` instead of a real form
+submit — breaks browser autofill / password-manager submit.
+
+### 2.A21 Practice banner overlap with vbanner toast — MED (deferred)
+
+`renderer/index.html` `_mountPracticeBanner` sets
+`body { padding-top: 32px }` but `.vbanner` toasts use `top:70px`
+fixed positioning, so the toast overlaps the first row of exam content
+when the practice banner is up. Use a CSS variable.
+
+### 2.A22 Caddy global headers (HSTS, X-Frame-Options) — LOW (deferred)
+
+No `Strict-Transport-Security`, `X-Frame-Options`, or CSP headers.
+Add to Caddyfile.
+
+### 2.A23 Caddy `/login` rate-limiting — LOW (deferred)
+
+No rate-limit directive on the login route at the proxy layer (only
+in-app via slowapi). Defence-in-depth would be nice.
+
+### 2.A24 macOS / Windows code signing — LOW (deferred)
+
+Builds are unsigned; users hit Gatekeeper / SmartScreen on first install.
+Apple Developer ID ($99/yr) + Azure Trusted Signing.
+
+### 2.A25 Empty states are just "No data" — LOW (deferred)
+
+Most empty states aren't actionable. "No invites sent yet — paste
+recipients above and click Send" reuses already-present primitives.
+
+### 2.A26 i18n string table — LOW (deferred)
+
+~1500+ user-facing strings inlined. A `t()` helper would unblock
+multi-language support without a full-file refactor.
+
+### 2.A27 Backup story — HIGH (operational, document only)
+
+Supabase handles DB backups, but `screenshots/` (forensic evidence) is
+on droplet ephemeral disk with no off-site copy. Add nightly `restic`
+or `rclone` to S3-compatible storage; document in `DEPLOY.md`.
+
+### 2.A28 Disk-fill risk on `screenshots/` — HIGH (operational)
+
+No rotation / quota on the `./screenshots:/app/screenshots` bind mount.
+A few weeks of active proctoring will fill the droplet. Add a cron:
+`find /app/screenshots -type f -mtime +90 -delete`.
+
+### 2.A29 Single uvicorn worker with sync hot paths — HIGH
+
+`docker-compose.yml --workers 1`. Reportlab PDF gen, LLM calls without
+`await`, and `psutil` block ALL other requests including `/health`.
+Either bump to 2 workers, or migrate sync code to `run_in_executor`.
+Linked with #2.A2.
+
+---
+
+### 2.8 Cross-tenant roll_number collision — LOW (full description)
 
 **Where:** `app/main.py:1497` `validate_student`.
 

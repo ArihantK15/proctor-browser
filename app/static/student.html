@@ -464,12 +464,20 @@
     </div>
   </div>
 
-  <h2 class="section-title">Practice <span class="badge badge-muted" style="font-size:10px;vertical-align:middle;margin-left:8px">coming soon</span></h2>
-  <p class="section-subtitle">DSA, analytical thinking, and teacher-uploaded practice sets. Available outside of exams.</p>
+  <h2 class="section-title">Practice run</h2>
+  <p class="section-subtitle">Test your camera, fullscreen lockdown, and submit flow before the real exam. No login required, no answers saved.</p>
 
-  <div class="exams-empty">
-    <strong>Practice section coming soon</strong>
-    We're building a practice area so you can warm up before exams. No browser lock required.
+  <div class="exam-card" style="border:1px dashed rgba(217,119,6,.4);background:linear-gradient(180deg,rgba(217,119,6,.04),transparent)">
+    <div class="exam-card-header">
+      <h3 class="exam-title" style="color:#fbbf24">Setup test</h3>
+      <span class="badge badge-muted" style="background:rgba(217,119,6,.2);color:#fbbf24;border:1px solid rgba(217,119,6,.4)">2 min</span>
+    </div>
+    <p class="exam-meta" style="color:var(--muted)">
+      Three throwaway questions. Same lockdown stack as a real exam, so if your camera or browser misbehaves you find out now — not 5 minutes into a high-stakes test.
+    </p>
+    <div class="exam-card-actions">
+      <button class="btn btn-primary btn-sm" onclick="startPracticeExam()">Start practice exam</button>
+    </div>
   </div>
 
   <div class="footer-links">
@@ -809,6 +817,37 @@ function renderExams(exams) {
         ${actionHtml}
       </div>`;
   }).join('');
+}
+
+// ─── Practice mode launch ─────────────────────────────────────
+// Generates a one-shot PRACTICE_<8 hex> roll number and routes
+// through the existing launchExam IPC. The server detects the
+// PRACTICE_ prefix on every endpoint that touches the renderer
+// and returns mock data / no-op responses, so there's nothing to
+// rebuild on the Electron main side — the existing IPC contract
+// is reused as-is.
+async function startPracticeExam() {
+  if (!INSIDE_PROCTA_APP) {
+    alert('Open this page inside the Procta app to start a practice run.');
+    return;
+  }
+  // Crypto-random ID so two students starting practice on the same
+  // box don't collide in the (admittedly unlikely) case where the
+  // backend ever caches per-session-id state.
+  const rand = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+  const practiceRoll = 'PRACTICE_' + rand.toUpperCase();
+  try {
+    await window.procta_native.launchExam({
+      rollNumber: practiceRoll,
+      accessCode: '',
+      examTitle:  'Practice — Setup Test',
+      teacherId:  null,
+      examId:     null,
+    });
+  } catch (e) {
+    alert((e && e.message) || 'Failed to start practice run.');
+  }
 }
 
 // ─── Start-exam flow ──────────────────────────────────────────

@@ -899,6 +899,105 @@ def _safe_filename(s: str, fallback: str = "file") -> str:
     return cleaned or fallback
 
 
+# ─── PRACTICE MODE ────────────────────────────────────────────────
+# A "practice exam" is a sandbox session that exercises the full
+# student-side stack — camera, face detection, fullscreen lockdown,
+# anti-cheat, ID verification — without touching the database or
+# generating any data a teacher will see. Students take it before
+# the real exam to confirm their setup works; this is the single
+# biggest support-burden killer because >80% of "my camera doesn't
+# work!!" panic tickets arrive 5 minutes into a high-stakes test.
+#
+# Signal: any roll_number / session_key prefixed with "PRACTICE_" is
+# in practice mode. We picked a prefix rather than a separate code
+# path because the signal then propagates through every existing
+# endpoint via the parameters they already receive — no Electron IPC
+# changes, no schema additions, no per-endpoint plumbing.
+#
+# Every write-path endpoint short-circuits at the top with a fast
+# "ok, did nothing" response. Read-path endpoints (questions, etc)
+# return canned mock data. The mock question set lives here (not in
+# the renderer) so we can update it without shipping a new Electron
+# build.
+
+PRACTICE_PREFIX = "PRACTICE_"
+
+
+def is_practice(identifier: Optional[str]) -> bool:
+    """Whether a roll number or session key is a practice sandbox.
+    Tolerates None / empty so callers don't need to null-check."""
+    return bool(identifier) and str(identifier).startswith(PRACTICE_PREFIX)
+
+
+# Hand-curated mock questions. Mix of easy/medium so the practice
+# flow exercises both quick-answer and think-then-answer UX paths.
+# Three questions is enough to verify camera + lockdown + submit;
+# more would be a chore for students who just want to confirm
+# setup. Marked correct=A consistently so a student who panics and
+# clicks through gets a quick pass — the goal isn't to test them.
+PRACTICE_QUESTIONS: list[dict] = [
+    {
+        "id": 1,
+        "question_id": 1,
+        "question": "This is a practice exam to test your setup. Pick any answer to continue.",
+        "question_type": "mcq_single",
+        "options": {
+            "A": "I can see this question and the camera light is on.",
+            "B": "I cannot see the camera preview.",
+            "C": "I am unsure.",
+            "D": "Skip",
+        },
+        "correct": "A",
+        "image_url": "",
+    },
+    {
+        "id": 2,
+        "question_id": 2,
+        "question": "Try clicking outside the exam window. The system should warn you. Did the warning appear?",
+        "question_type": "mcq_single",
+        "options": {
+            "A": "Yes — a warning banner appeared.",
+            "B": "No — nothing happened.",
+            "C": "I did not try this.",
+            "D": "I am not sure.",
+        },
+        "correct": "A",
+        "image_url": "",
+    },
+    {
+        "id": 3,
+        "question_id": 3,
+        "question": "When you submit this practice exam, your real answers will not be graded or saved. Ready to submit?",
+        "question_type": "mcq_single",
+        "options": {
+            "A": "Yes — submit and finish the practice run.",
+            "B": "Not yet, I want to review.",
+            "C": "Skip submission.",
+            "D": "Other.",
+        },
+        "correct": "A",
+        "image_url": "",
+    },
+]
+
+
+def _practice_validate_response(roll_number: str) -> dict:
+    """Mock response for /api/validate-student in practice mode."""
+    return {
+        "valid": True,
+        "full_name": "Practice Student",
+        "email": "",
+        "phone": "",
+        "roll_number": roll_number,
+        # Empty token — the renderer uses this only as an Authorization
+        # header; practice endpoints don't validate it. We send an
+        # empty string rather than a real token so a leak / log dump
+        # never has a usable credential in the practice flow.
+        "token": "",
+        "practice": True,
+    }
+
+
 def ts_to_id(ts_str: str) -> int:
     try:
         dt = datetime.fromisoformat(str(ts_str).replace('Z', '+00:00'))
@@ -1526,6 +1625,12 @@ def get_public_schedule(t: str = None):
 def validate_student(request: Request, body: ValidateIn):
     exam_id = body.exam_id  # optional — set when multi-exam
 
+    # Practice sandbox: short-circuit before any DB lookups so a
+    # student can run setup-test exams without being enrolled and
+    # without polluting any teacher's dashboards.
+    if is_practice(body.roll_number):
+        return _practice_validate_response(body.roll_number.strip().upper())
+
     # Look up student first to get their teacher_id for config loading
     pre_check = supabase.table("students")\
         .select("teacher_id")\
@@ -1915,6 +2020,14 @@ def _translate_student_answer(session_id: str, teacher_id: str,
 # ─── STUDENT ENDPOINTS (require JWT) ─────────────────────────────
 @app.get("/api/questions")
 def get_questions(request: Request):
+    # Practice mode: serve the canned mock question set instead of
+    # going through auth + DB. The renderer signals practice via the
+    # session_id query param (Electron passes through whatever the
+    # validate-student response carried).
+    sid = (request.query_params.get("session_id") or "").strip()
+    if is_practice(sid):
+        return {"questions": PRACTICE_QUESTIONS, "practice": True}
+
     claims = require_auth(request)
     tid = claims.get("tid")
     eid = claims.get("eid")
@@ -1942,6 +2055,12 @@ def get_questions(request: Request):
 @app.get("/api/check-session/{roll_number}")
 def check_session(roll_number: str, request: Request):
     """Check if student has an in-progress session to resume."""
+    # Practice mode never has a resumable session — every practice
+    # launch is fresh. Skip auth so the lobby can probe without a
+    # token (the practice flow uses an empty token).
+    if is_practice(roll_number):
+        return {"exists": False}
+
     claims = require_auth(request)
     if claims.get("roll") != roll_number:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -2015,9 +2134,15 @@ async def integrity_report(request: Request):
     """Accept a batch of integrity flags from the Electron client.
     Returns {allowed: bool, blocked_reasons: [...]} so the client knows
     whether to proceed or block the exam."""
-    claims = require_auth(request)
     body = await request.json()
     session_id = body.get("session_id", "")
+    # Practice sandbox: don't enforce integrity blocks. The whole point
+    # of practice mode is letting students *test* their setup, including
+    # known-flagged environments (VM for testing, etc.). Always allow.
+    if is_practice(session_id):
+        return {"allowed": True, "blocked_reasons": []}
+
+    claims = require_auth(request)
     flags = body.get("flags", [])
     _check_session_ownership(claims, session_id)
     tid = claims.get("tid")
@@ -2061,6 +2186,12 @@ async def integrity_report(request: Request):
 @app.post("/event")
 @limiter.limit("600/minute")
 async def log_event(event: EventIn, request: Request):
+    # Practice sandbox: log to stdout only, never write to violations
+    # or exam_sessions. Teachers should never see practice events on
+    # any dashboard, and the SSE bus should never broadcast them.
+    if is_practice(event.session_id):
+        return {"status": "logged", "practice": True}
+
     claims = require_auth(request)
     _check_session_ownership(claims, event.session_id)
     tid = claims.get("tid")
@@ -2112,6 +2243,12 @@ async def log_event(event: EventIn, request: Request):
 
 @app.post("/heartbeat")
 async def heartbeat(event: EventIn, request: Request):
+    # Practice sandbox: don't track heartbeats — there's no session
+    # row in exam_sessions for the renderer to upsert against, and
+    # we don't want practice runs flagged as "active" on dashboards.
+    if is_practice(event.session_id):
+        return {"ok": True, "practice": True}
+
     claims = require_auth(request)
     _check_session_ownership(claims, event.session_id)
     tid = claims.get("tid")
@@ -2176,6 +2313,11 @@ def _canonicalise_student_answer(session_id: str, teacher_id: str,
 
 @app.post("/api/save-answer")
 async def save_answer(body: AnswerIn, request: Request):
+    # Practice sandbox: pretend the save succeeded. The renderer keeps
+    # answers in memory regardless; we just don't persist anything.
+    if is_practice(body.session_id):
+        return {"status": "saved", "practice": True}
+
     claims = require_auth(request)
     _check_session_ownership(claims, body.session_id)
     tid = claims.get("tid")
@@ -2199,6 +2341,9 @@ async def save_answer(body: AnswerIn, request: Request):
 @app.post("/api/save-answers-bulk")
 async def save_answers_bulk(body: BulkAnswerIn, request: Request):
     """Periodic bulk save of all answers — safety net for failed individual saves."""
+    if is_practice(body.session_id):
+        return {"status": "saved", "saved": len(body.answers or {}), "practice": True}
+
     claims = require_auth(request)
     _check_session_ownership(claims, body.session_id)
     if not body.answers:
@@ -2227,6 +2372,29 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
 @app.post("/api/submit-exam")
 @limiter.limit("60/minute")
 async def submit_exam(result: ResultIn, request: Request):
+    # Practice sandbox: grade against the in-memory PRACTICE_QUESTIONS,
+    # return a result that looks like a real submit, write nothing.
+    # We mirror the success-shape exactly so the renderer's success
+    # screen renders correctly without a practice branch.
+    if is_practice(result.session_id):
+        correct = sum(
+            1 for q in PRACTICE_QUESTIONS
+            if str(result.answers.get(str(q["question_id"]),
+                                      result.answers.get(str(q["id"]), ""))).upper()
+               == str(q["correct"]).upper()
+        )
+        total = len(PRACTICE_QUESTIONS)
+        pct = round((correct / max(total, 1)) * 100, 1)
+        return {
+            "status": "submitted",
+            "score": correct,
+            "total": total,
+            "percentage": pct,
+            "passed": True,    # practice always passes — the goal is
+                                # "your setup works", not actual scoring
+            "practice": True,
+        }
+
     claims = require_auth(request)
     _check_session_ownership(claims, result.session_id)
     tid = claims.get("tid")
@@ -2342,6 +2510,13 @@ _MAX_FRAME_BASE64_LEN = 500_000  # ~375KB decoded, enough for a JPEG frame
 
 @app.post("/api/analyze-frame")
 def analyze_frame(data: FrameIn, request: Request):
+    # Practice sandbox: don't run face detection or save screenshots —
+    # the practice run still tests the camera capture path locally
+    # (the renderer puts up the preview), but anything that lands on
+    # disk or in the DB would be noise for teachers.
+    if is_practice(data.session_id):
+        return {"status": "ok", "practice": True}
+
     claims = require_auth(request)
     _check_session_ownership(claims, data.session_id)
     tid = claims.get("tid")
@@ -2398,6 +2573,12 @@ class IdVerifyIn(BaseModel):
 @app.post("/api/id-verification")
 def id_verification(data: IdVerifyIn, request: Request):
     """Store selfie + ID photos and create a pending verification for teacher review."""
+    # Practice sandbox: pretend the verification was filed so the
+    # student-side flow proceeds. We don't store frames or create a
+    # pending review row — teachers should never see practice IDs.
+    if is_practice(data.session_id):
+        return {"status": "submitted", "verification_id": "practice", "practice": True}
+
     claims = require_auth(request)
     _check_session_ownership(claims, data.session_id)
     tid = claims.get("tid")
@@ -2470,9 +2651,15 @@ def id_verification(data: IdVerifyIn, request: Request):
 @app.get("/api/id-verification/status")
 def id_verification_status(request: Request, session_id: str = ""):
     """Student polls this to check if teacher has approved/retake/rejected."""
-    claims = require_auth(request)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
+    # Practice sandbox: auto-approve so the student's renderer
+    # proceeds straight to the exam. No teacher is reviewing —
+    # the polling loop would otherwise spin forever.
+    if is_practice(session_id):
+        return {"status": "approved", "practice": True}
+
+    claims = require_auth(request)
     _check_session_ownership(claims, session_id)
     import json as _json
     result = supabase.table("violations")\

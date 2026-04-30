@@ -452,6 +452,13 @@ const SERVER = 'https://app.procta.net';
 
 let student=null, sessionId=null, questions=[], answers={};
 let studentToken=null;
+// Practice sandbox: set when the validate-student response carries
+// {practice: true} (server-side detected by PRACTICE_ roll prefix).
+// All server writes are still ATTEMPTED — the backend short-circuits
+// each write endpoint so they're cheap no-ops — but we adjust the UX
+// (banner, post-submit copy) so a student knows their setup test
+// isn't a real exam.
+let practiceMode=false;
 let curQ=0, timerSecs=0, timerInt=null;
 let startTime=null, stream=null;
 let resumedStartedAt=null;
@@ -553,6 +560,27 @@ function showScreen(id){
   document.querySelectorAll('.screen')
     .forEach(s=>s.classList.remove('active'));
   document.getElementById('screen-'+id).classList.add('active');
+}
+
+// Sticky amber banner pinned to the top of every screen so a student
+// always knows they're in the sandbox — unambiguous because the
+// proctoring stack (camera, fullscreen, anti-cheat) is otherwise
+// indistinguishable from a real exam. Idempotent: safe to call
+// multiple times; only mounts once.
+function _mountPracticeBanner(){
+  if(document.getElementById('practice-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'practice-banner';
+  b.textContent = 'PRACTICE MODE — your setup is being tested. Answers will not be graded or saved.';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;'
+    + 'background:#d97706;color:#fff;text-align:center;'
+    + 'font:600 12px/1.6 system-ui,sans-serif;padding:6px 12px;'
+    + 'letter-spacing:.04em;text-transform:uppercase;'
+    + 'box-shadow:0 2px 6px rgba(0,0,0,.25);'
+    + 'border-bottom:1px solid rgba(0,0,0,.15)';
+  document.body.appendChild(b);
+  // Push the rest of the UI down so the banner doesn't overlap content.
+  document.body.style.paddingTop = '32px';
 }
 
 function showBanner(msg, color){
@@ -664,6 +692,13 @@ async function doLogin(){
     const accessCode=document.getElementById('code-input').value.trim().toUpperCase();
     student      = await window.proctor.validateStudent(roll, accessCode);
     studentToken = student.token || null;
+    // Practice sandbox flag — server sets this when the roll number
+    // starts with PRACTICE_. Everything downstream uses it to soften
+    // copy ("Submit Practice" vs "Submit Exam") and skip the result
+    // upload to teacher dashboards. We mount the banner immediately
+    // so the student knows from the moment they log in.
+    practiceMode = !!student.practice;
+    if(practiceMode) _mountPracticeBanner();
     document.getElementById('login-ldr').textContent='Checking for existing session...';
 
     const normalizedRoll = student.roll_number;
@@ -1648,8 +1683,19 @@ async function submitExam(timeUp=false){
   _clearLocalAnswers();
 
   const dh3=document.getElementById('done-heading');
-  dh3.className='ok'; dh3.textContent='Exam Submitted';
-  document.getElementById('done-subtext').textContent='Your answers have been saved securely.';
+  dh3.className='ok';
+  // Practice flow gets a different success copy so a student doesn't
+  // walk away thinking the practice was their actual exam. The
+  // headline is the win they care about: their setup is confirmed
+  // working, so the real exam will be smooth.
+  if(practiceMode){
+    dh3.textContent='Setup Verified ✓';
+    document.getElementById('done-subtext').textContent=
+      'Your camera, lockdown, and submit flow all work. You are ready for the real exam.';
+  } else {
+    dh3.textContent='Exam Submitted';
+    document.getElementById('done-subtext').textContent='Your answers have been saved securely.';
+  }
   const finalScore=result.score, finalTotal=result.total||questions.length;
   document.getElementById('final-score').textContent=
     finalScore!=null ? `${finalScore}/${finalTotal}` : 'Submitted';

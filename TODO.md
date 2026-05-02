@@ -249,6 +249,49 @@ files) resolves to a defined token. Static assets all return 200.
   revertable. Zero JS hook breakage. Zero structural changes to the
   proctor stack.
 
+### Phase 2.5 — STRUCTURAL PORTS (shipped 2026-05-02, second pass)
+
+After honest feedback that the first Phase 2 pass was mostly stat-
+strip swaps + tokens, this pass actually ports each surface to the
+design's intended structure:
+
+  • **2.8 Questions tab** (`1b89d32`) — full 3-column shell:
+    sidebar (search + filter chips + question list with smooth-scroll
+    focus) | content (toolbar + #q-editor cards + #q-preview) |
+    AI/Bank panel (3 tabs: Generate / Bank / Import). All 26 JS
+    hooks preserved verbatim. New JS: renderQSidebar, setAITab,
+    setQTypeFilter, qFocusCard, qExpandAll, qCollapseAll.
+  • **2.9 Analytics tab** (`902bdc9`) — 6 stat-chip strip + 2-col
+    .ax-card grid + full-width Violations / Per-Question
+    Breakdown cards. Histogram bars get accent gradient + hover
+    fade. All 17 JS hooks preserved.
+  • **2.10 Results tab** (`445cbf8`) — same Live-tab shell pattern:
+    .table-toolbar with search-wrap + new risk-level filter +
+    sticky table header.
+  • **2.11+12 Tools + Chat tabs** (`2400892`) — design system card
+    family applied to .tool-card and .chat-roster/.chat-thread
+    chrome. Same surface-1 + radius-xl + uppercase tracked title
+    pattern as the rest of Phase 2.
+  • **2.13 Student lobby** (`7eda2b4`) — exam cards align with
+    same card chrome.
+  • **2.14 Renderer tokens** (`0393a36`) — embedded design tokens
+    inline at top of renderer's <style> block (Electron can't load
+    tokens.css over file://). 91 hardcoded hex literals across
+    19 token families (surfaces, borders, text tiers, severity,
+    accent, rgba overlays) replaced with semantic var() refs.
+  • **2.15 Renderer exam screen** (`0b0dd0b`) — option cards (.opt)
+    move to design's .opt-btn pattern (1px border, accent-blue
+    selection, monospaced letter key). Question grid (.qdot)
+    shrinks to 32px monospaced cells with subtle border + success
+    answered state. Nav footer adds top border, Prev becomes
+    secondary ghost, Submit stays success-green.
+  • **2.16 Calibration dots** (`9a499e2`) — concentric-ring effect
+    via ::before halo, smaller 14px center dot, calmer 1.6s pulse.
+
+  Cache fix (`4e1d45a`) — Caddy was baking 24h-stale CSS into
+  browsers after every deploy. Now CSS / JS / SVG / HTML get
+  no-cache, must-revalidate so deploys light up instantly.
+
 ### Phase 2 — REMAINING SURFACES (deferred — needs running exam)
 
 Phase 1 picks up colors, fonts, and shadows automatically. Phase 2

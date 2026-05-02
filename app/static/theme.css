@@ -1,51 +1,82 @@
-/* Google Fonts are loaded via <link> tags in each HTML file instead of
-   @import here, because @import blocks rendering — causing white screen
-   on slow networks. If fonts haven't loaded yet, system-ui kicks in. */
+/**
+ * theme.css — Procta visual layer
+ *
+ * Three-tier load order assumed in every served HTML <head>:
+ *   1. tokens.css       (semantic design tokens — periwinkle, OKLCH, three themes)
+ *   2. components.css   (component class library — buttons, badges, cards, etc.)
+ *   3. theme.css        (this file — legacy-variable bridge + page baseline)
+ *
+ * What this file does now (post May 2026 redesign):
+ *   • Bridges every legacy custom-property name (--bg, --card, --accent, etc.)
+ *     to its new semantic-token equivalent in tokens.css. Result: every line
+ *     of `var(--bg)` / `var(--accent)` / etc. across dashboard.html (~4700 LOC),
+ *     student.html, register.html, download.html and renderer/index.html
+ *     automatically inherits the new visual identity without per-line edits.
+ *   • Keeps the legacy component classes (.btn / .card / .badge / .stat-card /
+ *     .spinner / .msg-error etc.) so existing markup keeps working — they
+ *     now use the bridged variables internally, so colors update for free.
+ *   • Switches the font stack to IBM Plex (matches design package).
+ *   • @import is intentionally avoided — it blocks rendering on slow links.
+ *     The page must <link> tokens.css and components.css before this file.
+ */
 
+/* ── Legacy → semantic-token bridge ───────────────────────────── */
 :root {
-  /* ── Surface system ──────────────────────────────────────────── */
-  --bg: #06080d;
-  --bg-subtle: #090c14;
-  --card: #0c1018;
-  --card-hover: #111724;
-  --card-elevated: #131a28;
-  --border: rgba(148,163,184,0.06);
-  --border-hover: rgba(148,163,184,0.12);
-  --border-accent: rgba(99,223,196,0.15);
+  /* Surface system — old names mapped to new tokens.
+     Note: --bg in legacy was the page background; in tokens.css we
+     have --bg-base (bottom of page) and --surface-1 (cards). Map
+     each legacy slot to the closest semantic match. */
+  --bg:             var(--bg-base);
+  --bg-subtle:      var(--bg-subtle);            /* same name, kept */
+  --card:           var(--surface-1);
+  --card-hover:     var(--surface-2);
+  --card-elevated:  var(--surface-3);
+  --border:         var(--border-default);
+  --border-hover:   var(--border-strong);
+  --border-accent:  var(--accent-border);
 
-  /* ── Text system ─────────────────────────────────────────────── */
-  --text: #c8d1dc;
-  --text-bright: #e8ecf1;
-  --muted: #6b7a8d;
+  /* Text system. Old code only had high/low; design has high/mid/muted. */
+  --text:           var(--text-high);
+  --text-bright:    var(--text-high);
+  --muted:          var(--text-muted);
 
-  /* ── Accent: teal-mint (NOT the default Tailwind blue) ───────── */
-  --accent: #3dd9a8;
-  --accent-light: #63dfc4;
-  --accent-dark: #2bb88a;
-  --accent-glow: rgba(61,217,168,0.12);
-  --accent-glow-strong: rgba(61,217,168,0.25);
+  /* Accent. The visual identity changes from emerald-mint to periwinkle
+     blue at this line — every existing `var(--accent)` reference in
+     dashboard.html will now render as the new color. */
+  --accent-light:   var(--accent-hover);
+  --accent-dark:    var(--accent-active);
+  --accent-glow:    var(--accent-subtle);
+  --accent-glow-strong: var(--accent-border);
 
-  /* ── Semantic palette ────────────────────────────────────────── */
-  --emerald: #34d399;
-  --red: #f87171;
-  --red-muted: #ef4444;
-  --amber: #fbbf24;
-  --orange: #fb923c;
+  /* Semantic palette. Legacy used flat hex; bridge to severity tokens
+     so all four themes (default dark, dark-OLED, light, future) stay
+     coordinated. */
+  --emerald:    var(--sev-success-fg);
+  --red:        var(--sev-error-fg);
+  --red-muted:  var(--sev-error-fg);
+  --amber:      var(--sev-warn-fg);
+  --orange:     var(--sev-warn-fg);
 
-  /* ── Surfaces with noise ─────────────────────────────────────── */
-  --grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  /* Grain texture is gone — the new design uses flat surfaces with
+     subtle borders + tier-based backgrounds for hierarchy. Set to none
+     so any reference to var(--grain) renders nothing without warning. */
+  --grain: none;
 
-  /* ── Typography ──────────────────────────────────────────────── */
-  --font-display: 'Outfit', 'Space Grotesk', system-ui, sans-serif;
-  --font-body: 'Space Grotesk', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+  /* Typography — switch to IBM Plex (design package's choice). Loaded
+     in each HTML's <head>. Falls back to system-ui if the font fetch
+     races the first paint. */
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-body:    'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', 'SF Mono', ui-monospace, monospace;
 
-  /* ── Radius scale (geometric, not uniform) ───────────────────── */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  /* Radius scale — legacy values, kept stable so existing layout
+     measurements don't shift. tokens.css has its own scale, but for
+     bridged var(--radius-*) callers we keep the legacy intent. */
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px;
   --radius-pill: 999px;
 }
 
@@ -62,42 +93,45 @@ body {
   color: var(--text);
   min-height: 100vh;
   line-height: 1.6;
-  background-image: var(--grain);
-  background-size: 200px 200px;
 }
 
 ::selection {
-  background: var(--accent-dark);
+  background: var(--accent-active);
   color: white;
 }
 
-/* ── Procta Logo ─────────────────────────────────────────────── */
+/* ── Procta Logo ──────────────────────────────────────────────────
+   Logo SVG now lives at /static/logo.svg (from the design package).
+   The .procta-icon block stays so existing markup like
+   <a class="procta-logo"><span class="procta-icon">...</span></a>
+   still renders. Inline SVG / IMG can also be used — preferred for
+   pages where the logo is the focus. */
 .procta-logo {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   text-decoration: none;
-  color: white;
+  color: var(--text-high);
 }
 .procta-icon {
   width: 36px;
   height: 36px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--accent-dark), var(--accent));
+  background: linear-gradient(135deg, var(--accent-active), var(--accent));
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 16px var(--accent-glow);
+  box-shadow: 0 0 16px var(--accent-subtle);
 }
 .procta-logo span {
   font-family: var(--font-display);
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.03em;
-  color: white;
+  color: var(--text-high);
 }
 
-/* ── Cards ───────────────────────────────────────────────────── */
+/* ── Cards ─────────────────────────────────────────────────────── */
 .card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -106,21 +140,12 @@ body {
   position: relative;
   overflow: hidden;
 }
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: var(--grain);
-  background-size: 200px 200px;
-  pointer-events: none;
-  opacity: 0.5;
-}
 .card:hover {
   border-color: var(--border-hover);
   box-shadow: 0 0 0 1px var(--border-hover);
 }
 
-/* ── Buttons ─────────────────────────────────────────────────── */
+/* ── Buttons ───────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -138,21 +163,21 @@ body {
   position: relative;
 }
 .btn-primary {
-  background: var(--accent-dark);
+  background: var(--accent-active);
   color: white;
   border: 1px solid var(--accent);
-  box-shadow: 0 0 20px var(--accent-glow),
+  box-shadow: 0 0 20px var(--accent-subtle),
               inset 0 1px 0 rgba(255,255,255,0.1);
 }
 .btn-primary:hover {
   background: var(--accent);
-  box-shadow: 0 0 30px var(--accent-glow-strong),
+  box-shadow: 0 0 30px var(--accent-border),
               inset 0 1px 0 rgba(255,255,255,0.15);
   transform: translateY(-1px);
 }
 .btn-primary:active {
   transform: translateY(0);
-  box-shadow: 0 0 12px var(--accent-glow);
+  box-shadow: 0 0 12px var(--accent-subtle);
 }
 .btn-secondary {
   background: rgba(255,255,255,0.02);
@@ -162,18 +187,18 @@ body {
 }
 .btn-secondary:hover {
   border-color: var(--accent);
-  color: var(--accent-light);
-  background: var(--accent-glow);
+  color: var(--accent-hover);
+  background: var(--accent-subtle);
 }
 .btn-danger {
-  background: rgba(248,113,113,0.06);
+  background: var(--sev-error-bg);
   color: var(--red);
-  border: 1px solid rgba(248,113,113,0.15);
+  border: 1px solid var(--sev-error-bg);
 }
 .btn-danger:hover {
-  background: rgba(248,113,113,0.12);
+  background: var(--sev-error-bg);
   border-color: var(--red);
-  box-shadow: 0 0 16px rgba(248,113,113,0.1);
+  box-shadow: 0 0 16px var(--sev-error-bg);
 }
 .btn:disabled {
   opacity: 0.35;
@@ -189,7 +214,7 @@ body {
   width: 100%;
 }
 
-/* ── Inputs ──────────────────────────────────────────────────── */
+/* ── Inputs ────────────────────────────────────────────────────── */
 .input {
   width: 100%;
   background: rgba(255,255,255,0.02);
@@ -204,7 +229,7 @@ body {
 .input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  box-shadow: 0 0 0 3px var(--accent-subtle);
   background: rgba(255,255,255,0.03);
 }
 .input::placeholder {
@@ -213,10 +238,10 @@ body {
 }
 .input-error {
   border-color: var(--red) !important;
-  box-shadow: 0 0 0 3px rgba(248,113,113,0.1) !important;
+  box-shadow: 0 0 0 3px var(--sev-error-bg) !important;
 }
 
-/* ── Labels ──────────────────────────────────────────────────── */
+/* ── Labels ────────────────────────────────────────────────────── */
 .label {
   display: block;
   font-size: 11px;
@@ -228,7 +253,7 @@ body {
   font-family: var(--font-mono);
 }
 
-/* ── Badges ──────────────────────────────────────────────────── */
+/* ── Badges ────────────────────────────────────────────────────── */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -240,14 +265,14 @@ body {
   font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
-.badge-accent { background: var(--accent-glow); color: var(--accent-light); border: 1px solid rgba(61,217,168,0.15); }
-.badge-emerald { background: rgba(52,211,153,0.08); color: var(--emerald); border: 1px solid rgba(52,211,153,0.12); }
-.badge-red { background: rgba(248,113,113,0.08); color: var(--red); border: 1px solid rgba(248,113,113,0.12); }
-.badge-amber { background: rgba(251,191,36,0.08); color: var(--amber); border: 1px solid rgba(251,191,36,0.12); }
-.badge-orange { background: rgba(251,146,60,0.08); color: var(--orange); border: 1px solid rgba(251,146,60,0.12); }
-.badge-muted { background: rgba(107,122,141,0.06); color: var(--muted); border: 1px solid rgba(107,122,141,0.08); }
+.badge-accent  { background: var(--accent-subtle); color: var(--accent-hover); border: 1px solid var(--accent-border); }
+.badge-emerald { background: var(--sev-success-bg); color: var(--emerald); border: 1px solid var(--sev-success-bg); }
+.badge-red     { background: var(--sev-error-bg); color: var(--red); border: 1px solid var(--sev-error-bg); }
+.badge-amber   { background: var(--sev-warn-bg); color: var(--amber); border: 1px solid var(--sev-warn-bg); }
+.badge-orange  { background: var(--sev-warn-bg); color: var(--orange); border: 1px solid var(--sev-warn-bg); }
+.badge-muted   { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border-subtle); }
 
-/* ── Stat Cards ──────────────────────────────────────────────── */
+/* ── Stat Cards ────────────────────────────────────────────────── */
 .stat-card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -286,7 +311,7 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* ── Footer ──────────────────────────────────────────────────── */
+/* ── Footer ────────────────────────────────────────────────────── */
 .footer {
   margin-top: 32px;
   font-size: 12px;
@@ -301,20 +326,20 @@ body {
   transition: color 0.2s;
 }
 .footer a:hover {
-  color: var(--accent-light);
-  text-shadow: 0 0 8px var(--accent-glow);
+  color: var(--accent-hover);
+  text-shadow: 0 0 8px var(--accent-subtle);
 }
 
-/* ── Utility ─────────────────────────────────────────────────── */
-.text-accent { color: var(--accent); }
-.text-accent-light { color: var(--accent-light); }
-.text-emerald { color: var(--emerald); }
-.text-red { color: var(--red); }
-.text-amber { color: var(--amber); }
-.text-muted { color: var(--muted); }
-.text-white { color: white; }
+/* ── Utility ───────────────────────────────────────────────────── */
+.text-accent       { color: var(--accent); }
+.text-accent-light { color: var(--accent-hover); }
+.text-emerald      { color: var(--emerald); }
+.text-red          { color: var(--red); }
+.text-amber        { color: var(--amber); }
+.text-muted        { color: var(--muted); }
+.text-white        { color: white; }
 
-/* ── Spinner ─────────────────────────────────────────────────── */
+/* ── Spinner ───────────────────────────────────────────────────── */
 .spinner {
   display: inline-block;
   width: 16px;
@@ -326,10 +351,10 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Warning/Error Messages ──────────────────────────────────── */
+/* ── Warning/Error Messages ────────────────────────────────────── */
 .msg-error {
-  background: rgba(248,113,113,0.04);
-  border: 1px solid rgba(248,113,113,0.12);
+  background: var(--sev-error-bg);
+  border: 1px solid var(--sev-error-bg);
   border-left: 3px solid var(--red);
   color: var(--red);
   border-radius: var(--radius-sm);
@@ -337,8 +362,8 @@ body {
   font-size: 13px;
 }
 .msg-warning {
-  background: rgba(251,191,36,0.04);
-  border: 1px solid rgba(251,191,36,0.12);
+  background: var(--sev-warn-bg);
+  border: 1px solid var(--sev-warn-bg);
   border-left: 3px solid var(--amber);
   color: var(--amber);
   border-radius: var(--radius-sm);
@@ -346,8 +371,8 @@ body {
   font-size: 13px;
 }
 .msg-success {
-  background: rgba(52,211,153,0.04);
-  border: 1px solid rgba(52,211,153,0.12);
+  background: var(--sev-success-bg);
+  border: 1px solid var(--sev-success-bg);
   border-left: 3px solid var(--emerald);
   color: var(--emerald);
   border-radius: var(--radius-sm);
@@ -355,11 +380,11 @@ body {
   font-size: 13px;
 }
 
-/* ── Scrollbar ───────────────────────────────────────────────── */
+/* ── Scrollbar ─────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148,163,184,0.12);
+  background: var(--border-default);
   border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.2); }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }

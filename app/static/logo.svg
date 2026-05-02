@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 56" fill="none">
+  
+  <g>
+    
+    <path d="M12 6 L28 6 L28 6 Q34 6 34 12 L34 28 Q34 42 20 50 Q6 42 6 28 L6 12 Q6 6 12 6 Z" fill="#5B8AF0" fill-opacity="0.15" stroke="#5B8AF0" stroke-width="1.5"></path>
+    
+    <path d="M14 11 L26 11 Q29 11 29 14 L29 28 Q29 38 20 44 Q11 38 11 28 L11 14 Q11 11 14 11 Z" fill="none" stroke="#5B8AF0" stroke-width="1" stroke-opacity="0.4"></path>
+    
+    <circle cx="20" cy="26" r="3.5" fill="#5B8AF0"></circle>
+    
+    <line x1="20" y1="18" x2="20" y2="22" stroke="#5B8AF0" stroke-width="1" stroke-opacity="0.5"></line>
+    <line x1="20" y1="30" x2="20" y2="34" stroke="#5B8AF0" stroke-width="1" stroke-opacity="0.5"></line>
+    <line x1="12" y1="26" x2="16" y2="26" stroke="#5B8AF0" stroke-width="1" stroke-opacity="0.5"></line>
+    <line x1="24" y1="26" x2="28" y2="26" stroke="#5B8AF0" stroke-width="1" stroke-opacity="0.5"></line>
+  </g>
+
+  
+  <text x="46" y="38" font-family="&#39;IBM Plex Sans&#39;, system-ui, sans-serif" font-size="28" font-weight="700" letter-spacing="-0.03em" fill="#F0F4FF">procta</text>
+</svg>

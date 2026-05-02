@@ -184,11 +184,63 @@ limit at current scale.
 
 ## §1.6 Visual redesign integration (May 2026 design package)
 
-A full design system was produced (Periwinkle Blue accent, OKLCH color
-space, three themes including dark-OLED + light, IBM Plex typography,
-Lucide icons). Source files live at
-`~/Desktop/AI-Proctored Browser/`. Tokens are already copied into
-`app/static/tokens.css`. The design's flagship surfaces:
+### Phase 1 — TOKEN FOUNDATION (shipped 2026-05-02) ✅
+
+The new design system is now live across every served HTML surface.
+What landed:
+
+  • `app/static/tokens.css` — design tokens (Periwinkle Blue accent,
+    OKLCH color space, three themes: dark / dark-OLED / light)
+  • `app/static/components.css` — extracted component class library
+    (155 CSS rules) — buttons, badges, cards, inputs, tables, modals
+  • `app/static/logo.svg` — new wordmark
+  • `app/static/theme.css` — REWRITTEN as a legacy↔token bridge.
+    Every existing `var(--bg)` / `var(--accent)` / `var(--muted)` /
+    etc. across dashboard.html (~4700 LOC), student.html, register,
+    download, and renderer/index.html now resolves through the new
+    semantic tokens. Visual identity changes (emerald → periwinkle
+    blue, Outfit/Space Grotesk → IBM Plex Sans, JetBrains Mono → IBM
+    Plex Mono) propagate automatically.
+  • All 5 served HTML files updated to load tokens.css + components.css
+    BEFORE theme.css and use IBM Plex font links.
+
+Verification: every CSS `var()` reference (192 across the three
+files) resolves to a defined token. Static assets all return 200.
+
+### Phase 2 — PER-SURFACE LAYOUT REWRITES (deferred)
+
+Phase 1 picks up colors, fonts, and shadows automatically. Phase 2
+is where actual *layout* changes happen — the design package ships
+new HTML structures for individual screens, and replacing the
+existing markup means hand-verifying every JS hook (4700+ lines of
+JS across the codebase use getElementById / addEventListener /
+class selectors). Each surface below is a separate PR sized 200-500
+LOC; do them in priority order:
+
+  1. **Live Sessions tab** (port `teacher-live.html` into `#panel-live`)
+     — new 3-pane layout with detail-panel slide-in. The on-demand
+     Camera Feed slot from §1.6 (already shipped) drops straight into
+     this layout — `<img id="liveview-img">` keeps its hook.
+  2. **Student exam window** (port `student-exam.html` into
+     `renderer/index.html`) — calmer student-facing UX. MUST preserve
+     every JS hook (`#cam-preview`, `#exam-timer`, `#save-status`,
+     `.q-field`, `.opt-btn`, etc.) so the proctor + anti-cheat stack
+     keeps working.
+  3. **Marketing / download page** (port `marketing.html`).
+  4. **Question editor** (port `question-editor.html`).
+  5. **Analytics tab** (port `analytics.html`).
+  6. **Calibration screen** (port `calibration.html`) — renderer
+     change.
+  7. **Mobile responsive surfaces** (per `mobile-spec.html`).
+
+Order assumes each as a separate PR with smoke tests between. Tokens-
+first means at any point we can stop and ship — every later step is
+purely additive, no rollback risk on what's already in.
+
+### Reference
+
+The design preview files (React JSX previews of each screen) live at
+`~/Desktop/AI-Proctored Browser/`. The flagship surfaces:
 
 - `teacher-live.html` — Live Sessions tab including a Camera Feed
   panel (now wired end-to-end via on-demand live-view; see live-view

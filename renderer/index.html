@@ -19,7 +19,7 @@
           border-radius:14px;padding:48px;width:420px;text-align:center}
     .logo-wrap{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:20px}
     .logo-icon{width:40px;height:40px;border-radius:10px;
-      background:linear-gradient(135deg,#3dd9a8,#2bb88a);
+      background:linear-gradient(135deg,#5b8af0,#4a78dc);
       display:flex;align-items:center;justify-content:center}
     .logo-text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
       font-size:24px;font-weight:700;color:white;letter-spacing:-.02em}
@@ -32,12 +32,12 @@
     .fg input{width:100%;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);
               border-radius:8px;padding:11px 14px;color:#c9d1d9;font-size:14px;
               transition:border-color .2s,background .2s}
-    .fg input:focus{outline:none;border-color:rgba(61,217,168,.4);background:rgba(255,255,255,.05)}
+    .fg input:focus{outline:none;border-color:rgba(91,138,240,.4);background:rgba(255,255,255,.05)}
     .btn{width:100%;padding:13px;border-radius:8px;border:none;
          font-size:14px;font-weight:600;cursor:pointer;
-         background:#3dd9a8;color:#fff;transition:background .2s;
-         box-shadow:0 2px 8px rgba(61,217,168,.2)}
-    .btn:hover{background:#63dfc4}
+         background:#5b8af0;color:#fff;transition:background .2s;
+         box-shadow:0 2px 8px rgba(91,138,240,.2)}
+    .btn:hover{background:#7ba1f5}
     .btn:disabled{background:rgba(255,255,255,.06);color:#484f58;cursor:not-allowed;box-shadow:none}
     .err{color:#ff7b72;font-size:12px;margin-top:10px;min-height:18px}
     .ldr{color:#6b7b8f;font-size:12px;margin-top:8px}
@@ -48,9 +48,9 @@
     .cal-dot{position:absolute;width:28px;height:28px;border-radius:50%;
              background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.15);
              transform:translate(-50%,-50%);transition:all .4s ease}
-    .cal-dot.active{background:rgba(61,217,168,.7);border-color:#3dd9a8;
-                    box-shadow:0 0 24px 8px rgba(61,217,168,.45),
-                               0 0 60px 20px rgba(61,217,168,.15);
+    .cal-dot.active{background:rgba(91,138,240,.7);border-color:#5b8af0;
+                    box-shadow:0 0 24px 8px rgba(91,138,240,.45),
+                               0 0 60px 20px rgba(91,138,240,.15);
                     animation:cal-pulse 1.2s ease-in-out infinite}
     .cal-dot.done{background:rgba(34,197,94,.6);border-color:#22c55e;
                   box-shadow:0 0 16px 4px rgba(34,197,94,.3)}
@@ -72,7 +72,7 @@
 
     .cal-progress{width:280px;height:6px;background:#21262d;border-radius:20px;
                   overflow:hidden;margin-top:16px}
-    .cal-progress-fill{height:100%;background:#3dd9a8;border-radius:20px;
+    .cal-progress-fill{height:100%;background:#5b8af0;border-radius:20px;
                        transition:width .4s ease;width:0%}
 
     .est{margin-top:16px;font-size:14px;color:#c9d1d9;min-height:24px}
@@ -98,7 +98,7 @@
     .qdot{width:36px;height:36px;border-radius:6px;border:none;
           font-size:12px;font-weight:600;cursor:pointer;
           background:#21262d;color:#8b949e}
-    .qdot.cur{background:#2bb88a;color:#fff}
+    .qdot.cur{background:#4a78dc;color:#fff}
     .qdot.ans{background:#238636;color:#fff}
     .emain{flex:1;padding:32px;overflow-y:auto;
            display:flex;flex-direction:column;gap:24px}
@@ -122,7 +122,7 @@
     .bnav{padding:10px 24px;border-radius:6px;border:none;
           font-size:13px;font-weight:600;cursor:pointer}
     .bprev{background:#21262d;color:#c9d1d9}
-    .bnext{background:#2bb88a;color:#fff}
+    .bnext{background:#4a78dc;color:#fff}
     .bsub{background:#238636;color:#fff}
     .bnav:disabled{opacity:.4;cursor:not-allowed}
     .camini{position:fixed;bottom:20px;right:20px;width:160px;
@@ -157,7 +157,7 @@
 
     /* ── In-exam chat ────────────────────────────────────────── */
     #chat-fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;
-      border-radius:50%;background:#2bb88a;color:#fff;display:none;
+      border-radius:50%;background:#4a78dc;color:#fff;display:none;
       align-items:center;justify-content:center;cursor:pointer;
       box-shadow:0 4px 18px rgba(31,111,235,0.35);z-index:9998;
       border:none;transition:transform .15s, box-shadow .15s}
@@ -188,7 +188,7 @@
       margin:auto;padding:24px}
     .chat-msg{max-width:82%;padding:8px 12px;border-radius:10px;font-size:12.5px;
       line-height:1.4;word-wrap:break-word;white-space:pre-wrap}
-    .chat-msg.from-student{align-self:flex-end;background:#2bb88a;color:#fff;
+    .chat-msg.from-student{align-self:flex-end;background:#4a78dc;color:#fff;
       border-bottom-right-radius:3px}
     .chat-msg.from-teacher{align-self:flex-start;background:#21262d;color:#c9d1d9;
       border:1px solid #30363d;border-bottom-left-radius:3px}
@@ -201,8 +201,8 @@
     .chat-composer textarea{flex:1;background:#161b22;border:1px solid #30363d;
       border-radius:8px;padding:8px 10px;color:#c9d1d9;font:inherit;font-size:12.5px;
       resize:none;max-height:90px;line-height:1.4;outline:none}
-    .chat-composer textarea:focus{border-color:#2bb88a}
-    .chat-composer button{background:#2bb88a;color:#fff;border:none;
+    .chat-composer textarea:focus{border-color:#4a78dc}
+    .chat-composer button{background:#4a78dc;color:#fff;border:none;
       border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;
       cursor:pointer;height:34px}
     .chat-composer button:disabled{opacity:0.5;cursor:not-allowed}
@@ -298,7 +298,7 @@
     </div>
     <!-- Step indicator -->
     <div style="display:flex;gap:8px;justify-content:center;margin-bottom:16px">
-      <div id="id-step-1" style="width:10px;height:10px;border-radius:50%;background:#3dd9a8"></div>
+      <div id="id-step-1" style="width:10px;height:10px;border-radius:50%;background:#5b8af0"></div>
       <div id="id-step-2" style="width:10px;height:10px;border-radius:50%;background:#30363d"></div>
     </div>
     <div style="display:flex;gap:10px;justify-content:center">
@@ -775,8 +775,8 @@ async function startIdVerify() {
 
 function _idShowStep(step) {
   idStep = step;
-  document.getElementById('id-step-1').style.background = step >= 1 ? '#3dd9a8' : '#30363d';
-  document.getElementById('id-step-2').style.background = step >= 2 ? '#3dd9a8' : '#30363d';
+  document.getElementById('id-step-1').style.background = step >= 1 ? '#5b8af0' : '#30363d';
+  document.getElementById('id-step-2').style.background = step >= 2 ? '#5b8af0' : '#30363d';
   document.getElementById('id-capture-btn').style.display = '';
   document.getElementById('id-retake-btn').style.display = 'none';
   document.getElementById('id-next-btn').style.display = 'none';

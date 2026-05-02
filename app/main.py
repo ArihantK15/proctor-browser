@@ -7080,29 +7080,55 @@ def bank_to_exam(request: Request, body: dict = Body(...)):
                 "rows": bad,
             })
         if new_rows:
-            try:
-                supabase.table("questions").insert(new_rows).execute()
-            except Exception as ie:
-                # Schema-mismatch fallback: some Supabase deployments
-                # don't have the `image_url` column on `questions`
-                # (PGRST204 — schema-cache miss). The migration in
-                # migrations/phase11_questions_image_url.sql adds it,
-                # but until that runs we drop the column and retry so
-                # the teacher's flow isn't blocked. Logged so an
-                # operator can see the migration is still pending.
-                msg = str(ie)
-                if "image_url" in msg or "PGRST204" in msg:
-                    print(f"[bank-to-exam] image_url column missing — "
-                          f"retrying without it. Run migrations/"
-                          f"phase11_questions_image_url.sql to fix "
-                          f"permanently. err={msg[:200]}", flush=True)
-                    for row in new_rows:
-                        row.pop("image_url", None)
+            # Schema-mismatch fallback: older Supabase deployments
+            # may be missing some of the columns we write (image_url,
+            # question_type, tags, etc.). PGRST204 with a "Could not
+            # find the 'X' column" message tells us exactly which
+            # column to drop. Retry up to len(optional_cols) times,
+            # peeling off one column per round, so the teacher's flow
+            # isn't blocked while the schema migration is pending.
+            #
+            # Run migrations/phase11_questions_full_schema.sql to
+            # add all expected columns and remove this fallback path.
+            import re as _re
+            _PGRST204 = _re.compile(
+                r"Could not find the '([^']+)' column", _re.IGNORECASE)
+            optional_cols = {"image_url", "question_type", "tags"}
+            attempted_drops = []
+            for _attempt in range(len(optional_cols) + 1):
+                try:
                     supabase.table("questions").insert(new_rows).execute()
-                else:
-                    # Unrelated insert failure — let the outer try/except
-                    # handle it as a 502 with the actual error.
-                    raise
+                    if attempted_drops:
+                        print(f"[bank-to-exam] succeeded after dropping "
+                              f"{attempted_drops} due to schema mismatch. "
+                              f"Run migrations/phase11_questions_full_"
+                              f"schema.sql to fix permanently.",
+                              flush=True)
+                    break
+                except Exception as ie:
+                    msg = str(ie)
+                    m = _PGRST204.search(msg)
+                    if not m:
+                        # Unrelated insert failure — let the outer
+                        # try/except handle as a 502.
+                        raise
+                    missing_col = m.group(1)
+                    if missing_col not in optional_cols:
+                        # Required column is missing — can't recover by
+                        # dropping it. Surface the actual column name
+                        # so the operator knows what migration to run.
+                        raise
+                    print(f"[bank-to-exam] column '{missing_col}' "
+                          f"missing — dropping + retrying", flush=True)
+                    for row in new_rows:
+                        row.pop(missing_col, None)
+                    attempted_drops.append(missing_col)
+            else:
+                # Loop exhausted without success — fall through to
+                # outer try/except.
+                raise RuntimeError(
+                    f"questions table missing all of: {attempted_drops}. "
+                    f"Run migrations/phase11_questions_full_schema.sql.")
             if _cache:
                 _cache.delete(f"questions:{tid}:{exam_id or '_'}")
         return {

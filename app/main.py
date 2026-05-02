@@ -7080,7 +7080,29 @@ def bank_to_exam(request: Request, body: dict = Body(...)):
                 "rows": bad,
             })
         if new_rows:
-            supabase.table("questions").insert(new_rows).execute()
+            try:
+                supabase.table("questions").insert(new_rows).execute()
+            except Exception as ie:
+                # Schema-mismatch fallback: some Supabase deployments
+                # don't have the `image_url` column on `questions`
+                # (PGRST204 — schema-cache miss). The migration in
+                # migrations/phase11_questions_image_url.sql adds it,
+                # but until that runs we drop the column and retry so
+                # the teacher's flow isn't blocked. Logged so an
+                # operator can see the migration is still pending.
+                msg = str(ie)
+                if "image_url" in msg or "PGRST204" in msg:
+                    print(f"[bank-to-exam] image_url column missing — "
+                          f"retrying without it. Run migrations/"
+                          f"phase11_questions_image_url.sql to fix "
+                          f"permanently. err={msg[:200]}", flush=True)
+                    for row in new_rows:
+                        row.pop("image_url", None)
+                    supabase.table("questions").insert(new_rows).execute()
+                else:
+                    # Unrelated insert failure — let the outer try/except
+                    # handle it as a 502 with the actual error.
+                    raise
             if _cache:
                 _cache.delete(f"questions:{tid}:{exam_id or '_'}")
         return {

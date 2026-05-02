@@ -63,6 +63,12 @@ Specifically these were never run on prod yet:
   `scorecard_insight` text column to `exam_sessions` so AI-generated
   scorecard notes are cached (otherwise the LLM regenerates on every
   bulk download → 2× the cost).
+- `migrations/phase11_questions_image_url.sql` — adds `image_url`
+  column to `questions`. Without this, "Add Selected to Exam" from
+  the bank fails with PGRST204 ("Could not find the 'image_url'
+  column"). The endpoint has a runtime fallback that drops the
+  column and retries, but image associations are lost on copy
+  until the migration runs.
 
 ### 2.2 LLM provider — pick one (free tier)
 

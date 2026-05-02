@@ -66,7 +66,10 @@ class _InviteStub:
         self.exam_configs = list(exam_configs or [])
 
     # ── helpers ────────────────────────────────────────────────────
-    def _apply_filters(self, rows, eqs):
+    def _apply_filters(self, rows, eqs, ins=None):
+        """Apply both .eq() and .in_() filters in one pass.
+        ``ins`` is a dict {column: list_of_allowed_values} matching
+        what the production code passes via .in_('col', [...])."""
         out = []
         for r in rows:
             ok = True
@@ -75,6 +78,10 @@ class _InviteStub:
                 # for exam_id when None — normalise both sides to str.
                 if str(r.get(k) or "") != str(v or ""):
                     ok = False; break
+            if ok and ins:
+                for k, allowed in ins.items():
+                    if r.get(k) not in allowed:
+                        ok = False; break
             if ok:
                 out.append(r)
         return out
@@ -83,11 +90,13 @@ class _InviteStub:
         chain = MagicMock()
         chain._table = table
         chain._eqs = {}
+        chain._ins = {}      # {column: [allowed_values]} from .in_()
         chain._payload = None
         chain._op = None
 
         def _select(*a, **k): chain._op = "select"; return chain
         def _eq(c, v): chain._eqs[c] = v; return chain
+        def _in(c, vs): chain._ins[c] = list(vs or []); return chain
         def _order(*a, **k): return chain
         def _limit(*a, **k): return chain
         def _update(p): chain._op = "update"; chain._payload = p; return chain
@@ -115,7 +124,7 @@ class _InviteStub:
                 return MagicMock(data=[])
 
             if chain._op in (None, "select"):
-                return MagicMock(data=self._apply_filters(ds, chain._eqs))
+                return MagicMock(data=self._apply_filters(ds, chain._eqs, chain._ins))
             if chain._op == "insert":
                 new = list(chain._payload) if isinstance(chain._payload, list) \
                     else [chain._payload]
@@ -133,7 +142,7 @@ class _InviteStub:
                 ds.extend(new)
                 return MagicMock(data=new)
             if chain._op == "update":
-                matched = self._apply_filters(ds, chain._eqs)
+                matched = self._apply_filters(ds, chain._eqs, chain._ins)
                 for r in matched:
                     r.update(chain._payload or {})
                 return MagicMock(data=matched)
@@ -150,6 +159,9 @@ class _InviteStub:
 
         chain.select.side_effect = _select
         chain.eq.side_effect = _eq
+        # `.in_` is the supabase-py method for SQL `IN (...)` filters.
+        # Underscore suffix because `in` is a reserved keyword.
+        chain.in_.side_effect = _in
         chain.order.side_effect = _order
         chain.limit.side_effect = _limit
         chain.update.side_effect = _update
@@ -312,11 +324,30 @@ class TestWebhook:
         assert r.status_code == 403
 
     def test_signed_bounce_flips_status(self, client):
+        """Webhook signature verification — Svix format.
+
+        Resend uses Svix-style signing (since 2024). Three required
+        headers: svix-id, svix-timestamp, svix-signature. The signed
+        payload is `<id>.<ts>.<body>` (literal dots, not concat) and
+        the signature is base64. The secret is `whsec_<base64-key>`
+        and the key is base64-decoded before use as the HMAC key.
+        Multiple v1 signatures are space-separated to support secret
+        rotation.
+
+        This test was originally written for the pre-Svix legacy
+        format (`t=ts,v1=<hexsig>`). Updated to match the format
+        emailer.verify_webhook actually expects after the Phase 10
+        rewrite — anything else returns 403 forbidden.
+        """
         import main, emailer
-        secret = "test-webhook-secret-123"
+        import base64, time
+        # Use a `whsec_`-prefixed secret because that's the format
+        # Resend distributes; verify_webhook base64-decodes the part
+        # after the prefix before using it as the HMAC key.
+        raw_key = b"test-webhook-secret-123-with-padding"
+        secret = "whsec_" + base64.b64encode(raw_key).decode()
         os.environ["RESEND_WEBHOOK_SECRET"] = secret
         try:
-            # Reset the emailer backend cache so env change is picked up.
             emailer._reset_backend_for_tests()
             stub = _InviteStub(invites=[{
                 "id": "ib", "token": "t-bounce",
@@ -330,12 +361,21 @@ class TestWebhook:
                 "data": {"email_id": "msg-abc-123",
                          "bounce": "mailbox does not exist"},
             }).encode()
-            mac = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-            sig = f"t=0,v1={mac}"
+            svix_id = "msg_test_01"
+            # Svix accepts any timestamp within 5 min of now to defend
+            # against replay; pick "now" so the check passes.
+            svix_ts = str(int(time.time()))
+            signed_payload = f"{svix_id}.{svix_ts}.".encode() + body
+            mac = hmac.new(raw_key, signed_payload, hashlib.sha256).digest()
+            sig_b64 = base64.b64encode(mac).decode()
+            # Header format: "v1,<sig>" — multiple sigs space-separated.
+            sig = f"v1,{sig_b64}"
             with patch.object(main, "supabase") as mock_sb:
                 mock_sb.table.side_effect = stub
                 r = client.post("/api/webhooks/email", content=body,
-                                headers={"svix-signature": sig,
+                                headers={"svix-id": svix_id,
+                                         "svix-timestamp": svix_ts,
+                                         "svix-signature": sig,
                                          "content-type": "application/json"})
             assert r.status_code == 200, r.text
             assert stub.invites[0]["status"] == "bounced"

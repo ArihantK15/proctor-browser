@@ -65,4 +65,11 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: "stub"
           SUPABASE_JWT_SECRET: "stub-jwt-secret-please-rotate"
           ADMIN_PASSWORD: "stub-admin-password"
-        run: pytest tests/ -v --tb=short -x
+        # `--ignore=tests/browser`: the browser tests use Playwright +
+        #   real Chromium, which we don't install in this lightweight
+        #   CI job. Browser tests get their own workflow if/when we
+        #   wire that up.
+        # No `-x`: a single transient flake shouldn't mask the rest of
+        #   the suite. We want to see ALL failures on each push so a
+        #   regression in one area doesn't hide one in another.
+        run: pytest tests/ --ignore=tests/browser -v --tb=short

@@ -668,6 +668,8 @@
   #panel-live .table-wrap tbody tr.row-warn    {box-shadow:inset 3px 0 0 var(--sev-warn-fg)}
   #panel-live .table-wrap tbody tr:hover       {background:var(--table-row-hover)}
   #panel-live .table-wrap thead th{position:sticky;top:0;z-index:5;background:var(--table-header-bg)}
+  #panel-results .table-wrap thead th{position:sticky;top:0;z-index:5;background:var(--table-header-bg)}
+  #panel-results .table-wrap tbody tr:hover{background:var(--table-row-hover)}
 
   /* ── Analytics tab — Phase 2.9 structural port ──────────────────
      Stat chips strip + 2-column .ax-card grid + full-width breakdown
@@ -1036,19 +1038,35 @@
     </div>
   </div>
 
-  <!-- RESULTS -->
-  <div class="panel" id="panel-results">
+  <!-- RESULTS — Phase 2.10: same shell as Live Sessions tab.
+       stats-bar + table-toolbar with search-wrap + sticky-header
+       table + sticky export actions on the right. Every JS hook
+       (#results-stats, #results-search, #results-body) preserved. -->
+  <div class="panel live-layout" id="panel-results">
     <div class="stats-bar" id="results-stats" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px"></div>
-    <div class="toolbar">
-      <input type="text" id="results-search" placeholder="Search by name, roll, email..."
-             oninput="filterResults()">
-      <button onclick="exportCSV()">Export CSV</button>
-      <button onclick="exportExcel()">Export Excel</button>
-      <button onclick="dlAllScorecards()">All Scorecards (ZIP)</button>
-      <button onclick="emailAllScorecards()" title="Email each student their scorecard PDF">Email Scorecards</button>
-      <button onclick="refreshResults()">Refresh</button>
+    <div class="table-toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </span>
+        <input type="text" id="results-search" class="search-input" placeholder="Search by name, roll, or email…" oninput="filterResults()">
+      </div>
+      <select class="filter-select" id="results-risk-filter" onchange="filterResults()" title="Filter by risk level">
+        <option value="all">All risk levels</option>
+        <option value="critical">Critical (>70)</option>
+        <option value="high">High (41–70)</option>
+        <option value="moderate">Moderate (16–40)</option>
+        <option value="low">Low (≤15)</option>
+      </select>
+      <div class="toolbar-right">
+        <button class="action-btn" onclick="exportCSV()">CSV</button>
+        <button class="action-btn" onclick="exportExcel()">Excel</button>
+        <button class="action-btn" onclick="dlAllScorecards()" title="Download a ZIP containing one PDF scorecard per student">Scorecards ZIP</button>
+        <button class="action-btn" onclick="emailAllScorecards()" title="Email each student their scorecard PDF">Email</button>
+        <button class="action-btn primary" onclick="refreshResults()">Refresh</button>
+      </div>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap" style="flex:1;overflow-y:auto">
       <table>
         <thead><tr>
           <th onclick="sortResults('roll_number')">Roll # <span class="arrow"></span></th>
@@ -2709,10 +2727,25 @@ function riskBadge(score, label){
 
 function renderResults(){
   const q = document.getElementById('results-search').value.toLowerCase();
+  // New risk-level filter (Phase 2.10). Defaults to 'all'; falls
+  // through gracefully on legacy markup that doesn't have the select.
+  const riskFilterEl = document.getElementById('results-risk-filter');
+  const riskFilter = riskFilterEl ? riskFilterEl.value : 'all';
   let rows = resultsData.filter(r=>!q
     ||r.roll_number.toLowerCase().includes(q)
     ||r.full_name.toLowerCase().includes(q)
     ||(r.email||'').toLowerCase().includes(q));
+  if(riskFilter !== 'all'){
+    rows = rows.filter(r => {
+      const s = r.risk_score;
+      if(s == null) return riskFilter === 'low';
+      if(riskFilter === 'critical') return s > 70;
+      if(riskFilter === 'high')     return s >= 41 && s <= 70;
+      if(riskFilter === 'moderate') return s >= 16 && s <= 40;
+      if(riskFilter === 'low')      return s <= 15;
+      return true;
+    });
+  }
   rows.sort((a,b)=>{
     let va=a[resSortKey]??'', vb=b[resSortKey]??'';
     if(typeof va==='number'&&typeof vb==='number') return resSortAsc?va-vb:vb-va;

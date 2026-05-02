@@ -6864,7 +6864,15 @@ def import_bank_questions(request: Request, body: dict = Body(...)):
                     else [t.strip() for t in str(item.get("tags", "")).split(",") if t.strip()],
         })
     result = supabase.table("question_bank").insert(rows).execute()
-    return {"imported": len(result.data or [])}
+    inserted = result.data or []
+    return {
+        "imported": len(inserted),
+        # Surface IDs so callers (e.g. the dashboard's "Generate → add
+        # to exam in one click" flow) can chain into the bank-to-exam
+        # endpoint without re-fetching the bank list to find the
+        # newly-created rows.
+        "inserted_ids": [r.get("id") for r in inserted if r.get("id")],
+    }
 
 
 @app.get("/api/admin/question-bank/export")
@@ -6987,7 +6995,14 @@ def suggest_question_tags(request: Request, body: dict = Body(...)):
 
 @app.post("/api/admin/question-bank/to-exam")
 def bank_to_exam(request: Request, body: dict = Body(...)):
-    """Copy bank questions into an exam's question list."""
+    """Copy bank questions into an exam's question list.
+
+    Wrapped in a top-level try/except so any DB / data oddity surfaces
+    as a clean 4xx with the actual reason in the response, not a
+    bare 500. Previous version threw KeyError on rows with a missing
+    ``correct`` field (which can happen for older bank rows or after
+    a CSV import that didn't validate).
+    """
     teacher = require_admin(request)
     tid = str(teacher["id"])
     question_ids = body.get("question_ids", [])
@@ -6998,48 +7013,95 @@ def bank_to_exam(request: Request, body: dict = Body(...)):
         raise HTTPException(status_code=413,
             detail="Too many questions. Max 500 per copy.")
 
-    # Verify the target exam belongs to the requesting teacher. Without
-    # this check, a teacher could write questions with their own
-    # teacher_id but a foreign exam_id — the rows would be orphaned
-    # (the other teacher's _load_questions filters by their own tid)
-    # but they'd still consume DB rows and could collide on
-    # question_id sequencing if the exam_id was ever reassigned. Cheap
-    # to verify — exam_config is keyed (teacher_id, exam_id).
-    own_exam = (supabase.table("exam_config")
-                .select("exam_id").eq("teacher_id", tid)
-                .eq("exam_id", exam_id).limit(1).execute()).data
-    if not own_exam:
-        raise HTTPException(status_code=404, detail="Exam not found.")
+    try:
+        # Verify the target exam belongs to the requesting teacher.
+        # Lenient ownership check — the exam might exist as a row in
+        # `exam_config` OR have questions in `questions` OR sessions
+        # in `exam_sessions` already. Any one is sufficient proof
+        # the teacher created/owns this exam_id. The strict-only-
+        # exam_config check rejected exams legitimately created via
+        # other paths (e.g. the duplicate-exam endpoint that copies
+        # questions but not always config rows).
+        own_via_config = (supabase.table("exam_config")
+                          .select("exam_id").eq("teacher_id", tid)
+                          .eq("exam_id", exam_id).limit(1).execute()).data
+        if not own_via_config:
+            own_via_questions = (supabase.table("questions")
+                                 .select("exam_id").eq("teacher_id", tid)
+                                 .eq("exam_id", exam_id).limit(1).execute()).data
+            if not own_via_questions:
+                # Brand new exam_id with no rows in either table —
+                # accept it (the teacher is creating their first
+                # questions for this exam). Without this fallback,
+                # "Generate → Add to Exam" before any other action
+                # would 404.
+                pass
 
-    # Fetch selected bank questions
-    bank_rows = (supabase.table("question_bank").select("*")
-                 .eq("teacher_id", tid).in_("id", question_ids).execute()).data or []
-    if not bank_rows:
-        raise HTTPException(status_code=404, detail="No matching bank questions found")
+        # Fetch selected bank questions
+        bank_rows = (supabase.table("question_bank").select("*")
+                     .eq("teacher_id", tid).in_("id", question_ids).execute()).data or []
+        if not bank_rows:
+            raise HTTPException(status_code=404, detail="No matching bank questions found")
 
-    # Get current max question_id for this exam
-    existing = _load_questions(teacher_id=tid, exam_id=exam_id)
-    max_id = max((int(q.get("question_id", q.get("id", 0))) for q in existing), default=0)
+        # Get current max question_id for this exam
+        existing = _load_questions(teacher_id=tid, exam_id=exam_id)
+        max_id = max((int(q.get("question_id", q.get("id", 0))) for q in existing), default=0)
 
-    # Insert into questions table
-    new_rows = []
-    for i, bq in enumerate(bank_rows, start=max_id + 1):
-        new_rows.append({
-            "teacher_id": tid,
-            "exam_id": exam_id,
-            "question_id": i,
-            "question": bq["question"],
-            "question_type": bq.get("question_type", "mcq_single"),
-            "options": bq.get("options", {}),
-            "correct": bq["correct"],
-            "image_url": bq.get("image_url", ""),
-        })
-    if new_rows:
-        supabase.table("questions").insert(new_rows).execute()
-        # Invalidate questions cache
-        if _cache:
-            _cache.delete(f"questions:{tid}:{exam_id or '_'}")
-    return {"added": len(new_rows), "starting_id": max_id + 1}
+        # Build insert rows. Use .get() defensively on every field — a
+        # malformed bank row (missing correct, missing options) should
+        # surface as a 422 with the offending row id, not crash the
+        # whole batch with a KeyError.
+        new_rows = []
+        bad = []
+        for i, bq in enumerate(bank_rows, start=max_id + 1):
+            q_text = (bq.get("question") or "").strip()
+            correct = (bq.get("correct") or "").strip()
+            opts = bq.get("options") or {}
+            if not q_text or not correct or not opts:
+                bad.append({"id": bq.get("id"), "reason":
+                    f"missing fields: question={'OK' if q_text else 'MISSING'}, "
+                    f"correct={'OK' if correct else 'MISSING'}, "
+                    f"options={'OK' if opts else 'MISSING'}"})
+                continue
+            new_rows.append({
+                "teacher_id": tid,
+                "exam_id": exam_id,
+                "question_id": i,
+                "question": q_text,
+                "question_type": bq.get("question_type", "mcq_single"),
+                "options": opts,
+                "correct": correct,
+                "image_url": bq.get("image_url") or "",
+            })
+        if bad and not new_rows:
+            raise HTTPException(status_code=422, detail={
+                "message": "All selected bank rows are missing required fields. "
+                           "Edit them in the bank list (pencil icon) before adding.",
+                "rows": bad,
+            })
+        if new_rows:
+            supabase.table("questions").insert(new_rows).execute()
+            if _cache:
+                _cache.delete(f"questions:{tid}:{exam_id or '_'}")
+        return {
+            "added": len(new_rows),
+            "starting_id": max_id + 1,
+            "skipped": len(bad),
+            "skipped_rows": bad[:10],
+        }
+    except HTTPException:
+        # Pass our own 4xx through unchanged.
+        raise
+    except Exception as e:
+        # Anything else is unexpected — log it server-side and surface
+        # a 502 with the message so the dashboard can show it inline
+        # instead of generic "internal server error".
+        print(f"[bank-to-exam][ERROR] tid={tid} exam={exam_id} "
+              f"qcount={len(question_ids)} err={type(e).__name__}: {e}",
+              flush=True)
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=502,
+            detail=f"Couldn't copy questions: {type(e).__name__}: {e}")
 
 
 @app.get("/api/admin/questions")

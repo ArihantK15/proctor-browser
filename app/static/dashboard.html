@@ -4637,12 +4637,31 @@ function renderBank(data){
   const empty = document.getElementById('bank-empty');
   if(!data.length){ list.innerHTML=''; empty.style.display=''; return; }
   empty.style.display='none';
-  list.innerHTML = data.map((q,i)=>{
+  // Select-all header — checks/unchecks every visible row in one click.
+  // Computed state: indeterminate when SOME but not ALL are selected.
+  const allSelected = data.length > 0 && data.every(q => _bankSelected.has(q.id));
+  const someSelected = data.some(q => _bankSelected.has(q.id));
+  const selectAllHeader = `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;
+                background:var(--surface-2);border-bottom:1px solid var(--border);
+                position:sticky;top:0;z-index:1">
+      <input type="checkbox" id="bank-select-all" onchange="_bankSelectAll(this.checked)"
+             ${allSelected ? 'checked' : ''}
+             style="margin:0;flex-shrink:0">
+      <label for="bank-select-all" style="font-size:11px;color:var(--text-mid);cursor:pointer;flex:1">
+        ${allSelected ? 'All selected' : someSelected ? 'Some selected' : 'Select all'}
+      </label>
+      <span id="bank-selected-count" style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono)">
+        ${_bankSelected.size} / ${data.length}
+      </span>
+    </div>`;
+  list.innerHTML = selectAllHeader + data.map((q,i)=>{
     const opts = q.options||{};
     const optStr = Object.entries(opts).map(([k,v])=>`<span style="margin-right:8px"><b>${_escHtml(k)}.</b> ${_escHtml(String(v).substring(0,40))}</span>`).join('');
     const tags = (q.tags||[]).map(t=>`<span style="background:rgba(61,217,168,.1);color:var(--accent-light);border-radius:10px;padding:1px 8px;font-size:10px;margin-right:4px">${_escHtml(t)}</span>`).join('');
+    const checked = _bankSelected.has(q.id) ? 'checked' : '';
     return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-bottom:1px solid var(--border);${i%2===0?'background:rgba(255,255,255,.01)':''}">
-      <input type="checkbox" onchange="_bankToggle('${q.id}',this.checked)" style="margin-top:4px;flex-shrink:0">
+      <input type="checkbox" ${checked} onchange="_bankToggle('${q.id}',this.checked)" style="margin-top:4px;flex-shrink:0">
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;color:var(--text);margin-bottom:4px">${_escHtml(q.question)}</div>
         <div style="font-size:11px;color:var(--muted)">${optStr}</div>
@@ -4664,6 +4683,24 @@ function renderBank(data){
 function _bankToggle(id, checked){
   if(checked) _bankSelected.add(id);
   else _bankSelected.delete(id);
+  // Refresh select-all header so the indeterminate / count text stays accurate
+  // without re-rendering every row (cheaper + preserves scroll position).
+  const countEl = document.getElementById('bank-selected-count');
+  if(countEl) countEl.textContent = `${_bankSelected.size} / ${(_bankData||[]).length}`;
+  const allEl = document.getElementById('bank-select-all');
+  if(allEl){
+    const data = _bankData || [];
+    allEl.checked = data.length > 0 && data.every(q => _bankSelected.has(q.id));
+    allEl.indeterminate = !allEl.checked && _bankSelected.size > 0;
+  }
+}
+
+// Select-all checkbox handler.
+function _bankSelectAll(check){
+  const data = _bankData || [];
+  if(check) data.forEach(q => _bankSelected.add(q.id));
+  else _bankSelected.clear();
+  renderBank(data);
 }
 
 function filterBank(){
@@ -4811,9 +4848,10 @@ function _renderGenPreview(){
     </div>`).join('');
   preview.innerHTML = `
     ${rows}
-    <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
-      <button class="action-btn primary" onclick="commitGenPreview()">Add ${_genPreview.length} to Bank</button>
-      <button class="action-btn" onclick="_genPreview=[];_renderGenPreview();document.getElementById('gen-status').textContent=''">Discard All</button>
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="action-btn primary" onclick="commitGenPreview('exam')" title="Save to bank AND add to the currently selected exam">+ ${_genPreview.length} → Exam</button>
+      <button class="action-btn" onclick="commitGenPreview('bank')" title="Save to question bank only (use Bank tab to add to an exam later)">+ ${_genPreview.length} → Bank</button>
+      <button class="action-btn" onclick="_genPreview=[];_renderGenPreview();document.getElementById('gen-status').textContent=''">Discard</button>
     </div>`;
 }
 
@@ -4822,7 +4860,19 @@ function _dropGenQ(idx){
   _renderGenPreview();
 }
 
-async function commitGenPreview(){
+async function commitGenPreview(destination = 'bank'){
+  // destination = 'bank'  → save to bank only (legacy default)
+  // destination = 'exam'  → save to bank AND auto-import into the
+  //                         currently selected exam in one click.
+  //                         Two-step under the hood (the bank write
+  //                         is the source of truth; bank-to-exam
+  //                         copies onto the exam) but feels like one.
+  if(destination === 'exam'){
+    if(!currentExamId){
+      alert('Select an exam first (top of the page) before adding directly.');
+      return;
+    }
+  }
   // Read back any inline edits before sending — teachers expect
   // their tweaks to persist, and re-rendering would lose them.
   const cards = document.querySelectorAll('#gen-preview [data-gen-idx]');
@@ -4860,15 +4910,68 @@ async function commitGenPreview(){
     });
     const d = await r.json();
     if(!r.ok){ status.style.color='var(--red)'; status.textContent = d.detail||'Save failed.'; return; }
-    status.style.color='var(--emerald)';
-    status.textContent = `Saved ${d.imported||out.length} to bank.`;
+    const savedCount = d.imported || out.length;
+    const newIds = (d.inserted_ids || (Array.isArray(d.data) ? d.data.map(x => x.id) : []));
     _genPreview = [];
     document.getElementById('gen-preview').innerHTML = '';
     document.getElementById('gen-topic').value = '';
     document.getElementById('gen-source').value = '';
-    loadBank();
-    // Hide the panel after a beat so the success message is visible.
-    setTimeout(()=>{ document.getElementById('bank-generate-area').style.display='none'; }, 1500);
+
+    // If the teacher chose "→ Exam", chain the bank-to-exam copy.
+    // We use the IDs the import endpoint returns so we don't have
+    // to re-fetch the bank list and pattern-match. Falls back to
+    // copying ALL freshly-saved bank rows if the endpoint didn't
+    // surface IDs (older deploys).
+    if(destination === 'exam'){
+      status.style.color = 'var(--muted)';
+      status.textContent = `Saved ${savedCount} to bank · adding to exam…`;
+      try{
+        // Reload bank to pick up the new rows + their generated UUIDs
+        await loadBank();
+        // Take the most-recently-created N rows that match this batch
+        const idsToAdd = newIds.length ? newIds
+          : (_bankData || []).slice(0, savedCount).map(b => b.id);
+        if(!idsToAdd.length){
+          status.style.color = 'var(--amber)';
+          status.textContent = 'Saved to bank but couldn’t identify them for auto-add. Use Bank → Add Selected.';
+          if(typeof setAITab === 'function') setAITab('bank');
+          return;
+        }
+        const r2 = await authFetch(`${BASE}/api/admin/question-bank/to-exam`, {
+          method: 'POST',
+          body: JSON.stringify({question_ids: idsToAdd, exam_id: currentExamId}),
+        });
+        const d2 = await r2.json();
+        if(!r2.ok){
+          status.style.color = 'var(--red)';
+          status.textContent = `Saved to bank, but adding to exam failed: ${d2.detail || 'server error'}`;
+          if(typeof setAITab === 'function') setAITab('bank');
+          return;
+        }
+        status.style.color = 'var(--emerald)';
+        status.textContent = `Added ${d2.added || idsToAdd.length} questions to the exam.`;
+        // Refresh the exam editor so the new questions appear there too.
+        if(typeof loadQuestions === 'function') loadQuestions();
+      }catch(e){
+        status.style.color = 'var(--red)';
+        status.textContent = 'Saved to bank, but auto-add to exam errored. Use Bank → Add Selected.';
+        if(typeof setAITab === 'function') setAITab('bank');
+      }
+      return;
+    }
+
+    // destination === 'bank' (default) — show the bank tab so the
+    // teacher SEES their newly-saved questions appear.
+    status.style.color = 'var(--emerald)';
+    status.textContent = `Saved ${savedCount} to bank.`;
+    if(typeof setAITab === 'function') setAITab('bank');
+    else loadBank();
+    // (Previously hid #bank-generate-area here, but in the Phase 2.8
+    // 3-pane layout that left the AI panel body empty / black until
+    // the user manually clicked another tab. setAITab('bank') above
+    // already moved focus to the bank list with the new questions
+    // visible — so we leave the generate pane in the DOM, just
+    // hidden by the data-aipane swap, ready for the next generation.)
   } catch(e){
     status.style.color='var(--red)'; status.textContent = 'Network error.';
   }

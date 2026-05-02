@@ -690,6 +690,130 @@
                       border-radius:var(--radius-xs) var(--radius-xs) 0 0;
                       transition:opacity var(--duration-fast) var(--ease-standard)}
   #an-histogram > div:hover{opacity:.8}
+
+  /* ── Questions tab — Phase 2.8 structural port ───────────────────
+     3-column shell layout per design package question-editor.html:
+       LEFT  → .q-sidebar   list of questions in this exam, with
+                            search + difficulty filter chips
+       CENTER → .q-content   toolbar + #q-editor (existing render
+                            output preserved verbatim — every JS
+                            hook intact)
+       RIGHT → .q-aipanel   AI Generate + Question Bank, toggled
+                            via the existing toggleBank() flow
+     The whole thing is a flex row with min-height so the sidebar
+     scrolls independently of the content. */
+  #panel-questions.qx-shell{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:560px;gap:0}
+  .qx-toolbar-top{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);
+                  padding:var(--space-2-5) var(--space-5);
+                  border:1px solid var(--border-subtle);border-radius:var(--radius-md);
+                  background:var(--bg-base);margin-bottom:14px;flex-shrink:0}
+  .qx-toolbar-top input[type="text"], .qx-toolbar-top input[type="number"]{
+    background:var(--surface-1);border:1px solid var(--border-subtle);
+    border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);
+    font-size:var(--text-sm)}
+  .qx-toolbar-top label{font-size:var(--text-xs);color:var(--text-muted);
+                        display:flex;align-items:center;gap:6px}
+  .qx-main{display:flex;flex:1;overflow:hidden;border:1px solid var(--border-subtle);
+           border-radius:var(--radius-md);background:var(--bg-subtle)}
+  .q-sidebar{width:260px;flex-shrink:0;background:var(--bg-subtle);
+             border-right:1px solid var(--border-subtle);
+             display:flex;flex-direction:column;overflow:hidden}
+  .q-sidebar-header{padding:var(--space-3) var(--space-4);
+                    border-bottom:1px solid var(--border-subtle);
+                    display:flex;flex-direction:column;gap:var(--space-2);flex-shrink:0}
+  .q-sidebar-title{font-size:var(--text-xs);font-weight:600;
+                   letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted)}
+  .q-sidebar-search{position:relative}
+  .q-sidebar-search svg{position:absolute;left:8px;top:50%;transform:translateY(-50%);
+                        color:var(--text-muted);pointer-events:none}
+  .q-sidebar-search input{width:100%;font-family:inherit;font-size:var(--text-sm);
+                          color:var(--text-high);background:var(--surface-1);
+                          border:1px solid var(--border-subtle);
+                          border-radius:var(--radius-md);padding:6px 10px 6px 28px}
+  .q-sidebar-search input:focus{outline:none;border-color:var(--accent);
+                                 box-shadow:0 0 0 2px var(--input-focus-ring)}
+  .q-sidebar-filter{display:flex;gap:4px;padding:var(--space-2) var(--space-4);
+                    border-bottom:1px solid var(--border-subtle);
+                    overflow-x:auto;scrollbar-width:none;flex-shrink:0}
+  .q-sidebar-filter::-webkit-scrollbar{display:none}
+  .filter-chip{font-size:10px;padding:2px 8px;border-radius:99px;
+               border:1px solid var(--border-subtle);background:var(--surface-1);
+               color:var(--text-muted);cursor:pointer;white-space:nowrap;
+               font-family:var(--font-mono);letter-spacing:0.03em;
+               transition:background var(--duration-fast) var(--ease-standard)}
+  .filter-chip.active{background:var(--accent-subtle);
+                      border-color:var(--accent-border);color:var(--accent)}
+  .q-list-wrap{flex:1;overflow-y:auto;padding:var(--space-2) 0}
+  .q-list-item{display:flex;align-items:center;gap:var(--space-3);
+               padding:var(--space-2) var(--space-4);cursor:pointer;
+               border-left:2px solid transparent;
+               transition:background var(--duration-fast) var(--ease-standard)}
+  .q-list-item:hover{background:var(--surface-1)}
+  .q-list-item.active{background:var(--accent-subtle);border-left-color:var(--accent)}
+  .q-list-num{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);
+              width:24px;flex-shrink:0;text-align:right}
+  .q-list-preview{flex:1;font-size:var(--text-xs);color:var(--text-mid);
+                  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .q-list-item.active .q-list-preview{color:var(--text-high)}
+  .q-list-empty{padding:var(--space-4);color:var(--text-muted);
+                font-size:var(--text-xs);text-align:center}
+  .q-content{flex:1;overflow:hidden;display:flex;flex-direction:column;
+             background:var(--bg-base)}
+  .q-content-toolbar{display:flex;align-items:center;gap:var(--space-3);
+                     padding:var(--space-2-5) var(--space-5);
+                     border-bottom:1px solid var(--border-subtle);flex-shrink:0;
+                     background:var(--bg-base)}
+  .q-content-toolbar .toolbar-spacer{flex:1}
+  .q-content-toolbar .qct-btn{display:inline-flex;align-items:center;gap:6px;
+                              font-family:inherit;font-size:var(--text-sm);
+                              font-weight:500;border:1px solid var(--border-subtle);
+                              border-radius:var(--radius-md);padding:6px 12px;
+                              cursor:pointer;background:var(--surface-1);
+                              color:var(--text-mid);text-decoration:none;
+                              transition:background var(--duration-fast) var(--ease-standard)}
+  .q-content-toolbar .qct-btn:hover{background:var(--surface-2);color:var(--text-high)}
+  .q-content-toolbar .qct-btn.primary{background:var(--accent);border-color:var(--accent);color:white}
+  .q-content-toolbar .qct-btn.primary:hover{background:var(--accent-hover)}
+  .q-content-toolbar .qct-btn.ghost{background:transparent;border-color:transparent;color:var(--text-muted)}
+  .q-content-toolbar .qct-btn.ghost:hover{background:var(--surface-1);color:var(--text-high)}
+  .q-content-scroll{flex:1;overflow-y:auto;padding:var(--space-5)}
+  /* AI / Bank right panel */
+  .q-aipanel{width:360px;flex-shrink:0;background:var(--bg-subtle);
+             border-left:1px solid var(--border-subtle);
+             display:flex;flex-direction:column;overflow:hidden}
+  .q-aipanel.collapsed{display:none}
+  .q-aipanel-header{padding:var(--space-3) var(--space-4);
+                    border-bottom:1px solid var(--border-subtle);
+                    display:flex;align-items:center;gap:var(--space-2);flex-shrink:0}
+  .q-aipanel-title{font-size:var(--text-sm);font-weight:600;
+                   color:var(--text-high);flex:1}
+  .q-aipanel-badge{font-family:var(--font-mono);font-size:9px;font-weight:600;
+                   letter-spacing:0.06em;text-transform:uppercase;
+                   color:var(--accent);background:var(--accent-subtle);
+                   border:1px solid var(--accent-border);
+                   padding:2px 7px;border-radius:3px}
+  .q-aipanel-tabs{display:flex;border-bottom:1px solid var(--border-subtle);
+                  background:var(--bg-inset);flex-shrink:0}
+  .q-aipanel-tab{flex:1;font-size:var(--text-xs);font-weight:500;
+                 color:var(--text-muted);background:none;border:none;
+                 border-bottom:2px solid transparent;
+                 padding:8px 12px;cursor:pointer;font-family:inherit;
+                 transition:color var(--duration-fast) var(--ease-standard)}
+  .q-aipanel-tab.active{color:var(--text-high);border-bottom-color:var(--accent)}
+  .q-aipanel-body{flex:1;overflow-y:auto;padding:var(--space-3)}
+
+  /* Mobile: collapse the 3-column shell into a single scrolling
+     column. Sidebar becomes a horizontal strip on top, AI panel
+     hides (use the toggle to bring it back as a modal-ish overlay
+     on phones). */
+  @media(max-width:900px){
+    #panel-questions.qx-shell{height:auto;min-height:0}
+    .qx-main{flex-direction:column;border:none;border-radius:0}
+    .q-sidebar{width:100%;max-height:200px;border-right:none;
+               border-bottom:1px solid var(--border-subtle)}
+    .q-aipanel{width:100%;border-left:none;
+               border-top:1px solid var(--border-subtle);max-height:60vh}
+  }
 </style>
 </head>
 <body>
@@ -913,102 +1037,178 @@
     </div>
   </div>
 
-  <!-- QUESTIONS -->
-  <div class="panel" id="panel-questions">
-    <!-- Phase 2: questions-tab stats use the same .stats-bar / .stat-tile
-         pattern as Live + Analytics + Results + Tools. -->
+  <!-- QUESTIONS — Phase 2.8: 3-column shell port from design package
+       (left sidebar = question list with search/filter; center =
+       toolbar + #q-editor; right = AI Generate + Bank toggle).
+       Every existing JS hook ID is preserved verbatim — the JS that
+       renders #q-editor / #q-stats / #bank-list / #gen-* / etc.
+       continues to populate them; this commit only restructures
+       the surrounding markup. -->
+  <div class="panel qx-shell" id="panel-questions">
+
+    <!-- Top stat strip + meta toolbar (kept above the 3-column main
+         so exam-title and duration sit at the page level rather than
+         inside the editor column). #q-stats and #q-save-msg unchanged. -->
     <div class="stats-bar" id="q-stats" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px"></div>
-    <div class="toolbar">
-      <input type="text" id="q-title" placeholder="Exam title" style="width:300px">
+    <div class="qx-toolbar-top">
+      <input type="text" id="q-title" placeholder="Exam title" style="flex:1;min-width:200px">
       <label>
         Duration (min)
-        <input type="number" id="q-duration" min="1" max="600" value="60" style="width:80px">
+        <input type="number" id="q-duration" min="1" max="600" value="60" style="width:90px">
       </label>
-      <button onclick="addQuestion()">+ Add Question</button>
-      <button onclick="togglePreview()">Preview</button>
       <button class="action-btn primary" onclick="saveQuestions()">Save All</button>
-      <button onclick="loadQuestions()">Reload</button>
-      <button onclick="toggleBank()" id="btn-toggle-bank" style="margin-left:auto">Question Bank</button>
+      <button class="action-btn" onclick="togglePreview()">Preview</button>
+      <button class="action-btn" onclick="loadQuestions()">Reload</button>
+      <button class="action-btn" onclick="toggleBank()" id="btn-toggle-bank" style="margin-left:auto">Question Bank ↔ AI</button>
     </div>
     <div id="q-save-msg" style="font-size:13px;min-height:22px;margin-bottom:8px"></div>
 
-    <!-- QUESTION BANK PANEL (collapsible) -->
-    <div id="q-bank-panel" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <h3 style="margin:0;font-size:15px;color:var(--accent-light);font-family:var(--font-display)">Question Bank</h3>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" id="bank-search" placeholder="Search or filter by tag..." oninput="filterBank()"
-            style="width:200px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px">
-          <button class="action-btn" onclick="showBankGenerate()" title="Generate questions with AI">✨ Generate</button>
-          <button class="action-btn" onclick="showBankImport()">Import CSV</button>
-          <button class="action-btn" onclick="exportBank()">Export</button>
-          <button class="action-btn primary" onclick="bankToExam()">Add Selected to Exam</button>
-        </div>
-      </div>
-      <div id="bank-list" style="max-height:400px;overflow-y:auto"></div>
-      <div id="bank-empty" style="color:var(--muted);font-size:13px;padding:20px;text-align:center">No questions in bank yet. Add questions or import from CSV.</div>
+    <!-- 3-column main: sidebar | content | ai panel ──────────────── -->
+    <div class="qx-main">
 
-      <!-- AI Generate panel (inline) -->
-      <div id="bank-generate-area" style="display:none;margin-top:14px;padding:14px;background:linear-gradient(180deg,rgba(61,217,168,.04),rgba(255,255,255,.02));border:1px solid var(--border);border-radius:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div style="font-size:12px;font-weight:600;color:var(--accent-light);text-transform:uppercase;letter-spacing:.06em">✨ Generate with AI</div>
-          <span style="font-size:10px;color:var(--muted)">Llama 3.3 70B · Groq</span>
+      <!-- LEFT SIDEBAR — question nav -->
+      <aside class="q-sidebar" aria-label="Question list">
+        <div class="q-sidebar-header">
+          <div class="q-sidebar-title"><span id="q-list-count">0</span> Questions</div>
+          <div class="q-sidebar-search">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="q-list-search" placeholder="Search…" oninput="renderQSidebar()">
+          </div>
         </div>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 10px">
-          Describe a topic. Generated questions appear below as a preview — review them, then click <b>Add to Bank</b>. Nothing is saved until you confirm.
-        </p>
-        <div style="display:grid;grid-template-columns:1fr 90px 110px 110px;gap:8px;margin-bottom:8px">
-          <input type="text" id="gen-topic" placeholder="e.g. Photosynthesis, light vs dark reactions"
-            style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px">
-          <input type="number" id="gen-count" value="10" min="1" max="25"
-            title="Number of questions (max 25)"
-            style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px">
-          <select id="gen-difficulty"
-            style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px">
-            <option value="easy">Easy</option>
-            <option value="medium">Medium</option>
-            <option value="hard">Hard</option>
-            <option value="mixed" selected>Mixed</option>
-          </select>
-          <input type="text" id="gen-grade" placeholder="Grade (opt.)"
-            title="Optional: target grade level, e.g. 'Grade 9' or 'undergrad'"
-            style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px">
+        <div class="q-sidebar-filter" role="radiogroup" aria-label="Filter by question type">
+          <button class="filter-chip active" data-qtypef="all" onclick="setQTypeFilter('all')">All</button>
+          <button class="filter-chip" data-qtypef="mcq_single" onclick="setQTypeFilter('mcq_single')">Single</button>
+          <button class="filter-chip" data-qtypef="mcq_multi" onclick="setQTypeFilter('mcq_multi')">Multi</button>
+          <button class="filter-chip" data-qtypef="true_false" onclick="setQTypeFilter('true_false')">T/F</button>
+          <button class="filter-chip" data-qtypef="img" onclick="setQTypeFilter('img')">Has image</button>
         </div>
-        <details style="margin-bottom:8px">
-          <summary style="font-size:11px;color:var(--muted);cursor:pointer">Optional: paste source material</summary>
-          <textarea id="gen-source" rows="4" placeholder="Paste a chapter, lecture notes, or article. Generated questions will be based on this text."
-            style="width:100%;margin-top:6px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
-        </details>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="action-btn primary" onclick="doGenerateQuestions()" id="gen-btn">Generate</button>
-          <button class="action-btn" onclick="document.getElementById('bank-generate-area').style.display='none'">Cancel</button>
-          <span id="gen-status" style="font-size:12px;color:var(--muted);margin-left:6px"></span>
+        <div class="q-list-wrap" id="q-list-wrap">
+          <div class="q-list-empty">No questions yet — click "Add" in the toolbar.</div>
         </div>
-        <!-- Preview area populated after generation -->
-        <div id="gen-preview" style="margin-top:12px"></div>
+        <div style="padding:var(--space-2) var(--space-4);border-top:1px solid var(--border-subtle);flex-shrink:0">
+          <button class="action-btn" onclick="addQuestion()" style="width:100%;justify-content:center">+ Add Question</button>
+        </div>
+      </aside>
+
+      <!-- CENTER — content toolbar + editor scroll -->
+      <div class="q-content">
+        <div class="q-content-toolbar">
+          <button class="qct-btn" onclick="addQuestion()">+ Add</button>
+          <button class="qct-btn" onclick="toggleBank();showBankImport()">Import CSV</button>
+          <div class="toolbar-spacer"></div>
+          <button class="qct-btn ghost" onclick="qExpandAll()" title="Expand all question cards">Expand all</button>
+          <button class="qct-btn ghost" onclick="qCollapseAll()" title="Collapse all question cards">Collapse all</button>
+        </div>
+        <div class="q-content-scroll">
+          <!-- EDITOR VIEW — render JS untouched, emits .q-card children with #qcard-N hooks -->
+          <div id="q-editor"></div>
+          <!-- PREVIEW VIEW (toggled by togglePreview()) -->
+          <div id="q-preview" style="display:none">
+            <div style="background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:24px;max-width:800px">
+              <h3 style="color:var(--accent);margin-bottom:16px;font-family:var(--font-display)" id="preview-title">Preview</h3>
+              <div id="preview-body"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Import modal (inline) -->
-      <div id="bank-import-area" style="display:none;margin-top:14px;padding:14px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px">
-        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Bulk Import</div>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 10px">
-          Paste CSV/JSON or upload a file. CSV columns: question, question_type, option_A, option_B, option_C, option_D, correct, image_url, tags.
-          Wrap fields containing commas in <code style="color:var(--accent-light)">"double quotes"</code>; separate multiple tags with <code style="color:var(--accent-light)">|</code>.
-          <a href="#" onclick="downloadBankCSVTemplate();return false;" style="color:var(--accent-light);text-decoration:underline;margin-left:4px">Download template</a>
-        </p>
-        <textarea id="bank-import-text" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
-          style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font:13px monospace;resize:vertical;box-sizing:border-box"></textarea>
-        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-          <input type="file" id="bank-import-file" accept=".csv,.json" onchange="loadBankFile(this)" style="font-size:12px;color:var(--muted)">
-          <button class="action-btn primary" onclick="doBankImport()">Import</button>
-          <button class="action-btn" onclick="document.getElementById('bank-import-area').style.display='none'">Cancel</button>
+      <!-- RIGHT — AI Generate + Question Bank toggle. Hidden by
+           default; toggleBank() shows it. Inner area uses the
+           original IDs (#bank-list, #bank-generate-area, etc.)
+           verbatim so all bank/AI JS keeps working. -->
+      <aside class="q-aipanel collapsed" id="q-bank-panel" aria-label="AI Generate and Question Bank">
+        <div class="q-aipanel-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M5 17l1 2"/><path d="M19 17l-1 2"/></svg>
+          <span class="q-aipanel-title">AI &amp; Bank</span>
+          <span class="q-aipanel-badge">Beta</span>
+          <button class="qct-btn ghost" onclick="toggleBank()" title="Close panel" style="padding:2px 8px">×</button>
         </div>
-        <div id="bank-import-status" style="font-size:12px;min-height:18px;margin-top:6px"></div>
-      </div>
+        <div class="q-aipanel-tabs" role="tablist">
+          <button class="q-aipanel-tab active" data-aitab="generate" onclick="setAITab('generate')" role="tab" aria-selected="true">✨ Generate</button>
+          <button class="q-aipanel-tab" data-aitab="bank" onclick="setAITab('bank')" role="tab" aria-selected="false">Bank</button>
+          <button class="q-aipanel-tab" data-aitab="import" onclick="setAITab('import')" role="tab" aria-selected="false">Import</button>
+        </div>
+        <div class="q-aipanel-body">
+
+          <!-- GENERATE pane — visible by default. Inner IDs match
+               the original markup so doGenerateQuestions() / the
+               render of preview / etc. all work unchanged. -->
+          <div id="bank-generate-area" data-aipane="generate">
+            <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;line-height:1.5">
+              Describe a topic. Generated questions appear below as a preview — review, then click <b>Add to Bank</b>. Nothing is saved until you confirm.
+            </p>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">
+              <div>
+                <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Topic</div>
+                <input type="text" id="gen-topic" placeholder="e.g. Photosynthesis, light vs dark reactions"
+                  style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Count</div>
+                  <input type="number" id="gen-count" value="10" min="1" max="25" title="Max 25 per call"
+                    style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                </div>
+                <div>
+                  <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Difficulty</div>
+                  <select id="gen-difficulty"
+                    style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                    <option value="mixed" selected>Mixed</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Grade (optional)</div>
+                <input type="text" id="gen-grade" placeholder="e.g. Grade 9 or undergrad"
+                  style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+              </div>
+            </div>
+            <details style="margin-bottom:10px">
+              <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Optional: paste source material</summary>
+              <textarea id="gen-source" rows="4" placeholder="Paste a chapter, lecture notes, or article — generated questions will be based on this text."
+                style="width:100%;margin-top:6px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
+            </details>
+            <button class="action-btn primary" onclick="doGenerateQuestions()" id="gen-btn" style="width:100%;justify-content:center">Generate</button>
+            <div id="gen-status" style="font-size:12px;color:var(--text-muted);margin-top:8px"></div>
+            <div id="gen-preview" style="margin-top:12px"></div>
+          </div>
+
+          <!-- BANK pane — list + import-into-exam button. Hidden by
+               default; setAITab('bank') reveals it. -->
+          <div data-aipane="bank" style="display:none">
+            <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+              <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" oninput="filterBank()"
+                style="flex:1;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);font-size:12px;font-family:inherit">
+              <button class="action-btn" onclick="exportBank()" title="Download bank as JSON">Export</button>
+            </div>
+            <div id="bank-list" style="max-height:50vh;overflow-y:auto"></div>
+            <div id="bank-empty" style="color:var(--text-muted);font-size:12px;padding:20px;text-align:center">No questions in bank yet.</div>
+            <button class="action-btn primary" onclick="bankToExam()" style="margin-top:10px;width:100%;justify-content:center">Add Selected → Exam</button>
+          </div>
+
+          <!-- IMPORT pane — bulk JSON/CSV upload. Hidden by default. -->
+          <div id="bank-import-area" data-aipane="import" style="display:none">
+            <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;line-height:1.5">
+              Paste CSV/JSON or upload a file. CSV columns: question, question_type, option_A, option_B, option_C, option_D, correct, image_url, tags.
+              Wrap commas in <code style="color:var(--accent)">"double quotes"</code>; separate tags with <code style="color:var(--accent)">|</code>.
+              <a href="#" onclick="downloadBankCSVTemplate();return false;" style="color:var(--accent);text-decoration:underline">Template</a>
+            </p>
+            <textarea id="bank-import-text" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
+              style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:10px;color:var(--text-high);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="file" id="bank-import-file" accept=".csv,.json" onchange="loadBankFile(this)" style="font-size:11px;color:var(--text-muted);flex:1;min-width:120px">
+              <button class="action-btn primary" onclick="doBankImport()">Import</button>
+            </div>
+            <div id="bank-import-status" style="font-size:12px;min-height:18px;margin-top:6px"></div>
+          </div>
+
+        </div>
+      </aside>
+
     </div>
-
-    <!-- EDITOR VIEW -->
-    <div id="q-editor"></div>
 
     <!-- PREVIEW VIEW -->
     <div id="q-preview" style="display:none">
@@ -3176,6 +3376,7 @@ async function loadQuestions(){
     qDirty = false;
     renderQEditor();
     renderQStats();
+  if(typeof renderQSidebar==='function') renderQSidebar();
   }catch(e){
     el.innerHTML='<p style="color:var(--red)">Failed to load questions.</p>';
   }
@@ -3349,6 +3550,7 @@ function renderQEditor(){
     </div>`;
   }).join('');
   renderQStats();
+  if(typeof renderQSidebar==='function') renderQSidebar();
   // Resolve image thumbnails asynchronously (fetched with auth token).
   qData.forEach((q,i)=>{
     if(!q.image_url) return;
@@ -3636,6 +3838,7 @@ async function saveQuestions(){
     qDirty=false;
     msgEl.innerHTML=`<span style="color:var(--emerald)">Saved ${d.count} questions successfully.</span>`;
     renderQStats();
+  if(typeof renderQSidebar==='function') renderQSidebar();
   }catch(e){
     msgEl.innerHTML=`<span style="color:var(--red)">Save failed: ${escAttr(e.message)}</span>`;
   }
@@ -4212,11 +4415,121 @@ function chatFmtTime(ts){
 let _bankData = [];
 let _bankSelected = new Set();
 
+// Toggle the right-side AI/Bank panel via the .collapsed class (Phase 2.8
+// 3-column shell). Falls back gracefully on legacy markup that may use
+// inline display:none — both styles end up consistent after the toggle.
 function toggleBank(){
   const panel = document.getElementById('q-bank-panel');
-  const visible = panel.style.display !== 'none';
-  panel.style.display = visible ? 'none' : '';
-  if(!visible) loadBank();
+  if(!panel) return;
+  const isCollapsed = panel.classList.contains('collapsed');
+  if(isCollapsed){
+    panel.classList.remove('collapsed');
+    panel.style.display = '';   // belt + suspenders for legacy CSS rules
+    loadBank();
+  } else {
+    panel.classList.add('collapsed');
+    panel.style.display = 'none';
+  }
+}
+
+// AI panel tab switcher — flips the [data-aipane] visible block
+// inside the right column. Three panes: generate / bank / import.
+function setAITab(name){
+  const panel = document.getElementById('q-bank-panel');
+  if(!panel) return;
+  // If the panel is closed, opening it via tab click should reveal it.
+  if(panel.classList.contains('collapsed')) toggleBank();
+  panel.querySelectorAll('.q-aipanel-tab').forEach(t => {
+    const on = t.dataset.aitab === name;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  panel.querySelectorAll('[data-aipane]').forEach(p => {
+    p.style.display = (p.dataset.aipane === name) ? '' : 'none';
+  });
+  if(name === 'bank') loadBank();
+}
+
+// Sidebar question-list filter state — module-level so the sidebar
+// can re-render itself on search input + chip click without
+// disturbing the editor (#q-editor) which renders all questions.
+let _qListFilter = 'all';   // 'all' | 'mcq_single' | 'mcq_multi' | 'true_false' | 'img'
+
+function setQTypeFilter(name){
+  _qListFilter = name;
+  document.querySelectorAll('.q-sidebar-filter .filter-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.qtypef === name);
+  });
+  renderQSidebar();
+}
+
+// Render the left sidebar question list. Filters by:
+//   • _qListFilter chip (question type or "has image")
+//   • #q-list-search text match against question body
+// Clicking an item scrolls the matching #qcard-N into view in the
+// center column. Highlights the active item via .active class.
+function renderQSidebar(){
+  const wrap = document.getElementById('q-list-wrap');
+  const countEl = document.getElementById('q-list-count');
+  if(!wrap) return;
+  if(countEl) countEl.textContent = qData.length;
+  if(!qData.length){
+    wrap.innerHTML = '<div class="q-list-empty">No questions yet — click "Add" in the toolbar.</div>';
+    return;
+  }
+  const searchEl = document.getElementById('q-list-search');
+  const term = searchEl ? (searchEl.value||'').trim().toLowerCase() : '';
+  const filtered = qData.map((q,i) => ({...q, _idx:i})).filter(q => {
+    if(_qListFilter === 'img'){ if(!q.image_url) return false; }
+    else if(_qListFilter !== 'all'){
+      if((q.question_type||'mcq_single') !== _qListFilter) return false;
+    }
+    if(term && !(q.question||'').toLowerCase().includes(term)) return false;
+    return true;
+  });
+  if(!filtered.length){
+    wrap.innerHTML = '<div class="q-list-empty">No matching questions.</div>';
+    return;
+  }
+  wrap.innerHTML = filtered.map(q => {
+    const preview = (q.question||'(empty)').slice(0,80);
+    return `<div class="q-list-item" onclick="qFocusCard(${q._idx})" data-qidx="${q._idx}">
+      <span class="q-list-num">${q._idx+1}</span>
+      <span class="q-list-preview">${esc(preview)}</span>
+    </div>`;
+  }).join('');
+}
+
+// Scroll the matching #qcard-i into view + apply .active highlight in
+// the sidebar. Used by sidebar item clicks.
+function qFocusCard(idx){
+  const card = document.getElementById('qcard-'+idx);
+  if(card) card.scrollIntoView({behavior:'smooth', block:'start'});
+  document.querySelectorAll('.q-list-item').forEach(el => {
+    el.classList.toggle('active', String(el.dataset.qidx) === String(idx));
+  });
+}
+
+// Expand / collapse all q-cards. The legacy q-card has no collapse
+// state today — every card is fully open. We implement collapse by
+// toggling display on every child of .q-card except .q-card-hdr,
+// which is the sticky always-visible row. Idempotent across re-renders
+// because the JS that emits q-cards re-runs after every loadQuestions.
+function qExpandAll(){
+  document.querySelectorAll('#q-editor .q-card').forEach(card => {
+    Array.from(card.children).forEach(ch => {
+      if(!ch.classList.contains('q-card-hdr')) ch.style.display = '';
+    });
+    card.dataset.collapsed = '0';
+  });
+}
+function qCollapseAll(){
+  document.querySelectorAll('#q-editor .q-card').forEach(card => {
+    Array.from(card.children).forEach(ch => {
+      if(!ch.classList.contains('q-card-hdr')) ch.style.display = 'none';
+    });
+    card.dataset.collapsed = '1';
+  });
 }
 
 async function loadBank(){

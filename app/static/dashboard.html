@@ -634,7 +634,13 @@
      Existing IDs (#live-stats, #live-search, #live-body,
      #id-reviews-section/list/count) are preserved as the JS still
      reads them. */
-  .live-layout{display:flex;flex-direction:column;height:100%;overflow:hidden}
+  /* CRITICAL: scope to .panel.active so inactive tabs stay hidden.
+     Without the .active qualifier, .live-layout (specificity 0,1,0)
+     ties with .panel{display:none} and wins on cascade order — every
+     panel with class="panel live-layout" would render even when the
+     teacher is on a different tab. Same fix applied below for
+     #panel-questions.qx-shell. */
+  .panel.active.live-layout{display:flex;flex-direction:column;height:100%;overflow:hidden}
   .stats-bar{display:flex;align-items:stretch;gap:0;padding:var(--space-3) var(--space-5);
              background:var(--bg-subtle);border-bottom:1px solid var(--border-subtle);flex-shrink:0;
              overflow-x:auto}
@@ -751,7 +757,10 @@
                             via the existing toggleBank() flow
      The whole thing is a flex row with min-height so the sidebar
      scrolls independently of the content. */
-  #panel-questions.qx-shell{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:560px;gap:0}
+  /* Same .active scoping as above — without it, #panel-questions
+     (specificity 1,1,0) wins outright over .panel{display:none}
+     and the Questions tab renders on top of every other tab. */
+  #panel-questions.qx-shell.active{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:560px;gap:0}
   .qx-toolbar-top{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);
                   padding:var(--space-2-5) var(--space-5);
                   border:1px solid var(--border-subtle);border-radius:var(--radius-md);
@@ -856,7 +865,7 @@
      hides (use the toggle to bring it back as a modal-ish overlay
      on phones). */
   @media(max-width:900px){
-    #panel-questions.qx-shell{height:auto;min-height:0}
+    #panel-questions.qx-shell.active{height:auto;min-height:0}
     .qx-main{flex-direction:column;border:none;border-radius:0}
     .q-sidebar{width:100%;max-height:200px;border-right:none;
                border-bottom:1px solid var(--border-subtle)}
@@ -1274,14 +1283,12 @@
       </aside>
 
     </div>
-
-    <!-- PREVIEW VIEW -->
-    <div id="q-preview" style="display:none">
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:800px">
-        <h3 style="color:var(--accent-light);margin-bottom:16px;font-family:var(--font-display)" id="preview-title">Preview</h3>
-        <div id="preview-body"></div>
-      </div>
-    </div>
+    <!-- (Preview view lives inside .q-content-scroll above — not
+         duplicated here. The Phase 2.8 port placed #q-preview inside
+         the 3-column shell so it sits in the same scroll area as
+         #q-editor; the legacy outside-the-shell duplicate has been
+         removed to avoid two elements with the same id breaking
+         togglePreview().) -->
   </div>
 
   <!-- CHAT -->

@@ -1243,6 +1243,37 @@
   </div>
 </div>
 
+<!-- ── Live Camera View (on-demand peek at a student's webcam) ─────
+     Polls /api/admin/sessions/{sid}/live-frame every ~1s while open.
+     Server-side flag has a 60s TTL refreshed by keepalive every 30s,
+     so closing the panel without clicking Stop still terminates the
+     stream within a minute (kill-switch for forgotten panels). -->
+<div class="modal-bg hidden" id="liveview-modal" onclick="if(event.target===this)closeLiveView()">
+  <div class="modal" style="max-width:560px">
+    <button class="close" onclick="closeLiveView()">&times;</button>
+    <h3 style="margin-bottom:4px">Live Camera</h3>
+    <div id="liveview-meta" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);margin-bottom:14px"></div>
+    <div id="liveview-frame-wrap" style="position:relative;background:#000;border:1px solid var(--border);border-radius:8px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center">
+      <img id="liveview-img" alt="Live camera feed" style="display:none;width:100%;height:100%;object-fit:cover">
+      <div id="liveview-placeholder" style="color:var(--muted);font-size:13px;text-align:center;padding:20px;line-height:1.6">
+        Connecting to student's camera…<br>
+        <span style="font-size:11px">First frame typically arrives within 3 seconds.</span>
+      </div>
+    </div>
+    <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)">
+      <span id="liveview-status">●&nbsp;Connecting</span>
+      <span id="liveview-ts"></span>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px">
+      <button class="action-btn" onclick="closeLiveView()" style="flex:1">Stop & Close</button>
+    </div>
+    <p style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.5">
+      The student's app uploads one frame every ~1.5 s while this panel is open.
+      Closing the panel stops uploads within 60 seconds. No frames are persisted.
+    </p>
+  </div>
+</div>
+
 <!-- TIMELINE MODAL -->
 <div class="modal-bg" id="timeline-modal" onclick="if(event.target===this)closeTimeline()">
   <div class="modal" style="width:900px;max-width:95vw">
@@ -2001,6 +2032,9 @@ function renderLive(){
       <td>
         <button class="action-btn" onclick="viewRisk('${escJs(sid)}')" style="padding:4px 10px;font-size:11px">Risk</button>
         <button class="action-btn" onclick="currentSessionId='${escJs(sid)}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
+        ${s.live_state==='live'
+          ? `<button class="action-btn" onclick="openLiveView('${escJs(sid)}')" style="padding:4px 10px;font-size:11px" title="Peek at the student's webcam">Camera</button>`
+          : ''}
         ${(s.live_state==='live' && (s.calibration||{}).tier==='tight')
           ? `<button class="action-btn" onclick="requestRecalibration('${escJs(sid)}')" style="padding:4px 10px;font-size:11px;color:var(--amber)" title="End session and ask student to re-calibrate">Recal</button>`
           : ''}
@@ -2008,6 +2042,136 @@ function renderLive(){
     </tr>`;
   }).join('');
 }
+
+// ── Live camera view ────────────────────────────────────────────
+// Three intervals run while the panel is open:
+//   _liveViewFrameTimer    — fetches the latest JPEG every 1s
+//   _liveViewKeepaliveTimer — refreshes the server-side TTL every 30s
+//   _liveViewStaleTimer    — flips status to "Connection stale" if no
+//                            frame arrives for 5+ seconds (proctor
+//                            quit, network blip, student closed the
+//                            laptop, etc.)
+// All three are torn down by closeLiveView(); we also cleanup on
+// window unload so the server-side flag isn't kept alive by a
+// browser-tab-closing race.
+let _liveViewSid = null;
+let _liveViewFrameTimer = null;
+let _liveViewKeepaliveTimer = null;
+let _liveViewLastFrameAt = 0;
+let _liveViewStaleTimer = null;
+
+async function openLiveView(sid){
+  _liveViewSid = sid;
+  document.getElementById('liveview-meta').textContent = sid;
+  document.getElementById('liveview-img').style.display = 'none';
+  document.getElementById('liveview-placeholder').style.display = '';
+  document.getElementById('liveview-placeholder').innerHTML =
+    'Connecting to student’s camera…<br>' +
+    '<span style="font-size:11px">First frame typically arrives within 3 seconds.</span>';
+  document.getElementById('liveview-status').textContent = '● Connecting';
+  document.getElementById('liveview-status').style.color = 'var(--muted)';
+  document.getElementById('liveview-ts').textContent = '';
+  document.getElementById('liveview-modal').classList.remove('hidden');
+
+  try{
+    const r = await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(sid)}/live-view/start`, {method:'POST'});
+    if(!r.ok){
+      const d = await r.json();
+      document.getElementById('liveview-placeholder').innerHTML =
+        `Couldn’t start live view.<br><span style="font-size:11px;color:var(--red)">${esc(d.detail || 'Server error')}</span>`;
+      return;
+    }
+  }catch(e){
+    document.getElementById('liveview-placeholder').innerHTML =
+      'Network error — couldn’t reach the server to request live view.';
+    return;
+  }
+
+  _liveViewFrameTimer = setInterval(_liveViewPollFrame, 1000);
+  // Refresh the server-side 60s TTL every 30s so the panel stays
+  // alive as long as a teacher is actually watching. Pure idle
+  // (browser tab in background) is intentionally not respected —
+  // teachers often background-tab to switch students; we only
+  // care that they explicitly close.
+  _liveViewKeepaliveTimer = setInterval(() => {
+    if(!_liveViewSid) return;
+    authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/keepalive`,
+      {method:'POST'}).catch(()=>{});
+  }, 30000);
+  // Stale detector — if no frame in 5s, surface that state instead
+  // of leaving the teacher staring at a stale image with no signal.
+  _liveViewStaleTimer = setInterval(() => {
+    if(!_liveViewSid) return;
+    const since = Date.now() - _liveViewLastFrameAt;
+    if(_liveViewLastFrameAt === 0 && since > 8000){
+      document.getElementById('liveview-status').textContent = '● Waiting for first frame…';
+      document.getElementById('liveview-status').style.color = 'var(--amber)';
+    } else if(_liveViewLastFrameAt > 0 && since > 5000){
+      document.getElementById('liveview-status').textContent = `● Stale — last frame ${Math.round(since/1000)}s ago`;
+      document.getElementById('liveview-status').style.color = 'var(--amber)';
+    }
+  }, 1000);
+}
+
+async function _liveViewPollFrame(){
+  if(!_liveViewSid) return;
+  try{
+    // Cache-bust query param — defensive: we already send Cache-Control
+    // no-store from the server, but some intermediaries cache anyway.
+    const r = await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-frame?t=${Date.now()}`,
+      {method:'GET'});
+    if(r.status === 204) return;        // no frame yet — keep placeholder
+    if(!r.ok) return;                   // transient — try again next tick
+    const blob = await r.blob();
+    if(blob.size === 0) return;
+    const url = URL.createObjectURL(blob);
+    const img = document.getElementById('liveview-img');
+    const old = img.src;
+    img.onload = () => { if(old.startsWith('blob:')) URL.revokeObjectURL(old); };
+    img.src = url;
+    img.style.display = '';
+    document.getElementById('liveview-placeholder').style.display = 'none';
+    _liveViewLastFrameAt = Date.now();
+    document.getElementById('liveview-status').textContent = '● Live';
+    document.getElementById('liveview-status').style.color = 'var(--emerald)';
+    document.getElementById('liveview-ts').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  }catch(e){ /* transient; next tick */ }
+}
+
+async function closeLiveView(){
+  const sid = _liveViewSid;
+  _liveViewSid = null;
+  _liveViewLastFrameAt = 0;
+  if(_liveViewFrameTimer){ clearInterval(_liveViewFrameTimer); _liveViewFrameTimer = null; }
+  if(_liveViewKeepaliveTimer){ clearInterval(_liveViewKeepaliveTimer); _liveViewKeepaliveTimer = null; }
+  if(_liveViewStaleTimer){ clearInterval(_liveViewStaleTimer); _liveViewStaleTimer = null; }
+  // Release the current blob URL so the browser doesn't hold the
+  // last-frame bytes in memory after the panel closes.
+  const img = document.getElementById('liveview-img');
+  if(img && img.src && img.src.startsWith('blob:')){
+    URL.revokeObjectURL(img.src);
+    img.removeAttribute('src');
+  }
+  document.getElementById('liveview-modal').classList.add('hidden');
+  if(sid){
+    try{
+      await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(sid)}/live-view/stop`, {method:'POST'});
+    }catch(e){/* server-side TTL will clean up within 60s anyway */}
+  }
+}
+
+// Tear down cleanly if the teacher closes the browser tab — without
+// this, the server-side flag would linger for up to 60s.
+window.addEventListener('beforeunload', () => {
+  if(_liveViewSid){
+    // sendBeacon is fire-and-forget but reliable on tab close.
+    try{
+      const url = `${BASE}/api/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/stop`;
+      navigator.sendBeacon && navigator.sendBeacon(url);
+    }catch(_){}
+  }
+});
 
 // End the live session and ask the student to re-launch + redo
 // calibration. Only offered on live + tight-calibrated sessions

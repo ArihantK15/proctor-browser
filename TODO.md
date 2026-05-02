@@ -182,6 +182,81 @@ limit at current scale.
 
 ---
 
+## §1.6 Visual redesign integration (May 2026 design package)
+
+A full design system was produced (Periwinkle Blue accent, OKLCH color
+space, three themes including dark-OLED + light, IBM Plex typography,
+Lucide icons). Source files live at
+`~/Desktop/AI-Proctored Browser/`. Tokens are already copied into
+`app/static/tokens.css`. The design's flagship surfaces:
+
+- `teacher-live.html` — Live Sessions tab including a Camera Feed
+  panel (now wired end-to-end via on-demand live-view; see live-view
+  endpoints in §1.6 below).
+- `student-exam.html` — kiosk exam window, calmer palette.
+- `marketing.html` — single-page marketing site.
+- `analytics.html`, `calibration.html`, `question-editor.html`,
+  `mobile-spec.html`, `migration-plan.html`.
+
+### Suggested integration sequence (incremental, each shippable alone)
+
+1. **Adopt tokens.css** — load it as the first stylesheet on every
+   served HTML. The current inline `:root { --bg: #0d1117; ... }` blocks
+   should map to the new semantic tokens (`--surface-1`, `--text-default`
+   etc.) so old class names still work while colors update. **~30 LOC
+   touched per file. No JS or DOM changes.** Single PR.
+
+2. **Component baseline** — replace the existing button / input / badge /
+   pill CSS with the design's component classes from `components.html`.
+   Existing JS hooks (`#exam-select`, `.action-btn`, `.tab.active`)
+   stay reachable. ~200 LOC of CSS swapped in. Visual diff is large
+   but no functional change.
+
+3. **Live Sessions tab redesign** — port the `teacher-live.html`
+   markup into `dashboard.html`'s existing `#panel-live` panel.
+   Camera Feed slot is now wired (see §1.6). 3-pane layout with the
+   detail panel slide-in. ~400 LOC.
+
+4. **Student exam window** — port `student-exam.html` into
+   `renderer/index.html`. The biggest UX win for students per design
+   review. ~500 LOC. Must preserve every existing JS hook
+   (`#cam-preview`, `#exam-timer`, `#save-status`, `.q-field`,
+   `.opt-btn`, etc.) so the proctor + anti-cheat stack keeps working.
+
+5. **Marketing site** — `marketing.html` replaces `download.html` /
+   `website/index.html`. Standalone, lowest risk.
+
+6. **Mobile** — implement the responsive surfaces from
+   `mobile-spec.html` for the teacher dashboard's three priority
+   views (live monitor, chat, severity counts).
+
+Order assumes shipping each as a separate PR with smoke tests in
+between. Tokens-first means at any point we can stop and ship — every
+later step is additive.
+
+### §1.6 Live camera view (shipped 2026-05-02)
+
+On-demand teacher access to a student's webcam during a live exam.
+Architecture: pull-based polling (no WebRTC, no signaling, no SFU)
+with a 60s server-side TTL kill-switch. Endpoints:
+
+- `POST /api/admin/sessions/{sid}/live-view/start` (teacher)
+- `POST /api/admin/sessions/{sid}/live-view/keepalive` (teacher, 30s ping)
+- `POST /api/admin/sessions/{sid}/live-view/stop` (teacher)
+- `GET  /api/admin/sessions/{sid}/live-frame` (teacher; returns image/jpeg or 204)
+- `GET  /api/proctor/control/{sid}` (proctor.py polls every 2s)
+- `POST /api/proctor/live-frame` (proctor.py uploads when control says yes)
+
+Storage: Redis keys `liveview:<sid>` (60s TTL) and `liveframe:<sid>`
+(5s TTL). No disk persistence.
+
+When the design's full Live Sessions redesign lands (§1.6 step 3 above),
+the new "Camera Feed" slot in the detail panel will swap the current
+modal for the inline panel automatically — JS function `openLiveView`
++ the `<img id="liveview-img">` target are independent of layout.
+
+---
+
 ## §2 audit (2026-04-30) — additional findings, deferred
 
 A second-pass audit covering security, code quality, frontend/a11y, and

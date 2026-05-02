@@ -31,6 +31,7 @@ so the teacher dashboard's expectations are unchanged.
 import os
 import sys
 import time
+import base64
 import platform
 import threading
 import requests
@@ -302,6 +303,72 @@ def _heartbeat_loop():
             pass
 
 threading.Thread(target=_heartbeat_loop, daemon=True).start()
+
+# ─── ON-DEMAND LIVE CAMERA STREAM ─────────────────────────────────────────────
+# When a teacher clicks "View camera" on the dashboard, the server flips a
+# per-session Redis flag. This thread polls that flag every 2s; while it's
+# set, the main capture loop (further down) sees `_LIVE_VIEW_ACTIVE = True`
+# and pushes one downscaled JPEG to the server every ~1.5s. When the flag
+# clears (teacher closes the panel, or 60s TTL expires from inactivity),
+# we stop uploading. No persistent storage, no continuous streaming —
+# this is strictly opt-in surveillance with a hard kill-switch.
+
+CONTROL_URL    = SERVER_URL.replace("/event", f"/api/proctor/control/{SESSION_ID}")
+LIVE_FRAME_URL = SERVER_URL.replace("/event", "/api/proctor/live-frame")
+_LIVE_VIEW_ACTIVE = False
+_LIVE_VIEW_LOCK = threading.Lock()
+
+def _control_loop():
+    """Poll the server every 2s for control flags. Sets the global
+    _LIVE_VIEW_ACTIVE so the capture loop knows whether to upload."""
+    global _LIVE_VIEW_ACTIVE
+    while True:
+        try:
+            r = requests.get(CONTROL_URL, headers=HEADERS, timeout=4)
+            if r.ok:
+                want = bool(r.json().get("live_view"))
+                with _LIVE_VIEW_LOCK:
+                    if want != _LIVE_VIEW_ACTIVE:
+                        print(f"[LiveView] {'ENABLED' if want else 'disabled'}",
+                              flush=True)
+                    _LIVE_VIEW_ACTIVE = want
+        except Exception:
+            # Transient network blips just leave the previous state in
+            # place. Worst case: we stream for an extra 60s after the
+            # teacher actually closed the panel — bounded by the
+            # server-side TTL so it can't run forever.
+            pass
+        time.sleep(2)
+
+threading.Thread(target=_control_loop, daemon=True).start()
+
+
+def upload_live_frame(frame_bgr):
+    """Best-effort upload of one webcam frame for the teacher's
+    live-view panel. Downscales to 320×240 JPEG q70 (~15-25 KB) so
+    we don't saturate the student's uplink — most home wifi can
+    handle a 25 KB POST every 1.5s without noticeable impact on
+    the rest of the exam traffic. Failures are silent."""
+    try:
+        import cv2 as _cv2
+        small = _cv2.resize(frame_bgr, (320, 240), interpolation=_cv2.INTER_AREA)
+        ok, buf = _cv2.imencode(".jpg", small,
+                                [int(_cv2.IMWRITE_JPEG_QUALITY), 70])
+        if not ok:
+            return
+        b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+        requests.post(
+            LIVE_FRAME_URL,
+            json={"session_id": SESSION_ID, "jpeg_b64": b64},
+            headers=HEADERS, timeout=4,
+        )
+    except Exception:
+        pass
+
+# Track the last live-frame send so we can pace at ~1.5 s without
+# making the inner capture loop care about wall time.
+_LAST_LIVE_FRAME_TS = 0.0
+_LIVE_FRAME_INTERVAL_SEC = 1.5
 
 def log_event(etype, severity, details):
     global violation_count
@@ -764,6 +831,12 @@ def run_proctoring(cap, W, H):
     print(f"[PROCTOR] 🟢 Monitoring LIVE — Session: {SESSION_ID}")
     _print_tuning_summary()
 
+    # We mutate _LAST_LIVE_FRAME_TS from inside the capture loop to
+    # pace live-view uploads. Declared global because the variable
+    # itself lives at module scope so the control thread can also
+    # see / reset it if we ever need to.
+    global _LAST_LIVE_FRAME_TS
+
     # Per-event sustain counters. Each detection only fires after its
     # consecutive-frame threshold is met — single noisy frames are ignored.
     face_missing_count  = 0
@@ -837,6 +910,21 @@ def run_proctoring(cap, W, H):
             time.sleep(0.05)
             continue
         consecutive_failures = 0
+
+        # Live-view: if a teacher has opened the camera-feed panel for
+        # this session, push one downscaled JPEG every ~1.5 s. We do
+        # this BEFORE the heavy detection pipeline so the upload races
+        # in parallel with face/gaze inference and doesn't add to the
+        # per-frame budget. Encode + POST happens on this thread; ~5 ms
+        # encode + fire-and-forget POST is well under one frame's
+        # budget at 15 fps.
+        if _LIVE_VIEW_ACTIVE:
+            _now = time.time()
+            if _now - _LAST_LIVE_FRAME_TS >= _LIVE_FRAME_INTERVAL_SEC:
+                _LAST_LIVE_FRAME_TS = _now
+                threading.Thread(
+                    target=upload_live_frame, args=(frame.copy(),), daemon=True
+                ).start()
 
         frame_count += 1
 

@@ -7541,6 +7541,176 @@ async def request_recalibration(session_id: str, request: Request):
     return {"ok": True, "session_id": session_id, "status": "recalibration_requested"}
 
 
+# ─── ON-DEMAND LIVE CAMERA VIEW ────────────────────────────────────
+#
+# Lets a teacher peek at a specific student's webcam feed on demand
+# during a live exam. Architecture intentionally simple — no WebRTC,
+# no signaling server, no SFU:
+#
+#   1. Teacher clicks "View camera" on a session row.
+#      → POST /api/admin/sessions/{sid}/live-view/start
+#        Sets Redis key `liveview:<sid>` with 60s TTL. The TTL is the
+#        kill-switch: if the teacher closes the panel without clicking
+#        Stop (laptop lid, browser crash, alt-tab forever) the flag
+#        auto-expires and the student stops uploading frames within
+#        a minute.
+#
+#   2. proctor.py polls /api/proctor/control/{sid} every ~2s. When
+#      the response says `live_view: true`, it captures one downscaled
+#      JPEG (320×240, q70 ≈ 15 KB) and POSTs it to
+#      /api/proctor/live-frame every ~1.5s. Otherwise it does nothing.
+#
+#   3. Server stores the JPEG (base64) in Redis at `liveframe:<sid>`
+#      with 5s TTL — old frames evict themselves automatically.
+#
+#   4. Teacher's panel polls GET /api/admin/sessions/{sid}/live-frame
+#      every ~1s and renders into an <img>. While the panel is open
+#      it pings POST /api/admin/sessions/{sid}/live-view/keepalive
+#      every 30s to refresh the 60s flag TTL.
+#
+#   5. Stop button → POST /api/admin/sessions/{sid}/live-view/stop
+#      → deletes the flag, proctor.py stops uploading on its next
+#      control poll.
+#
+# Why pull-based polling instead of push (WebRTC / SSE for frames):
+# proctor.py already has HTTP capability and an event loop pacing
+# at 15-30 fps. Bolting a pull-loop on costs ~30 LOC. WebRTC would
+# need signaling + STUN/TURN + an SFU for fan-out — days of infra
+# for a feature whose 99th-percentile use case is "teacher checks
+# in for 10 seconds, decides student looks fine, closes panel."
+
+@app.post("/api/admin/sessions/{session_id:path}/live-view/start")
+def live_view_start(session_id: str, request: Request):
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    # Ownership: must be the teacher's own session before we start
+    # asking the student's machine to upload frames somewhere.
+    _assert_session_owned(session_id, tid)
+    if _cache:
+        _cache.set(f"liveview:{session_id}", {"tid": tid, "started_at": now_ist().isoformat()},
+                   ttl=60)
+    return {"ok": True, "session_id": session_id, "ttl_sec": 60}
+
+
+@app.post("/api/admin/sessions/{session_id:path}/live-view/keepalive")
+def live_view_keepalive(session_id: str, request: Request):
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    _assert_session_owned(session_id, tid)
+    # Re-set with the same TTL — Redis doesn't expose EXPIRE-only
+    # through our wrapper, so we round-trip the value. Cheap.
+    if _cache:
+        _cache.set(f"liveview:{session_id}", {"tid": tid, "renewed_at": now_ist().isoformat()},
+                   ttl=60)
+    return {"ok": True}
+
+
+@app.post("/api/admin/sessions/{session_id:path}/live-view/stop")
+def live_view_stop(session_id: str, request: Request):
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    _assert_session_owned(session_id, tid)
+    if _cache:
+        _cache.delete(f"liveview:{session_id}")
+        _cache.delete(f"liveframe:{session_id}")
+    return {"ok": True}
+
+
+@app.get("/api/admin/sessions/{session_id:path}/live-frame")
+def live_view_frame(session_id: str, request: Request):
+    """Return the latest webcam frame for this session (or 204 if none).
+
+    Served as image/jpeg directly from a base64 stash in Redis. The
+    base64 round-trip is cheap (15-25 KB frames decode in <1ms) and
+    keeps the storage path identical to the rest of the cache module.
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    _assert_session_owned(session_id, tid)
+    from starlette.responses import Response
+    if not _cache:
+        return Response(status_code=204)
+    payload = _cache.get(f"liveframe:{session_id}")
+    if not payload or not isinstance(payload, dict):
+        return Response(status_code=204)
+    b64 = payload.get("jpeg_b64")
+    if not b64:
+        return Response(status_code=204)
+    try:
+        jpeg = base64.b64decode(b64)
+    except Exception:
+        return Response(status_code=204)
+    # Cache-Control: no-store so the dashboard's <img src> always
+    # fetches fresh — without this, browsers happily serve a stale
+    # cached frame for the polling interval.
+    return Response(content=jpeg, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store, max-age=0"})
+
+
+# ── Student-side endpoints (proctor.py talks to these) ─────────────
+# Auth: proctor.py runs with a JWT issued at exam start (validate-student).
+# require_auth + ownership check ensures a student can only signal /
+# upload for their own session.
+
+@app.get("/api/proctor/control/{session_id:path}")
+def proctor_control(session_id: str, request: Request):
+    """Cheap polling endpoint proctor.py hits every ~2s.
+
+    Returns a small JSON describing whether to stream live frames
+    plus any other control flags we may add later. Practice-mode
+    sessions always return live_view=False (no teacher dashboard
+    can request a practice session's camera)."""
+    if is_practice(session_id):
+        return {"live_view": False, "practice": True}
+    claims = require_auth(request)
+    _check_session_ownership(claims, session_id)
+    if not _cache:
+        return {"live_view": False}
+    flag = _cache.get(f"liveview:{session_id}")
+    return {"live_view": bool(flag)}
+
+
+@app.post("/api/proctor/live-frame")
+async def proctor_live_frame(request: Request):
+    """Receive a downscaled JPEG from proctor.py for live-view stash.
+
+    Body: JSON `{session_id, jpeg_b64}`. Frame size is hard-capped at
+    100 KB after decode (≈ 480p JPEG). We never persist these to disk
+    — they live only in Redis with a 5s TTL, so a forgotten teacher
+    panel doesn't accumulate evidence-grade screenshots.
+    """
+    if not _cache:
+        return {"ok": False, "reason": "cache unavailable"}
+    body = await request.json()
+    session_id = (body.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    if is_practice(session_id):
+        return {"ok": True, "practice": True}
+    claims = require_auth(request)
+    _check_session_ownership(claims, session_id)
+
+    b64 = body.get("jpeg_b64") or ""
+    if not b64:
+        raise HTTPException(status_code=400, detail="jpeg_b64 required")
+    # Reject anything bigger than ~135KB base64 (≈ 100KB binary).
+    # This is a defence against a compromised proctor process trying
+    # to chew through Redis memory by uploading 4K stills.
+    if len(b64) > 135_000:
+        raise HTTPException(status_code=413, detail="frame too large")
+
+    # Stop wasting bandwidth if no teacher is watching — proctor.py
+    # checks this via /control too, but a fast-poll race could still
+    # land an upload here after the flag expires. Drop silently.
+    if not _cache.get(f"liveview:{session_id}"):
+        return {"ok": True, "dropped": "no viewer"}
+
+    _cache.set(f"liveframe:{session_id}",
+               {"jpeg_b64": b64, "ts": now_ist().isoformat()},
+               ttl=5)
+    return {"ok": True}
+
+
 # ─── DEMO REQUEST (public, rate-limited) ────────────────────────
 
 class DemoRequest(BaseModel):

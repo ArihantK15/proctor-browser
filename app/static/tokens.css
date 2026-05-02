@@ -1,0 +1,336 @@
+/**
+ * PROCTA DESIGN TOKENS
+ * Version 1.0 — May 2026
+ * Plain CSS custom properties. No preprocessor required.
+ * Works in Electron (Chromium 120+) and all modern browsers.
+ *
+ * USAGE: import this file first in any HTML page:
+ *   <link rel="stylesheet" href="tokens.css">
+ *
+ * THREE THEMES: [data-theme="dark"] (default), [data-theme="dark-oled"], [data-theme="light"]
+ * Apply theme attr to <html> or <body>. Defaults to dark if no attr is set.
+ */
+
+/* ─────────────────────────────────────────────────────────────────
+   RAW SCALE (DO NOT USE DIRECTLY IN COMPONENTS — use semantic tokens)
+   ───────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Periwinkle Blue scale (accent) */
+  --blue-50:  oklch(97% 0.03 260);
+  --blue-100: oklch(93% 0.06 260);
+  --blue-200: oklch(86% 0.10 260);
+  --blue-300: oklch(76% 0.14 260);
+  --blue-400: oklch(66% 0.17 260);
+  --blue-500: oklch(58% 0.19 260);   /* #5B8AF0 — primary accent */
+  --blue-600: oklch(50% 0.18 260);
+  --blue-700: oklch(41% 0.16 260);
+  --blue-800: oklch(31% 0.12 260);
+  --blue-900: oklch(22% 0.08 260);
+
+  /* ── Neutral Cool Steel scale */
+  --steel-0:   oklch(99.5% 0.005 240);
+  --steel-50:  oklch(97%   0.008 240);
+  --steel-100: oklch(93%   0.010 240);
+  --steel-200: oklch(85%   0.012 240);
+  --steel-300: oklch(72%   0.014 240);
+  --steel-400: oklch(58%   0.014 240);
+  --steel-500: oklch(47%   0.013 240);
+  --steel-600: oklch(37%   0.012 240);
+  --steel-700: oklch(28%   0.011 240);
+  --steel-800: oklch(20%   0.010 240);
+  --steel-850: oklch(16%   0.010 240);
+  --steel-900: oklch(12%   0.009 240);
+  --steel-950: oklch(9%    0.008 240);
+  --steel-1000:oklch(6%    0.007 240);
+
+  /* ── Severity raw colors (shared across all themes) */
+  --raw-info:      oklch(65% 0.17 260);  /* blue */
+  --raw-success:   oklch(62% 0.16 150);  /* emerald */
+  --raw-warn:      oklch(75% 0.17 85);   /* amber */
+  --raw-error:     oklch(62% 0.20 27);   /* red */
+  --raw-critical:  oklch(54% 0.22 0);    /* deep red */
+  --raw-calib:     oklch(70% 0.17 310);  /* violet — calibration */
+
+  /* ── Type scale (rem) */
+  --text-xs:   0.6875rem;   /* 11px */
+  --text-sm:   0.75rem;     /* 12px */
+  --text-base: 0.875rem;    /* 14px — dashboard default */
+  --text-md:   1rem;        /* 16px */
+  --text-lg:   1.125rem;    /* 18px */
+  --text-xl:   1.25rem;     /* 20px */
+  --text-2xl:  1.5rem;      /* 24px */
+  --text-3xl:  1.875rem;    /* 30px */
+  --text-4xl:  2.25rem;     /* 36px */
+  --text-5xl:  3rem;        /* 48px */
+
+  /* ── Line heights */
+  --leading-tight:   1.25;
+  --leading-snug:    1.375;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.625;
+
+  /* ── Letter spacing */
+  --tracking-tight:    -0.02em;
+  --tracking-normal:    0em;
+  --tracking-wide:      0.03em;
+  --tracking-wider:     0.06em;
+  --tracking-widest:    0.10em;
+
+  /* ── Spacing scale (4px base) */
+  --space-0:   0;
+  --space-px:  1px;
+  --space-0-5: 2px;
+  --space-1:   4px;
+  --space-1-5: 6px;
+  --space-2:   8px;
+  --space-2-5: 10px;
+  --space-3:   12px;
+  --space-4:   16px;
+  --space-5:   20px;
+  --space-6:   24px;
+  --space-7:   28px;
+  --space-8:   32px;
+  --space-10:  40px;
+  --space-12:  48px;
+  --space-14:  56px;
+  --space-16:  64px;
+  --space-20:  80px;
+  --space-24:  96px;
+  --space-32:  128px;
+
+  /* ── Border radius */
+  --radius-none:  0;
+  --radius-xs:    2px;
+  --radius-sm:    4px;
+  --radius-md:    6px;
+  --radius-lg:    8px;
+  --radius-xl:    12px;
+  --radius-2xl:   16px;
+  --radius-full:  9999px;
+
+  /* ── Motion */
+  --ease-standard:  cubic-bezier(0.4, 0, 0.2, 1);   /* most UI transitions */
+  --ease-decelerate:cubic-bezier(0, 0, 0.2, 1);      /* elements entering */
+  --ease-accelerate:cubic-bezier(0.4, 0, 1, 1);      /* elements leaving */
+
+  --duration-fast:   120ms;   /* hover states, icon swaps */
+  --duration-medium: 240ms;   /* panel open/close, tab switch */
+  --duration-slow:   400ms;   /* page-level transitions, modals */
+
+  /* Motion rules:
+     - NEVER animate student-side exam UI (could trigger anti-cheat / stress)
+     - Use fast for color/opacity on hover/focus
+     - Use medium for layout transitions (sidepanel, drawer, tab content)
+     - Use slow sparingly — modals only
+     - NO motion for severity / status badge color changes (reading speed matters)
+  */
+
+  /* ── Z-index layers */
+  --z-base:      0;
+  --z-raised:    10;
+  --z-dropdown:  100;
+  --z-sticky:    200;
+  --z-overlay:   300;
+  --z-modal:     400;
+  --z-toast:     500;
+  --z-tooltip:   600;
+
+  /* ── Shadows */
+  --shadow-none: none;
+  --shadow-xs:   0 1px 2px oklch(0% 0 0 / 0.25);
+  --shadow-sm:   0 1px 4px oklch(0% 0 0 / 0.30), 0 0 1px oklch(0% 0 0 / 0.15);
+  --shadow-md:   0 4px 12px oklch(0% 0 0 / 0.35), 0 0 1px oklch(0% 0 0 / 0.20);
+  --shadow-lg:   0 8px 24px oklch(0% 0 0 / 0.40), 0 0 1px oklch(0% 0 0 / 0.20);
+  --shadow-xl:   0 16px 48px oklch(0% 0 0 / 0.50), 0 0 1px oklch(0% 0 0 / 0.20);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   DARK THEME (default)
+   ───────────────────────────────────────────────────────────────── */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* ── Backgrounds (3 tiers, darkest to least-dark) */
+  --bg-base:      var(--steel-1000); /* #0a0d12 approx — page bg */
+  --bg-subtle:    var(--steel-950);  /* slightly lighter — used for page sections */
+  --bg-inset:     var(--steel-900);  /* well / inset areas */
+
+  /* ── Surfaces (3 tiers, for cards/panels/tables) */
+  --surface-1:    var(--steel-850);  /* default card / panel surface */
+  --surface-2:    var(--steel-800);  /* table row hover, raised surface */
+  --surface-3:    var(--steel-700);  /* selected row, active state */
+
+  /* ── Borders */
+  --border-subtle:  oklch(28% 0.011 240 / 0.6);
+  --border-default: oklch(37% 0.012 240 / 0.7);
+  --border-strong:  oklch(47% 0.013 240 / 0.8);
+
+  /* ── Text tiers */
+  --text-high:   var(--steel-50);    /* primary text — WCAG AAA on bg-base */
+  --text-mid:    var(--steel-300);   /* secondary labels — WCAG AA on bg-base */
+  --text-muted:  var(--steel-500);   /* placeholders, metadata — WCAG AA on bg-base */
+  --text-disabled: var(--steel-600); /* disabled — not for critical info */
+
+  /* ── Accent (interactive) */
+  --accent:         var(--blue-500);
+  --accent-hover:   var(--blue-400);
+  --accent-active:  var(--blue-600);
+  --accent-subtle:  oklch(58% 0.19 260 / 0.12);  /* accent bg for chips, rows */
+  --accent-border:  oklch(58% 0.19 260 / 0.35);
+
+  /* ── Severity: each has a fg (text/icon) and bg (chip background) */
+  --sev-info-fg:     oklch(68% 0.17 255);
+  --sev-info-bg:     oklch(68% 0.17 255 / 0.12);
+  --sev-success-fg:  oklch(65% 0.16 152);
+  --sev-success-bg:  oklch(65% 0.16 152 / 0.12);
+  --sev-warn-fg:     oklch(78% 0.17 88);
+  --sev-warn-bg:     oklch(78% 0.17 88 / 0.14);
+  --sev-error-fg:    oklch(65% 0.20 27);
+  --sev-error-bg:    oklch(65% 0.20 27 / 0.14);
+  --sev-critical-fg: oklch(68% 0.22 12);
+  --sev-critical-bg: oklch(68% 0.22 12 / 0.18);
+  --sev-calib-fg:    oklch(72% 0.17 308);
+  --sev-calib-bg:    oklch(72% 0.17 308 / 0.12);
+
+  /* ── Calibration tiers */
+  --calib-tight-fg:  oklch(72% 0.17 308);   /* violet */
+  --calib-tight-bg:  oklch(72% 0.17 308 / 0.12);
+  --calib-normal-fg: oklch(65% 0.16 152);   /* green */
+  --calib-normal-bg: oklch(65% 0.16 152 / 0.12);
+  --calib-loose-fg:  oklch(78% 0.17 88);    /* amber */
+  --calib-loose-bg:  oklch(78% 0.17 88 / 0.14);
+
+  /* ── Table-specific */
+  --table-header-bg:   var(--steel-900);
+  --table-row-bg:      var(--steel-950);
+  --table-row-hover:   var(--steel-850);
+  --table-row-stripe:  oklch(9% 0.008 240 / 0.5);
+  --table-border:      var(--border-subtle);
+
+  /* ── Component-specific */
+  --input-bg:          var(--surface-1);
+  --input-border:      var(--border-default);
+  --input-focus-ring:  oklch(58% 0.19 260 / 0.40);
+  --btn-primary-bg:    var(--blue-500);
+  --btn-primary-text:  oklch(99% 0.005 240);
+  --overlay-bg:        oklch(6% 0.007 240 / 0.75);
+  --scrollbar-track:   var(--bg-base);
+  --scrollbar-thumb:   var(--steel-700);
+  --scrollbar-hover:   var(--steel-600);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   DARK OLED THEME
+   ───────────────────────────────────────────────────────────────── */
+
+[data-theme="dark-oled"] {
+  color-scheme: dark;
+
+  --bg-base:      #000000;
+  --bg-subtle:    oklch(4% 0.005 240);
+  --bg-inset:     oklch(7% 0.007 240);
+
+  --surface-1:    oklch(9% 0.008 240);
+  --surface-2:    oklch(12% 0.009 240);
+  --surface-3:    oklch(16% 0.010 240);
+
+  --border-subtle:  oklch(18% 0.010 240 / 0.7);
+  --border-default: oklch(24% 0.011 240 / 0.8);
+  --border-strong:  oklch(32% 0.012 240 / 0.9);
+
+  --text-high:   oklch(97% 0.005 240);
+  --text-mid:    oklch(68% 0.012 240);
+  --text-muted:  oklch(45% 0.011 240);
+  --text-disabled: oklch(32% 0.010 240);
+
+  /* Severity FG slightly brighter for OLED contrast */
+  --sev-warn-fg:     oklch(82% 0.17 88);
+  --sev-error-fg:    oklch(70% 0.20 27);
+  --sev-critical-fg: oklch(74% 0.22 12);
+
+  --table-header-bg:   oklch(7% 0.007 240);
+  --table-row-bg:      oklch(4% 0.005 240);
+  --table-row-hover:   oklch(9% 0.008 240);
+  --table-row-stripe:  oklch(0% 0 0 / 0.3);
+
+  --input-bg:          var(--surface-1);
+  --overlay-bg:        oklch(0% 0 0 / 0.85);
+  --scrollbar-track:   #000000;
+  --scrollbar-thumb:   oklch(22% 0.010 240);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   LIGHT THEME
+   ───────────────────────────────────────────────────────────────── */
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-base:      oklch(98% 0.006 240);
+  --bg-subtle:    oklch(96% 0.007 240);
+  --bg-inset:     oklch(94% 0.008 240);
+
+  --surface-1:    oklch(100% 0.003 240);
+  --surface-2:    oklch(97%  0.006 240);
+  --surface-3:    oklch(93%  0.008 240);
+
+  --border-subtle:  oklch(88% 0.010 240);
+  --border-default: oklch(82% 0.012 240);
+  --border-strong:  oklch(72% 0.014 240);
+
+  --text-high:   oklch(18% 0.010 240);
+  --text-mid:    oklch(38% 0.012 240);
+  --text-muted:  oklch(54% 0.012 240);
+  --text-disabled: oklch(68% 0.010 240);
+
+  --accent:         var(--blue-600);
+  --accent-hover:   var(--blue-500);
+  --accent-active:  var(--blue-700);
+  --accent-subtle:  oklch(50% 0.18 260 / 0.08);
+  --accent-border:  oklch(50% 0.18 260 / 0.30);
+
+  --sev-info-fg:     oklch(44% 0.17 255);
+  --sev-info-bg:     oklch(44% 0.17 255 / 0.10);
+  --sev-success-fg:  oklch(40% 0.16 152);
+  --sev-success-bg:  oklch(40% 0.16 152 / 0.10);
+  --sev-warn-fg:     oklch(52% 0.17 88);
+  --sev-warn-bg:     oklch(52% 0.17 88 / 0.12);
+  --sev-error-fg:    oklch(44% 0.20 27);
+  --sev-error-bg:    oklch(44% 0.20 27 / 0.10);
+  --sev-critical-fg: oklch(38% 0.22 12);
+  --sev-critical-bg: oklch(38% 0.22 12 / 0.12);
+  --sev-calib-fg:    oklch(44% 0.17 308);
+  --sev-calib-bg:    oklch(44% 0.17 308 / 0.10);
+
+  --calib-tight-fg:  oklch(44% 0.17 308);
+  --calib-tight-bg:  oklch(44% 0.17 308 / 0.10);
+  --calib-normal-fg: oklch(40% 0.16 152);
+  --calib-normal-bg: oklch(40% 0.16 152 / 0.10);
+  --calib-loose-fg:  oklch(52% 0.17 88);
+  --calib-loose-bg:  oklch(52% 0.17 88 / 0.12);
+
+  --table-header-bg:   var(--bg-inset);
+  --table-row-bg:      var(--surface-1);
+  --table-row-hover:   var(--surface-2);
+  --table-row-stripe:  oklch(96% 0.006 240);
+  --table-border:      var(--border-subtle);
+
+  --input-bg:          var(--surface-1);
+  --input-focus-ring:  oklch(50% 0.18 260 / 0.25);
+  --btn-primary-bg:    var(--blue-600);
+  --btn-primary-text:  oklch(99% 0.005 240);
+  --overlay-bg:        oklch(18% 0.010 240 / 0.60);
+  --scrollbar-track:   var(--bg-base);
+  --scrollbar-thumb:   var(--steel-200);
+  --scrollbar-hover:   var(--steel-300);
+
+  /* Light-specific shadows */
+  --shadow-xs: 0 1px 2px oklch(0% 0 0 / 0.08);
+  --shadow-sm: 0 1px 4px oklch(0% 0 0 / 0.10), 0 0 1px oklch(0% 0 0 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0% 0 0 / 0.12), 0 0 1px oklch(0% 0 0 / 0.08);
+  --shadow-lg: 0 8px 24px oklch(0% 0 0 / 0.14), 0 0 1px oklch(0% 0 0 / 0.08);
+  --shadow-xl: 0 16px 48px oklch(0% 0 0 / 0.18), 0 0 1px oklch(0% 0 0 / 0.08);
+}

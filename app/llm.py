@@ -359,3 +359,90 @@ Correct: {correct}"""
     if not isinstance(tags, list):
         return []
     return [str(t).strip().lower() for t in tags if str(t).strip()][:5]
+
+
+# ── Live risk triage ─────────────────────────────────────────────────
+
+_TRIAGE_SYSTEM = """You are an exam invigilator's assistant. Given a session's recent \
+violation log and metadata, write ONE sentence (max 22 words) summarising what's \
+notable. Be concrete and concise — name specific behaviours and timing. Lead with \
+the most concerning pattern. If nothing is concerning, say "No concerning patterns." \
+verbatim. Never speculate beyond the evidence; never recommend an action.
+
+Banned phrases: "appears to", "may indicate", "suggests that", "could be", \
+"it seems", "based on the data". They sound mealy-mouthed and waste words.
+
+Output JSON: {"summary": "..."}"""
+
+
+def live_risk_triage(session_meta: dict, violations: list[dict]) -> str:
+    """One-line TL;DR of a live exam session for the teacher's
+    dashboard. The teacher needs to scan 50 students fast — this
+    sentence is what they read instead of clicking each row open
+    and parsing the raw violation log.
+
+    ``session_meta``: {roll_number, full_name, exam_title,
+                       elapsed_minutes, current_question}
+    ``violations``: list of {timestamp, type, severity, details}
+                    — typically the most recent ~30 events.
+
+    Returns a string. On any failure (LLM down, bad JSON, empty
+    input) returns ``""``. Caller treats empty as "skip the badge,
+    don't show anything" so a Groq outage doesn't alarm-bell every
+    row on the live tab.
+    """
+    if not is_configured():
+        return ""
+
+    # Compact violation digest — we don't send the raw event log
+    # because it's noisy (heartbeats, frame analyses, etc.). Filter
+    # to events with severity >= medium AND non-housekeeping types.
+    HOUSEKEEPING = {
+        "heartbeat", "exam_started", "exam_submitted", "answer_selected",
+        "calibration_started", "calibration_complete", "id_verification",
+        "id_verification_captured", "session_ended", "face_enrolled",
+        "enrollment_started", "enrollment_complete",
+    }
+    notable = [v for v in (violations or [])
+               if v.get("violation_type") not in HOUSEKEEPING][:30]
+
+    if not notable:
+        # No real signal to summarise — return the canonical "clean"
+        # string without burning a Groq call.
+        return "No concerning patterns."
+
+    # Format each event as "[mm:ss into exam] type — details"
+    # so the LLM can pick up timing patterns ("Q3-Q5 looking down").
+    lines = []
+    for v in notable:
+        t = v.get("violation_type", "?")
+        sev = (v.get("severity") or "low").upper()
+        det = (v.get("details") or "")[:80]
+        # Compute relative time if we have both a session start and
+        # a violation timestamp; otherwise just include the raw ts.
+        ts = v.get("created_at") or v.get("timestamp") or ""
+        lines.append(f"[{sev}] {t} — {det}".strip())
+    digest = "\n".join(lines)
+
+    elapsed = session_meta.get("elapsed_minutes")
+    elapsed_str = f"{int(elapsed)}m elapsed" if elapsed is not None else "elapsed unknown"
+    user = f"""Session context:
+- Student: {session_meta.get("full_name") or "?"} (roll {session_meta.get("roll_number") or "?"})
+- Exam: {session_meta.get("exam_title") or "Exam"}
+- Status: {elapsed_str}, on Q{session_meta.get("current_question") or "?"}
+- Violation count: {len(notable)}
+
+Recent events (most recent first):
+{digest}
+
+Now write the one-sentence triage summary."""
+
+    try:
+        parsed = _chat_json(_TRIAGE_SYSTEM, user, max_tokens=120, temperature=0.3)
+        summary = str(parsed.get("summary") or "").strip()
+        # Cap length — runaway models can blow past the 22-word limit
+        # by ignoring the system prompt. 220 chars ≈ 35-40 words.
+        return summary[:220]
+    except Exception as e:
+        log.warning("live_risk_triage failed: %s", e)
+        return ""

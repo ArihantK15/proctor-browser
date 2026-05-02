@@ -7712,6 +7712,98 @@ def live_view_start(session_id: str, request: Request):
     return {"ok": True, "session_id": session_id, "ttl_sec": 60}
 
 
+@app.get("/api/admin/sessions/{session_id:path}/triage")
+def live_risk_triage_endpoint(session_id: str, request: Request):
+    """One-line LLM TL;DR of a live session's recent violations.
+
+    Cached 60 s in Redis to keep the per-row hover cost free. The
+    expensive part (Groq round trip) only happens when the cache
+    misses — typical 50-student class with the dashboard open one
+    minute = ~50 LLM calls maximum, well under any provider's
+    free-tier rate limit.
+
+    Returns ``{summary: "...", cached: bool, generated_at: iso}``.
+    On LLM unavailable or empty result we still return 200 with
+    ``summary: ""`` so the dashboard gracefully shows nothing
+    instead of erroring per-row.
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    _assert_session_owned(session_id, tid)
+
+    cache_key = f"triage:{session_id}"
+    if _cache:
+        cached = _cache.get(cache_key)
+        if isinstance(cached, dict) and cached.get("summary"):
+            return {**cached, "cached": True}
+
+    # Fetch session metadata (just enough for prompt context)
+    try:
+        sess = (supabase.table("exam_sessions").select(
+                "session_key,roll_number,full_name,exam_id,started_at,current_question")
+                .eq("session_key", session_id).eq("teacher_id", tid)
+                .limit(1).execute()).data or []
+    except Exception as e:
+        print(f"[triage] session lookup failed sid={session_id}: {e}", flush=True)
+        sess = []
+    sess_row = sess[0] if sess else {}
+
+    # Resolve exam title (best-effort; fall back to exam_id if config absent)
+    exam_id = sess_row.get("exam_id")
+    exam_title = exam_id or "Exam"
+    try:
+        cfg = _load_exam_config(teacher_id=tid, exam_id=exam_id) if exam_id else None
+        if cfg:
+            exam_title = cfg.get("exam_title") or cfg.get("title") or exam_title
+    except Exception:
+        pass
+
+    # Compute elapsed minutes from started_at
+    elapsed_minutes = None
+    started_at = sess_row.get("started_at")
+    if started_at:
+        try:
+            t0 = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+            elapsed_minutes = max(0, int((datetime.now(timezone.utc) - t0).total_seconds() // 60))
+        except Exception:
+            pass
+
+    session_meta = {
+        "roll_number": sess_row.get("roll_number"),
+        "full_name": sess_row.get("full_name"),
+        "exam_title": exam_title,
+        "elapsed_minutes": elapsed_minutes,
+        "current_question": sess_row.get("current_question"),
+    }
+
+    # Fetch the last ~30 violations. We pull a generous window
+    # because the LLM's filter inside live_risk_triage() will drop
+    # heartbeats / housekeeping; if we only requested 30 raw rows
+    # the noise might leave 0-3 actual violations in the digest.
+    try:
+        viol_rows = (supabase.table("violations").select("*")
+                     .eq("session_key", session_id).eq("teacher_id", tid)
+                     .order("created_at", desc=True).limit(80)
+                     .execute()).data or []
+    except Exception as e:
+        print(f"[triage] violation lookup failed sid={session_id}: {e}", flush=True)
+        viol_rows = []
+
+    from llm import live_risk_triage as _triage  # noqa
+    summary = _triage(session_meta, viol_rows)
+
+    payload = {
+        "summary": summary,
+        "generated_at": now_ist().isoformat(),
+        "violation_count": len(viol_rows),
+    }
+    # Only cache if we got an actual summary — otherwise a transient
+    # LLM blip would lock in an empty string for 60 s.
+    if _cache and summary:
+        _cache.set(cache_key, payload, ttl=60)
+    return {**payload, "cached": False}
+
+
 @app.post("/api/admin/sessions/{session_id:path}/live-view/keepalive")
 def live_view_keepalive(session_id: str, request: Request):
     teacher = require_admin(request)

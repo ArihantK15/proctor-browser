@@ -669,11 +669,41 @@
   #panel-live .table-wrap tbody tr:hover       {background:var(--table-row-hover)}
   #panel-live .table-wrap thead th{position:sticky;top:0;z-index:5;background:var(--table-header-bg)}
 
-  /* ── Analytics tab — Phase 2 design integration ─────────────────
-     Section card pattern shared across the four panels (score dist,
-     risk dist, violations, question analysis). Lighter than the
-     legacy 1px solid + 10px radius look — uses surface-1 with the
-     subtle-tier border so the dashboard feels less "boxed in." */
+  /* ── Analytics tab — Phase 2.9 structural port ──────────────────
+     Stat chips strip + 2-column .ax-card grid + full-width breakdown
+     card per design package analytics.html. */
+  #panel-analytics .ax-stat-chips{display:flex;gap:var(--space-3);margin-bottom:var(--space-5);flex-wrap:wrap}
+  #panel-analytics .ax-stat-chip{background:var(--surface-1);border:1px solid var(--border-subtle);
+    border-radius:var(--radius-lg);padding:var(--space-3) var(--space-4);flex:1;min-width:140px;
+    display:flex;flex-direction:column;gap:2px}
+  #panel-analytics .ax-stat-chip-val{font-family:var(--font-mono);font-size:var(--text-2xl);
+    font-weight:500;letter-spacing:-0.02em;color:var(--text-high)}
+  #panel-analytics .ax-stat-chip-val.success{color:var(--sev-success-fg)}
+  #panel-analytics .ax-stat-chip-val.error{color:var(--sev-error-fg)}
+  #panel-analytics .ax-stat-chip-val.accent{color:var(--accent)}
+  #panel-analytics .ax-stat-chip-label{font-size:10px;font-weight:600;letter-spacing:0.06em;
+    text-transform:uppercase;color:var(--text-muted)}
+  #panel-analytics .ax-page-grid{display:grid;grid-template-columns:1fr 1fr;
+    gap:var(--space-5);max-width:1280px}
+  #panel-analytics .ax-card{background:var(--surface-1);border:1px solid var(--border-subtle);
+    border-radius:var(--radius-xl);padding:var(--space-5);overflow:hidden}
+  #panel-analytics .ax-card-full{grid-column:1/-1}
+  #panel-analytics .ax-card-header{display:flex;align-items:flex-start;justify-content:space-between;
+    margin-bottom:var(--space-4);gap:var(--space-3)}
+  #panel-analytics .ax-card-title{font-size:var(--text-sm);font-weight:600;color:var(--text-high)}
+  #panel-analytics .ax-card-sub{font-size:var(--text-xs);color:var(--text-muted);margin-top:2px;
+    font-family:var(--font-mono)}
+  #panel-analytics .ax-hist-axis{display:flex;gap:6px;border-top:1px solid var(--border-subtle);
+    padding-top:6px;margin-top:6px}
+  #panel-analytics .ax-hist-axis span{flex:1;font-size:10px;color:var(--text-muted);
+    text-align:center;font-family:var(--font-mono)}
+  /* Mobile collapse: 2-col → 1-col */
+  @media(max-width:900px){
+    #panel-analytics .ax-page-grid{grid-template-columns:1fr}
+    #panel-analytics .ax-stat-chip{min-width:46%}
+  }
+  /* Backwards-compat: legacy .analytics-section* classes still kept
+     in case any dynamic JS path emits them. */
   .analytics-section{background:var(--surface-1);border:1px solid var(--border-subtle);
                      border-radius:var(--radius-md);padding:20px;margin-bottom:20px}
   .analytics-section-header{display:flex;align-items:flex-end;justify-content:space-between;
@@ -1281,77 +1311,80 @@
     </div>
     <div id="analytics-content" style="display:none">
 
-      <!-- Overview strip — Phase 2: same stat-tile shape as the Live
-           tab so the dashboard speaks one visual language across tabs.
-           IDs preserved for the existing render JS. -->
-      <div class="stats-bar" id="analytics-overview" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:20px">
-        <div class="stat-tile"><div class="stat-tile-label">Submissions</div><div class="stat-tile-value accent" id="an-count">--</div></div>
-        <div class="stat-tile"><div class="stat-tile-label">Avg Score</div><div class="stat-tile-value success" id="an-avg-score">--</div></div>
-        <div class="stat-tile"><div class="stat-tile-label">Avg Percentage</div><div class="stat-tile-value success" id="an-avg-pct">--</div></div>
-        <div class="stat-tile"><div class="stat-tile-label">Pass Rate</div><div class="stat-tile-value" id="an-pass-rate">--</div></div>
-        <div class="stat-tile"><div class="stat-tile-label">Median Time</div><div class="stat-tile-value accent" id="an-med-time">--</div></div>
-        <div class="stat-tile"><div class="stat-tile-label">Violations</div><div class="stat-tile-value" id="an-viols" style="color:var(--sev-error-fg)">--</div></div>
+      <!-- ── Overview chips — Phase 2.9 design port. 6 vertical
+           chips with monospaced large value + uppercase label.
+           IDs preserved for existing analytics render JS. -->
+      <div class="ax-stat-chips" id="analytics-overview">
+        <div class="ax-stat-chip"><div class="ax-stat-chip-val accent" id="an-count">--</div><div class="ax-stat-chip-label">Submissions</div></div>
+        <div class="ax-stat-chip"><div class="ax-stat-chip-val success" id="an-avg-score">--</div><div class="ax-stat-chip-label">Avg Score</div></div>
+        <div class="ax-stat-chip"><div class="ax-stat-chip-val success" id="an-avg-pct">--</div><div class="ax-stat-chip-label">Avg Percentage</div></div>
+        <div class="ax-stat-chip"><div class="ax-stat-chip-val" id="an-pass-rate">--</div><div class="ax-stat-chip-label">Pass Rate</div></div>
+        <div class="ax-stat-chip"><div class="ax-stat-chip-val accent" id="an-med-time">--</div><div class="ax-stat-chip-label">Median Time</div></div>
+        <div class="ax-stat-chip"><div class="ax-stat-chip-val error" id="an-viols">--</div><div class="ax-stat-chip-label">Violations</div></div>
       </div>
 
-      <!-- Section card pattern — repeated below. Header has uppercase
-           label + optional sub-text; body holds the chart/table. The
-           border-subtle / surface-1 combo replaces the legacy big shadow
-           look with the design's quieter tier-based hierarchy. -->
-      <div class="analytics-section">
-        <div class="analytics-section-header">
-          <div>
-            <div class="analytics-section-label">Score Distribution</div>
-            <div class="analytics-section-sub">10 buckets, 0–100%</div>
-          </div>
-        </div>
-        <div id="an-histogram" style="display:flex;align-items:flex-end;gap:6px;height:140px"></div>
-        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-muted);font-family:var(--font-mono)">
-          <span>0%</span><span>50%</span><span>100%</span>
-        </div>
-      </div>
+      <!-- ── 2-column card grid: Score / Risk in row 1, Violations /
+           was-Question-Analysis-now-broken-out in row 2, full-width
+           Per-Question table at the bottom. -->
+      <div class="ax-page-grid">
 
-      <div class="analytics-section">
-        <div class="analytics-section-header">
-          <div>
-            <div class="analytics-section-label">Risk Distribution</div>
-            <div class="analytics-section-sub">Low · Medium · High</div>
+        <div class="ax-card">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">Score Distribution</div>
+              <div class="ax-card-sub">10 buckets, 0–100%</div>
+            </div>
+          </div>
+          <div id="an-histogram" style="display:flex;align-items:flex-end;gap:6px;height:140px"></div>
+          <div class="ax-hist-axis">
+            <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
           </div>
         </div>
-        <div id="an-risk-bars" style="display:flex;gap:12px"></div>
-      </div>
 
-      <div class="analytics-section">
-        <div class="analytics-section-header">
-          <div>
-            <div class="analytics-section-label">Violations by Type</div>
-            <div class="analytics-section-sub">Aggregated across all sessions</div>
+        <div class="ax-card">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">Risk Distribution</div>
+              <div class="ax-card-sub">Low (0–30) · Medium (31–60) · High (61–100)</div>
+            </div>
           </div>
+          <div id="an-risk-bars" style="display:flex;gap:12px;flex-wrap:wrap"></div>
         </div>
-        <div id="an-viol-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
-        <div id="an-viol-none" style="display:none;color:var(--text-muted);font-size:13px">No violations recorded.</div>
-      </div>
 
-      <div class="analytics-section">
-        <div class="analytics-section-header">
-          <div>
-            <div class="analytics-section-label">Question Analysis</div>
-            <div class="analytics-section-sub">Difficulty + discrimination index per item</div>
+        <div class="ax-card ax-card-full">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">Violations by Type</div>
+              <div class="ax-card-sub">Aggregated across all sessions</div>
+            </div>
           </div>
+          <div id="an-viol-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
+          <div id="an-viol-none" style="display:none;color:var(--text-muted);font-size:13px">No violations recorded.</div>
         </div>
-        <div style="overflow-x:auto">
-          <table class="results-table" style="width:100%">
-            <thead><tr>
-              <th style="width:40px">#</th>
-              <th>Question</th>
-              <th style="width:90px">Difficulty</th>
-              <th style="width:110px">Discrimination</th>
-              <th style="width:80px">Attempted</th>
-              <th style="width:70px">Correct</th>
-            </tr></thead>
-            <tbody id="an-qtable"></tbody>
-          </table>
+
+        <div class="ax-card ax-card-full">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">Per-Question Breakdown</div>
+              <div class="ax-card-sub">Difficulty + discrimination index per item</div>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="results-table" style="width:100%">
+              <thead><tr>
+                <th style="width:40px">#</th>
+                <th>Question</th>
+                <th style="width:90px">Difficulty</th>
+                <th style="width:110px">Discrimination</th>
+                <th style="width:80px">Attempted</th>
+                <th style="width:70px">Correct</th>
+              </tr></thead>
+              <tbody id="an-qtable"></tbody>
+            </table>
+          </div>
+          <div id="an-qnone" style="display:none;color:var(--text-muted);font-size:13px;padding:12px 0">No question data available.</div>
         </div>
-        <div id="an-qnone" style="display:none;color:var(--text-muted);font-size:13px;padding:12px 0">No question data available.</div>
+
       </div>
 
     </div>

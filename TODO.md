@@ -207,7 +207,31 @@ What landed:
 Verification: every CSS `var()` reference (192 across the three
 files) resolves to a defined token. Static assets all return 200.
 
-### Phase 2 — PER-SURFACE LAYOUT REWRITES (deferred)
+### Phase 2 — PER-SURFACE LAYOUT REWRITES (in progress)
+
+**Shipped 2026-05-02:**
+
+  • **2.1 Live Sessions tab** (commit `b21f5c6`) — design's `.stats-bar`
+    + `.stat-tile` strip, `.table-toolbar` with search-wrap + severity
+    filter, sticky table header, severity left-border row accents
+    (`row-critical`/`row-error`/`row-warn`). All 7 JS hooks preserved.
+  • **2.2 Analytics tab** (commit `68b9150`) — overview strip migrated
+    to `.stat-tile` shape, four section cards now use the design's
+    quieter `.analytics-section` pattern with uppercase tracked label
+    + monospaced subtitle row. Histogram bars use new accent gradient.
+    All 17 JS hooks preserved.
+  • **2.3 Results + Tools** (commit `061ea86`) — same `.stat-tile`
+    strip pattern applied to both tabs. renderResultsStats() and the
+    Tools tab markup migrated.
+  • **2.4 Questions tab** (commit `4abaa0f`) — last remaining legacy
+    `.stat` block migrated. Missing-Answer tile flips to severity
+    error-fg when there ARE missing answers so the issue surfaces.
+
+  All four surfaces share one consistent visual language: same stat
+  strip, same severity color semantics, same typography. Zero JS
+  hook breakage; verified by hook-count grep on every commit.
+
+### Phase 2 — REMAINING SURFACES (deferred to per-surface PRs)
 
 Phase 1 picks up colors, fonts, and shadows automatically. Phase 2
 is where actual *layout* changes happen — the design package ships

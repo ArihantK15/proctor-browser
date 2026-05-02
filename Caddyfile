@@ -1,5 +1,18 @@
 app.procta.net {
-    # ── Static files: served directly by Caddy, never hits FastAPI ──
+    # ── Static CSS / JS / SVG / favicon ────────────────────────────────
+    # `no-cache` here means "browser may cache but MUST revalidate via
+    # ETag on every request." So a deploy with new CSS lights up
+    # immediately for users (they get a 304 when unchanged, fresh bytes
+    # when the file moved). The previous max-age=86400 baked stale CSS
+    # into browsers for 24h after every deploy — visual updates were
+    # invisible until the next morning.
+    @assets path *.css *.js *.svg *.ico *.html
+    handle @assets {
+        root * /srv
+        file_server
+        header Cache-Control "no-cache, must-revalidate"
+    }
+    # ── Other static (images, fonts, downloads) — fine to cache hard ──
     handle /static/* {
         root * /srv
         file_server

@@ -1127,12 +1127,28 @@ async function finishCalibration() {
     } catch (e) { console.warn('[Cal] stopCalibration failed:', e); }
 
     try {
+      // Structured JSON so the dashboard can compute per-session
+      // calibration quality without regex-parsing freeform text. Keeps
+      // a `summary` field for the violations-timeline display so a
+      // human reading raw events still gets a one-line read.
+      const calDetails = {
+        kind: 'dot_calibration',
+        gaze_yaw:         +biases.gaze_yaw.toFixed(4),
+        gaze_pitch:       +biases.gaze_pitch.toFixed(4),
+        head_yaw:         +biases.head_yaw.toFixed(2),
+        head_pitch:       +biases.head_pitch.toFixed(2),
+        gaze_yaw_range:   +biases.gaze_yaw_range.toFixed(4),
+        gaze_pitch_range: +biases.gaze_pitch_range.toFixed(4),
+        head_yaw_range:   +biases.head_yaw_range.toFixed(2),
+        head_pitch_range: +biases.head_pitch_range.toFixed(2),
+        summary: `Dot calibration — bias gaze:(${biases.gaze_yaw.toFixed(2)},${biases.gaze_pitch.toFixed(2)}) ` +
+                 `range gaze:±(${biases.gaze_yaw_range.toFixed(2)},${biases.gaze_pitch_range.toFixed(2)}) ` +
+                 `head:±(${biases.head_yaw_range.toFixed(0)}°,${biases.head_pitch_range.toFixed(0)}°)`,
+      };
       await window.proctor.logEvent({
         session_id: sessionId, event_type: 'calibration_complete',
         severity: 'low',
-        details: `Dot calibration — bias gaze:(${biases.gaze_yaw.toFixed(2)},${biases.gaze_pitch.toFixed(2)}) ` +
-                 `range gaze:±(${biases.gaze_yaw_range.toFixed(2)},${biases.gaze_pitch_range.toFixed(2)}) ` +
-                 `head:±(${biases.head_yaw_range.toFixed(0)}°,${biases.head_pitch_range.toFixed(0)}°)`
+        details: JSON.stringify(calDetails),
       });
     } catch (e) {}
 

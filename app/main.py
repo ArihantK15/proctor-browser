@@ -1027,6 +1027,165 @@ _NON_VIOLATION_TYPES = {
     "calibration_started", "calibration_complete", "calibration_timeout",
 }
 
+# ─── CALIBRATION QUALITY ────────────────────────────────────────────
+# The renderer's dot-calibration step measures how far the student
+# actually moved their eyes/head to look at each corner of their
+# screen. proctor.py uses these ranges to scale per-student gaze
+# thresholds (a 13" laptop user gets stricter thresholds than a 32"
+# monitor user — see proctor.py:_tune_threshold). The helper below
+# classifies the calibration result so the teacher can see at a
+# glance whether the student's calibration was honest:
+#
+#   tight   — barely moved eyes/head (< 0.10 rad / < 8°). Either the
+#             student is on a tiny screen, or they tried to game the
+#             system into less-strict thresholds. Floors in proctor.py
+#             prevent this from disabling detection, but the teacher
+#             should know to weight violations more carefully.
+#   loose   — moved more than expected (> 0.50 rad / > 30°). Either
+#             very large screen / close-sit posture, or didn't actually
+#             look at the corner dots. Ceilings in proctor.py prevent
+#             a toothless proctor, but again worth flagging.
+#   normal  — within the typical envelope.
+#   missing — no calibration_complete event found (legacy session,
+#             or student bypassed via crash/practice mode).
+
+# Thresholds chosen empirically against early-deploy sessions; see
+# proctor.py:_tune_threshold for the matched floors/ceilings (0.22
+# rad floor, 0.50 rad ceiling on gaze yaw, etc.).
+_CAL_TIGHT_GAZE = 0.10   # rad — below this is suspiciously narrow
+_CAL_LOOSE_GAZE = 0.50   # rad — above this is suspiciously wide
+_CAL_TIGHT_HEAD = 8.0    # degrees
+_CAL_LOOSE_HEAD = 30.0   # degrees
+
+
+def _parse_calibration_details(details: str) -> Optional[dict]:
+    """Parse a calibration_complete event's details field.
+
+    Accepts either:
+      * structured JSON (current format, since 2026-05): the renderer
+        emits a dict with `gaze_yaw_range`, `gaze_pitch_range`, etc.
+      * legacy freeform text: "range gaze:±(0.28,0.31) head:±(22°,18°)"
+        — handled with a tolerant regex so old sessions don't show
+        as "missing" after the structured rollout.
+    Returns the four range fields plus the four bias fields, or None
+    if the row can't be parsed at all.
+    """
+    if not details:
+        return None
+    s = str(details).strip()
+    # JSON path (preferred — exact values, no parser ambiguity).
+    if s.startswith("{"):
+        try:
+            d = json.loads(s)
+            if isinstance(d, dict) and "gaze_yaw_range" in d:
+                return {
+                    "gaze_yaw_range":   float(d.get("gaze_yaw_range") or 0),
+                    "gaze_pitch_range": float(d.get("gaze_pitch_range") or 0),
+                    "head_yaw_range":   float(d.get("head_yaw_range") or 0),
+                    "head_pitch_range": float(d.get("head_pitch_range") or 0),
+                    "gaze_yaw":         float(d.get("gaze_yaw") or 0),
+                    "gaze_pitch":       float(d.get("gaze_pitch") or 0),
+                    "head_yaw":         float(d.get("head_yaw") or 0),
+                    "head_pitch":       float(d.get("head_pitch") or 0),
+                }
+        except Exception:
+            pass
+    # Legacy text path. Pattern:
+    #   range gaze:±(0.28,0.31) head:±(22°,18°)
+    import re as _re
+    m_g = _re.search(r"range\s+gaze:\s*±\(([\d.\-]+)\s*,\s*([\d.\-]+)\)", s)
+    m_h = _re.search(r"head:\s*±\(([\d.\-]+)°?\s*,\s*([\d.\-]+)°?\)", s)
+    m_b = _re.search(r"bias\s+gaze:\(([\d.\-]+)\s*,\s*([\d.\-]+)\)", s)
+    if not (m_g and m_h):
+        return None
+    out = {
+        "gaze_yaw_range":   float(m_g.group(1)),
+        "gaze_pitch_range": float(m_g.group(2)),
+        "head_yaw_range":   float(m_h.group(1)),
+        "head_pitch_range": float(m_h.group(2)),
+    }
+    if m_b:
+        out["gaze_yaw"] = float(m_b.group(1))
+        out["gaze_pitch"] = float(m_b.group(2))
+    out.setdefault("gaze_yaw", 0.0)
+    out.setdefault("gaze_pitch", 0.0)
+    out.setdefault("head_yaw", 0.0)
+    out.setdefault("head_pitch", 0.0)
+    return out
+
+
+def _classify_calibration(parsed: Optional[dict]) -> dict:
+    """Bucket a parsed calibration into {tier, reason, ranges}.
+
+    Tier is the worst (most suspicious) of the four range checks —
+    one tight axis is enough to flag the whole calibration. Returns
+    a stable shape so frontend rendering is one branch on tier.
+    """
+    if not parsed:
+        return {"tier": "missing", "reason": "No calibration recorded.",
+                "ranges": None}
+    g_yaw   = parsed["gaze_yaw_range"]
+    g_pitch = parsed["gaze_pitch_range"]
+    h_yaw   = parsed["head_yaw_range"]
+    h_pitch = parsed["head_pitch_range"]
+
+    # Tight wins over loose if both are flagged on different axes —
+    # tight is the more suspicious case (intentional gaming) where
+    # loose is more often just lazy calibration.
+    if min(g_yaw, g_pitch) < _CAL_TIGHT_GAZE or min(h_yaw, h_pitch) < _CAL_TIGHT_HEAD:
+        return {
+            "tier": "tight",
+            "reason": (f"Narrow range — student barely moved "
+                       f"(gaze yaw ±{g_yaw:.2f} rad, head yaw ±{h_yaw:.0f}°). "
+                       f"Possible gaming attempt; weight violations carefully."),
+            "ranges": parsed,
+        }
+    if max(g_yaw, g_pitch) > _CAL_LOOSE_GAZE or max(h_yaw, h_pitch) > _CAL_LOOSE_HEAD:
+        return {
+            "tier": "loose",
+            "reason": (f"Wide range — student moved more than expected "
+                       f"(gaze yaw ±{g_yaw:.2f} rad, head yaw ±{h_yaw:.0f}°). "
+                       f"Likely large screen or didn't look at corners; "
+                       f"thresholds capped server-side."),
+            "ranges": parsed,
+        }
+    return {"tier": "normal",
+            "reason": "Calibration within typical envelope.",
+            "ranges": parsed}
+
+
+def get_calibration_quality(session_id: str, teacher_id: Optional[str] = None) -> dict:
+    """Fetch + classify the calibration_complete event for a session.
+
+    Cached in Redis 5 min keyed by session_id since calibration is
+    a one-shot event per session — re-querying the violations table
+    on every dashboard refresh is wasted work."""
+    cache_key = f"cal_quality:{session_id}"
+    if _cache:
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    q = (supabase.table("violations")
+         .select("details")
+         .eq("session_key", session_id)
+         .eq("violation_type", "calibration_complete")
+         .order("id", desc=True)
+         .limit(1))
+    if teacher_id:
+        q = q.eq("teacher_id", str(teacher_id))
+    rows = (q.execute()).data or []
+    parsed = _parse_calibration_details(rows[0]["details"]) if rows else None
+    out = _classify_calibration(parsed)
+
+    if _cache:
+        try:
+            _cache.set(cache_key, out, ex=300)
+        except Exception:
+            pass
+    return out
+
+
 def _is_violation(vtype: str) -> bool:
     return vtype not in _NON_VIOLATION_TYPES
 
@@ -3052,6 +3211,17 @@ def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
                                  if cached_risk is not None else None,
             }
 
+    # Calibration tier per session — bulk-fetched in one IN-query so
+    # the live tab doesn't pay per-session latency. Live sessions
+    # always have a calibration_complete by the time they show up here
+    # (calibration runs before exam_started), so a "missing" badge on
+    # a live row signals a real problem the teacher should investigate.
+    cal_tiers = _calibration_tiers_by_session(list(sessions.keys()),
+                                              teacher_id=str(tid) if tid else None)
+    for sk, sess in sessions.items():
+        sess["calibration"] = cal_tiers.get(sk,
+            {"tier": "missing", "reason": "No calibration recorded.", "ranges": None})
+
     # "Active" — the green counter in the dashboard header — is now strictly
     # sessions with a fresh heartbeat. Stale/abandoned rows drop off the
     # count even though they still render on the Live tab with a grey pill.
@@ -3308,6 +3478,36 @@ def _violation_counts_by_session(session_keys: list[str]) -> dict[str, int]:
     return counts
 
 
+def _calibration_tiers_by_session(session_keys: list[str],
+                                  teacher_id: Optional[str] = None) -> dict[str, dict]:
+    """Bulk-fetch calibration_complete events and classify each.
+
+    One IN-query for the whole result set instead of N round-trips —
+    a teacher with 500 completed sessions would otherwise make the
+    dashboard wait on 500 sequential lookups. Returns
+    {session_key: {tier, reason, ranges}}; sessions with no event
+    are simply omitted from the dict (caller treats absence as
+    `tier == "missing"`)."""
+    if not session_keys:
+        return {}
+    q = (supabase.table("violations")
+         .select("session_key,details")
+         .eq("violation_type", "calibration_complete")
+         .in_("session_key", session_keys))
+    if teacher_id:
+        q = q.eq("teacher_id", str(teacher_id))
+    rows = (q.execute()).data or []
+    # If a session somehow has multiple calibration_complete events
+    # (recalibration mid-exam, future feature), keep the latest.
+    out: dict[str, dict] = {}
+    for r in rows:
+        sk = r.get("session_key")
+        if not sk:
+            continue
+        out[sk] = _classify_calibration(_parse_calibration_details(r.get("details")))
+    return out
+
+
 def _fetch_all_results(teacher_id: str = None, exam_id: str = None) -> list[dict]:
     """Shared: fetch all exam sessions with violation counts, scoped to teacher and optionally exam."""
     query = supabase.table("exam_sessions")\
@@ -3319,7 +3519,9 @@ def _fetch_all_results(teacher_id: str = None, exam_id: str = None) -> list[dict
         query = query.eq("exam_id", exam_id)
     sess_result = query.order("submitted_at", desc=True).execute()
     sessions = sess_result.data or []
-    vcounts = _violation_counts_by_session([s["session_key"] for s in sessions])
+    sks = [s["session_key"] for s in sessions]
+    vcounts = _violation_counts_by_session(sks)
+    cal_tiers = _calibration_tiers_by_session(sks, teacher_id=teacher_id)
     return [
         {
             "session_id":      s["session_key"],
@@ -3334,6 +3536,9 @@ def _fetch_all_results(teacher_id: str = None, exam_id: str = None) -> list[dict
             "violation_count": vcounts.get(s["session_key"], 0),
             "risk_score":      s.get("risk_score"),
             "risk_label":      _risk_label(s["risk_score"]) if s.get("risk_score") is not None else None,
+            # Calibration quality — `tier` ∈ tight|loose|normal|missing.
+            # Frontend renders a badge; teachers click for the explanatory reason.
+            "calibration":     cal_tiers.get(s["session_key"], {"tier": "missing", "reason": "No calibration recorded.", "ranges": None}),
         }
         for s in sessions
     ]
@@ -7257,6 +7462,83 @@ def admin_submit(session_id: str, request: Request):
         "risk_score":      risk["risk_score"],
         "risk_label":      risk["label"],
     }
+
+
+@app.post("/api/admin/sessions/{session_id:path}/request-recalibration")
+async def request_recalibration(session_id: str, request: Request):
+    """End a live session and ask the student to restart so calibration runs fresh.
+
+    Pragmatic approach: we don't try to interrupt an active proctor
+    mid-exam (that would mean stopping the camera, dismantling
+    fullscreen lockdown, re-running dot calibration, and rebuilding
+    the proctor's smoothing windows — all from the server side, into
+    a renderer we don't fully control). Instead:
+
+      1. Mark the in-progress session as abandoned, so the student's
+         next launch can't 'resume' it (resume would skip calibration).
+      2. Broadcast a chat message via the existing ChatHub so the
+         student sees the request inside the exam window.
+      3. Log a violation row so the action shows up in the timeline.
+
+    The teacher then asks the student verbally / via chat to relaunch
+    the exam. On relaunch, the in-progress check at validate-student
+    misses (status now 'abandoned'), they go through ID verification
+    + calibration again, and the new session has fresh thresholds.
+
+    Idempotent: calling this on an already-completed session is a 409.
+    On an already-abandoned session, it just re-sends the chat nudge.
+    """
+    teacher = require_admin(request)
+    tid = teacher["id"]
+
+    sess = _assert_session_owned(session_id, tid)
+    status = (sess.get("status") or "").lower()
+    if status in ("completed", "submitted", "force_submitted"):
+        raise HTTPException(status_code=409,
+            detail="Session is already submitted; recalibration not applicable.")
+
+    if status != "abandoned":
+        try:
+            (supabase.table("exam_sessions")
+             .update({"status": "abandoned"})
+             .eq("session_key", session_id)
+             .eq("teacher_id", str(tid)).execute())
+        except Exception as e:
+            print(f"[recalibration] status update failed sid={session_id}: {e}", flush=True)
+
+    # Best-effort student notification. If the student's chat socket
+    # isn't currently connected (poor wifi, app already closed), the
+    # message is queued in the thread history and shown on reconnect.
+    msg = ("Your teacher has requested re-calibration. Please close "
+           "this exam window and re-launch from the lobby — your "
+           "answers so far have been saved, but calibration will run "
+           "again to recheck your gaze setup.")
+    try:
+        await chat_hub.teacher_send(str(tid), session_id, msg)
+    except Exception as e:
+        print(f"[recalibration] chat notify failed sid={session_id}: {e}", flush=True)
+
+    # Audit row in violations so the action shows up on the timeline.
+    try:
+        viol_row = {
+            "session_key":    session_id,
+            "violation_type": "recalibration_requested",
+            "severity":       "low",
+            "details":        f"Teacher requested re-calibration. Session marked abandoned.",
+            "teacher_id":     str(tid),
+        }
+        await _atable("violations").insert(viol_row).execute()
+    except Exception as e:
+        print(f"[recalibration] audit log failed sid={session_id}: {e}", flush=True)
+
+    # Bust the cached calibration tier so a fresh fetch sees no event yet.
+    if _cache:
+        try:
+            _cache.delete(f"cal_quality:{session_id}")
+        except Exception:
+            pass
+
+    return {"ok": True, "session_id": session_id, "status": "recalibration_requested"}
 
 
 # ─── DEMO REQUEST (public, rate-limited) ────────────────────────

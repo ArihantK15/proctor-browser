@@ -717,6 +717,7 @@
           <th onclick="sortLive('last_event')">Last Event <span class="arrow"></span></th>
           <th onclick="sortLive('last_severity')">Severity <span class="arrow"></span></th>
           <th onclick="sortLive('risk_score')">Risk <span class="arrow"></span></th>
+          <th title="Per-student calibration quality. Tight = barely moved (possible gaming). Loose = moved more than expected (large screen or sloppy calibration).">Cal</th>
           <th onclick="sortLive('last_seen')">Last Seen <span class="arrow"></span></th>
           <th onclick="sortLive('submitted')">Status <span class="arrow"></span></th>
           <th>Actions</th>
@@ -747,6 +748,7 @@
           <th onclick="sortResults('percentage')">% <span class="arrow"></span></th>
           <th onclick="sortResults('violation_count')">Violations <span class="arrow"></span></th>
           <th onclick="sortResults('risk_score')">Risk Score <span class="arrow"></span></th>
+          <th title="Per-student calibration quality. Tight = barely moved (possible gaming). Loose = moved more than expected (large screen or sloppy calibration).">Cal</th>
           <th onclick="sortResults('time_taken_secs')">Time <span class="arrow"></span></th>
           <th onclick="sortResults('submitted_at')">Submitted <span class="arrow"></span></th>
           <th>Actions</th>
@@ -1993,14 +1995,52 @@ function renderLive(){
       <td>${esc(s.last_event.replace(/_/g,' '))}</td>
       <td style="color:${sevColor};font-weight:600">${esc(s.last_severity.toUpperCase())}</td>
       <td style="color:${riskColor};font-weight:600">${riskTxt}</td>
+      <td>${_calBadge(s.calibration)}</td>
       <td style="font-size:12px">${esc(s.last_seen)}</td>
       <td><span class="status-badge ${statusCls}"${statusTitle}>${statusTxt}</span></td>
       <td>
         <button class="action-btn" onclick="viewRisk('${escJs(sid)}')" style="padding:4px 10px;font-size:11px">Risk</button>
         <button class="action-btn" onclick="currentSessionId='${escJs(sid)}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
+        ${(s.live_state==='live' && (s.calibration||{}).tier==='tight')
+          ? `<button class="action-btn" onclick="requestRecalibration('${escJs(sid)}')" style="padding:4px 10px;font-size:11px;color:var(--amber)" title="End session and ask student to re-calibrate">Recal</button>`
+          : ''}
       </td>
     </tr>`;
   }).join('');
+}
+
+// End the live session and ask the student to re-launch + redo
+// calibration. Only offered on live + tight-calibrated sessions
+// because that's where it's actionable; for completed sessions
+// there's nothing to recalibrate.
+async function requestRecalibration(sid){
+  if(!confirm('End this session and ask the student to restart for re-calibration?\n\nThe student will see a chat message asking them to relaunch the exam. Their answers so far are saved but the session will be marked abandoned.')) return;
+  try{
+    const r = await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(sid)}/request-recalibration`, {method:'POST'});
+    const d = await r.json();
+    if(!r.ok){ alert(d.detail || 'Failed to request re-calibration.'); return; }
+    alert('Re-calibration requested. The student has been messaged via chat.');
+    refreshLive();
+  }catch(e){ alert('Network error.'); }
+}
+
+// Calibration tier badge — small inline pill that doubles as a
+// hoverable explainer. Click opens the session detail modal so the
+// teacher can drill into raw ranges. Compact so it fits an existing
+// table column without wrapping.
+function _calBadge(cal){
+  cal = cal || {tier: 'missing', reason: 'No calibration recorded.', ranges: null};
+  const palette = {
+    normal:  ['rgba(16,185,129,.12)','#10b981','#10b981','OK'],
+    tight:   ['rgba(239,68,68,.12)','var(--red)','#ef4444','TIGHT'],
+    loose:   ['rgba(245,158,11,.14)','#f59e0b','#f59e0b','LOOSE'],
+    missing: ['rgba(148,163,184,.12)','var(--muted)','#94a3b8','—'],
+  };
+  const [bg, fg, brd, label] = palette[cal.tier] || palette.missing;
+  const reason = esc(cal.reason || '');
+  return `<span class="cal-badge" title="${reason}"
+    style="display:inline-block;background:${bg};color:${fg};border:1px solid ${brd};
+    border-radius:10px;padding:2px 8px;font-size:10px;font-weight:600;letter-spacing:.04em">${label}</span>`;
 }
 
 function sortLive(key){
@@ -2067,6 +2107,7 @@ function renderResults(){
       <td>${r.percentage}%</td>
       <td style="color:${r.violation_count>5?'var(--red)':r.violation_count>0?'var(--amber)':'var(--emerald)'}">${r.violation_count}</td>
       <td>${riskBadge(r.risk_score, r.risk_label)}</td>
+      <td>${_calBadge(r.calibration)}</td>
       <td>${mins}m ${secs}s</td>
       <td style="font-size:11px;color:var(--muted)">${esc(r.submitted_at||'—')}</td>
       <td>

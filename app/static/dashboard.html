@@ -866,7 +866,9 @@
 
   <!-- QUESTIONS -->
   <div class="panel" id="panel-questions">
-    <div class="stats" id="q-stats"></div>
+    <!-- Phase 2: questions-tab stats use the same .stats-bar / .stat-tile
+         pattern as Live + Analytics + Results + Tools. -->
+    <div class="stats-bar" id="q-stats" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px"></div>
     <div class="toolbar">
       <input type="text" id="q-title" placeholder="Exam title" style="width:300px">
       <label>
@@ -3138,12 +3140,18 @@ function renderQStats(){
   const noCorrect = qData.filter(q=>!q.correct).length;
   const withImg = qData.filter(q=>!!q.image_url).length;
   const dur = parseInt(document.getElementById('q-duration').value)||60;
-  el.innerHTML=`
-    <div class="stat"><div class="label">Total Questions</div><div class="value blue">${total}</div></div>
-    <div class="stat"><div class="label">Avg Options</div><div class="value">${avgOpts}</div></div>
-    <div class="stat"><div class="label">With Image</div><div class="value">${withImg}</div></div>
-    <div class="stat"><div class="label">Duration</div><div class="value green">${dur} min</div></div>
-    <div class="stat"><div class="label">Missing Answer</div><div class="value ${noCorrect?'red':'green'}">${noCorrect}</div></div>
+  // Phase 2: emit .stat-tile shape so questions tab matches the rest
+  // of the dashboard. Missing-Answer tile flips to error-fg when there
+  // ARE missing answers so the issue surfaces at a glance.
+  const missingCls = noCorrect
+    ? 'class="stat-tile-value" style="color:var(--sev-error-fg)"'
+    : 'class="stat-tile-value success"';
+  el.innerHTML = `
+    <div class="stat-tile"><div class="stat-tile-label">Total Questions</div><div class="stat-tile-value accent">${total}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Avg Options</div><div class="stat-tile-value">${avgOpts}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">With Image</div><div class="stat-tile-value">${withImg}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Duration</div><div class="stat-tile-value success">${dur} min</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Missing Answer</div><div ${missingCls}>${noCorrect}</div></div>
   `;
 }
 

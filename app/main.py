@@ -1639,9 +1639,28 @@ def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
 
 
 # ─── PUBLIC ENDPOINTS ─────────────────────────────────────────────
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def root():
-    return {"status": "AI Proctor Server running"}
+    """Public marketing landing — hero, outcomes, features, pricing,
+    demo-request form. Backed by the same /api/demo-request endpoint
+    the form posts to. If the file isn't deployed (e.g. running in
+    a stripped test env), fall back to the legacy JSON probe so the
+    healthcheck still has something to read."""
+    html_path = STATIC_DIR / "marketing.html"
+    if not html_path.exists():
+        return JSONResponse({"status": "AI Proctor Server running"})
+    return HTMLResponse(html_path.read_text())
+
+
+@app.get("/marketing", response_class=HTMLResponse)
+def marketing_page():
+    """Alias for the marketing landing — handy when the root route
+    is overridden in a custom deployment but the marketing surface
+    still needs a stable URL (e.g. linking from emails)."""
+    html_path = STATIC_DIR / "marketing.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="Marketing page not found")
+    return HTMLResponse(html_path.read_text())
 
 @app.get("/sitemap.xml")
 def sitemap():

@@ -157,31 +157,37 @@
   }
   .exams-empty strong { color: var(--text); display: block; margin-bottom: 6px; font-size: 15px; }
 
-  .exam-list { display: flex; flex-direction: column; gap: 14px; }
+  /* Phase 2.13: Student lobby — align with design system card
+     family. Same surface-1 + border-subtle + radius-xl chrome
+     used on Tools, Chat, Analytics, Marketing. Title typography
+     calmer (matches design's exam mockup) — bold display font but
+     not "competing for attention" white-on-dark contrast. */
+  .exam-list { display: flex; flex-direction: column; gap: var(--space-3); }
   .exam-card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px 22px;
-    transition: border-color 0.2s, transform 0.2s;
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    padding: var(--space-5) var(--space-5);
+    transition: border-color var(--duration-fast) var(--ease-standard);
   }
   .exam-card:hover {
-    border-color: var(--border-hover);
+    border-color: var(--border-default);
   }
   .exam-card-head {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--space-4);
   }
   .exam-title {
     font-family: var(--font-display);
-    color: white;
-    font-size: 16px;
-    font-weight: 700;
+    color: var(--text-high);
+    font-size: var(--text-md);
+    font-weight: 600;
     margin-bottom: 4px;
+    letter-spacing: -0.01em;
   }
-  .exam-teacher { color: var(--muted); font-size: 12px; }
+  .exam-teacher { color: var(--text-muted); font-size: var(--text-xs); font-family: var(--font-mono); }
   .exam-meta {
     display: flex;
     flex-wrap: wrap;

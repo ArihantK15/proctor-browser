@@ -91,35 +91,54 @@
     #screen-enroll{flex-direction:column;background:#06080d}
 
     /* ── Calibration dot system ─────────────────────────────────── */
+    /* ── Calibration dots — Phase 2.16 design refresh ─────────────
+       Each .cal-dot is a single static element; the design's
+       concentric-ring effect is achieved via ::before (outer halo)
+       and ::after (inner check mark when done). Pure CSS — markup
+       and JS hooks (#cal-dot-0..4 with .active / .done classes)
+       unchanged. */
     .cal-overlay{position:absolute;inset:0;pointer-events:none}
-    .cal-dot{position:absolute;width:28px;height:28px;border-radius:50%;
-             background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.15);
-             transform:translate(-50%,-50%);transition:all .4s ease}
-    .cal-dot.active{background:rgba(91,138,240,.7);border-color:#5b8af0;
-                    box-shadow:0 0 24px 8px rgba(91,138,240,.45),
-                               0 0 60px 20px rgba(91,138,240,.15);
-                    animation:cal-pulse 1.2s ease-in-out infinite}
-    .cal-dot.done{background:rgba(34,197,94,.6);border-color:var(--sev-success-fg);
-                  box-shadow:0 0 16px 4px rgba(34,197,94,.3)}
+    .cal-dot{position:absolute;width:14px;height:14px;border-radius:50%;
+             background:transparent;border:1.5px solid rgba(255,255,255,.18);
+             transform:translate(-50%,-50%);transition:all .35s ease}
+    /* Outer halo ring — only visible on active state. Pulses to
+       attract gaze without being agitating. */
+    .cal-dot::before{content:"";position:absolute;left:50%;top:50%;
+                     transform:translate(-50%,-50%);
+                     width:14px;height:14px;border-radius:50%;
+                     border:1.5px solid var(--accent);opacity:0;
+                     transition:width .35s ease, height .35s ease, opacity .35s ease}
+    .cal-dot.active{background:var(--accent);border-color:var(--accent);
+                    box-shadow:0 0 0 6px var(--accent-subtle),
+                               0 0 24px 4px rgba(91,138,240,0.25)}
+    .cal-dot.active::before{width:60px;height:60px;opacity:0.30;
+                            animation:cal-pulse 1.6s ease-in-out infinite}
+    .cal-dot.done{background:var(--sev-success-fg);border-color:var(--sev-success-fg);
+                  box-shadow:0 0 0 4px var(--sev-success-bg)}
     .cal-dot.done::after{content:'✓';position:absolute;inset:0;
                          display:flex;align-items:center;justify-content:center;
-                         color:#fff;font-size:14px;font-weight:700}
-    @keyframes cal-pulse{0%,100%{transform:translate(-50%,-50%) scale(1);
-      opacity:1}50%{transform:translate(-50%,-50%) scale(1.3);opacity:.7}}
+                         color:#fff;font-size:9px;font-weight:700;line-height:1}
+    @keyframes cal-pulse{
+      0%,100%{transform:translate(-50%,-50%) scale(1);opacity:0.30}
+      50%    {transform:translate(-50%,-50%) scale(1.25);opacity:0.05}
+    }
 
     .cal-center{display:flex;flex-direction:column;align-items:center;
                 justify-content:center;position:absolute;inset:0;
                 pointer-events:none;z-index:2}
-    .cal-title{font-size:22px;font-weight:700;color:var(--text-high);margin-bottom:8px}
-    .cal-sub{font-size:14px;color:var(--text-muted);margin-bottom:24px;max-width:400px;
-             text-align:center;line-height:1.5}
+    .cal-title{font-size:var(--text-2xl,22px);font-weight:600;color:var(--text-high);
+               margin-bottom:8px;letter-spacing:-0.02em}
+    .cal-sub{font-size:var(--text-base,14px);color:var(--text-muted);margin-bottom:var(--space-6,24px);
+             max-width:400px;text-align:center;line-height:1.5}
     .cal-status{font-size:13px;color:var(--accent);font-weight:600;
-                min-height:20px;margin-top:16px}
-    .cal-face-status{font-size:12px;margin-top:8px;font-weight:500;min-height:18px}
+                min-height:20px;margin-top:var(--space-4,16px);font-family:'IBM Plex Mono',monospace;
+                letter-spacing:0.04em}
+    .cal-face-status{font-size:12px;margin-top:8px;font-weight:500;min-height:18px;
+                     font-family:'IBM Plex Mono',monospace}
 
-    .cal-progress{width:280px;height:6px;background:var(--surface-2);border-radius:20px;
-                  overflow:hidden;margin-top:16px}
-    .cal-progress-fill{height:100%;background:#5b8af0;border-radius:20px;
+    .cal-progress{width:280px;height:4px;background:var(--surface-2);
+                  border-radius:99px;overflow:hidden;margin-top:var(--space-4,16px)}
+    .cal-progress-fill{height:100%;background:var(--accent);border-radius:99px;
                        transition:width .4s ease;width:0%}
 
     .est{margin-top:16px;font-size:14px;color:var(--text-mid);min-height:24px}

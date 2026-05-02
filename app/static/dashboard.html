@@ -619,6 +619,28 @@
   #panel-live .table-wrap tbody tr.row-warn    {box-shadow:inset 3px 0 0 var(--sev-warn-fg)}
   #panel-live .table-wrap tbody tr:hover       {background:var(--table-row-hover)}
   #panel-live .table-wrap thead th{position:sticky;top:0;z-index:5;background:var(--table-header-bg)}
+
+  /* ── Analytics tab — Phase 2 design integration ─────────────────
+     Section card pattern shared across the four panels (score dist,
+     risk dist, violations, question analysis). Lighter than the
+     legacy 1px solid + 10px radius look — uses surface-1 with the
+     subtle-tier border so the dashboard feels less "boxed in." */
+  .analytics-section{background:var(--surface-1);border:1px solid var(--border-subtle);
+                     border-radius:var(--radius-md);padding:20px;margin-bottom:20px}
+  .analytics-section-header{display:flex;align-items:flex-end;justify-content:space-between;
+                            margin-bottom:16px;gap:var(--space-3)}
+  .analytics-section-label{font-size:var(--text-xs);font-weight:600;
+                           letter-spacing:var(--tracking-wider);text-transform:uppercase;
+                           color:var(--text-mid)}
+  .analytics-section-sub{font-size:var(--text-xs);color:var(--text-muted);
+                         margin-top:2px;font-family:var(--font-mono)}
+  /* Histogram bars — emerald → blue gradient via accent tokens.
+     Existing JS sets bar heights inline; we just ensure the colors
+     blend with the new accent. */
+  #an-histogram > div{background:linear-gradient(180deg,var(--accent-hover),var(--accent));
+                      border-radius:var(--radius-xs) var(--radius-xs) 0 0;
+                      transition:opacity var(--duration-fast) var(--ease-standard)}
+  #an-histogram > div:hover{opacity:.8}
 </style>
 </head>
 <body>
@@ -1008,41 +1030,63 @@
     </div>
     <div id="analytics-content" style="display:none">
 
-      <!-- Overview cards -->
-      <div class="stats" id="analytics-overview">
-        <div class="stat"><div class="label">Submissions</div><div class="value blue" id="an-count">--</div></div>
-        <div class="stat"><div class="label">Avg Score</div><div class="value green" id="an-avg-score">--</div></div>
-        <div class="stat"><div class="label">Avg Percentage</div><div class="value green" id="an-avg-pct">--</div></div>
-        <div class="stat"><div class="label">Pass Rate</div><div class="value" id="an-pass-rate">--</div></div>
-        <div class="stat"><div class="label">Median Time</div><div class="value blue" id="an-med-time">--</div></div>
-        <div class="stat"><div class="label">Violations</div><div class="value red" id="an-viols">--</div></div>
+      <!-- Overview strip — Phase 2: same stat-tile shape as the Live
+           tab so the dashboard speaks one visual language across tabs.
+           IDs preserved for the existing render JS. -->
+      <div class="stats-bar" id="analytics-overview" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:20px">
+        <div class="stat-tile"><div class="stat-tile-label">Submissions</div><div class="stat-tile-value accent" id="an-count">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Avg Score</div><div class="stat-tile-value success" id="an-avg-score">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Avg Percentage</div><div class="stat-tile-value success" id="an-avg-pct">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Pass Rate</div><div class="stat-tile-value" id="an-pass-rate">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Median Time</div><div class="stat-tile-value accent" id="an-med-time">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Violations</div><div class="stat-tile-value" id="an-viols" style="color:var(--sev-error-fg)">--</div></div>
       </div>
 
-      <!-- Score Distribution -->
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
-        <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 16px;font-family:var(--font-display)">Score Distribution</h3>
+      <!-- Section card pattern — repeated below. Header has uppercase
+           label + optional sub-text; body holds the chart/table. The
+           border-subtle / surface-1 combo replaces the legacy big shadow
+           look with the design's quieter tier-based hierarchy. -->
+      <div class="analytics-section">
+        <div class="analytics-section-header">
+          <div>
+            <div class="analytics-section-label">Score Distribution</div>
+            <div class="analytics-section-sub">10 buckets, 0–100%</div>
+          </div>
+        </div>
         <div id="an-histogram" style="display:flex;align-items:flex-end;gap:6px;height:140px"></div>
-        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--muted)">
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-muted);font-family:var(--font-mono)">
           <span>0%</span><span>50%</span><span>100%</span>
         </div>
       </div>
 
-      <!-- Risk Distribution -->
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
-        <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 16px;font-family:var(--font-display)">Risk Distribution</h3>
+      <div class="analytics-section">
+        <div class="analytics-section-header">
+          <div>
+            <div class="analytics-section-label">Risk Distribution</div>
+            <div class="analytics-section-sub">Low · Medium · High</div>
+          </div>
+        </div>
         <div id="an-risk-bars" style="display:flex;gap:12px"></div>
       </div>
 
-      <!-- Violation Breakdown -->
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
-        <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 16px;font-family:var(--font-display)">Violations by Type</h3>
+      <div class="analytics-section">
+        <div class="analytics-section-header">
+          <div>
+            <div class="analytics-section-label">Violations by Type</div>
+            <div class="analytics-section-sub">Aggregated across all sessions</div>
+          </div>
+        </div>
         <div id="an-viol-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
-        <div id="an-viol-none" style="display:none;color:var(--muted);font-size:13px">No violations recorded.</div>
+        <div id="an-viol-none" style="display:none;color:var(--text-muted);font-size:13px">No violations recorded.</div>
       </div>
 
-      <!-- Question Analysis -->
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px">
-        <h3 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 16px;font-family:var(--font-display)">Question Analysis</h3>
+      <div class="analytics-section">
+        <div class="analytics-section-header">
+          <div>
+            <div class="analytics-section-label">Question Analysis</div>
+            <div class="analytics-section-sub">Difficulty + discrimination index per item</div>
+          </div>
+        </div>
         <div style="overflow-x:auto">
           <table class="results-table" style="width:100%">
             <thead><tr>
@@ -1056,7 +1100,7 @@
             <tbody id="an-qtable"></tbody>
           </table>
         </div>
-        <div id="an-qnone" style="display:none;color:var(--muted);font-size:13px;padding:12px 0">No question data available.</div>
+        <div id="an-qnone" style="display:none;color:var(--text-muted);font-size:13px;padding:12px 0">No question data available.</div>
       </div>
 
     </div>

@@ -1639,28 +1639,19 @@ def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
 
 
 # ─── PUBLIC ENDPOINTS ─────────────────────────────────────────────
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def root():
-    """Public marketing landing — hero, outcomes, features, pricing,
-    demo-request form. Backed by the same /api/demo-request endpoint
-    the form posts to. If the file isn't deployed (e.g. running in
-    a stripped test env), fall back to the legacy JSON probe so the
-    healthcheck still has something to read."""
-    html_path = STATIC_DIR / "marketing.html"
-    if not html_path.exists():
-        return JSONResponse({"status": "AI Proctor Server running"})
-    return HTMLResponse(html_path.read_text())
+    """app.procta.net is the application host (dashboard + APIs).
+    Marketing lives at procta.net (separate Vite React site in
+    website/, hosted via Cloudflare + Vercel). Anyone landing on
+    app.procta.net's bare root probably wanted the marketing page
+    so we redirect there.
 
-
-@app.get("/marketing", response_class=HTMLResponse)
-def marketing_page():
-    """Alias for the marketing landing — handy when the root route
-    is overridden in a custom deployment but the marketing surface
-    still needs a stable URL (e.g. linking from emails)."""
-    html_path = STATIC_DIR / "marketing.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="Marketing page not found")
-    return HTMLResponse(html_path.read_text())
+    Returns a 302 (not 301) so we keep flexibility — if app.procta.net
+    ever gets its own dashboard splash, we can switch this without
+    fighting browser redirect caches.
+    """
+    return RedirectResponse(url="https://procta.net/", status_code=302)
 
 @app.get("/sitemap.xml")
 def sitemap():

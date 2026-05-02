@@ -1,7 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Phase 2 design integration — May 2026.
+   Tailwind theme tokens swapped from emerald-mint accent + Outfit/
+   Space Grotesk fonts to the Claude design package's periwinkle blue
+   accent + IBM Plex family. Every component in src/ already uses
+   `--color-accent`, `--color-accent-light`, `--font-display`, etc. so
+   this single-file change cascades the new visual identity across
+   the entire procta.net site (Hero, Features, Pricing, FAQ, Footer,
+   Privacy/Terms/Signup pages — 14 components + 4 routes). */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 @import "tailwindcss";
 
 @theme {
+  /* Surface tiers — kept stable; only accent + fonts are changing. */
   --color-navy-950: #06080d;
   --color-navy-900: #0c1018;
   --color-navy-800: #121824;
@@ -9,14 +18,20 @@
   --color-navy-600: #243044;
   --color-slate-400: #94a3b8;
   --color-slate-300: #cbd5e1;
-  --color-accent: #3dd9a8;
-  --color-accent-light: #63dfc4;
-  --color-accent-dark: #2bb88a;
-  --color-emerald: #3dd9a8;
+  /* Accent — periwinkle blue (was emerald-mint #3dd9a8). Approximate
+     the design system's OKLCH(58% 0.19 260) as hex so Tailwind's
+     compiled classes don't need a runtime color-space conversion. */
+  --color-accent: #5b8af0;
+  --color-accent-light: #7ba1f5;
+  --color-accent-dark: #4a78dc;
+  /* `.text-emerald` references in the dashboard mockup keep the
+     legacy green semantically (success state stays green even when
+     the brand accent shifts to blue — same as the in-app dashboard). */
+  --color-emerald: #3fb950;
   --color-amber: #f59e0b;
-  --font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-  --font-display: 'Outfit', 'Space Grotesk', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Fira Code', monospace;
 }
 
 @layer base {
@@ -61,10 +76,10 @@
   }
 
   .accent-glow {
-    box-shadow: 0 0 20px rgba(61, 217, 168, 0.12);
+    box-shadow: 0 0 20px rgba(91,138,240, 0.12);
   }
   .accent-glow-strong {
-    box-shadow: 0 0 30px rgba(61, 217, 168, 0.25);
+    box-shadow: 0 0 30px rgba(91,138,240, 0.25);
   }
 
   .card-topline {
@@ -88,11 +103,11 @@
 
   .glow-btn {
     border: 1px solid var(--color-accent);
-    box-shadow: 0 0 20px rgba(61, 217, 168, 0.12);
+    box-shadow: 0 0 20px rgba(91,138,240, 0.12);
     transition: all 0.2s;
   }
   .glow-btn:hover {
-    box-shadow: 0 0 30px rgba(61, 217, 168, 0.25);
+    box-shadow: 0 0 30px rgba(91,138,240, 0.25);
     transform: translateY(-1px);
   }
 
@@ -105,8 +120,8 @@
   }
 
   .focus-glow:focus {
-    box-shadow: 0 0 0 3px rgba(61, 217, 168, 0.1);
-    border-color: rgba(61, 217, 168, 0.4);
+    box-shadow: 0 0 0 3px rgba(91,138,240, 0.1);
+    border-color: rgba(91,138,240, 0.4);
   }
 }
 

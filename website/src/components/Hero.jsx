@@ -17,25 +17,35 @@ export default function Hero() {
           transition={{ duration: 0.6 }}
           className="mx-auto max-w-4xl text-center"
         >
+          {/* Eyebrow — Phase 2 design swap from "AI-Powered Proctoring"
+              to a concrete trust line that matches the Claude design's
+              "Trusted by 180+ institutions" framing. */}
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/5 px-4 py-1.5 accent-glow">
             <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
             <span className="label-mono text-accent-light" style={{ fontSize: '11px' }}>
-              AI-Powered Proctoring
+              Trusted by 180+ institutions across India
             </span>
           </div>
 
-          <h1 className="font-display text-4xl font-extrabold leading-[1.1] tracking-tight text-white md:text-6xl lg:text-7xl">
-            Secure Exams with
-            <span className="relative ml-3">
+          {/* Headline — three-line outcome-first structure from the Claude
+              design (was "Secure Exams with Explainable AI"). The middle
+              "automated." word picks up the accent gradient so the eye
+              lands on the differentiator instead of generic "Secure". */}
+          <h1 className="font-display text-4xl font-bold leading-[1.1] tracking-tight text-white md:text-6xl lg:text-7xl">
+            Cheating reduced.<br />
+            Scoring{' '}
+            <span className="relative">
               <span className="relative z-10 bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent">
-                Explainable AI
+                automated.
               </span>
-            </span>
+            </span><br />
+            Your IT team untouched.
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400 md:text-xl">
-            Detect cheating in real-time with behavioral risk scoring,
-            face verification, and device monitoring. Zero manual proctors needed.
+            Procta is a proctored exam platform built for Indian higher education —
+            AI monitoring, automated scorecards, and a student experience calm enough
+            for 90-minute exams.
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">

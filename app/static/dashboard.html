@@ -835,7 +835,7 @@
 
   <!-- RESULTS -->
   <div class="panel" id="panel-results">
-    <div class="stats" id="results-stats"></div>
+    <div class="stats-bar" id="results-stats" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px"></div>
     <div class="toolbar">
       <input type="text" id="results-search" placeholder="Search by name, roll, email..."
              oninput="filterResults()">
@@ -1108,14 +1108,16 @@
 
   <!-- TOOLS -->
   <div class="panel" id="panel-tools">
-    <div class="stats">
-      <div class="stat">
-        <div class="label">Registered Students</div>
-        <div class="value blue" id="tools-registered">--</div>
+    <!-- Phase 2: stat-tile strip pattern matches Live + Analytics +
+         Results tabs. tools-registered + tools-failed hooks preserved. -->
+    <div class="stats-bar" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px">
+      <div class="stat-tile">
+        <div class="stat-tile-label">Registered Students</div>
+        <div class="stat-tile-value accent" id="tools-registered">--</div>
       </div>
-      <div class="stat">
-        <div class="label">Failed Submissions</div>
-        <div class="value red" id="tools-failed">--</div>
+      <div class="stat-tile">
+        <div class="stat-tile-label">Failed Submissions</div>
+        <div class="stat-tile-value" id="tools-failed" style="color:var(--sev-error-fg)">--</div>
       </div>
     </div>
     <div class="tools-grid">
@@ -2399,11 +2401,19 @@ function renderResultsStats(){
   const scored = resultsData.filter(r=>r.risk_score!=null);
   const avgRisk = scored.length?Math.round(scored.reduce((s,r)=>s+r.risk_score,0)/scored.length):0;
   const highRisk = scored.filter(r=>r.risk_score>=41).length;
-  el.innerHTML=`
-    <div class="stat"><div class="label">Total Results</div><div class="value blue">${total}</div></div>
-    <div class="stat"><div class="label">Avg Score</div><div class="value green">${avgScore}%</div></div>
-    <div class="stat"><div class="label">Avg Risk</div><div class="value ${avgRisk>=41?'red':avgRisk>=16?'yellow':'green'}">${avgRisk}/100</div></div>
-    <div class="stat"><div class="label">High/Critical Risk</div><div class="value red">${highRisk}</div></div>
+  // Phase 2: emit the new .stat-tile shape so the Results tab strip
+  // matches Live + Analytics. Risk tile gets a semantic color
+  // modifier based on the average so the strip surfaces concern at
+  // a glance — green if class is mostly clean, error-fg if a fair
+  // chunk sat in the high-risk bucket on average.
+  const riskCls = avgRisk>=41 ? 'style="color:var(--sev-error-fg)"'
+                : avgRisk>=16 ? 'style="color:var(--sev-warn-fg)"'
+                : 'class="stat-tile-value success"';
+  el.innerHTML = `
+    <div class="stat-tile"><div class="stat-tile-label">Total Results</div><div class="stat-tile-value accent">${total}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Avg Score</div><div class="stat-tile-value success">${avgScore}%</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Avg Risk</div><div ${riskCls.includes('class') ? riskCls : 'class="stat-tile-value" '+riskCls}>${avgRisk}/100</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">High/Critical Risk</div><div class="stat-tile-value" style="color:var(--sev-error-fg)">${highRisk}</div></div>
   `;
 }
 

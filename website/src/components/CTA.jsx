@@ -21,11 +21,13 @@ export default function CTA() {
 
           <div className="relative">
             <h2 className="font-display text-3xl font-bold text-white md:text-5xl">
-              Secure Your Exams Today
+              Cheating reduced. Scoring automated.<br />
+              Your IT team untouched.
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
-              Join institutions that trust Procta to maintain exam integrity.
-              Get started with a free demo — no commitment required.
+              30-minute live walkthrough with a test exam from your syllabus —
+              no sales pitch. We'll show you the dashboard, the student experience,
+              and the AI risk scoring on real data.
             </p>
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
               <Link

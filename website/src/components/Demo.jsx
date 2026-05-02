@@ -14,12 +14,14 @@ export default function Demo() {
           transition={{ duration: 0.5 }}
           className="mx-auto max-w-2xl text-center"
         >
-          <span className="label-mono text-accent">See It In Action</span>
+          <span className="label-mono text-accent">Request a Demo</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
-            Watch Procta Detect Cheating
+            See Procta running on your exam data
           </h2>
           <p className="mt-4 text-lg text-slate-400">
-            See how the AI identifies violations, builds risk scores, and delivers actionable reports.
+            We'll run a live walkthrough with a test exam from your syllabus —
+            30 minutes, no sales pitch. Bring your IT manager; there's nothing
+            to install on the server.
           </p>
         </motion.div>
 

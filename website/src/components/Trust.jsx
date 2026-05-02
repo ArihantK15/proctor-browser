@@ -1,11 +1,14 @@
 import { motion } from 'framer-motion'
 
 export default function Trust() {
+  // Numbers from the Claude design's hero proof line, plus latency
+  // (kept from the original because it's a real product property
+  // worth advertising and the design didn't have an equivalent).
   const stats = [
-    { value: '99.2%', label: 'Cheating Detection Accuracy' },
-    { value: '<200ms', label: 'Average Detection Latency' },
-    { value: '5,000+', label: 'Exams Proctored' },
-    { value: '0', label: 'False Positives (Manual Review)' },
+    { value: '180+',  label: 'Institutions across India' },
+    { value: '2.4M',  label: 'Exams proctored' },
+    { value: '99.2%', label: 'Uptime (2025)' },
+    { value: '<200ms', label: 'Avg detection latency' },
   ]
 
   return (

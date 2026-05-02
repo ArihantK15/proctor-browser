@@ -6,12 +6,18 @@ import { APP_URL } from '../config'
 export default function Navbar() {
   const [open, setOpen] = useState(false)
 
+  // Order matches the visitor's question hierarchy:
+  //   "Why should I trust this?" (Why Procta — outcomes from Phase 2)
+  //   "How does it work?"        (How It Works — 4-step flow)
+  //   "Will it fit my use case?" (Use Cases — universities / EdTech / hiring)
+  //   "What about my data?"      (Privacy — DPDP Act 2023)
+  //   "Anything I'm missing?"    (FAQ)
   const links = [
-    { label: 'Features', href: '#features' },
+    { label: 'Why Procta',   href: '#differentiators' },
+    { label: 'Features',     href: '#features' },
     { label: 'How It Works', href: '#how-it-works' },
-    { label: 'Use Cases', href: '#use-cases' },
-    { label: 'Privacy', href: '#privacy' },
-    { label: 'FAQ', href: '#faq' },
+    { label: 'Privacy',      href: '#privacy' },
+    { label: 'FAQ',          href: '#faq' },
   ]
 
   return (

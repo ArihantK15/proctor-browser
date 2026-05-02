@@ -254,6 +254,44 @@
     th,td{padding:8px 8px}
     .topbar-right{gap:8px;flex-wrap:wrap}
     .topbar-right .action-btn{padding:6px 10px;font-size:11px}
+    /* ── Phase 2 mobile responsive ──────────────────────────────────
+       New stat strip and toolbar from the design package weren't in
+       the original responsive rules. Without these, the .stats-bar
+       overflows horizontally and the .table-toolbar wraps awkwardly
+       on phones. Below ~768px:
+         • stats-bar still horizontally scrolls (preserves "see all
+           tiles" affordance for the at-a-glance use case) but
+           shrinks tile padding
+         • table-toolbar collapses to a column so search input gets
+           full width
+         • search-wrap shed its 280px max so the search isn't tiny
+         • severity-row left-border accents shrink from 3px → 2px
+           since cells are tighter
+         • analytics-section padding shrinks
+         • generate-bank grid (1fr 90px 110px 110px) collapses
+           gracefully
+    */
+    .stats-bar{padding:var(--space-2) var(--space-3);overflow-x:auto;
+               scrollbar-width:none}
+    .stats-bar::-webkit-scrollbar{display:none}
+    .stat-tile{padding:0 var(--space-3)}
+    .stat-tile-value{font-size:var(--text-md)}
+    .table-toolbar{flex-direction:column;align-items:stretch;gap:var(--space-2);
+                   padding:var(--space-2) var(--space-3)}
+    .search-wrap{max-width:100%}
+    .toolbar-right{margin-left:0;justify-content:flex-end}
+    .filter-select{width:100%}
+    #panel-live .table-wrap tbody tr.row-critical,
+    #panel-live .table-wrap tbody tr.row-error,
+    #panel-live .table-wrap tbody tr.row-warn{box-shadow-x:2px}
+    .analytics-section{padding:14px}
+    .analytics-section-header{flex-direction:column;align-items:flex-start;gap:var(--space-1)}
+    /* Bank generate grid (questions tab) — collapse to 2 cols on mobile. */
+    #bank-generate-area > div[style*="grid-template-columns:1fr 90px 110px 110px"]{
+      grid-template-columns:1fr 1fr !important
+    }
+    /* Live-view modal: shrink to fit phone width */
+    #liveview-modal .modal{max-width:96vw;padding:14px}
   }
   @media(max-width:480px){
     .container{padding:8px}
@@ -267,6 +305,17 @@
     .tool-card{padding:16px}
     .tool-card p{font-size:12px}
     .q-card{padding:14px}
+    /* Phone-tight: the stat strip becomes scrollable and tabs wrap
+       to a horizontal scroll — both keep all content reachable
+       without resorting to a hamburger menu. */
+    .stats-bar{padding:var(--space-1-5) var(--space-2)}
+    .stat-tile{padding:0 var(--space-2);min-width:88px}
+    .stat-tile-value{font-size:var(--text-base)}
+    .stat-tile-label{font-size:9px}
+    /* Bank generate grid: stack vertically on phones. */
+    #bank-generate-area > div[style*="grid-template-columns:1fr 90px 110px 110px"]{
+      grid-template-columns:1fr !important
+    }
   }
   /* Hard guard against horizontal-scroll on the document itself —
      the table .table-wrap already scrolls, but the page outer

@@ -559,6 +559,66 @@
   .id-btn-approve{background:#238636;color:#fff}
   .id-btn-retake{background:rgba(245,158,11,.15);color:#f59e0b}
   .id-btn-reject{background:rgba(239,68,68,.12);color:#ff7b72}
+
+  /* ── Live Sessions tab — Phase 2 design integration ─────────────
+     Ported from design package teacher-live.html. The tab uses a
+     full-height flex column wrapping a sticky stats strip + sticky
+     toolbar + scrollable table. New stat-tile shape replaces the
+     legacy .stat boxes; renderLiveStats() emits the new markup.
+     Existing IDs (#live-stats, #live-search, #live-body,
+     #id-reviews-section/list/count) are preserved as the JS still
+     reads them. */
+  .live-layout{display:flex;flex-direction:column;height:100%;overflow:hidden}
+  .stats-bar{display:flex;align-items:stretch;gap:0;padding:var(--space-3) var(--space-5);
+             background:var(--bg-subtle);border-bottom:1px solid var(--border-subtle);flex-shrink:0;
+             overflow-x:auto}
+  .stat-tile{display:flex;flex-direction:column;gap:2px;padding:0 var(--space-5);
+             border-right:1px solid var(--border-subtle);min-width:0;flex-shrink:0}
+  .stat-tile:first-child{padding-left:0}
+  .stat-tile:last-child{border-right:none}
+  .stat-tile-label{font-size:var(--text-xs);font-weight:600;letter-spacing:var(--tracking-wider);
+                   text-transform:uppercase;color:var(--text-muted)}
+  .stat-tile-value{font-family:var(--font-mono);font-size:var(--text-xl);font-weight:500;
+                   letter-spacing:var(--tracking-tight);color:var(--text-high);line-height:1.2}
+  .stat-tile-value.accent{color:var(--accent)}
+  .stat-tile-value.warn{color:var(--sev-warn-fg)}
+  .stat-tile-value.success{color:var(--sev-success-fg)}
+  .stat-tile-value.muted{color:var(--text-muted)}
+  .stat-tile-sub{font-size:var(--text-xs);color:var(--text-muted)}
+  .table-toolbar{display:flex;align-items:center;gap:var(--space-3);
+                 padding:var(--space-2-5) var(--space-5);
+                 border-bottom:1px solid var(--border-subtle);flex-shrink:0;
+                 background:var(--bg-base);flex-wrap:wrap}
+  .search-wrap{position:relative;flex:1;max-width:280px;min-width:160px}
+  .search-wrap .search-icon{position:absolute;left:var(--space-2-5);top:50%;
+                            transform:translateY(-50%);color:var(--text-muted);
+                            pointer-events:none;display:flex}
+  .search-input{width:100%;font-family:var(--font-body);font-size:var(--text-sm);
+                color:var(--text-high);background:var(--surface-1);
+                border:1px solid var(--border-subtle);border-radius:var(--radius-md);
+                padding:var(--space-1) var(--space-3) var(--space-1) var(--space-7);
+                transition:border-color var(--duration-fast) var(--ease-standard),
+                           box-shadow var(--duration-fast) var(--ease-standard)}
+  .search-input::placeholder{color:var(--text-muted)}
+  .search-input:focus{outline:none;border-color:var(--accent);
+                      box-shadow:0 0 0 2px var(--input-focus-ring)}
+  .filter-select{font-family:var(--font-body);font-size:var(--text-sm);color:var(--text-mid);
+                 background:var(--surface-1);border:1px solid var(--border-subtle);
+                 border-radius:var(--radius-md);
+                 padding:var(--space-1) var(--space-7) var(--space-1) var(--space-3);
+                 cursor:pointer;appearance:none;
+                 background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%236b7a8d' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+                 background-repeat:no-repeat;background-position:right 10px center;
+                 transition:border-color var(--duration-fast) var(--ease-standard)}
+  .filter-select:focus{outline:none;border-color:var(--accent)}
+  .toolbar-right{margin-left:auto;display:flex;align-items:center;gap:var(--space-2)}
+  /* Live table — extends the existing .table-wrap pattern with the
+     design's left-border severity accents + cleaner typography. */
+  #panel-live .table-wrap tbody tr.row-critical{box-shadow:inset 3px 0 0 var(--sev-critical-fg)}
+  #panel-live .table-wrap tbody tr.row-error   {box-shadow:inset 3px 0 0 var(--sev-error-fg)}
+  #panel-live .table-wrap tbody tr.row-warn    {box-shadow:inset 3px 0 0 var(--sev-warn-fg)}
+  #panel-live .table-wrap tbody tr:hover       {background:var(--table-row-hover)}
+  #panel-live .table-wrap thead th{position:sticky;top:0;z-index:5;background:var(--table-header-bg)}
 </style>
 </head>
 <body>
@@ -696,8 +756,10 @@
 <div class="container">
 
   <!-- LIVE SESSIONS -->
-  <div class="panel active" id="panel-live">
-    <!-- Pending ID reviews (hidden when empty) -->
+  <div class="panel active live-layout" id="panel-live">
+    <!-- Pending ID reviews (hidden when empty). Sits OUTSIDE the
+         flex-1 stats/toolbar/table chain so it can grow naturally
+         when reviews are queued. JS hooks unchanged. -->
     <div class="id-reviews" id="id-reviews-section" style="display:none">
       <div class="id-reviews-header">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="12" r="2.5"/><path d="M15 10h2M15 14h2"/></svg>
@@ -706,13 +768,33 @@
       </div>
       <div id="id-reviews-list"></div>
     </div>
-    <div class="stats" id="live-stats"></div>
-    <div class="toolbar">
-      <input type="text" id="live-search" placeholder="Search sessions..."
-             oninput="filterLive()">
-      <button onclick="refreshLive()">Refresh</button>
+    <!-- Stats strip — populated by renderLiveStats() with .stat-tile
+         children. Class is .stats-bar (new design) instead of legacy
+         .stats; JS now emits the new markup shape. -->
+    <div class="stats-bar" id="live-stats"></div>
+    <!-- Toolbar — search wrap + severity filter + actions. The
+         severity filter is a new feature (filterLiveSev() in JS);
+         the search input keeps its #live-search hook so filterLive()
+         continues to work. -->
+    <div class="table-toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </span>
+        <input type="text" id="live-search" class="search-input" placeholder="Search by name, roll, or session id…" oninput="filterLive()">
+      </div>
+      <select class="filter-select" id="live-sev-filter" onchange="filterLive()" title="Filter by severity">
+        <option value="all">All severities</option>
+        <option value="critical">Critical only</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <div class="toolbar-right">
+        <button class="action-btn" onclick="refreshLive()">Refresh</button>
+      </div>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap" style="flex:1;overflow-y:auto">
       <table>
         <thead><tr>
           <th onclick="sortLive('session_id')">Session <span class="arrow"></span></th>
@@ -1966,17 +2048,39 @@ function renderLiveStats(active, all){
   const submitted = hasState
     ? all.filter(s=>s.live_state==='submitted').length
     : all.filter(s=>s.submitted).length;
-  // Show a Stale pill only when there's actually something to flag —
-  // keeps the dashboard clean on a quiet exam.
-  const staleCell = staleCount>0
-    ? `<div class="stat"><div class="label">Stale</div><div class="value" style="color:var(--muted)">${staleCount}</div></div>`
+  // Severity rollup so the strip shows what's actually demanding the
+  // teacher's attention right now. Only counts non-submitted rows —
+  // a session that finished an hour ago shouldn't inflate the
+  // "Critical" tile.
+  const liveOnly = hasState ? all.filter(s=>s.live_state!=='submitted')
+                            : all.filter(s=>!s.submitted);
+  const sev = (lvl) => liveOnly.filter(s=>(s.last_severity||'').toLowerCase()===lvl).length;
+  const high = sev('high'), medium = sev('medium'), critical = sev('critical');
+
+  // New design's `.stat-tile` shape — replaces legacy `.stat > .label
+  // + .value`. Tile order is intentional: positive (Active) first,
+  // then anything demanding attention, then context (Submitted, Total).
+  // Stale pill is conditionally rendered to keep the strip clean
+  // on a quiet exam.
+  const tile = (label, value, cls='') =>
+    `<div class="stat-tile"><div class="stat-tile-label">${label}</div><div class="stat-tile-value${cls?' '+cls:''}">${value}</div></div>`;
+  const staleTile = staleCount>0 ? tile('Stale', staleCount, 'muted') : '';
+  const sevTile = (critical>0 || high>0 || medium>0)
+    ? `<div class="stat-tile"><div class="stat-tile-label">Severity</div>
+        <div class="stat-tile-value">
+          ${critical>0 ? `<span style="color:var(--sev-critical-fg)">${critical}</span>` : ''}
+          ${high>0 ? `<span style="color:var(--sev-error-fg);${critical>0?'margin-left:8px':''}">${high}</span>` : ''}
+          ${medium>0 ? `<span style="color:var(--sev-warn-fg);${(critical||high)>0?'margin-left:8px':''}">${medium}</span>` : ''}
+        </div>
+        <div class="stat-tile-sub">crit · high · med</div></div>`
     : '';
-  el.innerHTML=`
-    <div class="stat"><div class="label">Active Now</div><div class="value green">${liveCount}</div></div>
-    ${staleCell}
-    <div class="stat"><div class="label">Submitted</div><div class="value blue">${submitted}</div></div>
-    <div class="stat"><div class="label">Total Sessions</div><div class="value">${all.length}</div></div>
-  `;
+
+  el.innerHTML =
+    tile('Active Now', liveCount, 'success') +
+    staleTile +
+    sevTile +
+    tile('Submitted', submitted, 'accent') +
+    tile('Total Sessions', all.length);
 }
 
 function _liveStateFor(s){
@@ -2002,8 +2106,16 @@ function _liveBadge(s){
 
 function renderLive(){
   const q = document.getElementById('live-search').value.toLowerCase();
+  // New severity dropdown — added in Phase 2 design integration.
+  // Defaults to "all"; missing element on legacy markup falls through
+  // to the same default so the function works on any page revision.
+  const sevFilterEl = document.getElementById('live-sev-filter');
+  const sevFilter = sevFilterEl ? sevFilterEl.value : 'all';
   let rows = liveData.filter(s=>!q||s.session_id.toLowerCase().includes(q)
     ||s.last_event.toLowerCase().includes(q));
+  if(sevFilter !== 'all'){
+    rows = rows.filter(s => (s.last_severity||'').toLowerCase() === sevFilter);
+  }
   rows.sort((a,b)=>{
     let va=a[liveSortKey]||'', vb=b[liveSortKey]||'';
     if(typeof va==='boolean'){va=va?1:0;vb=vb?1:0;}
@@ -2023,7 +2135,15 @@ function renderLive(){
     const riskColor = rs==null?'var(--muted)'
       :rs>70?'var(--red)':rs>40?'var(--amber)':rs>15?'#58a6ff':'var(--emerald)';
     const riskTxt = rs==null?'—':`${rs}/100`;
-    return `<tr>
+    // Left-border severity accent — Phase 2 design class. Applied
+    // only to live (non-submitted) rows so the table doesn't look
+    // "alarmed" for sessions that finished hours ago.
+    const sevLevel = (s.last_severity||'').toLowerCase();
+    const isLive = s.live_state === 'live';
+    const rowCls = isLive && (sevLevel==='critical' ? 'row-critical'
+                            : sevLevel==='high'     ? 'row-error'
+                            : sevLevel==='medium'   ? 'row-warn' : '') || '';
+    return `<tr${rowCls?` class="${rowCls}"`:''}>
       <td><strong>${esc(roll)}</strong><br><span style="font-size:11px;color:var(--muted)">${esc(s.session_id.substring(0,30))}...</span></td>
       <td>${esc(s.last_event.replace(/_/g,' '))}</td>
       <td style="color:${sevColor};font-weight:600">${esc(s.last_severity.toUpperCase())}</td>

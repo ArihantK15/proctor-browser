@@ -226,12 +226,30 @@ files) resolves to a defined token. Static assets all return 200.
   • **2.4 Questions tab** (commit `4abaa0f`) — last remaining legacy
     `.stat` block migrated. Missing-Answer tile flips to severity
     error-fg when there ARE missing answers so the issue surfaces.
+  • **2.5 Marketing landing** (commit `933dc38`) — full vanilla HTML
+    port of the design's React JSX preview. Hero with mockup, 6
+    outcome cards, feature strip with student mockup, 3 pricing
+    tiers, demo form wired to /api/demo-request, footer. New routes
+    `GET /` and `GET /marketing` serve it. Lucide icons replaced
+    with inline SVG (no CDN dep). Mobile breakpoint built in.
+  • **2.6 Mobile responsive** (commit `7a57c26`) — breakpoints at
+    768px and 480px for the new design classes. Stats strip
+    horizontally scrolls on phones (preserves the at-a-glance
+    affordance), table-toolbar collapses to column, search-wrap
+    spans full width, analytics sections shrink padding, bank
+    Generate grid restacks. Hidden scrollbars where appropriate.
+  • **2.7 Renderer accent recolor** (commit `3d4346d`) — Electron
+    exam window's emerald-mint accent (20 hex literals across base,
+    active, hover, plus rgba transparencies) swapped for the new
+    periwinkle blue. Pure color substitution; layout / structure /
+    JS hooks untouched. Visual coherence: dashboard, marketing,
+    lobby, AND exam window now share one accent.
 
-  All four surfaces share one consistent visual language: same stat
-  strip, same severity color semantics, same typography. Zero JS
-  hook breakage; verified by hook-count grep on every commit.
+  Seven Phase 2 surfaces shipped in seven commits, each independently
+  revertable. Zero JS hook breakage. Zero structural changes to the
+  proctor stack.
 
-### Phase 2 — REMAINING SURFACES (deferred to per-surface PRs)
+### Phase 2 — REMAINING SURFACES (deferred — needs running exam)
 
 Phase 1 picks up colors, fonts, and shadows automatically. Phase 2
 is where actual *layout* changes happen — the design package ships

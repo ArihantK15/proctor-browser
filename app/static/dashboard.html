@@ -759,8 +759,15 @@
      scrolls independently of the content. */
   /* Same .active scoping as above — without it, #panel-questions
      (specificity 1,1,0) wins outright over .panel{display:none}
-     and the Questions tab renders on top of every other tab. */
-  #panel-questions.qx-shell.active{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:560px;gap:0}
+     and the Questions tab renders on top of every other tab.
+     ── Phase 2.8b scroll fix: single page scroller, sticky panes ──
+     The first cut had nested overflow on .q-content-scroll AND the
+     page body, which made mouse-wheel scrolling fight between the
+     two regions. Now the body is the only scrollable region; the
+     sidebar and AI panel use position:sticky so they stay visible
+     while the centre content scrolls past. Slack / Linear / GitHub
+     Files use this same pattern — feels native with the wheel. */
+  #panel-questions.qx-shell.active{display:flex;flex-direction:column;gap:0}
   .qx-toolbar-top{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);
                   padding:var(--space-2-5) var(--space-5);
                   border:1px solid var(--border-subtle);border-radius:var(--radius-md);
@@ -771,11 +778,16 @@
     font-size:var(--text-sm)}
   .qx-toolbar-top label{font-size:var(--text-xs);color:var(--text-muted);
                         display:flex;align-items:center;gap:6px}
-  .qx-main{display:flex;flex:1;overflow:hidden;border:1px solid var(--border-subtle);
-           border-radius:var(--radius-md);background:var(--bg-subtle)}
+  .qx-main{display:flex;align-items:flex-start;border:1px solid var(--border-subtle);
+           border-radius:var(--radius-md);background:var(--bg-subtle);overflow:visible}
+  /* Sidebar: sticky to viewport top, capped at viewport-minus-chrome
+     so its inner list scrolls when there are many questions but the
+     pane itself doesn't take the wheel away from the content. */
   .q-sidebar{width:260px;flex-shrink:0;background:var(--bg-subtle);
              border-right:1px solid var(--border-subtle);
-             display:flex;flex-direction:column;overflow:hidden}
+             display:flex;flex-direction:column;overflow:hidden;
+             position:sticky;top:120px;align-self:flex-start;
+             max-height:calc(100vh - 140px)}
   .q-sidebar-header{padding:var(--space-3) var(--space-4);
                     border-bottom:1px solid var(--border-subtle);
                     display:flex;flex-direction:column;gap:var(--space-2);flex-shrink:0}
@@ -815,12 +827,16 @@
   .q-list-item.active .q-list-preview{color:var(--text-high)}
   .q-list-empty{padding:var(--space-4);color:var(--text-muted);
                 font-size:var(--text-xs);text-align:center}
-  .q-content{flex:1;overflow:hidden;display:flex;flex-direction:column;
+  /* Centre column — no overflow:hidden / flex:1 anymore; the page
+     body owns the scroll. The toolbar is sticky so it stays visible
+     while the question cards scroll past. */
+  .q-content{flex:1;min-width:0;display:flex;flex-direction:column;
              background:var(--bg-base)}
   .q-content-toolbar{display:flex;align-items:center;gap:var(--space-3);
                      padding:var(--space-2-5) var(--space-5);
                      border-bottom:1px solid var(--border-subtle);flex-shrink:0;
-                     background:var(--bg-base)}
+                     background:var(--bg-base);
+                     position:sticky;top:120px;z-index:2}
   .q-content-toolbar .toolbar-spacer{flex:1}
   .q-content-toolbar .qct-btn{display:inline-flex;align-items:center;gap:6px;
                               font-family:inherit;font-size:var(--text-sm);
@@ -834,11 +850,18 @@
   .q-content-toolbar .qct-btn.primary:hover{background:var(--accent-hover)}
   .q-content-toolbar .qct-btn.ghost{background:transparent;border-color:transparent;color:var(--text-muted)}
   .q-content-toolbar .qct-btn.ghost:hover{background:var(--surface-1);color:var(--text-high)}
-  .q-content-scroll{flex:1;overflow-y:auto;padding:var(--space-5)}
-  /* AI / Bank right panel */
+  /* No more inner overflow — page body scrolls instead. Renamed
+     mentally from "scroll" to just "the content area", but the
+     class name stays the same so existing markup keeps working. */
+  .q-content-scroll{padding:var(--space-5)}
+  /* AI / Bank right panel — sticky so it stays visible while the
+     centre column scrolls past. Same max-height as the sidebar so
+     its inner panes (generate / bank / import) scroll inside. */
   .q-aipanel{width:360px;flex-shrink:0;background:var(--bg-subtle);
              border-left:1px solid var(--border-subtle);
-             display:flex;flex-direction:column;overflow:hidden}
+             display:flex;flex-direction:column;overflow:hidden;
+             position:sticky;top:120px;align-self:flex-start;
+             max-height:calc(100vh - 140px)}
   .q-aipanel.collapsed{display:none}
   .q-aipanel-header{padding:var(--space-3) var(--space-4);
                     border-bottom:1px solid var(--border-subtle);

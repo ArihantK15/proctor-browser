@@ -1,19 +1,33 @@
-"""Groq-backed LLM helpers.
+"""Provider-agnostic LLM helpers.
 
-Why Groq specifically and not OpenAI/Anthropic/Bedrock:
-  • Sub-second latency on Llama 3.3 70B is the difference between
-    "click generate, get coffee" and "click generate, see results."
-    The teacher UX falls apart at >3s.
-  • OpenAI-compatible API, so we don't pay the cost of yet another
-    SDK; one httpx call is the whole client.
-  • JSON mode is reliable on the Groq Llama deployments — we get
-    valid JSON back ~99% of the time without retry logic.
+Talks to any OpenAI-compatible chat-completions endpoint. The default
+is Groq (free tier: 14,400 req/day on Llama 3.3 70B, no credit card),
+but the same code transparently works with any provider exposing
+`POST /chat/completions` with the standard schema:
 
-Single-file module on purpose. If we later add other LLM features
-(scorecard insights, auto-tag) they belong here too — keeping all
-prompt + token + provider concerns in one place is worth more than
-"clean separation by feature." When this file gets to ~400 lines we
-split.
+  Provider     Free tier?           Base URL
+  ──────────   ──────────────────   ───────────────────────────────
+  Groq         14,400/day, fast     https://api.groq.com/openai/v1
+  OpenRouter   :free model suffix   https://openrouter.ai/api/v1
+  Cerebras     ~10,000/day          https://api.cerebras.ai/v1
+  Together.ai  small models free    https://api.together.xyz/v1
+  Anthropic    paid                 https://api.anthropic.com/v1
+  OpenAI       paid                 https://api.openai.com/v1
+  Local Ollama free, slow on CPU    http://localhost:11434/v1
+
+To switch provider, just set three env vars (see .env.example):
+  LLM_API_KEY    — bearer token
+  LLM_BASE_URL   — provider's chat-completions root
+  LLM_MODEL      — model identifier the provider uses
+
+Backwards-compat: the old GROQ_* vars still work as fallbacks so a
+running container with only GROQ_API_KEY set keeps working.
+
+Why one provider and not retry-ladder fan-out across multiple:
+  • Free tiers are fragile. Adding fallback to OpenAI when Groq fails
+    surprises operators with a paid bill on a quiet night.
+  • Latency: each fallback adds 1+ second of dead air per failed call.
+  • Cleaner mental model: one knob (LLM_BASE_URL) flips everything.
 
 Failure mode: every public function is wrapped in a single try/except
 that returns a structured error rather than raising. Endpoints turn
@@ -32,23 +46,39 @@ import httpx
 
 log = logging.getLogger("llm")
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
-# Llama 3.3 70B is the sweet spot — big enough to follow a structured
-# JSON schema reliably, small enough that Groq serves it at ~600 tok/s
-# so a 10-question generation comes back in <2 s. Override per-call
-# if a future feature needs Mixtral or 8B.
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
-GROQ_BASE_URL = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1").strip().rstrip("/")
-# 30 s is generous — Groq's median latency is ~1 s, but we'd rather
-# cap a hung request than wedge a worker.
-GROQ_TIMEOUT = float(os.environ.get("GROQ_TIMEOUT", "30"))
+# ── Provider config (env-driven) ────────────────────────────────────
+# New canonical names: LLM_*. Legacy GROQ_* read as fallback so an
+# existing deployment with only GROQ_API_KEY in .env keeps working
+# without a config edit at deploy time.
+LLM_API_KEY = (os.environ.get("LLM_API_KEY")
+               or os.environ.get("GROQ_API_KEY") or "").strip()
+LLM_BASE_URL = (os.environ.get("LLM_BASE_URL")
+                or os.environ.get("GROQ_BASE_URL")
+                or "https://api.groq.com/openai/v1").strip().rstrip("/")
+# Llama 3.3 70B is the sweet spot for question generation — big enough
+# to follow a JSON schema reliably, small enough that the Groq /
+# Cerebras free tiers serve it fast. Switch this to e.g.
+# "google/gemini-2.0-flash-exp:free" when LLM_BASE_URL points at
+# OpenRouter, or "llama3.1-8b" for local Ollama.
+LLM_MODEL = (os.environ.get("LLM_MODEL")
+             or os.environ.get("GROQ_MODEL")
+             or "llama-3.3-70b-versatile").strip()
+# 30 s is generous — most providers' median is ~1 s for our prompts;
+# we'd rather cap a hung request than wedge a worker.
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT")
+                    or os.environ.get("GROQ_TIMEOUT", "30"))
+
+# Legacy aliases — keep so the rest of the module's API is stable.
+GROQ_API_KEY = LLM_API_KEY
+GROQ_MODEL = LLM_MODEL
+GROQ_BASE_URL = LLM_BASE_URL
+GROQ_TIMEOUT = LLM_TIMEOUT
 
 
 def is_configured() -> bool:
     """Whether the LLM features are usable. Endpoints check this and
-    return 503 with a clear "set GROQ_API_KEY" message rather than
-    leaking a generic 502 from httpx."""
-    return bool(GROQ_API_KEY)
+    return 503 with a clear error rather than leaking a generic 502."""
+    return bool(LLM_API_KEY)
 
 
 def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
@@ -59,11 +89,15 @@ def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
     caller can decide how to surface it. We force ``response_format``
     to JSON object mode so the model can't sneak in prose around the
     payload — that was the #1 source of breakage on earlier providers.
+    Some providers (notably OpenRouter on certain :free models) ignore
+    response_format silently; we don't error on missing JSON mode and
+    rely on the system prompt's "Return only JSON" instruction as the
+    backstop.
     """
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY not configured")
+    if not LLM_API_KEY:
+        raise RuntimeError("LLM_API_KEY (or GROQ_API_KEY) not configured")
     payload = {
-        "model": GROQ_MODEL,
+        "model": LLM_MODEL,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -73,18 +107,24 @@ def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
         "max_tokens": max_tokens,
     }
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {LLM_API_KEY}",
         "Content-Type": "application/json",
     }
-    with httpx.Client(timeout=GROQ_TIMEOUT) as client:
-        r = client.post(f"{GROQ_BASE_URL}/chat/completions",
+    # OpenRouter likes a Referer + Title header for attribution; harmless
+    # on every other provider so we always send them.
+    if "openrouter" in LLM_BASE_URL:
+        headers["HTTP-Referer"] = "https://procta.net"
+        headers["X-Title"] = "Procta"
+    with httpx.Client(timeout=LLM_TIMEOUT) as client:
+        r = client.post(f"{LLM_BASE_URL}/chat/completions",
                         json=payload, headers=headers)
         if r.status_code >= 400:
-            # Don't echo the model's full error body to clients —
-            # Groq's errors sometimes include the prompt back, which
-            # could leak teacher input via logs. Keep the body for
-            # server-side debugging only.
-            log.warning("groq %s: %s", r.status_code, r.text[:500])
+            # Don't echo the model's full error body to clients — some
+            # providers' errors include the prompt back, which could
+            # leak teacher input via logs. Keep the body for server-
+            # side debugging only.
+            log.warning("llm %s %s: %s", LLM_BASE_URL, r.status_code,
+                        r.text[:500])
             r.raise_for_status()
         body = r.json()
     content = body["choices"][0]["message"]["content"]

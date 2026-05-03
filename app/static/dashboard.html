@@ -1740,6 +1740,34 @@
      Server-side flag has a 60s TTL refreshed by keepalive every 30s,
      so closing the panel without clicking Stop still terminates the
      stream within a minute (kill-switch for forgotten panels). -->
+<!-- ── Onboarding wizard ────────────────────────────────────────────
+     5 steps for first-time teachers. Auto-shown on first dashboard
+     load (localStorage flag 'procta_onboarded'); also re-triggerable
+     from the topbar via a "?" button (added in JS at boot).
+     Designed to be skippable at any time (no friction — a teacher
+     who hits "Skip" should never be re-prompted unless they opt
+     back in via the topbar). -->
+<div class="modal-bg hidden" id="onboard-modal" onclick="if(event.target===this)onboardSkip()">
+  <div class="modal" style="max-width:580px;padding:32px">
+    <button class="close" onclick="onboardSkip()">&times;</button>
+
+    <!-- Step indicator dots — click to jump. Cheap to implement,
+         high perceived value: makes the wizard feel like a guided
+         path rather than a wall. -->
+    <div id="onboard-dots" style="display:flex;gap:6px;margin-bottom:24px;justify-content:center"></div>
+
+    <div id="onboard-content" style="min-height:240px"></div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;gap:10px">
+      <button class="action-btn" id="onboard-skip-btn" onclick="onboardSkip()" style="color:var(--text-muted)">Skip tour</button>
+      <div style="display:flex;gap:8px">
+        <button class="action-btn" id="onboard-prev-btn" onclick="onboardPrev()">← Back</button>
+        <button class="action-btn primary" id="onboard-next-btn" onclick="onboardNext()">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg hidden" id="liveview-modal" onclick="if(event.target===this)closeLiveView()">
   <div class="modal" style="max-width:560px">
     <button class="close" onclick="closeLiveView()">&times;</button>
@@ -2298,6 +2326,208 @@ window.addEventListener('pageshow', (e) => {
       _tryAutoLogin();
     }
   }
+});
+
+// ── Onboarding wizard ────────────────────────────────────────────
+// Auto-shows on first dashboard load. Persists "done" in
+// localStorage so a teacher only sees it once unless they manually
+// re-trigger via the "?" button in the topbar (wired up at boot).
+//
+// Steps are an array of {title, body, cta_hint} so adding a new
+// step is just an array entry — no per-step DOM template needed.
+const _ONBOARD_STEPS = [
+  {
+    title: 'Welcome to Procta',
+    body: `<p style="font-size:14px;color:var(--text-mid);line-height:1.6;margin-bottom:14px">
+        You can run your first proctored exam in <strong style="color:var(--accent)">about 5 minutes</strong>. This 1-minute tour shows the four things you'll touch.
+      </p>
+      <div style="background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;font-size:13px;color:var(--text-muted);line-height:1.7">
+        <strong style="color:var(--text-high);display:block;margin-bottom:6px">What Procta does</strong>
+        AI watches every student's webcam + screen for cheating signals (gaze, multiple faces, tab switches). Auto-grades MCQs the moment they submit. Generates per-student PDF scorecards. Zero install on your servers — students download the desktop app, you watch from the browser.
+      </div>`,
+  },
+  {
+    title: 'Step 1 — Build your exam',
+    body: `<p style="font-size:14px;color:var(--text-mid);line-height:1.6;margin-bottom:14px">
+        Click the <strong style="color:var(--accent)">Questions</strong> tab. You have three ways to add questions:
+      </p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="background:var(--surface-1);border:1px solid var(--accent-border);border-radius:8px;padding:12px 14px">
+          <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:3px">✨ AI Generate (fastest)</div>
+          <div style="font-size:12px;color:var(--text-muted)">Type a topic ("Photosynthesis"), pick how many, click Generate. 25 questions in 2 seconds. Review, edit, then save.</div>
+        </div>
+        <div style="background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px">
+          <div style="font-size:13px;font-weight:600;color:var(--text-high);margin-bottom:3px">+ Add Question</div>
+          <div style="font-size:12px;color:var(--text-muted)">Type your own. MCQ single, multi-select, or true/false.</div>
+        </div>
+        <div style="background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px">
+          <div style="font-size:13px;font-weight:600;color:var(--text-high);margin-bottom:3px">Import CSV</div>
+          <div style="font-size:12px;color:var(--text-muted)">Bulk import from a spreadsheet. Template available in the Bank panel.</div>
+        </div>
+      </div>`,
+  },
+  {
+    title: 'Step 2 — Share with students',
+    body: `<p style="font-size:14px;color:var(--text-mid);line-height:1.6;margin-bottom:14px">
+        Click the <strong style="color:var(--accent)">Tools</strong> tab. Two ways to onboard students:
+      </p>
+      <div style="background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;font-size:13px;color:var(--text-mid);line-height:1.7;margin-bottom:10px">
+        <strong style="color:var(--text-high);display:block;margin-bottom:4px">Send invite emails</strong>
+        Paste a list of <code style="background:var(--surface-2);padding:1px 6px;border-radius:3px;font-size:11px">name, email, roll</code> rows; we send each student a unique link. They click → land on a download page → install the Procta app → join your exam. Recommended for batches > 20.
+      </div>
+      <div style="background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;font-size:13px;color:var(--text-mid);line-height:1.7">
+        <strong style="color:var(--text-high);display:block;margin-bottom:4px">Share an access code</strong>
+        Tools → Access Code → copy the 6-letter code. Students join by entering their roll number + this code. Simpler for small classes / drop-in exams.
+      </div>`,
+  },
+  {
+    title: 'Step 3 — Watch live',
+    body: `<p style="font-size:14px;color:var(--text-mid);line-height:1.6;margin-bottom:14px">
+        Once students start, the <strong style="color:var(--accent)">Live Sessions</strong> tab fills up in real time. Each row shows:
+      </p>
+      <ul style="font-size:13px;color:var(--text-mid);line-height:1.8;padding-left:20px;margin-bottom:14px">
+        <li><strong>Severity</strong> — colour-coded violation level</li>
+        <li><strong>Risk score</strong> — 0–100, higher means more flags</li>
+        <li><strong>✨ Insight</strong> — one-line AI summary of what's happening</li>
+        <li><strong>Camera</strong> — peek at the live webcam feed</li>
+        <li><strong>Timeline</strong> — every event, frame-by-frame</li>
+      </ul>
+      <div style="background:var(--accent-subtle);border:1px solid var(--accent-border);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--text-mid);line-height:1.55">
+        <strong style="color:var(--accent)">Tip:</strong> AI never auto-terminates a session. Every flag is a recommendation; you decide.
+      </div>`,
+  },
+  {
+    title: 'You\'re ready',
+    body: `<div style="text-align:center;padding:20px 0">
+        <div style="font-size:48px;margin-bottom:14px">🎯</div>
+        <p style="font-size:16px;color:var(--text-high);font-weight:600;margin-bottom:8px">Set up your first exam now</p>
+        <p style="font-size:13px;color:var(--text-muted);line-height:1.6;max-width:380px;margin:0 auto">
+          Three clicks: Questions → ✨ Generate → +N → Exam.<br>
+          You'll have a usable exam in under 60 seconds.
+        </p>
+        <div style="margin-top:24px;padding:12px 16px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.6;max-width:380px;margin-left:auto;margin-right:auto">
+          Need help? The <strong style="color:var(--accent)">?</strong> button (top-right) reopens this tour anytime. For real questions: <span style="color:var(--accent)">support@procta.net</span>
+        </div>
+      </div>`,
+  },
+];
+let _onboardIdx = 0;
+
+function _onboardRender(){
+  const dots = document.getElementById('onboard-dots');
+  const content = document.getElementById('onboard-content');
+  const prev = document.getElementById('onboard-prev-btn');
+  const next = document.getElementById('onboard-next-btn');
+  const skip = document.getElementById('onboard-skip-btn');
+  if(!dots || !content) return;
+  // Render dots
+  dots.innerHTML = _ONBOARD_STEPS.map((_, i) => `
+    <button onclick="_onboardJump(${i})" title="Step ${i+1}"
+      style="width:${i===_onboardIdx?'24px':'8px'};height:8px;border-radius:99px;
+             background:${i===_onboardIdx?'var(--accent)':'var(--border-strong)'};
+             border:none;cursor:pointer;padding:0;
+             transition:width var(--duration-fast) var(--ease-standard),background var(--duration-fast) var(--ease-standard)"></button>
+  `).join('');
+  // Render step content
+  const step = _ONBOARD_STEPS[_onboardIdx];
+  content.innerHTML = `
+    <h2 style="font-size:22px;font-weight:600;letter-spacing:-0.02em;color:var(--text-high);margin-bottom:14px">${step.title}</h2>
+    ${step.body}
+  `;
+  // Button states
+  prev.disabled = (_onboardIdx === 0);
+  prev.style.opacity = prev.disabled ? '0.4' : '1';
+  prev.style.cursor = prev.disabled ? 'not-allowed' : 'pointer';
+  if(_onboardIdx === _ONBOARD_STEPS.length - 1){
+    next.textContent = 'Got it — let\'s go';
+    skip.textContent = 'Close';
+  } else {
+    next.textContent = 'Next →';
+    skip.textContent = 'Skip tour';
+  }
+}
+
+function onboardOpen(){
+  _onboardIdx = 0;
+  document.getElementById('onboard-modal').classList.remove('hidden');
+  _onboardRender();
+}
+
+function onboardNext(){
+  if(_onboardIdx < _ONBOARD_STEPS.length - 1){
+    _onboardIdx++;
+    _onboardRender();
+  } else {
+    _onboardComplete();
+  }
+}
+
+function onboardPrev(){
+  if(_onboardIdx > 0){
+    _onboardIdx--;
+    _onboardRender();
+  }
+}
+
+function _onboardJump(i){
+  _onboardIdx = Math.max(0, Math.min(_ONBOARD_STEPS.length - 1, i));
+  _onboardRender();
+}
+
+function onboardSkip(){
+  // Skip and complete are the same action — both mark "seen" in
+  // localStorage. The user opted out of the wizard either way; we
+  // shouldn't pop it again next time they log in.
+  _onboardComplete();
+}
+
+function _onboardComplete(){
+  try{ localStorage.setItem('procta_onboarded', 'true'); }catch(_){/* private mode */}
+  document.getElementById('onboard-modal').classList.add('hidden');
+}
+
+// Auto-show on first dashboard load. Two checks:
+//   1. localStorage flag — never seen before
+//   2. dashboard fully loaded (auth-overlay hidden) — don't fire on
+//      the login screen, only after the teacher is signed in
+function _onboardMaybeShow(){
+  let seen = false;
+  try{ seen = localStorage.getItem('procta_onboarded') === 'true'; }catch(_){}
+  if(seen) return;
+  const auth = document.getElementById('auth-overlay');
+  // Wait for auth-overlay to be hidden (teacher logged in)
+  if(auth && !auth.classList.contains('hidden')){
+    // Re-check every 500ms until login completes; cap at 30 seconds.
+    let attempts = 0;
+    const probe = setInterval(() => {
+      attempts++;
+      if(attempts > 60 || (!auth.classList.contains('hidden'))){
+        clearInterval(probe);
+        if(!auth.classList.contains('hidden')) onboardOpen();
+      }
+    }, 500);
+    return;
+  }
+  onboardOpen();
+}
+
+// Add a "?" help button to the topbar so the wizard is re-openable
+// after dismissal. Inserted on DOMContentLoaded so the topbar exists.
+document.addEventListener('DOMContentLoaded', () => {
+  const right = document.querySelector('.topbar-right') || document.querySelector('.topbar');
+  if(right && !document.getElementById('onboard-trigger')){
+    const btn = document.createElement('button');
+    btn.id = 'onboard-trigger';
+    btn.className = 'action-btn';
+    btn.title = 'Open the getting-started tour';
+    btn.style.cssText = 'padding:6px 12px;font-size:13px;font-weight:600';
+    btn.textContent = '?';
+    btn.onclick = () => onboardOpen();
+    right.insertBefore(btn, right.firstChild);
+  }
+  // Trigger maybe-show after a short delay so login flow has time
+  // to flip the auth-overlay class.
+  setTimeout(_onboardMaybeShow, 800);
 });
 
 // ── TABS ────────────────────────────────────────────────────────

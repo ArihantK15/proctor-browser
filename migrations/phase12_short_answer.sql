@@ -34,6 +34,12 @@ alter table questions
   add column if not exists max_score        numeric(5,2) default 1.0;
 
 alter table answers
+  -- Phase 8 multi-exam columns. Most prod DBs already have them
+  -- (added inline during Phase 8), but some early-deployment DBs
+  -- never got a tracked migration. Adding here makes phase12 a
+  -- single-file fix for both populations.
+  add column if not exists teacher_id     text,
+  add column if not exists exam_id        text,
   add column if not exists ai_score        numeric(5,2),
   add column if not exists ai_feedback     text,
   add column if not exists ai_confidence   text,

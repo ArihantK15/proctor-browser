@@ -162,8 +162,12 @@
   th .arrow{font-size:10px;margin-left:4px}
   td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
   tr:hover td{background:rgba(61,217,168,.04)}
+  /* No vertical scroll on the wrapper — single page-body scroll
+     pattern. Horizontal scroll is kept because wide tables (Results
+     with 10 columns) DO need horizontal scrolling on narrower
+     viewports. */
   .table-wrap{overflow-x:auto;background:var(--card);border:1px solid var(--border);
-    border-radius:10px;max-height:65vh;overflow-y:auto}
+    border-radius:10px}
 
   /* ── Risk badge ───────────────────────────────────────────────── */
   .risk-badge{display:inline-block;padding:3px 10px;border-radius:12px;
@@ -640,7 +644,11 @@
      panel with class="panel live-layout" would render even when the
      teacher is on a different tab. Same fix applied below for
      #panel-questions.qx-shell. */
-  .panel.active.live-layout{display:flex;flex-direction:column;height:100%;overflow:hidden}
+  /* Phase 2.8b — same single-scroll pattern as Questions tab.
+     Drop height:100% / overflow:hidden so body owns the wheel,
+     not the inner table-wrap. The toolbar below uses position:sticky
+     to stay visible while the table scrolls past. */
+  .panel.active.live-layout{display:flex;flex-direction:column}
   .stats-bar{display:flex;align-items:stretch;gap:0;padding:var(--space-3) var(--space-5);
              background:var(--bg-subtle);border-bottom:1px solid var(--border-subtle);flex-shrink:0;
              overflow-x:auto}
@@ -657,10 +665,14 @@
   .stat-tile-value.success{color:var(--sev-success-fg)}
   .stat-tile-value.muted{color:var(--text-muted)}
   .stat-tile-sub{font-size:var(--text-xs);color:var(--text-muted)}
+  /* Sticky toolbar — search input + filter dropdown + actions stay
+     visible while the table below scrolls. top:120px clears the
+     dashboard's topbar + tab bar + exam-bar. */
   .table-toolbar{display:flex;align-items:center;gap:var(--space-3);
                  padding:var(--space-2-5) var(--space-5);
                  border-bottom:1px solid var(--border-subtle);flex-shrink:0;
-                 background:var(--bg-base);flex-wrap:wrap}
+                 background:var(--bg-base);flex-wrap:wrap;
+                 position:sticky;top:120px;z-index:3}
   .search-wrap{position:relative;flex:1;max-width:280px;min-width:160px}
   .search-wrap .search-icon{position:absolute;left:var(--space-2-5);top:50%;
                             transform:translateY(-50%);color:var(--text-muted);
@@ -1070,7 +1082,7 @@
         <button class="action-btn" onclick="refreshLive()">Refresh</button>
       </div>
     </div>
-    <div class="table-wrap" style="flex:1;overflow-y:auto">
+    <div class="table-wrap">
       <table>
         <thead><tr>
           <th onclick="sortLive('session_id')">Session <span class="arrow"></span></th>
@@ -1115,7 +1127,7 @@
         <button class="action-btn primary" onclick="refreshResults()">Refresh</button>
       </div>
     </div>
-    <div class="table-wrap" style="flex:1;overflow-y:auto">
+    <div class="table-wrap">
       <table>
         <thead><tr>
           <th onclick="sortResults('roll_number')">Roll # <span class="arrow"></span></th>

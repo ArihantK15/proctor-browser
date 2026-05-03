@@ -446,3 +446,101 @@ Now write the one-sentence triage summary."""
     except Exception as e:
         log.warning("live_risk_triage failed: %s", e)
         return ""
+
+
+# ── Question quality lint ───────────────────────────────────────────
+
+_LINT_SYSTEM = """You are an experienced exam writer reviewing multiple-choice questions \
+for a high-stakes exam. For each question you'll receive, identify any issues that \
+would make it unfair, ambiguous, or wrong.
+
+Look for these problems specifically:
+  • AMBIGUOUS — wording could be read multiple ways
+  • UNBALANCED — distractors are obviously wrong (e.g. one option is twice as long, or has a giveaway like "all of the above")
+  • WRONG_KEY — the marked correct answer is factually wrong, OR multiple options are correct, OR none are correct
+  • DOUBLE_NEGATIVE — uses "not" / "except" in a confusing way
+  • TRIVIAL — answer is obvious from the question text alone
+  • TYPO — spelling or grammar error that changes meaning
+
+For each question, return at most 2 issues (the most severe). If a question is fine, \
+return an empty issues array.
+
+Severity scale: "high" = students will get this wrong unfairly; "medium" = confusing \
+but probably gradable; "low" = stylistic.
+
+Output JSON: {"results":[{"idx":N,"issues":[{"type":"AMBIGUOUS","severity":"medium","note":"<one sentence>"}]}, ...]}
+
+Important: never invent answers. If you think the marked correct is wrong, say so but \
+do NOT speculate which option SHOULD be correct unless you're certain — false \
+corrections are worse than no review. Maximum 25 words per note."""
+
+
+def lint_questions(questions: list[dict]) -> list[dict]:
+    """Review a batch of questions for ambiguity / unbalanced options /
+    wrong correct-answer keys. Returns per-question issue lists.
+
+    ``questions``: list of dicts with keys
+        idx, question, options (dict A/B/C/D → text), correct (letter)
+
+    Returns: list of {idx, issues: [{type, severity, note}]}
+        — same length as input. Empty issues list = clean question.
+
+    On any failure (LLM down, bad JSON, empty input) returns
+    [] — caller treats empty as "skip linting" rather than "all
+    clean" so a Groq blip doesn't silently mark every question as
+    fine. UI shows "Lint unavailable" in that case.
+    """
+    if not is_configured() or not questions:
+        return []
+
+    # Cap at 25 questions per call. Groq can handle more in raw token
+    # budget but the model loses focus past ~25 items in a JSON list
+    # — issues from later questions get attributed to earlier indices.
+    # Caller batches in chunks of 25 if there are more.
+    batch = questions[:25]
+    digest = []
+    for i, q in enumerate(batch):
+        opts = q.get("options") or {}
+        opts_str = " | ".join(f"{k}: {v}" for k, v in opts.items())
+        digest.append(
+            f"Q{i} (idx={q.get('idx', i)}): {q.get('question','')}\n"
+            f"  Options: {opts_str}\n"
+            f"  Marked correct: {q.get('correct','')}"
+        )
+    user = "Review these questions:\n\n" + "\n\n".join(digest)
+
+    try:
+        parsed = _chat_json(_LINT_SYSTEM, user, max_tokens=2000, temperature=0.2)
+    except Exception as e:
+        log.warning("lint_questions failed: %s", e)
+        return []
+
+    raw = parsed.get("results") or []
+    if not isinstance(raw, list):
+        return []
+
+    # Normalise + clamp. Build a lookup by the idx the LLM returned
+    # so out-of-order results are matched correctly. Missing results
+    # default to empty (clean) — better than dropping the question.
+    by_idx = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        idx = item.get("idx")
+        if idx is None:
+            continue
+        issues = []
+        for issue in (item.get("issues") or [])[:2]:
+            if not isinstance(issue, dict):
+                continue
+            issues.append({
+                "type": str(issue.get("type", "ISSUE"))[:24].upper(),
+                "severity": str(issue.get("severity", "medium")).lower(),
+                "note": str(issue.get("note", ""))[:200],
+            })
+        by_idx[idx] = issues
+
+    return [
+        {"idx": q.get("idx", i), "issues": by_idx.get(q.get("idx", i), [])}
+        for i, q in enumerate(batch)
+    ]

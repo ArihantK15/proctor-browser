@@ -6993,6 +6993,77 @@ def suggest_question_tags(request: Request, body: dict = Body(...)):
     return {"tags": tags}
 
 
+@app.post("/api/admin/lint-questions")
+@limiter.limit("10/minute")
+def lint_questions_endpoint(request: Request, body: dict = Body(...)):
+    """Pre-publish AI review of an exam's questions. Catches ambiguous
+    wording, unbalanced distractors, factually wrong correct keys,
+    double negatives, and trivial/giveaway items.
+
+    Input: ``{questions: [{idx, question, options, correct}, ...]}``
+    Output: ``{results: [{idx, issues: [{type, severity, note}]}],
+              total_issues: N, models_used: "..."}``
+
+    Batches at 25 questions per LLM call (model loses focus past
+    that). Two-question caps + 200-char note limit defend against
+    the model running away with the response. Issues missing for
+    a given idx mean "no problems found" — explicit empty arrays
+    are returned for every input question so the frontend can
+    render a clean check next to lint-passing rows.
+
+    Rate-limited to 10/minute/teacher because this endpoint can
+    burn 4-5 LLM calls per click on a 100-question exam."""
+    require_admin(request)
+    from llm import is_configured, lint_questions  # noqa
+    if not is_configured():
+        raise HTTPException(status_code=503,
+            detail="AI features unavailable. Set LLM_API_KEY on the server.")
+
+    questions = body.get("questions") or []
+    if not isinstance(questions, list) or not questions:
+        raise HTTPException(status_code=400, detail="questions array required")
+    if len(questions) > 200:
+        raise HTTPException(status_code=413,
+            detail="Too many questions for one lint pass. Max 200.")
+
+    # Normalise and trim each question. Defensive copies because the
+    # LLM helper truncates strings; we don't want it mutating the
+    # caller's data even though we control both sides.
+    cleaned = []
+    for i, q in enumerate(questions):
+        if not isinstance(q, dict):
+            continue
+        cleaned.append({
+            "idx": q.get("idx", i),
+            "question": str(q.get("question") or "")[:1500],
+            "options": q.get("options") or {},
+            "correct": str(q.get("correct") or "")[:50],
+        })
+
+    # Batch through the LLM in groups of 25. Aggregate results.
+    all_results = []
+    BATCH = 25
+    try:
+        for i in range(0, len(cleaned), BATCH):
+            chunk = cleaned[i:i + BATCH]
+            chunk_results = lint_questions(chunk)
+            if not chunk_results:
+                # LLM blip on this batch — emit empty issues lists so
+                # the UI can show "Lint unavailable for these N
+                # questions" rather than silently treating them as clean.
+                for q in chunk:
+                    all_results.append({"idx": q["idx"], "issues": [],
+                                        "lint_failed": True})
+            else:
+                all_results.extend(chunk_results)
+    except Exception as e:
+        print(f"[llm] lint_questions failed: {e}", flush=True)
+        raise HTTPException(status_code=502, detail=f"AI provider error: {e}")
+
+    total_issues = sum(len(r.get("issues", [])) for r in all_results)
+    return {"results": all_results, "total_issues": total_issues}
+
+
 @app.post("/api/admin/question-bank/to-exam")
 def bank_to_exam(request: Request, body: dict = Body(...)):
     """Copy bank questions into an exam's question list.

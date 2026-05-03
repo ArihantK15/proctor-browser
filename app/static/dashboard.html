@@ -1155,6 +1155,7 @@
       </label>
       <button class="action-btn primary" onclick="saveQuestions()">Save All</button>
       <button class="action-btn" onclick="togglePreview()">Preview</button>
+      <button class="action-btn" onclick="lintQuestions()" id="btn-lint" title="AI review of every question for ambiguity, wrong answer keys, unbalanced options" style="color:var(--accent)">✨ Lint</button>
       <button class="action-btn" onclick="loadQuestions()">Reload</button>
       <button class="action-btn" onclick="toggleBank()" id="btn-toggle-bank" style="margin-left:auto">Question Bank ↔ AI</button>
     </div>
@@ -3716,6 +3717,10 @@ function renderQEditor(){
         <button class="action-btn" onclick="saveQuestionToBank(${i})" style="padding:2px 8px;font-size:10px;margin-right:6px" title="Save to question bank">Save to Bank</button>
         <button class="q-del" onclick="deleteQ(${i})">Delete</button>
       </div>
+      <!-- Lint slot — populated by lintQuestions() / clearLint().
+           Empty by default so rows that haven't been linted are
+           visually unchanged. -->
+      <div class="q-lint-slot" id="qlint-${i}"></div>
       <div class="q-type-row">
         <label for="qtype-${i}">Question type</label>
         <select id="qtype-${i}" onchange="setQType(${i},this.value)">
@@ -3988,6 +3993,124 @@ function renderQPreview(){
       const el=document.getElementById('pqimg-'+i);
       if(el && src) el.src=src;
     });
+  });
+}
+
+// ── AI Question Lint (pre-publish review) ────────────────────────
+// Runs every question on this exam through Groq. Surfaces issues
+// inline on each .q-card via the #qlint-N slot. The teacher can
+// then decide: edit, delete, or accept the warning. We never
+// auto-mutate the question — the LLM might be wrong, especially
+// on niche / domain-specific content.
+//
+// Severity color map matches the rest of the dashboard:
+//   high   = error-fg (red)   — students will get this wrong unfairly
+//   medium = warn-fg (amber)  — confusing but probably gradable
+//   low    = muted             — stylistic
+async function lintQuestions(){
+  if(!Array.isArray(qData) || !qData.length){
+    alert('No questions to lint. Add some first.');
+    return;
+  }
+  const btn = document.getElementById('btn-lint');
+  const msg = document.getElementById('q-save-msg');
+  btn.disabled = true;
+  btn.textContent = 'Linting…';
+  msg.style.color = 'var(--muted)';
+  msg.textContent = `Reviewing ${qData.length} question${qData.length===1?'':'s'} (typically 2-5 seconds)…`;
+
+  // Build the payload. Use index-in-array as `idx` so the round-
+  // trip results map back cleanly. Trim long question text — the
+  // server caps at 1500 chars anyway, no point sending more.
+  const payload = {
+    questions: qData.map((q, i) => ({
+      idx: i,
+      question: (q.question || '').slice(0, 1500),
+      options: q.options || {},
+      correct: String(q.correct || ''),
+    })),
+  };
+
+  try{
+    const r = await authFetch(`${BASE}/api/admin/lint-questions`, {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if(!r.ok){
+      msg.style.color = 'var(--red)';
+      msg.textContent = data.detail || `Lint failed (${r.status})`;
+      return;
+    }
+    _renderLintResults(data.results || []);
+    const total = data.total_issues || 0;
+    if(total === 0){
+      msg.style.color = 'var(--emerald)';
+      msg.textContent = `✓ ${qData.length} question${qData.length===1?'':'s'} reviewed — no issues found.`;
+    } else {
+      msg.style.color = 'var(--amber)';
+      msg.textContent = `Found ${total} issue${total===1?'':'s'} across ${data.results.filter(r => r.issues.length).length} question${data.results.filter(r => r.issues.length).length===1?'':'s'}. See inline highlights.`;
+    }
+  } catch(e){
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Network error — try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ Lint';
+  }
+}
+
+// Render lint results onto the existing q-cards. Each issue gets
+// its own row inside #qlint-N, color-coded by severity. Calling
+// with an empty array clears all slots — used when the teacher
+// edits a question and wants the stale lint warnings gone.
+function _renderLintResults(results){
+  // First, clear every existing slot so re-running lint doesn't
+  // stack old warnings on top of new ones.
+  document.querySelectorAll('.q-lint-slot').forEach(slot => slot.innerHTML = '');
+
+  results.forEach(r => {
+    const slot = document.getElementById('qlint-' + r.idx);
+    if(!slot) return;
+    if(r.lint_failed){
+      slot.innerHTML = `<div style="margin:8px 0;padding:8px 12px;background:var(--surface-2);
+        border-left:3px solid var(--text-muted);border-radius:4px;
+        font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">
+        Lint unavailable for this question (LLM blip — try again).
+      </div>`;
+      return;
+    }
+    const issues = r.issues || [];
+    if(!issues.length){
+      // Add a small green check so teachers see "this one's fine"
+      // — without it, an unflagged question after a lint pass looks
+      // identical to one that was never reviewed.
+      slot.innerHTML = `<div style="margin:8px 0;padding:6px 10px;
+        font-size:11px;color:var(--emerald);font-family:var(--font-mono);
+        display:flex;align-items:center;gap:6px">
+        <span style="font-size:13px">✓</span> Reviewed — no issues
+      </div>`;
+      return;
+    }
+    slot.innerHTML = issues.map(iss => {
+      const sev = iss.severity || 'medium';
+      const colors = {
+        high:   {fg: 'var(--sev-error-fg)',   bg: 'var(--sev-error-bg)',   border: 'var(--sev-error-fg)'},
+        medium: {fg: 'var(--sev-warn-fg)',    bg: 'var(--sev-warn-bg)',    border: 'var(--sev-warn-fg)'},
+        low:    {fg: 'var(--text-muted)',     bg: 'var(--surface-2)',      border: 'var(--text-muted)'},
+      }[sev] || {fg: 'var(--text-muted)', bg: 'var(--surface-2)', border: 'var(--text-muted)'};
+      return `<div style="margin:8px 0;padding:8px 12px;background:${colors.bg};
+        border-left:3px solid ${colors.border};border-radius:4px;font-size:12px;color:var(--text)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+          <span style="font-family:var(--font-mono);font-size:9px;font-weight:600;
+                       letter-spacing:0.06em;color:${colors.fg};
+                       background:${colors.bg};padding:1px 6px;border-radius:2px;
+                       border:1px solid ${colors.fg}">
+            ${esc(iss.type || 'ISSUE')} · ${esc(sev.toUpperCase())}
+          </span>
+        </div>
+        <div style="line-height:1.5">${esc(iss.note || '')}</div>
+      </div>`;
+    }).join('');
   });
 }
 

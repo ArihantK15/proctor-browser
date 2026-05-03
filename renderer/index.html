@@ -747,19 +747,58 @@ function _showIntegrityBlock(blockingFlags){
     screen_share_detected: 'Screen Sharing',
     multiple_monitors: 'Multiple Monitors',
   };
+  // Always escape — process-list lines can contain anything (including
+  // angle brackets from awkward process names) and we're using innerHTML
+  // for the speed of templates.
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                                 .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // Parse the new "Process match: NAME — in: FULL_LINE" format that
+  // main.js now emits. Splitting these into two lines (the matched
+  // term highlighted, the full process line in monospaced muted text)
+  // makes false positives identifiable in 2 seconds — without the
+  // full line, "Process match: parsec" is uninformative when the user
+  // says "I don't have parsec installed" (it might be parsec-cloud,
+  // an unrelated file-sharing app, on their machine).
   for(const f of blockingFlags){
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #21262d';
+    let detailHtml = esc(f.details||'');
+    const m = String(f.details||'').match(/^Process match:\s*([^\s—]+)\s*—\s*in:\s*(.+)$/);
+    if(m){
+      detailHtml =
+        `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#f0f6fc">
+           Matched <span style="color:#ff7b72;background:rgba(255,123,114,.12);padding:0 4px;border-radius:3px">${esc(m[1])}</span>
+         </div>
+         <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6e7681;
+                     margin-top:3px;word-break:break-all;line-height:1.4">
+           ${esc(m[2])}
+         </div>`;
+    }
     row.innerHTML = `
       <div style="flex-shrink:0;width:28px;height:28px;border-radius:8px;background:rgba(233,69,96,0.15);display:flex;align-items:center;justify-content:center;margin-top:2px">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e94560" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
       </div>
-      <div>
-        <div style="color:#f0f6fc;font-size:13px;font-weight:600">${LABELS[f.type]||f.type}</div>
-        <div style="color:#8b949e;font-size:11px;margin-top:2px">${f.details||''}</div>
+      <div style="flex:1;min-width:0">
+        <div style="color:#f0f6fc;font-size:13px;font-weight:600">${esc(LABELS[f.type]||f.type)}</div>
+        <div style="color:#8b949e;font-size:11px;margin-top:2px">${detailHtml}</div>
       </div>`;
     container.appendChild(row);
   }
+  // Footer explaining false positives — emails support if a user
+  // KNOWS the flagged process is benign. Cheaper than building an
+  // override flow (which has its own abuse risk).
+  const note = document.createElement('div');
+  note.style.cssText = 'margin-top:14px;padding:10px 12px;background:rgba(91,138,240,0.06);' +
+    'border:1px solid rgba(91,138,240,0.18);border-radius:6px;' +
+    'font-size:11px;color:#8b949e;line-height:1.55';
+  note.innerHTML =
+    `<strong style="color:#7ba1f5">Don't recognise these?</strong> ` +
+    `The detector matches process names; sometimes a benign app shares ` +
+    `a name fragment (e.g. <em>parsec-cloud</em> file-sharing vs Parsec ` +
+    `remote desktop). Take a screenshot of this screen and email ` +
+    `<span style="color:#7ba1f5">support@procta.net</span> — we'll add ` +
+    `an exclusion within a business day.`;
+  container.appendChild(note);
   showScreen('integrity-blocked');
 }
 

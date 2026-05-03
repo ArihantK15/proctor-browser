@@ -299,52 +299,80 @@ async function runIntegrityChecks() {
   //
   // FALSE-POSITIVE NOTES:
   //   • 'tor' as a bare substring matches storedownloadd, storekitagent,
-  //     NVIDIA Container, directory, monitor, accelerator, etc. Use
-  //     \btor\b with regex word boundaries instead.
+  //     NVIDIA Container, directory, monitor, accelerator, etc.
   //   • Discord runs idle on most student machines without screen
   //     sharing — removed from the screen_share list. OBS is kept.
   //   • 'snx' was a 3-char substring causing false matches; dropped in
   //     favour of the more specific 'snxctl'/'snx_install' patterns.
+  //   • 'parsec' (\b boundary) matched 'parsec-cloud' (a SECURE FILE
+  //     SHARING app, NOT remote desktop — completely different vendor).
+  //     JS \b treats '-' as a word boundary, so we use a stricter
+  //     "name boundary" helper below that excludes hyphens / underscores.
   //
   // Each entry is a regex matched against the full process-list output
-  // (lowercased). \b gives a safe word boundary that still matches
-  // process basenames like "tor.exe" or "clash.exe" because '.' is
-  // non-word, but won't match "stor" or "container".
+  // (lowercased). The `nb` helper in `mkPattern` gives a strict name
+  // boundary — only matches when the candidate is preceded/followed by
+  // truly-unrelated chars (space, /, \, EOL, ., :), never a hyphen or
+  // underscore that would mean the candidate is part of a longer name.
+  //
+  // mkPattern('parsec') → matches "parsec", "parsec.app", "/parsec",
+  //   but NOT "parsec-cloud", "myparsec", "parsec_helper".
+  // For names that need explicit suffixes (parsec / parsecd) use a
+  // raw RegExp; mkPattern is for the common case.
+  const nb = '(?<![\\w-])';   // not preceded by word char or hyphen
+  const nbEnd = '(?![\\w-])'; // not followed by word char or hyphen
+  const mkPattern = name => new RegExp(nb + name + nbEnd, 'i');
+
   const ALL_PROCESSES = {
     vm: [
-      /\bvmtoolsd\b/, /\bvmwaretray\b/, /\bvboxservice\b/, /\bvboxtray\b/,
-      /\bvmcompute\b/, /\bxenservice\b/,
+      mkPattern('vmtoolsd'), mkPattern('vmwaretray'),
+      mkPattern('vboxservice'), mkPattern('vboxtray'),
+      mkPattern('vmcompute'), mkPattern('xenservice'),
     ],
     remote: [
-      /\bteamviewer\b/, /\banydesk\b/, /\bmstsc\b/, /\bvncviewer\b/,
-      /chrome remote desktop/, /\brustdesk\b/, /\bparsec\b/,
-      /\bscreenconnect\b/, /\blogmein\b/,
+      mkPattern('teamviewer'), mkPattern('anydesk'),
+      mkPattern('mstsc'), mkPattern('vncviewer'),
+      /chrome remote desktop/i, mkPattern('rustdesk'),
+      // Parsec: match the actual remote-desktop binary names. The
+      // bare-name pattern would still match "Parsec.app" but excludes
+      // "parsec-cloud" and similar. Add explicit `parsecd` for the
+      // Windows daemon variant since `nbEnd` rejects "parsecd" (extra
+      // word char after `parsec`).
+      mkPattern('parsec'),
+      mkPattern('parsecd'),
+      mkPattern('screenconnect'), mkPattern('logmein'),
     ],
     screen_share: [
-      /\bobs64\b/, /\bobs32\b/, /\bobs studio\b/, /\bobs\.app\b/,
-      /\bscreensharingd\b/,
-      // NOTE: Discord removed — running ≠ screen-sharing. OBS is a
-      // better signal because it's rarely running outside content
-      // creation contexts.
+      mkPattern('obs64'), mkPattern('obs32'),
+      /(?<![\w-])obs studio(?![\w-])/i,
+      /(?<![\w-])obs\.app(?![\w-])/i,
+      mkPattern('screensharingd'),
     ],
     vpn: [
-      /\bopenvpn\b/, /\bnordvpn\b/, /\bexpressvpn\b/, /\bsurfshark\b/,
-      /\bprotonvpn\b/, /\bcyberghost\b/, /\bwindscribe\b/,
-      /\bprivateinternetaccess\b/, /\bpia-service\b/, /\bmullvad\b/,
-      /\bwireguard\b/, /\bwg\.exe\b/, /\btailscale\b/, /\bzerotier\b/,
-      /\bv2ray\b/, /\bv2rayn\b/, /\bxray\.exe\b/, /\bclash\b/,
-      /\bshadowsocks\b/, /\bss-local\b/, /\btorbrowser\b/,
-      /\btor\.exe\b/, /\/tor\b/, // explicit tor binary, not substring
-      /\bhotspotshield\b/, /\btunnelbear\b/,
-      /\bglobalprotect\b/, /\bpangps\b/, /\bforticlient\b/,
-      /\bfortisslvpn\b/, /\bvpnagent\b/, /\bvpnui\b/,
-      /\bcheckpoint\b/, /\bsnxctl\b/,
-      /\bpsiphon\b/, /\bultrasurf\b/, /\bfreegate\b/,
+      mkPattern('openvpn'), mkPattern('nordvpn'), mkPattern('expressvpn'),
+      mkPattern('surfshark'), mkPattern('protonvpn'),
+      mkPattern('cyberghost'), mkPattern('windscribe'),
+      mkPattern('privateinternetaccess'), mkPattern('pia-service'),
+      mkPattern('mullvad'),
+      mkPattern('wireguard'), /(?<![\w-])wg\.exe(?![\w-])/i,
+      mkPattern('tailscale'), mkPattern('zerotier'),
+      mkPattern('v2ray'), mkPattern('v2rayn'),
+      /(?<![\w-])xray\.exe(?![\w-])/i,
+      mkPattern('clash'), mkPattern('shadowsocks'), mkPattern('ss-local'),
+      mkPattern('torbrowser'),
+      /(?<![\w-])tor\.exe(?![\w-])/i, /\/tor(?![\w-])/i,
+      mkPattern('hotspotshield'), mkPattern('tunnelbear'),
+      mkPattern('globalprotect'), mkPattern('pangps'),
+      mkPattern('forticlient'), mkPattern('fortisslvpn'),
+      mkPattern('vpnagent'), mkPattern('vpnui'),
+      mkPattern('checkpoint'), mkPattern('snxctl'),
+      mkPattern('psiphon'), mkPattern('ultrasurf'), mkPattern('freegate'),
     ],
     debugger: [
-      /\bfiddler\b/, /\bcharles\.exe\b/, /\bwireshark\b/,
-      /\bburpsuite\b/, /\bmitmproxy\b/, /\bmitmweb\b/, /\bmitmdump\b/,
-      /\bproxyman\b/, /\bhttpdebugger\b/, /\bhttpanalyzer\b/,
+      mkPattern('fiddler'), /(?<![\w-])charles\.exe(?![\w-])/i,
+      mkPattern('wireshark'), mkPattern('burpsuite'),
+      mkPattern('mitmproxy'), mkPattern('mitmweb'), mkPattern('mitmdump'),
+      mkPattern('proxyman'), mkPattern('httpdebugger'), mkPattern('httpanalyzer'),
     ],
   };
 
@@ -357,13 +385,28 @@ async function runIntegrityChecks() {
   function scanProcessOutput(output) {
     if (!output) return;
     const lower = output.toLowerCase();
+    // Split by line so we can show the full offending line as evidence
+    // — "Process match: parsec" alone is uninformative when the user
+    // says "I don't have parsec installed". Showing the actual line
+    // ("/Applications/Parsec-Cloud.app/Contents/MacOS/parsec-cloud")
+    // makes the false positive identifiable in 2 seconds.
+    const lines = lower.split('\n');
     for (const [cat, patterns] of Object.entries(ALL_PROCESSES)) {
       for (const rx of patterns) {
-        const m = lower.match(rx);
-        if (m) {
-          flags.push({ type: TYPE_MAP[cat],
-            severity: cat === 'screen_share' ? 'medium' : 'high',
-            details: `Process match: ${m[0]}` });
+        for (const ln of lines) {
+          const m = ln.match(rx);
+          if (m) {
+            // Trim line to a useful length; full ps output can be
+            // 200+ chars per line for daemon processes with long
+            // arg lists.
+            const evidence = ln.trim().slice(0, 120);
+            flags.push({
+              type: TYPE_MAP[cat],
+              severity: cat === 'screen_share' ? 'medium' : 'high',
+              details: `Process match: ${m[0]} — in: ${evidence}`,
+            });
+            break; // one hit per pattern is enough; don't spam
+          }
         }
       }
     }
@@ -453,36 +496,42 @@ async function runIntegrityChecks() {
 // Runs every 30s during an active exam using async exec.
 // Never blocks the main thread.
 
-// Regex patterns with word boundaries — see notes on ALL_PROCESSES above
-// for why substring matching (e.g. bare 'tor') is unsafe.
+// Regex patterns with STRICT name boundaries — `\b` alone treats `-`
+// as a boundary, so `\bparsec\b` matched `parsec-cloud` (an unrelated
+// secure file-sharing app). Use the same nb / nbEnd helpers as the
+// pre-exam scanProcessOutput above to require unambiguous boundaries.
+const _nb    = '(?<![\\w-])';
+const _nbEnd = '(?![\\w-])';
+const _mk = name => new RegExp(_nb + name + _nbEnd, 'i');
 const THREATS = [
-  { rx: /\bteamviewer\b/, label: 'TeamViewer', type: 'remote_desktop_detected' },
-  { rx: /\banydesk\b/,    label: 'AnyDesk',    type: 'remote_desktop_detected' },
-  { rx: /\bmstsc\b/,      label: 'mstsc',      type: 'remote_desktop_detected' },
-  { rx: /\bvncviewer\b/,  label: 'VNC',        type: 'remote_desktop_detected' },
-  { rx: /\brustdesk\b/,   label: 'RustDesk',   type: 'remote_desktop_detected' },
-  { rx: /\bparsec\b/,     label: 'Parsec',     type: 'remote_desktop_detected' },
-  { rx: /\bobs64\b/,      label: 'OBS (64)',   type: 'screen_share_detected' },
-  { rx: /\bobs32\b/,      label: 'OBS (32)',   type: 'screen_share_detected' },
-  { rx: /\bobs studio\b/, label: 'OBS Studio', type: 'screen_share_detected' },
-  { rx: /\bscreensharingd\b/, label: 'screensharingd', type: 'screen_share_detected' },
-  { rx: /\bopenvpn\b/,    label: 'OpenVPN',    type: 'vpn_detected' },
-  { rx: /\bnordvpn\b/,    label: 'NordVPN',    type: 'vpn_detected' },
-  { rx: /\bexpressvpn\b/, label: 'ExpressVPN', type: 'vpn_detected' },
-  { rx: /\bsurfshark\b/,  label: 'Surfshark',  type: 'vpn_detected' },
-  { rx: /\bprotonvpn\b/,  label: 'ProtonVPN',  type: 'vpn_detected' },
-  { rx: /\bwireguard\b/,  label: 'WireGuard',  type: 'vpn_detected' },
-  { rx: /\btailscale\b/,  label: 'Tailscale',  type: 'vpn_detected' },
-  { rx: /\bclash\b/,      label: 'Clash',      type: 'vpn_detected' },
-  { rx: /\bv2ray\b/,      label: 'V2Ray',      type: 'vpn_detected' },
-  { rx: /\btorbrowser\b/, label: 'Tor Browser',type: 'vpn_detected' },
-  { rx: /\btor\.exe\b/,   label: 'Tor',        type: 'vpn_detected' },
-  { rx: /\bfiddler\b/,    label: 'Fiddler',    type: 'debugger_detected' },
-  { rx: /\bcharles\.exe\b/, label: 'Charles',  type: 'debugger_detected' },
-  { rx: /\bwireshark\b/,  label: 'Wireshark',  type: 'debugger_detected' },
-  { rx: /\bburpsuite\b/,  label: 'Burp Suite', type: 'debugger_detected' },
-  { rx: /\bmitmproxy\b/,  label: 'mitmproxy',  type: 'debugger_detected' },
-  { rx: /\bproxyman\b/,   label: 'Proxyman',   type: 'debugger_detected' },
+  { rx: _mk('teamviewer'),  label: 'TeamViewer', type: 'remote_desktop_detected' },
+  { rx: _mk('anydesk'),     label: 'AnyDesk',    type: 'remote_desktop_detected' },
+  { rx: _mk('mstsc'),       label: 'mstsc',      type: 'remote_desktop_detected' },
+  { rx: _mk('vncviewer'),   label: 'VNC',        type: 'remote_desktop_detected' },
+  { rx: _mk('rustdesk'),    label: 'RustDesk',   type: 'remote_desktop_detected' },
+  { rx: _mk('parsec'),      label: 'Parsec',     type: 'remote_desktop_detected' },
+  { rx: _mk('parsecd'),     label: 'Parsec (daemon)', type: 'remote_desktop_detected' },
+  { rx: _mk('obs64'),       label: 'OBS (64)',   type: 'screen_share_detected' },
+  { rx: _mk('obs32'),       label: 'OBS (32)',   type: 'screen_share_detected' },
+  { rx: /(?<![\w-])obs studio(?![\w-])/i, label: 'OBS Studio', type: 'screen_share_detected' },
+  { rx: _mk('screensharingd'), label: 'screensharingd', type: 'screen_share_detected' },
+  { rx: _mk('openvpn'),     label: 'OpenVPN',    type: 'vpn_detected' },
+  { rx: _mk('nordvpn'),     label: 'NordVPN',    type: 'vpn_detected' },
+  { rx: _mk('expressvpn'),  label: 'ExpressVPN', type: 'vpn_detected' },
+  { rx: _mk('surfshark'),   label: 'Surfshark',  type: 'vpn_detected' },
+  { rx: _mk('protonvpn'),   label: 'ProtonVPN',  type: 'vpn_detected' },
+  { rx: _mk('wireguard'),   label: 'WireGuard',  type: 'vpn_detected' },
+  { rx: _mk('tailscale'),   label: 'Tailscale',  type: 'vpn_detected' },
+  { rx: _mk('clash'),       label: 'Clash',      type: 'vpn_detected' },
+  { rx: _mk('v2ray'),       label: 'V2Ray',      type: 'vpn_detected' },
+  { rx: _mk('torbrowser'),  label: 'Tor Browser',type: 'vpn_detected' },
+  { rx: /(?<![\w-])tor\.exe(?![\w-])/i, label: 'Tor', type: 'vpn_detected' },
+  { rx: _mk('fiddler'),     label: 'Fiddler',    type: 'debugger_detected' },
+  { rx: /(?<![\w-])charles\.exe(?![\w-])/i, label: 'Charles', type: 'debugger_detected' },
+  { rx: _mk('wireshark'),   label: 'Wireshark',  type: 'debugger_detected' },
+  { rx: _mk('burpsuite'),   label: 'Burp Suite', type: 'debugger_detected' },
+  { rx: _mk('mitmproxy'),   label: 'mitmproxy',  type: 'debugger_detected' },
+  { rx: _mk('proxyman'),    label: 'Proxyman',   type: 'debugger_detected' },
 ];
 
 function startProcessMonitor() {

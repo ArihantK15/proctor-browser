@@ -1330,7 +1330,15 @@ def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str =
     for attempt in range(2):  # retry once on transient failure
         try:
             questions = _load_questions(teacher_id, exam_id=exam_id)
-            total = len(questions)
+            # Short-answer questions are teacher-graded asynchronously
+            # (LLM-suggested, teacher-confirmed). They don't contribute
+            # to the auto-computed submit-time score on either side of
+            # the fraction — otherwise students would see a misleading
+            # "3/8" the moment they submit, when 3 of those 8 are still
+            # pending review.
+            auto_qs = [q for q in questions
+                       if str(q.get("question_type") or "mcq_single").lower() != "short_answer"]
+            total = len(auto_qs)
             # DB answers are already canonical
             saved = supabase.table("answers").select("question_id,answer")\
                 .eq("session_key", session_id).execute()
@@ -1340,7 +1348,7 @@ def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str =
             for qid, ans in (payload_answers or {}).items():
                 ans_map[str(qid)] = _canonicalise_student_answer(
                     session_id, str(teacher_id or ""), str(qid), str(ans))
-            score = sum(1 for q in questions
+            score = sum(1 for q in auto_qs
                         if _answers_match(ans_map.get(str(q["id"]), ""), str(q["correct"])))
             return score, total
         except Exception as e:
@@ -2486,7 +2494,24 @@ def _canonicalise_student_answer(session_id: str, teacher_id: str,
     like ``"A,C"``. We split, translate each label through the shuffle
     map, then return the sorted comma-joined canonical string so grading
     can compare as a set.
+
+    Short-answer questions are preserved verbatim — splitting "Atomicity,
+    Consistency" on commas and sorting would destroy the student's prose.
+    We look up the question_type (from the cached _load_questions list,
+    so this is cheap) and skip translation when it's free-text.
     """
+    if not str(raw or ""):
+        return ""
+    try:
+        qs = _load_questions(teacher_id, exam_id=exam_id) or []
+        qmeta = next((q for q in qs if str(q.get("id")) == str(question_id)), None)
+        if qmeta and str(qmeta.get("question_type") or "").lower() == "short_answer":
+            return str(raw)
+    except Exception:
+        # Defensive: if the lookup fails, fall through to canonicalisation
+        # so MCQ answers still grade correctly. Short-answer text would be
+        # mangled, but that's a degraded case caught at grading time.
+        pass
     parts = [p.strip() for p in str(raw or "").split(",") if p.strip()]
     if not parts:
         return ""
@@ -7064,6 +7089,196 @@ def lint_questions_endpoint(request: Request, body: dict = Body(...)):
     return {"results": all_results, "total_issues": total_issues}
 
 
+# ── Short-answer grading endpoints ───────────────────────────────────
+#
+# Pattern: AI suggests, teacher confirms. Three endpoints:
+#   GET  /api/admin/pending-grades     — list ungraded short answers
+#   POST /api/admin/grade-suggest      — LLM proposes scores in batch
+#   POST /api/admin/grade-confirm      — teacher commits final score
+#
+# We deliberately don't auto-grade on submit. Trust gradient on
+# high-stakes exams is too steep to skip the human-in-the-loop —
+# even at 95% LLM accuracy, that's 1 wrong grade per 20, and a
+# wrong grade on a final exam is the kind of thing that gets a
+# product banned from a school.
+
+@app.get("/api/admin/pending-grades")
+def pending_grades(request: Request):
+    """List answers to short-answer questions that haven't been
+    teacher-confirmed yet. Optionally filtered by exam_id."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    exam_id = request.query_params.get("exam_id")
+
+    # Pull all questions of type short_answer for this teacher's exams,
+    # then pull every answer to those question_ids that has no
+    # teacher_score yet. Two-step instead of a join because PostgREST
+    # doesn't expose joins via the supabase-py client.
+    q_query = supabase.table("questions").select(
+        "id,question_id,exam_id,question,reference_answer,rubric,max_score"
+    ).eq("teacher_id", tid).eq("question_type", "short_answer")
+    if exam_id:
+        q_query = q_query.eq("exam_id", exam_id)
+    questions = (q_query.execute()).data or []
+    if not questions:
+        return {"questions": [], "answers": [], "total_pending": 0}
+
+    qid_to_meta = {str(q["question_id"]): q for q in questions}
+
+    a_query = supabase.table("answers").select(
+        "id,session_key,question_id,answer,ai_score,ai_feedback,ai_confidence,teacher_score,exam_id"
+    ).eq("teacher_id", tid).is_("teacher_score", "null")
+    if exam_id:
+        a_query = a_query.eq("exam_id", exam_id)
+    all_answers = (a_query.execute()).data or []
+    # Filter to only short-answer questions
+    pending = [a for a in all_answers if str(a.get("question_id")) in qid_to_meta]
+
+    # Resolve roll number / name for each session_key so the teacher
+    # sees who they're grading. Batch lookup against exam_sessions.
+    session_keys = list({a["session_key"] for a in pending if a.get("session_key")})
+    roll_map = {}
+    if session_keys:
+        try:
+            sess_rows = (supabase.table("exam_sessions")
+                         .select("session_key,roll_number,full_name")
+                         .eq("teacher_id", tid)
+                         .in_("session_key", session_keys).execute()).data or []
+            roll_map = {s["session_key"]: s for s in sess_rows}
+        except Exception as e:
+            print(f"[pending-grades] session lookup failed: {e}", flush=True)
+
+    enriched = []
+    for a in pending:
+        meta = qid_to_meta.get(str(a["question_id"]), {})
+        sess = roll_map.get(a["session_key"]) or {}
+        enriched.append({
+            "answer_id":      a["id"],
+            "session_key":    a["session_key"],
+            "roll_number":    sess.get("roll_number") or "",
+            "full_name":      sess.get("full_name") or "",
+            "question_id":    a["question_id"],
+            "exam_id":        a.get("exam_id") or meta.get("exam_id"),
+            "question":       meta.get("question") or "",
+            "reference":      meta.get("reference_answer") or "",
+            "rubric":         meta.get("rubric") or "",
+            "max_score":      float(meta.get("max_score") or 1.0),
+            "student_answer": a.get("answer") or "",
+            "ai_score":       a.get("ai_score"),
+            "ai_feedback":    a.get("ai_feedback"),
+            "ai_confidence":  a.get("ai_confidence"),
+        })
+    return {
+        "questions": questions,
+        "answers": enriched,
+        "total_pending": len(enriched),
+    }
+
+
+@app.post("/api/admin/grade-suggest")
+@limiter.limit("20/minute")
+def grade_suggest(request: Request, body: dict = Body(...)):
+    """Run AI grader over a batch of pending short answers. Writes
+    suggested scores + feedback to the answers table; teacher_score
+    is left NULL (still pending review). Idempotent — re-running on
+    the same answers updates the suggestions in place.
+
+    Body: ``{answer_ids: [uuid, uuid, ...]}`` — the dashboard sends
+    the IDs returned by /pending-grades. Up to 50 per call to keep
+    a single request bounded; dashboard batches if the queue is
+    larger.
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    from llm import is_configured, grade_short_answer  # noqa
+    if not is_configured():
+        raise HTTPException(status_code=503,
+            detail="AI grader unavailable. Set LLM_API_KEY on the server.")
+
+    answer_ids = body.get("answer_ids") or []
+    if not isinstance(answer_ids, list) or not answer_ids:
+        raise HTTPException(status_code=400, detail="answer_ids required")
+    if len(answer_ids) > 50:
+        raise HTTPException(status_code=413, detail="Max 50 per call.")
+
+    # Fetch the answer rows + their referenced questions in two
+    # batched queries (no per-answer round trips).
+    answers = (supabase.table("answers").select("*")
+               .eq("teacher_id", tid).in_("id", answer_ids)
+               .execute()).data or []
+    if not answers:
+        return {"graded": 0, "results": []}
+    qids = list({str(a["question_id"]) for a in answers})
+    questions = (supabase.table("questions").select(
+        "question_id,question,reference_answer,rubric,max_score"
+    ).eq("teacher_id", tid).in_("question_id", qids).execute()).data or []
+    qmap = {str(q["question_id"]): q for q in questions}
+
+    results = []
+    for a in answers:
+        q = qmap.get(str(a["question_id"]))
+        if not q:
+            results.append({"answer_id": a["id"], "error": "question not found"})
+            continue
+        suggestion = grade_short_answer(
+            question=q.get("question") or "",
+            reference=q.get("reference_answer") or "",
+            rubric=q.get("rubric") or "",
+            student_answer=a.get("answer") or "",
+            max_score=float(q.get("max_score") or 1.0),
+        )
+        try:
+            (supabase.table("answers").update({
+                "ai_score":      suggestion.get("score"),
+                "ai_feedback":   suggestion.get("feedback"),
+                "ai_confidence": suggestion.get("confidence"),
+            }).eq("id", a["id"]).eq("teacher_id", tid).execute())
+            results.append({"answer_id": a["id"], **suggestion})
+        except Exception as e:
+            print(f"[grade-suggest] DB write failed for {a['id']}: {e}", flush=True)
+            results.append({"answer_id": a["id"], "error": str(e)[:120]})
+    return {"graded": len(results), "results": results}
+
+
+@app.post("/api/admin/grade-confirm")
+def grade_confirm(request: Request, body: dict = Body(...)):
+    """Teacher commits a final score for a short-answer response.
+    Sets teacher_score (the value used in the gradebook) and
+    graded_at (audit timestamp). Score can match the AI suggestion
+    or be overridden — both flow through the same endpoint."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    answer_id = body.get("answer_id")
+    score = body.get("score")
+    if not answer_id or score is None:
+        raise HTTPException(status_code=400, detail="answer_id and score required")
+    try:
+        score = float(score)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="score must be a number")
+
+    # Verify the answer belongs to this teacher before mutating
+    own = (supabase.table("answers").select("id,question_id")
+           .eq("id", answer_id).eq("teacher_id", tid).limit(1).execute()).data
+    if not own:
+        raise HTTPException(status_code=404, detail="Answer not found")
+
+    # Look up max_score so we can clamp + reject obviously-wrong values
+    qrow = (supabase.table("questions").select("max_score")
+            .eq("teacher_id", tid).eq("question_id", own[0]["question_id"])
+            .limit(1).execute()).data
+    max_score = float((qrow[0] or {}).get("max_score") or 1.0) if qrow else 1.0
+    if score < 0 or score > max_score:
+        raise HTTPException(status_code=400,
+            detail=f"score must be between 0 and {max_score}")
+
+    (supabase.table("answers").update({
+        "teacher_score": score,
+        "graded_at": now_ist().isoformat(),
+    }).eq("id", answer_id).eq("teacher_id", tid).execute())
+    return {"ok": True, "answer_id": answer_id, "teacher_score": score}
+
+
 @app.post("/api/admin/question-bank/to-exam")
 def bank_to_exam(request: Request, body: dict = Body(...)):
     """Copy bank questions into an exam's question list.
@@ -7296,7 +7511,7 @@ def update_questions(request: Request, body: dict = Body(...)):
     if not isinstance(questions, list) or len(questions) == 0:
         raise HTTPException(status_code=400, detail="'questions' must be a non-empty list")
 
-    ALLOWED_TYPES = {"mcq_single", "mcq_multi", "true_false"}
+    ALLOWED_TYPES = {"mcq_single", "mcq_multi", "true_false", "short_answer"}
     required_fields = {"id", "question", "options", "correct"}
     normalised: list[dict] = []
     for i, q in enumerate(questions):
@@ -7313,6 +7528,37 @@ def update_questions(request: Request, body: dict = Body(...)):
                 detail=f"Question {i+1}: invalid question_type '{qtype}'. "
                        f"Must be one of {sorted(ALLOWED_TYPES)}"
             )
+
+        # Short-answer questions are free-text + AI-graded. They have
+        # no options/correct — instead a reference_answer + rubric.
+        if qtype == "short_answer":
+            ref = str(q.get("reference_answer") or "").strip()
+            if not ref:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Question {i+1}: short-answer needs a reference_answer"
+                )
+            try:
+                max_score = float(q.get("max_score") or 1.0)
+            except (TypeError, ValueError):
+                max_score = 1.0
+            if max_score <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Question {i+1}: max_score must be greater than 0"
+                )
+            normalised.append({
+                "question_id":      q["id"],
+                "question":         q["question"],
+                "options":          {},
+                "correct":          "",
+                "question_type":    qtype,
+                "image_url":        str(q.get("image_url") or "") or None,
+                "reference_answer": ref,
+                "rubric":           str(q.get("rubric") or ""),
+                "max_score":        max_score,
+            })
+            continue
 
         # True/False questions always have exactly two fixed options.
         if qtype == "true_false":
@@ -7404,11 +7650,13 @@ def update_questions(request: Request, body: dict = Body(...)):
         except Exception as e:
             # Older DBs without the new columns — strip and retry.
             msg = str(e).lower()
-            if "question_type" in msg or "image_url" in msg or "column" in msg:
+            if "question_type" in msg or "image_url" in msg or "column" in msg \
+                    or "reference_answer" in msg or "rubric" in msg or "max_score" in msg:
                 print("[Questions] new columns missing on DB, retrying without")
                 legacy = [
                     {k: v for k, v in r.items()
-                     if k not in ("question_type", "image_url")}
+                     if k not in ("question_type", "image_url",
+                                  "reference_answer", "rubric", "max_score")}
                     for r in records
                 ]
                 supabase.table("questions").insert(legacy).execute()

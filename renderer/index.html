@@ -1511,7 +1511,7 @@ function buildGrid(){
 // the same save/submit pipeline as the server already expects.
 function qNormType(q){
   const t=(q&&q.question_type||'mcq_single').toString().toLowerCase();
-  return ['mcq_single','mcq_multi','true_false'].includes(t)?t:'mcq_single';
+  return ['mcq_single','mcq_multi','true_false','short_answer'].includes(t)?t:'mcq_single';
 }
 function ansSet(qid){
   const v = answers[qid];
@@ -1552,9 +1552,52 @@ function renderQ(){
     ? 'Select all that apply'
     : qtype==='true_false'
       ? 'True or False'
-      : 'Select one';
+      : qtype==='short_answer'
+        ? 'Type your answer below'
+        : 'Select one';
 
   const o=document.getElementById('qopts'); o.innerHTML='';
+  if(qtype==='short_answer'){
+    // Free-text answer. We store the raw value at answers[q.id] (NOT
+    // through ansSet/ansWrite — those canonicalise with sort/comma).
+    const ta=document.createElement('textarea');
+    ta.className='shortans';
+    ta.placeholder='Write your answer here…';
+    ta.value=String(answers[q.id]||'');
+    ta.style.cssText='width:100%;min-height:140px;padding:12px;border-radius:10px;border:1px solid var(--border, #2a2f3a);background:var(--card, #161a22);color:inherit;font:inherit;line-height:1.5;resize:vertical';
+    let _saveTimer=null;
+    ta.addEventListener('input', ()=>{
+      const v=ta.value;
+      if(v.trim()) answers[q.id]=v; else delete answers[q.id];
+      _persistAnswers();
+      // debounce server save 800ms — short-answer text changes rapidly
+      if(_saveTimer) clearTimeout(_saveTimer);
+      _saveTimer=setTimeout(()=>{
+        if(!sessionId || isOffline) return;
+        const headers={'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
+        fetch(`${SERVER}/api/save-answer`,{method:'POST',headers,
+          body:JSON.stringify({session_id:sessionId,question_id:String(q.id),answer:v})})
+          .catch(()=>{
+            isOffline=true;
+            const s=document.getElementById('save-status');
+            if(s){s.textContent='Offline — saved locally';s.style.color='#d29922';s.style.opacity='1';}
+          });
+      },800);
+      // Update sidebar dot answered-state without a full re-render
+      const d=document.getElementById(`qd-${curQ}`);
+      if(d) d.className='qdot cur'+(v.trim()?' ans':'');
+    });
+    o.appendChild(ta);
+    document.getElementById('btn-prev').disabled=curQ===0;
+    const last=curQ===questions.length-1;
+    document.getElementById('btn-next').style.display=last?'none':'inline-block';
+    document.getElementById('btn-sub').style.display=last?'inline-block':'none';
+    questions.forEach((qq,i)=>{
+      const d=document.getElementById(`qd-${i}`);
+      if(d) d.className='qdot'+(i===curQ?' cur':answers[qq.id]?' ans':'');
+    });
+    return;
+  }
   const selected=ansSet(q.id);
   Object.entries(q.options).forEach(([l,t])=>{
     const d=document.createElement('div');

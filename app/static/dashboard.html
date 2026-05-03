@@ -1122,6 +1122,7 @@
       <div class="toolbar-right">
         <button class="action-btn" onclick="exportCSV()">CSV</button>
         <button class="action-btn" onclick="exportExcel()">Excel</button>
+        <button class="action-btn" id="grade-pending-btn" onclick="openGradeReview()" title="Review AI-suggested grades for short-answer responses">Review answers <span id="pending-grade-count" style="display:none;background:var(--amber);color:#000;border-radius:8px;padding:1px 6px;font-size:10px;margin-left:4px"></span></button>
         <button class="action-btn" onclick="dlAllScorecards()" title="Download a ZIP containing one PDF scorecard per student">Scorecards ZIP</button>
         <button class="action-btn" onclick="emailAllScorecards()" title="Email each student their scorecard PDF">Email</button>
         <button class="action-btn primary" onclick="refreshResults()">Refresh</button>
@@ -1821,6 +1822,28 @@
     <div style="margin-top:14px;display:flex;gap:10px">
       <button class="action-btn" onclick="closeTriage()" style="flex:1">Close</button>
       <button class="action-btn primary" onclick="_triageOpenTimeline()" id="triage-open-timeline" style="flex:1">Open full timeline →</button>
+    </div>
+  </div>
+</div>
+
+<!-- GRADE REVIEW MODAL — short-answer AI grading -->
+<div class="modal-bg hidden" id="grade-modal" onclick="if(event.target===this)closeGradeReview()">
+  <div class="modal" style="width:920px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column">
+    <button class="close" onclick="closeGradeReview()">&times;</button>
+    <h3 style="margin-bottom:4px;display:flex;align-items:center;gap:8px">
+      <span style="color:var(--accent)">✏️</span> Review short-answer responses
+    </h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      AI suggests a score and rationale; you confirm. Edits before "Confirm" override the AI score.
+      <span id="grade-meta" style="margin-left:8px;font-family:var(--font-mono)"></span>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="action-btn" onclick="loadPendingGrades()">Refresh</button>
+      <button class="action-btn primary" id="grade-suggest-btn" onclick="runGradeSuggest()" title="Send all un-suggested answers to the AI grader">Suggest grades for all</button>
+      <span id="grade-status" style="margin-left:auto;align-self:center;font-size:11px;color:var(--muted)"></span>
+    </div>
+    <div id="grade-list" style="overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
+      <div style="text-align:center;padding:30px;color:var(--muted)">Loading…</div>
     </div>
   </div>
 </div>
@@ -2542,6 +2565,7 @@ function switchTab(tab){
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
   if(tab==='results' && resultsData.length===0) refreshResults();
+  if(tab==='results' && typeof refreshPendingGradeBadge==='function') refreshPendingGradeBadge();
   if(tab==='questions' && qData.length===0) loadQuestions();
   if(tab==='chat'){
     if(typeof chatClearActiveUnread==='function') chatClearActiveUnread();
@@ -3358,6 +3382,152 @@ function downloadPDF(){
 function dlScorecard(sid){
   fetchBlob(`${BASE}/api/admin/scorecard-pdf/${encodeURIComponent(sid)}`,`scorecard_${sid.split('_')[0]}.pdf`);
 }
+// ── GRADE REVIEW (short-answer AI grading) ───────────────────────
+// Backed by /api/admin/pending-grades, /api/admin/grade-suggest,
+// /api/admin/grade-confirm. The AI provides a score + rationale; the
+// teacher confirms or overrides before it counts. We never write
+// teacher_score automatically — that's the trust boundary.
+let _pendingGrades = [];
+
+async function refreshPendingGradeBadge(){
+  // Fetch the count once on tab switch + post-confirm so the toolbar
+  // chip nudges the teacher when there's review work waiting.
+  const eid = currentExamId;
+  if(!eid){ return; }
+  try{
+    const r = await authFetch(`${BASE}/api/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
+    if(!r.ok) return;
+    const d = await r.json();
+    const n = (d.answers||[]).filter(a => a.teacher_score==null).length;
+    const chip = document.getElementById('pending-grade-count');
+    if(!chip) return;
+    if(n>0){ chip.textContent = String(n); chip.style.display='inline-block'; }
+    else { chip.style.display='none'; }
+  }catch(e){ /* silent — modal still works on demand */ }
+}
+
+function openGradeReview(){
+  const eid = currentExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  document.getElementById('grade-modal').classList.remove('hidden');
+  loadPendingGrades();
+}
+
+function closeGradeReview(){
+  document.getElementById('grade-modal').classList.add('hidden');
+}
+
+async function loadPendingGrades(){
+  const eid = currentExamId;
+  const list = document.getElementById('grade-list');
+  list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)"><span class="spinner"></span> Loading…</div>';
+  try{
+    const r = await authFetch(`${BASE}/api/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    _pendingGrades = d.answers || [];
+    document.getElementById('grade-meta').textContent =
+      `${d.total_pending||0} pending · ${(d.questions||[]).length} short-answer question(s)`;
+    renderPendingGrades();
+  }catch(e){
+    list.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escAttr(String(e))}</div>`;
+  }
+}
+
+function renderPendingGrades(){
+  const list = document.getElementById('grade-list');
+  if(!_pendingGrades.length){
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">No short-answer responses to review for this exam.</div>';
+    return;
+  }
+  list.innerHTML = _pendingGrades.map((a,i)=>{
+    const ai = a.ai_score!=null ? `${a.ai_score}/${a.max_score}` : '—';
+    const conf = a.ai_confidence || '';
+    const confColor = conf==='high' ? 'var(--emerald)' : conf==='medium' ? 'var(--amber)' : 'var(--muted)';
+    const isGraded = a.teacher_score!=null;
+    return `<div class="grade-row" data-aid="${escAttr(a.id)}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--card,#161a22);${isGraded?'opacity:0.55':''}">
+      <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px;font-size:11px;color:var(--muted);font-family:var(--font-mono)">
+        <span>${escAttr(a.roll_number||'?')} · ${escAttr(a.full_name||'')}</span>
+        <span>${isGraded?'✓ confirmed':'pending'}</span>
+      </div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">${escAttr(a.question||'')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px"><strong>Reference:</strong> ${escAttr(a.reference||'')}${a.rubric?`<br><strong>Rubric:</strong> ${escAttr(a.rubric)}`:''}</div>
+      <div style="background:var(--surface-1,#0d1117);border-left:3px solid var(--accent);padding:8px 10px;border-radius:0 6px 6px 0;font-size:13px;line-height:1.5;white-space:pre-wrap;margin-bottom:8px">${escAttr(a.student_answer||'(blank)')}</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">
+        <span style="color:var(--muted)">AI suggests:</span>
+        <strong>${ai}</strong>
+        ${conf?`<span style="color:${confColor};font-size:10px;text-transform:uppercase;font-weight:600">${escAttr(conf)} conf</span>`:''}
+        ${a.ai_feedback?`<span style="color:var(--muted);font-style:italic;flex:1;min-width:200px">"${escAttr(a.ai_feedback)}"</span>`:''}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <label style="font-size:11px;color:var(--muted)">Final score</label>
+        <input type="number" id="grade-input-${i}" min="0" max="${escAttr(String(a.max_score||1))}" step="0.5"
+               value="${escAttr(String(a.teacher_score!=null?a.teacher_score:(a.ai_score!=null?a.ai_score:'')))}"
+               style="width:80px;padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface-1);color:inherit">
+        <span style="color:var(--muted);font-size:11px">/ ${escAttr(String(a.max_score||1))}</span>
+        <button class="action-btn primary" onclick="confirmGrade(${i})" ${isGraded?'disabled':''} style="margin-left:auto">${isGraded?'Confirmed':'Confirm'}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function runGradeSuggest(){
+  const btn = document.getElementById('grade-suggest-btn');
+  const status = document.getElementById('grade-status');
+  // Only ask the AI for answers that don't already have a suggestion —
+  // saves Groq calls and keeps the rate-limit headroom for retries.
+  const ids = _pendingGrades.filter(a => a.ai_score==null && a.teacher_score==null).map(a => a.id);
+  if(!ids.length){ status.textContent = 'All pending answers already have AI suggestions.'; return; }
+  btn.disabled = true;
+  status.textContent = `Asking AI to grade ${ids.length}…`;
+  try{
+    const r = await authFetch(`${BASE}/api/admin/grade-suggest`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({answer_ids: ids})
+    });
+    if(!r.ok){
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt}`);
+    }
+    const d = await r.json();
+    status.textContent = `AI graded ${d.graded||0} answer(s).`;
+    await loadPendingGrades();
+  }catch(e){
+    status.textContent = 'Suggest failed: '+String(e);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function confirmGrade(i){
+  const a = _pendingGrades[i];
+  if(!a) return;
+  const inp = document.getElementById(`grade-input-${i}`);
+  const score = parseFloat(inp.value);
+  if(isNaN(score) || score<0 || score>parseFloat(a.max_score||1)){
+    alert(`Score must be between 0 and ${a.max_score||1}.`);
+    return;
+  }
+  const status = document.getElementById('grade-status');
+  status.textContent = 'Confirming…';
+  try{
+    const r = await authFetch(`${BASE}/api/admin/grade-confirm`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({answer_id: a.id, score})
+    });
+    if(!r.ok){
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt}`);
+    }
+    a.teacher_score = score;
+    renderPendingGrades();
+    refreshPendingGradeBadge();
+    status.textContent = `Saved ${score}/${a.max_score} for ${a.roll_number}.`;
+  }catch(e){
+    status.textContent = 'Confirm failed: '+String(e);
+  }
+}
+
 function dlAllScorecards(){
   const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
@@ -3880,12 +4050,15 @@ function qSetCorrectSet(q, setOrArr){
 }
 function qNormaliseType(q){
   let t=(q.question_type||'mcq_single').toString().trim().toLowerCase();
-  if(!['mcq_single','mcq_multi','true_false'].includes(t)) t='mcq_single';
+  if(!['mcq_single','mcq_multi','true_false','short_answer'].includes(t)) t='mcq_single';
   q.question_type=t;
   return t;
 }
 function qTypeLabel(t){
-  return t==='mcq_multi'?'Multi-select':t==='true_false'?'True / False':'Single choice';
+  if(t==='mcq_multi') return 'Multi-select';
+  if(t==='true_false') return 'True / False';
+  if(t==='short_answer') return 'Short answer (AI-graded)';
+  return 'Single choice';
 }
 function qBuildImageUrl(u){
   if(!u) return '';
@@ -3938,6 +4111,7 @@ function renderQEditor(){
         qSetCorrectSet(q, ['True']);
       }
     }
+    const isShort = qtype==='short_answer';
     const optKeys = Object.keys(q.options||{});
     const correctSet = qGetCorrectSet(q);
     const isMulti = qtype==='mcq_multi';
@@ -3969,6 +4143,7 @@ function renderQEditor(){
           <option value="mcq_single" ${qtype==='mcq_single'?'selected':''}>Single choice (MCQ)</option>
           <option value="mcq_multi"  ${qtype==='mcq_multi'?'selected':''}>Multi-select (2+ correct)</option>
           <option value="true_false" ${qtype==='true_false'?'selected':''}>True / False</option>
+          <option value="short_answer" ${qtype==='short_answer'?'selected':''}>Short answer (AI-graded)</option>
         </select>
       </div>
       <div class="q-field">
@@ -3986,6 +4161,25 @@ function renderQEditor(){
                  style="display:none" onchange="handleQImageUpload(${i},this.files[0])">
         </div>
       </div>
+      ${isShort?`
+      <div class="q-field">
+        <label>Reference answer (model answer the AI grades against)</label>
+        <textarea oninput="qData[${i}].reference_answer=this.value;markQDirty()" placeholder="e.g. Atomicity, Consistency, Isolation, Durability">${escAttr(q.reference_answer||'')}</textarea>
+      </div>
+      <div class="q-field">
+        <label>Rubric (optional grading guidance for the AI)</label>
+        <textarea oninput="qData[${i}].rubric=this.value;markQDirty()" placeholder="e.g. Accept any of: atomicity / consistency / isolation / durability. Half marks for 2+ of 4. Lenient on spelling.">${escAttr(q.rubric||'')}</textarea>
+      </div>
+      <div class="q-correct-row">
+        <label>Max score</label>
+        <input type="number" min="0.5" step="0.5" value="${escAttr(String(q.max_score||1))}"
+               oninput="qData[${i}].max_score=parseFloat(this.value)||1;markQDirty()"
+               style="width:80px;padding:4px 6px">
+        <span class="q-correct-status" style="color:var(--muted);font-size:11px;margin-left:8px">
+          Students type a free-text answer. The AI suggests a score; you confirm it from the Results tab.
+        </span>
+      </div>
+      `:`
       <div class="q-field">
         <label>Options ${isMulti?'(check all correct)':qtype==='true_false'?'(fixed)':'(pick one correct)'}</label>
         <div class="q-opts">
@@ -4014,6 +4208,7 @@ function renderQEditor(){
           ${escAttr(correctStatusText)}
         </span>
       </div>
+      `}
     </div>`;
   }).join('');
   renderQStats();
@@ -4034,7 +4229,15 @@ function setQType(idx, val){
   const q = qData[idx];
   if(!q) return;
   q.question_type = val;
-  if(val==='true_false'){
+  if(val==='short_answer'){
+    // No options/correct for free-text. Seed grading defaults so the
+    // teacher sees the new fields populated rather than empty placeholders.
+    q.options = {};
+    q.correct = '';
+    if(typeof q.reference_answer !== 'string') q.reference_answer = '';
+    if(typeof q.rubric !== 'string') q.rubric = '';
+    if(typeof q.max_score !== 'number' || !q.max_score) q.max_score = 1;
+  }else if(val==='true_false'){
     q.options = {'True':'True','False':'False'};
     qSetCorrectSet(q, ['True']);
   }else if(val==='mcq_single'){
@@ -4043,15 +4246,18 @@ function setQType(idx, val){
       // Keep only the first correct pick
       qSetCorrectSet(q, [[...cs][0]]);
     }
-    // If options are still True/False (from a prior toggle), restore A/B/C/D
+    // If options are still True/False (from a prior toggle), or empty
+    // (coming from short_answer), restore A/B/C/D.
     const keys = Object.keys(q.options||{});
-    if(keys.length===2 && keys.includes('True') && keys.includes('False')){
+    const isTF = keys.length===2 && keys.includes('True') && keys.includes('False');
+    if(isTF || keys.length<2){
       q.options = {A:'',B:'',C:'',D:''};
       qSetCorrectSet(q, ['A']);
     }
   }else if(val==='mcq_multi'){
     const keys = Object.keys(q.options||{});
-    if(keys.length===2 && keys.includes('True') && keys.includes('False')){
+    const isTF = keys.length===2 && keys.includes('True') && keys.includes('False');
+    if(isTF || keys.length<2){
       q.options = {A:'',B:'',C:'',D:''};
       qSetCorrectSet(q, []);
     }
@@ -4212,6 +4418,18 @@ function renderQPreview(){
     const qtype=qNormaliseType(q);
     const optKeys=Object.keys(q.options||{});
     const correctSet=qGetCorrectSet(q);
+    if(qtype==='short_answer'){
+      return `<div class="preview-q">
+        <div class="pq-num">Question ${i+1} of ${qData.length} · ${escAttr(qTypeLabel(qtype))}</div>
+        ${q.image_url?`<img class="pq-image" id="pqimg-${i}" alt="Q${i+1}">`:''}
+        <div class="pq-text">${escAttr(q.question||'(empty)')}</div>
+        <div style="border:1px dashed var(--border);border-radius:8px;padding:10px 12px;margin-top:8px;color:var(--muted);font-size:12px">
+          Student types a free-text answer here. Max score: ${escAttr(String(q.max_score||1))}
+        </div>
+        <div style="margin-top:8px;font-size:12px"><strong>Reference:</strong> ${escAttr(q.reference_answer||'(none)')}</div>
+        ${q.rubric?`<div style="margin-top:4px;font-size:12px;color:var(--muted)"><strong>Rubric:</strong> ${escAttr(q.rubric)}</div>`:''}
+      </div>`;
+    }
     return `<div class="preview-q">
       <div class="pq-num">Question ${i+1} of ${qData.length} · ${escAttr(qTypeLabel(qtype))}</div>
       ${q.image_url?`<img class="pq-image" id="pqimg-${i}" alt="Q${i+1}">`:''}
@@ -4362,6 +4580,14 @@ async function saveQuestions(){
   qData.forEach((q,i)=>{
     const qtype=qNormaliseType(q);
     if(!q.question||!q.question.trim()) errors.push(`Q${i+1}: empty question text`);
+    if(qtype==='short_answer'){
+      if(!q.reference_answer||!String(q.reference_answer).trim()){
+        errors.push(`Q${i+1}: short-answer needs a reference answer (the AI grades against it)`);
+      }
+      const ms = parseFloat(q.max_score);
+      if(!ms || ms<=0) errors.push(`Q${i+1}: max score must be greater than 0`);
+      return; // skip the MCQ option/correct validation below
+    }
     const optKeys=Object.keys(q.options||{});
     if(optKeys.length<2) errors.push(`Q${i+1}: needs at least 2 options`);
     const emptyOpts=optKeys.filter(k=>!q.options[k]||!q.options[k].trim());

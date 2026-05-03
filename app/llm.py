@@ -544,3 +544,90 @@ def lint_questions(questions: list[dict]) -> list[dict]:
         {"idx": q.get("idx", i), "issues": by_idx.get(q.get("idx", i), [])}
         for i, q in enumerate(batch)
     ]
+
+
+# ── Short-answer grading ────────────────────────────────────────────
+
+_GRADE_SYSTEM = """You are an exam grader. The teacher has provided a reference answer and \
+optional rubric. Score the student's answer on a scale from 0 to max_score, allowing half marks.
+
+Rules:
+- Award FULL marks only when the student's answer fully covers the reference answer's content.
+- Award PARTIAL marks when the answer is partially correct, ambiguous, or missing key details.
+- Award ZERO when the answer is wrong, blank, or off-topic.
+- Be lenient on spelling, grammar, and phrasing — the answer's MEANING is what matters.
+  e.g. "atomicity, consistency, isolation, durability" and "Atomicity Consitency Isolation Durability" \
+should get the same score.
+- Be strict on factual content. If the rubric says "must mention X", then missing X = partial credit.
+- For numeric answers: accept equivalent forms (1/2 = 0.5 = 50%). Accept reasonable rounding.
+- Provide feedback in 1-2 sentences. Be direct and specific. No filler like "Good attempt!" or \
+"You can do better." The student needs to know what was right or wrong, not be coddled.
+
+Confidence:
+- "high" — answer is clearly right or clearly wrong with no judgment call.
+- "medium" — partial credit decision required, or interpretation involved.
+- "low" — student's answer is highly unusual, ambiguous, or you're uncertain. Flag for human review.
+
+Output JSON: {"score": N, "feedback": "...", "confidence": "high|medium|low"}"""
+
+
+def grade_short_answer(question: str, reference: str, rubric: str,
+                       student_answer: str, max_score: float = 1.0) -> dict:
+    """Grade one short-answer response against a teacher's reference.
+
+    Returns ``{score, feedback, confidence}`` where score is a number
+    between 0 and max_score (half marks allowed). On any failure
+    returns ``{score: None, feedback: "...", confidence: "low"}`` so
+    the caller can surface "couldn't grade automatically — review
+    manually" in the UI without crashing.
+
+    Critically, this function is one half of a two-step pattern. The
+    score it returns is a SUGGESTION; the teacher must confirm in
+    the dashboard before it lands in the gradebook. Don't fold this
+    into auto-grading on submit — the trust gradient with AI grades
+    on high-stakes exams is too steep to skip the human-in-the-loop.
+    """
+    if not is_configured():
+        return {"score": None, "feedback": "AI grader not configured.",
+                "confidence": "low"}
+    if not (student_answer or "").strip():
+        # Blank answer → 0/max with no LLM call. Saves a Groq round-
+        # trip on the most common case (student skipped the question).
+        return {"score": 0.0, "feedback": "Blank answer.", "confidence": "high"}
+
+    user = f"""Question: {question}
+
+Reference answer (model answer the teacher wrote):
+{reference}
+
+Rubric (optional grading criteria):
+{rubric or '(none provided — use the reference answer as the standard)'}
+
+Maximum score: {max_score}
+
+Student's answer:
+{student_answer}
+
+Now grade it."""
+
+    try:
+        parsed = _chat_json(_GRADE_SYSTEM, user, max_tokens=300, temperature=0.2)
+    except Exception as e:
+        log.warning("grade_short_answer failed: %s", e)
+        return {"score": None,
+                "feedback": "Couldn't reach the AI grader. Review manually.",
+                "confidence": "low"}
+
+    # Defensive normalisation — the model occasionally returns the
+    # score as a string ("1.5") or as max_score+ (over-scoring). Clamp
+    # to [0, max_score] and coerce to float.
+    try:
+        score = float(parsed.get("score", 0))
+    except (TypeError, ValueError):
+        score = 0.0
+    score = max(0.0, min(float(max_score), score))
+    feedback = str(parsed.get("feedback") or "")[:500]
+    confidence = str(parsed.get("confidence") or "medium").lower()
+    if confidence not in ("high", "medium", "low"):
+        confidence = "medium"
+    return {"score": score, "feedback": feedback, "confidence": confidence}

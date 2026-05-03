@@ -4127,6 +4127,43 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
                 correct_ans[:20],
                 "\u2713" if is_right else "\u2717",
             ])
+        # Replace any short-answer rows in qd with teacher-graded view.
+        # Doing this as a post-pass keeps the original loop simple.
+        try:
+            sa_qids = [str(q.get("question_id", q.get("id", "")))
+                       for q in questions
+                       if str(q.get("question_type") or "").lower() == "short_answer"]
+            sa_grades: dict[str, dict] = {}
+            if sa_qids:
+                sa_rows = (supabase.table("answers")
+                           .select("question_id,teacher_score,ai_score")
+                           .eq("session_key", session_id)
+                           .in_("question_id", sa_qids)
+                           .execute()).data or []
+                for r in sa_rows:
+                    sa_grades[str(r.get("question_id"))] = r
+            for idx, q in enumerate(questions, 1):
+                if str(q.get("question_type") or "").lower() != "short_answer":
+                    continue
+                qid = str(q.get("question_id", q.get("id", "")))
+                ans_str = str(ans_map.get(qid, ""))
+                ans_short = ans_str[:60] + ("..." if len(ans_str) > 60 else "")
+                grade = sa_grades.get(qid) or {}
+                ms = float(q.get("max_score") or 1.0)
+                if grade.get("teacher_score") is not None:
+                    result_str = f"{float(grade['teacher_score']):g}/{ms:g}"
+                elif grade.get("ai_score") is not None:
+                    result_str = f"AI:{float(grade['ai_score']):g}/{ms:g}"
+                else:
+                    result_str = "Pending"
+                # qd[0] is the header row, so question i is at qd[i].
+                qd[idx] = [str(idx),
+                           qd[idx][1],  # already-truncated question text
+                           ans_short,
+                           str(q.get("reference_answer") or "")[:20],
+                           result_str]
+        except Exception as e:
+            print(f"[Scorecard] short-answer overlay failed: {e}")
         # Snapshot per-question rows for the AI insight prompt below \u2014
         # we build this from the same data the table renders so the
         # model sees exactly what the student sees.
@@ -7258,7 +7295,7 @@ def grade_confirm(request: Request, body: dict = Body(...)):
         raise HTTPException(status_code=400, detail="score must be a number")
 
     # Verify the answer belongs to this teacher before mutating
-    own = (supabase.table("answers").select("id,question_id")
+    own = (supabase.table("answers").select("id,question_id,session_key")
            .eq("id", answer_id).eq("teacher_id", tid).limit(1).execute()).data
     if not own:
         raise HTTPException(status_code=404, detail="Answer not found")
@@ -7276,7 +7313,94 @@ def grade_confirm(request: Request, body: dict = Body(...)):
         "teacher_score": score,
         "graded_at": now_ist().isoformat(),
     }).eq("id", answer_id).eq("teacher_id", tid).execute())
-    return {"ok": True, "answer_id": answer_id, "teacher_score": score}
+
+    # Roll the new teacher_score into the session's headline score so the
+    # gradebook, scorecard PDF, results table, and analytics all reflect
+    # the confirmed total. _apply_short_answer_to_session is idempotent —
+    # it recomputes from scratch each call, so we never double-add.
+    session_key = (own[0] or {}).get("session_key")
+    new_totals = None
+    if session_key:
+        try:
+            new_totals = _apply_short_answer_to_session(session_key, tid)
+        except Exception as e:
+            # Don't fail the confirm — the score is saved on the answer
+            # row regardless. The session-total rollup is a derived view
+            # we can backfill later.
+            print(f"[grade-confirm] rollup failed for {session_key}: {e}")
+
+    return {"ok": True, "answer_id": answer_id,
+            "teacher_score": score,
+            "session_totals": new_totals}
+
+
+def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> dict | None:
+    """Recompute exam_sessions.{score,total,percentage} including
+    teacher-confirmed short-answer scores.
+
+    Idempotent: reads the canonical state (MCQ correctness from the
+    questions/answers tables, plus confirmed teacher_score per short-
+    answer response) and rewrites the session row from scratch. Safe to
+    call repeatedly — never double-counts.
+
+    Returns the new totals or None if the session wasn't found.
+    """
+    sess = (supabase.table("exam_sessions")
+            .select("session_key,exam_id,teacher_id")
+            .eq("session_key", session_key)
+            .eq("teacher_id", teacher_id)
+            .limit(1).execute()).data
+    if not sess:
+        return None
+    eid = sess[0].get("exam_id")
+
+    # MCQ score from the same path the submit handler used. Pass an
+    # empty payload — DB answers are already canonicalised.
+    try:
+        mcq_score, mcq_total = _recalculate_score(
+            session_key, {}, teacher_id=teacher_id, exam_id=eid)
+    except Exception as e:
+        print(f"[rollup] mcq recalc failed: {e}")
+        return None
+
+    # Short-answer denominator: sum of max_score across this exam's
+    # short-answer questions (only — MCQs already counted).
+    sa_qs = (supabase.table("questions")
+             .select("question_id,max_score")
+             .eq("teacher_id", teacher_id)
+             .eq("exam_id", eid)
+             .eq("question_type", "short_answer")
+             .execute()).data or []
+    sa_max_total = sum(float(q.get("max_score") or 1.0) for q in sa_qs)
+
+    # Short-answer numerator: confirmed teacher_score for this session.
+    sa_ans = (supabase.table("answers")
+              .select("teacher_score")
+              .eq("session_key", session_key)
+              .eq("teacher_id", teacher_id)
+              .execute()).data or []
+    # Filter in Python — keeps the query simple and avoids postgrest-py
+    # version-dependent .not_.is_() syntax differences.
+    sa_score_total = sum(float(a.get("teacher_score") or 0)
+                         for a in sa_ans if a.get("teacher_score") is not None)
+
+    # exam_sessions.score/total are int columns. Round to keep schema
+    # stable; half-mark precision is preserved on the answer row itself
+    # (numeric(5,2)) and shown faithfully in the Review modal + PDF.
+    new_score = int(round(mcq_score + sa_score_total))
+    new_total = int(round(mcq_total + sa_max_total))
+    new_pct = round((new_score / max(new_total, 1)) * 100, 1)
+
+    (supabase.table("exam_sessions").update({
+        "score":      new_score,
+        "total":      new_total,
+        "percentage": new_pct,
+    }).eq("session_key", session_key).eq("teacher_id", teacher_id).execute())
+
+    return {"score": new_score, "total": new_total, "percentage": new_pct,
+            "mcq_score": mcq_score, "mcq_total": mcq_total,
+            "short_answer_score": sa_score_total,
+            "short_answer_max": sa_max_total}
 
 
 @app.post("/api/admin/question-bank/to-exam")

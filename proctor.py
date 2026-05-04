@@ -145,22 +145,16 @@ class YoloWorker:
             # and keeps the worker's cv2.resize call (which we removed)
             # from being duplicated.
             small = cv2.resize(frame, (416, 416))
-            self.frame_q.put_nowait((small.copy(), frame_count))
+            self.frame_q.put_nowait((small, frame_count))
         except Exception:
             pass  # queue full, skip this frame
 
     def get_result(self, frame_count: int):
-        """Check if a result is available for the given frame count.
-
-        Returns the result dict or None. Results older than the requested
-        frame_count are silently discarded.
-        """
         try:
             result = self.result_q.get_nowait()
-            if result["frame_count"] <= frame_count:
+            if result["frame_count"] == frame_count:
                 return result
-            # Future result — put it back and return None
-            self.result_q.put_nowait(result)
+            # Stale or future result — discard
         except Empty:
             pass
         return None
@@ -202,6 +196,263 @@ class YoloWorker:
 # Global YOLO worker — created at module load but only starts when
 # the proctoring loop begins.
 yolo_worker = YoloWorker()
+
+# ─── SAHI TILING for YOLO (small object detection) ───────────────────────────
+# Slicing Aided Hyper Inference: splits the frame into overlapping tiles,
+# runs YOLO on each tile at full resolution, then merges detections.
+# This dramatically improves recall for small objects like earbuds without
+# retraining the model. Runs on a separate background thread.
+
+SAHI_EVERY_N = YOLO_EVERY_N * 3  # run SAHI every 3rd YOLO cycle (15 frames)
+
+class SahiYoloWorker:
+    """Background thread that runs SAHI-tiled YOLO inference.
+
+    Splits the frame into overlapping tiles (default 320x320, 20% overlap),
+    runs YOLO on each tile, and merges results with simple NMS.
+    """
+
+    TILE_SIZE = 320
+    OVERLAP = 0.2
+
+    def __init__(self):
+        self.frame_q = Queue(maxsize=1)
+        self.result_q = Queue(maxsize=1)
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="sahi-worker")
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=3)
+            self._thread = None
+
+    def submit(self, frame: np.ndarray, frame_count: int):
+        try:
+            self.frame_q.put_nowait((frame.copy(), frame_count))
+        except Exception:
+            pass
+
+    def get_result(self, frame_count: int):
+        try:
+            result = self.result_q.get_nowait()
+            if result["frame_count"] == frame_count:
+                return result
+        except Empty:
+            pass
+        return None
+
+    @staticmethod
+    def _generate_tiles(frame: np.ndarray):
+        h, w = frame.shape[:2]
+        step = int(SahiYoloWorker.TILE_SIZE * (1 - SahiYoloWorker.OVERLAP))
+        for y in range(0, max(h - SahiYoloWorker.TILE_SIZE + 1, 1), step):
+            for x in range(0, max(w - SahiYoloWorker.TILE_SIZE + 1, 1), step):
+                y_end = min(y + SahiYoloWorker.TILE_SIZE, h)
+                x_end = min(x + SahiYoloWorker.TILE_SIZE, w)
+                if y_end - y < 50 or x_end - x < 50:
+                    continue
+                yield frame[y:y_end, x:x_end], x, y
+
+    @staticmethod
+    def _nms_merge(detections: list, iou_thresh: float = 0.5):
+        if not detections:
+            return []
+        by_name = {}
+        for name, conf, x1, y1, x2, y2 in detections:
+            by_name.setdefault(name, []).append((conf, x1, y1, x2, y2))
+        merged = []
+        for name, boxes in by_name.items():
+            boxes.sort(reverse=True)
+            kept = []
+            for conf, x1, y1, x2, y2 in boxes:
+                overlap = False
+                for kc, kx1, ky1, kx2, ky2 in kept:
+                    ix1 = max(x1, kx1); iy1 = max(y1, ky1)
+                    ix2 = min(x2, kx2); iy2 = min(y2, ky2)
+                    if ix1 < ix2 and iy1 < iy2:
+                        inter = (ix2 - ix1) * (iy2 - iy1)
+                        union = (x2-x1)*(y2-y1) + (kx2-kx1)*(ky2-ky1) - inter
+                        if union > 0 and inter / union > iou_thresh:
+                            overlap = True
+                            break
+                if not overlap:
+                    kept.append((conf, x1, y1, x2, y2))
+            merged.extend([(name, conf, x1, y1, x2, y2) for conf, x1, y1, x2, y2 in kept])
+        return merged
+
+    def _run(self):
+        model = _load_yolo()
+        if model is None:
+            return
+
+        while not self._stop.is_set():
+            try:
+                frame, frame_count = self.frame_q.get(timeout=0.5)
+            except Empty:
+                continue
+
+            all_dets = []
+            try:
+                for tile, ox, oy in self._generate_tiles(frame):
+                    res = model(tile, verbose=False, conf=YOLO_CONFIDENCE)[0]
+                    for box in res.boxes:
+                        cls_id = int(box.cls[0])
+                        if cls_id in CHEAT_IDS:
+                            x1 = int(box.xyxy[0][0]) + ox
+                            y1 = int(box.xyxy[0][1]) + oy
+                            x2 = int(box.xyxy[0][2]) + ox
+                            y2 = int(box.xyxy[0][3]) + oy
+                            all_dets.append((CHEAT_IDS[cls_id], float(box.conf[0]), x1, y1, x2, y2))
+                merged = self._nms_merge(all_dets)
+                self.result_q.put_nowait({
+                    "frame_count": frame_count,
+                    "detections": [(name, conf) for name, conf, _, _, _, _ in merged],
+                    "error": None,
+                })
+            except Exception as e:
+                try:
+                    self.result_q.put_nowait({
+                        "frame_count": frame_count,
+                        "detections": [],
+                        "error": str(e),
+                    })
+                except Exception:
+                    pass
+
+sahi_worker = SahiYoloWorker()
+SAHI_AVAILABLE = YOLO_AVAILABLE
+
+# ─── EAR-CROP CLASSIFIER (earphone/earbud detection) ──────────────────────────
+# Uses face landmarks from RetinaFace to crop the ear regions, then runs
+# a lightweight classifier to detect earbuds. Runs every 5th frame to
+# balance accuracy with CPU overhead.
+
+def _find_ear_model() -> Optional[str]:
+    candidates = [
+        os.environ.get("PROCTOR_EAR_MODEL", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "weights", "earbud_classifier.onnx"),
+        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""),
+                     "weights", "earbud_classifier.onnx"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+_ear_classifier = None
+EAR_CLASSIFIER_AVAILABLE = False
+
+if ORT_AVAILABLE:
+    class EarClassifier:
+        def __init__(self):
+            self.session = None
+            self.model_size = None
+            self.input_name = None
+            self.output_name = None
+            _model_path = _find_ear_model()
+            if _model_path:
+                try:
+                    self.session = ort.InferenceSession(
+                        _model_path, providers=["CPUExecutionProvider"])
+                    self.input_name = self.session.get_inputs()[0].name
+                    input_shape = self.session.get_inputs()[0].shape
+                    self.model_size = tuple(input_shape[2:][::-1])
+                    self.output_name = self.session.get_outputs()[0].name
+                    print(f"[EarClassifier] ✅ Loaded from {_model_path}")
+                except Exception as _ee:
+                    print(f"[EarClassifier] ⚠ Model load failed: {_ee}")
+            else:
+                print("[EarClassifier] ⚠ No ear model found — heuristic fallback enabled")
+
+        @staticmethod
+        def _estimate_ear_bbox(lm_2d: np.ndarray, W: int, H: int, side: str):
+            left_eye = lm_2d[0]
+            right_eye = lm_2d[1]
+            left_mouth = lm_2d[3]
+            right_mouth = lm_2d[4]
+            eye_dist = np.linalg.norm(right_eye - left_eye)
+            if side == "left":
+                cx = left_eye[0] - eye_dist * 0.6
+                cy = (left_eye[1] + left_mouth[1]) / 2
+            else:
+                cx = right_eye[0] + eye_dist * 0.6
+                cy = (right_eye[1] + right_mouth[1]) / 2
+            half = int(eye_dist * 0.9)
+            x1 = max(0, int(cx - half))
+            y1 = max(0, int(cy - half * 1.2))
+            x2 = min(W, int(cx + half))
+            y2 = min(H, int(cy + half * 0.8))
+            if x2 - x1 < 20 or y2 - y1 < 20:
+                return None
+            return (x1, y1, x2, y2)
+
+        def classify(self, frame: np.ndarray, lm_2d: np.ndarray, W: int, H: int):
+            if self.session is None:
+                return self._heuristic_detect(frame, lm_2d, W, H)
+            left_conf, right_conf = 0.0, 0.0
+            for side in ["left", "right"]:
+                bbox = self._estimate_ear_bbox(lm_2d, W, H, side)
+                if bbox is None:
+                    continue
+                x1, y1, x2, y2 = bbox
+                crop = frame[y1:y2, x1:x2]
+                if crop.size == 0:
+                    continue
+                try:
+                    img = cv2.resize(crop, self.model_size)
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    img = img.astype(np.float32) / 255.0
+                    img = np.transpose(np.expand_dims(img, 0), (0, 3, 1, 2))
+                    outputs = self.session.run([self.output_name], {self.input_name: img})
+                    prob = float(outputs[0][0][1]) if outputs[0].shape[1] > 1 else 0.0
+                    if side == "left":
+                        left_conf = prob
+                    else:
+                        right_conf = prob
+                except Exception:
+                    pass
+            return left_conf, right_conf
+
+        @staticmethod
+        def _heuristic_detect(frame: np.ndarray, lm_2d: np.ndarray, W: int, H: int):
+            left_conf, right_conf = 0.0, 0.0
+            for side_idx, side in enumerate(["left", "right"]):
+                bbox = EarClassifier._estimate_ear_bbox(lm_2d, W, H, side)
+                if bbox is None:
+                    continue
+                x1, y1, x2, y2 = bbox
+                crop = frame[y1:y2, x1:x2]
+                if crop.size == 0:
+                    continue
+                try:
+                    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                    edges = cv2.Canny(gray, 50, 150)
+                    edge_density = np.sum(edges > 0) / edges.size
+                    mask = gray < 80
+                    dark_ratio = np.sum(mask) / mask.size
+                    if 0.05 < edge_density < 0.35 and 0.02 < dark_ratio < 0.3:
+                        conf = min(0.9, edge_density * 3.0 + dark_ratio * 2.0)
+                        if side_idx == 0:
+                            left_conf = conf
+                        else:
+                            right_conf = conf
+                except Exception:
+                    pass
+            return left_conf, right_conf
+
+    _ear_classifier = EarClassifier()
+    EAR_CLASSIFIER_AVAILABLE = True
+else:
+    print("[EarClassifier] ❌ onnxruntime not available — earbud detection disabled")
 
 # InsightFace: face-embedding wrong-person detection
 try:
@@ -271,6 +522,7 @@ CONFIDENCE = {
     "cheat_object_detected": 0.85,
     "voice_detected":        0.75,
     "earphone_detected":     0.72,
+    "face_too_small":        0.80,
 }
 
 # ─── THRESHOLDS ───────────────────────────────────────────────────────────────
@@ -357,6 +609,10 @@ YOLO_EVERY_N        = 5
 VOICE_THRESHOLD     = float(os.getenv("PROCTOR_VOICE_THRESHOLD", "0.035"))
 VOICE_SUSTAINED_SECS = 8.0
 WRONG_PERSON_THRESHOLD = float(os.getenv("PROCTOR_WRONG_PERSON_THRESHOLD", "0.25"))
+TARGET_FPS          = 15
+FACE_MIN_SIZE       = 50  # min face height/width px (student too far)
+EAR_EVERY_N         = 5
+EAR_THRESHOLD       = 0.6
 
 # Smoothing window for gaze readings — averages out per-frame jitter so we
 # don't flag a single noisy frame as "looking away". 5 frames at ~30fps
@@ -419,16 +675,23 @@ def _heartbeat_loop():
     while True:
         time.sleep(30)
         try:
-            requests.post(
+            _http.post(
                 HEARTBEAT_URL,
                 json={"session_id": SESSION_ID, "event_type": "heartbeat",
                       "severity": "low", "details": "alive"},
-                timeout=5, headers=HEADERS
+                timeout=5
             )
         except Exception:
             pass
 
 threading.Thread(target=_heartbeat_loop, daemon=True).start()
+
+# ─── REUSABLE HTTP SESSION ───────────────────────────────────────────────────
+# Single requests.Session() reuses TCP connections across all HTTP calls,
+# cutting per-request overhead by ~10ms. Created after HEADERS so the auth
+# headers can be attached at the session level.
+_http = requests.Session()
+_http.headers.update(HEADERS)
 
 # ─── ON-DEMAND LIVE CAMERA STREAM ─────────────────────────────────────────────
 # When a teacher clicks "View camera" on the dashboard, the server flips a
@@ -458,29 +721,37 @@ WS_LIVE_URL = _derive_ws_url()
 
 _ws_conn = None
 _ws_lock = threading.Lock()
+_ws_backoff = 0
+_ws_last_attempt = 0.0
+_WS_MAX_BACKOFF = 30
 
 def _get_ws():
-    """Return a live WebSocket connection or None (WS may not be supported)."""
-    global _ws_conn
+    global _ws_backoff, _ws_last_attempt
     with _ws_lock:
-        if _ws_conn is None:
-            try:
-                import websocket
-                ws = websocket.create_connection(WS_LIVE_URL, timeout=5,
-                                                 skip_utf8_encoding=True)
-                # Auth handshake: send JWT as text frame
-                import json
-                ws.send(json.dumps({"token": JWT_TOKEN}))
-                _ws_conn = ws
-                print("[LiveFeed] ✅ WebSocket connected", flush=True)
-            except Exception as _we:
-                print(f"[LiveFeed] WS not available ({_we}), using HTTP fallback",
+        if _ws_conn is not None:
+            return _ws_conn
+        now = time.time()
+        if now - _ws_last_attempt < _ws_backoff:
+            return None  # still cooling down
+        _ws_last_attempt = now
+        try:
+            import websocket
+            ws = websocket.create_connection(WS_LIVE_URL, timeout=5,
+                                             skip_utf8_encoding=True)
+            import json
+            ws.send(json.dumps({"token": JWT_TOKEN}))
+            _ws_conn = ws
+            _ws_backoff = 0  # reset on success
+            print("[LiveFeed] ✅ WebSocket connected", flush=True)
+        except Exception as _we:
+            if _ws_backoff == 0:
+                print(f"[LiveFeed] WS not available, using HTTP fallback",
                       flush=True)
+            _ws_backoff = min(_WS_MAX_BACKOFF, max(1, _ws_backoff * 2 or 1))
         return _ws_conn
 
 def _reset_ws():
-    """Close and clear the WS connection so next frame retries."""
-    global _ws_conn
+    global _ws_conn, _ws_backoff
     with _ws_lock:
         if _ws_conn:
             try:
@@ -488,6 +759,7 @@ def _reset_ws():
             except Exception:
                 pass
             _ws_conn = None
+            _ws_backoff = min(_WS_MAX_BACKOFF, max(1, _ws_backoff * 2))
 
 def _control_loop():
     """Poll the server every 2s for control flags. Sets the global
@@ -495,7 +767,7 @@ def _control_loop():
     global _LIVE_VIEW_ACTIVE
     while True:
         try:
-            r = requests.get(CONTROL_URL, headers=HEADERS, timeout=4)
+            r = _http.get(CONTROL_URL, timeout=4)
             if r.ok:
                 want = bool(r.json().get("live_view"))
                 with _LIVE_VIEW_LOCK:
@@ -515,44 +787,47 @@ threading.Thread(target=_control_loop, daemon=True).start()
 
 
 def upload_live_frame(frame_bgr):
-    """Best-effort upload of one webcam frame for the teacher's
-    live-view panel. Downscales to 320x240 JPEG q70 (~15-25 KB).
-
-    Prefers WebSocket binary stream (raw JPEG bytes, no base64 overhead).
-    Falls back to HTTP POST for v2.2.0 servers without WS support.
-    Failures are silent."""
+    small = cv2.resize(frame_bgr, (320, 240), interpolation=cv2.INTER_AREA)
     try:
-        import cv2 as _cv2
-        small = _cv2.resize(frame_bgr, (320, 240), interpolation=_cv2.INTER_AREA)
-        ok, buf = _cv2.imencode(".jpg", small,
-                                [int(_cv2.IMWRITE_JPEG_QUALITY), 70])
-        if not ok:
-            return
-        raw_bytes = buf.tobytes()
-
-        # Try WebSocket binary first (lower latency, ~33% less bandwidth)
-        ws = _get_ws()
-        if ws is not None:
-            try:
-                ws.send_binary(raw_bytes)
-                return
-            except Exception:
-                _reset_ws()
-
-        # Fallback: HTTP POST with base64 (v2.2.0 compat)
-        b64 = base64.b64encode(raw_bytes).decode("ascii")
-        requests.post(
-            LIVE_FRAME_URL,
-            json={"session_id": SESSION_ID, "jpeg_b64": b64},
-            headers=HEADERS, timeout=4,
-        )
+        _live_q.put_nowait((small.copy(), time.time()))
     except Exception:
-        pass
+        pass  # queue full, skip this frame
 
 # Track the last live-frame send so we can pace at ~1.5 s without
 # making the inner capture loop care about wall time.
 _LAST_LIVE_FRAME_TS = 0.0
 _LIVE_FRAME_INTERVAL_SEC = 1.5
+_live_q: Queue = Queue(maxsize=2)
+
+def _live_upload_loop():
+    while True:
+        try:
+            small, _ts = _live_q.get(timeout=1)
+        except Empty:
+            continue
+        try:
+            ok, buf = cv2.imencode(".jpg", small,
+                                    [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+            if not ok:
+                continue
+            raw_bytes = buf.tobytes()
+            ws = _get_ws()
+            if ws is not None:
+                try:
+                    ws.send_binary(raw_bytes)
+                    continue
+                except Exception:
+                    _reset_ws()
+            b64 = base64.b64encode(raw_bytes).decode("ascii")
+            _http.post(
+                LIVE_FRAME_URL,
+                json={"session_id": SESSION_ID, "jpeg_b64": b64},
+                timeout=4,
+            )
+        except Exception:
+            pass
+
+threading.Thread(target=_live_upload_loop, daemon=True, name="live-uploader").start()
 
 def log_event(etype, severity, details):
     global violation_count
@@ -561,21 +836,17 @@ def log_event(etype, severity, details):
     if severity in ("high", "medium"):
         violation_count += 1
     try:
-        requests.post(SERVER_URL, json=dict(
+        _http.post(SERVER_URL, json=dict(
             session_id = SESSION_ID,
             event_type = etype,
             severity   = severity,
             details    = full_details
-        ), timeout=3, headers=HEADERS)
+        ), timeout=3)
         print(f"[VIOLATION] {etype}: {details}")
     except Exception as e:
         print(f"[Server Error] {e}")
 
 def save_evidence(frame, label):
-    """Persist a violation snapshot locally AND upload it to the backend so
-    the teacher's forensics timeline can show it. The upload uses the same
-    /api/analyze-frame endpoint the renderer uses for the reference frame.
-    """
     try:
         ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(EVIDENCE_DIR, f"{label}_{ts}.jpg")
@@ -585,31 +856,47 @@ def save_evidence(frame, label):
         print(f"[Evidence Error] {e}")
         return
 
-    # Upload to backend (best-effort — never let a failed upload break the
-    # detection loop). The server names the file with our timestamp so the
-    # timeline matcher can pair it with the violation event we logged on the
-    # same second.
     if not JWT_TOKEN:
         return
     try:
-        import base64
         ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
         if not ok:
             return
         b64 = base64.b64encode(jpg.tobytes()).decode("ascii")
-        requests.post(
-            EVIDENCE_UPLOAD_URL,
-            json={
-                "session_id": SESSION_ID,
-                "frame":      b64,
-                "timestamp":  datetime.now().isoformat(),
-                "event_type": label,   # used by server to prefix the filename
-            },
-            headers=HEADERS,
-            timeout=5,
-        )
-    except Exception as e:
-        print(f"[Evidence Upload Error] {e}")
+        _evidence_q.put_nowait((b64, label))
+    except Exception:
+        pass
+
+# ─── ASYNCHRONOUS EVIDENCE UPLOAD WORKER ──────────────────────────────────────
+_evidence_q: Queue = Queue(maxsize=8)
+
+def _evidence_upload_loop():
+    consecutive_failures = 0
+    while True:
+        try:
+            b64, label = _evidence_q.get(timeout=1)
+        except Empty:
+            consecutive_failures = 0  # reset backoff on idle
+            continue
+        try:
+            _http.post(
+                EVIDENCE_UPLOAD_URL,
+                json={
+                    "session_id": SESSION_ID,
+                    "frame":      b64,
+                    "timestamp":  datetime.now().isoformat(),
+                    "event_type": label,
+                },
+                timeout=10,
+            )
+            consecutive_failures = 0
+        except Exception as e:
+            consecutive_failures += 1
+            backoff = min(30, 2 ** min(consecutive_failures, 5))
+            print(f"[Evidence Upload Error] {e} (backoff: {backoff}s)")
+            time.sleep(backoff)
+
+threading.Thread(target=_evidence_upload_loop, daemon=True, name="evidence-uploader").start()
 
 # ─── GAZE ESTIMATOR (ONNX) ────────────────────────────────────────────────────
 # Wraps the ResNet18 gaze model. Input: a tight crop of the face. Output:
@@ -788,6 +1075,17 @@ def get_face_embedding(frame):
         pass
     return None
 
+def get_face_embedding_from_crop(face_crop):
+    if not INSIGHT_AVAILABLE or face_crop.size == 0:
+        return None
+    try:
+        faces = _insight_app.get(face_crop)
+        if faces:
+            return faces[0].normed_embedding
+    except Exception:
+        pass
+    return None
+
 # ─── DETECTION HELPERS ────────────────────────────────────────────────────────
 # uniface returns a list of face dicts with bbox + landmarks. Wrap that
 # behind a single function so the main loop doesn't need to know the format.
@@ -916,6 +1214,8 @@ def run_enrollment(cap, W, H):
         else:
             count = max(0, count - 1)
 
+        time.sleep(1.0 / TARGET_FPS)
+
     if not HEADLESS:
         cv2.destroyAllWindows()
 
@@ -1020,6 +1320,8 @@ def run_proctoring(cap, W, H):
     # once loading succeeds (typically 1-2 seconds). Until then the main
     # loop skips submission harmlessly.
     yolo_worker.start()
+    if SAHI_AVAILABLE:
+        sahi_worker.start()
 
     # We mutate _LAST_LIVE_FRAME_TS from inside the capture loop to
     # pace live-view uploads. Declared global because the variable
@@ -1088,8 +1390,11 @@ def run_proctoring(cap, W, H):
 
     consecutive_failures = 0
     MAX_FAILURES = 30
+    _fps_history = deque(maxlen=30)
+    _fps_warned = False
 
     while True:
+        _loop_start = time.time()
         ret, frame = cap.read()
         if not ret:
             consecutive_failures += 1
@@ -1112,9 +1417,7 @@ def run_proctoring(cap, W, H):
             _now = time.time()
             if _now - _LAST_LIVE_FRAME_TS >= _LIVE_FRAME_INTERVAL_SEC:
                 _LAST_LIVE_FRAME_TS = _now
-                threading.Thread(
-                    target=upload_live_frame, args=(frame.copy(),), daemon=True
-                ).start()
+                upload_live_frame(frame)
 
         frame_count += 1
 
@@ -1146,6 +1449,7 @@ def run_proctoring(cap, W, H):
         gaze_pitch = 0.0
         head_yaw   = 0.0
         head_pitch = 0.0
+        face_crop  = None
 
         # Hard-freeze calibration if we've waited too long. Worst case the
         # student gets the default (0,0) bias — same as the previous build.
@@ -1207,6 +1511,16 @@ def run_proctoring(cap, W, H):
             x1 = max(0, x1); y1 = max(0, y1)
             x2 = min(W, x2); y2 = min(H, y2)
             face_crop = frame[y1:y2, x1:x2]
+
+            # Face too small — student may be sitting far from camera
+            fh, fw = face_crop.shape[:2]
+            if fh < FACE_MIN_SIZE or fw < FACE_MIN_SIZE:
+                face_missing_count += 1
+                if face_missing_count >= FACE_MISSING_FRAMES and \
+                   can_log("face_too_small"):
+                    log_event("face_too_small", "medium",
+                              f"Face too small ({fh}x{fw}px, min {FACE_MIN_SIZE}px)")
+                    save_evidence(frame, "face_too_small")
 
             # ── GAZE ─────────────────────────────────────────────────────────
             if GAZE_AVAILABLE and face_crop.size > 0:
@@ -1379,6 +1693,8 @@ def run_proctoring(cap, W, H):
                     for name in list(object_history):
                         if name not in seen_names:
                             object_history[name] = max(0, object_history[name] - 1)
+                            if object_history[name] == 0:
+                                del object_history[name]
 
                     for name, conf in detections:
                         if object_history.get(name, 0) >= YOLO_MIN_FRAMES:
@@ -1387,6 +1703,74 @@ def run_proctoring(cap, W, H):
                                           f"{name} detected (conf:{conf:.0%})")
                                 save_evidence(frame, f"cheat_{name}")
                                 object_history[name] = 0
+
+        # ── SAHI TILED DETECTION (small objects) ─────────────────────────────
+        # Runs every SAHI_EVERY_N frames to catch small earbuds and hidden
+        # objects that full-frame YOLO misses. Shares object_history with YOLO
+        # so both detectors contribute to the same cooldown threshold.
+        if SAHI_AVAILABLE and frame_count % SAHI_EVERY_N == 0:
+            sahi_worker.submit(frame, frame_count)
+
+        if SAHI_AVAILABLE:
+            sahi_result = sahi_worker.get_result(frame_count)
+            if sahi_result is not None:
+                if sahi_result.get("error"):
+                    print(f"[SAHI Error] {sahi_result['error']}")
+                else:
+                    sahi_seen = set()
+                    for name, conf in sahi_result["detections"]:
+                        sahi_seen.add(name)
+                        object_history[name] = object_history.get(name, 0) + 1
+                    for name in list(object_history):
+                        if name not in sahi_seen and name not in (seen_names if YOLO_AVAILABLE else set()):
+                            object_history[name] = max(0, object_history[name] - 1)
+                            if object_history[name] == 0:
+                                del object_history[name]
+                    for name, conf in sahi_result["detections"]:
+                        if object_history.get(name, 0) >= YOLO_MIN_FRAMES:
+                            if can_log(f"sahi_{name}"):
+                                log_event("cheat_object_detected", "high",
+                                          f"{name} via SAHI (conf:{conf:.0%})")
+                                save_evidence(frame, f"sahi_{name}")
+                                object_history[name] = 0
+
+        # ── EAR-CROP CLASSIFIER (earbud detection) ───────────────────────────
+        # Runs every EAR_EVERY_N frames when a face is detected. Uses RetinaFace
+        # landmarks to crop ear regions and check for earbuds.
+        if EAR_CLASSIFIER_AVAILABLE and _ear_classifier is not None and num_faces == 1 and frame_count % EAR_EVERY_N == 0:
+            try:
+                left_conf, right_conf = _ear_classifier.classify(
+                    frame, lm_2d, W, H)
+                if left_conf >= EAR_THRESHOLD:
+                    object_history["left_earbud"] = object_history.get(
+                        "left_earbud", 0) + 1
+                    if object_history.get("left_earbud", 0) >= 2:
+                        if can_log("earbud_left"):
+                            log_event("cheat_object_detected", "high",
+                                      f"Left earbud detected (conf:{left_conf:.0%})")
+                            save_evidence(frame, "earbud_left")
+                            object_history["left_earbud"] = 0
+                else:
+                    object_history["left_earbud"] = max(
+                        0, object_history.get("left_earbud", 0) - 1)
+                    if object_history.get("left_earbud", 0) == 0:
+                        object_history.pop("left_earbud", None)
+                if right_conf >= EAR_THRESHOLD:
+                    object_history["right_earbud"] = object_history.get(
+                        "right_earbud", 0) + 1
+                    if object_history.get("right_earbud", 0) >= 2:
+                        if can_log("earbud_right"):
+                            log_event("cheat_object_detected", "high",
+                                      f"Right earbud detected (conf:{right_conf:.0%})")
+                            save_evidence(frame, "earbud_right")
+                            object_history["right_earbud"] = 0
+                else:
+                    object_history["right_earbud"] = max(
+                        0, object_history.get("right_earbud", 0) - 1)
+                    if object_history.get("right_earbud", 0) == 0:
+                        object_history.pop("right_earbud", None)
+            except Exception as _ec:
+                pass
 
         # ── VOICE DETECTION ──────────────────────────────────────────────────
         # Sustained-time approach: only log if RMS stays above threshold for
@@ -1406,9 +1790,15 @@ def run_proctoring(cap, W, H):
                 voice_start_time = None
 
         # ── WRONG PERSON CHECK ───────────────────────────────────────────────
+        # Uses the already-cropped face region when available (num_faces==1),
+        # falling back to full-frame detection for the first few frames before
+        # a face is stabilized.
         if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
            frame_count % 30 == 0:
-            current_emb = get_face_embedding(frame)
+            if face_crop is not None:
+                current_emb = get_face_embedding_from_crop(face_crop)
+            else:
+                current_emb = get_face_embedding(frame)
             if current_emb is not None:
                 similarity = float(np.dot(enrolled_embedding, current_emb))
                 if similarity < WRONG_PERSON_THRESHOLD and \
@@ -1437,6 +1827,25 @@ def run_proctoring(cap, W, H):
             cv2.imshow("AI Proctor", frame)
             cv2.waitKey(1)
 
+        # Frame rate limiter — cap at TARGET_FPS to save CPU on 30/60fps cameras
+        _elapsed = time.time() - _loop_start
+        _target = 1.0 / TARGET_FPS
+        if _elapsed < _target:
+            time.sleep(_target - _elapsed)
+
+        # Track actual FPS and warn if consistently below target
+        _actual_fps = 1.0 / max(time.time() - _loop_start, 1e-6)
+        _fps_history.append(_actual_fps)
+        if frame_count % 60 == 0 and len(_fps_history) >= 15:
+            _avg_fps = sum(_fps_history) / len(_fps_history)
+            if _avg_fps < TARGET_FPS * 0.5 and not _fps_warned:
+                print(f"[PROCTOR] ⚠️ Performance warning — avg {_avg_fps:.1f}fps "
+                      f"(target {TARGET_FPS}fps). Check CPU usage or reduce "
+                      f"detection cadence.")
+                _fps_warned = True
+            elif _avg_fps >= TARGET_FPS * 0.8:
+                _fps_warned = False  # reset when performance recovers
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
     print(f"[PROCTOR] Session: {SESSION_ID}")
@@ -1452,12 +1861,12 @@ def main():
         cap = cv2.VideoCapture(1)
     if not cap.isOpened():
         try:
-            requests.post(SERVER_URL, json=dict(
+            _http.post(SERVER_URL, json=dict(
                 session_id = SESSION_ID,
                 event_type = "proctor_camera_failed",
                 severity   = "high",
                 details    = "Cannot open any camera — proctoring disabled"
-            ), timeout=3, headers=HEADERS)
+            ), timeout=3)
         except Exception:
             pass
         print("[PROCTOR] ❌ Cannot open camera!")
@@ -1503,6 +1912,8 @@ def main():
         print("\n[PROCTOR] Stopped by signal")
     finally:
         yolo_worker.stop()
+        if SAHI_AVAILABLE:
+            sahi_worker.stop()
         duration = int(time.time() - session_start)
         log_event("session_ended", "low",
                   f"violations:{violation_count} | duration:{duration}s")

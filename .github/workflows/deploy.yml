@@ -1,0 +1,115 @@
+name: Deploy API
+
+# Deploys the API container to the production droplet after tests pass.
+# Triggered manually or on push to main (with opt-in via DEPLOY_ON_MAIN).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-api
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # Re-run the test suite to gate the deploy
+  tests:
+    uses: ./.github/workflows/test.yml
+
+  build-and-push:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only deploy from main branch or manual trigger
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    environment: production
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            cd /opt/proctor || exit 1
+
+            # Log in to GHCR
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+              -u ${{ github.actor }} --password-stdin
+
+            # Pull latest image (tagged with branch name = main)
+            docker compose pull api || exit 1
+
+            # Graceful restart — only recreate the API container
+            docker compose up -d --no-deps api || exit 1
+
+            # Wait for healthcheck to pass (max 90 seconds)
+            for i in $(seq 1 18); do
+              if docker compose ps api | grep -q "(healthy)"; then
+                echo "API healthy after $((i * 5))s"
+                exit 0
+              fi
+              sleep 5
+            done
+
+            echo "ERROR: API did not become healthy within 90s"
+            docker compose logs --tail=50 api
+            exit 1
+
+      - name: Cleanup old images
+        if: always()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            docker image prune -f --filter "until=24h" 2>/dev/null || true

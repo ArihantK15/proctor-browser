@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('proctor', {
   // on the web dashboard. Returns null if the exam window was opened
   // directly (legacy / debug).
   getExamContext:  ()     => ipcRenderer.invoke('get-exam-context'),
+  getServerUrl:    ()     => ipcRenderer.invoke('get-server-url'),
   validateStudent: (roll, accessCode) => ipcRenderer.invoke('validate-student', roll, accessCode),
   getQuestions:    (sid)  => ipcRenderer.invoke('get-questions', sid),
   startCalibration:(data) => ipcRenderer.invoke('start-calibration', data),

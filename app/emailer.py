@@ -37,7 +37,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-log = logging.getLogger("procta.email")
+from .dependencies import _html_escape as _esc
 
 
 # ─── Public surface ─────────────────────────────────────────────────
@@ -828,10 +828,3 @@ def _render_scorecard_email(**ctx) -> tuple[str, str]:
 """
     return html, text
 
-
-def _esc(s) -> str:
-    """HTML escape for template interpolation."""
-    if s is None:
-        return ""
-    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))

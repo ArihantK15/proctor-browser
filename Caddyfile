@@ -1,15 +1,32 @@
 app.procta.net {
+    encode gzip
+
+    # ── Global security headers ──────────────────────────────────────
+    header {
+        # HSTS: force HTTPS for 1 year
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Block MIME sniffing
+        X-Content-Type-Options "nosniff"
+        # Referrer policy: only send origin on cross-origin requests
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Prevent other sites from embedding our resources
+        X-Permitted-Cross-Domain-Policies "none"
+        # Isolate this origin from others (mitigates Spectre-style attacks)
+        Cross-Origin-Opener-Policy "same-origin"
+    }
+
     # ── Static CSS / JS / SVG / favicon ────────────────────────────────
-    # `no-cache` here means "browser may cache but MUST revalidate via
-    # ETag on every request." So a deploy with new CSS lights up
-    # immediately for users (they get a 304 when unchanged, fresh bytes
-    # when the file moved). The previous max-age=86400 baked stale CSS
-    # into browsers for 24h after every deploy — visual updates were
-    # invisible until the next morning.
+    # Serve pre-compressed .gz variants when available (dashboard.html
+    # is ~150KB uncompressed, ~35KB gzipped). Caddy falls back to
+    # on-the-fly gzip for other assets.
     @assets path *.css *.js *.svg *.ico *.html
     handle @assets {
         root * /srv
-        file_server
+        file_server {
+            precompress gzip
+        }
         header Cache-Control "no-cache, must-revalidate"
     }
     # ── Other static (images, fonts, downloads) — fine to cache hard ──

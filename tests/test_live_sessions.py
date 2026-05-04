@@ -28,10 +28,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from conftest import make_admin_token  # noqa: E402
+from tests.conftest import shared_supabase_mock,  make_admin_token  # noqa: E402
 
 
 @pytest.fixture
@@ -111,7 +110,6 @@ class TestLiveSessions:
 
     def test_fresh_heartbeat_is_live(self, client, admin_headers):
         """Heartbeat 10s ago → live_state=='live', counted in Active."""
-        import main
         now = datetime.now(timezone.utc)
         stub = _SessionsStub(
             sessions=[{
@@ -126,11 +124,11 @@ class TestLiveSessions:
             }],
             violations=[_viol("sess_alice_1", vtype="face_missing")],
         )
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "compute_risk_score",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.exam.compute_risk_score",
                           return_value={"risk_score": 12}):
-            mock_sb.table.side_effect = stub
-            r = client.get("/sessions", headers=admin_headers)
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/sessions", headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
         assert len(d["all_sessions"]) == 1
@@ -149,7 +147,6 @@ class TestLiveSessions:
         in_progress for hours because the student client died without
         submitting. The Live badge must downgrade.
         """
-        import main
         now = datetime.now(timezone.utc)
         stub = _SessionsStub(
             sessions=[{
@@ -166,11 +163,11 @@ class TestLiveSessions:
                               severity="high",
                               ts=_iso(now - timedelta(minutes=10)))],
         )
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "compute_risk_score",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.exam.compute_risk_score",
                           return_value={"risk_score": 50}):
-            mock_sb.table.side_effect = stub
-            r = client.get("/sessions", headers=admin_headers)
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/sessions", headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
         assert len(d["all_sessions"]) == 1
@@ -191,7 +188,6 @@ class TestLiveSessions:
         the client died before the first heartbeat tick. It must not
         be counted as Live forever.
         """
-        import main
         stub = _SessionsStub(
             sessions=[{
                 "session_key":    "sess_ghost_1",
@@ -205,11 +201,11 @@ class TestLiveSessions:
             }],
             violations=[_viol("sess_ghost_1")],
         )
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "compute_risk_score",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.exam.compute_risk_score",
                           return_value={"risk_score": 0}):
-            mock_sb.table.side_effect = stub
-            r = client.get("/sessions", headers=admin_headers)
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/sessions", headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
         s = d["all_sessions"][0]
@@ -218,7 +214,6 @@ class TestLiveSessions:
 
     def test_completed_session_is_submitted(self, client, admin_headers):
         """status=='completed' → live_state=='submitted', submitted=True."""
-        import main
         now = datetime.now(timezone.utc)
         stub = _SessionsStub(
             sessions=[{
@@ -234,11 +229,11 @@ class TestLiveSessions:
             violations=[_viol("sess_carol_1", vtype="window_focus_lost",
                               severity="medium")],
         )
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "compute_risk_score",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.exam.compute_risk_score",
                           return_value={"risk_score": 18}):
-            mock_sb.table.side_effect = stub
-            r = client.get("/sessions", headers=admin_headers)
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/sessions", headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
         s = d["all_sessions"][0]
@@ -249,7 +244,6 @@ class TestLiveSessions:
     def test_exam_scope_filters_other_exams(self, client, admin_headers):
         """exam_id query param must still filter — multi-tenant teachers
         viewing one exam should not see sessions from a sibling exam."""
-        import main
         now = datetime.now(timezone.utc)
         stub = _SessionsStub(
             sessions=[
@@ -279,11 +273,11 @@ class TestLiveSessions:
                 _viol("sess_other_exam_1"),
             ],
         )
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "compute_risk_score",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.exam.compute_risk_score",
                           return_value={"risk_score": 5}):
-            mock_sb.table.side_effect = stub
-            r = client.get("/sessions?exam_id=exam-1", headers=admin_headers)
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/sessions?exam_id=exam-1", headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
         keys = {s["session_id"] for s in d["all_sessions"]}

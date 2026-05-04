@@ -39,6 +39,7 @@ import cv2
 import numpy as np
 from collections import deque
 from datetime import datetime
+from queue import Queue, Empty
 from typing import Optional, Tuple
 
 # ─── OPTIONAL DETECTORS ───────────────────────────────────────────────────────
@@ -65,17 +66,142 @@ except Exception as _oe:
     print(f"[ONNX] ❌ Not available: {_oe} — gaze direction disabled")
     ORT_AVAILABLE = False
 
-# ultralytics YOLO: cheat object detection
-try:
-    from ultralytics import YOLO
-    print("[YOLO] Loading model...")
-    yolo_model = YOLO("yolov8n.pt")
-    YOLO_AVAILABLE = True
-    print("[YOLO] ✅ Ready")
-except Exception as _ye:
-    print(f"[YOLO] ❌ Not available: {_ye}")
-    YOLO_AVAILABLE = False
-    yolo_model = None
+# ultralytics YOLO: cheat object detection — loaded lazily to avoid
+# blocking proctor startup and to keep memory footprint low on 2GB droplets.
+_yolo_model = None
+YOLO_AVAILABLE = False
+_YOLO_LOCK = threading.Lock()
+
+def _load_yolo():
+    """Load YOLOv8 model on demand. Thread-safe. Auto-detects GPU."""
+    global _yolo_model, YOLO_AVAILABLE
+    with _YOLO_LOCK:
+        if _yolo_model is not None or YOLO_AVAILABLE:
+            return _yolo_model
+        try:
+            from ultralytics import YOLO  # noqa
+            print("[YOLO] Loading model (lazy)...")
+            _yolo_model = YOLO("yolov8n.pt")
+
+            # Auto-detect GPU: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
+            device = "cpu"
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    device = "cuda"
+                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    device = "mps"
+            except Exception:
+                pass
+
+            if device != "cpu":
+                _yolo_model.to(device)
+                print(f"[YOLO]  Using {device.upper()} acceleration")
+
+            YOLO_AVAILABLE = True
+            print("[YOLO] Ready")
+            return _yolo_model
+        except Exception as _ye:
+            print(f"[YOLO] Not available: {_ye}")
+            YOLO_AVAILABLE = False
+            return None
+
+
+class YoloWorker:
+    """Background thread that runs YOLO inference off the main capture loop.
+
+    The main loop puts (frame, conf, frame_count) tuples into ``frame_q``.
+    The worker runs inference and puts results into ``result_q`` as dicts:
+        {"frame_count": N, "detections": [(class_name, conf), ...], "error": None}
+    or  {"frame_count": N, "detections": [], "error": "message"}
+
+    If the result queue is full or the worker is slow the main loop never
+    blocks — old results are simply dropped.
+    """
+
+    def __init__(self):
+        self.frame_q = Queue(maxsize=2)
+        self.result_q = Queue(maxsize=2)
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="yolo-worker")
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+            self._thread = None
+
+    def submit(self, frame: np.ndarray, frame_count: int):
+        """Queue a frame for YOLO inference (non-blocking)."""
+        try:
+            # Downscale before sending to the worker — saves queue memory
+            # and keeps the worker's cv2.resize call (which we removed)
+            # from being duplicated.
+            small = cv2.resize(frame, (416, 416))
+            self.frame_q.put_nowait((small.copy(), frame_count))
+        except Exception:
+            pass  # queue full, skip this frame
+
+    def get_result(self, frame_count: int):
+        """Check if a result is available for the given frame count.
+
+        Returns the result dict or None. Results older than the requested
+        frame_count are silently discarded.
+        """
+        try:
+            result = self.result_q.get_nowait()
+            if result["frame_count"] <= frame_count:
+                return result
+            # Future result — put it back and return None
+            self.result_q.put_nowait(result)
+        except Empty:
+            pass
+        return None
+
+    def _run(self):
+        model = _load_yolo()
+        if model is None:
+            return
+
+        while not self._stop.is_set():
+            try:
+                small, frame_count = self.frame_q.get(timeout=0.5)
+            except Empty:
+                continue
+
+            try:
+                res = model(small, verbose=False, conf=YOLO_CONFIDENCE)[0]
+                detections = []
+                for box in res.boxes:
+                    cls_id = int(box.cls[0])
+                    if cls_id in CHEAT_IDS:
+                        detections.append((CHEAT_IDS[cls_id], float(box.conf[0])))
+                self.result_q.put_nowait({
+                    "frame_count": frame_count,
+                    "detections": detections,
+                    "error": None,
+                })
+            except Exception as e:
+                try:
+                    self.result_q.put_nowait({
+                        "frame_count": frame_count,
+                        "detections": [],
+                        "error": str(e),
+                    })
+                except Exception:
+                    pass  # result queue full, discard
+
+
+# Global YOLO worker — created at module load but only starts when
+# the proctoring loop begins.
+yolo_worker = YoloWorker()
 
 # InsightFace: face-embedding wrong-person detection
 try:
@@ -102,7 +228,7 @@ JWT_TOKEN    = os.getenv("PROCTOR_JWT_TOKEN",   "")
 # This is what makes evidence screenshots show up in the teacher's forensics
 # timeline — without it the only screenshot the server ever sees is the
 # single reference frame the renderer uploads during enrollment.
-EVIDENCE_UPLOAD_URL = SERVER_URL.replace("/event", "/api/analyze-frame")
+EVIDENCE_UPLOAD_URL = SERVER_URL.replace("/event", "/api/v1/analyze-frame")
 HEADLESS          = platform.system() == "Windows" or \
                     os.environ.get("PROCTOR_HEADLESS","0") == "1"
 SKIP_ENROLLMENT   = os.environ.get("PROCTOR_SKIP_ENROLLMENT","0") == "1"
@@ -313,10 +439,55 @@ threading.Thread(target=_heartbeat_loop, daemon=True).start()
 # we stop uploading. No persistent storage, no continuous streaming —
 # this is strictly opt-in surveillance with a hard kill-switch.
 
-CONTROL_URL    = SERVER_URL.replace("/event", f"/api/proctor/control/{SESSION_ID}")
-LIVE_FRAME_URL = SERVER_URL.replace("/event", "/api/proctor/live-frame")
+CONTROL_URL    = SERVER_URL.replace("/event", f"/api/v1/proctor/control/{SESSION_ID}")
+LIVE_FRAME_URL = SERVER_URL.replace("/event", "/api/v1/proctor/live-frame")
 _LIVE_VIEW_ACTIVE = False
 _LIVE_VIEW_LOCK = threading.Lock()
+
+# ─── WebSocket live-feed (preferred) with HTTP fallback ───────
+def _derive_ws_url():
+    """Convert http(s)://host[:port]/path → ws(s)://host[:port]/ws/live-frame/{sid}."""
+    url = SERVER_URL.replace("/event", "")
+    if url.startswith("https://"):
+        return "wss://" + url[len("https://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
+    if url.startswith("http://"):
+        return "ws://" + url[len("http://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
+    return url + f"/ws/v1/live-frame/{SESSION_ID}"
+
+WS_LIVE_URL = _derive_ws_url()
+
+_ws_conn = None
+_ws_lock = threading.Lock()
+
+def _get_ws():
+    """Return a live WebSocket connection or None (WS may not be supported)."""
+    global _ws_conn
+    with _ws_lock:
+        if _ws_conn is None:
+            try:
+                import websocket
+                ws = websocket.create_connection(WS_LIVE_URL, timeout=5,
+                                                 skip_utf8_encoding=True)
+                # Auth handshake: send JWT as text frame
+                import json
+                ws.send(json.dumps({"token": JWT_TOKEN}))
+                _ws_conn = ws
+                print("[LiveFeed] ✅ WebSocket connected", flush=True)
+            except Exception as _we:
+                print(f"[LiveFeed] WS not available ({_we}), using HTTP fallback",
+                      flush=True)
+        return _ws_conn
+
+def _reset_ws():
+    """Close and clear the WS connection so next frame retries."""
+    global _ws_conn
+    with _ws_lock:
+        if _ws_conn:
+            try:
+                _ws_conn.close()
+            except Exception:
+                pass
+            _ws_conn = None
 
 def _control_loop():
     """Poll the server every 2s for control flags. Sets the global
@@ -345,10 +516,11 @@ threading.Thread(target=_control_loop, daemon=True).start()
 
 def upload_live_frame(frame_bgr):
     """Best-effort upload of one webcam frame for the teacher's
-    live-view panel. Downscales to 320×240 JPEG q70 (~15-25 KB) so
-    we don't saturate the student's uplink — most home wifi can
-    handle a 25 KB POST every 1.5s without noticeable impact on
-    the rest of the exam traffic. Failures are silent."""
+    live-view panel. Downscales to 320x240 JPEG q70 (~15-25 KB).
+
+    Prefers WebSocket binary stream (raw JPEG bytes, no base64 overhead).
+    Falls back to HTTP POST for v2.2.0 servers without WS support.
+    Failures are silent."""
     try:
         import cv2 as _cv2
         small = _cv2.resize(frame_bgr, (320, 240), interpolation=_cv2.INTER_AREA)
@@ -356,7 +528,19 @@ def upload_live_frame(frame_bgr):
                                 [int(_cv2.IMWRITE_JPEG_QUALITY), 70])
         if not ok:
             return
-        b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+        raw_bytes = buf.tobytes()
+
+        # Try WebSocket binary first (lower latency, ~33% less bandwidth)
+        ws = _get_ws()
+        if ws is not None:
+            try:
+                ws.send_binary(raw_bytes)
+                return
+            except Exception:
+                _reset_ws()
+
+        # Fallback: HTTP POST with base64 (v2.2.0 compat)
+        b64 = base64.b64encode(raw_bytes).decode("ascii")
         requests.post(
             LIVE_FRAME_URL,
             json={"session_id": SESSION_ID, "jpeg_b64": b64},
@@ -831,6 +1015,12 @@ def run_proctoring(cap, W, H):
     print(f"[PROCTOR] 🟢 Monitoring LIVE — Session: {SESSION_ID}")
     _print_tuning_summary()
 
+    # Start YOLO background worker for off-thread cheat-object detection.
+    # The model loads lazily inside the worker; YOLO_AVAILABLE flips to True
+    # once loading succeeds (typically 1-2 seconds). Until then the main
+    # loop skips submission harmlessly.
+    yolo_worker.start()
+
     # We mutate _LAST_LIVE_FRAME_TS from inside the capture loop to
     # pace live-view uploads. Declared global because the variable
     # itself lives at module scope so the control thread can also
@@ -1164,38 +1354,39 @@ def run_proctoring(cap, W, H):
                 for px, py in lm_2d.astype(int):
                     cv2.circle(frame, (px, py), 2, (0, 255, 255), -1)
 
-        # ── YOLO OBJECT DETECTION ────────────────────────────────────────────
-        if YOLO_AVAILABLE and frame_count % YOLO_EVERY_N == 0:
-            try:
-                small  = cv2.resize(frame, (416, 416))
-                res    = yolo_model(small, verbose=False, conf=YOLO_CONFIDENCE)[0]
-                seen_names = set()
-                detected = []
-                for box in res.boxes:
-                    cls_id = int(box.cls[0])
-                    if cls_id not in CHEAT_IDS:
-                        continue
-                    name = CHEAT_IDS[cls_id]
-                    seen_names.add(name)
-                    object_history[name] = object_history.get(name, 0) + 1
-                    if object_history[name] >= YOLO_MIN_FRAMES:
-                        detected.append((name, float(box.conf[0])))
+        # ── YOLO OBJECT DETECTION (background thread) ────────────────────────
+        # Every YOLO_EVERY_N frames we submit the frame to the worker thread.
+        # We also check the result queue for completed inferences — results
+        # arrive 1-3 frames later on CPU, so we process them when available
+        # without blocking the capture loop.
+        if YOLO_AVAILABLE:
+            if frame_count % YOLO_EVERY_N == 0:
+                yolo_worker.submit(frame, frame_count)
 
-                # Decay objects we did not see this frame so a fleeting
-                # detection doesn't get stuck above the threshold forever.
-                for name in list(object_history):
-                    if name not in seen_names:
-                        object_history[name] = max(0, object_history[name] - 1)
+            yolo_result = yolo_worker.get_result(frame_count)
+            if yolo_result is not None:
+                if yolo_result.get("error"):
+                    print(f"[YOLO Error] {yolo_result['error']}")
+                else:
+                    detections = yolo_result["detections"]
+                    seen_names = set()
+                    for name, conf in detections:
+                        seen_names.add(name)
+                        object_history[name] = object_history.get(name, 0) + 1
 
-                for name, conf in detected:
-                    if can_log(f"cheat_{name}"):
-                        log_event("cheat_object_detected", "high",
-                                  f"{name} detected (conf:{conf:.0%})")
-                        save_evidence(frame, f"cheat_{name}")
-                        object_history[name] = 0
+                    # Decay objects we did not see this frame so a fleeting
+                    # detection doesn't get stuck above the threshold forever.
+                    for name in list(object_history):
+                        if name not in seen_names:
+                            object_history[name] = max(0, object_history[name] - 1)
 
-            except Exception as e:
-                print(f"[YOLO Error] {e}")
+                    for name, conf in detections:
+                        if object_history.get(name, 0) >= YOLO_MIN_FRAMES:
+                            if can_log(f"cheat_{name}"):
+                                log_event("cheat_object_detected", "high",
+                                          f"{name} detected (conf:{conf:.0%})")
+                                save_evidence(frame, f"cheat_{name}")
+                                object_history[name] = 0
 
         # ── VOICE DETECTION ──────────────────────────────────────────────────
         # Sustained-time approach: only log if RMS stays above threshold for
@@ -1311,6 +1502,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[PROCTOR] Stopped by signal")
     finally:
+        yolo_worker.stop()
         duration = int(time.time() - session_start)
         log_event("session_ended", "low",
                   f"violations:{violation_count} | duration:{duration}s")

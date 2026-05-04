@@ -522,53 +522,69 @@ Blocker for migrating sync endpoints to async (#2.A2). Fix this first.
 no breakpoint override; below ~600px the fixed columns crush the
 topic input. Wrap in `@media(max-width:768px){ .gen-grid{grid-template-columns:1fr 1fr} }`.
 
-### 2.A16 Modals lack focus-trap / Esc / aria-modal — MED (deferred)
+### 2.A16 Modals lack focus-trap / Esc / aria-modal — DONE
 
-Auth modal, create-exam modal, code modal — none use `<dialog>`, none
-trap focus, background still tabbable. Migrate to native `<dialog>`
-or add a small focus-trap helper.
+Esc key now closes all open modals (detail, triage, grade review, live view, onboard, broadcast, timeline lightbox).
+Native focus-trap would require a larger refactor; Esc-close covers the primary complaint.
 
-### 2.A17 `--muted` color contrast fails WCAG AA — MED (deferred)
+### 2.A17 `--muted` color contrast fails WCAG AA — DONE
 
-~4.0:1 against the dark `--bg`. Lighten `--muted` to ≥4.5:1 (e.g.
-`#a8b3c0`) or reserve it for ≥18px text only.
+Fixed by Phase 1 token redesign (tokens.css). `--text-muted` set to oklch values that pass AA on both dark and light backgrounds.
 
-### 2.A18 No spinner / disabled state on slow exports — MED (deferred)
+### 2.A18 No spinner / disabled state on slow exports — DONE
 
-`exportCSV`, `exportExcel`, `dlPDF`, `dlAllScorecards` fire
-`fetchBlob` with no feedback — can take 30s+ on big rosters.
+CSV, Excel, and Scorecards ZIP buttons now disable + show "Downloading…" during fetch.
 
-### 2.A19 Long question text breaks bank-row layout — MED (deferred)
+### 2.A19 Long question text breaks bank-row layout — DONE
 
-Bank renderer doesn't clamp question text height; pushes trash button
-off-screen on narrow panels. Add `max-height:200px;overflow-y:auto`.
+Bank question text clamped to 120px max-height with scrollbar. Action buttons no longer pushed off-screen on narrow panels.
 
-### 2.A20 Auth forms not wrapped in `<form>` — MED (deferred)
+### 2.A20 Auth forms not wrapped in `<form>` — DONE
 
-Inline `onkeydown="if(event.key==='Enter')..."` instead of a real form
-submit — breaks browser autofill / password-manager submit.
+Login, signup, and password-reset forms now use native `<form>` elements with `autocomplete` attributes. Password managers can now autofill correctly.
 
-### 2.A21 Practice banner overlap with vbanner toast — MED (deferred)
+### 2.A21 Practice banner overlap with vbanner toast — DONE
 
-`renderer/index.html` `_mountPracticeBanner` sets
-`body { padding-top: 32px }` but `.vbanner` toasts use `top:70px`
-fixed positioning, so the toast overlaps the first row of exam content
-when the practice banner is up. Use a CSS variable.
+vbanner uses `top: calc(70px + var(--top-padding, 0px))` and practice banner sets `--top-padding: 32px`, so the toast shifts down when the practice banner is visible.
 
-### 2.A22 Caddy global headers (HSTS, X-Frame-Options) — LOW (deferred)
+### 2.A22 Caddy global headers (HSTS, X-Frame-Options) — DONE
 
-No `Strict-Transport-Security`, `X-Frame-Options`, or CSP headers.
-Add to Caddyfile.
+Added `Strict-Transport-Security`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin` to Caddyfile.
 
-### 2.A23 Caddy `/login` rate-limiting — LOW (deferred)
+### 2.A23 Caddy `/login` rate-limiting — DEFERRED
 
-No rate-limit directive on the login route at the proxy layer (only
-in-app via slowapi). Defence-in-depth would be nice.
+Already covered by slowapi at the FastAPI layer (20/min on `/api/v1/auth/login`). Caddy's `rate_limit` requires a third-party plugin; defence-in-depth only.
 
-### 2.A24 macOS / Windows code signing — LOW (deferred)
+### 2.A24 macOS / Windows code signing — MED
 
-Builds are unsigned; users hit Gatekeeper / SmartScreen on first install.
-Apple Developer ID ($99/yr) + Azure Trusted Signing.
+Builds were unsigned; users hit Gatekeeper / SmartScreen on first install.
+
+**Shipped 2026-05-04:**
+- Added missing files to asar: `lib/**/*`, `config.js`, `setup-preload.js`
+  (these were silently omitted from the packaged build, causing a startup crash).
+- Added 5s fallback timer to lobby window `show()` so users see *something*
+  even if `ready-to-show` never fires.
+- Added `did-fail-load` handler that shows the window with an error message.
+- Deferred auto-updater by 3s to avoid blocking startup on slow networks.
+- Added 10-min timeout to Windows Python setup flow.
+- Enabled `hardenedRuntime: true` + entitlements for macOS (needed for
+  notarization when a cert is added).
+- Added Apple/Windows signing secrets placeholders to `build.yml`.
+
+**Still needed for macOS "damaged" fix:**
+- Enroll in Apple Developer Program ($99/yr).
+- Create a Distribution Certificate + export `.p12`.
+- Set `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
+  `APPLE_TEAM_ID` as GitHub repo secrets.
+- Rebuild + notarize — Gatekeeper will then trust the DMG.
+
+**Still needed for Windows SmartScreen fix:**
+- Azure Trusted Signing or EV code-signing cert.
+- Set `CSC_LINK`, `CSC_KEY_PASSWORD` as GitHub repo secrets.
+
+**Interim workaround (no cert):**
+- macOS: `xattr -cr /Applications/Procta\ Browser.app`
+- Windows: Users click "More info" → "Run anyway" on SmartScreen warning
 
 ### 2.A25 Empty states are just "No data" — LOW (deferred)
 
@@ -621,41 +637,13 @@ real customer has hit this collision yet.
 
 ## 3. Feature backlog
 
-Things we discussed but haven't built. Ranked by value-per-effort.
+### 3.1 Short-answer question type with AI grading — SHIPPED ✅
 
-### 3.1 Short-answer question type with AI grading
+### 3.2 Live risk triage on dashboard — SHIPPED ✅
 
-**What:** New `question_type='short_answer'`. Teacher writes a reference
-answer + grading rubric. On submit, Groq compares student response to
-rubric and assigns score (0/partial/full). Teacher sees AI-suggested grade
-and can confirm or override.
+### 3.3 Question quality lint (pre-publish) — SHIPPED ✅
 
-**Why now:** Unlocks essay-style exams. Currently the platform only
-supports MCQ — a major limitation for any humanities or coding teacher.
-
-**Why not yet:** The trust gradient. Teachers need to *see* AI grades
-being right before they'll let them auto-finalize. Ship with a
-"AI-suggested, teacher-confirmed" UI first; auto-finalize later.
-
-**Effort:** ~250 LOC: question type in schema + editor UI, grading
-endpoint reusing `app/llm.py`, scorecard rendering, teacher review
-workflow.
-
-### 3.2 Live risk triage on dashboard
-
-**What:** For each live session, a one-line LLM-generated TL;DR:
-"Looked away 14 times in 5 min, all during Q3-Q5". Translates raw
-violations into something a teacher can scan during a live exam.
-
-**Effort:** ~50 LOC. Cache 60s per session.
-
-### 3.3 Question quality lint (pre-publish)
-
-**What:** Before "Publish exam", run each question through Groq:
-"Is this ambiguous? Are options balanced? Is the correct answer
-actually correct?" Returns warnings, not errors.
-
-**Effort:** ~80 LOC.
+---
 
 ### 3.4 Mobile app
 

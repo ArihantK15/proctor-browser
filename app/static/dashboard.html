@@ -928,11 +928,13 @@
     <div id="auth-login">
       <h2>Welcome Back</h2>
       <p>Sign in to your teacher dashboard</p>
-      <input type="email" id="login-email" placeholder="Email address"
-             onkeydown="if(event.key==='Enter')document.getElementById('login-pwd').focus()">
-      <input type="password" id="login-pwd" placeholder="Password"
-             onkeydown="if(event.key==='Enter')doLogin()">
-      <button onclick="doLogin()" id="login-btn">Log In</button>
+      <form onsubmit="event.preventDefault();doLogin()" autocomplete="on">
+        <input type="email" id="login-email" placeholder="Email address" autocomplete="email"
+               onkeydown="if(event.key==='Enter')document.getElementById('login-pwd').focus()">
+        <input type="password" id="login-pwd" placeholder="Password" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')doLogin()">
+        <button type="submit" id="login-btn">Log In</button>
+      </form>
       <div class="auth-err" id="auth-err"></div>
       <p style="color:var(--muted);font-size:12px;margin-top:12px">
         <a href="#" onclick="toggleAuthForm('reset');return false" style="color:var(--muted);text-decoration:none;font-size:12px">Forgot password?</a>
@@ -947,9 +949,11 @@
     <div id="auth-reset" style="display:none">
       <h2>Reset Password</h2>
       <p>Enter your email and we'll send a reset link</p>
-      <input type="email" id="reset-email" placeholder="Email address"
-             onkeydown="if(event.key==='Enter')doPasswordReset()">
-      <button onclick="doPasswordReset()" id="reset-btn">Send Reset Link</button>
+      <form onsubmit="event.preventDefault();doPasswordReset()" autocomplete="on">
+        <input type="email" id="reset-email" placeholder="Email address" autocomplete="email"
+               onkeydown="if(event.key==='Enter')doPasswordReset()">
+        <button type="submit" id="reset-btn">Send Reset Link</button>
+      </form>
       <div class="auth-err" id="reset-err"></div>
       <div id="reset-success" style="display:none;color:var(--emerald);font-size:13px;margin-top:12px">
         Reset link sent! Check your email inbox.
@@ -963,15 +967,17 @@
     <div id="auth-signup" style="display:none">
       <h2>Create Account</h2>
       <p>Set up your teacher dashboard</p>
-      <input type="text" id="signup-name" placeholder="Full name"
-             onkeydown="if(event.key==='Enter')document.getElementById('signup-email').focus()">
-      <input type="email" id="signup-email" placeholder="Email address"
-             onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd').focus()">
-      <input type="password" id="signup-pwd" placeholder="Password (min 8 characters)"
-             onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd2').focus()">
-      <input type="password" id="signup-pwd2" placeholder="Confirm password"
-             onkeydown="if(event.key==='Enter')doSignup()">
-      <button onclick="doSignup()" id="signup-btn">Create Account</button>
+      <form onsubmit="event.preventDefault();doSignup()" autocomplete="on">
+        <input type="text" id="signup-name" placeholder="Full name" autocomplete="name"
+               onkeydown="if(event.key==='Enter')document.getElementById('signup-email').focus()">
+        <input type="email" id="signup-email" placeholder="Email address" autocomplete="email"
+               onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd').focus()">
+        <input type="password" id="signup-pwd" placeholder="Password (min 8 characters)" autocomplete="new-password"
+               onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd2').focus()">
+        <input type="password" id="signup-pwd2" placeholder="Confirm password" autocomplete="new-password"
+               onkeydown="if(event.key==='Enter')doSignup()">
+        <button type="submit" id="signup-btn">Create Account</button>
+      </form>
       <div class="auth-err" id="signup-err"></div>
       <p style="color:var(--muted);font-size:12px;margin-top:16px">
         Already have an account?
@@ -1120,10 +1126,10 @@
         <option value="low">Low (≤15)</option>
       </select>
       <div class="toolbar-right">
-        <button class="action-btn" onclick="exportCSV()">CSV</button>
-        <button class="action-btn" onclick="exportExcel()">Excel</button>
+        <button class="action-btn" id="btn-export-csv" onclick="exportCSV()">CSV</button>
+        <button class="action-btn" id="btn-export-excel" onclick="exportExcel()">Excel</button>
         <button class="action-btn" id="grade-pending-btn" onclick="openGradeReview()" title="Review AI-suggested grades for short-answer responses">Review answers <span id="pending-grade-count" style="display:none;background:var(--amber);color:#000;border-radius:8px;padding:1px 6px;font-size:10px;margin-left:4px"></span></button>
-        <button class="action-btn" onclick="dlAllScorecards()" title="Download a ZIP containing one PDF scorecard per student">Scorecards ZIP</button>
+        <button class="action-btn" id="btn-scorecard-zip" onclick="dlAllScorecards()" title="Download a ZIP containing one PDF scorecard per student">Scorecards ZIP</button>
         <button class="action-btn" onclick="emailAllScorecards()" title="Email each student their scorecard PDF">Email</button>
         <button class="action-btn primary" onclick="refreshResults()">Refresh</button>
       </div>
@@ -1919,7 +1925,7 @@ async function doLogin(){
   const btn = document.getElementById('login-btn');
   btn.disabled = true; btn.textContent = 'Signing in...';
   try{
-    const r = await fetch(`${BASE}/api/auth/login`,{
+    const r = await fetch(`${BASE}/api/v1/auth/login`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email,password:pwd})
     });
@@ -1940,7 +1946,7 @@ async function doPasswordReset(){
   const btn = document.getElementById('reset-btn');
   btn.disabled = true; btn.textContent = 'Sending...';
   try{
-    const r = await fetch(`${BASE}/api/auth/password-reset`,{
+    const r = await fetch(`${BASE}/api/v1/auth/password-reset`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email})
     });
@@ -1968,14 +1974,14 @@ async function doSignup(){
   const btn = document.getElementById('signup-btn');
   btn.disabled = true; btn.textContent = 'Creating...';
   try{
-    const r = await fetch(`${BASE}/api/auth/signup`,{
+    const r = await fetch(`${BASE}/api/v1/auth/signup`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email,password:pwd,full_name:name})
     });
     const data = await r.json();
     if(!r.ok) throw new Error(data.detail||'Signup failed');
     // Auto-login after signup
-    const lr = await fetch(`${BASE}/api/auth/login`,{
+    const lr = await fetch(`${BASE}/api/v1/auth/login`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email,password:pwd})
     });
@@ -2015,7 +2021,7 @@ function _connectSSE(){
   if(_sseFallbackTimer){ clearInterval(_sseFallbackTimer); _sseFallbackTimer=null; }
 
   try{
-    _sseSource = new EventSource(`${BASE}/api/sse/sessions?token=${encodeURIComponent(authToken)}`);
+    _sseSource = new EventSource(`${BASE}/api/v1/sse/sessions?token=${encodeURIComponent(authToken)}`);
 
     _sseSource.addEventListener('init', (e)=>{
       try{
@@ -2067,7 +2073,7 @@ function _connectSSE(){
 // ── EXAM SELECTOR ──────────────────────────────────────────────
 async function loadExams(){
   try{
-    const r = await authFetch(`${BASE}/api/admin/exams`);
+    const r = await authFetch(`${BASE}/api/v1/admin/exams`);
     if(!r.ok){
       document.getElementById('exam-bar').style.display='flex';
       document.getElementById('exam-count').textContent='Failed to load exams';
@@ -2136,7 +2142,7 @@ async function createExam(){
   const btn = document.getElementById('create-exam-btn');
   btn.disabled = true; btn.textContent = 'Creating...';
   try{
-    const r = await authFetch(`${BASE}/api/admin/exams`,{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams`,{
       method:'POST', body:JSON.stringify({exam_title:title, duration_minutes:dur})
     });
     if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
@@ -2168,7 +2174,7 @@ async function confirmDeleteExam(){
     return;
   }
   try{
-    const r = await authFetch(`${BASE}/api/admin/exams/${currentExamId}`,{method:'DELETE'});
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${currentExamId}`,{method:'DELETE'});
     if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
     currentExamId = null;
     await loadExams();
@@ -2196,7 +2202,7 @@ async function duplicateCurrentExam(){
   if (newTitle === null) return; // cancelled
   try {
     const r = await authFetch(
-      `${BASE}/api/admin/exams/${encodeURIComponent(currentExamId)}/duplicate`,
+      `${BASE}/api/v1/admin/exams/${encodeURIComponent(currentExamId)}/duplicate`,
       { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ new_title: (newTitle || '').trim() }) }
@@ -2222,12 +2228,12 @@ async function _tryAutoLogin(){
   if(!authToken) return;
   try{
     // Try current token
-    let r = await fetch(`${BASE}/api/auth/me`,{headers:{'Authorization':'Bearer '+authToken}});
+    let r = await fetch(`${BASE}/api/v1/auth/me`,{headers:{'Authorization':'Bearer '+authToken}});
     if(r.ok){ _onAuthed(await r.json()); return; }
 
     // Token expired — try refresh
     if(!refreshToken){ _saveTokens('',''); return; }
-    const rr = await fetch(`${BASE}/api/auth/refresh`,{
+    const rr = await fetch(`${BASE}/api/v1/auth/refresh`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({refresh_token:refreshToken})
     });
@@ -2236,7 +2242,7 @@ async function _tryAutoLogin(){
     _saveTokens(rd.access_token, rd.refresh_token);
 
     // Retry with fresh token
-    r = await fetch(`${BASE}/api/auth/me`,{headers:{'Authorization':'Bearer '+rd.access_token}});
+    r = await fetch(`${BASE}/api/v1/auth/me`,{headers:{'Authorization':'Bearer '+rd.access_token}});
     if(r.ok){ _onAuthed(await r.json()); return; }
     _saveTokens('','');
   }catch(e){
@@ -2303,7 +2309,7 @@ let _refreshInFlight = null;
 async function _refreshTokens(){
   if(_refreshInFlight) return _refreshInFlight;
   _refreshInFlight = (async ()=>{
-    const rr = await fetch(`${BASE}/api/auth/refresh`,{
+    const rr = await fetch(`${BASE}/api/v1/auth/refresh`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({refresh_token:refreshToken})
     });
@@ -2617,7 +2623,7 @@ async function refreshAll(){
 let _prevIdReviewCount = 0;
 async function refreshIdReviews(){
   try{
-    const r = await authFetch(`${BASE}/api/admin/pending-verifications${_examQuery('?')}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/pending-verifications${_examQuery('?')}`);
     if(!r.ok) return;
     const d = await r.json();
     const list = d.pending || [];
@@ -2698,7 +2704,7 @@ async function idDecision(violationId, sessionKey, decision, btn){
   btn.textContent = decision === 'approved' ? 'Approving...'
                   : decision === 'retake' ? 'Requesting...' : 'Rejecting...';
   try{
-    const r = await authFetch(`${BASE}/api/admin/id-decision`,{
+    const r = await authFetch(`${BASE}/api/v1/admin/id-decision`,{
       method:'POST',
       body:JSON.stringify({violation_id:violationId, session_key:sessionKey, decision})
     });
@@ -2904,7 +2910,7 @@ async function openTriage(sid){
   document.getElementById('triage-modal').classList.remove('hidden');
 
   try{
-    const r = await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(sid)}/triage`);
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/triage`);
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
       _triageShowError(d.detail || `Server error (${r.status})`);
@@ -2965,7 +2971,7 @@ async function openLiveView(sid){
   document.getElementById('liveview-modal').classList.remove('hidden');
 
   try{
-    const r = await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(sid)}/live-view/start`, {method:'POST'});
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/live-view/start`, {method:'POST'});
     if(!r.ok){
       const d = await r.json();
       document.getElementById('liveview-placeholder').innerHTML =
@@ -2986,7 +2992,7 @@ async function openLiveView(sid){
   // care that they explicitly close.
   _liveViewKeepaliveTimer = setInterval(() => {
     if(!_liveViewSid) return;
-    authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/keepalive`,
+    authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/keepalive`,
       {method:'POST'}).catch(()=>{});
   }, 30000);
   // Stale detector — if no frame in 5s, surface that state instead
@@ -3009,7 +3015,7 @@ async function _liveViewPollFrame(){
   try{
     // Cache-bust query param — defensive: we already send Cache-Control
     // no-store from the server, but some intermediaries cache anyway.
-    const r = await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-frame?t=${Date.now()}`,
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-frame?t=${Date.now()}`,
       {method:'GET'});
     if(r.status === 204) return;        // no frame yet — keep placeholder
     if(!r.ok) return;                   // transient — try again next tick
@@ -3047,7 +3053,7 @@ async function closeLiveView(){
   document.getElementById('liveview-modal').classList.add('hidden');
   if(sid){
     try{
-      await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(sid)}/live-view/stop`, {method:'POST'});
+      await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/live-view/stop`, {method:'POST'});
     }catch(e){/* server-side TTL will clean up within 60s anyway */}
   }
 }
@@ -3058,7 +3064,7 @@ window.addEventListener('beforeunload', () => {
   if(_liveViewSid){
     // sendBeacon is fire-and-forget but reliable on tab close.
     try{
-      const url = `${BASE}/api/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/stop`;
+      const url = `${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/stop`;
       navigator.sendBeacon && navigator.sendBeacon(url);
     }catch(_){}
   }
@@ -3071,7 +3077,7 @@ window.addEventListener('beforeunload', () => {
 async function requestRecalibration(sid){
   if(!confirm('End this session and ask the student to restart for re-calibration?\n\nThe student will see a chat message asking them to relaunch the exam. Their answers so far are saved but the session will be marked abandoned.')) return;
   try{
-    const r = await authFetch(`${BASE}/api/admin/sessions/${encodeURIComponent(sid)}/request-recalibration`, {method:'POST'});
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/request-recalibration`, {method:'POST'});
     const d = await r.json();
     if(!r.ok){ alert(d.detail || 'Failed to request re-calibration.'); return; }
     alert('Re-calibration requested. The student has been messaged via chat.');
@@ -3108,7 +3114,7 @@ function filterLive(){renderLive();}
 // ── RESULTS ─────────────────────────────────────────────────────
 async function refreshResults(){
   try{
-    const r = await authFetch(`${BASE}/api/results${_examQuery('?')}`);
+    const r = await authFetch(`${BASE}/api/v1/results${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     resultsData = d.results || [];
@@ -3227,7 +3233,7 @@ async function openDetail(sid){
   bd.innerHTML='<div class="loading-msg"><span class="spinner"></span> Loading breakdown...</div>';
   document.getElementById('detail-modal').classList.add('open');
   try{
-    const resp = await authFetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`);
+    const resp = await authFetch(`${BASE}/api/v1/risk-score/${encodeURIComponent(sid)}`);
     if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const risk = await resp.json();
     renderBreakdown(risk);
@@ -3236,7 +3242,7 @@ async function openDetail(sid){
   }
   // Load answer breakdown
   try{
-    const ansResp = await authFetch(`${BASE}/api/admin/answers/${encodeURIComponent(sid)}`);
+    const ansResp = await authFetch(`${BASE}/api/v1/admin/answers/${encodeURIComponent(sid)}`);
     if(!ansResp.ok) throw new Error(`HTTP ${ansResp.status}`);
     const ansData = await ansResp.json();
     renderAnswerReview(ansData);
@@ -3334,7 +3340,7 @@ async function viewRisk(sid){
   bd.innerHTML='<div class="loading-msg"><span class="spinner"></span> Computing live risk...</div>';
   document.getElementById('detail-modal').classList.add('open');
   try{
-    const resp = await authFetch(`${BASE}/api/risk-score/${encodeURIComponent(sid)}`);
+    const resp = await authFetch(`${BASE}/api/v1/risk-score/${encodeURIComponent(sid)}`);
     if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const risk = await resp.json();
     // Update info with live risk
@@ -3355,12 +3361,51 @@ function viewRiskDetail(){
 }
 
 // ── EXPORTS ─────────────────────────────────────────────────────
+let _exporting = {};
+
+function _setExporting(btnId, exporting){
+  const btn = document.getElementById(btnId);
+  if(!btn) return;
+  if(exporting){
+    btn.disabled = true;
+    btn.dataset.origText = btn.textContent;
+    btn.textContent = 'Downloading…';
+    btn.style.opacity = '0.6';
+  } else {
+    btn.disabled = false;
+    btn.textContent = btn.dataset.origText || btn.textContent;
+    btn.style.opacity = '';
+  }
+}
+
 function exportExcel(){
   const eid = currentExamId || 'all';
-  fetchBlob(`${BASE}/api/export-excel${_examQuery('?')}`, `results_${eid}.xlsx`);
+  fetchBlob(`${BASE}/api/v1/export-excel${_examQuery('?')}`, `results_${eid}.xlsx`, 'btn-export-excel');
 }
 function exportCSV(){
-  fetchBlob(`${BASE}/api/export-csv${_examQuery('?')}`,'results.csv');
+  fetchBlob(`${BASE}/api/v1/export-csv${_examQuery('?')}`, 'results.csv', 'btn-export-csv');
+}
+async function fetchBlob(url, filename, btnId){
+  if(btnId) _setExporting(btnId, true);
+  try {
+    const r = await authFetch(url);
+    if(!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } finally {
+    if(btnId) _setExporting(btnId, false);
+  }
+}
+
+function dlPDF(sid){
+  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`, `report_${sid.split('_')[0]}.pdf`);
+}
+function exportCSV(){
+  fetchBlob(`${BASE}/api/v1/export-csv${_examQuery('?')}`,'results.csv');
 }
 async function fetchBlob(url,filename){
   const r = await authFetch(url);
@@ -3374,13 +3419,13 @@ async function fetchBlob(url,filename){
 }
 
 function dlPDF(sid){
-  fetchBlob(`${BASE}/api/export-pdf/${encodeURIComponent(sid)}`,`report_${sid.split('_')[0]}.pdf`);
+  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`,`report_${sid.split('_')[0]}.pdf`);
 }
 function downloadPDF(){
   if(currentSessionId) dlPDF(currentSessionId);
 }
 function dlScorecard(sid){
-  fetchBlob(`${BASE}/api/admin/scorecard-pdf/${encodeURIComponent(sid)}`,`scorecard_${sid.split('_')[0]}.pdf`);
+  fetchBlob(`${BASE}/api/v1/admin/scorecard-pdf/${encodeURIComponent(sid)}`,`scorecard_${sid.split('_')[0]}.pdf`);
 }
 // ── GRADE REVIEW (short-answer AI grading) ───────────────────────
 // Backed by /api/admin/pending-grades, /api/admin/grade-suggest,
@@ -3395,7 +3440,7 @@ async function refreshPendingGradeBadge(){
   const eid = currentExamId;
   if(!eid){ return; }
   try{
-    const r = await authFetch(`${BASE}/api/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
     if(!r.ok) return;
     const d = await r.json();
     const n = (d.answers||[]).filter(a => a.teacher_score==null).length;
@@ -3422,7 +3467,7 @@ async function loadPendingGrades(){
   const list = document.getElementById('grade-list');
   list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)"><span class="spinner"></span> Loading…</div>';
   try{
-    const r = await authFetch(`${BASE}/api/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d = await r.json();
     _pendingGrades = d.answers || [];
@@ -3481,7 +3526,7 @@ async function runGradeSuggest(){
   btn.disabled = true;
   status.textContent = `Asking AI to grade ${ids.length}…`;
   try{
-    const r = await authFetch(`${BASE}/api/admin/grade-suggest`,{
+    const r = await authFetch(`${BASE}/api/v1/admin/grade-suggest`,{
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({answer_ids: ids})
     });
@@ -3511,7 +3556,7 @@ async function confirmGrade(i){
   const status = document.getElementById('grade-status');
   status.textContent = 'Confirming…';
   try{
-    const r = await authFetch(`${BASE}/api/admin/grade-confirm`,{
+    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm`,{
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({answer_id: a.id, score})
     });
@@ -3531,7 +3576,7 @@ async function confirmGrade(i){
 function dlAllScorecards(){
   const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
-  fetchBlob(`${BASE}/api/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}`,`scorecards_${eid}.zip`);
+  fetchBlob(`${BASE}/api/v1/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}`, `scorecards_${eid}.zip`, 'btn-scorecard-zip');
 }
 
 // Email each student their scorecard PDF. Server is idempotent by
@@ -3549,7 +3594,7 @@ async function emailAllScorecards(){
   const body = { custom_message: (msg || "").trim() };
   try {
     const r = await authFetch(
-      `${BASE}/api/admin/exams/${encodeURIComponent(eid)}/email-scorecards`,
+      `${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/email-scorecards`,
       { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body) }
@@ -3575,7 +3620,7 @@ async function doBackfill(){
   btn.disabled=true; btn.textContent='Running...';
   const el=document.getElementById('backfill-result');
   try{
-    const r=await authFetch(`${BASE}/api/admin/backfill-risk-scores${_examQuery('?')}`,{method:'POST'});
+    const r=await authFetch(`${BASE}/api/v1/admin/backfill-risk-scores${_examQuery('?')}`,{method:'POST'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     el.style.color='var(--emerald)';
@@ -3591,7 +3636,7 @@ async function doBackfill(){
 async function doCleanup(){
   const el=document.getElementById('cleanup-result');
   try{
-    const r=await authFetch(`${BASE}/api/admin-cleanup`,{method:'POST'});
+    const r=await authFetch(`${BASE}/api/v1/admin-cleanup`,{method:'POST'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     el.style.color='var(--emerald)';
@@ -3650,7 +3695,7 @@ async function clearLiveSessionsStep(){
     btn.disabled=true;
     btn.textContent='Checking...';
     try{
-      const r=await authFetch(`${BASE}/api/admin/clear-live-sessions`,{
+      const r=await authFetch(`${BASE}/api/v1/admin/clear-live-sessions`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
@@ -3723,7 +3768,7 @@ async function clearLiveSessionsStep(){
     btn.disabled=true;
     btn.textContent='Wiping...';
     try{
-      const r=await authFetch(`${BASE}/api/admin/clear-live-sessions`,{
+      const r=await authFetch(`${BASE}/api/v1/admin/clear-live-sessions`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
@@ -3763,7 +3808,7 @@ async function clearLiveSessionsStep(){
 async function loadFailed(){
   const el=document.getElementById('failed-result');
   try{
-    const r=await authFetch(`${BASE}/api/admin-failed-sessions${_examQuery('?')}`);
+    const r=await authFetch(`${BASE}/api/v1/admin-failed-sessions${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     if(d.count===0){
@@ -3783,7 +3828,7 @@ async function loadFailed(){
 
 async function loadFailedCount(){
   try{
-    const r=await authFetch(`${BASE}/api/admin-failed-sessions${_examQuery('?')}`);
+    const r=await authFetch(`${BASE}/api/v1/admin-failed-sessions${_examQuery('?')}`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('tools-failed').textContent=d.count;
@@ -3793,7 +3838,7 @@ async function loadFailedCount(){
 async function forceSubmit(sid){
   if(!confirm(`Force-submit session ${sid}?`)) return;
   try{
-    const r=await authFetch(`${BASE}/api/admin-submit/${encodeURIComponent(sid)}`,{method:'POST'});
+    const r=await authFetch(`${BASE}/api/v1/admin-submit/${encodeURIComponent(sid)}`,{method:'POST'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     alert(`Force-submitted! Score: ${d.score}/${d.total}, Risk: ${d.risk_score}/100`);
@@ -3805,7 +3850,7 @@ async function forceSubmit(sid){
 // ── ACCESS CODE ────────────────────────────────────────────────
 async function loadAccessCode(){
   try{
-    const r=await authFetch(`${BASE}/api/admin/access-code${_examQuery('?')}`);
+    const r=await authFetch(`${BASE}/api/v1/admin/access-code${_examQuery('?')}`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('access-code-input').value=d.access_code||'';
@@ -3826,7 +3871,7 @@ async function saveAccessCode(){
   const code=document.getElementById('access-code-input').value.trim().toUpperCase();
   const st=document.getElementById('access-code-status');
   try{
-    const r=await authFetch(`${BASE}/api/admin/access-code`,{
+    const r=await authFetch(`${BASE}/api/v1/admin/access-code`,{
       method:'POST',body:JSON.stringify({access_code:code, exam_id:currentExamId})
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3847,7 +3892,7 @@ function clearAccessCode(){
 // ── REGISTERED COUNT ────────────────────────────────────────────
 async function loadRegisteredCount(){
   try{
-    const r=await authFetch(`${BASE}/api/admin/registered-count`);
+    const r=await authFetch(`${BASE}/api/v1/admin/registered-count`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('tools-registered').textContent=d.count;
@@ -3857,7 +3902,7 @@ async function loadRegisteredCount(){
 // ── EXAM SCHEDULE ───────────────────────────────────────────────
 async function loadSchedule(){
   try{
-    const r=await authFetch(`${BASE}/api/admin/exam-schedule${_examQuery('?')}`);
+    const r=await authFetch(`${BASE}/api/v1/admin/exam-schedule${_examQuery('?')}`);
     if(!r.ok) return;
     const d=await r.json();
     if(d.starts_at) document.getElementById('schedule-start').value=utcToLocalInput(d.starts_at);
@@ -3915,7 +3960,7 @@ async function saveSchedule(){
     return;
   }
   try{
-    const r=await authFetch(`${BASE}/api/admin/exam-schedule`,{
+    const r=await authFetch(`${BASE}/api/v1/admin/exam-schedule`,{
       method:'POST',
       body:JSON.stringify({starts_at:localInputToUtc(starts),ends_at:localInputToUtc(ends),exam_id:currentExamId})
     });
@@ -3938,7 +3983,7 @@ function clearSchedule(){
 // ── SHUFFLE CONFIG ──────────────────────────────────────────────
 async function loadShuffleConfig(){
   try{
-    const r = await authFetch(`${BASE}/api/admin/shuffle-config${_examQuery('?')}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/shuffle-config${_examQuery('?')}`);
     if(!r.ok) return;
     const d = await r.json();
     const qEl = document.getElementById('shuffle-q-toggle');
@@ -3978,7 +4023,7 @@ async function saveShuffleConfig(){
     exam_id: currentExamId,
   };
   try{
-    const r = await authFetch(`${BASE}/api/admin/shuffle-config`,{
+    const r = await authFetch(`${BASE}/api/v1/admin/shuffle-config`,{
       method:'POST',
       body: JSON.stringify(body),
     });
@@ -4000,7 +4045,7 @@ async function loadQuestions(){
   el.innerHTML='<div class="loading-msg"><span class="spinner"></span> Loading questions...</div>';
   document.getElementById('q-save-msg').textContent='';
   try{
-    const r = await authFetch(`${BASE}/api/admin/questions${_examQuery('?')}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/questions${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     qData = d.questions || [];
@@ -4295,7 +4340,7 @@ async function handleQImageUpload(idx, file){
     const b64 = String(reader.result||'').split(',')[1] || '';
     if(!b64){ alert('Failed to read image.'); return; }
     try{
-      const r = await authFetch(`${BASE}/api/admin/upload-question-image`,{
+      const r = await authFetch(`${BASE}/api/v1/admin/upload-question-image`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({image:b64, filename:file.name||''})
@@ -4492,7 +4537,7 @@ async function lintQuestions(){
   };
 
   try{
-    const r = await authFetch(`${BASE}/api/admin/lint-questions`, {
+    const r = await authFetch(`${BASE}/api/v1/admin/lint-questions`, {
       method: 'POST', body: JSON.stringify(payload),
     });
     const data = await r.json();
@@ -4638,7 +4683,7 @@ async function saveQuestions(){
 
   msgEl.innerHTML='<span class="spinner"></span> Saving...';
   try{
-    const r=await authFetch(`${BASE}/api/admin/questions`,{
+    const r=await authFetch(`${BASE}/api/v1/admin/questions`,{
       method:'POST',body:JSON.stringify(payload)
     });
     if(!r.ok){
@@ -4687,7 +4732,7 @@ function openTimeline(){
 
 async function loadTimeline(sid){
   try{
-    const r=await authFetch(`${BASE}/api/admin/timeline/${encodeURIComponent(sid)}`);
+    const r=await authFetch(`${BASE}/api/v1/admin/timeline/${encodeURIComponent(sid)}`);
     if(!r.ok){
       // Surface the actual server error so we can debug "session not found"
       // vs auth failures vs 500s instead of a generic "Failed to load".
@@ -4858,7 +4903,11 @@ document.addEventListener('keydown',e=>{
     if(document.getElementById('tl-lightbox').classList.contains('open')) closeLightbox();
     else if(document.getElementById('timeline-modal').classList.contains('open')) closeTimeline();
     else if(document.getElementById('broadcast-modal').classList.contains('open')) closeBroadcastModal();
-    else closeModal();
+    else if(!document.getElementById('triage-modal').classList.contains('hidden')) closeTriage();
+    else if(!document.getElementById('grade-modal').classList.contains('hidden')) closeGradeReview();
+    else if(!document.getElementById('liveview-modal').classList.contains('hidden')) closeLiveView();
+    else if(document.getElementById('detail-modal').classList.contains('open')) closeModal();
+    else if(!document.getElementById('onboard-modal').classList.contains('hidden')) onboardSkip();
   }
 });
 
@@ -5345,7 +5394,7 @@ function qCollapseAll(){
 
 async function loadBank(){
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank`);
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank`);
     if(!r.ok) return;
     _bankData = await r.json();
     _bankSelected.clear();
@@ -5384,7 +5433,7 @@ function renderBank(data){
     return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-bottom:1px solid var(--border);${i%2===0?'background:rgba(255,255,255,.01)':''}">
       <input type="checkbox" ${checked} onchange="_bankToggle('${q.id}',this.checked)" style="margin-top:4px;flex-shrink:0">
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px;color:var(--text);margin-bottom:4px">${_escHtml(q.question)}</div>
+        <div style="font-size:13px;color:var(--text);margin-bottom:4px;max-height:120px;overflow-y:auto">${_escHtml(q.question)}</div>
         <div style="font-size:11px;color:var(--muted)">${optStr}</div>
         <div style="margin-top:4px;display:flex;align-items:center;gap:6px">
           <span style="font-size:11px;color:var(--emerald);font-weight:600">Correct: ${_escHtml(q.correct)}</span>
@@ -5435,7 +5484,7 @@ function filterBank(){
 }
 
 async function deleteBankQ(qid){
-  await authFetch(`${BASE}/api/admin/question-bank/${qid}`,{method:'DELETE'});
+  await authFetch(`${BASE}/api/v1/admin/question-bank/${qid}`,{method:'DELETE'});
   _bankData = _bankData.filter(q=>q.id!==qid);
   _bankSelected.delete(qid);
   renderBank(_bankData);
@@ -5447,7 +5496,7 @@ async function bankToExam(){
   const ids = Array.from(_bankSelected);
   if(!ids.length){ alert('Select questions using the checkboxes first.'); return; }
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank/to-exam`,
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank/to-exam`,
       {method:'POST',body:JSON.stringify({question_ids:ids,exam_id:eid})});
     const d = await r.json();
     if(r.ok){
@@ -5462,7 +5511,7 @@ async function bankToExam(){
 async function saveBankToExamSingle(qid){
   const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
-  const r = await authFetch(`${BASE}/api/admin/question-bank/to-exam`,
+  const r = await authFetch(`${BASE}/api/v1/admin/question-bank/to-exam`,
     {method:'POST',body:JSON.stringify({question_ids:[qid],exam_id:eid})});
   if(r.ok){ loadQuestions(); }
   else{ const d=await r.json(); alert(d.detail||'Error'); }
@@ -5503,7 +5552,7 @@ async function doGenerateQuestions(){
   preview.innerHTML = '';
 
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank/generate`, {
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank/generate`, {
       method:'POST',
       body: JSON.stringify({
         topic, count, difficulty,
@@ -5625,7 +5674,7 @@ async function commitGenPreview(destination = 'bank'){
   status.style.color='var(--muted)';
   status.textContent = 'Saving to bank…';
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank/import`, {
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank/import`, {
       method:'POST',
       body: JSON.stringify({questions: out})
     });
@@ -5658,7 +5707,7 @@ async function commitGenPreview(destination = 'bank'){
           if(typeof setAITab === 'function') setAITab('bank');
           return;
         }
-        const r2 = await authFetch(`${BASE}/api/admin/question-bank/to-exam`, {
+        const r2 = await authFetch(`${BASE}/api/v1/admin/question-bank/to-exam`, {
           method: 'POST',
           body: JSON.stringify({question_ids: idsToAdd, exam_id: currentExamId}),
         });
@@ -5790,7 +5839,7 @@ async function doBankImport(){
   catch(e){ status.style.color='var(--red)'; status.textContent='Invalid JSON'; return; }
   if(!Array.isArray(questions)) questions = [questions];
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank/import`,
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank/import`,
       {method:'POST',body:JSON.stringify({questions})});
     const d = await r.json();
     if(r.ok){
@@ -5803,7 +5852,7 @@ async function doBankImport(){
 
 async function exportBank(){
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank/export`);
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank/export`);
     const data = await r.json();
     const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
@@ -5827,7 +5876,7 @@ async function saveQuestionToBank(idx){
   // a blocker on saving to the bank.
   let suggested = '';
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank/suggest-tags`, {
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank/suggest-tags`, {
       method:'POST',
       body: JSON.stringify({
         question: q.question,
@@ -5850,7 +5899,7 @@ async function saveQuestionToBank(idx){
   if(tagsRaw === null) return; // cancelled
   const tags = tagsRaw.split(',').map(t=>t.trim()).filter(Boolean);
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank`,
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank`,
       {method:'POST',body:JSON.stringify({
         question: q.question,
         question_type: q.question_type || 'mcq_single',
@@ -5887,7 +5936,7 @@ async function editBankQ(qid){
     tags: tagsRaw.split(',').map(t=>t.trim()).filter(Boolean),
   };
   try{
-    const r = await authFetch(`${BASE}/api/admin/question-bank/${qid}`,
+    const r = await authFetch(`${BASE}/api/v1/admin/question-bank/${qid}`,
       {method:'PUT',body:JSON.stringify(fields)});
     if(r.ok) loadBank();
     else { const d=await r.json(); alert(d.detail||'Error'); }
@@ -5900,7 +5949,7 @@ let _activeGroupId = null;
 
 async function loadGroups(){
   try{
-    const r = await authFetch(`${BASE}/api/admin/groups`);
+    const r = await authFetch(`${BASE}/api/v1/admin/groups`);
     if(!r.ok) return;
     _groupsData = await r.json();
     renderGroups();
@@ -5931,7 +5980,7 @@ async function createGroup(){
   if(!name) return;
   const st = document.getElementById('group-status');
   try{
-    const r = await authFetch(`${BASE}/api/admin/groups`,{method:'POST',body:JSON.stringify({group_name:name})});
+    const r = await authFetch(`${BASE}/api/v1/admin/groups`,{method:'POST',body:JSON.stringify({group_name:name})});
     if(!r.ok){ const d=await r.json(); st.style.color='var(--red)'; st.textContent=d.detail||'Error'; return; }
     inp.value='';
     st.style.color='var(--emerald)'; st.textContent='Group created';
@@ -5942,7 +5991,7 @@ async function createGroup(){
 
 async function deleteGroup(gid){
   if(!confirm('Delete this group? Members and exam assignments will also be removed.')) return;
-  await authFetch(`${BASE}/api/admin/groups/${gid}`,{method:'DELETE'});
+  await authFetch(`${BASE}/api/v1/admin/groups/${gid}`,{method:'DELETE'});
   if(_activeGroupId===gid) closeGroupDetail();
   loadGroups();
 }
@@ -5951,7 +6000,7 @@ async function openGroupDetail(gid, name){
   _activeGroupId = gid;
   document.getElementById('group-detail').style.display='';
   document.getElementById('group-detail-name').textContent = name;
-  const r = await authFetch(`${BASE}/api/admin/groups/${gid}/members`);
+  const r = await authFetch(`${BASE}/api/v1/admin/groups/${gid}/members`);
   const members = r.ok ? await r.json() : [];
   const list = document.getElementById('group-members-list');
   const empty = document.getElementById('group-members-empty');
@@ -5974,7 +6023,7 @@ async function addGroupMembers(){
   const inp = document.getElementById('add-member-rolls');
   const rolls = inp.value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
   if(!rolls.length) return;
-  await authFetch(`${BASE}/api/admin/groups/${_activeGroupId}/members`,
+  await authFetch(`${BASE}/api/v1/admin/groups/${_activeGroupId}/members`,
     {method:'POST',body:JSON.stringify({roll_numbers:rolls})});
   inp.value='';
   openGroupDetail(_activeGroupId, document.getElementById('group-detail-name').textContent);
@@ -5982,7 +6031,7 @@ async function addGroupMembers(){
 }
 
 async function removeMember(gid, roll){
-  await authFetch(`${BASE}/api/admin/groups/${gid}/members`,
+  await authFetch(`${BASE}/api/v1/admin/groups/${gid}/members`,
     {method:'DELETE',body:JSON.stringify({roll_numbers:[roll]})});
   openGroupDetail(gid, document.getElementById('group-detail-name').textContent);
   loadGroups();
@@ -5997,7 +6046,7 @@ function populateGroupSelect(){
 async function loadExamGroups(){
   const eid = currentExamId;
   if(!eid){ document.getElementById('exam-groups-list').innerHTML=''; document.getElementById('exam-groups-none').style.display=''; return; }
-  const r = await authFetch(`${BASE}/api/admin/exams/${encodeURIComponent(eid)}/groups`);
+  const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/groups`);
   const groups = r.ok ? await r.json() : [];
   const list = document.getElementById('exam-groups-list');
   const none = document.getElementById('exam-groups-none');
@@ -6015,7 +6064,7 @@ async function assignGroupToExam(){
   if(!eid){ alert('Select an exam first.'); return; }
   const gid = document.getElementById('assign-group-select').value;
   if(!gid) return;
-  await authFetch(`${BASE}/api/admin/exams/${encodeURIComponent(eid)}/groups`,
+  await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/groups`,
     {method:'POST',body:JSON.stringify({group_ids:[gid]})});
   loadExamGroups();
 }
@@ -6023,7 +6072,7 @@ async function assignGroupToExam(){
 async function unassignGroup(gid){
   const eid = currentExamId;
   if(!eid) return;
-  await authFetch(`${BASE}/api/admin/exams/${encodeURIComponent(eid)}/groups/${gid}`,{method:'DELETE'});
+  await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/groups/${gid}`,{method:'DELETE'});
   loadExamGroups();
 }
 
@@ -6072,7 +6121,7 @@ async function pullGroupIntoInvites(){
   const st = document.getElementById('invite-result');
   st.style.color='var(--muted)'; st.textContent='Loading group members…';
   try{
-    const r = await authFetch(`${BASE}/api/admin/groups/${gid}/members`);
+    const r = await authFetch(`${BASE}/api/v1/admin/groups/${gid}/members`);
     if(!r.ok){ st.style.color='var(--red)'; st.textContent='Failed to load members'; return; }
     const members = await r.json();
     if(!members.length){ st.style.color='var(--amber)'; st.textContent='Group has no members'; return; }
@@ -6132,7 +6181,7 @@ async function sendInvites(){
   const exp = document.getElementById('invite-expires').value;
   if(exp) payload.expires_at = new Date(exp).toISOString();
   try{
-    const r = await authFetch(`${BASE}/api/admin/invites/send`, {method:'POST', body:JSON.stringify(payload)});
+    const r = await authFetch(`${BASE}/api/v1/admin/invites/send`, {method:'POST', body:JSON.stringify(payload)});
     const d = await r.json();
     if(!r.ok){ st.style.color='var(--red)'; st.innerHTML = _escHtml(d.detail || 'Send failed'); return; }
     const sent = d.sent||0, failed = d.failed||0, skipped = d.skipped||0;
@@ -6188,7 +6237,7 @@ async function loadInvites(){
   if(!list) return;
   if(!eid){ list.innerHTML=''; empty.style.display=''; empty.textContent='Select an exam to see invites.'; countEl.textContent=''; return; }
   try{
-    const r = await authFetch(`${BASE}/api/admin/invites?exam_id=${encodeURIComponent(eid)}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/invites?exam_id=${encodeURIComponent(eid)}`);
     if(!r.ok){ list.innerHTML=''; empty.style.display=''; empty.textContent='Failed to load invites.'; return; }
     // API contract is {invites:[...]} — be tolerant of either shape so a future
     // contract change (return a bare array) doesn't silently empty the UI.
@@ -6277,7 +6326,7 @@ async function resendInvite(id){
   const st = document.getElementById('invite-result');
   st.style.color='var(--muted)'; st.textContent='Resending…';
   try{
-    const r = await authFetch(`${BASE}/api/admin/invites/${id}/resend`, {method:'POST'});
+    const r = await authFetch(`${BASE}/api/v1/admin/invites/${id}/resend`, {method:'POST'});
     if(!r.ok){ const d=await r.json(); st.style.color='var(--red)'; st.textContent=d.detail||'Failed'; return; }
     st.style.color='var(--emerald)'; st.textContent='Resent.';
     setTimeout(()=>st.textContent='',2500);
@@ -6288,7 +6337,7 @@ async function resendInvite(id){
 async function revokeInvite(id){
   if(!confirm('Revoke this invite? The student will no longer be able to join using this link.')) return;
   try{
-    const r = await authFetch(`${BASE}/api/admin/invites/${id}`, {method:'DELETE'});
+    const r = await authFetch(`${BASE}/api/v1/admin/invites/${id}`, {method:'DELETE'});
     if(!r.ok){ const d=await r.json(); alert(d.detail||'Failed'); return; }
     loadInvites();
   }catch(e){ alert('Network error'); }
@@ -6300,7 +6349,7 @@ async function resendBouncedInvites(){
   const st = document.getElementById('invite-result');
   st.style.color='var(--muted)'; st.textContent='Resending bounced invites…';
   try{
-    const r = await authFetch(`${BASE}/api/admin/invites/resend-bounced`,
+    const r = await authFetch(`${BASE}/api/v1/admin/invites/resend-bounced`,
       {method:'POST', body: JSON.stringify(eid ? {exam_id: eid} : {})});
     const d = await r.json();
     if(!r.ok){ st.style.color='var(--red)'; st.textContent=d.detail||'Failed'; return; }
@@ -6328,7 +6377,7 @@ async function loadAnalytics(){
   if(_analyticsLoading) return;
   _analyticsLoading = true;
   try{
-    const r = await authFetch(`${BASE}/api/admin/analytics?exam_id=${encodeURIComponent(eid)}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/analytics?exam_id=${encodeURIComponent(eid)}`);
     if(!r.ok) throw new Error('Failed');
     const data = await r.json();
     data._ts = Date.now();

@@ -27,3 +27,24 @@ app/credentials.json
 
 # Client-side proctoring script (runs in Electron, not in Docker)
 app/proctor.py
+
+# Electron build artifacts
+out/
+dist/
+node_modules/
+*.zip
+
+# Dev tooling
+.dockerignore
+docker-compose.yml
+loadtest/
+tests/
+generate_report.py
+TODO.md
+AGENTS.md
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp

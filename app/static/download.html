@@ -133,9 +133,11 @@
       Installer not available yet. Contact your examiner.
     </div>
     <div class="msg-warning" id="mac-warn" style="display:none;margin-top:14px;text-align:left">
-      <strong>macOS note:</strong> After downloading, open the .dmg file.
-      If macOS blocks it, go to <strong>System Settings &rarr; Privacy &amp; Security</strong>
-      and click <strong>"Open Anyway"</strong>.
+      <strong>macOS note:</strong> If you see <em>"Procta Browser is damaged and can't be opened"</em>,
+      the app is not actually damaged — macOS is just blocking an unsigned app.
+      Open <strong>Terminal</strong> and run:
+      <code style="display:block;background:var(--surface-2);padding:8px 12px;border-radius:6px;margin:8px 0;font-size:12px;word-break:break-all">xattr -cr /Applications/Procta\ Browser.app</code>
+      Then open the app normally. You only need to do this once.
     </div>
   </div>
 

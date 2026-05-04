@@ -23,8 +23,11 @@
     "asar": true,
     "files": [
       "main.js",
+      "config.js",
       "preload.js",
       "lobby_preload.js",
+      "setup-preload.js",
+      "lib/**/*",
       "renderer/**/*",
       "app/static/student.html",
       "app/static/theme.css"
@@ -62,8 +65,10 @@
         }
       ],
       "category": "public.app-category.education",
-      "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
       "icon": "build/icon.ico",

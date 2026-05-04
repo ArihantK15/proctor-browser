@@ -227,7 +227,7 @@
     .dcard p{color:var(--text-muted);font-size:14px}
     .score{font-size:48px;font-weight:700;color:var(--accent);margin:16px 0}
     .countdown{font-size:13px;color:var(--text-muted);margin-top:16px}
-    .vbanner{position:fixed;top:70px;left:50%;transform:translateX(-50%);
+    .vbanner{position:fixed;top:calc(70px + var(--top-padding, 0px));left:50%;transform:translateX(-50%);
              padding:10px 24px;border-radius:8px;font-size:14px;
              font-weight:600;z-index:9999;color:#fff;
              animation:fadeout 3s forwards;pointer-events:none}
@@ -317,27 +317,32 @@
     </div>
     <h1>Proctored Exam</h1>
     <p>Enter your Roll Number to begin</p>
+    <form id="login-form" onsubmit="return false;" role="form" aria-label="Exam login">
     <div class="fg">
-      <label>Roll Number</label>
+      <label for="roll-input">Roll Number</label>
       <input type="text" id="roll-input"
              placeholder="e.g. CS2024001"
              autocomplete="off" spellcheck="false"
+             aria-required="true" aria-describedby="login-err"
              oninput="this.value=this.value.toUpperCase().trim();clearLoginErr()"
-             onkeydown="if(event.key==='Enter')doLogin()">
+             onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin()}">
     </div>
     <div class="fg">
-      <label>Exam Access Code <span style="font-size:11px;color:#8b949e;font-weight:400">(from your examiner)</span></label>
+      <label for="code-input">Exam Access Code <span style="font-size:11px;color:#8b949e;font-weight:400">(from your examiner)</span></label>
       <input type="text" id="code-input"
              placeholder="e.g. ABC123"
              autocomplete="off" spellcheck="false"
+             aria-required="true" aria-describedby="login-err"
              style="text-transform:uppercase;letter-spacing:2px;font-family:monospace;font-weight:700"
              oninput="this.value=this.value.toUpperCase().trim();clearLoginErr()"
-             onkeydown="if(event.key==='Enter')doLogin()">
+             onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin()}">
     </div>
-    <button class="btn" id="login-btn" onclick="doLogin()">
+    <button class="btn" id="login-btn" type="button" onclick="doLogin()"
+            role="button" aria-label="Verify credentials and continue">
       Verify & Continue
     </button>
-    <div class="err" id="login-err"></div>
+    </form>
+    <div class="err" id="login-err" role="alert" aria-live="polite"></div>
     <div class="ldr" id="login-ldr"></div>
   </div>
 </div>
@@ -497,19 +502,22 @@
       </div>
     </div>
     <div class="emain">
-      <div class="qnum" id="qnum">Question 1 of 1</div>
-      <img class="qimg" id="qimg" alt="" style="display:none">
+      <div class="qnum" id="qnum" role="heading" aria-level="2">Question 1 of 1</div>
+      <img class="qimg" id="qimg" alt="Question diagram" style="display:none">
       <div class="qtxt" id="qtxt">Loading...</div>
       <div class="qhint" id="qhint"></div>
-      <div class="opts" id="qopts"></div>
-      <div class="enav">
+      <div class="opts" id="qopts" role="radiogroup" aria-label="Answer options"></div>
+      <div class="enav" role="navigation" aria-label="Question navigation">
         <button class="bnav bprev" id="btn-prev"
-                onclick="prevQ()">← Previous</button>
+                onclick="prevQ()" type="button"
+                aria-label="Go to previous question">← Previous</button>
         <button class="bnav bnext" id="btn-next"
-                onclick="nextQ()">Next →</button>
+                onclick="nextQ()" type="button"
+                aria-label="Go to next question">Next →</button>
         <button class="bnav bsub"  id="btn-sub"
-                onclick="confirmSub()"
-                style="display:none">Submit Exam ✓</button>
+                onclick="confirmSub()" type="button"
+                style="display:none"
+                aria-label="Submit exam">Submit Exam ✓</button>
       </div>
     </div>
   </div>
@@ -517,28 +525,34 @@
 </div>
 
 <!-- DONE -->
-<div class="screen" id="screen-done">
+<div class="screen" id="screen-done" role="main" aria-label="Exam completion">
   <div class="dcard">
     <h2 id="done-heading" class="ok">Exam Submitted</h2>
     <p id="done-subtext">Your answers have been saved securely.</p>
-    <div class="score" id="final-score">-/-</div>
+    <div class="score" id="final-score" aria-label="Final score">-/-</div>
     <p id="done-note" style="margin-top:20px;font-size:13px">
       Your examiner will share results with you directly.
     </p>
     <button class="btn" id="retry-submit-btn"
             style="display:none;margin-top:16px"
-            onclick="retrySubmit()">Retry Submission</button>
-    <div class="countdown" id="countdown">
+            onclick="retrySubmit()" type="button"
+            aria-label="Retry exam submission">Retry Submission</button>
+    <div class="countdown" id="countdown" aria-live="polite">
       Closing in 5 seconds...
     </div>
   </div>
 </div>
 
-<div class="axit" onclick="adminExit()">⚙</div>
-<div class="panic-link" id="panic-link" onclick="panicUnlock()">Emergency unlock</div>
+<div class="axit" onclick="adminExit()" role="button" tabindex="0" aria-label="Admin exit">⚙</div>
+<div class="panic-link" id="panic-link" onclick="panicUnlock()" role="button" tabindex="0"
+     aria-label="Emergency unlock — release kiosk mode">Emergency unlock</div>
 
 <script>
-const SERVER = 'https://app.procta.net';
+// Server URL is fetched from the Electron main process via IPC so it
+// respects the PROCTOR_SERVER_URL env var and works in dev/prod.
+const SERVER = (window.proctor && window.proctor.getServerUrl)
+  ? window.proctor.getServerUrl()
+  : 'https://app.procta.net';
 
 let student=null, sessionId=null, questions=[], answers={};
 let studentToken=null;
@@ -584,6 +598,27 @@ function _persistAnswers(){
 // pending debounced write would lose the last keystrokes otherwise.
 window.addEventListener('beforeunload', _persistAnswersNow);
 window.addEventListener('pagehide', _persistAnswersNow);
+
+// ── Keyboard navigation for the exam screen ───────────────────────
+document.addEventListener('keydown', function(e) {
+  // Only active on the exam screen; skip if an input/textarea is focused
+  const exam = document.getElementById('screen-exam');
+  if (!exam || !exam.classList.contains('active')) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    e.preventDefault(); prevQ();
+  } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+    e.preventDefault(); nextQ();
+  } else if (e.key >= '1' && e.key <= '4') {
+    // Quick-select answer option by number key
+    const idx = parseInt(e.key, 10) - 1;
+    const opts = document.querySelectorAll('#qopts .opt');
+    if (opts[idx]) { opts[idx].click(); }
+  }
+});
+
 function _loadLocalAnswers(){
   if(!sessionId) return {};
   try{
@@ -670,7 +705,9 @@ function _mountPracticeBanner(){
     + 'border-bottom:1px solid rgba(0,0,0,.15)';
   document.body.appendChild(b);
   // Push the rest of the UI down so the banner doesn't overlap content.
+  // Also set a CSS variable so fixed-position elements (vbanner) adjust.
   document.body.style.paddingTop = '32px';
+  document.body.style.setProperty('--top-padding', '32px');
 }
 
 function showBanner(msg, color){
@@ -1565,6 +1602,8 @@ function renderQ(){
     ta.placeholder='Write your answer here…';
     ta.value=String(answers[q.id]||'');
     ta.style.cssText='width:100%;min-height:140px;padding:12px;border-radius:10px;border:1px solid var(--border, #2a2f3a);background:var(--card, #161a22);color:inherit;font:inherit;line-height:1.5;resize:vertical';
+    ta.setAttribute('aria-label', `Answer for question ${curQ + 1}`);
+    ta.setAttribute('aria-describedby', 'qhint');
     let _saveTimer=null;
     ta.addEventListener('input', ()=>{
       const v=ta.value;
@@ -1599,10 +1638,15 @@ function renderQ(){
     return;
   }
   const selected=ansSet(q.id);
-  Object.entries(q.options).forEach(([l,t])=>{
+  Object.entries(q.options).forEach(([l,t], idx)=>{
     const d=document.createElement('div');
     d.className='opt'+(selected.has(l)?' sel':'');
+    d.setAttribute('role', 'radio');
+    d.setAttribute('aria-checked', selected.has(l) ? 'true' : 'false');
+    d.setAttribute('aria-label', `Option ${l}: ${t}`);
+    d.setAttribute('tabindex', '0');
     d.onclick=()=>selAns(l);
+    d.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();selAns(l);} };
     const lbl=document.createElement('div');
     lbl.className='oltr';
     lbl.textContent=l;

@@ -1,6 +1,9 @@
 services:
   api:
+    # Local dev: build from Dockerfile.  In CI deploy the `image:` line
+    # takes precedence (GHCR tag pushed by the deploy workflow).
     build: .
+    # image: ghcr.io/${GITHUB_REPOSITORY:-user/repo}-api:main
     container_name: proctor-api
     restart: unless-stopped
     expose:
@@ -15,8 +18,12 @@ services:
     volumes:
       - ./screenshots:/app/screenshots
       - ./logs:/data/logs
-    mem_limit: 1200m       # 1 async worker; leaves ~600 MB for Caddy + Redis + OS
-    memswap_limit: 1200m   # don't let it silently spill into swap
+    deploy:
+      resources:
+        limits:
+          memory: 1000m       # 2 async workers; ~500 MB each
+          cpus: "1.5"         # leave 0.5 CPU for Caddy + Redis on 2GB droplet
+    memswap_limit: 1000m      # don't let them silently spill into swap
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -40,7 +47,11 @@ services:
       - ./app/static:/srv/static:ro
       - caddy_data:/data
       - caddy_config:/config
-    mem_limit: 128m
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.3"
     memswap_limit: 128m
     depends_on:
       # Wait for the API healthcheck to pass before Caddy starts —
@@ -63,7 +74,11 @@ services:
     restart: unless-stopped
     expose:
       - "6379"
-    mem_limit: 96m
+    deploy:
+      resources:
+        limits:
+          memory: 96m
+          cpus: "0.2"
     memswap_limit: 96m
     logging:
       driver: "json-file"

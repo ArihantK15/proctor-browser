@@ -22,37 +22,57 @@ os.environ.setdefault("SCREENSHOTS_DIR", "/tmp/procta_test_screenshots")
 os.environ.setdefault("QUESTION_IMG_DIR", "/tmp/procta_test_qimages")
 
 # ── Mock heavy dependencies before they're imported by app code ─────
-# Supabase client
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+# Supabase client — shared mock referenced by ALL modules
 _mock_supabase = MagicMock()
 _mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
 _mock_supabase.table.return_value.select.return_value.execute.return_value = MagicMock(data=[])
 _mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
 _mock_supabase.table.return_value.upsert.return_value.execute.return_value = MagicMock(data=[])
 
-# Pre-populate sys.modules so `from database import supabase` resolves
+# Pre-populate sys.modules so `from .database import supabase` resolves
 mock_database = MagicMock()
 mock_database.supabase = _mock_supabase
 mock_database.async_table = MagicMock()
-sys.modules["database"] = mock_database
+sys.modules["app.database"] = mock_database
 
 # Mock logger
 mock_logger_mod = MagicMock()
 mock_logger_mod.get_logger.return_value = MagicMock()
-sys.modules["logger"] = mock_logger_mod
+sys.modules["app.logger"] = mock_logger_mod
 
 # Mock redis-dependent modules
 mock_event_bus = MagicMock()
 mock_event_bus.publish = MagicMock()
 mock_event_bus.async_publish = AsyncMock()
 mock_event_bus.subscribe = MagicMock()
-sys.modules["event_bus"] = mock_event_bus
+sys.modules["app.event_bus"] = mock_event_bus
 
 mock_cache = MagicMock()
 mock_cache.get.return_value = None
 mock_cache.set = MagicMock()
 mock_cache.delete = MagicMock()
 mock_cache.delete_pattern = MagicMock()
-sys.modules["cache"] = mock_cache
+mock_cache.set_live_frame = MagicMock()
+sys.modules["app.cache"] = mock_cache
+
+# Mock emailer module
+mock_emailer = MagicMock()
+mock_emailer.send_invite_email.return_value = MagicMock(ok=True, provider_msg_id="test-msg-id")
+mock_emailer.verify_webhook.side_effect = lambda body, headers: bool(headers.get("svix-signature"))
+mock_emailer._reset_backend_for_tests = MagicMock()
+sys.modules["app.emailer"] = mock_emailer
+
+
+def shared_supabase_mock():
+    """Return the shared supabase mock that ALL modules reference.
+
+    Because every router imports supabase from dependencies (which imports
+    from app.database), all code paths share this single MagicMock instance.
+    Patch *this* object to affect every module at once.
+    """
+    return _mock_supabase
 
 # Now we can import from the app
 from fastapi.testclient import TestClient
@@ -113,8 +133,7 @@ def make_admin_token(teacher_id: str = "teacher-1", email: str = "prof@test.com"
 @pytest.fixture
 def client():
     """FastAPI test client with mocked dependencies."""
-    # Import app here to pick up the mocked modules
-    from main import app
+    from app.main import app
     return TestClient(app, raise_server_exceptions=False)
 
 

@@ -22,10 +22,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from conftest import make_admin_token  # noqa: E402
+from tests.conftest import shared_supabase_mock,  make_admin_token  # noqa: E402
 
 
 @pytest.fixture
@@ -107,7 +106,6 @@ class TestForensicsTimeline:
         """Happy path for the Forensics Timeline button on Results rows:
         a completed session should yield every violation as a timeline
         entry with severity, type, and a formatted timestamp."""
-        import main
         stub = _TimelineSupabaseStub(
             sessions=[{
                 "session_key":  "sess_alice_1",
@@ -127,11 +125,11 @@ class TestForensicsTimeline:
                 _viol("heartbeat", "low", vid=3),  # non-violation event
             ],
         )
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "_collect_session_screenshots",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.admin._collect_session_screenshots",
                           return_value={}) as _coll:
-            mock_sb.table.side_effect = stub
-            r = client.get("/api/admin/timeline/sess_alice_1",
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/timeline/sess_alice_1",
                            headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
@@ -153,7 +151,6 @@ class TestForensicsTimeline:
     def test_in_progress_session_still_returns_timeline(self, client, admin_headers):
         """The Timeline button on the LIVE tab must work — an in-progress
         session with a valid row should return events, not 404."""
-        import main
         stub = _TimelineSupabaseStub(
             sessions=[{
                 "session_key": "sess_bob_1",
@@ -166,11 +163,11 @@ class TestForensicsTimeline:
             violations=[_viol("window_focus_lost", "medium", vid=10)],
         )
         stub.violations[0]["session_key"] = "sess_bob_1"
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "_collect_session_screenshots",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.admin._collect_session_screenshots",
                           return_value={}):
-            mock_sb.table.side_effect = stub
-            r = client.get("/api/admin/timeline/sess_bob_1",
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/timeline/sess_bob_1",
                            headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
@@ -184,18 +181,17 @@ class TestForensicsTimeline:
         teacher-scoped fallback in _assert_session_owned should still
         let the teacher open the timeline. This is the bug that broke
         right after the multi-tenant migration (main.py:1213)."""
-        import main
         v = _viol("id_verification", "low", vid=42)
         v["session_key"] = "sess_new_student"
         stub = _TimelineSupabaseStub(
             sessions=[],  # no exam_sessions row at all
             violations=[v],
         )
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "_collect_session_screenshots",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.admin._collect_session_screenshots",
                           return_value={}):
-            mock_sb.table.side_effect = stub
-            r = client.get("/api/admin/timeline/sess_new_student",
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/timeline/sess_new_student",
                            headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
@@ -209,7 +205,6 @@ class TestForensicsTimeline:
     def test_cross_tenant_access_is_denied(self, client, admin_headers):
         """Teacher A must never read teacher B's timeline — the ownership
         assertion should 404, not leak the session."""
-        import main
         stub = _TimelineSupabaseStub(
             sessions=[{
                 "session_key": "sess_victim_1",
@@ -222,11 +217,11 @@ class TestForensicsTimeline:
                               teacher_id="teacher-OTHER")],
         )
         stub.violations[0]["session_key"] = "sess_victim_1"
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "_collect_session_screenshots",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.admin._collect_session_screenshots",
                           return_value={}):
-            mock_sb.table.side_effect = stub
-            r = client.get("/api/admin/timeline/sess_victim_1",
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/timeline/sess_victim_1",
                            headers=admin_headers)
         assert r.status_code == 404, (
             f"Cross-tenant access must 404 — got {r.status_code} with "
@@ -235,9 +230,8 @@ class TestForensicsTimeline:
 
     def test_screenshot_pairing_stamps_urls(self, client, admin_headers):
         """When a violation has a matching screenshot on disk, the
-        endpoint should stamp a /api/admin/screenshot/... URL onto that
+        endpoint should stamp a /api/v1/admin/screenshot/... URL onto that
         event so the dashboard can render the thumbnail inline."""
-        import main
         stub = _TimelineSupabaseStub(
             sessions=[{
                 "session_key": "sess_alice_2",
@@ -250,13 +244,13 @@ class TestForensicsTimeline:
         )
         stub.violations[0]["session_key"] = "sess_alice_2"
         fake_screenshot = Path("face_missing_20260420_100005.jpg")
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "_collect_session_screenshots",
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.admin._collect_session_screenshots",
                           return_value={fake_screenshot.name: fake_screenshot}), \
-             patch.object(main, "_match_screenshot_for_violation",
+             patch("app.routers.admin._match_screenshot_for_violation",
                           return_value=fake_screenshot):
-            mock_sb.table.side_effect = stub
-            r = client.get("/api/admin/timeline/sess_alice_2",
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/timeline/sess_alice_2",
                            headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
@@ -266,5 +260,5 @@ class TestForensicsTimeline:
             "was found — the dashboard relies on this field to render "
             "thumbnails inline next to the event."
         )
-        assert event["screenshot"].startswith("/api/admin/screenshot/alice/")
+        assert event["screenshot"].startswith("/api/v1/admin/screenshot/alice/")
         assert event["screenshot"].endswith(fake_screenshot.name)

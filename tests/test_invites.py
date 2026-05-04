@@ -29,13 +29,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 os.environ.setdefault("EMAIL_PROVIDER", "noop")
 os.environ.setdefault("INVITE_BASE_URL", "https://app.procta.net")
 
-from conftest import make_admin_token  # noqa: E402
+from tests.conftest import shared_supabase_mock,  make_admin_token  # noqa: E402
 
 
 @pytest.fixture
@@ -173,10 +172,10 @@ class _InviteStub:
 
 
 # ── Fixtures ───────────────────────────────────────────────────────
-def _patch(main, stub, cap=None):
-    patches = [patch.object(main, "supabase")]
+def _patch(stub, cap=None):
+    patches = [patch.object(shared_supabase_mock(), "table")]
     if cap is not None:
-        patches.append(patch.object(main, "INVITE_DAILY_CAP", cap))
+        patches.append(patch("app.dependencies.INVITE_DAILY_CAP", cap))
     return patches
 
 
@@ -184,15 +183,14 @@ def _patch(main, stub, cap=None):
 class TestSendInvites:
 
     def test_happy_path_creates_and_sends(self, client, admin_headers):
-        import main
         stub = _InviteStub(students=[{
             "roll_number": "ALICE01", "teacher_id": "teacher-1",
             "full_name": "Alice", "email": "alice@school.edu",
         }])
-        patches = _patch(main, stub)
-        with patches[0] as mock_sb:
-            mock_sb.table.side_effect = stub
-            r = client.post("/api/admin/invites/send",
+        patches = _patch(stub)
+        with patches[0] as mock_table:
+            mock_table.side_effect = stub
+            r = client.post("/api/v1/admin/invites/send",
                 headers=admin_headers,
                 json={
                     "recipients": [
@@ -216,16 +214,15 @@ class TestSendInvites:
     def test_resend_is_idempotent(self, client, admin_headers):
         """Two sends to the same (teacher, email, exam) must upsert —
         the row count stays at 1 and the token rotates."""
-        import main
         stub = _InviteStub()
-        with patch.object(main, "supabase") as mock_sb:
-            mock_sb.table.side_effect = stub
-            r1 = client.post("/api/admin/invites/send", headers=admin_headers,
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
+            r1 = client.post("/api/v1/admin/invites/send", headers=admin_headers,
                 json={"recipients": [{"email": "bob@x.com", "full_name": "Bob",
                       "roll_number": "BOB1"}], "exam_id": "exam-1"})
             assert r1.status_code == 200, r1.text
             first_token = stub.invites[0]["token"]
-            r2 = client.post("/api/admin/invites/send", headers=admin_headers,
+            r2 = client.post("/api/v1/admin/invites/send", headers=admin_headers,
                 json={"recipients": [{"email": "bob@x.com", "full_name": "Bob",
                       "roll_number": "BOB1"}], "exam_id": "exam-1"})
             assert r2.status_code == 200, r2.text
@@ -235,20 +232,19 @@ class TestSendInvites:
         )
 
     def test_daily_cap_rejects_oversized_batch(self, client, admin_headers):
-        import main
         stub = _InviteStub(counters=[{
             "teacher_id": "teacher-1",
-            "day": datetime.utcnow().date().isoformat(),
+            "day": datetime.now(timezone.utc).date().isoformat(),
             "count": 498,
         }])
-        with patch.object(main, "supabase") as mock_sb, \
-             patch.object(main, "INVITE_DAILY_CAP", 500):
-            mock_sb.table.side_effect = stub
-            r = client.post("/api/admin/invites/send", headers=admin_headers,
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.dependencies.INVITE_DAILY_CAP", 500):
+            mock_table.side_effect = stub
+            r = client.post("/api/v1/admin/invites/send", headers=admin_headers,
                 json={"recipients": [
                     {"email": f"s{i}@x.com", "full_name": f"S{i}",
                      "roll_number": f"R{i}"} for i in range(5)
-                ]})
+                ], "exam_id": "exam-1"})
         assert r.status_code == 429, r.text
         assert "cap" in r.text.lower()
 
@@ -256,16 +252,14 @@ class TestSendInvites:
 class TestInviteLanding:
 
     def test_404_for_unknown_token(self, client):
-        import main
         stub = _InviteStub()
-        with patch.object(main, "supabase") as mock_sb:
-            mock_sb.table.side_effect = stub
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
             r = client.get("/invite/nonexistent-token-abcdef")
         assert r.status_code == 404
         assert "invalid" in r.text.lower() or "revoked" in r.text.lower()
 
     def test_200_marks_opened(self, client):
-        import main
         stub = _InviteStub(invites=[{
             "id": "i1", "token": "tok-open-1",
             "teacher_id": "teacher-1", "roll_number": "ALICE01",
@@ -275,8 +269,8 @@ class TestInviteLanding:
             "opened_at": None, "access_code": "HAPPY1",
             "expires_at": _iso(datetime.now(timezone.utc) + timedelta(days=5)),
         }])
-        with patch.object(main, "supabase") as mock_sb:
-            mock_sb.table.side_effect = stub
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
             r = client.get("/invite/tok-open-1")
         assert r.status_code == 200, r.text
         assert "Alice" in r.text
@@ -287,20 +281,18 @@ class TestInviteLanding:
         assert stub.invites[0]["status"] == "opened"
 
     def test_410_for_revoked(self, client):
-        import main
         stub = _InviteStub(invites=[{
             "id": "i2", "token": "tok-revoked",
             "teacher_id": "teacher-1", "roll_number": "R2",
             "email": "r@x.com", "full_name": "R",
             "exam_id": "exam-1", "status": "revoked",
         }])
-        with patch.object(main, "supabase") as mock_sb:
-            mock_sb.table.side_effect = stub
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
             r = client.get("/invite/tok-revoked")
         assert r.status_code == 410
 
     def test_410_for_expired(self, client):
-        import main
         stub = _InviteStub(invites=[{
             "id": "i3", "token": "tok-expired",
             "teacher_id": "teacher-1", "roll_number": "R3",
@@ -308,8 +300,8 @@ class TestInviteLanding:
             "exam_id": "exam-1", "status": "sent",
             "expires_at": _iso(datetime.now(timezone.utc) - timedelta(days=1)),
         }])
-        with patch.object(main, "supabase") as mock_sb:
-            mock_sb.table.side_effect = stub
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
             r = client.get("/invite/tok-expired")
         assert r.status_code == 410
         assert "expired" in r.text.lower()
@@ -318,7 +310,7 @@ class TestInviteLanding:
 class TestWebhook:
 
     def test_unsigned_webhook_rejected(self, client):
-        r = client.post("/api/webhooks/email",
+        r = client.post("/api/v1/webhooks/email",
             content=json.dumps({"type": "email.bounced",
                                 "data": {"email_id": "x"}}))
         assert r.status_code == 403
@@ -339,7 +331,7 @@ class TestWebhook:
         emailer.verify_webhook actually expects after the Phase 10
         rewrite — anything else returns 403 forbidden.
         """
-        import main, emailer
+        from app import emailer
         import base64, time
         # Use a `whsec_`-prefixed secret because that's the format
         # Resend distributes; verify_webhook base64-decodes the part
@@ -370,9 +362,9 @@ class TestWebhook:
             sig_b64 = base64.b64encode(mac).decode()
             # Header format: "v1,<sig>" — multiple sigs space-separated.
             sig = f"v1,{sig_b64}"
-            with patch.object(main, "supabase") as mock_sb:
-                mock_sb.table.side_effect = stub
-                r = client.post("/api/webhooks/email", content=body,
+            with patch.object(shared_supabase_mock(), "table") as mock_table:
+                mock_table.side_effect = stub
+                r = client.post("/api/v1/webhooks/email", content=body,
                                 headers={"svix-id": svix_id,
                                          "svix-timestamp": svix_ts,
                                          "svix-signature": sig,
@@ -389,25 +381,23 @@ class TestWebhook:
 class TestRevoke:
 
     def test_revoke_flips_status(self, client, admin_headers):
-        import main
         stub = _InviteStub(invites=[{
             "id": "rev1", "token": "tok-x",
             "teacher_id": "teacher-1", "roll_number": "R",
             "email": "r@x.com", "full_name": "R",
             "exam_id": "exam-1", "status": "sent",
         }])
-        with patch.object(main, "supabase") as mock_sb:
-            mock_sb.table.side_effect = stub
-            r = client.delete("/api/admin/invites/rev1", headers=admin_headers)
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
+            r = client.delete("/api/v1/admin/invites/rev1", headers=admin_headers)
         assert r.status_code == 200, r.text
         assert stub.invites[0]["status"] == "revoked"
 
     def test_revoke_unknown_invite_404(self, client, admin_headers):
-        import main
         stub = _InviteStub()
-        with patch.object(main, "supabase") as mock_sb:
-            mock_sb.table.side_effect = stub
-            r = client.delete("/api/admin/invites/does-not-exist",
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
+            r = client.delete("/api/v1/admin/invites/does-not-exist",
                               headers=admin_headers)
         assert r.status_code == 404
 
@@ -415,7 +405,6 @@ class TestRevoke:
 class TestListInvites:
 
     def test_list_returns_invite_urls(self, client, admin_headers):
-        import main
         stub = _InviteStub(invites=[{
             "id": "l1", "token": "tok-list-1",
             "teacher_id": "teacher-1", "roll_number": "R1",
@@ -427,9 +416,9 @@ class TestListInvites:
             "email": "r2@x.com", "full_name": "R2",
             "exam_id": "exam-1", "status": "bounced",
         }])
-        with patch.object(main, "supabase") as mock_sb:
-            mock_sb.table.side_effect = stub
-            r = client.get("/api/admin/invites", headers=admin_headers)
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/invites", headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
         assert len(d["invites"]) == 2

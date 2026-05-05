@@ -138,14 +138,11 @@ class YoloWorker:
             self._thread.join(timeout=2)
             self._thread = None
 
-    def submit(self, frame: np.ndarray, frame_count: int):
+    def submit(self, frame: np.ndarray, frame_count: int, W: int, H: int):
         """Queue a frame for YOLO inference (non-blocking)."""
         try:
-            # Downscale before sending to the worker — saves queue memory
-            # and keeps the worker's cv2.resize call (which we removed)
-            # from being duplicated.
             small = cv2.resize(frame, (416, 416))
-            self.frame_q.put_nowait((small, frame_count))
+            self.frame_q.put_nowait((small, frame_count, W, H))
         except Exception:
             pass  # queue full, skip this frame
 
@@ -166,17 +163,24 @@ class YoloWorker:
 
         while not self._stop.is_set():
             try:
-                small, frame_count = self.frame_q.get(timeout=0.5)
+                small, frame_count, W, H = self.frame_q.get(timeout=0.5)
             except Empty:
                 continue
 
             try:
                 res = model(small, verbose=False, conf=YOLO_CONFIDENCE)[0]
                 detections = []
+                h, w = small.shape[:2]
                 for box in res.boxes:
                     cls_id = int(box.cls[0])
                     if cls_id in CHEAT_IDS:
-                        detections.append((CHEAT_IDS[cls_id], float(box.conf[0])))
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        detections.append((
+                            CHEAT_IDS[cls_id],
+                            float(box.conf[0]),
+                            int(x1 * W / w), int(y1 * H / h),
+                            int(x2 * W / w), int(y2 * H / h),
+                        ))
                 self.result_q.put_nowait({
                     "frame_count": frame_count,
                     "detections": detections,
@@ -202,8 +206,8 @@ yolo_worker = YoloWorker()
 # runs YOLO on each tile at full resolution, then merges detections.
 # This dramatically improves recall for small objects like earbuds without
 # retraining the model. Runs on a separate background thread.
-
-SAHI_EVERY_N = YOLO_EVERY_N * 3  # run SAHI every 3rd YOLO cycle (15 frames)
+# SAHI_EVERY_N is defined after YOLO_EVERY_N (line ~634) to avoid
+# forward-reference errors at module load time.
 
 class SahiYoloWorker:
     """Background thread that runs SAHI-tiled YOLO inference.
@@ -314,7 +318,7 @@ class SahiYoloWorker:
                 merged = self._nms_merge(all_dets)
                 self.result_q.put_nowait({
                     "frame_count": frame_count,
-                    "detections": [(name, conf) for name, conf, _, _, _, _ in merged],
+                    "detections": merged,
                     "error": None,
                 })
             except Exception as e:
@@ -523,6 +527,13 @@ CONFIDENCE = {
     "voice_detected":        0.75,
     "earphone_detected":     0.72,
     "face_too_small":        0.80,
+    "cheat_phone_in_hand":   0.90,
+    "cheat_phone_on_desk":   0.85,
+    "sustained_voice":       0.88,
+    "conversation_detected": 0.92,
+    "virtual_camera_detected": 0.95,
+    "screen_share_feed":     0.90,
+    "vm_detected":           0.85,
 }
 
 # ─── THRESHOLDS ───────────────────────────────────────────────────────────────
@@ -548,6 +559,21 @@ HEAD_YAW_THRESHOLD    = 22     # degrees from calibrated centre (medium)
 HEAD_PITCH_THRESHOLD  = 28
 HEAD_YAW_EXTREME      = 40     # clearly turned away from monitor (high)
 HEAD_PITCH_EXTREME    = 45
+PHONE_HAND_RATIO         = 0.50  # phone center above this fraction of face bottom = in-hand
+PHONE_DESK_Y_RATIO       = 0.65  # phone center below this fraction of frame height = on-desk
+
+# ─── VIOLATION SEVERITY ESCALATION ────────────────────────────────────────────
+# When the same violation type repeats, severity auto-escalates:
+#   1st offense → original severity
+#   2nd offense (within window) → +1 tier (medium→high, high→critical)
+#   3+ offenses (within window) → critical
+ESCALATION_WINDOW_SECS = 300  # 5-minute window for repeat offenses
+ESCALATION_TIERS = {
+    "low":    "medium",
+    "medium": "high",
+    "high":   "critical",
+    "critical": "critical",  # ceiling
+}
 
 # ─── PER-STUDENT THRESHOLD OVERRIDES (from edge-dot calibration) ─────────────
 # When the renderer's dot-calibration measures how far a student's gaze/head
@@ -606,8 +632,13 @@ WARMUP_GRACE_FRAMES   = 30     # ~1s — faster perceived camera startup
 YOLO_CONFIDENCE     = 0.35
 YOLO_MIN_FRAMES     = 2
 YOLO_EVERY_N        = 5
+SAHI_EVERY_N        = YOLO_EVERY_N * 3  # run SAHI every 3rd YOLO cycle (15 frames)
 VOICE_THRESHOLD     = float(os.getenv("PROCTOR_VOICE_THRESHOLD", "0.035"))
 VOICE_SUSTAINED_SECS = 8.0
+SUSTAINED_VOICE_SECS = 20.0   # flag if voice continues for 20s+
+CONVERSATION_BURSTS  = 4      # min bursts with short gaps to flag conversation
+CONVERSATION_WINDOW  = 45.0   # seconds window to observe conversation pattern
+CONVERSATION_GAP_MAX = 3.0    # max silence between bursts for "turn-taking"
 WRONG_PERSON_THRESHOLD = float(os.getenv("PROCTOR_WRONG_PERSON_THRESHOLD", "0.25"))
 TARGET_FPS          = 15
 FACE_MIN_SIZE       = 50  # min face height/width px (student too far)
@@ -659,6 +690,29 @@ CHEAT_IDS = {
     66: "Keyboard",
     62: "TV",
 }
+
+def classify_phone_position(phone_box: Tuple[int, int, int, int],
+                            face_bbox: Optional[Tuple[int, int, int, int]],
+                            frame_h: int) -> str:
+    """Classify phone as 'phone_in_hand' or 'phone_on_desk' based on position.
+    
+    If the phone's center is above ~50% of the face bottom, the student is
+    likely holding it (critical severity). If it's below ~65% of frame height,
+    it's resting on the desk (high severity).
+    """
+    px1, py1, px2, py2 = phone_box
+    phone_center_y = (py1 + py2) / 2
+    
+    if face_bbox is not None:
+        _, fy1, _, fy2 = face_bbox
+        face_bottom = fy2
+        if phone_center_y < face_bottom * PHONE_HAND_RATIO:
+            return "phone_in_hand"
+    
+    if phone_center_y > frame_h * PHONE_DESK_Y_RATIO:
+        return "phone_on_desk"
+    
+    return "phone_on_desk"
 
 # ─── SERVER LOGGING ───────────────────────────────────────────────────────────
 session_start = time.time()
@@ -726,7 +780,7 @@ _ws_last_attempt = 0.0
 _WS_MAX_BACKOFF = 30
 
 def _get_ws():
-    global _ws_backoff, _ws_last_attempt
+    global _ws_conn, _ws_backoff, _ws_last_attempt
     with _ws_lock:
         if _ws_conn is not None:
             return _ws_conn
@@ -1060,6 +1114,232 @@ def audio_thread():
 threading.Thread(target=audio_thread, daemon=True).start()
 time.sleep(1.5)
 
+# ─── VIRTUAL WEBCAM / SCREEN-SHARE DETECTION ─────────────────────────────────
+# Detects when the student uses a virtual camera (OBS, ManyCam, etc.) instead
+# of a physical webcam, which could be used to feed pre-recorded or
+# manipulated footage. Also detects screen-share-like feeds.
+
+VIRTUAL_CAM_KEYWORDS = [
+    "obs", "manycam", "snap camera", "cama", "manyCam",
+    "virtual", "fake", "splitcam", "youcam", "perfect camera",
+    "cyberlink", "xsplit", "vcam", "e2eSoft", "broadcastcam",
+    "manyCam Virtual", "OBS Virtual", "Unity Capture",
+    "NVIDIA Broadcast", "streamlabs", "prism",
+]
+
+def _detect_virtual_camera():
+    """Check if the active camera is a known virtual webcam."""
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            import subprocess
+            result = subprocess.run(
+                ["system_profiler", "SPCameraDataType"],
+                capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for keyword in VIRTUAL_CAM_KEYWORDS:
+                    if keyword.lower() in result.stdout.lower():
+                        return keyword
+        elif system == "Windows":
+            import subprocess
+            result = subprocess.run(
+                ["wmic", "path", "Win32_PnPEntity",
+                 "where", "PNPClass='Media'", "get", "Name"],
+                capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for keyword in VIRTUAL_CAM_KEYWORDS:
+                    if keyword.lower() in result.stdout.lower():
+                        return keyword
+    except Exception:
+        pass
+    return None
+
+def _detect_screen_share_feed(frame: np.ndarray) -> Optional[str]:
+    """Heuristic: detect if camera frame looks like a screen capture.
+    
+    Screen shares tend to have:
+    - High edge density (UI elements, text)
+    - Many sharp rectangular boundaries
+    - Very low noise (digital source, not optical)
+    """
+    try:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Edge density via Canny
+        edges = cv2.Canny(gray, 50, 150)
+        edge_ratio = np.sum(edges > 0) / (edges.shape[0] * edges.shape[1])
+        
+        # Noise level (std of Laplacian — camera feeds have optical noise,
+        # screen captures are much cleaner)
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+        
+        # Screen-like: high edge density + very low noise
+        if edge_ratio > 0.15 and laplacian_var < 50:
+            return f"screen_like (edge:{edge_ratio:.2f} noise:{laplacian_var:.0f})"
+    except Exception:
+        pass
+    return None
+
+_virtual_camera_name = _detect_virtual_camera()
+if _virtual_camera_name:
+    print(f"[VIRTUAL CAM] ⚠ Virtual camera detected: '{_virtual_camera_name}'")
+    log_event("virtual_camera_detected", "critical",
+              f"Virtual webcam: {_virtual_camera_name}")
+else:
+    print("[VIRTUAL CAM] ✅ Physical webcam confirmed")
+
+# ─── VM / SANDBOX DETECTION ──────────────────────────────────────────────────
+# Checks for common virtual machine and sandbox indicators. Students running
+# the proctor inside a VM could bypass restrictions or share the host's screen.
+
+VM_INDICATORS = [
+    "vmware", "virtualbox", "vbox", "parallels", "hyper-v",
+    "qemu", "kvm", "xen", "bochs", "virtio", "vmm",
+]
+
+def _detect_vm() -> Optional[str]:
+    """Check for virtual machine indicators."""
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            import subprocess
+            result = subprocess.run(
+                ["sysctl", "-a"], capture_output=True,
+                text=True, timeout=5)
+            if result.returncode == 0:
+                for indicator in VM_INDICATORS:
+                    if indicator in result.stdout.lower():
+                        return indicator
+            # Also check for VM-specific hardware
+            result = subprocess.run(
+                ["system_profiler", "SPHardwareDataType"],
+                capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for indicator in VM_INDICATORS:
+                    if indicator in result.stdout.lower():
+                        return indicator
+        elif system == "Windows":
+            import subprocess
+            # Check BIOS serial number (VMs often use generic ones)
+            result = subprocess.run(
+                ["wmic", "bios", "get", "serialnumber"],
+                capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                out = result.stdout.lower()
+                for indicator in VM_INDICATORS:
+                    if indicator in out:
+                        return indicator
+                # Generic serial numbers are a strong VM signal
+                if "vmware" in out or "virtualbox" in out or \
+                   "0000" in out or "none" in out:
+                    return "generic_bios_serial"
+            # Check manufacturer
+            result = subprocess.run(
+                ["wmic", "computersystem", "get", "manufacturer"],
+                capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for indicator in VM_INDICATORS:
+                    if indicator in result.stdout.lower():
+                        return indicator
+    except Exception:
+        pass
+    return None
+
+_vm_name = _detect_vm()
+if _vm_name:
+    print(f"[VM DETECT] ⚠ Virtual machine indicator found: '{_vm_name}'")
+    log_event("vm_detected", "high", f"VM indicator: {_vm_name}")
+
+# ─── PRE-EXAM SYSTEM CHECK ───────────────────────────────────────────────────
+# Runs before the proctoring loop to verify all subsystems are functional.
+# Results are POSTed to the server so the teacher dashboard can show readiness.
+
+SYSTEM_CHECK_URL = SERVER_URL.replace("/event", "/api/v1/proctor/system-check")
+
+def run_system_check() -> dict:
+    """Verify camera, audio, network, and detection models."""
+    results = {
+        "session_id": SESSION_ID,
+        "timestamp": datetime.now().isoformat(),
+        "checks": {},
+        "overall": "pass",
+    }
+
+    # 1. Network connectivity
+    try:
+        _http.get(SERVER_URL.replace("/event", "/health"), timeout=5)
+        results["checks"]["network"] = {"status": "pass", "detail": "Server reachable"}
+    except Exception as e:
+        results["checks"]["network"] = {"status": "fail", "detail": str(e)}
+        results["overall"] = "fail"
+
+    # 2. Camera
+    test_cap = None
+    try:
+        test_cap = cv2.VideoCapture(0)
+        if test_cap.isOpened():
+            ret, test_frame = test_cap.read()
+            if ret and test_frame is not None:
+                h, w = test_frame.shape[:2]
+                results["checks"]["camera"] = {
+                    "status": "pass", "detail": f"Camera active ({w}x{h})"}
+            else:
+                results["checks"]["camera"] = {
+                    "status": "fail", "detail": "Camera opened but no frames"}
+                results["overall"] = "fail"
+            test_cap.release()
+        else:
+            results["checks"]["camera"] = {
+                "status": "fail", "detail": "Camera not accessible"}
+            results["overall"] = "fail"
+    except Exception as e:
+        results["checks"]["camera"] = {"status": "fail", "detail": str(e)}
+        results["overall"] = "fail"
+        if test_cap:
+            test_cap.release()
+
+    # 3. Audio
+    results["checks"]["microphone"] = {
+        "status": "pass" if AUDIO_AVAILABLE else "warn",
+        "detail": "Microphone active" if AUDIO_AVAILABLE else "Microphone unavailable — voice detection disabled"
+    }
+    if not AUDIO_AVAILABLE and results["overall"] == "pass":
+        results["overall"] = "warn"
+
+    # 4. Face detection
+    results["checks"]["face_detection"] = {
+        "status": "pass" if RETINA_AVAILABLE else "warn",
+        "detail": "RetinaFace ready" if RETINA_AVAILABLE else "Face detection disabled"
+    }
+
+    # 5. Gaze estimation
+    results["checks"]["gaze_estimation"] = {
+        "status": "pass" if GAZE_AVAILABLE else "warn",
+        "detail": "Gaze model loaded" if GAZE_AVAILABLE else "Gaze estimation disabled"
+    }
+
+    # 6. YOLO object detection
+    results["checks"]["object_detection"] = {
+        "status": "pass" if YOLO_AVAILABLE else "warn",
+        "detail": "YOLOv8 ready" if YOLO_AVAILABLE else "Object detection disabled"
+    }
+
+    # 7. Wrong-person detection
+    results["checks"]["identity_check"] = {
+        "status": "pass" if INSIGHT_AVAILABLE else "warn",
+        "detail": "InsightFace ready" if INSIGHT_AVAILABLE else "Identity check disabled"
+    }
+
+    # 8. Virtual camera check
+    if _virtual_camera_name:
+        results["checks"]["virtual_camera"] = {
+            "status": "fail", "detail": f"Virtual camera: {_virtual_camera_name}"}
+        results["overall"] = "fail"
+    else:
+        results["checks"]["virtual_camera"] = {
+            "status": "pass", "detail": "Physical webcam"}
+
+    return results
+
 # ─── FACE EMBEDDING (wrong-person detection) ──────────────────────────────────
 enrolled_embedding = None  # populated during enrollment, used in main loop
 
@@ -1371,12 +1651,18 @@ def run_proctoring(cap, W, H):
     object_history      = {}
     frame_count         = 0
     voice_start_time    = None
+    # Conversation detection: track voice burst patterns
+    _voice_burst_times  = []  # timestamps of completed voice bursts
+    _sustained_voice_start = None  # when sustained voice above threshold began
+    _silence_start      = None  # when audio dropped below threshold
+    _voice_burst_count  = 0  # number of voice activations in current window
+    _conversation_window_start = None
 
     # Lazy enrollment: when SKIP_ENROLLMENT is set the renderer ran the
     # student through enrollment in the browser UI; proctor.py still needs
     # an InsightFace embedding for wrong-person detection. Capture it on
     # the first clean frame within LAZY_ENROLL_WINDOW.
-    LAZY_ENROLL_WINDOW = 60   # ~2 seconds at 30fps
+    LAZY_ENROLL_WINDOW = 60   # ~4 seconds at 15fps
     lazy_enroll_done   = not SKIP_ENROLLMENT
 
     last_logged = {}
@@ -1392,6 +1678,81 @@ def run_proctoring(cap, W, H):
     MAX_FAILURES = 30
     _fps_history = deque(maxlen=30)
     _fps_warned = False
+    _last_face_bbox = None  # (x1, y1, x2, y2) for phone-in-hand classification
+
+    # ── Severity escalation tracking ─────────────────────────────────────
+    # Tracks (timestamp, original_severity) per violation type. Escalates
+    # when the same type fires repeatedly within ESCALATION_WINDOW_SECS.
+    _violation_history: dict[str, list] = {}
+
+    def _track_violation(etype: str):
+        """Record a violation in history for escalation tracking.
+        Always call this when a violation is detected, even if can_log()
+        is False — cooldowns shouldn't reset the repeat counter."""
+        now = time.time()
+        cutoff = now - ESCALATION_WINDOW_SECS
+        history = _violation_history.get(etype, [])
+        history = [(t, s) for t, s in history if t > cutoff]
+        history.append((now, "medium"))
+        _violation_history[etype] = history
+
+    def _get_escalated_severity(etype: str, base_severity: str) -> Tuple[str, int]:
+        """Return (escalated_severity, repeat_count) based on current history.
+        Does NOT modify history — use _track_violation for that."""
+        now = time.time()
+        cutoff = now - ESCALATION_WINDOW_SECS
+        history = _violation_history.get(etype, [])
+        history = [(t, s) for t, s in history if t > cutoff]
+        repeat_count = len(history)  # history already includes current violation if _track_violation was called
+
+        if repeat_count >= 3:
+            severity = "critical"
+        elif repeat_count == 2:
+            severity = ESCALATION_TIERS.get(base_severity, base_severity)
+        else:
+            severity = base_severity
+        return severity, repeat_count
+
+    def escalate_severity(etype: str, base_severity: str) -> Tuple[str, int]:
+        """Return (escalated_severity, repeat_count) for this violation type.
+        Also records the violation in history (for use when cooldown isn't a factor)."""
+        now = time.time()
+        cutoff = now - ESCALATION_WINDOW_SECS
+        history = _violation_history.get(etype, [])
+        history = [(t, s) for t, s in history if t > cutoff]
+        repeat_count = len(history) + 1  # +1 for current offense (not yet tracked)
+
+        if repeat_count >= 3:
+            severity = "critical"
+        elif repeat_count == 2:
+            severity = ESCALATION_TIERS.get(base_severity, base_severity)
+        else:
+            severity = base_severity
+
+        history.append((now, base_severity))
+        _violation_history[etype] = history
+        return severity, repeat_count
+
+    def log_with_escalation(etype: str, base_severity: str, details: str):
+        """Log event with auto-escalation for repeat offenses."""
+        severity, repeat = escalate_severity(etype, base_severity)
+        if repeat > 1:
+            details = f"[{repeat}x repeat] {details}"
+        log_event(etype, severity, details)
+
+    def log_if_allowed(etype: str, base_severity: str, details: str) -> bool:
+        """Track violation for escalation, log only if cooldown allows.
+        Returns True if logged. Call this in place of the can_log + log_with_escalation pattern."""
+        _track_violation(etype)
+        now = time.time()
+        if now - last_logged.get(etype, 0) >= COOLDOWN:
+            last_logged[etype] = now
+            severity, repeat = _get_escalated_severity(etype, base_severity)
+            if repeat > 1:
+                details = f"[{repeat}x repeat] {details}"
+            log_event(etype, severity, details)
+            return True
+        return False
 
     while True:
         _loop_start = time.time()
@@ -1420,6 +1781,17 @@ def run_proctoring(cap, W, H):
                 upload_live_frame(frame)
 
         frame_count += 1
+
+        # ── SCREEN-SHARE FEED DETECTION ──────────────────────────────────────
+        # Checks every 30 frames if the camera feed looks like a screen
+        # capture (high edge density, very low optical noise). Combined with
+        # the virtual webcam check at startup, this catches runtime switching.
+        if frame_count % 30 == 0:
+            screen_feed = _detect_screen_share_feed(frame)
+            if screen_feed and can_log("screen_share_feed"):
+                log_if_allowed("screen_share_feed", "critical",
+                          f"Camera feed resembles screen capture: {screen_feed}")
+                save_evidence(frame, "screen_share_feed")
 
         # ── LAZY ENROLLMENT ──────────────────────────────────────────────────
         if not lazy_enroll_done and INSIGHT_AVAILABLE:
@@ -1469,6 +1841,7 @@ def run_proctoring(cap, W, H):
                       f"samples:{len(cal_head_yaw)}")
 
         if num_faces == 0:
+            _last_face_bbox = None
             multi_face_count = 0
             # Decay gaze/eyes counters slowly so a brief face loss doesn't
             # erase what we already saw — they'll keep accumulating once the
@@ -1492,6 +1865,7 @@ def run_proctoring(cap, W, H):
                     save_evidence(frame, "face_missing")
 
         elif num_faces >= 2:
+            _last_face_bbox = None
             face_missing_count = 0
             multi_face_count  += 1
 
@@ -1506,6 +1880,7 @@ def run_proctoring(cap, W, H):
             multi_face_count   = 0
             bbox, lm_2d = faces[0]
             x1, y1, x2, y2 = bbox
+            _last_face_bbox = (x1, y1, x2, y2)
             # Clamp to frame bounds before slicing — RetinaFace can return
             # boxes that extend outside the frame for partial faces.
             x1 = max(0, x1); y1 = max(0, y1)
@@ -1562,25 +1937,23 @@ def run_proctoring(cap, W, H):
                           f"extreme:{gaze_extreme_count}/{GAZE_EXTREME_FRAMES}")
 
                 # Extreme tier fires first (faster + higher confidence).
-                if gaze_extreme_count >= GAZE_EXTREME_FRAMES and \
-                   can_log("gaze_away"):
+                if gaze_extreme_count >= GAZE_EXTREME_FRAMES:
                     direction = _dominant_direction(
                         gaze_yaw, gaze_pitch, GAZE_YAW_RAD, GAZE_PITCH_RAD)
-                    log_event("gaze_away", "high",
-                              f"Looking off-screen {direction} "
-                              f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad EXTREME)")
-                    save_evidence(frame, "gaze_away")
-                    gaze_away_count    = 0
-                    gaze_extreme_count = 0
-                elif gaze_away_count >= GAZE_FRAMES_NEEDED and \
-                     can_log("gaze_away"):
+                    if log_if_allowed("gaze_away", "high",
+                               f"Looking off-screen {direction} "
+                               f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad EXTREME)"):
+                        save_evidence(frame, "gaze_away")
+                        gaze_away_count    = 0
+                        gaze_extreme_count = 0
+                elif gaze_away_count >= GAZE_FRAMES_NEEDED:
                     direction = _dominant_direction(
                         gaze_yaw, gaze_pitch, GAZE_YAW_RAD, GAZE_PITCH_RAD)
-                    log_event("gaze_away", "medium",
-                              f"Looking {direction} "
-                              f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad)")
-                    save_evidence(frame, "gaze_away")
-                    gaze_away_count = 0
+                    if log_if_allowed("gaze_away", "medium",
+                               f"Looking {direction} "
+                               f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad)"):
+                        save_evidence(frame, "gaze_away")
+                        gaze_away_count = 0
 
             # ── HEAD POSE ────────────────────────────────────────────────────
             head_yaw_raw, head_pitch_raw = get_head_pose(lm_2d, W, H)
@@ -1606,25 +1979,23 @@ def run_proctoring(cap, W, H):
                 head_away_count    = max(0, head_away_count - 1)
                 head_extreme_count = max(0, head_extreme_count - 2)
 
-            if head_extreme_count >= HEAD_EXTREME_FRAMES and \
-               can_log("head_turned"):
+            if head_extreme_count >= HEAD_EXTREME_FRAMES:
                 direction = _dominant_direction(
                     head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
-                log_event("head_turned", "high",
+                if log_if_allowed("head_turned", "high",
                           f"Head turned {direction} "
-                          f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}° EXTREME)")
-                save_evidence(frame, "head_turned")
-                head_away_count    = 0
-                head_extreme_count = 0
-            elif head_away_count >= HEAD_FRAMES_NEEDED and \
-                 can_log("head_turned"):
+                          f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}° EXTREME)"):
+                    save_evidence(frame, "head_turned")
+                    head_away_count    = 0
+                    head_extreme_count = 0
+            elif head_away_count >= HEAD_FRAMES_NEEDED:
                 direction = _dominant_direction(
                     head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
-                log_event("head_turned", "medium",
+                if log_if_allowed("head_turned", "medium",
                           f"Head turned {direction} "
-                          f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}°)")
-                save_evidence(frame, "head_turned")
-                head_away_count = 0
+                          f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}°)"):
+                    save_evidence(frame, "head_turned")
+                    head_away_count = 0
 
             # ── EYES OPEN/CLOSED ─────────────────────────────────────────────
             eyes_open = eyes_detected(face_crop)
@@ -1633,10 +2004,9 @@ def run_proctoring(cap, W, H):
             else:
                 eyes_closed_count = max(0, eyes_closed_count - 2)
 
-            if eyes_closed_count >= EYES_CLOSED_FRAMES and \
-               can_log("eyes_closed"):
-                log_event("eyes_closed", "high", "Eyes closed")
-                save_evidence(frame, "eyes_closed")
+            if eyes_closed_count >= EYES_CLOSED_FRAMES:
+                if log_if_allowed("eyes_closed", "high", "Eyes closed"):
+                    save_evidence(frame, "eyes_closed")
 
             # ── CALIBRATION FREEZE ───────────────────────────────────────────
             # Once we have CALIBRATION_FRAMES clean samples, freeze the
@@ -1673,9 +2043,10 @@ def run_proctoring(cap, W, H):
         # We also check the result queue for completed inferences — results
         # arrive 1-3 frames later on CPU, so we process them when available
         # without blocking the capture loop.
+        seen_names = set()
         if YOLO_AVAILABLE:
             if frame_count % YOLO_EVERY_N == 0:
-                yolo_worker.submit(frame, frame_count)
+                yolo_worker.submit(frame, frame_count, W, H)
 
             yolo_result = yolo_worker.get_result(frame_count)
             if yolo_result is not None:
@@ -1684,24 +2055,34 @@ def run_proctoring(cap, W, H):
                 else:
                     detections = yolo_result["detections"]
                     seen_names = set()
-                    for name, conf in detections:
+                    for det in detections:
+                        name = det[0]
                         seen_names.add(name)
                         object_history[name] = object_history.get(name, 0) + 1
 
-                    # Decay objects we did not see this frame so a fleeting
-                    # detection doesn't get stuck above the threshold forever.
                     for name in list(object_history):
                         if name not in seen_names:
                             object_history[name] = max(0, object_history[name] - 1)
                             if object_history[name] == 0:
                                 del object_history[name]
 
-                    for name, conf in detections:
+                    for det in detections:
+                        name, conf = det[0], det[1]
                         if object_history.get(name, 0) >= YOLO_MIN_FRAMES:
-                            if can_log(f"cheat_{name}"):
-                                log_event("cheat_object_detected", "high",
-                                          f"{name} detected (conf:{conf:.0%})")
-                                save_evidence(frame, f"cheat_{name}")
+                            if name == "Phone" and len(det) >= 6:
+                                phone_box = (det[2], det[3], det[4], det[5])
+                                phone_type = classify_phone_position(
+                                    phone_box, _last_face_bbox, H)
+                                event_name = f"cheat_{phone_type}"
+                                severity = "critical" if phone_type == "phone_in_hand" else "high"
+                                details = f"{phone_type} (conf:{conf:.0%})"
+                            else:
+                                event_name = "cheat_object_detected"
+                                severity = "high"
+                                details = f"{name} detected (conf:{conf:.0%})"
+                            if can_log(event_name):
+                                log_if_allowed(event_name, severity, details)
+                                save_evidence(frame, event_name)
                                 object_history[name] = 0
 
         # ── SAHI TILED DETECTION (small objects) ─────────────────────────────
@@ -1717,8 +2098,10 @@ def run_proctoring(cap, W, H):
                 if sahi_result.get("error"):
                     print(f"[SAHI Error] {sahi_result['error']}")
                 else:
+                    sahi_detections = sahi_result["detections"]
                     sahi_seen = set()
-                    for name, conf in sahi_result["detections"]:
+                    for det in sahi_detections:
+                        name = det[0]
                         sahi_seen.add(name)
                         object_history[name] = object_history.get(name, 0) + 1
                     for name in list(object_history):
@@ -1726,12 +2109,23 @@ def run_proctoring(cap, W, H):
                             object_history[name] = max(0, object_history[name] - 1)
                             if object_history[name] == 0:
                                 del object_history[name]
-                    for name, conf in sahi_result["detections"]:
+                    for det in sahi_detections:
+                        name, conf = det[0], det[1]
                         if object_history.get(name, 0) >= YOLO_MIN_FRAMES:
-                            if can_log(f"sahi_{name}"):
-                                log_event("cheat_object_detected", "high",
-                                          f"{name} via SAHI (conf:{conf:.0%})")
-                                save_evidence(frame, f"sahi_{name}")
+                            if name == "Phone" and len(det) >= 6:
+                                phone_box = (det[2], det[3], det[4], det[5])
+                                phone_type = classify_phone_position(
+                                    phone_box, _last_face_bbox, H)
+                                event_name = f"cheat_{phone_type}"
+                                severity = "critical" if phone_type == "phone_in_hand" else "high"
+                                details = f"{phone_type} via SAHI (conf:{conf:.0%})"
+                            else:
+                                event_name = "cheat_object_detected"
+                                severity = "high"
+                                details = f"{name} via SAHI (conf:{conf:.0%})"
+                            if can_log(event_name):
+                                log_if_allowed(event_name, severity, details)
+                                save_evidence(frame, event_name)
                                 object_history[name] = 0
 
         # ── EAR-CROP CLASSIFIER (earbud detection) ───────────────────────────
@@ -1746,7 +2140,7 @@ def run_proctoring(cap, W, H):
                         "left_earbud", 0) + 1
                     if object_history.get("left_earbud", 0) >= 2:
                         if can_log("earbud_left"):
-                            log_event("cheat_object_detected", "high",
+                            log_if_allowed("cheat_object_detected", "high",
                                       f"Left earbud detected (conf:{left_conf:.0%})")
                             save_evidence(frame, "earbud_left")
                             object_history["left_earbud"] = 0
@@ -1760,7 +2154,7 @@ def run_proctoring(cap, W, H):
                         "right_earbud", 0) + 1
                     if object_history.get("right_earbud", 0) >= 2:
                         if can_log("earbud_right"):
-                            log_event("cheat_object_detected", "high",
+                            log_if_allowed("cheat_object_detected", "high",
                                       f"Right earbud detected (conf:{right_conf:.0%})")
                             save_evidence(frame, "earbud_right")
                             object_history["right_earbud"] = 0
@@ -1775,19 +2169,75 @@ def run_proctoring(cap, W, H):
         # ── VOICE DETECTION ──────────────────────────────────────────────────
         # Sustained-time approach: only log if RMS stays above threshold for
         # the full window. Eliminates double-logging on brief noises.
+        # Also detects: prolonged sustained voice and conversation patterns
+        # (multiple voice bursts with short gaps = turn-taking / talking).
         if AUDIO_AVAILABLE:
             with audio_lock:
                 rms = audio_rms
+            now = time.time()
             if rms > VOICE_THRESHOLD:
                 if voice_start_time is None:
-                    voice_start_time = time.time()
-                elif time.time() - voice_start_time >= VOICE_SUSTAINED_SECS:
+                    voice_start_time = now
+                elif now - voice_start_time >= VOICE_SUSTAINED_SECS:
                     if can_log("voice_detected"):
-                        log_event("voice_detected", "medium",
+                        log_if_allowed("voice_detected", "medium",
                                   f"Voice sustained (rms:{rms:.3f})")
-                    voice_start_time = time.time()  # require another full window
+                    # Record a completed burst and reset for next one
+                    _voice_burst_times.append(now)
+                    voice_start_time = None
+                    # Conversation pattern tracking
+                    if _silence_start is not None:
+                        gap = now - _silence_start
+                        if gap <= CONVERSATION_GAP_MAX:
+                            _voice_burst_count += 1
+                    if _conversation_window_start is None:
+                        _conversation_window_start = now
+                    _silence_start = None
+
+                # Track for sustained voice (longer window)
+                if _sustained_voice_start is None:
+                    _sustained_voice_start = now
             else:
                 voice_start_time = None
+                # Sustained voice ended if it was going
+                if _sustained_voice_start is not None:
+                    _sustained_voice_start = None
+                # Track silence start for conversation gap detection
+                if _silence_start is None:
+                    _silence_start = now
+
+            # Check sustained voice (20s+ continuous audio)
+            if _sustained_voice_start is not None:
+                sustained_duration = now - _sustained_voice_start
+                if sustained_duration >= SUSTAINED_VOICE_SECS:
+                    if can_log("sustained_voice"):
+                        log_if_allowed("sustained_voice", "high",
+                                  f"Sustained audio for {sustained_duration:.0f}s "
+                                  f"(rms:{rms:.3f})")
+                        save_evidence(frame, "sustained_voice")
+                    # Reset after flagging to avoid spam
+                    _sustained_voice_start = now
+
+            # Check conversation pattern (multiple bursts with short gaps)
+            if _voice_burst_count >= CONVERSATION_BURSTS and \
+               _conversation_window_start is not None:
+                window_elapsed = now - _conversation_window_start
+                if window_elapsed <= CONVERSATION_WINDOW:
+                    if can_log("conversation_detected"):
+                        log_if_allowed("conversation_detected", "high",
+                                  f"{_voice_burst_count} voice bursts "
+                                  f"in {window_elapsed:.0f}s "
+                                  f"(turn-taking pattern)")
+                        save_evidence(frame, "conversation")
+                    # Reset conversation tracking
+                    _voice_burst_count = 0
+                    _conversation_window_start = None
+                    _voice_burst_times = []
+                elif window_elapsed > CONVERSATION_WINDOW:
+                    # Window expired, reset
+                    _voice_burst_count = 0
+                    _conversation_window_start = None
+                    _voice_burst_times = []
 
         # ── WRONG PERSON CHECK ───────────────────────────────────────────────
         # Uses the already-cropped face region when available (num_faces==1),
@@ -1803,7 +2253,7 @@ def run_proctoring(cap, W, H):
                 similarity = float(np.dot(enrolled_embedding, current_emb))
                 if similarity < WRONG_PERSON_THRESHOLD and \
                    can_log("wrong_person"):
-                    log_event("wrong_person", "medium",
+                    log_if_allowed("wrong_person", "medium",
                               f"Different person detected "
                               f"(cosine similarity: {similarity:.2f})")
                     save_evidence(frame, "wrong_person")
@@ -1813,10 +2263,16 @@ def run_proctoring(cap, W, H):
             cv2.rectangle(frame, (0,0), (W,35), (20,20,20), -1)
             voice_secs = int(time.time() - voice_start_time) \
                 if voice_start_time else 0
+            sustained_secs = int(time.time() - _sustained_voice_start) \
+                if _sustained_voice_start else 0
+            conv_indicator = f" Conv:{_voice_burst_count}" if _voice_burst_count > 0 else ""
             status = (f"Faces:{num_faces} | "
                       f"Gaze:{gaze_away_count}/{GAZE_FRAMES_NEEDED} | "
                       f"Head:{head_away_count}/{HEAD_FRAMES_NEEDED} | "
-                      f"Voice:{voice_secs:.0f}s")
+                      f"Voice:{voice_secs:.0f}s"
+                      f"{conv_indicator}")
+            if sustained_secs > 0:
+                status += f" | Sustained:{sustained_secs}s"
             cv2.putText(frame, status, (8,22),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                         (200,200,200), 1)
@@ -1886,6 +2342,18 @@ def main():
     for _ in range(10):
         cap.read()
     time.sleep(0.5)
+
+    # ── Pre-exam system check (runs after camera is ready) ────────────────
+    print("[PROCTOR] Running pre-exam system check...")
+    check_results = run_system_check()
+    try:
+        _http.post(SYSTEM_CHECK_URL, json=check_results, timeout=5)
+        print(f"[PROCTOR] System check: {check_results['overall'].upper()}")
+        for name, result in check_results["checks"].items():
+            icon = "✅" if result["status"] == "pass" else "⚠️" if result["status"] == "warn" else "❌"
+            print(f"  {icon} {name}: {result['detail']}")
+    except Exception:
+        pass  # Server may not have the endpoint yet — non-fatal
 
     # ── Calibration-only mode: stream readings and exit ────────────
     if CALIBRATION_MODE:

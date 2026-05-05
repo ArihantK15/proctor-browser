@@ -12,7 +12,7 @@ from ..dependencies import (
     require_admin, verify_admin_token,
     _build_sessions_payload, _cache, _bus_async_publish,
     SECRET_KEY, require_auth, now_ist, fmt_ist, SessionStatus,
-    VIOLATION_WEIGHTS,
+    VIOLATION_WEIGHTS, _CRITICAL_TYPES,
 )
 
 router = APIRouter(prefix="")
@@ -194,13 +194,6 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
 
 # ─── SSE SESSIONS STREAM (teacher dashboard live updates) ────────
 
-_CRITICAL_TYPES = frozenset({
-    "phone_consulting", "collaboration", "answer_memo",
-    "note_reading", "wrong_person", "calibration_abort",
-    "cheat_object_detected", "vm_detected",
-    "remote_desktop_detected",
-})
-
 
 @router.get("/api/v1/sse/sessions")
 async def sse_sessions(request: Request):
@@ -277,35 +270,3 @@ async def sse_sessions(request: Request):
             "X-Accel-Buffering": "no",
         },
     )
-
-
-async def publish_critical_alert(
-    teacher_id: str,
-    session_id: str,
-    violation_type: str,
-    severity: str,
-    details: str = "",
-    roll_number: str = "",
-    full_name: str = "",
-):
-    """Publish a critical violation alert via Redis pub/sub.
-
-    Called from the event/logging pipeline when a high-severity
-    violation is detected.
-    """
-    if not _HAS_REDIS:
-        return
-    if violation_type not in _CRITICAL_TYPES and severity not in ("critical", "high"):
-        return
-    weight = VIOLATION_WEIGHTS.get(violation_type, 0)
-    alert = {
-        "session_id": session_id,
-        "violation_type": violation_type,
-        "severity": severity,
-        "details": details,
-        "roll_number": roll_number,
-        "full_name": full_name,
-        "risk_weight": weight,
-        "timestamp": fmt_ist(now_ist().isoformat()),
-    }
-    await _bus_async_publish(f"alerts:{teacher_id}", alert)

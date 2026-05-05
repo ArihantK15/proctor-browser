@@ -1,8 +1,13 @@
-"""Tests for real-time alert publishing logic (no app import needed)."""
+"""Tests for real-time alert publishing logic.
+
+Uses a local copy of _CRITICAL_TYPES to avoid importing the app
+(which requires DB/Redis). The set is kept in sync with
+app/dependencies.py — any mismatch will fail the mirror test.
+"""
 
 import pytest
 
-# Critical alert types — mirror of sse.py _CRITICAL_TYPES
+# Local mirror of app/dependencies.py _CRITICAL_TYPES
 _CRITICAL_TYPES = frozenset({
     "phone_consulting", "collaboration", "answer_memo",
     "note_reading", "wrong_person", "calibration_abort",
@@ -89,3 +94,15 @@ class TestAlertFiltering:
 
     def test_wrong_person_always_alerts(self):
         assert self._should_alert("wrong_person", "medium") is True
+
+
+class TestDependencyMirror:
+    """Ensure local test copy matches app/dependencies.py."""
+
+    def test_critical_types_mirror(self):
+        """If this fails, update the local mirror in this file."""
+        from app.dependencies import _CRITICAL_TYPES as real_types
+        assert _CRITICAL_TYPES == real_types, (
+            "Local _CRITICAL_TYPES mirror in test_alerts.py is out of sync. "
+            "Update the local copy to match app/dependencies.py."
+        )

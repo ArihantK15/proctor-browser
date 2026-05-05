@@ -767,6 +767,45 @@ _DEFAULT_WEIGHT_MED  = 5
 _SEVERITY_MULTIPLIER = {"high": 1.0, "medium": 0.4}
 RISK_LABELS = [(15, "Low Risk"), (40, "Moderate Risk"), (70, "High Risk"), (100, "Critical Risk")]
 
+_CRITICAL_TYPES = frozenset({
+    "phone_consulting", "collaboration", "answer_memo",
+    "note_reading", "wrong_person", "calibration_abort",
+    "cheat_object_detected", "vm_detected",
+    "remote_desktop_detected",
+})
+
+
+async def publish_critical_alert(
+    teacher_id: str,
+    session_id: str,
+    violation_type: str,
+    severity: str,
+    details: str = "",
+    roll_number: str = "",
+    full_name: str = "",
+):
+    """Publish a critical violation alert via Redis pub/sub.
+
+    Called from the event/logging pipeline when a high-severity
+    violation is detected.
+    """
+    if not _HAS_REDIS:
+        return
+    if violation_type not in _CRITICAL_TYPES and severity not in ("critical", "high"):
+        return
+    weight = VIOLATION_WEIGHTS.get(violation_type, 0)
+    alert = {
+        "session_id": session_id,
+        "violation_type": violation_type,
+        "severity": severity,
+        "details": details,
+        "roll_number": roll_number,
+        "full_name": full_name,
+        "risk_weight": weight,
+        "timestamp": fmt_ist(now_ist().isoformat()),
+    }
+    await _bus_async_publish(f"alerts:{teacher_id}", alert)
+
 def _risk_label(score: int) -> str:
     for threshold, label in RISK_LABELS:
         if score <= threshold:

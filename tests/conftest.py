@@ -20,6 +20,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-long!!")
 os.environ.setdefault("SCREENSHOTS_DIR", "/tmp/procta_test_screenshots")
 os.environ.setdefault("QUESTION_IMG_DIR", "/tmp/procta_test_qimages")
+os.environ.setdefault("LOG_DIR", "/tmp/procta_test_logs")
 
 # ── Mock heavy dependencies before they're imported by app code ─────
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, Body, HTTPException
+from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import (
     supabase,
@@ -16,6 +17,19 @@ from ..dependencies import (
 )
 
 router = APIRouter(prefix="")
+
+
+# ─── PYDANTIC MODELS ──────────────────────────────────
+
+class GradeSuggestIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    answer_ids: list[str]
+
+
+class GradeConfirmIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    answer_id: str
+    score: float
 
 
 async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> dict | None:
@@ -157,7 +171,7 @@ async def pending_grades(request: Request):
 
 @router.post("/api/v1/admin/grade-suggest")
 @limiter.limit("20/minute")
-async def grade_suggest(request: Request, body: dict = Body(...)):
+async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
     """Run AI grader over a batch of pending short answers. Writes
     suggested scores + feedback to the answers table; teacher_score
     is left NULL (still pending review). Idempotent — re-running on
@@ -175,7 +189,7 @@ async def grade_suggest(request: Request, body: dict = Body(...)):
         raise HTTPException(status_code=503,
             detail="AI grader unavailable. Set LLM_API_KEY on the server.")
 
-    answer_ids = body.get("answer_ids") or []
+    answer_ids = body.answer_ids
     if not isinstance(answer_ids, list) or not answer_ids:
         raise HTTPException(status_code=400, detail="answer_ids required")
     if len(answer_ids) > 50:
@@ -225,15 +239,15 @@ async def grade_suggest(request: Request, body: dict = Body(...)):
 
 
 @router.post("/api/v1/admin/grade-confirm")
-async def grade_confirm(request: Request, body: dict = Body(...)):
+async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
     """Teacher commits a final score for a short-answer response.
     Sets teacher_score (the value used in the gradebook) and
     graded_at (audit timestamp). Score can match the AI suggestion
     or be overridden — both flow through the same endpoint."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    answer_id = body.get("answer_id")
-    score = body.get("score")
+    answer_id = body.answer_id
+    score = body.score
     if not answer_id or score is None:
         raise HTTPException(status_code=400, detail="answer_id and score required")
     try:

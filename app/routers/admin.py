@@ -49,6 +49,85 @@ class IdDecisionIn(BaseModel):
     decision: str  # "approved" | "retake" | "rejected"
 
 
+class ClearSessionsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    step: str = ""
+    include_active: bool = False
+    include_completed: bool = False
+    exam_id: str = ""
+    token: str = ""
+    ack: str = ""
+
+
+class EmailScorecardsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    resend_all: bool = False
+    custom_message: str = ""
+
+
+class ScheduleIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    starts_at: str | None = None
+    ends_at: str | None = None
+
+
+class ShuffleIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    shuffle_questions: bool | None = None
+    shuffle_options: bool | None = None
+
+
+class AccessCodeIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str | None = None
+    access_code: str = ""
+
+
+class BulkRegisterIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str | None = None
+    students: list[dict[str, str]]
+
+
+class BulkStudentIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    students: list[dict[str, str]]
+
+
+class CreateExamIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_title: str = "Exam"
+    duration_minutes: int = 60
+
+
+class CreateGroupIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    group_name: str
+
+
+class RenameGroupIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    group_name: str
+
+
+class GroupMembersIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    roll_numbers: list[str]
+
+
+class ExamGroupAssignIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    group_ids: list[str]
+
+
+class UploadQuestionImageIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    question_id: str = ""
+    data_url: str = ""
+
+
 # ─── HELPER: BUILD SCORECARD PDF ─────────────────────────
 
 def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]:
@@ -438,11 +517,11 @@ def get_timeline(session_id: str, request: Request):
 # ─── 5. UPLOAD QUESTION IMAGE ─────────────────────────
 
 @router.post("/api/v1/admin/upload-question-image")
-def upload_question_image(request: Request, body: dict = Body(...)):
+def upload_question_image(request: Request, body: UploadQuestionImageIn = Body(...)):
     """Teacher uploads a question image."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    raw = body.get("image") or body.get("data") or ""
+    raw = body.data_url or ""
     if not isinstance(raw, str) or not raw:
         raise HTTPException(status_code=400, detail="Missing 'image' (base64)")
     if raw.startswith("data:"):
@@ -1382,14 +1461,14 @@ def scorecard_zip(request: Request, exam_id: str = None):
 # ─── 15. EMAIL SCORECARDS ────────────────────────────────
 
 @router.post("/api/v1/admin/exams/{exam_id}/email-scorecards")
-def email_scorecards(exam_id: str, request: Request, body: dict = Body(default={})):
+def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = Body(default=EmailScorecardsIn())):
     """Email every completed student their scorecard PDF for this exam."""
     from emailer import send_scorecard_email
     teacher = require_admin(request)
     tid = str(teacher["id"])
 
-    resend_all = bool(body.get("resend_all"))
-    custom_message = (body.get("custom_message") or "").strip() or None
+    resend_all = body.resend_all
+    custom_message = body.custom_message.strip() or None
     teacher_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
 
     sess_q = (supabase.table("exam_sessions").select(
@@ -1570,16 +1649,16 @@ def admin_cleanup(request: Request):
 # ─── 18. CLEAR LIVE SESSIONS ─────────────────────────────#
 
 @router.post("/api/v1/admin/clear-live-sessions")
-def clear_live_sessions(request: Request, body: dict = Body(...)):
+def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
     """Destructive: wipe all in-progress sessions for the calling teacher."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    step = str(body.get("step") or "").lower().strip()
+    step = body.step.lower().strip()
 
-    include_completed = bool(body.get("include_completed", False))
-    include_active = bool(body.get("include_active", False))
-    raw_eid = body.get("exam_id") or None
-    exam_id_scope: str | None = str(raw_eid).strip() or None if raw_eid else None
+    include_completed = body.include_completed
+    include_active = body.include_active
+    raw_eid = body.exam_id
+    exam_id_scope: str | None = raw_eid.strip() or None if raw_eid else None
 
     if step == "request":
         active, stale = _partition_live_sessions(
@@ -1633,8 +1712,8 @@ def clear_live_sessions(request: Request, body: dict = Body(...)):
         }
 
     if step == "confirm":
-        token = str(body.get("token") or "")
-        ack   = str(body.get("ack") or "")
+        token = body.token
+        ack   = body.ack
         if ack != "DELETE":
             raise HTTPException(status_code=400,
                 detail="Missing or incorrect ack — expected 'DELETE'")
@@ -1859,12 +1938,12 @@ def list_exams(request: Request):
 # ─── 21. CREATE EXAM ─────────────────────────────────#
 
 @router.post("/api/v1/admin/exams")
-def create_exam(request: Request, body: dict = Body(...)):
+def create_exam(request: Request, body: CreateExamIn = Body(...)):
     """Create a new exam for the calling teacher."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    title = str(body.get("exam_title", "New Exam")).strip() or "New Exam"
-    duration = int(body.get("duration_minutes", 60))
+    title = body.exam_title.strip() or "New Exam"
+    duration = body.duration_minutes
     exam_id = str(_uuid.uuid4())
     try:
         result = supabase.table("exam_config").insert({
@@ -2169,7 +2248,7 @@ def list_groups(request: Request):
 # ─── 26. CREATE GROUP ─────────────────────────────────#
 
 @router.post("/api/v1/admin/groups")
-def create_group(request: Request, body: dict = Body(...)):
+def create_group(request: Request, body: CreateGroupIn = Body(...)):
     """Create a new student group."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
@@ -2189,11 +2268,11 @@ def create_group(request: Request, body: dict = Body(...)):
 # ─── 27. RENAME GROUP ─────────────────────────────────#
 
 @router.put("/api/v1/admin/groups/{group_id}")
-def rename_group(group_id: str, request: Request, body: dict = Body(...)):
+def rename_group(group_id: str, request: Request, body: RenameGroupIn = Body(...)):
     """Rename a student group."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    name = (body.get("group_name") or "").strip()
+    name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="group_name is required")
     result = (supabase.table("student_groups")
@@ -2247,7 +2326,7 @@ def list_group_members(group_id: str, request: Request):
 # ─── 30. ADD GROUP MEMBERS ──────────────────────────────#
 
 @router.post("/api/v1/admin/groups/{group_id}/members")
-def add_group_members(group_id: str, request: Request, body: dict = Body(...)):
+def add_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
     """Add students to a group by roll numbers."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
@@ -2255,7 +2334,7 @@ def add_group_members(group_id: str, request: Request, body: dict = Body(...)):
            .select("id").eq("id", group_id).eq("teacher_id", tid).execute()).data
     if not grp:
         raise HTTPException(status_code=404, detail="Group not found")
-    rolls = body.get("roll_numbers", [])
+    rolls = body.roll_numbers
     if not rolls:
         raise HTTPException(status_code=400, detail="roll_numbers list is required")
     rows = [{"group_id": group_id, "roll_number": str(r).strip(), "teacher_id": tid}
@@ -2268,11 +2347,11 @@ def add_group_members(group_id: str, request: Request, body: dict = Body(...)):
 # ─── 31. REMOVE GROUP MEMBERS ───────────────────────────#
 
 @router.delete("/api/v1/admin/groups/{group_id}/members")
-def remove_group_members(group_id: str, request: Request, body: dict = Body(...)):
+def remove_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
     """Remove students from a group by roll numbers."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    rolls = body.get("roll_numbers", [])
+    rolls = body.roll_numbers
     if not rolls:
         raise HTTPException(status_code=400, detail="roll_numbers list is required")
     for r in rolls:
@@ -2304,11 +2383,11 @@ def list_exam_groups(exam_id: str, request: Request):
 # ─── 33. ASSIGN GROUPS TO EXAM ───────────────────────────#
 
 @router.post("/api/v1/admin/exams/{exam_id}/groups")
-def assign_exam_groups(exam_id: str, request: Request, body: dict = Body(...)):
+def assign_exam_groups(exam_id: str, request: Request, body: ExamGroupAssignIn = Body(...)):
     """Assign groups to an exam for access control."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    group_ids = body.get("group_ids", [])
+    group_ids = body.group_ids
     if not group_ids:
         raise HTTPException(status_code=400, detail="group_ids list is required")
     rows = [{"exam_id": exam_id, "group_id": gid, "teacher_id": tid} for gid in group_ids]
@@ -2333,11 +2412,11 @@ def unassign_exam_group(exam_id: str, group_id: str, request: Request):
 # ─── 35. BULK REGISTER STUDENTS ───────────────────────────#
 
 @router.post("/api/v1/admin/register-students-bulk")
-def admin_bulk_register(request: Request, body: dict = Body(...)):
+def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
     """Admin-only bulk student registration."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    students = body.get("students", [])
+    students = body.students
     if not students or not isinstance(students, list):
         raise HTTPException(status_code=400, detail="'students' must be a non-empty list")
     if len(students) > 500:
@@ -2389,11 +2468,11 @@ def get_access_code(request: Request):
 # ─── 37. SET ACCESS CODE ─────────────────────────#
 
 @router.post("/api/v1/admin/access-code")
-def set_access_code(request: Request, body: dict = Body(...)):
+def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
     """Set or clear the exam access code."""
     teacher = require_admin(request)
-    exam_id = body.get("exam_id")
-    new_code = str(body.get("access_code", "")).strip().upper()
+    exam_id = body.exam_id
+    new_code = body.access_code.strip().upper()
     _set_access_code(new_code, teacher["id"], exam_id=exam_id)
     if _cache:
         _cache.delete(f"exam_config:{teacher['id']}:{exam_id or '_'}")
@@ -2432,20 +2511,17 @@ def admin_get_schedule(request: Request):
 # ─── 40. SET EXAM SCHEDULE ────────────────────────#
 
 @router.post("/api/v1/admin/exam-schedule")
-def admin_set_schedule(request: Request, body: dict = Body(...)):
+def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
     """Set or clear exam start/end times."""
     teacher = require_admin(request)
     tid = teacher["id"]
-    exam_id = body.get("exam_id")
-
-    if not exam_id:
-        raise HTTPException(status_code=400, detail="exam_id is required")
+    exam_id = body.exam_id
 
     update = {}
-    if "starts_at" in body:
-        update["starts_at"] = body["starts_at"]
-    if "ends_at" in body:
-        update["ends_at"] = body["ends_at"]
+    if body.starts_at is not None:
+        update["starts_at"] = body.starts_at
+    if body.ends_at is not None:
+        update["ends_at"] = body.ends_at
     if update:
         supabase.table("exam_config").update(update)\
             .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
@@ -2454,8 +2530,8 @@ def admin_set_schedule(request: Request, body: dict = Body(...)):
         _cache.delete(f"exam_config:{tid}:{exam_id}")
     return {
         "status":    "updated",
-        "starts_at": body.get("starts_at"),
-        "ends_at":   body.get("ends_at"),
+        "starts_at": body.starts_at,
+        "ends_at":   body.ends_at,
     }
 
 
@@ -2474,16 +2550,16 @@ def admin_get_shuffle(request: Request):
 # ─── 42. SET SHUFFLE CONFIG ────────────────────────#
 
 @router.post("/api/v1/admin/shuffle-config")
-def admin_set_shuffle(request: Request, body: dict = Body(...)):
+def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
     """Toggle per-student question / option shuffling."""
     teacher = require_admin(request)
     tid = teacher["id"]
-    exam_id = body.get("exam_id")
+    exam_id = body.exam_id
     fields: dict = {}
-    if "shuffle_questions" in body:
-        fields["shuffle_questions"] = bool(body["shuffle_questions"])
-    if "shuffle_options" in body:
-        fields["shuffle_options"] = bool(body["shuffle_options"])
+    if body.shuffle_questions is not None:
+        fields["shuffle_questions"] = body.shuffle_questions
+    if body.shuffle_options is not None:
+        fields["shuffle_options"] = body.shuffle_options
     if not fields:
         raise HTTPException(status_code=400, detail="No shuffle fields provided")
     if tid and exam_id:

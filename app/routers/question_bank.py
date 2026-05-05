@@ -8,11 +8,71 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import Request, HTTPException, Body
 from fastapi.routing import APIRouter
+from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import supabase, limiter, require_admin, _cache, SessionStatus
 from ..dependencies import _load_questions, _load_exam_config
 
 router = APIRouter(prefix="")
+
+
+# ─── PYDANTIC MODELS ──────────────────────────────────
+
+class BankQuestionIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    questions: list[dict] | None = None
+
+
+class UpdateQuestionIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    question: str | None = None
+    question_type: str | None = None
+    options: dict | None = None
+    correct: str | None = None
+    image_url: str | None = None
+    tags: list[str] | None = None
+
+
+class ImportQuestionsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    questions: list[dict]
+
+
+class GenerateQuestionsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    topic: str
+    count: int = 10
+    difficulty: str = "mixed"
+    question_type: str = "mcq_single"
+    grade_level: str = ""
+    source_text: str | None = None
+
+
+class SuggestTagsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    question: str
+    options: dict = {}
+    correct: str = ""
+
+
+class LintQuestionsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    questions: list[dict]
+
+
+class BankToExamIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    question_ids: list[str]
+    exam_id: str
+
+
+class UpdateQuestionsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    questions: list[dict]
+    exam_id: str | None = None
+    exam_title: str | None = None
+    duration_minutes: int | None = None
+
 
 # ─── QUESTION BANK ─────────────────────────────────────────────────
 
@@ -33,11 +93,11 @@ def list_bank_questions(request: Request):
 
 
 @router.post("/api/v1/admin/question-bank")
-def add_bank_questions(request: Request, body: dict = Body(...)):
+def add_bank_questions(request: Request, body: BankQuestionIn = Body(...)):
     """Add one or more questions to the bank."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    questions = body.get("questions", [body] if "question" in body else [])
+    questions = body.questions or ([body.model_dump()] if "question" in body.model_dump() else [])
     if not questions:
         raise HTTPException(status_code=400, detail="No questions provided")
     rows = []
@@ -56,14 +116,15 @@ def add_bank_questions(request: Request, body: dict = Body(...)):
 
 
 @router.put("/api/v1/admin/question-bank/{qid}")
-def update_bank_question(qid: str, request: Request, body: dict = Body(...)):
+def update_bank_question(qid: str, request: Request, body: UpdateQuestionIn = Body(...)):
     """Update a question in the bank."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
     fields = {}
     for k in ("question", "question_type", "options", "correct", "image_url", "tags"):
-        if k in body:
-            fields[k] = body[k]
+        v = getattr(body, k, None)
+        if v is not None:
+            fields[k] = v
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     fields["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -84,7 +145,7 @@ def delete_bank_question(qid: str, request: Request):
 
 
 @router.post("/api/v1/admin/question-bank/import")
-def import_bank_questions(request: Request, body: dict = Body(...)):
+def import_bank_questions(request: Request, body: ImportQuestionsIn = Body(...)):
     """Bulk import questions from CSV-style JSON array.
 
     Expected format: list of objects with keys:
@@ -92,7 +153,7 @@ def import_bank_questions(request: Request, body: dict = Body(...)):
     """
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    items = body.get("questions", [])
+    items = body.questions
     if not items:
         raise HTTPException(status_code=400, detail="No questions to import")
     if len(items) > 2000:
@@ -151,7 +212,7 @@ def export_bank_questions(request: Request):
 
 @router.post("/api/v1/admin/question-bank/generate")
 @limiter.limit("20/minute")
-def generate_bank_questions(request: Request, body: dict = Body(...)):
+def generate_bank_questions(request: Request, body: GenerateQuestionsIn = Body(...)):
     """Generate question-bank rows from a topic / source text via LLM.
 
     Returns a *preview* — the teacher reviews and explicitly clicks
@@ -165,17 +226,12 @@ def generate_bank_questions(request: Request, body: dict = Body(...)):
         raise HTTPException(status_code=503,
             detail="AI features unavailable. Set GROQ_API_KEY on the server.")
 
-    topic = (body.get("topic") or "").strip()
-    if not topic:
-        raise HTTPException(status_code=400, detail="topic is required")
-    if len(topic) > 500:
-        raise HTTPException(status_code=400, detail="topic too long (max 500 chars)")
-
-    count = body.get("count", 10)
-    difficulty = (body.get("difficulty") or "mixed").strip().lower()
-    qtype = (body.get("question_type") or "mcq_single").strip()
-    grade_level = (body.get("grade_level") or "").strip() or None
-    source_text = body.get("source_text") or None
+    topic = body.topic.strip()
+    count = body.count
+    difficulty = body.difficulty.strip().lower()
+    qtype = body.question_type.strip()
+    grade_level = body.grade_level.strip() or None
+    source_text = body.source_text
     if source_text and len(source_text) > 20000:
         raise HTTPException(status_code=400,
             detail="source_text too long (max 20000 chars)")
@@ -204,18 +260,16 @@ def generate_bank_questions(request: Request, body: dict = Body(...)):
 
 @router.post("/api/v1/admin/question-bank/suggest-tags")
 @limiter.limit("60/minute")
-def suggest_question_tags(request: Request, body: dict = Body(...)):
+def suggest_question_tags(request: Request, body: SuggestTagsIn = Body(...)):
     """Suggest 3-5 tags for a single question."""
     require_admin(request)
     from llm import is_configured, suggest_tags
     if not is_configured():
         raise HTTPException(status_code=503,
             detail="AI features unavailable. Set GROQ_API_KEY on the server.")
-    question = (body.get("question") or "").strip()
-    if not question:
-        raise HTTPException(status_code=400, detail="question is required")
-    options = body.get("options") or {}
-    correct = body.get("correct") or ""
+    question = body.question.strip()
+    options = body.options
+    correct = body.correct
     try:
         tags = suggest_tags(question[:2000], options, str(correct)[:50])
     except Exception as e:
@@ -226,7 +280,7 @@ def suggest_question_tags(request: Request, body: dict = Body(...)):
 
 @router.post("/api/v1/admin/lint-questions")
 @limiter.limit("10/minute")
-def lint_questions_endpoint(request: Request, body: dict = Body(...)):
+def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body(...)):
     """Pre-publish AI review of an exam's questions."""
     require_admin(request)
     from llm import is_configured, lint_questions
@@ -234,7 +288,7 @@ def lint_questions_endpoint(request: Request, body: dict = Body(...)):
         raise HTTPException(status_code=503,
             detail="AI features unavailable. Set LLM_API_KEY on the server.")
 
-    questions = body.get("questions") or []
+    questions = body.questions
     if not isinstance(questions, list) or not questions:
         raise HTTPException(status_code=400, detail="questions array required")
     if len(questions) > 200:
@@ -273,12 +327,12 @@ def lint_questions_endpoint(request: Request, body: dict = Body(...)):
 
 
 @router.post("/api/v1/admin/question-bank/to-exam")
-def bank_to_exam(request: Request, body: dict = Body(...)):
+def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
     """Copy bank questions into an exam's question list."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
-    question_ids = body.get("question_ids", [])
-    exam_id = body.get("exam_id")
+    question_ids = body.question_ids
+    exam_id = body.exam_id
     if not question_ids or not exam_id:
         raise HTTPException(status_code=400, detail="question_ids and exam_id required")
     if len(question_ids) > 500:
@@ -466,13 +520,11 @@ def get_admin_answers(session_id: str, request: Request):
 
 
 @router.post("/api/v1/admin/questions")
-def update_questions(request: Request, body: dict = Body(...)):
+def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)):
     """Update questions in Supabase."""
     teacher = require_admin(request)
     tid = teacher["id"]
-    if "questions" not in body:
-        raise HTTPException(status_code=400, detail="Missing 'questions' key")
-    questions = body["questions"]
+    questions = body.questions
     if not isinstance(questions, list) or len(questions) == 0:
         raise HTTPException(status_code=400, detail="'questions' must be a non-empty list")
 
@@ -573,13 +625,13 @@ def update_questions(request: Request, body: dict = Body(...)):
             "image_url":     str(q.get("image_url") or "") or None,
         })
 
-    exam_id = body.get("exam_id")
+    exam_id = body.exam_id
     if tid and exam_id:
         update_fields = {}
-        if "exam_title" in body:
-            update_fields["exam_title"] = body["exam_title"]
-        if "duration_minutes" in body:
-            update_fields["duration_minutes"] = body["duration_minutes"]
+        if body.exam_title is not None:
+            update_fields["exam_title"] = body.exam_title
+        if body.duration_minutes is not None:
+            update_fields["duration_minutes"] = body.duration_minutes
         if update_fields:
             supabase.table("exam_config").update(update_fields)\
                 .eq("teacher_id", tid).eq("exam_id", exam_id).execute()

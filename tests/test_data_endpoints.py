@@ -116,8 +116,7 @@ class TestUpdateQuestions:
             resp = client.post("/api/v1/admin/questions",
                                json={"not_questions": []},
                                headers=admin_headers())
-            assert resp.status_code == 400
-            assert "Missing" in resp.json()["detail"]
+            assert resp.status_code == 422
 
     def test_empty_questions_list(self, client):
         with admin_patch():
@@ -209,8 +208,7 @@ class TestExamSchedule:
                                json={"starts_at": "2025-06-01T09:00:00Z",
                                      "ends_at": "2025-06-01T11:00:00Z"},
                                headers=admin_headers())
-            assert resp.status_code == 400
-            assert "exam_id" in resp.json()["detail"].lower()
+            assert resp.status_code == 422
 
     def test_schedule_with_exam_id(self, client):
         with admin_patch(), \

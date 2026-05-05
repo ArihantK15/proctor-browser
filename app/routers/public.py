@@ -185,6 +185,61 @@ def get_public_schedule(t: str = None):
     }
 
 
+@router.get("/api/v1/lookup-teacher")
+@limiter.limit("30/minute")
+def lookup_teacher(request: Request, email: str = ""):
+    """Public endpoint — find a teacher by email for self-registration.
+
+    Returns minimal info (id, full_name) so the student registration
+    page can populate the hidden teacher_id field. Does NOT return
+    email to avoid harvesting.
+    """
+    email = (email or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    result = supabase.table("teachers").select("id,full_name").eq("email", email).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="No teacher found with this email")
+    teacher = result.data[0]
+    return {
+        "teacher_id": teacher["id"],
+        "full_name":  teacher.get("full_name", ""),
+    }
+
+
+@router.post("/api/v1/resolve-access-code")
+@limiter.limit("30/minute")
+def resolve_access_code(request: Request, body: dict):
+    """Public endpoint — resolve an exam access code to teacher + exam info.
+
+    Students who received an access code from their teacher can use this
+    to find the right registration context without needing a direct link.
+    """
+    code = (body.get("access_code") or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="Access code is required")
+
+    # Search exam_config for matching access_code
+    result = supabase.table("exam_config").select(
+        "teacher_id", "exam_id", "exam_title", "access_code",
+        "duration_minutes", "starts_at", "ends_at"
+    ).eq("access_code", code).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Invalid access code")
+
+    cfg = result.data[0]
+    teacher = _get_teacher_by_id(cfg.get("teacher_id"))
+    return {
+        "teacher_id":       cfg.get("teacher_id"),
+        "teacher_name":     teacher.get("full_name", "") if teacher else "",
+        "exam_id":          cfg.get("exam_id"),
+        "exam_title":       cfg.get("exam_title", "Exam"),
+        "duration_minutes": cfg.get("duration_minutes"),
+        "starts_at":        cfg.get("starts_at"),
+        "ends_at":          cfg.get("ends_at"),
+    }
+
+
 @router.get("/download")
 def download_page():
     """Auto-detect OS and offer the right installer."""

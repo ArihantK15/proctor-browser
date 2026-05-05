@@ -173,6 +173,34 @@
     <div class="sched-warn" id="sched-warn"></div>
   </div>
 
+  <!-- Teacher lookup fallback — shown when ?t= is missing -->
+  <div class="form-card" id="teacher-lookup" style="display:none;margin-bottom:16px">
+    <h2 style="font-size:16px;font-weight:700;color:var(--text);margin:0 0 4px">Find your teacher</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 20px">
+      You opened this page without a registration link. Choose one of the options below to identify your teacher.
+    </p>
+    <div class="fg">
+      <label>Teacher's email</label>
+      <input type="email" id="lookup-email" placeholder="e.g. teacher@university.edu"
+             onkeydown="if(event.key==='Enter')lookupTeacherByEmail()">
+    </div>
+    <button class="submit-btn" id="lookup-btn" onclick="lookupTeacherByEmail()" style="margin-bottom:20px">
+      Find Teacher
+    </button>
+    <div class="divider"><span>or</span></div>
+    <div class="fg" style="margin-top:20px">
+      <label>Exam access code</label>
+      <input type="text" id="lookup-code" placeholder="Enter the code from your teacher"
+             style="text-transform:uppercase;font-family:monospace;font-weight:600;letter-spacing:1px"
+             oninput="this.value=this.value.toUpperCase().trim()"
+             onkeydown="if(event.key==='Enter')lookupByCode()">
+    </div>
+    <button class="submit-btn" id="code-btn" onclick="lookupByCode()">
+      Resolve Code
+    </button>
+    <div class="err-msg" id="lookup-err"></div>
+  </div>
+
   <!-- Single unified registration + account form -->
   <div class="form-card" id="reg-form">
     <div class="fg">
@@ -292,7 +320,75 @@
 </div>
 
 <script>
-const _teacherId = new URLSearchParams(location.search).get('t') || null;
+let _teacherId = new URLSearchParams(location.search).get('t') || null;
+let _teacherName = '';
+
+// If no teacher_id in URL, show the lookup fallback
+if(!_teacherId){
+  document.getElementById('teacher-lookup').style.display = '';
+  document.getElementById('reg-form').style.display = 'none';
+}
+
+function clearLookupErr(){
+  document.getElementById('lookup-err').textContent='';
+}
+
+async function lookupTeacherByEmail(){
+  clearLookupErr();
+  const email = document.getElementById('lookup-email').value.trim();
+  if(!email||!email.includes('@')){ document.getElementById('lookup-err').textContent='Enter a valid email'; return; }
+  const btn = document.getElementById('lookup-btn');
+  btn.disabled = true; btn.textContent = 'Searching...';
+  try{
+    const r = await fetch('/api/v1/lookup-teacher?email=' + encodeURIComponent(email));
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||'Teacher not found');
+    _teacherId = d.teacher_id;
+    _teacherName = d.full_name;
+    showRegistrationForm();
+  }catch(e){ document.getElementById('lookup-err').textContent = e.message; }
+  finally{ btn.disabled = false; btn.textContent = 'Find Teacher'; }
+}
+
+async function lookupByCode(){
+  clearLookupErr();
+  const code = document.getElementById('lookup-code').value.trim().toUpperCase();
+  if(!code){ document.getElementById('lookup-err').textContent='Enter an access code'; return; }
+  const btn = document.getElementById('code-btn');
+  btn.disabled = true; btn.textContent = 'Resolving...';
+  try{
+    const r = await fetch('/api/v1/resolve-access-code', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({access_code: code})
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||'Invalid access code');
+    _teacherId = d.teacher_id;
+    _teacherName = d.teacher_name || d.exam_title || '';
+    showRegistrationForm();
+    // Show exam schedule if available
+    if(d.starts_at || d.ends_at){
+      const banner = document.getElementById('schedule-banner');
+      banner.style.display = '';
+      document.getElementById('sched-title').textContent = d.exam_title || 'Exam';
+      let times = '';
+      if(d.starts_at) times += 'Starts: ' + new Date(d.starts_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) + '\n';
+      if(d.ends_at) times += 'Ends: ' + new Date(d.ends_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+      document.getElementById('sched-times').textContent = times;
+    }
+  }catch(e){ document.getElementById('lookup-err').textContent = e.message; }
+  finally{ btn.disabled = false; btn.textContent = 'Resolve Code'; }
+}
+
+function showRegistrationForm(){
+  document.getElementById('teacher-lookup').style.display = 'none';
+  document.getElementById('reg-form').style.display = '';
+  if(_teacherName){
+    document.querySelector('.subtitle').textContent = 'Registering with ' + _teacherName;
+  }
+  // Try to load schedule
+  loadSchedule();
+}
 
 let _createAccount = true;
 let _lastCheckedEmail = '';

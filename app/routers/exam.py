@@ -98,7 +98,7 @@ async def validate_student(request: Request, body: ValidateIn):
                 status_code=403,
                 detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
 
-    # Look up student first (most common error = wrong roll number)
+    # Look up student (most common error = wrong roll number)
     result = await asyncio.to_thread(
         lambda: supabase.table("students")
             .select("*")
@@ -106,10 +106,100 @@ async def validate_student(request: Request, body: ValidateIn):
             .execute()
     )
     if not result.data:
-        raise HTTPException(
-            status_code=404,
-            detail="Roll number not found. Please complete registration first.")
-    student = result.data[0]
+        # Fallback: check if this roll number exists in student_invites.
+        # Teachers often send invites without pre-registering students —
+        # the invite IS the enrollment. Auto-create the students row on
+        # first validation so the exam flow continues seamlessly.
+        inv_result = await asyncio.to_thread(
+            lambda: supabase.table("student_invites")
+                .select("*")
+                .eq("roll_number", body.roll_number.strip().upper())
+                .execute()
+        )
+        if inv_result.data:
+            inv = inv_result.data[0]
+            inv_status = (inv.get("status") or "").lower()
+            if inv_status == InviteStatus.REVOKED:
+                raise HTTPException(
+                    status_code=403,
+                    detail="This invite has been revoked. Contact your teacher.")
+            exp = inv.get("expires_at")
+            if exp:
+                try:
+                    exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                    if datetime.now(timezone.utc) > exp_dt:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="This invite has expired. Contact your teacher.")
+                except HTTPException:
+                    raise
+                except Exception:
+                    pass
+
+            # Auto-enroll: create students row from invite data
+            student_row = {
+                "roll_number": inv["roll_number"],
+                "full_name":   inv.get("full_name", ""),
+                "email":       inv.get("email", ""),
+                "phone":       inv.get("phone") or None,
+                "teacher_id":  str(inv["teacher_id"]),
+            }
+            try:
+                enroll_result = await asyncio.to_thread(
+                    lambda: supabase.table("students").insert(student_row).execute()
+                )
+                if enroll_result.data:
+                    student = enroll_result.data[0]
+                    # Mark invite as accepted if not already
+                    if inv_status != InviteStatus.ACCEPTED:
+                        await asyncio.to_thread(
+                            lambda: supabase.table("student_invites").update({
+                                "status": InviteStatus.ACCEPTED,
+                                "accepted_at": datetime.now(timezone.utc).isoformat(),
+                            }).eq("id", inv["id"]).execute()
+                        )
+                else:
+                    # Insert succeeded but returned no data — re-query
+                    recheck = await asyncio.to_thread(
+                        lambda: supabase.table("students")
+                            .select("*")
+                            .eq("roll_number", body.roll_number.strip().upper())
+                            .execute()
+                    )
+                    if recheck.data:
+                        student = recheck.data[0]
+                    else:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to create student record. Please try again.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                err = str(e).lower()
+                if "duplicate" in err or "unique" in err:
+                    # Race condition — another validation created it
+                    recheck = await asyncio.to_thread(
+                        lambda: supabase.table("students")
+                            .select("*")
+                            .eq("roll_number", body.roll_number.strip().upper())
+                            .execute()
+                    )
+                    if recheck.data:
+                        student = recheck.data[0]
+                    else:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to create student record. Please try again.")
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Registration failed. Please try again.")
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail="Roll number not found. Please complete registration first.")
+    else:
+        student = result.data[0]
 
     # Look up teacher's config for this student
     student_tid = student.get("teacher_id")

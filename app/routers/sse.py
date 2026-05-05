@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import time
 from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
@@ -14,6 +15,8 @@ from ..dependencies import (
     SECRET_KEY, require_auth, now_ist, fmt_ist, SessionStatus,
     VIOLATION_WEIGHTS, _CRITICAL_TYPES,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
 
@@ -43,7 +46,7 @@ async def upload_live_frame_http(body: LiveFrameIn):
     try:
         jpeg_bytes = base64.b64decode(body.jpeg_b64)
     except Exception:
-        return Response(status_code=400)
+        return Response(status_code=400, content="Invalid base64")
 
     _store_live_frame(body.session_id, jpeg_bytes)
 
@@ -94,7 +97,7 @@ async def _ws_broadcast(session_id: str, frame_bytes: bytes):
         try:
             await c.send_bytes(frame_bytes)
         except Exception:
-            dead.append(c)
+            dead.append(c)  # Client disconnected — will be cleaned up
     # We already know the session_id — only clean up from it
     if dead:
         async with _ws_lock:
@@ -130,7 +133,7 @@ async def _ws_cleanup():
                     try:
                         await c.send_text('{"_":"ping"}')
                     except Exception:
-                        dead.append(c)
+                        dead.append(c)  # Client disconnected
                 for c in dead:
                     _ws_clients[sid].remove(c)
                 if not _ws_clients[sid]:
@@ -186,8 +189,8 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
             await _ws_broadcast(session_id, data)
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("WebSocket live-frame error: %s", e)
     finally:
         await _ws_unsubscribe(session_id, websocket)
 
@@ -227,7 +230,7 @@ async def sse_sessions(request: Request):
             sessions_payload = _build_sessions_payload(teacher_id)
             yield f"event: init\ndata: {json.dumps({'sessions': sessions_payload['sessions']})}\n\n"
         except Exception:
-            pass
+            pass  # Failed to build initial snapshot — stream will still work with updates
 
         # Start async generators for each channel
         async def _channel_reader(channel: str, evt_type: str, queue: asyncio.Queue):
@@ -240,7 +243,7 @@ async def sse_sessions(request: Request):
                         continue
                     await queue.put((evt_type, msg))
             except Exception:
-                pass
+                pass  # Redis subscription failed — stream continues without real-time updates
 
         queue: asyncio.Queue = asyncio.Queue()
         tasks = [

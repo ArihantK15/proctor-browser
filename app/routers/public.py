@@ -1,6 +1,7 @@
 from pathlib import Path
-import os
 import json
+import logging
+import os
 import time
 import asyncio
 from datetime import datetime, timezone, timedelta
@@ -28,6 +29,8 @@ class DemoRequest(BaseModel):
     institution: str
     role: str
     message: str = ""
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
 
@@ -103,7 +106,7 @@ def health():
         r.ping()
         checks["redis"] = "ok"
     except Exception:
-        checks["redis"] = "unavailable"  # non-fatal
+        checks["redis"] = "unavailable"  # non-fatal — health check still passes
 
     # Memory
     try:
@@ -358,7 +361,7 @@ def invite_landing(token: str, request: Request):
                     status_code=410,
                 )
         except Exception:
-            pass
+            pass  # Date parse failed — allow landing page to proceed
 
     if not inv.get("opened_at"):
         try:
@@ -367,7 +370,7 @@ def invite_landing(token: str, request: Request):
                 "status": InviteStatus.OPENED if status in (InviteStatus.SENT, "queued") else status,
             }).eq("token", token).execute()
         except Exception:
-            pass
+            pass  # Failed to mark as opened — non-fatal
 
     exam_cfg = _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
         if inv.get("exam_id") else {}
@@ -404,7 +407,7 @@ def resolve_invite(token: str):
         except HTTPException:
             raise
         except Exception:
-            pass
+            pass  # Date parse failed — allow resolve to proceed
 
     exam_cfg = _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
         if inv.get("exam_id") else {}
@@ -446,7 +449,7 @@ def accept_invite(token: str, request: Request):
         except HTTPException:
             raise
         except Exception:
-            pass
+            pass  # Date parse failed — allow accept to proceed
 
     inv_email = (inv.get("email") or "").strip().lower()
     stu_email = (student.get("email") or "").strip().lower()
@@ -479,7 +482,7 @@ async def email_webhook(request: Request):
     try:
         payload = json.loads(raw)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
     evt = (payload.get("type") or "").lower()
     data = payload.get("data") or {}
     msg_id = data.get("email_id") or data.get("id")

@@ -4,6 +4,8 @@ Extracted from main.py. All shared dependencies are imported from
 the central ``dependencies`` module via relative imports.
 """
 
+import logging
+
 from ..dependencies import (
     supabase,
     _atable,
@@ -55,6 +57,8 @@ from ..dependencies import (
 )
 
 from fastapi import APIRouter
+
+logger = logging.getLogger(__name__)
 
 _MAX_FRAME_BASE64_LEN = 500_000  # ~375KB decoded, enough for a JPEG frame
 
@@ -150,7 +154,7 @@ async def validate_student(request: Request, body: ValidateIn):
                 except HTTPException:
                     raise
                 except Exception:
-                    pass
+                    pass  # Date parse failed — allow invite to proceed
 
             # Auto-enroll: create students row from invite data
             student_row = {
@@ -248,7 +252,7 @@ async def validate_student(request: Request, body: ValidateIn):
                                 str(exp).replace("Z", "+00:00")):
                             continue
                     except Exception:
-                        pass
+                        pass  # Malformed expiry — allow invite to proceed
                 invite_ok = True
                 matched_invite_id = inv["id"]
                 break
@@ -926,7 +930,7 @@ def id_verification_status(request: Request, session_id: str = ""):
         obj = json.loads(raw)
         return {"status": obj.get("status", "pending")}
     except Exception:
-        return {"status": "pending"}
+        return {"status": "pending"}  # Malformed JSON — treat as pending
 
 
 @router.get("/api/v1/events/{session_id}")

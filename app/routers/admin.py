@@ -6,6 +6,7 @@ Extracted from main.py. Imports shared dependencies from `dependencies`.
 import io
 import csv
 import json
+import logging
 import base64
 import hashlib
 import time
@@ -31,8 +32,10 @@ from ..dependencies import (
     _violation_counts_by_session,
     generate_session_summary,
     SessionStatus, InviteStatus, VerificationStatus,
-    SECRET_KEY, _risk_label,
+    SECRET_KEY,     _risk_label,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
 
@@ -77,8 +80,8 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
     config = None
     try:
         config = _load_exam_config(str(tid), exam_id=exam_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to load exam config for scorecard: %s", e)
     exam_title = (config or {}).get("exam_title") or (config or {}).get("title") or "Exam"
 
     buf = io.BytesIO()
@@ -281,7 +284,7 @@ def pending_verifications(request: Request, exam_id: str = None):
         try:
             obj = json.loads(row.get("details", "{}"))
         except Exception:
-            continue
+            continue  # Malformed JSON in details
         if obj.get("status") != VerificationStatus.PENDING:
             continue
         if exam_id:
@@ -329,7 +332,7 @@ def id_decision(data: IdDecisionIn, request: Request):
     try:
         obj = json.loads(row.get("details", "{}"))
     except Exception:
-        obj = {}
+        obj = {}  # Malformed JSON — use empty defaults
     obj["status"] = data.decision
     obj["decided_by"] = teacher.get("full_name", teacher.get("email", ""))
     obj["decided_at"] = now_ist().isoformat()
@@ -356,8 +359,8 @@ def id_decision(data: IdDecisionIn, request: Request):
                 "status":       SessionStatus.REJECTED,
                 "submitted_at": now_ist().isoformat(),
             }).eq("session_key", data.session_key).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to update session status to rejected: %s", e)
 
     return {"status": "ok", "decision": data.decision}
 
@@ -892,11 +895,11 @@ def export_excel(request: Request, exam_id: str = None):
         try:
             pct_val = float(s.get("percentage") or 0)
         except Exception:
-            pct_val = 0.0
+            pct_val = 0.0  # Invalid percentage — default to 0
         try:
             secs = int(s.get("time_taken_secs") or 0)
         except Exception:
-            secs = 0
+            secs = 0  # Invalid time — default to 0
         mins = round(secs / 60, 2) if secs else 0
 
         ws.append([
@@ -1033,14 +1036,14 @@ def export_pdf(session_id: str, request: Request):
                     raw = det.split("confidence:")[1].split("|")[0].strip()
                     return raw if "%" in raw else f"{raw}%"
                 except Exception:
-                    pass
+                    pass  # Malformed confidence string — fall through
             if "conf:" in det:
                 try:
                     raw = det.split("conf:")[1].split(" ")[0].strip()
                     val = float(raw)
                     return f"{int(val)}%" if val > 1 else f"{int(val*100)}%"
                 except Exception:
-                    pass
+                    pass  # Malformed conf value — fall through
             return f"{int(CONF_MAP.get(vtype, 0.75) * 100)}%"
 
         def clean_details(details):
@@ -1057,7 +1060,7 @@ def export_pdf(session_id: str, request: Request):
                 try:
                     total_conf_vals.append(float(conf_str.strip("%")) / 100)
                 except Exception:
-                    pass
+                    pass  # Non-numeric confidence — skip from average
                 ts_part = ""
                 if v.get("created_at"):
                     _fmted = fmt_ist(v["created_at"])
@@ -1177,7 +1180,8 @@ def export_pdf(session_id: str, request: Request):
             pdf_questions = _load_questions(teacher_id=tid)
             q_correct = {q["id"]: q["correct"] for q in pdf_questions}
             q_texts = {q["id"]: q.get("question", "")[:50] for q in pdf_questions}
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to load questions for PDF export: %s", e)
             q_correct = {}
             q_texts = {}
 
@@ -1273,8 +1277,8 @@ def scorecard_zip(request: Request, exam_id: str = None):
         config = None
         try:
             config = _load_exam_config(str(tid), exam_id=eid)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to load exam config for ZIP export: %s", e)
         exam_title = (config or {}).get("title", "Exam")
 
         zip_buf = io.BytesIO()
@@ -1459,9 +1463,9 @@ def email_scorecards(exam_id: str, request: Request, body: dict = Body(default={
                 try:
                     (supabase.table("exam_sessions")
                      .update({"scorecard_emailed_at": None})
-                     .eq("session_key", sid).eq("teacher_id", tid).execute())
-                except Exception:
-                    pass
+                      .eq("session_key", sid).eq("teacher_id", tid).execute())
+                except Exception as e:
+                    logger.debug("Failed to reset scorecard_emailed_at: %s", e)
             failed += 1
             failures.append({"roll": roll, "reason": f"pdf: {e}"})
             continue
@@ -1495,9 +1499,9 @@ def email_scorecards(exam_id: str, request: Request, body: dict = Body(default={
                 try:
                     (supabase.table("exam_sessions")
                      .update({"scorecard_emailed_at": None})
-                     .eq("session_key", sid).eq("teacher_id", tid).execute())
-                except Exception:
-                    pass
+                      .eq("session_key", sid).eq("teacher_id", tid).execute())
+                except Exception as e:
+                    logger.debug("Failed to reset scorecard_emailed_at (send error): %s", e)
             failed += 1
             failures.append({"roll": roll, "reason": result.error or "send failed"})
             print(f"[email-scorecards][SEND_ERROR] roll={roll} reason={result.error!r}", flush=True)
@@ -1830,14 +1834,14 @@ def list_exams(request: Request):
             qr = supabase.table("questions").select("question_id", count="exact")\
                 .eq("teacher_id", tid).eq("exam_id", eid).execute()
             qcount = qr.count if qr.count is not None else len(qr.data or [])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to count questions for exam %s: %s", eid, e)
         try:
             sr = supabase.table("exam_sessions").select("session_key", count="exact")\
                 .eq("teacher_id", tid).eq("exam_id", eid).execute()
             scount = sr.count if sr.count is not None else len(sr.data or [])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to count sessions for exam %s: %s", eid, e)
         out.append({
             "exam_id":          eid,
             "exam_title":       ex.get("exam_title", "Exam"),
@@ -1971,8 +1975,8 @@ def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})
                     .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
                 supabase.table("questions").delete()\
                     .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
-            except Exception:
-                pass
+            except Exception as rollback_err:
+                logger.warning("Failed to rollback partial question clone: %s", rollback_err)
             raise HTTPException(status_code=500, detail=f"Failed to clone questions: {e}")
 
     if _cache:
@@ -2531,7 +2535,7 @@ def admin_submit(session_id: str, request: Request):
                     full_name   = parts.split("(")[0].strip()
                     roll_number = parts.split("(")[1].replace(")", "").strip()
             except Exception:
-                pass
+                pass  # Malformed details string — use defaults
 
     try:
         s_result = supabase.table("students").select("*")\
@@ -2542,7 +2546,7 @@ def admin_submit(session_id: str, request: Request):
             full_name = s_result.data[0].get("full_name", full_name)
             email     = s_result.data[0].get("email", email)
     except Exception:
-        pass
+        pass  # Student lookup failed — use enrollment event data
 
     answers_map: dict = {}
     for e in events:
@@ -2555,7 +2559,7 @@ def admin_submit(session_id: str, request: Request):
                 if "q" in parts and "a" in parts:
                     answers_map[parts["q"]] = parts["a"]
             except Exception:
-                pass
+                pass  # Malformed answer details — skip
 
     existing_eid = existing_session.get("exam_id")
     score, total = _recalculate_score(session_id, answers_map, tid, exam_id=existing_eid)
@@ -2662,7 +2666,7 @@ async def request_recalibration(session_id: str, request: Request):
         try:
             _cache.delete(f"cal_quality:{session_id}")
         except Exception:
-            pass
+            pass  # Cache delete is non-fatal
 
     return {"ok": True, "session_id": session_id, "status": "recalibration_requested"}
 
@@ -2711,8 +2715,8 @@ def live_risk_triage_endpoint(session_id: str, request: Request):
         cfg = _load_exam_config(teacher_id=tid, exam_id=exam_id) if exam_id else None
         if cfg:
             exam_title = cfg.get("exam_title") or cfg.get("title") or exam_title
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to load exam config for live-view: %s", e)
 
     elapsed_minutes = None
     started_at = sess_row.get("started_at")
@@ -2721,7 +2725,7 @@ def live_risk_triage_endpoint(session_id: str, request: Request):
             t0 = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
             elapsed_minutes = max(0, int((datetime.now(timezone.utc) - t0).total_seconds() // 60))
         except Exception:
-            pass
+            pass  # Malformed timestamp — elapsed unknown
 
     session_meta = {
         "roll_number": sess_row.get("roll_number"),
@@ -2811,7 +2815,7 @@ def live_view_frame(session_id: str, request: Request):
     try:
         jpeg = base64.b64decode(b64)
     except Exception:
-        return Response(status_code=204)
+        return Response(status_code=204)  # Invalid base64 — no frame available
     return Response(content=jpeg, media_type="image/jpeg",
                     headers={"Cache-Control": "no-store, max-age=0"})
 

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 import json
+import logging
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 
@@ -24,6 +25,8 @@ from ..dependencies import (
     now_ist,
     SessionStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
 
@@ -88,8 +91,8 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "exam_title": "Exam",
             "duration_minutes": 60,
         }).execute()
-    except Exception:
-        pass  # Non-fatal — teacher can set this later
+    except Exception as e:
+        logger.debug("Default exam_config creation failed: %s", e)  # Non-fatal
 
     # Auto-login after signup so the teacher goes straight to dashboard
     access_token = issue_admin_token(teacher)
@@ -302,8 +305,8 @@ async def student_login(body: StudentLoginIn, request: Request):
             .eq("email", email)\
             .is_("account_id", "null")\
             .execute()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Auto-link enrollments failed: %s", e)  # Non-fatal
 
     return {
         "access_token":  issue_student_auth_token(account),
@@ -536,7 +539,7 @@ def _exam_window_status(starts_at, ends_at, now, duration):
             if start_dt.tzinfo is None:
                 start_dt = start_dt.replace(tzinfo=timezone.utc)
         except Exception:
-            start_dt = None
+            start_dt = None  # Malformed timestamp — treat as unset
     else:
         start_dt = None
 
@@ -550,7 +553,7 @@ def _exam_window_status(starts_at, ends_at, now, duration):
             if end_dt.tzinfo is None:
                 end_dt = end_dt.replace(tzinfo=timezone.utc)
         except Exception:
-            end_dt = None
+            end_dt = None  # Malformed timestamp — treat as unset
     else:
         end_dt = None
 

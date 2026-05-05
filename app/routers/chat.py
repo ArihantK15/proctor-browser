@@ -1,6 +1,7 @@
 """WebSocket chat endpoints: student and teacher chat connections."""
 import asyncio
 import json
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 
@@ -15,6 +16,8 @@ from ..dependencies import (
     SessionStatus,
     now_ist,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
 
@@ -87,7 +90,7 @@ async def ws_chat_student(ws: WebSocket):
             try:
                 data = json.loads(raw)
             except Exception:
-                continue
+                continue  # Invalid JSON from student — ignore
             mtype = data.get("type", "msg")
             if mtype == "reauth":
                 new_token = str(data.get("token", "")).strip()
@@ -140,7 +143,7 @@ async def ws_chat_teacher(ws: WebSocket):
             try:
                 data = json.loads(raw)
             except Exception:
-                continue
+                continue  # Invalid JSON from teacher — ignore
             mtype = data.get("type", "msg")
             if mtype == "reauth":
                 new_token = str(data.get("token", "")).strip()

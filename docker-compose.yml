@@ -21,7 +21,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1000m       # 2 async workers; ~500 MB each
+          memory: 1200m       # 2 sync workers; ~500-600 MB each under load
           cpus: "0.7"         # droplet has 1 CPU total; leave headroom for Caddy + Redis
     memswap_limit: 1000m      # don't let them silently spill into swap
     healthcheck:

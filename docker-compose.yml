@@ -22,7 +22,7 @@ services:
       resources:
         limits:
           memory: 1000m       # 2 async workers; ~500 MB each
-          cpus: "1.5"         # leave 0.5 CPU for Caddy + Redis on 2GB droplet
+          cpus: "0.7"         # droplet has 1 CPU total; leave headroom for Caddy + Redis
     memswap_limit: 1000m      # don't let them silently spill into swap
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

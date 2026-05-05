@@ -69,7 +69,11 @@ jobs:
         #   real Chromium, which we don't install in this lightweight
         #   CI job. Browser tests get their own workflow if/when we
         #   wire that up.
+        # `--ignore=tests/test_proctor_e2e.py --ignore=tests/test_proctor_features.py`:
+        #   proctor tests need cv2/numpy/ultralytics/insightface which
+        #   are heavy, GPU-optional deps not needed for the server API.
+        #   They are run locally before commits.
         # No `-x`: a single transient flake shouldn't mask the rest of
         #   the suite. We want to see ALL failures on each push so a
         #   regression in one area doesn't hide one in another.
-        run: pytest tests/ --ignore=tests/browser -v --tb=short
+        run: pytest tests/ --ignore=tests/browser --ignore=tests/test_proctor_e2e.py --ignore=tests/test_proctor_features.py -v --tb=short

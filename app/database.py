@@ -57,9 +57,12 @@ class AsyncTable:
         self._select_cols = "*"
         self._order_col: str | None = None
         self._count_mode: str | None = None
+        self._limit_val: int | None = None
+        self._offset_val: int | None = None
         # Mutation state (set by insert/upsert/update/delete)
-        self._op: str | None = None  # "insert"|"upsert"|"update"|"delete"
+        self._op: str | None = None  # "select"|"insert"|"upsert"|"update"|"delete"
         self._payload = None
+        self._single = False
 
     def select(self, cols: str = "*", *, count: str | None = None) -> "AsyncTable":
         self._select_cols = cols
@@ -75,8 +78,56 @@ class AsyncTable:
         self._filters.append((col, "neq", _pg_val(val)))
         return self
 
+    def is_(self, col: str, val) -> "AsyncTable":
+        """IS NULL / IS NOT NULL check."""
+        self._filters.append((col, "is", "null" if val is None else _pg_val(val)))
+        return self
+
+    def in_(self, col: str, values) -> "AsyncTable":
+        """IN (val1, val2, ...) filter."""
+        if isinstance(values, str):
+            val_str = values
+        else:
+            val_str = ",".join(_pg_val(v) for v in values)
+        self._filters.append((col, "in", f"({val_str})"))
+        return self
+
+    def gte(self, col: str, val) -> "AsyncTable":
+        self._filters.append((col, "gte", _pg_val(val)))
+        return self
+
+    def lte(self, col: str, val) -> "AsyncTable":
+        self._filters.append((col, "lte", _pg_val(val)))
+        return self
+
+    def gt(self, col: str, val) -> "AsyncTable":
+        self._filters.append((col, "gt", _pg_val(val)))
+        return self
+
+    def lt(self, col: str, val) -> "AsyncTable":
+        self._filters.append((col, "lt", _pg_val(val)))
+        return self
+
+    def like(self, col: str, pattern: str) -> "AsyncTable":
+        self._filters.append((col, "like", pattern))
+        return self
+
     def order(self, col: str, *, desc: bool = False) -> "AsyncTable":
         self._order_col = f"{col}.desc" if desc else col
+        return self
+
+    def limit(self, n: int) -> "AsyncTable":
+        self._limit_val = n
+        return self
+
+    def range(self, start: int, end: int) -> "AsyncTable":
+        """Inclusive range: rows start..end."""
+        self._offset_val = start
+        self._limit_val = end - start + 1
+        return self
+
+    def single(self) -> "AsyncTable":
+        self._single = True
         return self
 
     def insert(self, rows) -> "AsyncTable":
@@ -106,6 +157,10 @@ class AsyncTable:
             params[col] = f"{op}.{val}"
         if self._order_col:
             params["order"] = self._order_col
+        if self._limit_val is not None:
+            params["limit"] = str(self._limit_val)
+        if self._offset_val is not None:
+            params["offset"] = str(self._offset_val)
         return params
 
     async def execute(self) -> "_AsyncResult":
@@ -115,7 +170,9 @@ class AsyncTable:
 
         if op == "select":
             headers = {}
-            if self._count_mode:
+            if self._single:
+                headers["Prefer"] = "single-row"
+            elif self._count_mode:
                 headers["Prefer"] = f"count={self._count_mode}"
             resp = await c.get(f"/{self._table}",
                                params=self._build_params(), headers=headers)
@@ -126,7 +183,11 @@ class AsyncTable:
                     count = int(resp.headers["content-range"].split("/")[-1])
                 except (ValueError, IndexError):
                     pass
-            return _AsyncResult(data=resp.json(), count=count)
+            if self._single:
+                data = resp.json() if resp.content else None
+            else:
+                data = resp.json() if resp.content else []
+            return _AsyncResult(data=data, count=count)
 
         elif op == "insert":
             resp = await c.post(

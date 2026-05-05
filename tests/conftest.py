@@ -33,9 +33,41 @@ _mock_supabase.table.return_value.insert.return_value.execute.return_value = Mag
 _mock_supabase.table.return_value.upsert.return_value.execute.return_value = MagicMock(data=[])
 
 # Pre-populate sys.modules so `from .database import supabase` resolves
+class _AsyncTableMock:
+    """Fluent mock for _atable that returns self on every chain method
+    and has an awaitable .execute()."""
+    def __init__(self, data=None, count=None):
+        self._data = data if data is not None else []
+        self._count = count
+    def select(self, *a, **kw): return self
+    def eq(self, *a, **kw): return self
+    def neq(self, *a, **kw): return self
+    def is_(self, *a, **kw): return self
+    def in_(self, *a, **kw): return self
+    def gte(self, *a, **kw): return self
+    def lte(self, *a, **kw): return self
+    def gt(self, *a, **kw): return self
+    def lt(self, *a, **kw): return self
+    def like(self, *a, **kw): return self
+    def order(self, *a, **kw): return self
+    def limit(self, *a, **kw): return self
+    def range(self, *a, **kw): return self
+    def single(self, *a, **kw): return self
+    def insert(self, *a, **kw): return self
+    def upsert(self, *a, **kw): return self
+    def update(self, *a, **kw): return self
+    def delete(self, *a, **kw): return self
+    async def execute(self):
+        r = MagicMock()
+        r.data = self._data
+        r.count = self._count
+        return r
+
+_mock_atable = MagicMock(return_value=_AsyncTableMock())
+
 mock_database = MagicMock()
 mock_database.supabase = _mock_supabase
-mock_database.async_table = MagicMock()
+mock_database.async_table = _mock_atable
 sys.modules["app.database"] = mock_database
 
 # Mock logger

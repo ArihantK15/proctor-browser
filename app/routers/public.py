@@ -144,7 +144,7 @@ def health():
 
 @router.post("/api/v1/register-student")
 @limiter.limit("120/minute")
-def register_student(request: Request, body: RegisterIn):
+async def register_student(request: Request, body: RegisterIn):
     """Public self-registration for students before exam day."""
     roll = body.roll_number.strip().upper()
     name = body.full_name.strip()
@@ -167,11 +167,7 @@ def register_student(request: Request, body: RegisterIn):
         raise HTTPException(status_code=404, detail="Unknown teacher")
     teacher_id = str(teacher["id"])
 
-    existing = supabase.table("students")\
-        .select("roll_number")\
-        .eq("roll_number", roll)\
-        .eq("teacher_id", teacher_id)\
-        .execute()
+    existing = await _atable("students").select("roll_number").eq("roll_number", roll).eq("teacher_id", teacher_id).execute()
     if existing.data:
         raise HTTPException(
             status_code=409,
@@ -185,7 +181,11 @@ def register_student(request: Request, body: RegisterIn):
         "teacher_id":  teacher_id,
     }
     try:
-        supabase.table("students").insert(row).execute()
+        await _atable("students").insert(row).execute()
+    except httpx.HTTPStatusError as e:
+        if "duplicate" in str(e).lower() or "unique" in str(e).lower() or e.response.status_code == 409:
+            raise HTTPException(status_code=409, detail="This roll number is already registered.")
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
     except Exception as e:
         if "duplicate" in str(e).lower() or "unique" in str(e).lower():
             raise HTTPException(status_code=409, detail="This roll number is already registered.")

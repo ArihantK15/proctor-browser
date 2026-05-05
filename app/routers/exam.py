@@ -73,30 +73,21 @@ router = APIRouter(prefix="")
 @limiter.limit("300/minute")
 async def validate_student(request: Request, body: ValidateIn):
     exam_id = body.exam_id
+    roll_upper = body.roll_number.strip().upper()
 
     # Practice sandbox: short-circuit before any DB lookups
     if is_practice(body.roll_number):
-        return _practice_validate_response(body.roll_number.strip().upper())
+        return _practice_validate_response(roll_upper)
 
     # Look up student first to get their teacher_id for config loading
-    pre_check = await asyncio.to_thread(
-        lambda: supabase.table("students")
-            .select("teacher_id")
-            .eq("roll_number", body.roll_number.strip().upper())
-            .execute()
-    )
+    pre_check = await _atable("students").select("teacher_id").eq("roll_number", roll_upper).execute()
     pre_tid = pre_check.data[0].get("teacher_id") if pre_check.data else None
 
     # If not found in students table, check student_invites for config lookup
     # so we can enforce time windows even before auto-enrollment.
     pre_exam_id = exam_id
     if pre_tid is None:
-        inv_pre = await asyncio.to_thread(
-            lambda: supabase.table("student_invites")
-                .select("teacher_id", "exam_id")
-                .eq("roll_number", body.roll_number.strip().upper())
-                .limit(1).execute()
-        )
+        inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).limit(1).execute()
         if inv_pre.data:
             pre_tid = inv_pre.data[0].get("teacher_id")
             if not pre_exam_id:
@@ -119,23 +110,13 @@ async def validate_student(request: Request, body: ValidateIn):
                 detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
 
     # Look up student (most common error = wrong roll number)
-    result = await asyncio.to_thread(
-        lambda: supabase.table("students")
-            .select("*")
-            .eq("roll_number", body.roll_number.strip().upper())
-            .execute()
-    )
+    result = await _atable("students").select("*").eq("roll_number", roll_upper).execute()
     if not result.data:
         # Fallback: check if this roll number exists in student_invites.
         # Teachers often send invites without pre-registering students —
         # the invite IS the enrollment. Auto-create the students row on
         # first validation so the exam flow continues seamlessly.
-        inv_result = await asyncio.to_thread(
-            lambda: supabase.table("student_invites")
-                .select("*")
-                .eq("roll_number", body.roll_number.strip().upper())
-                .execute()
-        )
+        inv_result = await _atable("student_invites").select("*").eq("roll_number", roll_upper).execute()
         if inv_result.data:
             inv = inv_result.data[0]
             inv_status = (inv.get("status") or "").lower()
@@ -165,27 +146,18 @@ async def validate_student(request: Request, body: ValidateIn):
                 "teacher_id":  str(inv["teacher_id"]),
             }
             try:
-                enroll_result = await asyncio.to_thread(
-                    lambda: supabase.table("students").insert(student_row).execute()
-                )
+                enroll_result = await _atable("students").insert(student_row).execute()
                 if enroll_result.data:
                     student = enroll_result.data[0]
                     # Mark invite as accepted if not already
                     if inv_status != InviteStatus.ACCEPTED:
-                        await asyncio.to_thread(
-                            lambda: supabase.table("student_invites").update({
-                                "status": InviteStatus.ACCEPTED,
-                                "accepted_at": datetime.now(timezone.utc).isoformat(),
-                            }).eq("id", inv["id"]).execute()
-                        )
+                        await _atable("student_invites").update({
+                            "status": InviteStatus.ACCEPTED,
+                            "accepted_at": datetime.now(timezone.utc).isoformat(),
+                        }).eq("id", inv["id"]).execute()
                 else:
                     # Insert succeeded but returned no data — re-query
-                    recheck = await asyncio.to_thread(
-                        lambda: supabase.table("students")
-                            .select("*")
-                            .eq("roll_number", body.roll_number.strip().upper())
-                            .execute()
-                    )
+                    recheck = await _atable("students").select("*").eq("roll_number", roll_upper).execute()
                     if recheck.data:
                         student = recheck.data[0]
                     else:
@@ -198,12 +170,7 @@ async def validate_student(request: Request, body: ValidateIn):
                 err = str(e).lower()
                 if "duplicate" in err or "unique" in err:
                     # Race condition — another validation created it
-                    recheck = await asyncio.to_thread(
-                        lambda: supabase.table("students")
-                            .select("*")
-                            .eq("roll_number", body.roll_number.strip().upper())
-                            .execute()
-                    )
+                    recheck = await _atable("students").select("*").eq("roll_number", roll_upper).execute()
                     if recheck.data:
                         student = recheck.data[0]
                     else:
@@ -232,13 +199,10 @@ async def validate_student(request: Request, body: ValidateIn):
         shared_ok = bool(provided) and provided == current_code
         invite_ok = False
         if not shared_ok and provided and student_tid:
-            inv_q = (supabase.table("student_invites")
-                     .select("id,access_code,status,expires_at,exam_id")
-                     .eq("teacher_id", str(student_tid))
-                     .eq("roll_number", student["roll_number"]))
+            inv_q = _atable("student_invites").select("id,access_code,status,expires_at,exam_id").eq("teacher_id", str(student_tid)).eq("roll_number", student["roll_number"])
             if exam_id:
-                inv_q = inv_q.eq("exam_id", exam_id)
-            inv_result = await asyncio.to_thread(inv_q.execute)
+                inv_q.eq("exam_id", exam_id)
+            inv_result = await inv_q.execute()
             for inv in (inv_result.data or []):
                 code = (inv.get("access_code") or "").upper()
                 if not code or code != provided:
@@ -267,34 +231,24 @@ async def validate_student(request: Request, body: ValidateIn):
                 status_code=403,
                 detail="You are not in a group assigned to this exam. Contact your teacher.")
 
-    def _check_completed():
-        completed_query = supabase.table("exam_sessions").select("session_key")\
-            .eq("roll_number", student["roll_number"])\
-            .eq("status", SessionStatus.COMPLETED)
-        if student_tid:
-            completed_query = completed_query.eq("teacher_id", str(student_tid))
-        if exam_id:
-            completed_query = completed_query.eq("exam_id", exam_id)
-        return completed_query.execute()
-
-    completed = await asyncio.to_thread(_check_completed)
+    q = _atable("exam_sessions").select("session_key").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.COMPLETED)
+    if student_tid:
+        q.eq("teacher_id", str(student_tid))
+    if exam_id:
+        q.eq("exam_id", exam_id)
+    completed = await q.execute()
     if completed.data:
         raise HTTPException(
             status_code=403,
             detail="You have already submitted this exam.")
 
     # Also check for in-progress sessions to prevent duplicate tokens
-    def _check_in_progress():
-        in_progress_query = supabase.table("exam_sessions").select("session_key,status")\
-            .eq("roll_number", student["roll_number"])\
-            .eq("status", SessionStatus.IN_PROGRESS)
-        if student_tid:
-            in_progress_query = in_progress_query.eq("teacher_id", str(student_tid))
-        if exam_id:
-            in_progress_query = in_progress_query.eq("exam_id", exam_id)
-        return in_progress_query.execute()
-
-    in_progress = await asyncio.to_thread(_check_in_progress)
+    q2 = _atable("exam_sessions").select("session_key,status").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.IN_PROGRESS)
+    if student_tid:
+        q2.eq("teacher_id", str(student_tid))
+    if exam_id:
+        q2.eq("exam_id", exam_id)
+    in_progress = await q2.execute()
     if in_progress.data:
         # Student already has an active session
         existing_key = in_progress.data[0]["session_key"]
@@ -311,14 +265,12 @@ async def validate_student(request: Request, body: ValidateIn):
     # Mark the invite as accepted
     if matched_invite_id:
         try:
-            await asyncio.to_thread(
-                lambda: supabase.table("student_invites").update({
-                    "status": InviteStatus.ACCEPTED,
-                    "accepted_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", matched_invite_id).execute()
-            )
+            await _atable("student_invites").update({
+                "status": InviteStatus.ACCEPTED,
+                "accepted_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", matched_invite_id).execute()
         except Exception as e:
-            print(f"[invites] accept-mark failed: {e}")
+            logger.debug("Failed to mark invite as accepted: %s", e)
 
     return {
         "valid":       True,
@@ -934,19 +886,18 @@ def id_verification_status(request: Request, session_id: str = ""):
 
 
 @router.get("/api/v1/events/{session_id}")
-def get_events(session_id: str, request: Request):
+async def get_events(session_id: str, request: Request):
     claims = require_auth(request)
     # Ownership check
     session_roll = session_id.rsplit("_", 1)[0].upper()
     if claims.get("roll", "").upper() != session_roll:
         raise HTTPException(status_code=403, detail="Access denied")
     tid = claims.get("tid")
-    query = supabase.table("violations")\
-        .select("*")\
-        .eq("session_key", session_id)
+    q = _atable("violations").select("*").eq("session_key", session_id)
     if tid:
-        query = query.eq("teacher_id", str(tid))
-    result = query.order("created_at").execute()
+        q.eq("teacher_id", str(tid))
+    q.order("created_at")
+    result = await q.execute()
     events = result.data or []
     return {
         "session_id": session_id,

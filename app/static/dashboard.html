@@ -1015,8 +1015,8 @@
      role="tab" + aria-selected lets assistive tech announce active state.
      Arrow-key navigation wired up in dashboard JS (see _initTabKeyboard). -->
 <div class="tabs" role="tablist" aria-label="Dashboard sections">
-  <button type="button" class="tab active" data-tab="live"      role="tab" aria-selected="true"  onclick="switchTab('live')">Live Sessions</button>
-   <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" onclick="switchTab('results')">Results</button>
+  <button type="button" class="tab active" data-tab="live"      role="tab" aria-selected="true"  onclick="switchTab('live');clearAlertBadge()">Live Sessions<span class="tab-badge" id="live-alert-badge" style="display:none;background:var(--red);color:#fff">0</span></button>
+  <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" onclick="switchTab('results')">Results</button>
    <button type="button" class="tab"        data-tab="history"   role="tab" aria-selected="false" onclick="switchTab('history')">Student History</button>
    <button type="button" class="tab"        data-tab="questions" role="tab" aria-selected="false" onclick="switchTab('questions')">Questions</button>
   <button type="button" class="tab"        data-tab="chat"      role="tab" aria-selected="false" onclick="switchTab('chat')">
@@ -1092,6 +1092,7 @@
       </select>
       <div class="toolbar-right">
         <button class="action-btn" onclick="refreshLive()">Refresh</button>
+        <button class="action-btn" id="alert-mute-btn" onclick="toggleAlertMute()" title="Mute/unmute alert sounds">🔔</button>
       </div>
     </div>
     <div class="table-wrap">
@@ -2131,9 +2132,15 @@ function _connectSSE(){
 
     _sseSource.addEventListener('update', (e)=>{
       // Incremental update — refresh live data from server
-      // (Redis sends a lightweight signal; we do a quick fetch to get full state)
       refreshLive();
       refreshIdReviews();
+    });
+
+    _sseSource.addEventListener('alert', (e)=>{
+      try{
+        const a=JSON.parse(e.data);
+        handleRealtimeAlert(a);
+      }catch(err){ console.error('[SSE] alert parse error',err); }
     });
 
     _sseSource.addEventListener('refresh', (e)=>{
@@ -6927,6 +6934,79 @@ async function deleteTemplate(templateId){
     resultEl.textContent = 'Error: '+e.message;
     resultEl.style.color = 'var(--red)';
   }
+}
+
+// ── REAL-TIME RISK ALERTS ──────────────────────────────────────
+let _alertCount = 0;
+let _alertMuted = false;
+
+function _getAlertContainer(){
+  let c = document.getElementById('alert-toast-container');
+  if(!c){
+    c = document.createElement('div');
+    c.id = 'alert-toast-container';
+    c.style.cssText = 'position:fixed;top:80px;right:16px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:380px;pointer-events:none';
+    document.body.appendChild(c);
+  }
+  return c;
+}
+
+function handleRealtimeAlert(a){
+  _alertCount++;
+  const badge = document.getElementById('live-alert-badge');
+  if(badge){
+    badge.textContent = _alertCount;
+    badge.style.display = _alertMuted ? 'none' : '';
+  }
+  if(_alertMuted) return;
+
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.value = 0.1;
+    osc.start(); osc.stop(ctx.currentTime + 0.15);
+  }catch(_){}
+
+  const sevColors = {critical:'var(--red)',high:'var(--amber)',medium:'var(--accent)',low:'var(--muted)'};
+  const sevBg = {critical:'rgba(220,38,38,0.15)',high:'rgba(245,158,11,0.15)',medium:'rgba(16,185,129,0.15)',low:'rgba(107,114,128,0.15)'};
+  const sev = (a.severity||'medium').toLowerCase();
+  const color = sevColors[sev]||sevColors.medium;
+  const bg = sevBg[sev]||sevBg.medium;
+  const container = _getAlertContainer();
+  const toast = document.createElement('div');
+  toast.style.cssText = 'pointer-events:auto;background:rgba(20,20,30,0.95);backdrop-filter:blur(12px);border:1px solid var(--border);border-left:3px solid '+color+';border-radius:8px;padding:12px 14px';
+  toast.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <span style="font-size:14px">⚠️</span>
+      <span style="font-weight:600;font-size:13px;color:${color}">${esc(a.full_name||a.roll_number||'Student')}</span>
+      <span class="badge" style="background:${bg};color:${color};font-size:10px">${sev}</span>
+      <span style="margin-left:auto;font-size:10px;color:var(--muted);cursor:pointer" onclick="this.closest('div').parentElement.remove()">✕</span>
+    </div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${esc((a.violation_type||'').replace(/_/g,' '))}</div>
+    ${a.details?'<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+esc(a.details.length>120?a.details.slice(0,120)+'…':a.details)+'</div>':''}
+    <div style="display:flex;gap:6px">
+      <button class="action-btn" style="font-size:11px;padding:4px 10px" onclick="viewSession('${esc(a.session_id)}')">View Timeline</button>
+    </div>
+  `;
+  container.appendChild(toast);
+  setTimeout(()=>{ if(toast.parentElement) toast.remove(); }, 8000);
+}
+
+function toggleAlertMute(){
+  _alertMuted = !_alertMuted;
+  const btn = document.getElementById('alert-mute-btn');
+  const badge = document.getElementById('live-alert-badge');
+  if(btn) btn.textContent = _alertMuted ? '🔔 Muted' : '🔔';
+  if(badge) badge.style.display = _alertMuted ? 'none' : (_alertCount > 0 ? '' : 'none');
+}
+
+function clearAlertBadge(){
+  _alertCount = 0;
+  const badge = document.getElementById('live-alert-badge');
+  if(badge) badge.style.display = 'none';
 }
 </script>
 </body>

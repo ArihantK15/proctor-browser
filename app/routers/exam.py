@@ -51,6 +51,7 @@ from ..dependencies import (
     limiter,
     SessionStatus,
     InviteStatus,
+    publish_critical_alert,
 )
 
 from fastapi import APIRouter
@@ -524,6 +525,17 @@ async def log_event(event: EventIn, request: Request):
     if tid:
         await _bus_async_publish(f"events:{tid}:{event.session_id}", evt_payload)
         await _bus_async_publish(f"sessions:{tid}", {**evt_payload, "kind": "violation"})
+
+        # Publish critical alert for immediate teacher notification
+        roll = event.session_id.rsplit("_", 1)[0] if "_" in event.session_id else ""
+        await publish_critical_alert(
+            teacher_id=str(tid),
+            session_id=event.session_id,
+            violation_type=event.event_type,
+            severity=event.severity,
+            details=event.details,
+            roll_number=roll,
+        )
 
     return {"status": "logged"}
 

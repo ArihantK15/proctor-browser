@@ -11,7 +11,8 @@ from ..dependencies import (
     supabase, _bus_subscribe, _HAS_REDIS, _get_teacher_by_id,
     require_admin, verify_admin_token,
     _build_sessions_payload, _cache, _bus_async_publish,
-    SECRET_KEY, require_auth, now_ist
+    SECRET_KEY, require_auth, now_ist, fmt_ist, SessionStatus,
+    VIOLATION_WEIGHTS,
 )
 
 router = APIRouter(prefix="")
@@ -189,3 +190,122 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
         pass
     finally:
         await _ws_unsubscribe(session_id, websocket)
+
+
+# ─── SSE SESSIONS STREAM (teacher dashboard live updates) ────────
+
+_CRITICAL_TYPES = frozenset({
+    "phone_consulting", "collaboration", "answer_memo",
+    "note_reading", "wrong_person", "calibration_abort",
+    "cheat_object_detected", "vm_detected",
+    "remote_desktop_detected",
+})
+
+
+@router.get("/api/v1/sse/sessions")
+async def sse_sessions(request: Request):
+    """Server-Sent Events stream for the teacher dashboard.
+
+    Sends:
+    - `init`: Current live sessions snapshot on connect
+    - `update`: Session change (violation, heartbeat, status change)
+    - `alert`: High-severity violation that needs immediate attention
+    - `refresh`: Full refresh signal
+    - `ping`: Keepalive every 15s
+
+    Auth: token query parameter (JWT from login).
+    """
+    token = request.query_params.get("token", "")
+    if not token:
+        return Response(status_code=401, content="Missing token")
+    try:
+        teacher = verify_admin_token(token)
+    except HTTPException:
+        return Response(status_code=401, content="Invalid token")
+
+    teacher_id = str(teacher["id"])
+
+    async def event_stream():
+        alert_channel = f"alerts:{teacher_id}"
+        events_channel = f"sessions:{teacher_id}"
+
+        # Send initial snapshot
+        try:
+            sessions_payload = _build_sessions_payload(teacher_id)
+            yield f"event: init\ndata: {json.dumps({'sessions': sessions_payload['sessions']})}\n\n"
+        except Exception:
+            pass
+
+        # Start async generators for each channel
+        async def _channel_reader(channel: str, evt_type: str, queue: asyncio.Queue):
+            if not _HAS_REDIS:
+                return
+            try:
+                from app.event_bus import subscribe
+                async for msg in subscribe(channel, keepalive_sec=30):
+                    if msg.get("_keepalive"):
+                        continue
+                    await queue.put((evt_type, msg))
+            except Exception:
+                pass
+
+        queue: asyncio.Queue = asyncio.Queue()
+        tasks = [
+            asyncio.create_task(_channel_reader(alert_channel, "alert", queue)),
+            asyncio.create_task(_channel_reader(events_channel, "update", queue)),
+        ]
+
+        try:
+            while True:
+                try:
+                    evt_type, data = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    yield f"event: {evt_type}\ndata: {json.dumps(data)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f"event: refresh\ndata: {{\"ts\": {time.time()}}}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            for t in tasks:
+                t.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def publish_critical_alert(
+    teacher_id: str,
+    session_id: str,
+    violation_type: str,
+    severity: str,
+    details: str = "",
+    roll_number: str = "",
+    full_name: str = "",
+):
+    """Publish a critical violation alert via Redis pub/sub.
+
+    Called from the event/logging pipeline when a high-severity
+    violation is detected.
+    """
+    if not _HAS_REDIS:
+        return
+    if violation_type not in _CRITICAL_TYPES and severity not in ("critical", "high"):
+        return
+    weight = VIOLATION_WEIGHTS.get(violation_type, 0)
+    alert = {
+        "session_id": session_id,
+        "violation_type": violation_type,
+        "severity": severity,
+        "details": details,
+        "roll_number": roll_number,
+        "full_name": full_name,
+        "risk_weight": weight,
+        "timestamp": fmt_ist(now_ist().isoformat()),
+    }
+    await _bus_async_publish(f"alerts:{teacher_id}", alert)

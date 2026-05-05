@@ -2993,3 +2993,146 @@ def revoke_invite(invite_id: str, request: Request):
      .update({"status": InviteStatus.REVOKED, "revoked_at": now_ist().isoformat()})
      .eq("id", invite_id).execute())
     return {"ok": True, "invite_id": invite_id}
+
+
+# ─── 20. EXAM TEMPLATES ──────────────────────────────────
+
+class SaveTemplateIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    template_name: str
+    include_questions: bool = True
+
+
+@router.post("/api/v1/templates")
+def save_template(request: Request, body: SaveTemplateIn):
+    """Save the current exam config (+ optionally questions) as a reusable template."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+
+    # Verify ownership
+    cfg = _load_exam_config(tid, exam_id=body.exam_id)
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    template_data = {
+        "exam_title": cfg.get("exam_title") or cfg.get("title") or "Exam",
+        "duration_minutes": cfg.get("duration_minutes", 60),
+        "access_code": cfg.get("access_code", ""),
+        "shuffle_questions": cfg.get("shuffle_questions", False),
+        "shuffle_options": cfg.get("shuffle_options", False),
+    }
+
+    questions = []
+    if body.include_questions:
+        questions = _load_questions(tid, exam_id=body.exam_id)
+
+    row = {
+        "teacher_id": tid,
+        "template_name": body.template_name.strip(),
+        "exam_title": template_data["exam_title"],
+        "duration_minutes": template_data["duration_minutes"],
+        "access_code": template_data["access_code"],
+        "shuffle_questions": template_data["shuffle_questions"],
+        "shuffle_options": template_data["shuffle_options"],
+        "questions": questions,
+    }
+    result = (supabase.table("exam_templates")
+              .insert(row)
+              .execute())
+    template_id = result.data[0]["id"] if result.data else None
+    return {"ok": True, "template_id": template_id, "questions_count": len(questions)}
+
+
+@router.get("/api/v1/templates")
+def list_templates(request: Request):
+    """List all templates for the current teacher."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    result = (supabase.table("exam_templates")
+              .select("id,template_name,exam_title,duration_minutes,access_code,"
+                      "shuffle_questions,shuffle_options,created_at,questions")
+              .eq("teacher_id", tid)
+              .order("created_at", desc=True)
+              .execute())
+    templates = []
+    for t in (result.data or []):
+        templates.append({
+            "id": t["id"],
+            "template_name": t.get("template_name", ""),
+            "exam_title": t.get("exam_title", ""),
+            "duration_minutes": t.get("duration_minutes", 60),
+            "access_code_required": bool(t.get("access_code", "").strip()),
+            "shuffle_questions": t.get("shuffle_questions", False),
+            "shuffle_options": t.get("shuffle_options", False),
+            "questions_count": len(t.get("questions") or []),
+            "created_at": fmt_ist(t.get("created_at", "")),
+        })
+    return {"templates": templates}
+
+
+@router.post("/api/v1/templates/{template_id}/create-exam")
+def create_exam_from_template(template_id: str, request: Request):
+    """Create a new exam from a template — copies config + questions."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+
+    t_result = (supabase.table("exam_templates")
+                .select("*")
+                .eq("id", template_id)
+                .eq("teacher_id", tid)
+                .execute())
+    if not t_result.data:
+        raise HTTPException(status_code=404, detail="Template not found")
+    tmpl = t_result.data[0]
+
+    # Generate a new exam_id
+    import uuid as _uuid_mod
+    new_exam_id = str(_uuid_mod.uuid4())
+
+    # Create exam_config
+    config_row = {
+        "exam_id": new_exam_id,
+        "teacher_id": tid,
+        "exam_title": tmpl.get("exam_title", "New Exam"),
+        "duration_minutes": tmpl.get("duration_minutes", 60),
+        "access_code": tmpl.get("access_code", ""),
+        "shuffle_questions": tmpl.get("shuffle_questions", False),
+        "shuffle_options": tmpl.get("shuffle_options", False),
+    }
+    (supabase.table("exam_config")
+     .insert(config_row)
+     .execute())
+
+    # Copy questions if present
+    questions = tmpl.get("questions") or []
+    if questions:
+        # Re-assign question IDs to avoid collisions
+        for q in questions:
+            q["id"] = str(_uuid_mod.uuid4())
+        (supabase.table("questions")
+         .insert(questions)
+         .execute())
+
+    return {
+        "ok": True,
+        "exam_id": new_exam_id,
+        "exam_title": config_row["exam_title"],
+        "questions_copied": len(questions),
+    }
+
+
+@router.delete("/api/v1/templates/{template_id}")
+def delete_template(template_id: str, request: Request):
+    """Delete a template."""
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+
+    result = (supabase.table("exam_templates")
+              .delete()
+              .eq("id", template_id)
+              .eq("teacher_id", tid)
+              .execute())
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"ok": True}

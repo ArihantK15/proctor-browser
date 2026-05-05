@@ -29,6 +29,7 @@ from ..dependencies import (
     INVITE_DAILY_CAP, _new_invite_token, _uuid,
     _safe_path_component, _assert_within_directory, _html_escape,
     _violation_counts_by_session,
+    generate_session_summary,
     SessionStatus, InviteStatus, VerificationStatus,
     SECRET_KEY, _risk_label,
 )
@@ -427,6 +428,7 @@ def get_timeline(session_id: str, request: Request):
         "total_events": len(events),
         "timeline":    timeline,
         "screenshots": list(screenshot_urls.values()),
+        "summary":     generate_session_summary(events, session_info),
     }
 
 
@@ -678,6 +680,12 @@ def get_student_history(
         behav_viols = [v for v in viols if v["violation_type"] in _BEHAVIORAL_PATTERNS]
         behav_patterns = list({v["violation_type"] for v in behav_viols})
 
+        summary = generate_session_summary(viols, {
+            "full_name": s.get("full_name", ""),
+            "roll_number": s.get("roll_number", ""),
+            "risk_score": s.get("risk_score"),
+        })
+
         history.append({
             "session_id": sk,
             "exam_id": s.get("exam_id", ""),
@@ -694,6 +702,7 @@ def get_student_history(
             "behavioral_violation_count": len(behav_viols),
             "risk_score": s.get("risk_score"),
             "risk_label": _risk_label(s["risk_score"]) if s.get("risk_score") is not None else None,
+            "summary": summary,
         })
 
     # Pagination

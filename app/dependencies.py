@@ -822,6 +822,170 @@ def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
         _cache.set(cache_key, result, ttl=30)
     return result
 
+# ─── NARRATIVE SUMMARY ────────────────────────────────────────────
+_BEHAVIORAL_PATTERNS: dict[str, str] = {
+    "phone_consulting": "consulting a phone",
+    "collaboration": "communicating with another person",
+    "answer_memo": "writing down answers to look up later",
+    "note_reading": "reading from prepared notes",
+    "sustained_offtask": "sustained off-task behavior",
+    "nervous_evasion": "nervous gaze evasion",
+}
+_CRITICAL_VIOLATIONS: dict[str, str] = {
+    "wrong_person": "a different person appeared on camera",
+    "calibration_abort": "the calibration was aborted (possible person switch)",
+    "cheat_object_detected": "a cheat object was detected",
+    "vm_detected": "a virtual machine was detected",
+    "remote_desktop_detected": "remote desktop access was detected",
+}
+
+def generate_session_summary(violations: list[dict], session_info: dict | None = None) -> dict:
+    """Generate a human-readable narrative summary of a session's
+    suspicious activity.
+
+    Returns:
+        {
+            "narrative": str,       # Multi-paragraph text
+            "highlights": list[str], # Top-level bullet points
+            "severity": str,         # "clean", "minor", "concerning", "critical"
+            "pattern_count": int,    # Number of distinct patterns detected
+        }
+    """
+    if not violations:
+        return {
+            "narrative": "No suspicious activity detected during this session.",
+            "highlights": [],
+            "severity": "clean",
+            "pattern_count": 0,
+        }
+
+    real_viols = [v for v in violations if _is_violation(v.get("violation_type", ""))]
+    if not real_viols:
+        return {
+            "narrative": "No suspicious activity detected during this session.",
+            "highlights": [],
+            "severity": "clean",
+            "pattern_count": 0,
+        }
+
+    # Categorize violations
+    behavioral: list[dict] = []
+    critical: list[dict] = []
+    standard: list[dict] = []
+    for v in real_viols:
+        vt = v.get("violation_type", "")
+        if vt in _BEHAVIORAL_PATTERNS:
+            behavioral.append(v)
+        elif vt in _CRITICAL_VIOLATIONS:
+            critical.append(v)
+        else:
+            standard.append(v)
+
+    # Group standard violations by type
+    std_counts: dict[str, int] = {}
+    for v in standard:
+        vt = v.get("violation_type", "unknown")
+        std_counts[vt] = std_counts.get(vt, 0) + 1
+
+    # Build highlights
+    highlights: list[str] = []
+    for v in behavioral:
+        vt = v.get("violation_type", "")
+        detail = v.get("details", "")
+        desc = _BEHAVIORAL_PATTERNS.get(vt, vt)
+        sev = v.get("severity", "")
+        label = f"Behavioral pattern: {desc}"
+        if detail:
+            # Strip [Behavioral] prefix if present
+            if detail.startswith("[Behavioral] "):
+                detail = detail[13:]
+            label += f" — {detail}"
+        highlights.append(label)
+
+    for v in critical:
+        vt = v.get("violation_type", "")
+        desc = _CRITICAL_VIOLATIONS.get(vt, vt)
+        highlights.append(f"Critical: {desc}")
+
+    for vt, count in sorted(std_counts.items(), key=lambda x: -x[1]):
+        label = vt.replace("_", " ")
+        if count == 1:
+            highlights.append(f"{label.capitalize()} (1 occurrence)")
+        else:
+            highlights.append(f"{label.capitalize()} ({count} occurrences)")
+
+    # Build narrative
+    paragraphs: list[str] = []
+    name = (session_info or {}).get("full_name", "The student")
+    roll = (session_info or {}).get("roll_number", "")
+    intro_roll = f" ({roll})" if roll else ""
+
+    if critical:
+        crit_types = {_CRITICAL_VIOLATIONS.get(v["violation_type"], v["violation_type"]) for v in critical}
+        paragraphs.append(
+            f"{name}{intro_roll} triggered {len(critical)} critical violation(s) during this session. "
+            f"The following were detected: {'; '.join(sorted(crit_types))}."
+        )
+
+    if behavioral:
+        pattern_types = {_BEHAVIORAL_PATTERNS.get(v["violation_type"], v["violation_type"]) for v in behavioral}
+        total_beh = len(behavioral)
+        paragraphs.append(
+            f"The behavioral analysis engine detected {total_beh} suspicious pattern(s): "
+            f"{'; '.join(sorted(pattern_types))}. "
+            f"These patterns suggest coordinated cheating behavior that goes beyond isolated lapses."
+        )
+
+    if std_counts:
+        total_std = sum(std_counts.values())
+        types_list = [f"{vt.replace('_', ' ')} ({n})" for vt, n in sorted(std_counts.items(), key=lambda x: -x[1])]
+        paragraphs.append(
+            f"Additionally, {total_std} standard violation(s) were recorded: "
+            f"{', '.join(types_list)}."
+        )
+
+    # Risk assessment paragraph
+    risk = (session_info or {}).get("risk_score")
+    if risk is not None:
+        label = _risk_label(risk)
+        if risk > 40:
+            paragraphs.append(
+                f"Overall risk score: {risk}/100 ({label}). "
+                f"This session warrants careful review before accepting the result."
+            )
+        elif risk > 15:
+            paragraphs.append(
+                f"Overall risk score: {risk}/100 ({label}). "
+                f"Some irregularities were noted but may be within normal variation."
+            )
+        else:
+            paragraphs.append(
+                f"Overall risk score: {risk}/100 ({label}). "
+                f"Minor issues detected; likely not significant."
+            )
+
+    # Severity classification
+    if critical:
+        severity = "critical"
+    elif behavioral and len(behavioral) > 2:
+        severity = "critical"
+    elif behavioral:
+        severity = "concerning"
+    elif any(c > 5 for c in std_counts.values()):
+        severity = "concerning"
+    elif std_counts:
+        severity = "minor"
+    else:
+        severity = "clean"
+
+    narrative = "\n\n".join(paragraphs) if paragraphs else "No suspicious activity detected."
+    return {
+        "narrative": narrative,
+        "highlights": highlights[:20],  # Cap to avoid overwhelming
+        "severity": severity,
+        "pattern_count": len({v.get("violation_type") for v in behavioral + critical}),
+    }
+
 # ─── SCREENSHOT HELPERS ───────────────────────────────────────────
 def _collect_session_screenshots(roll: str, teacher_id: str) -> dict[str, Path]:
     if not roll or not teacher_id:

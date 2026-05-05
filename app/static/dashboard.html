@@ -1922,6 +1922,16 @@
     <button class="close" onclick="closeTimeline()">&times;</button>
     <h3 id="tl-title">Forensics Timeline</h3>
     <div class="tl-meta" id="tl-meta"></div>
+    <!-- AI-generated narrative summary -->
+    <div id="tl-summary" style="display:none;margin:16px 0 12px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <span style="font-weight:600;font-size:14px">Activity Summary</span>
+        <span class="badge" id="tl-summary-severity"></span>
+      </div>
+      <div id="tl-summary-text" style="font-size:13px;line-height:1.7;color:var(--text-secondary);white-space:pre-line"></div>
+      <div id="tl-summary-highlights" style="margin-top:10px"></div>
+    </div>
     <!-- Severity filter -->
     <div class="tl-filters" id="tl-filters">
       <label class="tl-filter-btn active" data-sev="all"><input type="radio" name="tl-sev" value="all" checked onchange="filterTimeline()"> All</label>
@@ -4831,6 +4841,7 @@ async function loadTimeline(sid){
     document.querySelectorAll('.tl-filter-btn').forEach(b=>{
       b.classList.toggle('active',b.dataset.sev==='all');
     });
+    renderTimelineSummary(d.summary||null);
     renderTimeline();
   }catch(e){
     document.getElementById('tl-events').innerHTML=`<div class="tl-empty" style="color:var(--red)">Failed to load timeline: ${esc(e.message)}</div>`;
@@ -4944,6 +4955,38 @@ function filterTimeline(){
     b.classList.toggle('active',b.dataset.sev===tlFilter);
   });
   renderTimeline();
+}
+
+function renderTimelineSummary(summary){
+  const container=document.getElementById('tl-summary');
+  if(!summary || !summary.highlights.length){
+    container.style.display='none';
+    return;
+  }
+  container.style.display='';
+  const sevColors={
+    clean:'var(--emerald)',
+    minor:'var(--amber)',
+    concerning:'var(--red)',
+    critical:'var(--red)',
+  };
+  const sevBg={
+    clean:'rgba(16,185,129,0.15)',
+    minor:'rgba(245,158,11,0.15)',
+    concerning:'rgba(220,38,38,0.15)',
+    critical:'rgba(220,38,38,0.25)',
+  };
+  const sev=summary.severity||'clean';
+  const sevEl=document.getElementById('tl-summary-severity');
+  sevEl.textContent=sev.charAt(0).toUpperCase()+sev.slice(1);
+  sevEl.style.background=sevBg[sev]||sevBg.clean;
+  sevEl.style.color=sevColors[sev]||sevColors.clean;
+  document.getElementById('tl-summary-text').textContent=summary.narrative||'';
+  document.getElementById('tl-summary-highlights').innerHTML=
+    summary.highlights.map(h=>`<div style="padding:4px 0 4px 20px;font-size:12px;position:relative">
+      <span style="position:absolute;left:0;color:${sevColors[sev]||sevColors.clean}">●</span>
+      ${esc(h)}
+    </div>`).join('');
 }
 
 function scrollToEvent(idx){
@@ -6708,7 +6751,10 @@ function renderHistoryDetail(){
       <td>${riskStr}</td>
       <td style="font-size:13px">${_fmtDuration(h.time_taken_secs)}</td>
       <td style="font-size:13px;color:var(--muted)">${_escHtml(h.submitted_at)}</td>
-      <td><button class="action-btn" onclick="viewSessionTimeline('${_escHtml(h.session_id)}')">Timeline</button></td>
+      <td>
+        ${h.summary&&h.summary.highlights.length?`<button class="action-btn" onclick="toggleHistorySummary('${_escHtml(h.session_id)}')" id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
+        <button class="action-btn" onclick="viewSessionTimeline('${_escHtml(h.session_id)}')">Timeline</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -6724,6 +6770,36 @@ function viewSessionTimeline(sessionId){
   // Navigate to the forensics timeline view (already exists in dashboard)
   window.location.hash = '#timeline-'+sessionId;
   if(typeof viewSession==='function') viewSession(sessionId);
+}
+
+function toggleHistorySummary(sessionId){
+  let row = document.getElementById('summary-row-'+sessionId);
+  if(row){
+    row.remove();
+    return;
+  }
+  const h = (historyDetailData.history||[]).find(x=>x.session_id===sessionId);
+  if(!h||!h.summary) return;
+  const s = h.summary;
+  const sevColors={clean:'var(--emerald)',minor:'var(--amber)',concerning:'var(--red)',critical:'var(--red)'};
+  const sevBg={clean:'rgba(16,185,129,0.15)',minor:'rgba(245,158,11,0.15)',concerning:'rgba(220,38,38,0.15)',critical:'rgba(220,38,38,0.25)'};
+  const sev = s.severity||'clean';
+  const tr = document.createElement('tr');
+  tr.id = 'summary-row-'+sessionId;
+  tr.innerHTML = `<td colspan="9" style="padding:12px 16px;background:rgba(255,255,255,0.02);border-top:1px solid var(--border)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-weight:600;font-size:13px">Activity Summary</span>
+      <span class="badge" style="background:${sevBg[sev]};color:${sevColors[sev]}">${sev.charAt(0).toUpperCase()+sev.slice(1)}</span>
+    </div>
+    <div style="font-size:12px;line-height:1.7;color:var(--text-secondary);white-space:pre-line;margin-bottom:8px">${_escHtml(s.narrative)}</div>
+    ${s.highlights.length?'<div style="font-size:12px">'+s.highlights.map(h=>'<div style="padding:2px 0 2px 16px;position:relative"><span style="position:absolute;left:0;color:'+sevColors[sev]+'">●</span>'+_escHtml(h)+'</div>').join('')+'</div>':''}
+  </td>`;
+  // Insert after the current row
+  const btn = document.getElementById('summary-btn-'+sessionId);
+  if(btn){
+    const row = btn.closest('tr');
+    if(row && row.parentNode) row.parentNode.insertBefore(tr, row.nextSibling);
+  }
 }
 </script>
 </body>

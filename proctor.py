@@ -1754,6 +1754,21 @@ def run_proctoring(cap, W, H):
             return True
         return False
 
+    def _freeze_calibration_bias(reason: str):
+        """Average calibration samples and freeze bias values."""
+        nonlocal calibrated, head_yaw_bias, head_pitch_bias, gaze_yaw_bias, gaze_pitch_bias
+        if cal_head_yaw:
+            head_yaw_bias   = sum(cal_head_yaw)   / len(cal_head_yaw)
+            head_pitch_bias = sum(cal_head_pitch) / len(cal_head_pitch)
+        if cal_gaze_yaw:
+            gaze_yaw_bias   = sum(cal_gaze_yaw)   / len(cal_gaze_yaw)
+            gaze_pitch_bias = sum(cal_gaze_pitch) / len(cal_gaze_pitch)
+        calibrated = True
+        print(f"[CALIBRATION] {reason} "
+              f"({len(cal_head_yaw)} samples) — "
+              f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f})rad "
+              f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})°")
+
     while True:
         _loop_start = time.time()
         ret, frame = cap.read()
@@ -1781,6 +1796,13 @@ def run_proctoring(cap, W, H):
                 upload_live_frame(frame)
 
         frame_count += 1
+
+        # ── CALIBRATION TIMEOUT ──────────────────────────────────────────────
+        # Hard-freeze calibration if we've waited too long.
+        if not calibrated and frame_count >= CALIBRATION_MAX_WAIT:
+            _freeze_calibration_bias("⚠ timed out after {frame_count} frames")
+            log_event("calibration_timeout", "low",
+                      f"samples:{len(cal_head_yaw)}")
 
         # ── SCREEN-SHARE FEED DETECTION ──────────────────────────────────────
         # Checks every 30 frames if the camera feed looks like a screen
@@ -1822,23 +1844,6 @@ def run_proctoring(cap, W, H):
         head_yaw   = 0.0
         head_pitch = 0.0
         face_crop  = None
-
-        # Hard-freeze calibration if we've waited too long. Worst case the
-        # student gets the default (0,0) bias — same as the previous build.
-        if not calibrated and frame_count >= CALIBRATION_MAX_WAIT:
-            if cal_head_yaw:
-                head_yaw_bias   = sum(cal_head_yaw)   / len(cal_head_yaw)
-                head_pitch_bias = sum(cal_head_pitch) / len(cal_head_pitch)
-            if cal_gaze_yaw:
-                gaze_yaw_bias   = sum(cal_gaze_yaw)   / len(cal_gaze_yaw)
-                gaze_pitch_bias = sum(cal_gaze_pitch) / len(cal_gaze_pitch)
-            calibrated = True
-            print(f"[CALIBRATION] ⚠ timed out after {frame_count} frames "
-                  f"with {len(cal_head_yaw)} samples — "
-                  f"freezing bias gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) "
-                  f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})")
-            log_event("calibration_timeout", "low",
-                      f"samples:{len(cal_head_yaw)}")
 
         if num_faces == 0:
             _last_face_bbox = None
@@ -2014,18 +2019,7 @@ def run_proctoring(cap, W, H):
             # around during calibration that's fine — the average still
             # reflects "their" centred position better than 0.
             if not calibrated and len(cal_head_yaw) >= CALIBRATION_FRAMES:
-                if cal_gaze_yaw:
-                    gaze_yaw_bias   = sum(cal_gaze_yaw)   / len(cal_gaze_yaw)
-                    gaze_pitch_bias = sum(cal_gaze_pitch) / len(cal_gaze_pitch)
-                head_yaw_bias   = sum(cal_head_yaw)   / len(cal_head_yaw)
-                head_pitch_bias = sum(cal_head_pitch) / len(cal_head_pitch)
-                calibrated = True
-                print(f"[CALIBRATION] ✅ baseline frozen after "
-                      f"{len(cal_head_yaw)} frames — "
-                      f"gaze bias yaw:{gaze_yaw_bias:+.2f}rad "
-                      f"pitch:{gaze_pitch_bias:+.2f}rad | "
-                      f"head bias yaw:{head_yaw_bias:+.0f}° "
-                      f"pitch:{head_pitch_bias:+.0f}°")
+                _freeze_calibration_bias("✅ baseline frozen after {len(cal_head_yaw)} frames")
                 log_event("calibration_complete", "low",
                           f"gaze yaw:{gaze_yaw_bias:+.2f}rad "
                           f"pitch:{gaze_pitch_bias:+.2f}rad | "

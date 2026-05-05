@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 import json
 import uuid as _uuid
+from datetime import datetime, timezone, timedelta
 
 from ..dependencies import (
     supabase,
@@ -21,6 +22,7 @@ from ..dependencies import (
     require_student_account,
     fmt_ist,
     now_ist,
+    SessionStatus,
 )
 
 router = APIRouter(prefix="")
@@ -337,3 +339,140 @@ async def student_refresh(body: RefreshIn, request: Request):
         "access_token":  issue_student_auth_token(account),
         "refresh_token": auth_resp.session.refresh_token,
     }
+
+
+@router.get("/api/student/exams")
+async def student_exams(request: Request):
+    """Return all exams the authenticated student is enrolled in.
+
+    Looks up the student account from the Bearer token, finds matching
+    enrollments in the ``students`` table by email, then enriches each
+    with exam_config details and session status.
+    """
+    account = require_student_account(request)
+    email = account["email"].strip().lower()
+
+    # Find all enrollment rows matching this email
+    enroll_result = supabase.table("students").select(
+        "roll_number", "teacher_id", "exam_id"
+    ).eq("email", email).execute()
+    enrollments = enroll_result.data or []
+    if not enrollments:
+        return {"exams": []}
+
+    exams = []
+    now = datetime.now(timezone.utc)
+
+    for enr in enrollments:
+        teacher_id = enr.get("teacher_id")
+        exam_id = enr.get("exam_id")
+
+        # Get exam config
+        config_q = supabase.table("exam_config").select("*")
+        if exam_id:
+            config_q = config_q.eq("exam_id", exam_id)
+        if teacher_id:
+            config_q = config_q.eq("teacher_id", str(teacher_id))
+        config_result = config_q.limit(1).execute()
+        if not config_result.data:
+            continue
+        cfg = config_result.data[0]
+
+        # Get teacher name
+        teacher_name = "Teacher"
+        if teacher_id:
+            teacher = _get_teacher_by_id(str(teacher_id))
+            if teacher:
+                teacher_name = teacher.get("full_name", "Teacher")
+
+        # Parse exam window
+        starts_at = cfg.get("starts_at")
+        ends_at = cfg.get("ends_at")
+        duration = cfg.get("duration_minutes")
+
+        # Check for existing session
+        session_q = supabase.table("exam_sessions").select(
+            "status", "submitted_at"
+        ).eq("session_key", f"{enr['roll_number']}_{exam_id or 'default'}").limit(1)
+        if teacher_id:
+            session_q = session_q.eq("teacher_id", str(teacher_id))
+        sess_result = session_q.execute()
+        session = sess_result.data[0] if sess_result.data else None
+
+        # Compute status
+        if session:
+            st = (session.get("status") or "").lower()
+            if st in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED,
+                      SessionStatus.FORCE_SUBMITTED):
+                status = "completed"
+            else:
+                # Session exists but not submitted — derive from time window
+                status = _exam_window_status(starts_at, ends_at, now, duration)
+        else:
+            status = _exam_window_status(starts_at, ends_at, now, duration)
+
+        exams.append({
+            "exam_title": cfg.get("exam_title") or cfg.get("title") or "Exam",
+            "teacher_name": teacher_name,
+            "roll_number": enr["roll_number"],
+            "exam_id": exam_id,
+            "teacher_id": teacher_id,
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "duration_minutes": duration,
+            "access_code_required": bool(cfg.get("access_code", "").strip()),
+            "status": status,
+            "submitted_at": session.get("submitted_at") if session else None,
+        })
+
+    return {"exams": exams}
+
+
+def _exam_window_status(starts_at, ends_at, now, duration):
+    """Determine exam status from time window."""
+    if starts_at:
+        try:
+            if isinstance(starts_at, datetime):
+                start_dt = starts_at
+            else:
+                start_dt = datetime.fromisoformat(
+                    str(starts_at).replace("Z", "+00:00"))
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            start_dt = None
+    else:
+        start_dt = None
+
+    if ends_at:
+        try:
+            if isinstance(ends_at, datetime):
+                end_dt = ends_at
+            else:
+                end_dt = datetime.fromisoformat(
+                    str(ends_at).replace("Z", "+00:00"))
+            if end_dt.tzinfo is None:
+                end_dt = end_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            end_dt = None
+    else:
+        end_dt = None
+
+    # Compute end from duration if not set explicitly
+    if end_dt is None and start_dt is not None and duration:
+        end_dt = start_dt + timedelta(minutes=int(duration))
+
+    if start_dt and end_dt:
+        if now < start_dt:
+            return "upcoming"
+        elif now > end_dt:
+            return "closed"
+        else:
+            return "open"
+
+    if start_dt and now < start_dt:
+        return "upcoming"
+    if start_dt:
+        return "open"
+
+    return "open"  # no schedule = always open

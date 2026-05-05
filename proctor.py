@@ -42,6 +42,14 @@ from datetime import datetime
 from queue import Queue, Empty
 from typing import Optional, Tuple
 
+# ─── BEHAVIORAL ANALYSIS (multi-signal correlation) ────────────────────────────
+from app.behavioral_analysis import (
+    BehavioralEngine,
+    PATTERN_SEVERITY,
+    PATTERN_CONFIDENCE,
+)
+_behavioral = BehavioralEngine(check_interval=15)
+
 # ─── OPTIONAL DETECTORS ───────────────────────────────────────────────────────
 # Each heavy dep is wrapped in a try/except so a missing model file or
 # broken install can never crash proctor.py — it degrades to whatever
@@ -2281,6 +2289,46 @@ def run_proctoring(cap, W, H):
                               f"Different person detected "
                               f"(cosine similarity: {similarity:.2f})")
                     save_evidence(frame, "wrong_person")
+
+        # ── BEHAVIORAL ANALYSIS (multi-signal correlation) ─────────────────
+        # Push per-frame signals into the behavioral buffer, then check for
+        # composite patterns every N frames. Patterns combine multiple weak
+        # signals into strong behavioral indicators.
+        voice_active = (audio_rms > VOICE_THRESHOLD) if AUDIO_AVAILABLE else False
+        is_gaze_away = (num_faces == 1 and calibrated and
+                        (abs(gaze_yaw) > GAZE_YAW_RAD or abs(gaze_pitch) > GAZE_PITCH_RAD))
+        is_gaze_down = (num_faces == 1 and calibrated and gaze_pitch > GAZE_PITCH_RAD)
+        is_gaze_centered = (num_faces == 1 and calibrated and
+                            abs(gaze_yaw) <= GAZE_YAW_RAD * 0.5 and
+                            abs(gaze_pitch) <= GAZE_PITCH_RAD * 0.5)
+        is_head_turned = (num_faces == 1 and calibrated and
+                          (abs(head_yaw) > HEAD_YAW_THRESHOLD or abs(head_pitch) > HEAD_PITCH_THRESHOLD))
+
+        _behavioral.push({
+            "gaze_away":     is_gaze_away,
+            "gaze_down":     is_gaze_down,
+            "gaze_centered": is_gaze_centered,
+            "gaze_down_secs": 0,
+            "head_turned":   is_head_turned,
+            "face_away":     is_gaze_away or is_head_turned,
+            "multiple_faces": num_faces >= 2,
+            "phone_in_hand": "Phone" in seen_names and _last_face_bbox is not None,
+            "voice_active":  voice_active,
+            "t": time.time(),
+        })
+
+        behavioral_match = _behavioral.check()
+        if behavioral_match:
+            pattern = behavioral_match["pattern"]
+            severity = behavioral_match["severity"]
+            detail = behavioral_match["detail"]
+            conf = behavioral_match["confidence"]
+            conf_base = behavioral_match.get("confidence_base", 0.75)
+            full_conf = round((conf + conf_base) / 2, 2)
+            if can_log(pattern):
+                log_if_allowed(pattern, severity,
+                          f"{detail} (behavioral confidence:{full_conf:.0%})")
+                save_evidence(frame, pattern)
 
         # ── HUD ──────────────────────────────────────────────────────────────
         if not HEADLESS:

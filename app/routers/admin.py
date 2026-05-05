@@ -150,6 +150,12 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
         "remote_desktop_detected": "Remote Desktop",
         "screen_share_detected": "Screen Share",
         "multiple_monitors": "Multiple Monitors",
+        "phone_consulting": "Phone Consulting (Behavioral)",
+        "collaboration": "Collaboration Suspected (Behavioral)",
+        "answer_memo": "Answer Memorization (Behavioral)",
+        "note_reading": "Note Reading (Behavioral)",
+        "sustained_offtask": "Sustained Off-Task (Behavioral)",
+        "nervous_evasion": "Nervous Evasion (Behavioral)",
     }
 
     if viol_counts:

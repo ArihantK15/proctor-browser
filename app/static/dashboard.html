@@ -3276,7 +3276,10 @@ function renderBreakdown(risk){
     shortcut_blocked:'var(--amber)',gaze_away:'var(--accent)',head_turned:'var(--accent)',
     eyes_closed:'var(--muted)',voice_detected:'var(--orange)',time_exceeded:'var(--red)',
     vm_detected:'var(--red)',remote_desktop_detected:'var(--red)',
-    screen_share_detected:'var(--orange)',multiple_monitors:'var(--amber)'
+    screen_share_detected:'var(--orange)',multiple_monitors:'var(--amber)',
+    phone_consulting:'var(--red)',collaboration:'var(--red)',
+    answer_memo:'var(--red)',note_reading:'var(--orange)',
+    sustained_offtask:'var(--amber)',nervous_evasion:'var(--amber)',
   };
   bd.innerHTML=`
     <h4>Risk Breakdown (${risk.risk_score}/100 — ${risk.label})</h4>
@@ -4727,6 +4730,9 @@ const TL_ICONS = {
   enrollment_complete:'&#9989;', face_enrolled:'&#128274;', session_ended:'&#127937;',
   answer_selected:'&#128221;', heartbeat:'&#128147;', submit_failed:'&#10060;',
   proctor_camera_failed:'&#128247;',
+  phone_consulting:'&#128242;', collaboration:'&#128101;&#8205;&#128172;',
+  answer_memo:'&#129504;', note_reading:'&#128214;',
+  sustained_offtask:'&#9203;', nervous_evasion:'&#128064;&#65039;',
 };
 
 function openTimeline(){

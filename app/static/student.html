@@ -571,7 +571,7 @@ async function doReset() {
   const btn = document.getElementById('reset-btn');
   btn.disabled = true; btn.textContent = 'Sending...';
   try {
-    await fetch(apiUrl('/api/auth/password-reset'), {
+    await fetch(apiUrl('/api/v1/auth/password-reset'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({email}),
@@ -603,7 +603,7 @@ async function doAuth() {
 
   try {
     if (authMode === 'signup') {
-      const r = await fetch(apiUrl('/api/student/auth/signup'), {
+      const r = await fetch(apiUrl('/api/v1/student/auth/signup'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({email, password, full_name: name}),
@@ -612,7 +612,7 @@ async function doAuth() {
       // fall through to login
     }
 
-    const r = await fetch(apiUrl('/api/student/auth/login'), {
+    const r = await fetch(apiUrl('/api/v1/student/auth/login'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({email, password}),
@@ -666,7 +666,7 @@ async function tryRefresh() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const r = await fetch(apiUrl('/api/student/auth/refresh'), {
+      const r = await fetch(apiUrl('/api/v1/student/auth/refresh'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({refresh_token: refreshTok}),
@@ -1016,7 +1016,7 @@ let _pendingInvite = null; // {token, email, full_name, exam_title, exam_id}
 async function _handleInviteToken(token){
   if (!token || _pendingInvite) return;
   try {
-    const r = await fetch(apiUrl('/api/invite/' + encodeURIComponent(token) + '/resolve'));
+    const r = await fetch(apiUrl('/api/v1/invite/' + encodeURIComponent(token) + '/resolve'));
     if (!r.ok) {
       const d = await r.json().catch(()=>({}));
       console.warn('[invite] resolve failed:', r.status, d.detail || '');

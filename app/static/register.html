@@ -412,7 +412,7 @@ async function checkExistingAccount(){
   if(!email || !email.includes('@') || email === _lastCheckedEmail) return;
   _lastCheckedEmail = email;
   try {
-    const r = await fetch('/api/student/account-exists?email=' + encodeURIComponent(email));
+    const r = await fetch('/api/v1/student/account-exists?email=' + encodeURIComponent(email));
     if(!r.ok) return;
     const d = await r.json();
     _setAccountMode(!d.exists);
@@ -451,7 +451,7 @@ async function doRegister(){
 
   // Re-check account existence in case they never blurred the email field
   try {
-    const chk = await fetch('/api/student/account-exists?email=' + encodeURIComponent(email));
+    const chk = await fetch('/api/v1/student/account-exists?email=' + encodeURIComponent(email));
     if(chk.ok){
       const d = await chk.json();
       _setAccountMode(!d.exists);
@@ -483,7 +483,7 @@ async function doRegister(){
 
   try{
     // Step 1: Register (enroll) with teacher
-    const r1 = await fetch('/api/register-student', {
+    const r1 = await fetch('/api/v1/register-student', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, teacher_id:_teacherId})
@@ -496,7 +496,7 @@ async function doRegister(){
 
     // Step 2: Create student account (only if password was provided)
     if(_createAccount && pwd){
-      const r2 = await fetch('/api/student/auth/signup', {
+      const r2 = await fetch('/api/v1/student/auth/signup', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({email:email, password:pwd, full_name:name})
@@ -516,7 +516,7 @@ async function doRegister(){
       // Step 3: Auto-login
       if(accountCreated){
         try {
-          const r3 = await fetch('/api/student/auth/login', {
+          const r3 = await fetch('/api/v1/student/auth/login', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({email:email, password:pwd})
@@ -557,7 +557,7 @@ async function doRegister(){
 
 // Load exam schedule banner
 (function(){
-  fetch('/api/exam-schedule' + (_teacherId ? '?t=' + encodeURIComponent(_teacherId) : '')).then(r=>r.json()).then(d=>{
+  fetch('/api/v1/exam-schedule' + (_teacherId ? '?t=' + encodeURIComponent(_teacherId) : '')).then(r=>r.json()).then(d=>{
     if(!d.starts_at && !d.ends_at) return;
     const banner = document.getElementById('schedule-banner');
     banner.style.display = 'block';

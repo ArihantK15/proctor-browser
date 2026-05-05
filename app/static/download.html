@@ -262,7 +262,7 @@
   checkLink('dl-mac-x64', '/download/mac-x64');
   checkLink('dl-win', '/download/win');
 
-  fetch('/api/exam-schedule').then(r=>r.json()).then(d=>{
+  fetch('/api/v1/exam-schedule').then(r=>r.json()).then(d=>{
     if(!d.starts_at && !d.ends_at) return;
     const banner = document.getElementById('exam-schedule');
     banner.style.display = 'block';

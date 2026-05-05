@@ -82,8 +82,8 @@ def robots_txt():
 def health():
     """Lightweight health probe for uptime monitors and load balancers.
 
-    Returns 200 only when Supabase is reachable. Redis is optional
-    (the API works without it — SSE just won't broadcast).
+    Returns 200 only when Supabase is reachable and disk has space.
+    Redis is optional (the API works without it — SSE just won't broadcast).
     """
     checks = {}
     ok = True
@@ -112,6 +112,24 @@ def health():
         checks["memory_pct"] = mem.percent
     except ImportError:
         pass
+
+    # Disk space — fail if screenshots dir has < 500 MB free
+    try:
+        import shutil
+        target = os.getenv("SCREENSHOTS_DIR", "/var/lib/proctor/screenshots")
+        total, used, free = shutil.disk_usage(target)
+        free_mb = free // (1024 * 1024)
+        checks["disk_free_mb"] = free_mb
+        if free_mb < 500:
+            checks["disk"] = "critical"
+            ok = False
+        elif free_mb < 2000:
+            checks["disk"] = "warning"
+        else:
+            checks["disk"] = "ok"
+    except Exception as e:
+        checks["disk"] = f"error: {e}"
+        ok = False
 
     status = 200 if ok else 503
     return Response(

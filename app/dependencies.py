@@ -107,12 +107,11 @@ DOWNLOAD_MAC_ARM  = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64  = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN      = os.getenv("DOWNLOAD_WIN", "")
 
-# CORS allowed origins. Default includes Electron file:// origin and
-# localhost for dev. Set CORS_ALLOWED_ORIGINS to a comma-separated list
-# in prod to restrict to known domains.
+# CORS allowed origins. Default includes localhost for dev.
+# Set CORS_ALLOWED_ORIGINS to a comma-separated list in prod
+# to restrict to known domains.
 _CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = [o.strip() for o in _CORS_RAW.split(",") if o.strip()] if _CORS_RAW else [
-    "file://",
     "http://localhost",
     "http://localhost:5173",   # Vite dev server
     "https://app.procta.net",
@@ -1705,10 +1704,15 @@ class ChatHub:
 
 
 def _cleanup_screenshots():
-    """Background thread that purges screenshots older than 7 days."""
+    """Background thread that purges screenshots older than 48 hours.
+
+    On a 20 GB droplet with ~15 screenshots/min during active exams,
+    7-day retention can easily fill the disk. 48 hours is enough for
+    forensics review while keeping disk usage bounded.
+    """
     while True:
         time.sleep(3600)
-        cutoff = now_ist() - timedelta(days=7)
+        cutoff = now_ist() - timedelta(hours=48)
         try:
             for student_dir in Path(SCREENSHOTS_DIR).iterdir():
                 if student_dir.is_dir():

@@ -13,6 +13,7 @@ from ..dependencies import (
     CHAT_MAX_TEXT_LEN,
     ChatHub,
     SessionStatus,
+    now_ist,
 )
 
 router = APIRouter(prefix="")
@@ -88,6 +89,19 @@ async def ws_chat_student(ws: WebSocket):
             except Exception:
                 continue
             mtype = data.get("type", "msg")
+            if mtype == "reauth":
+                new_token = str(data.get("token", "")).strip()
+                try:
+                    new_payload = verify_student_token(new_token)
+                    new_roll = (new_payload.get("roll") or "").upper()
+                    new_tid = new_payload.get("tid")
+                    if new_roll and new_tid and str(new_tid) == str(tid):
+                        await ws.send_json({"type": "reauth_ok", "exp": new_payload.get("exp")})
+                    else:
+                        await ws.send_json({"type": "reauth_failed", "reason": "invalid"})
+                except HTTPException:
+                    await ws.send_json({"type": "reauth_failed", "reason": "invalid_token"})
+                continue
             if mtype != "msg":
                 continue
             text = str(data.get("text", "")).strip()
@@ -128,6 +142,17 @@ async def ws_chat_teacher(ws: WebSocket):
             except Exception:
                 continue
             mtype = data.get("type", "msg")
+            if mtype == "reauth":
+                new_token = str(data.get("token", "")).strip()
+                try:
+                    new_teacher = verify_admin_token(new_token)
+                    if str(new_teacher["id"]) == teacher_id:
+                        await ws.send_json({"type": "reauth_ok", "exp": new_teacher.get("exp")})
+                    else:
+                        await ws.send_json({"type": "reauth_failed", "reason": "mismatch"})
+                except HTTPException:
+                    await ws.send_json({"type": "reauth_failed", "reason": "invalid_token"})
+                continue
             text = str(data.get("text", "")).strip()
             if not text:
                 continue

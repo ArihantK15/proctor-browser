@@ -472,7 +472,7 @@ async def integrity_report(request: Request):
 
 
 @router.post("/api/v1/event")
-@limiter.limit("600/minute")
+@limiter.limit("120/minute")
 async def log_event(event: EventIn, request: Request):
     # Practice sandbox: log to stdout only
     if is_practice(event.session_id):
@@ -576,6 +576,7 @@ async def heartbeat(event: EventIn, request: Request):
 
 
 @router.post("/api/v1/save-answer")
+@limiter.limit("30/minute")
 async def save_answer(body: AnswerIn, request: Request):
     # Practice sandbox: pretend the save succeeded
     if is_practice(body.session_id):
@@ -603,6 +604,7 @@ async def save_answer(body: AnswerIn, request: Request):
 
 
 @router.post("/api/v1/save-answers-bulk")
+@limiter.limit("10/minute")
 async def save_answers_bulk(body: BulkAnswerIn, request: Request):
     """Periodic bulk save of all answers — safety net for failed individual saves."""
     if is_practice(body.session_id):
@@ -635,7 +637,7 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
 
 
 @router.post("/api/v1/submit-exam")
-@limiter.limit("60/minute")
+@limiter.limit("5/minute")
 async def submit_exam(result: ResultIn, request: Request):
     # Practice sandbox: grade against the in-memory PRACTICE_QUESTIONS
     if is_practice(result.session_id):

@@ -552,12 +552,22 @@ def get_screenshot(roll: str, filename: str, request: Request):
 # ─── 8. LIVE SESSIONS VIEW ──────────────────────────────
 
 @router.get("/api/v1/admin/sessions")
-def get_all_sessions(request: Request, exam_id: str = None):
+def get_all_sessions(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
     """REST view of the Live tab."""
     teacher = require_admin(request)
     tid = teacher["id"]
     try:
-        return _build_sessions_payload(str(tid), exam_id=exam_id)
+        payload = _build_sessions_payload(str(tid), exam_id=exam_id)
+        start = (page - 1) * page_size
+        end = start + page_size
+        all_sessions = payload.get("sessions", [])
+        return {
+            **payload,
+            "sessions": all_sessions[start:end],
+            "page": page,
+            "page_size": page_size,
+            "total": len(all_sessions),
+        }
     except Exception as e:
         print(f"[Sessions] ERROR: {e}")
         import traceback; traceback.print_exc()
@@ -567,9 +577,17 @@ def get_all_sessions(request: Request, exam_id: str = None):
 # ─── 9. RESULTS ─────────────────────────────────────────
 
 @router.get("/api/v1/results")
-def get_all_results(request: Request, exam_id: str = None):
+def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
     teacher = require_admin(request)
-    return {"results": _fetch_all_results(teacher["id"], exam_id=exam_id)}
+    all_results = _fetch_all_results(teacher["id"], exam_id=exam_id)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "results": all_results[start:end],
+        "page": page,
+        "page_size": page_size,
+        "total": len(all_results),
+    }
 
 
 # ─── 10. EXPORT CSV ──────────────────────────────────────
@@ -1295,11 +1313,11 @@ def failed_sessions(request: Request, exam_id: str = None):
 
 @router.post("/api/v1/admin-cleanup")
 def admin_cleanup(request: Request):
-    """Delete the calling teacher's screenshots older than 7 days."""
+    """Delete the calling teacher's screenshots older than 48 hours."""
     teacher = require_admin(request)
     tid = str(teacher["id"])
     deleted = 0
-    cutoff  = now_ist() - timedelta(days=7)
+    cutoff  = now_ist() - timedelta(hours=48)
     teacher_root = Path(SCREENSHOTS_DIR) / tid
     if not teacher_root.is_dir():
         return {"deleted": 0}

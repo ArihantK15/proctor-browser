@@ -1907,10 +1907,10 @@ def run_proctoring(cap, W, H):
                     if similarity < WRONG_PERSON_THRESHOLD:
                         print(f"[IDENTITY] ❌ Different person during "
                               f"calibration! (similarity: {similarity:.2f})")
-                        log_event("wrong_person", "critical",
-                                  f"Identity swap detected during calibration "
+                        log_event("calibration_abort", "critical",
+                                  f"Identity swap during calibration "
                                   f"(similarity: {similarity:.2f})")
-                        save_evidence(frame, "wrong_person_calibration")
+                        save_evidence(frame, "calibration_abort")
                         # Reset calibration — force re-enrollment with new face
                         calibrated = False
                         cal_gaze_yaw.clear()

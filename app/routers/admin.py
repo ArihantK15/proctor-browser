@@ -140,6 +140,7 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
         "face_missing": "Face Missing",
         "multiple_faces": "Multiple Faces",
         "wrong_person": "Wrong Person",
+        "calibration_abort": "Calibration Aborted (Identity Swap)",
         "cheat_object_detected": "Cheat Object Detected",
         "voice_detected": "Voice Detected",
         "window_focus_lost": "Window Focus Lost",

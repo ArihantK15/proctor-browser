@@ -146,6 +146,7 @@ grace_counters = {
     "gaze_away"     : 0,
     "voice"         : 0,
     "earphone"      : 0,
+    "calibration_abort": 0,
 }
 
 detected_objects  = []

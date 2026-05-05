@@ -614,6 +614,11 @@
   .id-review-card{background:var(--card);border:1px solid var(--border);
     border-radius:10px;padding:16px;margin-bottom:10px;
     display:flex;align-items:center;gap:16px}
+
+  /* ── Calibration Abort Alert ────────────────────────────────── */
+  .cal-abort-pulse{color:var(--red);font-size:14px;animation:calAbortBlink 1s ease-in-out infinite;
+    display:inline-block;vertical-align:middle}
+  @keyframes calAbortBlink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(1.2)}}
   .id-review-photos{display:flex;gap:10px;flex-shrink:0}
   .id-review-photo{width:120px;height:90px;object-fit:cover;border-radius:8px;
     border:2px solid var(--border);cursor:pointer;transition:border-color .2s}
@@ -2842,9 +2847,14 @@ function renderLive(){
     const rowCls = isLive && (sevLevel==='critical' ? 'row-critical'
                             : sevLevel==='high'     ? 'row-error'
                             : sevLevel==='medium'   ? 'row-warn' : '') || '';
+    // Calibration abort alert — identity swap during calibration
+    const hasCalAbort = s.last_event === 'calibration_abort';
+    const calAbortBadge = hasCalAbort
+      ? '<span class="cal-abort-pulse" title="Identity swap detected — calibration aborted">&#9888;&#65039;</span> '
+      : '';
     return `<tr${rowCls?` class="${rowCls}"`:''}>
       <td><strong>${esc(roll)}</strong><br><span style="font-size:11px;color:var(--muted)">${esc(s.session_id.substring(0,30))}...</span></td>
-      <td>${esc(s.last_event.replace(/_/g,' '))}</td>
+      <td>${calAbortBadge}${esc(s.last_event.replace(/_/g,' '))}</td>
       <td style="color:${sevColor};font-weight:600">${esc(s.last_severity.toUpperCase())}</td>
       <td style="color:${riskColor};font-weight:600">${riskTxt}</td>
       <td>${_calBadge(s.calibration)}</td>
@@ -3261,6 +3271,7 @@ function renderBreakdown(risk){
   const maxContrib = Math.max(...entries.map(e=>e[1].contribution));
   const colors = {
     wrong_person:'var(--red)',multiple_faces:'var(--red)',face_missing:'var(--orange)',
+    calibration_abort:'var(--red)',
     cheat_object_detected:'var(--red)',window_focus_lost:'var(--amber)',tab_hidden:'var(--amber)',
     shortcut_blocked:'var(--amber)',gaze_away:'var(--accent)',head_turned:'var(--accent)',
     eyes_closed:'var(--muted)',voice_detected:'var(--orange)',time_exceeded:'var(--red)',
@@ -4706,6 +4717,7 @@ let tlFilter = 'all';
 
 const TL_ICONS = {
   face_missing:'&#128100;', multiple_faces:'&#128101;', wrong_person:'&#128680;',
+  calibration_abort:'&#9888;&#65039;',
   gaze_away:'&#128064;', head_turned:'&#8617;&#65039;', eyes_closed:'&#128529;',
   cheat_object_detected:'&#128241;', voice_detected:'&#127908;',
   window_focus_lost:'&#129695;', tab_hidden:'&#128209;', shortcut_blocked:'&#9000;&#65039;',

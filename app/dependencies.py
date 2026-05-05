@@ -759,6 +759,7 @@ VIOLATION_WEIGHTS: dict[str, float] = {
     "shortcut_blocked": 12, "gaze_away": 8, "head_turned": 8, "eyes_closed": 5,
     "voice_detected": 10, "time_exceeded": 15, "vm_detected": 20,
     "remote_desktop_detected": 22, "screen_share_detected": 12, "multiple_monitors": 8,
+    "calibration_abort": 35,
 }
 _SATURATION_K = 5
 _BASELINE_DURATION_MINS = 30

@@ -1721,7 +1721,14 @@ class ChatHub:
     Thread-safety note: FastAPI websockets run on the asyncio event loop, so
     all access happens on a single thread.  We still keep an asyncio.Lock for
     operations that fan out to multiple sockets, to avoid interleaving sends.
+
+    Safety caps:
+    - MAX_TEACHER_SOCKETS_PER_TENANT: limits tabs per teacher (50)
+    - STUDENT_META_TTL: evicts stale student metadata after 4 hours
     """
+
+    MAX_TEACHER_SOCKETS_PER_TENANT = 50
+    STUDENT_META_TTL_SECONDS = 4 * 3600  # 4 hours
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -1731,10 +1738,27 @@ class ChatHub:
         self.teacher_conns: dict[str, set[WebSocket]] = {}
         # teacher_id -> {session_id: deque[msg]}
         self.threads: dict[str, dict[str, deque]] = {}
-        # session_id -> {roll, name, teacher_id, joined_at}
+        # session_id -> {roll, name, teacher_id, joined_at, last_seen}
         self.student_meta: dict[str, dict] = {}
 
     # ── helpers ────────────────────────────────────────────────
+    def _evict_stale_meta(self) -> None:
+        """Remove student_meta entries older than STUDENT_META_TTL_SECONDS."""
+        now = datetime.now(timezone.utc)
+        stale = []
+        for sid, meta in self.student_meta.items():
+            joined = meta.get("joined_at")
+            if joined:
+                try:
+                    joined_dt = datetime.fromisoformat(joined)
+                    if (now - joined_dt).total_seconds() > self.STUDENT_META_TTL_SECONDS:
+                        stale.append(sid)
+                except Exception:
+                    stale.append(sid)  # Unparseable timestamp — evict
+        for sid in stale:
+            self.student_meta.pop(sid, None)
+            self.student_conns.pop(sid, None)
+
     def _thread(self, teacher_id: str, session_id: str) -> deque:
         t = self.threads.setdefault(teacher_id, {})
         return t.setdefault(session_id, deque(maxlen=CHAT_HISTORY_LIMIT))
@@ -1790,6 +1814,7 @@ class ChatHub:
         meta = self.student_meta.get(session_id)
         if not meta:
             return None
+        meta["last_seen"] = datetime.now(timezone.utc).isoformat()
         msg = self._make_msg(sender="student", session_id=session_id, text=text)
         msg["roll"] = meta["roll"]
         msg["name"] = meta["name"]
@@ -1805,7 +1830,19 @@ class ChatHub:
     # ── teacher side ───────────────────────────────────────────
     async def register_teacher(self, teacher_id: str, ws: WebSocket) -> None:
         async with self._lock:
-            self.teacher_conns.setdefault(teacher_id, set()).add(ws)
+            conns = self.teacher_conns.setdefault(teacher_id, set())
+            # Cap sockets per teacher — reject oldest if over limit
+            if len(conns) >= self.MAX_TEACHER_SOCKETS_PER_TENANT:
+                # Drop the first (oldest) socket to make room
+                oldest = next(iter(conns))
+                conns.discard(oldest)
+                try:
+                    await oldest.close(code=4000, reason="too_many_tabs")
+                except Exception:
+                    pass
+            conns.add(ws)
+            # Evict stale student metadata on each teacher connect
+            self._evict_stale_meta()
 
         roster_sessions = []
         for sid, meta in self.student_meta.items():

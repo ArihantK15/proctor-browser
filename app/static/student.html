@@ -477,20 +477,24 @@
   <h2 class="section-title">Practice run</h2>
   <p class="section-subtitle">Test your camera, fullscreen lockdown, and submit flow before the real exam. No login required, no answers saved.</p>
 
-  <div class="exam-card" style="border:1px dashed rgba(217,119,6,.4);background:linear-gradient(180deg,rgba(217,119,6,.04),transparent)">
-    <div class="exam-card-header">
-      <h3 class="exam-title" style="color:#fbbf24">Setup test</h3>
-      <span class="badge badge-muted" style="background:rgba(217,119,6,.2);color:#fbbf24;border:1px solid rgba(217,119,6,.4)">2 min</span>
-    </div>
-    <p class="exam-meta" style="color:var(--muted)">
-      Three throwaway questions. Same lockdown stack as a real exam, so if your camera or browser misbehaves you find out now — not 5 minutes into a high-stakes test.
-    </p>
-    <div class="exam-card-actions">
-      <button class="btn btn-primary btn-sm" onclick="startPracticeExam()">Start practice exam</button>
-    </div>
-  </div>
+   <div class="exam-card" style="border:1px dashed rgba(217,119,6,.4);background:linear-gradient(180deg,rgba(217,119,6,.04),transparent)">
+     <div class="exam-card-header">
+       <h3 class="exam-title" style="color:#fbbf24">Setup test</h3>
+       <span class="badge badge-muted" style="background:rgba(217,119,6,.2);color:#fbbf24;border:1px solid rgba(217,119,6,.4)">2 min</span>
+     </div>
+     <p class="exam-meta" style="color:var(--muted)">
+       Three throwaway questions. Same lockdown stack as a real exam, so if your camera or browser misbehaves you find out now — not 5 minutes into a high-stakes test.
+     </p>
+     <div class="exam-card-actions">
+       <button class="btn btn-primary btn-sm" onclick="startPracticeExam()">Start practice exam</button>
+     </div>
+   </div>
 
-  <div class="footer-links">
+   <h2 class="section-title">Exam history</h2>
+   <p class="section-subtitle">Your completed exams and their results.</p>
+   <div id="history-container" class="exam-list"></div>
+
+   <div class="footer-links">
     <a href="/download">Download app</a> &bull;
     <a href="https://procta.net">procta.net</a>
   </div>
@@ -685,7 +689,7 @@ async function showDashboard(account) {
   document.getElementById('auth-view').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('me-name').textContent = account.full_name || account.email;
-  await loadExams();
+  await Promise.all([loadExams(), loadHistory()]);
 }
 
 function fmtWhen(iso) {
@@ -827,6 +831,69 @@ function renderExams(exams) {
         ${actionHtml}
       </div>`;
   }).join('');
+}
+
+async function loadHistory(){
+  const container = document.getElementById('history-container');
+  if(!container) return;
+  container.innerHTML = '<div class="exams-empty">Loading…</div>';
+  try{
+    const r = await authed('/api/student/history');
+    if(r.status===401){ doLogout(); return; }
+    if(!r.ok) throw new Error('Failed to load history');
+    const d = await r.json();
+    renderHistory(d.history||[]);
+  }catch(e){
+    container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load history</strong></div>';
+  }
+}
+
+function renderHistory(items){
+  const container = document.getElementById('history-container');
+  if(!items.length){
+    container.innerHTML = '<div class="exams-empty">No completed exams yet</div>';
+    return;
+  }
+  container.innerHTML = items.map(h=>{
+    const pctColor = h.percentage>=40?'var(--emerald)':'var(--red)';
+    const riskStr = h.risk_score!=null?_riskLabel(h.risk_score):'';
+    return `
+      <div class="exam-card">
+        <div class="exam-card-head">
+          <div>
+            <div class="exam-title">${escapeHtml(h.exam_title||'Exam')}</div>
+            <div class="exam-teacher">${escapeHtml(h.teacher_name||'')}</div>
+          </div>
+          <span class="badge" style="color:${pctColor};border-color:${pctColor}">${h.percentage}%</span>
+        </div>
+        <div class="exam-meta">
+          <div>Score<strong>${h.score} / ${h.total}</strong></div>
+          <div>Time<strong>${_fmtDuration(h.time_taken_secs)}</strong></div>
+          <div>Violations<strong>${h.violation_count}</strong></div>
+          ${riskStr?'<div>Risk<strong style="color:'+_riskColor(h.risk_score)+'">'+escapeHtml(riskStr)+'</strong></div>':''}
+          <div>Submitted<strong>${escapeHtml(h.submitted_at)}</strong></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function _riskLabel(score){
+  if(score==null) return '';
+  if(score<=15) return 'Low';
+  if(score<=40) return 'Moderate';
+  if(score<=70) return 'High';
+  return 'Critical';
+}
+function _riskColor(score){
+  if(score==null) return 'var(--muted)';
+  if(score<=15) return 'var(--emerald)';
+  if(score<=40) return 'var(--amber)';
+  return 'var(--red)';
+}
+function _fmtDuration(secs){
+  if(!secs && secs!==0) return '—';
+  const m=Math.floor(secs/60), s=secs%60;
+  return m>0?`${m}m ${s}s`:`${s}s`;
 }
 
 // ─── Practice mode launch ─────────────────────────────────────

@@ -28,8 +28,9 @@ from ..dependencies import (
     _get_invite_base_url, _get_teacher_by_id,
     INVITE_DAILY_CAP, _new_invite_token, _uuid,
     _safe_path_component, _assert_within_directory, _html_escape,
+    _violation_counts_by_session,
     SessionStatus, InviteStatus, VerificationStatus,
-    SECRET_KEY,
+    SECRET_KEY, _risk_label,
 )
 
 router = APIRouter(prefix="")
@@ -587,6 +588,226 @@ def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_s
         "page": page,
         "page_size": page_size,
         "total": len(all_results),
+    }
+
+
+# ─── 9b. STUDENT PERFORMANCE HISTORY ──────────────────────
+
+_BEHAVIORAL_PATTERNS = frozenset({
+    "phone_consulting", "collaboration", "answer_memo",
+    "note_reading", "sustained_offtask", "nervous_evasion",
+})
+
+@router.get("/api/v1/student-history/{roll_number}")
+def get_student_history(
+    roll_number: str,
+    request: Request,
+    exam_id: str = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """Full exam history for a single student across all exams.
+
+    Returns per-exam results with violation breakdowns, behavioral
+    pattern flags, and aggregate statistics (avg score, total exams,
+    worst risk).
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+    roll = roll_number.strip().upper()
+    if not roll:
+        raise HTTPException(status_code=400, detail="roll_number is required")
+
+    # Student profile from `students` table
+    student_rows = (supabase.table("students")
+                    .select("roll_number,full_name,email,phone,teacher_id")
+                    .eq("roll_number", roll)
+                    .eq("teacher_id", tid)
+                    .limit(1)
+                    .execute()).data or []
+    if not student_rows:
+        raise HTTPException(status_code=404, detail="Student not found for this teacher")
+    student = student_rows[0]
+
+    # All completed sessions for this student
+    sess_q = (supabase.table("exam_sessions")
+              .select("session_key,exam_id,roll_number,full_name,email,"
+                      "score,total,percentage,time_taken_secs,"
+                      "status,started_at,submitted_at,risk_score")
+              .eq("roll_number", roll)
+              .eq("teacher_id", tid)
+              .eq("status", SessionStatus.COMPLETED)
+              .order("submitted_at", desc=True))
+    if exam_id:
+        sess_q = sess_q.eq("exam_id", exam_id)
+    sessions = (sess_q.execute()).data or []
+
+    # Batch-fetch violations and exam titles
+    session_keys = [s["session_key"] for s in sessions]
+    vcounts = _violation_counts_by_session(session_keys)
+
+    # Fetch violation details per session (for behavioral patterns)
+    violations_by_session: dict[str, list[dict]] = {}
+    if session_keys:
+        all_viols = (supabase.table("violations")
+                     .select("session_key,violation_type,severity,created_at")
+                     .eq("teacher_id", tid)
+                     .in_("session_key", session_keys)
+                     .execute()).data or []
+        for v in all_viols:
+            sk = v["session_key"]
+            violations_by_session.setdefault(sk, []).append(v)
+
+    # Fetch exam titles
+    exam_ids = list({s["exam_id"] for s in sessions if s.get("exam_id")})
+    exam_titles: dict[str, str] = {}
+    if exam_ids:
+        configs = (supabase.table("exam_config")
+                   .select("exam_id,exam_title")
+                   .eq("teacher_id", tid)
+                   .in_("exam_id", exam_ids)
+                   .execute()).data or []
+        exam_titles = {c["exam_id"]: c.get("exam_title") or "Exam" for c in configs}
+
+    # Build per-exam history entries
+    history = []
+    for s in sessions:
+        sk = s["session_key"]
+        viols = violations_by_session.get(sk, [])
+        std_viols = [v for v in viols if v["violation_type"] not in _BEHAVIORAL_PATTERNS]
+        behav_viols = [v for v in viols if v["violation_type"] in _BEHAVIORAL_PATTERNS]
+        behav_patterns = list({v["violation_type"] for v in behav_viols})
+
+        history.append({
+            "session_id": sk,
+            "exam_id": s.get("exam_id", ""),
+            "exam_title": exam_titles.get(s.get("exam_id", ""), ""),
+            "score": s.get("score", 0),
+            "total": s.get("total", 0),
+            "percentage": s.get("percentage", 0.0),
+            "time_taken_secs": s.get("time_taken_secs", 0),
+            "submitted_at": fmt_ist(s.get("submitted_at", "")),
+            "started_at": fmt_ist(s.get("started_at", "")),
+            "violation_count": vcounts.get(sk, 0),
+            "standard_violations": len(std_viols),
+            "behavioral_patterns": behav_patterns,
+            "behavioral_violation_count": len(behav_viols),
+            "risk_score": s.get("risk_score"),
+            "risk_label": _risk_label(s["risk_score"]) if s.get("risk_score") is not None else None,
+        })
+
+    # Pagination
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = history[start:end]
+
+    # Aggregate stats (computed over ALL sessions, not just the page)
+    all_history = history
+    scores = [h["percentage"] for h in all_history if h["percentage"] is not None]
+    risk_scores = [h["risk_score"] for h in all_history if h["risk_score"] is not None]
+    all_behav = set()
+    for h in all_history:
+        all_behav.update(h["behavioral_patterns"])
+
+    aggregates = {
+        "total_exams": len(all_history),
+        "avg_percentage": round(sum(scores) / len(scores), 1) if scores else None,
+        "highest_percentage": max(scores) if scores else None,
+        "lowest_percentage": min(scores) if scores else None,
+        "avg_risk_score": round(sum(risk_scores) / len(risk_scores)) if risk_scores else None,
+        "highest_risk_score": max(risk_scores) if risk_scores else None,
+        "total_violations": sum(h["violation_count"] for h in all_history),
+        "total_behavioral_violations": sum(h["behavioral_violation_count"] for h in all_history),
+        "behavioral_patterns_seen": sorted(all_behav),
+    }
+
+    return {
+        "student": {
+            "roll_number": student["roll_number"],
+            "full_name": student.get("full_name", ""),
+            "email": student.get("email", ""),
+            "phone": student.get("phone", ""),
+        },
+        "aggregates": aggregates,
+        "history": paginated,
+        "page": page,
+        "page_size": page_size,
+        "total": len(all_history),
+    }
+
+
+# ─── 9c. STUDENT SEARCH ──────────────────────────────────
+
+@router.get("/api/v1/student-search")
+def search_students(request: Request, q: str = "", page: int = 1, page_size: int = 20):
+    """Search students by roll number, name, or email.
+
+    Returns a list of students with aggregate stats (total exams taken,
+    avg score, last exam date) for quick lookup in the Student History tab.
+    """
+    teacher = require_admin(request)
+    tid = str(teacher["id"])
+
+    # Fetch all students for this teacher
+    query = (supabase.table("students")
+             .select("roll_number,full_name,email,phone,teacher_id")
+             .eq("teacher_id", tid))
+    if q:
+        q_upper = q.strip().upper()
+        query = query.or_(
+            f"roll_number.ilike.*{q}*,full_name.ilike.*{q}*,email.ilike.*{q}*"
+        )
+    students = (query.execute()).data or []
+
+    # For each student, get aggregate stats from exam_sessions
+    result = []
+    for s in students:
+        roll = s["roll_number"]
+        sess_rows = (supabase.table("exam_sessions")
+                     .select("session_key,percentage,risk_score,submitted_at,status")
+                     .eq("roll_number", roll)
+                     .eq("teacher_id", tid)
+                     .eq("status", SessionStatus.COMPLETED)
+                     .order("submitted_at", desc=True)
+                     .limit(1)
+                     .execute()).data or []
+        last_exam = sess_rows[0] if sess_rows else None
+
+        # Count total exams
+        total_count = (supabase.table("exam_sessions")
+                       .select("session_key", count="exact")
+                       .eq("roll_number", roll)
+                       .eq("teacher_id", tid)
+                       .eq("status", SessionStatus.COMPLETED)
+                       .execute()).count or 0
+
+        # Avg score
+        all_sess = (supabase.table("exam_sessions")
+                    .select("percentage,risk_score")
+                    .eq("roll_number", roll)
+                    .eq("teacher_id", tid)
+                    .eq("status", SessionStatus.COMPLETED)
+                    .execute()).data or []
+        percentages = [x["percentage"] for x in all_sess if x.get("percentage") is not None]
+        avg_pct = round(sum(percentages) / len(percentages), 1) if percentages else None
+
+        result.append({
+            "roll_number": roll,
+            "full_name": s.get("full_name", ""),
+            "email": s.get("email", ""),
+            "total_exams": total_count,
+            "avg_percentage": avg_pct,
+            "last_exam_date": fmt_ist(last_exam.get("submitted_at", "")) if last_exam else None,
+            "last_exam_risk": last_exam.get("risk_score") if last_exam else None,
+        })
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "students": result[start:end],
+        "page": page,
+        "page_size": page_size,
+        "total": len(result),
     }
 
 

@@ -1016,8 +1016,9 @@
      Arrow-key navigation wired up in dashboard JS (see _initTabKeyboard). -->
 <div class="tabs" role="tablist" aria-label="Dashboard sections">
   <button type="button" class="tab active" data-tab="live"      role="tab" aria-selected="true"  onclick="switchTab('live')">Live Sessions</button>
-  <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" onclick="switchTab('results')">Results</button>
-  <button type="button" class="tab"        data-tab="questions" role="tab" aria-selected="false" onclick="switchTab('questions')">Questions</button>
+   <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" onclick="switchTab('results')">Results</button>
+   <button type="button" class="tab"        data-tab="history"   role="tab" aria-selected="false" onclick="switchTab('history')">Student History</button>
+   <button type="button" class="tab"        data-tab="questions" role="tab" aria-selected="false" onclick="switchTab('questions')">Questions</button>
   <button type="button" class="tab"        data-tab="chat"      role="tab" aria-selected="false" onclick="switchTab('chat')">
     Chat<span class="tab-badge" id="chat-tab-badge" style="display:none">0</span>
   </button>
@@ -1156,9 +1157,65 @@
         <tbody id="results-body"></tbody>
       </table>
     </div>
-  </div>
+   </div>
 
-  <!-- QUESTIONS — Phase 2.8: 3-column shell port from design package
+   <!-- STUDENT HISTORY — longitudinal view of per-student performance
+        across all exams. Search by roll number to see their complete
+        exam history with scores, violations, and behavioral patterns. -->
+   <div class="panel live-layout" id="panel-history">
+     <div class="stats-bar" id="history-stats" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px"></div>
+     <div class="table-toolbar">
+       <div class="search-wrap">
+         <span class="search-icon">
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+         </span>
+         <input type="text" id="history-search" class="search-input" placeholder="Search students by roll number, name, or email…" oninput="filterHistorySearch()">
+       </div>
+       <div class="toolbar-right">
+         <button class="action-btn primary" onclick="refreshStudentList()">Refresh</button>
+       </div>
+     </div>
+     <!-- Student list: searchable directory with aggregate stats -->
+     <div class="table-wrap">
+       <table>
+         <thead><tr>
+           <th onclick="sortHistory('roll_number')">Roll # <span class="arrow"></span></th>
+           <th onclick="sortHistory('full_name')">Name <span class="arrow"></span></th>
+           <th onclick="sortHistory('total_exams')">Exams <span class="arrow"></span></th>
+           <th onclick="sortHistory('avg_percentage')">Avg Score <span class="arrow"></span></th>
+           <th onclick="sortHistory('last_exam_risk')">Last Risk <span class="arrow"></span></th>
+           <th onclick="sortHistory('last_exam_date')">Last Exam <span class="arrow"></span></th>
+           <th>Actions</th>
+         </tr></thead>
+         <tbody id="history-body"></tbody>
+       </table>
+     </div>
+     <!-- Detail view: drill-down into a single student's full history -->
+     <div id="history-detail" style="display:none;margin-top:20px">
+       <div class="stats-bar" id="history-detail-stats"></div>
+       <div style="margin-bottom:12px">
+         <button class="action-btn" onclick="closeHistoryDetail()">← Back to student list</button>
+       </div>
+       <div class="table-wrap">
+         <table>
+           <thead><tr>
+             <th>Exam</th>
+             <th>Score</th>
+             <th>%</th>
+             <th>Violations</th>
+             <th>Behavioral</th>
+             <th>Risk</th>
+             <th>Time</th>
+             <th>Submitted</th>
+             <th>Actions</th>
+           </tr></thead>
+           <tbody id="history-detail-body"></tbody>
+         </table>
+       </div>
+     </div>
+   </div>
+
+   <!-- QUESTIONS — Phase 2.8: 3-column shell port from design package
        (left sidebar = question list with search/filter; center =
        toolbar + #q-editor; right = AI Generate + Bank toggle).
        Every existing JS hook ID is preserved verbatim — the JS that
@@ -2589,6 +2646,7 @@ function switchTab(tab){
     if(typeof chatClearTabBadge==='function') chatClearTabBadge();
   }
   if(tab==='analytics') loadAnalytics();
+  if(tab==='history') refreshStudentList();
   if(tab==='tools'){
     try{ if(typeof loadRegisteredCount==='function') loadRegisteredCount(); }catch(_){}
     try{ if(typeof loadAccessCode==='function') loadAccessCode(); }catch(_){}
@@ -6523,6 +6581,149 @@ function _fmtDuration(secs){
 }
 function _escHtml(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── STUDENT HISTORY TAB ──────────────────────────────────────────
+let historyStudents = [];
+let historySortKey = 'roll_number';
+let historySortAsc = true;
+let historySearchQuery = '';
+let historyDetailData = null;
+
+function _initTabKeyboard(){
+  // Existing tab keyboard navigation — already defined above
+}
+
+async function refreshStudentList(){
+  try{
+    const r = await api('/api/v1/student-search?q='+encodeURIComponent(historySearchQuery));
+    historyStudents = (r.students || []).sort(_historyCompare);
+    renderHistoryList();
+  }catch(e){
+    document.getElementById('history-body').innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load: '+_escHtml(e.message)+'</td></tr>';
+  }
+}
+
+function filterHistorySearch(){
+  historySearchQuery = document.getElementById('history-search').value.trim();
+  refreshStudentList();
+}
+
+function renderHistoryList(){
+  const body = document.getElementById('history-body');
+  if(!historyStudents.length){
+    body.innerHTML = '<tr><td colspan="7" class="empty-state">No students found</td></tr>';
+    return;
+  }
+  body.innerHTML = historyStudents.map(s=>{
+    const riskBadge = s.last_exam_risk != null ? _riskBadge(s.last_exam_risk) : '—';
+    return `<tr>
+      <td style="font-family:var(--font-mono);font-size:13px">${_escHtml(s.roll_number)}</td>
+      <td>${_escHtml(s.full_name)}</td>
+      <td>${s.total_exams}</td>
+      <td>${s.avg_percentage != null ? s.avg_percentage+'%' : '—'}</td>
+      <td>${riskBadge}</td>
+      <td style="font-size:13px;color:var(--muted)">${_escHtml(s.last_exam_date || '—')}</td>
+      <td><button class="action-btn primary" onclick="viewStudentHistory('${_escHtml(s.roll_number)}')">View History</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function sortHistory(key){
+  if(historySortKey===key) historySortAsc=!historySortAsc;
+  else{ historySortKey=key; historySortAsc=true; }
+  historyStudents.sort(_historyCompare);
+  renderHistoryList();
+}
+
+function _historyCompare(a,b){
+  let va=a[historySortKey], vb=b[historySortKey];
+  if(historySortKey==='last_exam_risk'){ va=va??-1; vb=vb??-1; }
+  if(historySortKey==='avg_percentage'){ va=va??-1; vb=vb??-1; }
+  if(va==null) va=''; if(vb==null) vb='';
+  if(typeof va==='number' && typeof vb==='number') return historySortAsc ? va-vb : vb-va;
+  const cmp = String(va).localeCompare(String(vb));
+  return historySortAsc ? cmp : -cmp;
+}
+
+function _riskBadge(score){
+  if(score==null) return '—';
+  let color, label;
+  if(score<=15){ color='var(--emerald)'; label='Low'; }
+  else if(score<=40){ color='var(--amber)'; label='Moderate'; }
+  else if(score<=70){ color='var(--red)'; label='High'; }
+  else{ color='var(--red)'; label='Critical'; }
+  return `<span style="color:${color};font-weight:600">${score} (${label})</span>`;
+}
+
+async function viewStudentHistory(roll){
+  try{
+    const r = await api('/api/v1/student-history/'+encodeURIComponent(roll));
+    historyDetailData = r;
+    renderHistoryDetail();
+    document.getElementById('history-detail').style.display='';
+    // Hide the student list table while showing detail
+    document.querySelector('#panel-history .table-wrap').style.display='none';
+    document.querySelector('#panel-history .table-toolbar').style.display='none';
+  }catch(e){
+    alert('Failed to load history: '+e.message);
+  }
+}
+
+function renderHistoryDetail(){
+  const d = historyDetailData;
+  if(!d) return;
+
+  // Student header stats
+  const s = d.student;
+  const ag = d.aggregates;
+  document.getElementById('history-detail-stats').innerHTML = `
+    <div class="stat-tile"><div class="stat-label">Student</div><div class="stat-value" style="font-size:14px">${_escHtml(s.full_name)}</div><div class="stat-sub">${_escHtml(s.roll_number)}</div></div>
+    <div class="stat-tile"><div class="stat-label">Email</div><div class="stat-value" style="font-size:12px">${_escHtml(s.email||'—')}</div></div>
+    <div class="stat-tile"><div class="stat-label">Exams Taken</div><div class="stat-value">${ag.total_exams}</div></div>
+    <div class="stat-tile"><div class="stat-label">Avg Score</div><div class="stat-value">${ag.avg_percentage!=null?ag.avg_percentage+'%':'—'}</div></div>
+    <div class="stat-tile"><div class="stat-label">Highest</div><div class="stat-value green">${ag.highest_percentage!=null?ag.highest_percentage+'%':'—'}</div></div>
+    <div class="stat-tile"><div class="stat-label">Lowest</div><div class="stat-value red">${ag.lowest_percentage!=null?ag.lowest_percentage+'%':'—'}</div></div>
+    <div class="stat-tile"><div class="stat-label">Avg Risk</div><div class="stat-value">${ag.avg_risk_score!=null?ag.avg_risk_score:'—'}</div></div>
+    <div class="stat-tile"><div class="stat-label">Total Violations</div><div class="stat-value">${ag.total_violations}</div></div>
+  `;
+
+  const body = document.getElementById('history-detail-body');
+  if(!d.history.length){
+    body.innerHTML = '<tr><td colspan="9" class="empty-state">No completed exams</td></tr>';
+    return;
+  }
+  body.innerHTML = d.history.map(h=>{
+    const behavList = h.behavioral_patterns.length ? h.behavioral_patterns.map(p=>'<span class="badge" style="background:rgba(220,38,38,0.15);color:var(--red);font-size:10px">'+_escHtml(p.replace(/_/g,' '))+'</span>').join(' ') : '<span style="color:var(--muted)">None</span>';
+    const riskStr = h.risk_score != null ? _riskBadge(h.risk_score) : '—';
+    return `<tr>
+      <td>
+        <div style="font-weight:600">${_escHtml(h.exam_title||'Exam')}</div>
+        <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">${_escHtml(h.session_id.slice(0,24))}…</div>
+      </td>
+      <td>${h.score}/${h.total}</td>
+      <td style="font-weight:600;color:${h.percentage>=40?'var(--emerald)':'var(--red)'}">${h.percentage}%</td>
+      <td>${h.violation_count}</td>
+      <td>${behavList}</td>
+      <td>${riskStr}</td>
+      <td style="font-size:13px">${_fmtDuration(h.time_taken_secs)}</td>
+      <td style="font-size:13px;color:var(--muted)">${_escHtml(h.submitted_at)}</td>
+      <td><button class="action-btn" onclick="viewSessionTimeline('${_escHtml(h.session_id)}')">Timeline</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function closeHistoryDetail(){
+  historyDetailData = null;
+  document.getElementById('history-detail').style.display='none';
+  document.querySelector('#panel-history .table-wrap').style.display='';
+  document.querySelector('#panel-history .table-toolbar').style.display='';
+}
+
+function viewSessionTimeline(sessionId){
+  // Navigate to the forensics timeline view (already exists in dashboard)
+  window.location.hash = '#timeline-'+sessionId;
+  if(typeof viewSession==='function') viewSession(sessionId);
 }
 </script>
 </body>

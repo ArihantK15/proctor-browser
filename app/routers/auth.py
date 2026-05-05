@@ -446,6 +446,84 @@ async def student_exams(request: Request):
     return {"exams": exams}
 
 
+@router.get("/api/student/history")
+async def student_history(request: Request):
+    """Return the authenticated student's own exam history.
+
+    Shows all completed exams with scores, risk levels, and violation
+    counts across all teachers.
+    """
+    account = require_student_account(request)
+    email = account["email"].strip().lower()
+
+    # Find all enrollment rows matching this email
+    enrollments = (supabase.table("students")
+                   .select("roll_number,teacher_id,full_name")
+                   .eq("email", email)
+                   .execute()).data or []
+    if not enrollments:
+        return {"history": []}
+
+    history = []
+    for enr in enrollments:
+        teacher_id = str(enr["teacher_id"])
+        roll = enr["roll_number"]
+
+        # Get completed sessions
+        sessions = (supabase.table("exam_sessions")
+                    .select("session_key,exam_id,roll_number,full_name,email,"
+                            "score,total,percentage,time_taken_secs,"
+                            "status,started_at,submitted_at,risk_score")
+                    .eq("roll_number", roll)
+                    .eq("teacher_id", teacher_id)
+                    .eq("status", SessionStatus.COMPLETED)
+                    .order("submitted_at", desc=True)
+                    .execute()).data or []
+
+        for s in sessions:
+            # Get exam title
+            exam_title = ""
+            if s.get("exam_id"):
+                cfg_result = (supabase.table("exam_config")
+                              .select("exam_title")
+                              .eq("exam_id", s["exam_id"])
+                              .eq("teacher_id", teacher_id)
+                              .limit(1)
+                              .execute()).data or []
+                if cfg_result:
+                    exam_title = cfg_result[0].get("exam_title") or ""
+
+            # Get teacher name
+            teacher = _get_teacher_by_id(teacher_id)
+            teacher_name = teacher.get("full_name", "Teacher") if teacher else "Teacher"
+
+            # Count violations
+            viol_count = (supabase.table("violations")
+                          .select("id", count="exact")
+                          .eq("session_key", s["session_key"])
+                          .eq("teacher_id", teacher_id)
+                          .execute()).count or 0
+
+            history.append({
+                "session_id": s["session_key"],
+                "exam_title": exam_title or "Exam",
+                "teacher_name": teacher_name,
+                "roll_number": roll,
+                "score": s.get("score", 0),
+                "total": s.get("total", 0),
+                "percentage": s.get("percentage", 0.0),
+                "time_taken_secs": s.get("time_taken_secs", 0),
+                "submitted_at": fmt_ist(s.get("submitted_at", "")),
+                "violation_count": viol_count,
+                "risk_score": s.get("risk_score"),
+            })
+
+    # Sort all history by submitted_at descending
+    history.sort(key=lambda x: x.get("submitted_at", "") or "", reverse=True)
+
+    return {"history": history}
+
+
 def _exam_window_status(starts_at, ends_at, now, duration):
     """Determine exam status from time window."""
     if starts_at:

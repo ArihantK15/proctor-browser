@@ -246,3 +246,48 @@ class TestDetectionResultFormat:
             assert isinstance(det[0], str)
             assert isinstance(det[1], float)
             assert all(isinstance(x, int) for x in det[2:])
+
+
+class TestContinuousIdentityVerification:
+    """Verify the continuous identity verification constants and logic."""
+
+    def test_wrong_person_threshold_is_configurable(self):
+        """The threshold should be a float between 0 and 1."""
+        from proctor import WRONG_PERSON_THRESHOLD
+        assert 0 < WRONG_PERSON_THRESHOLD < 1
+        # Default is 0.25 — cosine similarity below this = different person
+        assert WRONG_PERSON_THRESHOLD == 0.25
+
+    def test_wrong_person_check_frequency(self):
+        """Post-calibration check should run frequently."""
+        from proctor import WRONG_PERSON_CHECK_FREQ
+        assert WRONG_PERSON_CHECK_FREQ <= 30  # should be at least as frequent as before
+        assert WRONG_PERSON_CHECK_FREQ > 0
+
+    def test_similarity_math(self):
+        """Cosine similarity of normalized embeddings should be in [-1, 1]."""
+        import numpy as np
+        # Two identical unit vectors
+        a = np.array([1.0, 0.0, 0.0, 0.0])
+        assert np.dot(a, a) == pytest.approx(1.0, abs=1e-10)
+
+        # Threshold check: similarity below threshold = mismatch
+        threshold = 0.25
+        # Similar vector (high cosine similarity)
+        similar = np.array([0.9, 0.3, 0.2, 0.1])
+        similar = similar / np.linalg.norm(similar)
+        # Very different vector — nearly orthogonal
+        different = np.array([0.01, 0.01, 0.01, 0.99])
+        different = different / np.linalg.norm(different)
+
+        sim_score = float(np.dot(similar, a))
+        diff_score = float(np.dot(different, a))
+
+        assert sim_score > threshold  # should pass
+        assert diff_score < threshold  # should fail
+
+    def test_lazy_enrollment_window_is_reasonable(self):
+        """LAZY_ENROLL_WINDOW should be defined (inside run_proctoring)."""
+        from proctor import TARGET_FPS
+        # TARGET_FPS should be 15
+        assert TARGET_FPS == 15

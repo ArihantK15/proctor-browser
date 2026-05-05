@@ -640,6 +640,7 @@ CONVERSATION_BURSTS  = 4      # min bursts with short gaps to flag conversation
 CONVERSATION_WINDOW  = 45.0   # seconds window to observe conversation pattern
 CONVERSATION_GAP_MAX = 3.0    # max silence between bursts for "turn-taking"
 WRONG_PERSON_THRESHOLD = float(os.getenv("PROCTOR_WRONG_PERSON_THRESHOLD", "0.25"))
+WRONG_PERSON_CHECK_FREQ = 10    # verify identity every N frames (was 30)
 TARGET_FPS          = 15
 FACE_MIN_SIZE       = 50  # min face height/width px (student too far)
 EAR_EVERY_N         = 5
@@ -1815,21 +1816,23 @@ def run_proctoring(cap, W, H):
                           f"Camera feed resembles screen capture: {screen_feed}")
                 save_evidence(frame, "screen_share_feed")
 
-        # ── LAZY ENROLLMENT ──────────────────────────────────────────────────
-        if not lazy_enroll_done and INSIGHT_AVAILABLE:
-            if frame_count <= LAZY_ENROLL_WINDOW:
-                emb = get_face_embedding(frame)
-                if emb is not None:
-                    global enrolled_embedding
-                    enrolled_embedding = emb
-                    lazy_enroll_done   = True
-                    print("[PROCTOR] ✅ Face embedding captured (lazy enrollment)")
-                    log_event("face_enrolled", "low",
-                              f"Lazy embedding at frame {frame_count}")
-                    # Upload a reference frame so the teacher always has a
-                    # face photo in the timeline, even with zero violations.
-                    save_evidence(frame, "reference_frame")
-            else:
+        # ── LAZY ENROLLMENT (capture reference embedding during calibration) ─
+        # On the first clean face, capture an InsightFace embedding as the
+        # identity reference. This happens during calibration so we can
+        # immediately start verifying identity on every subsequent face.
+        if not lazy_enroll_done and INSIGHT_AVAILABLE and not calibrated:
+            emb = get_face_embedding(frame)
+            if emb is not None:
+                global enrolled_embedding
+                enrolled_embedding = emb
+                lazy_enroll_done   = True
+                print(f"[PROCTOR] ✅ Identity reference captured at frame {frame_count}")
+                log_event("face_enrolled", "low",
+                          f"Identity reference at frame {frame_count}")
+                # Upload a reference frame so the teacher always has a
+                # face photo in the timeline, even with zero violations.
+                save_evidence(frame, "reference_frame")
+            elif frame_count > LAZY_ENROLL_WINDOW:
                 lazy_enroll_done = True
                 print("[PROCTOR] ⚠ Could not capture face embedding in first "
                       f"{LAZY_ENROLL_WINDOW} frames — wrong-person check disabled")
@@ -1891,6 +1894,33 @@ def run_proctoring(cap, W, H):
             x1 = max(0, x1); y1 = max(0, y1)
             x2 = min(W, x2); y2 = min(H, y2)
             face_crop = frame[y1:y2, x1:x2]
+
+            # ── CONTINUOUS IDENTITY VERIFICATION (calibration phase) ─────────
+            # During calibration, verify every single face against the
+            # reference embedding. If the person swaps, we catch it
+            # immediately and abort calibration.
+            if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
+               not calibrated:
+                current_emb = get_face_embedding_from_crop(face_crop)
+                if current_emb is not None:
+                    similarity = float(np.dot(enrolled_embedding, current_emb))
+                    if similarity < WRONG_PERSON_THRESHOLD:
+                        print(f"[IDENTITY] ❌ Different person during "
+                              f"calibration! (similarity: {similarity:.2f})")
+                        log_event("wrong_person", "critical",
+                                  f"Identity swap detected during calibration "
+                                  f"(similarity: {similarity:.2f})")
+                        save_evidence(frame, "wrong_person_calibration")
+                        # Reset calibration — force re-enrollment with new face
+                        calibrated = False
+                        cal_gaze_yaw.clear()
+                        cal_gaze_pitch.clear()
+                        cal_head_yaw.clear()
+                        cal_head_pitch.clear()
+                        # Update reference to the new person
+                        enrolled_embedding = current_emb
+                        print("[IDENTITY] ⚠ Reference updated to new face — "
+                              "recalibrating...")
 
             # Face too small — student may be sitting far from camera
             fh, fw = face_crop.shape[:2]
@@ -2233,12 +2263,12 @@ def run_proctoring(cap, W, H):
                     _conversation_window_start = None
                     _voice_burst_times = []
 
-        # ── WRONG PERSON CHECK ───────────────────────────────────────────────
-        # Uses the already-cropped face region when available (num_faces==1),
-        # falling back to full-frame detection for the first few frames before
-        # a face is stabilized.
+        # ── WRONG PERSON CHECK (post-calibration safety net) ─────────────────
+        # Primary verification happens per-face in the single-face block above.
+        # This periodic check serves as a backup for frames where face_crop
+        # is unavailable or the per-face check was skipped.
         if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
-           frame_count % 30 == 0:
+           frame_count % WRONG_PERSON_CHECK_FREQ == 0 and calibrated:
             if face_crop is not None:
                 current_emb = get_face_embedding_from_crop(face_crop)
             else:

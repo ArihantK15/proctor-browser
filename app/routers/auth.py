@@ -91,8 +91,15 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     except Exception:
         pass  # Non-fatal — teacher can set this later
 
+    # Auto-login after signup so the teacher goes straight to dashboard
+    access_token = issue_admin_token(teacher)
     print(f"[TeacherSignup] {name} <{email}> created")
-    return {"teacher_id": teacher["id"], "email": email, "full_name": name}
+    return {
+        "teacher_id":    teacher["id"],
+        "email":         email,
+        "full_name":     name,
+        "access_token":  access_token,
+    }
 
 
 @router.post("/api/v1/auth/login")
@@ -352,9 +359,11 @@ async def student_exams(request: Request):
     account = require_student_account(request)
     email = account["email"].strip().lower()
 
-    # Find all enrollment rows matching this email
+    # Find all enrollment rows matching this email.
+    # The `students` table has: roll_number, teacher_id (no exam_id column
+    # in the legacy schema — each teacher typically has one exam_config).
     enroll_result = supabase.table("students").select(
-        "roll_number", "teacher_id", "exam_id"
+        "roll_number", "teacher_id"
     ).eq("email", email).execute()
     enrollments = enroll_result.data or []
     if not enrollments:
@@ -365,39 +374,49 @@ async def student_exams(request: Request):
 
     for enr in enrollments:
         teacher_id = enr.get("teacher_id")
-        exam_id = enr.get("exam_id")
+        if not teacher_id:
+            continue
+        teacher_id = str(teacher_id)
 
-        # Get exam config
-        config_q = supabase.table("exam_config").select("*")
-        if exam_id:
-            config_q = config_q.eq("exam_id", exam_id)
-        if teacher_id:
-            config_q = config_q.eq("teacher_id", str(teacher_id))
-        config_result = config_q.limit(1).execute()
+        # Get exam config — filter by teacher_id only.  Most deployments
+        # have one config per teacher; if there are multiple we pick the
+        # first one (the teacher's primary exam).
+        config_result = supabase.table("exam_config").select("*").eq(
+            "teacher_id", teacher_id
+        ).limit(1).execute()
         if not config_result.data:
             continue
         cfg = config_result.data[0]
+        exam_id = cfg.get("exam_id")
 
         # Get teacher name
-        teacher_name = "Teacher"
-        if teacher_id:
-            teacher = _get_teacher_by_id(str(teacher_id))
-            if teacher:
-                teacher_name = teacher.get("full_name", "Teacher")
+        teacher = _get_teacher_by_id(teacher_id)
+        teacher_name = teacher.get("full_name", "Teacher") if teacher else "Teacher"
 
         # Parse exam window
         starts_at = cfg.get("starts_at")
         ends_at = cfg.get("ends_at")
         duration = cfg.get("duration_minutes")
 
-        # Check for existing session
-        session_q = supabase.table("exam_sessions").select(
+        # Check for existing session — query by roll_number + teacher_id
+        # + status instead of constructing session_key (the renderer uses
+        # a timestamp-based key, so we can't match on that).
+        session_result = supabase.table("exam_sessions").select(
             "status", "submitted_at"
-        ).eq("session_key", f"{enr['roll_number']}_{exam_id or 'default'}").limit(1)
-        if teacher_id:
-            session_q = session_q.eq("teacher_id", str(teacher_id))
-        sess_result = session_q.execute()
-        session = sess_result.data[0] if sess_result.data else None
+        ).eq("teacher_id", teacher_id).eq(
+            "roll_number", enr["roll_number"]
+        ).eq("status", SessionStatus.IN_PROGRESS).limit(1).execute()
+        session = session_result.data[0] if session_result.data else None
+
+        # If no in_progress session, check for a completed one
+        if not session:
+            done_result = supabase.table("exam_sessions").select(
+                "status", "submitted_at"
+            ).eq("teacher_id", teacher_id).eq(
+                "roll_number", enr["roll_number"]
+            ).order("created_at", desc=True).limit(1).execute()
+            if done_result.data:
+                session = done_result.data[0]
 
         # Compute status
         if session:
@@ -406,7 +425,6 @@ async def student_exams(request: Request):
                       SessionStatus.FORCE_SUBMITTED):
                 status = "completed"
             else:
-                # Session exists but not submitted — derive from time window
                 status = _exam_window_status(starts_at, ends_at, now, duration)
         else:
             status = _exam_window_status(starts_at, ends_at, now, duration)

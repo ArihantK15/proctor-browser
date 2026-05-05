@@ -589,8 +589,6 @@ def _load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
         query = query.eq("exam_id", exam_id)
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
-    elif not exam_id:
-        query = query.eq("id", 1)
     result = query.execute()
     if result.data:
         if _cache:

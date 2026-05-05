@@ -82,6 +82,21 @@ async def validate_student(request: Request, body: ValidateIn):
     )
     pre_tid = pre_check.data[0].get("teacher_id") if pre_check.data else None
 
+    # If not found in students table, check student_invites for config lookup
+    # so we can enforce time windows even before auto-enrollment.
+    pre_exam_id = exam_id
+    if pre_tid is None:
+        inv_pre = await asyncio.to_thread(
+            lambda: supabase.table("student_invites")
+                .select("teacher_id", "exam_id")
+                .eq("roll_number", body.roll_number.strip().upper())
+                .limit(1).execute()
+        )
+        if inv_pre.data:
+            pre_tid = inv_pre.data[0].get("teacher_id")
+            if not pre_exam_id:
+                pre_exam_id = inv_pre.data[0].get("exam_id")
+
     # Check exam time window using the student's teacher config
     config = await asyncio.to_thread(_load_exam_config, pre_tid, exam_id=exam_id)
     now_utc = datetime.now(timezone.utc)

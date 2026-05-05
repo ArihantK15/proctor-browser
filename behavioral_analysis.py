@@ -298,7 +298,6 @@ class BehavioralEngine:
     def push(self, signal: dict):
         """Record a frame's signals."""
         self.buffer.push(signal)
-        self._frame_count += 1
 
     def check(self) -> Optional[dict]:
         """Run all pattern matchers. Returns highest-confidence match or None."""

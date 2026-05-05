@@ -32,16 +32,20 @@
       "app/static/student.html",
       "app/static/theme.css"
     ],
-    "extraResources": [
-      {
-        "from": "proctor.py",
-        "to": "proctor.py"
-      },
-      {
-        "from": "weights",
-        "to": "weights"
-      }
-    ],
+  "extraResources": [
+    {
+      "from": "proctor.py",
+      "to": "proctor.py"
+    },
+    {
+      "from": "behavioral_analysis.py",
+      "to": "behavioral_analysis.py"
+    },
+    {
+      "from": "weights",
+      "to": "weights"
+    }
+  ],
     "publish": {
       "provider": "github",
       "owner": "ArihantK15",

@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.behavioral_analysis import (
+from behavioral_analysis import (
     SignalBuffer,
     BehavioralEngine,
     match_phone_consulting,

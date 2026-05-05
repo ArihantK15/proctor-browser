@@ -43,7 +43,7 @@ from queue import Queue, Empty
 from typing import Optional, Tuple
 
 # ─── BEHAVIORAL ANALYSIS (multi-signal correlation) ────────────────────────────
-from app.behavioral_analysis import (
+from behavioral_analysis import (
     BehavioralEngine,
     PATTERN_SEVERITY,
     PATTERN_CONFIDENCE,
@@ -1666,6 +1666,9 @@ def run_proctoring(cap, W, H):
     _silence_start      = None  # when audio dropped below threshold
     _voice_burst_count  = 0  # number of voice activations in current window
     _conversation_window_start = None
+    _gaze_down_start    = None  # track continuous gaze-down duration for phone_consulting
+    _last_yolo_result   = None  # cached YOLO result for behavioral push
+    _last_sahi_result   = None  # cached SAHI result for behavioral push
 
     # Lazy enrollment: when SKIP_ENROLLMENT is set the renderer ran the
     # student through enrollment in the browser UI; proctor.py still needs
@@ -2082,6 +2085,7 @@ def run_proctoring(cap, W, H):
 
             yolo_result = yolo_worker.get_result(frame_count)
             if yolo_result is not None:
+                _last_yolo_result = yolo_result  # cache for behavioral push
                 if yolo_result.get("error"):
                     print(f"[YOLO Error] {yolo_result['error']}")
                 else:
@@ -2127,6 +2131,7 @@ def run_proctoring(cap, W, H):
         if SAHI_AVAILABLE:
             sahi_result = sahi_worker.get_result(frame_count)
             if sahi_result is not None:
+                _last_sahi_result = sahi_result  # cache for behavioral push
                 if sahi_result.get("error"):
                     print(f"[SAHI Error] {sahi_result['error']}")
                 else:
@@ -2304,15 +2309,41 @@ def run_proctoring(cap, W, H):
         is_head_turned = (num_faces == 1 and calibrated and
                           (abs(head_yaw) > HEAD_YAW_THRESHOLD or abs(head_pitch) > HEAD_PITCH_THRESHOLD))
 
+        # Track how long student has been looking down for phone_consulting confidence
+        if is_gaze_down:
+            if _gaze_down_start is None:
+                _gaze_down_start = time.time()
+            gaze_down_secs = time.time() - _gaze_down_start
+        else:
+            _gaze_down_start = None
+            gaze_down_secs = 0
+
+        # Phone in hand detection — use cached YOLO/SAHI results
+        phone_in_hand = False
+        if YOLO_AVAILABLE and _last_yolo_result and _last_yolo_result.get("detections"):
+            for det in _last_yolo_result["detections"]:
+                if det[0] == "Phone" and len(det) >= 6:
+                    phone_box = (det[2], det[3], det[4], det[5])
+                    phone_type = classify_phone_position(phone_box, _last_face_bbox, H)
+                    phone_in_hand = (phone_type == "phone_in_hand")
+                    break
+        if not phone_in_hand and SAHI_AVAILABLE and _last_sahi_result and _last_sahi_result.get("detections"):
+            for det in _last_sahi_result["detections"]:
+                if det[0] == "Phone" and len(det) >= 6:
+                    phone_box = (det[2], det[3], det[4], det[5])
+                    phone_type = classify_phone_position(phone_box, _last_face_bbox, H)
+                    phone_in_hand = (phone_type == "phone_in_hand")
+                    break
+
         _behavioral.push({
             "gaze_away":     is_gaze_away,
             "gaze_down":     is_gaze_down,
             "gaze_centered": is_gaze_centered,
-            "gaze_down_secs": 0,
+            "gaze_down_secs": gaze_down_secs,
             "head_turned":   is_head_turned,
             "face_away":     is_gaze_away or is_head_turned,
             "multiple_faces": num_faces >= 2,
-            "phone_in_hand": "Phone" in seen_names and _last_face_bbox is not None,
+            "phone_in_hand": phone_in_hand,
             "voice_active":  voice_active,
             "t": time.time(),
         })

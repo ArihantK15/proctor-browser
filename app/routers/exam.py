@@ -314,7 +314,7 @@ async def get_questions(request: Request):
 
 
 @router.get("/api/v1/check-session/{roll_number}")
-def check_session(roll_number: str, request: Request):
+async def check_session(roll_number: str, request: Request):
     """Check if student has an in-progress session to resume."""
     # Practice mode never has a resumable session
     if is_practice(roll_number):
@@ -325,32 +325,32 @@ def check_session(roll_number: str, request: Request):
         raise HTTPException(status_code=403, detail="Access denied")
     tid = claims.get("tid")
     eid = claims.get("eid")
-    sess_query = supabase.table("exam_sessions").select("*")\
+    sess_query = _atable("exam_sessions").select("*")\
         .eq("roll_number", roll_number)\
         .eq("status", SessionStatus.IN_PROGRESS)
     if tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
     if eid:
         sess_query = sess_query.eq("exam_id", eid)
-    result = sess_query.order("started_at", desc=True).limit(1).execute()
+    result = await sess_query.order("started_at", desc=True).limit(1).execute()
     if not result.data:
         return {"exists": False}
     session = result.data[0]
-    ans_query = supabase.table("answers").select("*")\
+    ans_query = _atable("answers").select("*")\
         .eq("session_key", session["session_key"])
     if tid:
         ans_query = ans_query.eq("teacher_id", str(tid))
 
-    answers = ans_query.execute()
+    answers = await ans_query.execute()
 
     # Build reverse map for shuffled options
     session_key = session["session_key"]
-    config = _load_exam_config(str(tid or ""), exam_id=eid)
+    config = await asyncio.to_thread(_load_exam_config, str(tid or ""), exam_id=eid)
     shuffle_q, shuffle_o = _get_shuffle_flags(config)
     reverse: dict[str, dict[str, str]] = {}
     if shuffle_o:
         try:
-            questions = _load_questions(str(tid or ""), exam_id=eid)
+            questions = await asyncio.to_thread(_load_questions, str(tid or ""), exam_id=eid)
             _, label_maps = _build_shuffle_view(
                 questions, session_key, str(tid or ""),
                 shuffle_q=shuffle_q, shuffle_o=shuffle_o)
@@ -735,8 +735,26 @@ async def submit_exam(result: ResultIn, request: Request):
             "risk_score": risk["risk_score"], "risk_label": risk["label"]}
 
 
+def _save_frame(student_dir: str, data: FrameIn) -> str:
+    """Decode and save a frame to disk. Returns filename."""
+    os.makedirs(student_dir, exist_ok=True)
+    ts = now_ist().strftime("%Y%m%d_%H%M%S")
+    if data.event_type:
+        safe_label = "".join(
+            c if c.isalnum() or c in "_-" else "_"
+            for c in data.event_type
+        )[:32]
+        fname = f"evt_{safe_label}_{ts}.jpg"
+    else:
+        fname = f"frame_{ts}.jpg"
+    fpath = os.path.join(student_dir, fname)
+    with open(fpath, "wb") as f:
+        f.write(base64.b64decode(data.frame))
+    return fname
+
+
 @router.post("/api/v1/analyze-frame")
-def analyze_frame(data: FrameIn, request: Request):
+async def analyze_frame(data: FrameIn, request: Request):
     # Practice sandbox: don't run face detection or save screenshots
     if is_practice(data.session_id):
         return {"status": "ok", "practice": True}
@@ -768,27 +786,28 @@ def analyze_frame(data: FrameIn, request: Request):
         raise HTTPException(status_code=400, detail="Invalid session identifier")
 
     try:
-        os.makedirs(student_dir, exist_ok=True)
-        ts = now_ist().strftime("%Y%m%d_%H%M%S")
-        if data.event_type:
-            safe_label = "".join(
-                c if c.isalnum() or c in "_-" else "_"
-                for c in data.event_type
-            )[:32]
-            fname = f"evt_{safe_label}_{ts}.jpg"
-        else:
-            fname = f"frame_{ts}.jpg"
-        fpath = os.path.join(student_dir, fname)
-        with open(fpath, "wb") as f:
-            f.write(base64.b64decode(data.frame))
+        await asyncio.to_thread(_save_frame, student_dir, data)
     except Exception as e:
         print(f"[Frame] Error saving frame for {data.session_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to save frame")
     return {"status": "received"}
 
 
+def _save_id_verification_images(student_dir: str, selfie_b64: str, id_b64: str) -> tuple[str, str]:
+    """Save selfie and ID card images to disk. Returns (selfie_fname, id_fname)."""
+    os.makedirs(student_dir, exist_ok=True)
+    ts = now_ist().strftime("%Y%m%d_%H%M%S")
+    selfie_fname = f"id_selfie_{ts}.jpg"
+    id_fname     = f"id_card_{ts}.jpg"
+    with open(os.path.join(student_dir, selfie_fname), "wb") as f:
+        f.write(base64.b64decode(selfie_b64))
+    with open(os.path.join(student_dir, id_fname), "wb") as f:
+        f.write(base64.b64decode(id_b64))
+    return selfie_fname, id_fname
+
+
 @router.post("/api/v1/id-verification")
-def id_verification(data: IdVerifyIn, request: Request):
+async def id_verification(data: IdVerifyIn, request: Request):
     """Store selfie + ID photos and create a pending verification for teacher review."""
     # Practice sandbox: pretend the verification was filed
     if is_practice(data.session_id):
@@ -820,15 +839,8 @@ def id_verification(data: IdVerifyIn, request: Request):
         raise HTTPException(status_code=400, detail="Invalid roll number")
 
     try:
-        os.makedirs(student_dir, exist_ok=True)
-        ts = now_ist().strftime("%Y%m%d_%H%M%S")
-
-        selfie_fname = f"id_selfie_{ts}.jpg"
-        id_fname     = f"id_card_{ts}.jpg"
-        with open(os.path.join(student_dir, selfie_fname), "wb") as f:
-            f.write(base64.b64decode(data.selfie_frame))
-        with open(os.path.join(student_dir, id_fname), "wb") as f:
-            f.write(base64.b64decode(data.id_frame))
+        selfie_fname, id_fname = await asyncio.to_thread(
+            _save_id_verification_images, student_dir, data.selfie_frame, data.id_frame)
     except Exception as e:
         print(f"[ID Verify] File save error: {e}")
         raise HTTPException(status_code=500, detail="Failed to save verification images")
@@ -850,7 +862,7 @@ def id_verification(data: IdVerifyIn, request: Request):
         }
         if tid:
             viol_row["teacher_id"] = str(tid)
-        supabase.table("violations").insert(viol_row).execute()
+        await _atable("violations").insert(viol_row).execute()
     except Exception as e:
         print(f"[ID Verify] DB error: {e}")
 
@@ -858,7 +870,7 @@ def id_verification(data: IdVerifyIn, request: Request):
 
 
 @router.get("/api/v1/id-verification/status")
-def id_verification_status(request: Request, session_id: str = ""):
+async def id_verification_status(request: Request, session_id: str = ""):
     """Student polls this to check if teacher has approved/retake/rejected."""
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
@@ -868,7 +880,7 @@ def id_verification_status(request: Request, session_id: str = ""):
 
     claims = require_auth(request)
     _check_session_ownership(claims, session_id)
-    result = supabase.table("violations")\
+    result = await _atable("violations")\
         .select("details")\
         .eq("session_key", session_id)\
         .eq("violation_type", "id_verification")\

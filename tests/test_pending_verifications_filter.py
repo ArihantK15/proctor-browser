@@ -67,18 +67,37 @@ class TestIdVerificationWriter:
 
         token = make_student_token(roll="ALICE001", tid="teacher-1", eid="exam-A")
 
-        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+        captured = {}
+
+        class _AsyncMockResult:
+            def __init__(self, data):
+                self._data = data
+            def __await__(self):
+                r = MagicMock()
+                r.data = self._data
+                yield r
+            awaitable = True
+
+        class _AtableChainMock:
+            def __init__(self, table, insert_cb=None):
+                self._table = table
+                self._insert_cb = insert_cb
+            def select(self, *a, **kw): return self
+            def eq(self, *a, **kw): return self
+            def order(self, *a, **kw): return self
+            def limit(self, *a, **kw): return self
+            def insert(self, row):
+                if self._insert_cb:
+                    self._insert_cb(row)
+                return self
+            def execute(self):
+                return _AsyncMockResult(data=[])
+
+        def _atable_mock(table_name):
+            return _AtableChainMock(table_name, insert_cb=lambda row: captured.setdefault("row", row))
+
+        with patch("app.routers.exam._atable", side_effect=_atable_mock), \
              patch("app.dependencies._check_session_ownership"):
-            # Capture the insert payload so we can inspect the stamped details.
-            captured = {}
-
-            def _insert(row):
-                captured["row"] = row
-                res = MagicMock()
-                res.execute.return_value = MagicMock(data=[row])
-                return res
-
-            mock_table.return_value.insert.side_effect = _insert
 
             resp = client.post(
                 "/api/v1/id-verification",
@@ -118,13 +137,36 @@ class TestIdVerificationWriter:
             os.environ["SUPABASE_JWT_SECRET"], algorithm="HS256",
         )
 
-        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+        captured = {}
+
+        class _AsyncMockResult:
+            def __init__(self, data):
+                self._data = data
+            def __await__(self):
+                r = MagicMock()
+                r.data = self._data
+                yield r
+
+        class _AtableChainMock:
+            def __init__(self, table, insert_cb=None):
+                self._table = table
+                self._insert_cb = insert_cb
+            def select(self, *a, **kw): return self
+            def eq(self, *a, **kw): return self
+            def order(self, *a, **kw): return self
+            def limit(self, *a, **kw): return self
+            def insert(self, row):
+                if self._insert_cb:
+                    self._insert_cb(row)
+                return self
+            def execute(self):
+                return _AsyncMockResult(data=[])
+
+        def _atable_mock(table_name):
+            return _AtableChainMock(table_name, insert_cb=lambda row: captured.setdefault("row", row))
+
+        with patch("app.routers.exam._atable", side_effect=_atable_mock), \
              patch("app.dependencies._check_session_ownership"):
-            captured = {}
-            mock_table.return_value.insert.side_effect = lambda row: (
-                captured.setdefault("row", row),
-                MagicMock(execute=lambda: MagicMock(data=[row]))
-            )[1]
 
             resp = client.post(
                 "/api/v1/id-verification",

@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 
 from ..dependencies import (
     supabase,
+    _atable,
     limiter,
     TeacherSignupIn,
     TeacherLoginIn,
@@ -45,7 +46,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     # Check if teacher already exists in our table
-    existing = supabase.table("teachers").select("id").eq("email", email).execute()
+    existing = await _atable("teachers").select("id").eq("email", email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
@@ -71,7 +72,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         "supabase_uid": str(supabase_uid),
     }
     try:
-        result = supabase.table("teachers").insert(teacher_row).execute()
+        result = await _atable("teachers").insert(teacher_row).execute()
         teacher = result.data[0]
     except Exception as e:
         print(f"[TeacherSignup] DB insert error: {e}")
@@ -85,7 +86,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
 
     # Create default exam_config for this teacher
     try:
-        supabase.table("exam_config").insert({
+        await _atable("exam_config").insert({
             "exam_id": str(_uuid.uuid4()),
             "teacher_id": teacher["id"],
             "exam_title": "Exam",
@@ -199,11 +200,12 @@ async def student_account_exists(request: Request, email: str = ""):
     email = (email or "").strip().lower()
     if not email or "@" not in email:
         return {"exists": False}
-    result = supabase.table("student_accounts")\
-        .select("id", count="exact")\
+    result = await _atable("student_accounts")\
+        .select("id")\
         .eq("email", email)\
         .execute()
-    return {"exists": (result.count or 0) > 0}
+    count = len(result.data or [])
+    return {"exists": count > 0}
 
 
 @router.post("/api/v1/student/auth/signup")
@@ -224,7 +226,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
-    existing = supabase.table("student_accounts").select("id").eq("email", email).execute()
+    existing = await _atable("student_accounts").select("id").eq("email", email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
@@ -243,7 +245,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
         raise HTTPException(status_code=500, detail="Failed to create account")
 
     try:
-        result = supabase.table("student_accounts").insert({
+        result = await _atable("student_accounts").insert({
             "email":        email,
             "full_name":    name,
             "supabase_uid": str(supabase_uid),
@@ -261,7 +263,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
 
     # Auto-link any existing enrollments by matching email (case-insensitive).
     try:
-        supabase.table("students")\
+        await _atable("students")\
             .update({"account_id": account["id"]})\
             .eq("email", email)\
             .is_("account_id", "null")\
@@ -300,7 +302,7 @@ async def student_login(body: StudentLoginIn, request: Request):
     # Opportunistic auto-link on every login in case the student was
     # registered by a teacher AFTER they created their account.
     try:
-        supabase.table("students")\
+        await _atable("students")\
             .update({"account_id": account["id"]})\
             .eq("email", email)\
             .is_("account_id", "null")\
@@ -365,7 +367,7 @@ async def student_exams(request: Request):
     # Find all enrollment rows matching this email.
     # The `students` table has: roll_number, teacher_id (no exam_id column
     # in the legacy schema — each teacher typically has one exam_config).
-    enroll_result = supabase.table("students").select(
+    enroll_result = await _atable("students").select(
         "roll_number", "teacher_id"
     ).eq("email", email).execute()
     enrollments = enroll_result.data or []
@@ -384,7 +386,7 @@ async def student_exams(request: Request):
         # Get exam config — filter by teacher_id only.  Most deployments
         # have one config per teacher; if there are multiple we pick the
         # first one (the teacher's primary exam).
-        config_result = supabase.table("exam_config").select("*").eq(
+        config_result = await _atable("exam_config").select("*").eq(
             "teacher_id", teacher_id
         ).limit(1).execute()
         if not config_result.data:
@@ -404,7 +406,7 @@ async def student_exams(request: Request):
         # Check for existing session — query by roll_number + teacher_id
         # + status instead of constructing session_key (the renderer uses
         # a timestamp-based key, so we can't match on that).
-        session_result = supabase.table("exam_sessions").select(
+        session_result = await _atable("exam_sessions").select(
             "status", "submitted_at"
         ).eq("teacher_id", teacher_id).eq(
             "roll_number", enr["roll_number"]
@@ -413,7 +415,7 @@ async def student_exams(request: Request):
 
         # If no in_progress session, check for a completed one
         if not session:
-            done_result = supabase.table("exam_sessions").select(
+            done_result = await _atable("exam_sessions").select(
                 "status", "submitted_at"
             ).eq("teacher_id", teacher_id).eq(
                 "roll_number", enr["roll_number"]
@@ -460,7 +462,7 @@ async def student_history(request: Request):
     email = account["email"].strip().lower()
 
     # Find all enrollment rows matching this email
-    enrollments = (supabase.table("students")
+    enrollments = (await _atable("students")
                    .select("roll_number,teacher_id,full_name")
                    .eq("email", email)
                    .execute()).data or []
@@ -473,7 +475,7 @@ async def student_history(request: Request):
         roll = enr["roll_number"]
 
         # Get completed sessions
-        sessions = (supabase.table("exam_sessions")
+        sessions = (await _atable("exam_sessions")
                     .select("session_key,exam_id,roll_number,full_name,email,"
                             "score,total,percentage,time_taken_secs,"
                             "status,started_at,submitted_at,risk_score")
@@ -487,7 +489,7 @@ async def student_history(request: Request):
             # Get exam title
             exam_title = ""
             if s.get("exam_id"):
-                cfg_result = (supabase.table("exam_config")
+                cfg_result = (await _atable("exam_config")
                               .select("exam_title")
                               .eq("exam_id", s["exam_id"])
                               .eq("teacher_id", teacher_id)
@@ -501,11 +503,12 @@ async def student_history(request: Request):
             teacher_name = teacher.get("full_name", "Teacher") if teacher else "Teacher"
 
             # Count violations
-            viol_count = (supabase.table("violations")
-                          .select("id", count="exact")
-                          .eq("session_key", s["session_key"])
-                          .eq("teacher_id", teacher_id)
-                          .execute()).count or 0
+            viol_result = await _atable("violations")\
+                          .select("id", count="exact")\
+                          .eq("session_key", s["session_key"])\
+                          .eq("teacher_id", teacher_id)\
+                          .execute()
+            viol_count = viol_result.count or 0
 
             history.append({
                 "session_id": s["session_key"],

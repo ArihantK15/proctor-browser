@@ -63,7 +63,36 @@ class _AsyncTableMock:
         r.count = self._count
         return r
 
-_mock_atable = MagicMock(return_value=_AsyncTableMock())
+class _AsyncChainWrapper:
+    """Wraps a MagicMock chain so .execute() is awaitable but all
+    other attribute access passes through to the underlying mock."""
+    def __init__(self, chain):
+        self._chain = chain
+    def __getattr__(self, name):
+        attr = getattr(self._chain, name)
+        if name == "execute":
+            async def _async_execute():
+                result = attr()
+                if hasattr(result, '__await__'):
+                    return await result
+                return result
+            return _async_execute
+        if callable(attr):
+            # Wrap the return value too (for chaining like .eq().select())
+            def _wrapper(*a, **kw):
+                return _AsyncChainWrapper(attr(*a, **kw))
+            return _wrapper
+        return attr
+
+class _AtableDelegator:
+    """Wrapper that delegates _atable(table) calls to the shared
+    supabase mock's table() chain, but makes .execute() awaitable.
+    This ensures that patching supabase.table also affects _atable."""
+    def __call__(self, table_name):
+        sync_chain = _mock_supabase.table(table_name)
+        return _AsyncChainWrapper(sync_chain)
+
+_mock_atable = _AtableDelegator()
 
 mock_database = MagicMock()
 mock_database.supabase = _mock_supabase

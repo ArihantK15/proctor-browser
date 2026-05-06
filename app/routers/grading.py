@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import (
     supabase,
+    _atable,
     limiter,
     require_admin,
     fmt_ist,
@@ -45,13 +46,11 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
     """
     from ..dependencies import _recalculate_score
 
-    sess = await asyncio.to_thread(
-        lambda: supabase.table("exam_sessions")
-            .select("session_key,exam_id,teacher_id")
-            .eq("session_key", session_key)
-            .eq("teacher_id", teacher_id)
-            .limit(1).execute()
-    )
+    sess = await _atable("exam_sessions")\
+        .select("session_key,exam_id,teacher_id")\
+        .eq("session_key", session_key)\
+        .eq("teacher_id", teacher_id)\
+        .limit(1).execute()
     if not sess.data:
         return None
     eid = sess.data[0].get("exam_id")
@@ -63,23 +62,19 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
         print(f"[rollup] mcq recalc failed: {e}")
         return None
 
-    sa_qs = await asyncio.to_thread(
-        lambda: supabase.table("questions")
-            .select("question_id,max_score")
-            .eq("teacher_id", teacher_id)
-            .eq("exam_id", eid)
-            .eq("question_type", "short_answer")
-            .execute()
-    )
+    sa_qs = await _atable("questions")\
+        .select("question_id,max_score")\
+        .eq("teacher_id", teacher_id)\
+        .eq("exam_id", eid)\
+        .eq("question_type", "short_answer")\
+        .execute()
     sa_max_total = sum(float(q.get("max_score") or 1.0) for q in (sa_qs.data or []))
 
-    sa_ans = await asyncio.to_thread(
-        lambda: supabase.table("answers")
-            .select("teacher_score")
-            .eq("session_key", session_key)
-            .eq("teacher_id", teacher_id)
-            .execute()
-    )
+    sa_ans = await _atable("answers")\
+        .select("teacher_score")\
+        .eq("session_key", session_key)\
+        .eq("teacher_id", teacher_id)\
+        .execute()
     sa_score_total = sum(float(a.get("teacher_score") or 0)
                          for a in (sa_ans.data or []) if a.get("teacher_score") is not None)
 
@@ -87,13 +82,11 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
     new_total = int(round(mcq_total + sa_max_total))
     new_pct = round((new_score / max(new_total, 1)) * 100, 1)
 
-    await asyncio.to_thread(
-        lambda: supabase.table("exam_sessions").update({
-            "score":      new_score,
-            "total":      new_total,
-            "percentage": new_pct,
-        }).eq("session_key", session_key).eq("teacher_id", teacher_id).execute()
-    )
+    await _atable("exam_sessions").update({
+        "score":      new_score,
+        "total":      new_total,
+        "percentage": new_pct,
+    }).eq("session_key", session_key).eq("teacher_id", teacher_id).execute()
 
     return {"score": new_score, "total": new_total, "percentage": new_pct,
             "mcq_score": mcq_score, "mcq_total": mcq_total,
@@ -109,35 +102,33 @@ async def pending_grades(request: Request):
     tid = str(teacher["id"])
     exam_id = request.query_params.get("exam_id")
 
-    q_query = supabase.table("questions").select(
+    q_query = _atable("questions").select(
         "id,question_id,exam_id,question,reference_answer,rubric,max_score"
     ).eq("teacher_id", tid).eq("question_type", "short_answer")
     if exam_id:
         q_query = q_query.eq("exam_id", exam_id)
-    questions = (await asyncio.to_thread(q_query.execute)).data or []
+    questions = (await q_query.execute()).data or []
     if not questions:
         return {"questions": [], "answers": [], "total_pending": 0}
 
     qid_to_meta = {str(q["question_id"]): q for q in questions}
 
-    a_query = supabase.table("answers").select(
+    a_query = _atable("answers").select(
         "id,session_key,question_id,answer,ai_score,ai_feedback,ai_confidence,teacher_score,exam_id"
     ).eq("teacher_id", tid).is_("teacher_score", "null")
     if exam_id:
         a_query = a_query.eq("exam_id", exam_id)
-    all_answers = (await asyncio.to_thread(a_query.execute)).data or []
+    all_answers = (await a_query.execute()).data or []
     pending = [a for a in all_answers if str(a.get("question_id")) in qid_to_meta]
 
     session_keys = list({a["session_key"] for a in pending if a.get("session_key")})
     roll_map = {}
     if session_keys:
         try:
-            sess_rows = (await asyncio.to_thread(
-                lambda: supabase.table("exam_sessions")
-                    .select("session_key,roll_number,full_name")
-                    .eq("teacher_id", tid)
-                    .in_("session_key", session_keys).execute()
-            )).data or []
+            sess_rows = (await _atable("exam_sessions")
+                .select("session_key,roll_number,full_name")
+                .eq("teacher_id", tid)
+                .in_("session_key", session_keys).execute()).data or []
             roll_map = {s["session_key"]: s for s in sess_rows}
         except Exception as e:
             print(f"[pending-grades] session lookup failed: {e}", flush=True)
@@ -195,19 +186,15 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
     if len(answer_ids) > 50:
         raise HTTPException(status_code=413, detail="Max 50 per call.")
 
-    answers = (await asyncio.to_thread(
-        lambda: supabase.table("answers").select("*")
-            .eq("teacher_id", tid).in_("id", answer_ids)
-            .execute()
-    )).data or []
+    answers = (await _atable("answers").select("*")
+        .eq("teacher_id", tid).in_("id", answer_ids)
+        .execute()).data or []
     if not answers:
         return {"graded": 0, "results": []}
     qids = list({str(a["question_id"]) for a in answers})
-    questions = (await asyncio.to_thread(
-        lambda: supabase.table("questions").select(
-            "question_id,question,reference_answer,rubric,max_score"
-        ).eq("teacher_id", tid).in_("question_id", qids).execute()
-    )).data or []
+    questions = (await _atable("questions").select(
+        "question_id,question,reference_answer,rubric,max_score"
+    ).eq("teacher_id", tid).in_("question_id", qids).execute()).data or []
     qmap = {str(q["question_id"]): q for q in questions}
 
     results = []
@@ -224,13 +211,11 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
             max_score=float(q.get("max_score") or 1.0),
         )
         try:
-            await asyncio.to_thread(
-                lambda: supabase.table("answers").update({
-                    "ai_score":      suggestion.get("score"),
-                    "ai_feedback":   suggestion.get("feedback"),
-                    "ai_confidence": suggestion.get("confidence"),
-                }).eq("id", a["id"]).eq("teacher_id", tid).execute()
-            )
+            await _atable("answers").update({
+                "ai_score":      suggestion.get("score"),
+                "ai_feedback":   suggestion.get("feedback"),
+                "ai_confidence": suggestion.get("confidence"),
+            }).eq("id", a["id"]).eq("teacher_id", tid).execute()
             results.append({"answer_id": a["id"], **suggestion})
         except Exception as e:
             print(f"[grade-suggest] DB write failed for {a['id']}: {e}", flush=True)
@@ -255,29 +240,23 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="score must be a number")
 
-    own = (await asyncio.to_thread(
-        lambda: supabase.table("answers").select("id,question_id,session_key")
-            .eq("id", answer_id).eq("teacher_id", tid).limit(1).execute()
-    )).data
+    own = (await _atable("answers").select("id,question_id,session_key")
+        .eq("id", answer_id).eq("teacher_id", tid).limit(1).execute()).data
     if not own:
         raise HTTPException(status_code=404, detail="Answer not found")
 
-    qrow = (await asyncio.to_thread(
-        lambda: supabase.table("questions").select("max_score")
-            .eq("teacher_id", tid).eq("question_id", own[0]["question_id"])
-            .limit(1).execute()
-    )).data
+    qrow = (await _atable("questions").select("max_score")
+        .eq("teacher_id", tid).eq("question_id", own[0]["question_id"])
+        .limit(1).execute()).data
     max_score = float((qrow[0] or {}).get("max_score") or 1.0) if qrow else 1.0
     if score < 0 or score > max_score:
         raise HTTPException(status_code=400,
             detail=f"score must be between 0 and {max_score}")
 
-    await asyncio.to_thread(
-        lambda: supabase.table("answers").update({
-            "teacher_score": score,
-            "graded_at": now_ist().isoformat(),
-        }).eq("id", answer_id).eq("teacher_id", tid).execute()
-    )
+    await _atable("answers").update({
+        "teacher_score": score,
+        "graded_at": now_ist().isoformat(),
+    }).eq("id", answer_id).eq("teacher_id", tid).execute()
 
     session_key = (own[0] or {}).get("session_key")
     new_totals = None

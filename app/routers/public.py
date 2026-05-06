@@ -4,6 +4,7 @@ import logging
 import os
 import time
 import asyncio
+import httpx
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException, Body
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, Response
@@ -208,7 +209,7 @@ def get_public_schedule(t: str = None):
 
 @router.get("/api/v1/lookup-teacher")
 @limiter.limit("30/minute")
-def lookup_teacher(request: Request, email: str = ""):
+async def lookup_teacher(request: Request, email: str = ""):
     """Public endpoint — find a teacher by email for self-registration.
 
     Returns minimal info (id, full_name) so the student registration
@@ -218,7 +219,7 @@ def lookup_teacher(request: Request, email: str = ""):
     email = (email or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
-    result = supabase.table("teachers").select("id,full_name").eq("email", email).execute()
+    result = await _atable("teachers").select("id,full_name").eq("email", email).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="No teacher found with this email")
     teacher = result.data[0]
@@ -230,7 +231,7 @@ def lookup_teacher(request: Request, email: str = ""):
 
 @router.post("/api/v1/resolve-access-code")
 @limiter.limit("30/minute")
-def resolve_access_code(request: Request, body: dict):
+async def resolve_access_code(request: Request, body: dict = Body(...)):
     """Public endpoint — resolve an exam access code to teacher + exam info.
 
     Students who received an access code from their teacher can use this
@@ -240,8 +241,7 @@ def resolve_access_code(request: Request, body: dict):
     if not code:
         raise HTTPException(status_code=400, detail="Access code is required")
 
-    # Search exam_config for matching access_code
-    result = supabase.table("exam_config").select(
+    result = await _atable("exam_config").select(
         "teacher_id", "exam_id", "exam_title", "access_code",
         "duration_minutes", "starts_at", "ends_at"
     ).eq("access_code", code).execute()
@@ -334,9 +334,9 @@ async def download_latest_info():
 
 
 @router.get("/invite/{token}", response_class=HTMLResponse)
-def invite_landing(token: str, request: Request):
+async def invite_landing(token: str, request: Request):
     """Public landing page for invite recipients."""
-    row = (supabase.table("student_invites").select("*")
+    row = (await _atable("student_invites").select("*")
            .eq("token", token).execute()).data
     if not row:
         return HTMLResponse(
@@ -361,16 +361,16 @@ def invite_landing(token: str, request: Request):
                     status_code=410,
                 )
         except Exception:
-            pass  # Date parse failed — allow landing page to proceed
+            pass
 
     if not inv.get("opened_at"):
         try:
-            supabase.table("student_invites").update({
+            await _atable("student_invites").update({
                 "opened_at": datetime.now(timezone.utc).isoformat(),
                 "status": InviteStatus.OPENED if status in (InviteStatus.SENT, "queued") else status,
             }).eq("token", token).execute()
         except Exception:
-            pass  # Failed to mark as opened — non-fatal
+            pass
 
     exam_cfg = _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
         if inv.get("exam_id") else {}
@@ -388,9 +388,9 @@ def invite_landing(token: str, request: Request):
 
 
 @router.get("/api/v1/invite/{token}/resolve")
-def resolve_invite(token: str):
+async def resolve_invite(token: str):
     """Public JSON lookup for an invite token."""
-    row = (supabase.table("student_invites").select("*")
+    row = (await _atable("student_invites").select("*")
            .eq("token", token).execute()).data
     if not row:
         raise HTTPException(status_code=404, detail="Invite not found")
@@ -429,10 +429,10 @@ def resolve_invite(token: str):
 
 
 @router.post("/api/v1/invite/{token}/accept")
-def accept_invite(token: str, request: Request):
+async def accept_invite(token: str, request: Request):
     """Link a signed-in student account to an invite."""
     student = require_student_account(request)
-    row = (supabase.table("student_invites").select("*")
+    row = (await _atable("student_invites").select("*")
            .eq("token", token).execute()).data
     if not row:
         raise HTTPException(status_code=404, detail="Invite not found")
@@ -449,14 +449,14 @@ def accept_invite(token: str, request: Request):
         except HTTPException:
             raise
         except Exception:
-            pass  # Date parse failed — allow accept to proceed
+            pass
 
     inv_email = (inv.get("email") or "").strip().lower()
     stu_email = (student.get("email") or "").strip().lower()
     if not inv_email or inv_email != stu_email:
         raise HTTPException(status_code=403, detail="This invite is for a different email address")
 
-    supabase.table("student_invites").update({
+    await _atable("student_invites").update({
         "status":      InviteStatus.ACCEPTED,
         "accepted_at": datetime.now(timezone.utc).isoformat(),
         "student_id":  str(student["id"]),
@@ -493,29 +493,29 @@ async def email_webhook(request: Request):
     _SENT_LIKE = ["queued", InviteStatus.SENT, InviteStatus.OPENED, InviteStatus.CLICKED]
 
     if evt == "email.bounced":
-        supabase.table("student_invites").update({
+        await _atable("student_invites").update({
             "status": InviteStatus.BOUNCED,
             "bounced_at": now_iso,
             "bounce_reason": str(data.get("bounce") or data.get("reason") or "bounced")[:500],
         }).eq("provider_msg_id", msg_id).in_("status", _SENT_LIKE).execute()
     elif evt == "email.complained":
-        supabase.table("student_invites").update({
+        await _atable("student_invites").update({
             "status": InviteStatus.FAILED,
             "bounce_reason": "recipient marked as spam",
         }).eq("provider_msg_id", msg_id).in_("status", _SENT_LIKE).execute()
     elif evt == "email.opened":
         try:
-            (supabase.table("student_invites")
-             .update({"opened_at": now_iso, "status": InviteStatus.OPENED})
-             .eq("provider_msg_id", msg_id).eq("status", InviteStatus.SENT).execute())
-            (supabase.table("student_invites")
-             .update({"opened_at": now_iso})
-             .eq("provider_msg_id", msg_id).is_("opened_at", "null").execute())
+            await _atable("student_invites")\
+                .update({"opened_at": now_iso, "status": InviteStatus.OPENED})\
+                .eq("provider_msg_id", msg_id).eq("status", InviteStatus.SENT).execute()
+            await _atable("student_invites")\
+                .update({"opened_at": now_iso})\
+                .eq("provider_msg_id", msg_id).is_("opened_at", "null").execute()
         except Exception as e:
             print(f"[webhook] opened update failed msg_id={msg_id}: {e}", flush=True)
     elif evt == "email.clicked":
         try:
-            existing = (supabase.table("student_invites")
+            existing = (await _atable("student_invites")
                         .select("id,status,clicked_at,click_count")
                         .eq("provider_msg_id", msg_id).limit(1).execute()).data or []
             if existing:
@@ -523,9 +523,9 @@ async def email_webhook(request: Request):
                 update = {"click_count": int(row.get("click_count") or 0) + 1}
                 if not row.get("clicked_at"):
                     update["clicked_at"] = now_iso
-                supabase.table("student_invites").update(update)\
+                await _atable("student_invites").update(update)\
                     .eq("id", row["id"]).execute()
-                supabase.table("student_invites").update({"status": InviteStatus.CLICKED})\
+                await _atable("student_invites").update({"status": InviteStatus.CLICKED})\
                     .eq("id", row["id"]).in_("status", [InviteStatus.SENT, InviteStatus.OPENED]).execute()
         except Exception as e:
             print(f"[webhook] clicked update failed msg_id={msg_id}: {e}", flush=True)
@@ -551,7 +551,7 @@ async def submit_demo_request(req: DemoRequest, request: Request):
         "created_at":  datetime.now(timezone.utc).isoformat(),
     }
     try:
-        supabase.table("demo_requests").insert(row).execute()
+        await _atable("demo_requests").insert(row).execute()
     except Exception as e:
         print(f"[DemoRequest] Failed to store: {e}")
         raise HTTPException(status_code=500, detail="Failed to store request")
@@ -566,5 +566,5 @@ async def list_demo_requests(request: Request):
     teacher = require_admin(request)
     if not SUPER_ADMIN_EMAIL or teacher.get("email", "").lower() != SUPER_ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Forbidden")
-    result = supabase.table("demo_requests").select("*").order("created_at", desc=True).execute()
+    result = await _atable("demo_requests").select("*").order("created_at", desc=True).execute()
     return {"requests": result.data, "count": len(result.data)}

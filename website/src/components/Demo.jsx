@@ -12,21 +12,23 @@ import { createPortal } from 'react-dom'
  *   2. Inline embedded play (click play → iframe mounts in card)
  *   3. Fullscreen modal (click expand → iframe takes viewport, in-page)
  *
- * Mobile (<sm): the inline card is small enough that legibility suffers,
- * so phones get a static "Watch demo fullscreen" CTA that goes straight
- * into mode 3. Desktop offers the inline embed with an expand button
- * overlay so users can pop it up on demand.
+ * The demo is play-once. When it ends it postMessages 'procta-demo-ended'
+ * to the parent; we unmount the iframe and return to the idle card so
+ * the user can click play again to restart.
  *
- * Modal stays inside the same SPA history — no new tab, Esc closes,
- * backdrop click closes, body scroll locks while open.
+ * Mobile (<sm): the inline 16:9 card is too small to read text, so phones
+ * skip the inline embed and tap straight into the fullscreen modal. The
+ * modal additionally requests fullscreen + landscape on mobile so the
+ * demo plays edge-to-edge instead of squeezed into a portrait viewport.
  */
 export default function Demo() {
   const [playing, setPlaying] = useState(false)   // inline embed mounted
   const [fullscreen, setFullscreen] = useState(false) // modal open
   const cardRef = useRef(null)
+  const modalRef = useRef(null)
 
-  // Prefetch the demo HTML when the card scrolls into view so the
-  // first click→iframe-load is near-instant. We only do this once.
+  // Prefetch /demo.html when the card scrolls into view → first click
+  // feels instant (no CDN-fetch penalty waiting for React+Babel).
   useEffect(() => {
     if (!cardRef.current) return
     const io = new IntersectionObserver(([e]) => {
@@ -43,16 +45,69 @@ export default function Demo() {
     return () => io.disconnect()
   }, [])
 
-  // Body scroll lock while modal is open + Esc key closes.
+  // Listen for end-of-demo from the iframe. When fired we unmount both
+  // the inline embed and the modal — user can click again to replay.
+  useEffect(() => {
+    const onMessage = (e) => {
+      if (e?.data?.type === 'procta-demo-ended') {
+        setPlaying(false)
+        setFullscreen(false)
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  // Body scroll lock + Esc-to-close while modal is open.
   useEffect(() => {
     if (!fullscreen) return
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const onKey = (e) => { if (e.key === 'Escape') setFullscreen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') closeFullscreen() }
     window.addEventListener('keydown', onKey)
     return () => {
       document.body.style.overflow = prev
       window.removeEventListener('keydown', onKey)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullscreen])
+
+  // On mobile fullscreen open: request browser fullscreen on the modal
+  // element AND lock orientation to landscape. Browsers only honour
+  // orientation lock while in true fullscreen — the two API calls are
+  // tied. Both can fail silently (Safari iOS doesn't support either on
+  // arbitrary elements), in which case the user just sees the demo at
+  // portrait width and can rotate their device manually.
+  useEffect(() => {
+    if (!fullscreen) return
+    const isCoarsePointer =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(pointer: coarse)').matches
+    if (!isCoarsePointer) return
+    const el = modalRef.current
+    if (!el) return
+    const req = el.requestFullscreen || el.webkitRequestFullscreen
+    if (!req) return
+    let active = true
+    Promise.resolve(req.call(el))
+      .then(() => {
+        if (!active) return
+        if (screen.orientation && screen.orientation.lock) {
+          // Some browsers reject the promise instead of throwing —
+          // catch + ignore. Best-effort enhancement.
+          screen.orientation.lock('landscape').catch(() => {})
+        }
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+      if (screen.orientation && screen.orientation.unlock) {
+        try { screen.orientation.unlock() } catch (e) { /* noop */ }
+      }
+      const exit = document.exitFullscreen || document.webkitExitFullscreen
+      if (exit && (document.fullscreenElement || document.webkitFullscreenElement)) {
+        Promise.resolve(exit.call(document)).catch(() => {})
+      }
     }
   }, [fullscreen])
 
@@ -84,9 +139,7 @@ export default function Demo() {
         </motion.div>
       </div>
 
-      {/* Demo card — wider container than the heading so the embed reads
-          well on big monitors. Capped at 1600 px so it doesn't sprawl
-          on ultrawide displays. */}
+      {/* Demo card — escapes the heading column for more real estate. */}
       <motion.div
         initial={{ opacity: 0, y: 32 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -95,10 +148,7 @@ export default function Demo() {
         className="relative mx-auto mt-12 w-full px-4 sm:px-6 md:px-8"
         style={{ maxWidth: '1600px' }}
       >
-        {/* ── Mobile-first: under sm breakpoint we render a static CTA card.
-              The inline embed at ~210 px tall on a phone is illegible; the
-              CTA tee's the user up for the fullscreen modal which is the
-              only viable mobile experience. */}
+        {/* Mobile: static CTA → fullscreen modal. */}
         <div className="sm:hidden">
           <button
             type="button"
@@ -114,13 +164,13 @@ export default function Demo() {
                 Watch product demo · 1 min 38 s
               </span>
               <span className="text-[10px] text-slate-500 mt-1">
-                Tap for fullscreen
+                Tap for landscape fullscreen
               </span>
             </div>
           </button>
         </div>
 
-        {/* ── Desktop / tablet: inline embed with an expand button. */}
+        {/* Desktop / tablet: inline embed with an expand button. */}
         <div className="hidden sm:block">
           <div
             ref={cardRef}
@@ -159,9 +209,6 @@ export default function Demo() {
               </div>
             )}
 
-            {/* Expand-to-fullscreen button — only useful when an embed
-                exists or the user can imagine a bigger view. Stop the
-                click from bubbling to the card so we don't toggle play. */}
             {playing && (
               <button
                 type="button"
@@ -176,7 +223,7 @@ export default function Demo() {
         </div>
       </motion.div>
 
-      {/* CTAs — back to narrow column */}
+      {/* CTAs */}
       <div className="mx-auto max-w-7xl px-6 relative">
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
           <Link
@@ -194,11 +241,8 @@ export default function Demo() {
         </div>
       </div>
 
-      {/* ── Fullscreen modal — rendered into a portal so its fixed
-            positioning escapes any ancestor `transform` that would
-            otherwise turn `position:fixed` into `position:absolute`
-            (e.g. framer-motion creates a transform context on the
-            parent). */}
+      {/* Fullscreen modal in a portal to escape any ancestor transform
+          context that would break position:fixed. */}
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {fullscreen && (
@@ -209,10 +253,11 @@ export default function Demo() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               onClick={closeFullscreen}
-              className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-2 sm:p-6 md:p-10"
+              className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-sm flex items-center justify-center p-2 sm:p-6 md:p-10"
               style={{ touchAction: 'none' }}
             >
               <motion.div
+                ref={modalRef}
                 initial={{ scale: 0.96, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.96, opacity: 0 }}

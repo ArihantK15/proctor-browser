@@ -26,11 +26,28 @@ window.__procta_clock = { speed: 1, duration: 98 };
 function useTime() {
   const [t, setT] = _useState(0);
   _useEffect(() => {
-    let raf, start = performance.now();
+    let raf, start = performance.now(), ended = false;
     const tick = (now) => {
       const { speed, duration } = window.__procta_clock;
       const elapsed = ((now - start) / 1000) * speed;
-      setT(elapsed % duration); // seamless loop for the marketing embed
+      if (elapsed >= duration) {
+        // Play-once: clamp to the final frame so the last scene
+        // stays on-screen, then notify the parent (Demo.jsx) so
+        // it can close the modal / restore the placeholder. The
+        // parent decides whether to remount us for a replay.
+        if (!ended) {
+          ended = true;
+          setT(duration);
+          try {
+            window.parent && window.parent !== window &&
+              window.parent.postMessage({ type: 'procta-demo-ended' }, '*');
+          } catch (e) { /* sandboxed parent — safe to ignore */ }
+        }
+        // Stop the RAF loop — no need to keep painting once we're
+        // pinned to the final frame.
+        return;
+      }
+      setT(elapsed);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -1504,65 +1521,79 @@ function DemoContent({ showCallouts }) {
       {/* ── Stage-level callouts overlay — 1920×1080 coords ── */}
       {/* Chrome geometry: left=240, top=22, header=36, content starts y=58 */}
 
-      {/* S2: Student Exam */}
-      {/* Chrome: left=240, top=211, header=36 → content y=247. Content h=620 → bottom=867 */}
-      {/* Sidebar right edge = 240+180 = 420. Question area: x=420–1680 */}
+      {/* S2: Student Exam (dark chrome).
+          Chrome occupies stage y≈190–870 (BW flex-centers chrome inside
+          inset:22px). Header band is the first 36 px of that range.
+          - Sidebar question grid sits at x=240–420, runs y≈300–720
+          - Question text + options live x=420–1680, y≈280–820
+          - Chat drawer (when open at t≈29s) at x=1410–1680, y≈560–870
+          We anchor each callout to the visual centre of its target so
+          the dashed line lands inside the element rather than nearby. */}
       {showS2 && <>
-        {/* Camera preview in header: x≈312, y≈247 → label sits just below header inside content */}
-        <Callout ax={312} ay={247} lx={260} ly={140} opacity={s2_c1} accent>Camera monitored in real time</Callout>
-        {/* Browser lock in URL bar: x≈480, y≈247 → label above the chrome */}
-        <Callout ax={480} ay={247} lx={520} ly={170} opacity={s2_c1} accent>Locked browser — no tab switching</Callout>
-        {/* Flagged Q in sidebar: x≈362, y≈430 → label below chrome */}
-        <Callout ax={362} ay={430} lx={260} ly={900} opacity={s2_c2}>Flag for review, jump to any Q</Callout>
-        {/* Progress bar in sidebar: x≈330, y≈360 → label below chrome */}
-        <Callout ax={330} ay={360} lx={560} ly={900} opacity={s2_c2}>Progress auto-saved</Callout>
-        {/* Answer option in question area: x≈700, y≈530 → label below chrome */}
-        <Callout ax={700} ay={530} lx={820} ly={940} opacity={s2_c3}>Clean, distraction-free layout</Callout>
-        {/* Chat drawer: x≈1390, y≈750 → label above-right */}
-        <Callout ax={1390} ay={750} lx={1500} ly={170} opacity={s2_c4} accent>Direct chat with invigilator</Callout>
+        <Callout ax={330} ay={460} lx={260} ly={140} opacity={s2_c1} accent>Sidebar — jump to any question</Callout>
+        <Callout ax={330} ay={300} lx={620} ly={170} opacity={s2_c1} accent>Progress auto-saves every change</Callout>
+        <Callout ax={900} ay={520} lx={820} ly={920} opacity={s2_c2}>Clean, distraction-free question layout</Callout>
+        <Callout ax={362} ay={500} lx={260} ly={920} opacity={s2_c2}>Flag a question, return later</Callout>
+        <Callout ax={1100} ay={830} lx={1180} ly={920} opacity={s2_c3}>Save state survives reconnects</Callout>
+        <Callout ax={1500} ay={700} lx={1500} ly={170} opacity={s2_c4} accent>Direct chat with the invigilator</Callout>
       </>}
 
-      {/* S3: AI Violations */}
-      {/* Chrome top=211, header=42 → content y=253. Feed panel w≈1140, risk panel x=240+1140=1380–1680 */}
+      {/* S3: AI Violations (dark chrome).
+          Chrome y≈190–870. The violation feed panel takes the left ~70%
+          of the chrome width:
+          - AI Vision header band:    y≈253–290
+          - AI Vision body (cam+sigs): y≈290–470
+            · AvatarCam (camera preview) at x≈260–490
+            · Detection signals list   at x≈510–1100
+          - "Violation Events" header: y≈470–500
+          - Violation cards stack:     y≈505–870 (~75 px each)
+            · First card  ("Gaze deviation"):     y≈510–580
+            · Second card ("Tab switch attempt"): y≈590–660
+          Right-side Risk Index panel x=1380–1680:
+          - Risk number "34%":   y≈315–375
+          - Progress bar:        y≈400–440
+          - Violation summary:   y≈480–700 */}
       {showS3 && <>
-        {/* First violation card: x≈600, y≈295 → label above chrome */}
-        <Callout ax={600}  ay={295} lx={300} ly={140} opacity={s3_c1}>Real-time AI event classification</Callout>
-        {/* Second violation card: x≈600, y≈360 → label below chrome */}
-        <Callout ax={600}  ay={360} lx={300} ly={920} opacity={s3_c1}>6 violation types detected automatically</Callout>
-        {/* Risk % number: x≈1480, y≈340 → label above chrome */}
-        <Callout ax={1480} ay={340} lx={1240} ly={140} opacity={s3_c2} accent>Composite risk score per student</Callout>
-        {/* Risk progress bar: x≈1480, y≈390 → label below chrome */}
-        <Callout ax={1480} ay={390} lx={1240} ly={920} opacity={s3_c2} accent>Escalates live throughout exam</Callout>
+        <Callout ax={600}  ay={545} lx={300} ly={140} opacity={s3_c1}>Real-time AI event classification</Callout>
+        <Callout ax={600}  ay={620} lx={300} ly={920} opacity={s3_c1}>6 violation types detected automatically</Callout>
+        <Callout ax={1480} ay={345} lx={1240} ly={140} opacity={s3_c2} accent>Composite risk score per student</Callout>
+        <Callout ax={1530} ay={420} lx={1240} ly={920} opacity={s3_c2} accent>Escalates live throughout the exam</Callout>
       </>}
 
-      {/* S4: Teacher Dashboard (light bg) */}
-      {/* Chrome top=211, header=42 → content y=253. Tabbar=34→287. Statsbar=46→333. Table starts y≈333 */}
-      {/* Detail panel x=240+1200=1440 to 1680 */}
+      {/* S4: Teacher Dashboard (light chrome).
+          Chrome y≈190–870, header→253. Below header:
+          - Tab bar (Live / Sessions / Results …): y≈253–287
+          - Stats bar (count chips, broadcast btn): y≈287–333
+            · Broadcast button right-aligned: x≈1500–1620, y≈297–325
+          - Sessions table: y≈333–820, ~50 px rows
+            · Header row:       y≈338–370
+            · First data row:   y≈375–425
+            · Risk-score cell:  x≈1230–1310 in row
+            · Severity badge:   x≈1330–1400 in row
+          - Detail panel on right (when row selected at t≈58s):
+            x=1440–1680, y≈300–820 */}
       {showS4 && <>
-        {/* Table name column: x≈550, y≈370 → label above chrome */}
-        <Callout ax={550}  ay={370} lx={300} ly={140} opacity={s4_c1} accent>Full cohort at a glance</Callout>
-        {/* Stats bar — Flagged chip: x≈480, y≈305 → label above chrome */}
-        <Callout ax={480}  ay={305} lx={620} ly={170} opacity={s4_c1} accent>Sort by risk, name, or event</Callout>
-        {/* Risk value cell: x≈1400, y≈390 → label below chrome */}
-        <Callout ax={1400} ay={390} lx={1180} ly={920} opacity={s4_c2}>Live risk scores — auto-updated</Callout>
-        {/* Severity badge: x≈1320, y≈410 → label below chrome */}
-        <Callout ax={1320} ay={410} lx={1450} ly={920} opacity={s4_c2}>Colour-coded severity badges</Callout>
-        {/* Detail panel header: x≈1580, y≈430 → label above chrome */}
-        <Callout ax={1580} ay={430} lx={1380} ly={140} opacity={s4_c3} accent>Student detail panel on click</Callout>
-        {/* Broadcast button: x≈1530, y≈335 → label above chrome */}
-        <Callout ax={1530} ay={335} lx={1480} ly={170} opacity={s4_c4}>Broadcast to all students</Callout>
+        <Callout ax={900}  ay={460} lx={300} ly={140} opacity={s4_c1} accent>Full cohort at a glance</Callout>
+        <Callout ax={500}  ay={310} lx={620} ly={170} opacity={s4_c1} accent>Sort by risk, name, or event count</Callout>
+        <Callout ax={1270} ay={400} lx={1080} ly={920} opacity={s4_c2}>Live risk scores — auto-updated</Callout>
+        <Callout ax={1370} ay={400} lx={1450} ly={920} opacity={s4_c2}>Colour-coded severity badges</Callout>
+        <Callout ax={1560} ay={500} lx={1380} ly={140} opacity={s4_c3} accent>Click any row → student detail panel</Callout>
+        <Callout ax={1560} ay={310} lx={1480} ly={170} opacity={s4_c4}>Broadcast a message to all students</Callout>
       </>}
 
-      {/* S5: Analytics (light bg) */}
-      {/* Chrome top=211, header=42→253, chips=58→311, charts grid starts y≈311 */}
-      {/* Left cards x=240–840, right cards x=840–1680 */}
+      {/* S5: Analytics (light chrome).
+          Chrome y≈190–870, header→253. Below header:
+          - Filter chips:           y≈253–311
+          - 2×2 charts grid:        y≈315–820
+            · Score distribution:   x=240–940,  y≈325–570 (top-left)
+            · Risk bands:           x=940–1680, y≈325–570 (top-right)
+            · Question difficulty:  x=240–940,  y≈580–820 (bottom-left)
+            · Time per question:    x=940–1680, y≈580–820 (bottom-right)
+          - Export button in topbar (top-right corner): x≈1580–1640, y≈225 */}
       {showS5 && <>
-        {/* Score histogram bars: x≈540, y≈430 → label above chrome */}
-        <Callout ax={540}  ay={430} lx={300} ly={140} opacity={s5_c1} accent>Score distribution across cohort</Callout>
-        {/* Export button in topbar: x≈1600, y≈253 → label above chrome */}
-        <Callout ax={1600} ay={253} lx={1380} ly={170} opacity={s5_c1} accent>Exportable PDF & CSV reports</Callout>
-        {/* Risk band bars: x≈1200, y≈460 → label above chrome */}
-        <Callout ax={1200} ay={460} lx={1080} ly={140} opacity={s5_c2}>AI risk bands per student</Callout>
+        <Callout ax={580}  ay={450} lx={300} ly={140} opacity={s5_c1} accent>Score distribution across the cohort</Callout>
+        <Callout ax={1600} ay={235} lx={1380} ly={170} opacity={s5_c1} accent>Exportable PDF & CSV reports</Callout>
+        <Callout ax={1300} ay={450} lx={1080} ly={140} opacity={s5_c2}>AI risk bands per student</Callout>
         {/* Difficulty chart bars: x≈540, y≈620 → label below chrome */}
         <Callout ax={540}  ay={620} lx={300} ly={920} opacity={s5_c3}>Per-question difficulty breakdown</Callout>
         {/* Violation heatmap: x≈1200, y≈640 → label below chrome */}
@@ -1586,15 +1617,7 @@ function DemoContent({ showCallouts }) {
 // ── Root app with Tweaks ─────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  // Callouts disabled: the (lx, ly, ax, ay) coordinates in this file
-  // were authored against an earlier version of the scene chrome and
-  // now point at the wrong screen positions (e.g. S3's "Real-time AI
-  // event classification" was meant to land on a violation card at
-  // y≈800 but its coords say y=295, which is the chrome header). Until
-  // every callout's anchor is re-tuned to the current scene layout,
-  // hide them — the scenes read clearly without labels and broken
-  // labels look worse than no labels.
-  "showCallouts": false,
+  "showCallouts": true,
   "speed": 1
 }/*EDITMODE-END*/;
 

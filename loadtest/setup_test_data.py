@@ -37,7 +37,7 @@ def main():
 
     # ── Step 1: Teacher Login ───────────────────────────────────
     print(f"[1/5] Logging in as {args.teacher_email}...")
-    r = s.post(f"{host}/api/auth/login", json={
+    r = s.post(f"{host}/api/v1/auth/login", json={
         "email": args.teacher_email,
         "password": args.teacher_password,
     })
@@ -61,7 +61,7 @@ def main():
     # ── Step 2: Create Load Test Exam ───────────────────────────
     print(f"[2/5] Creating load test exam ({args.questions} questions, {args.duration} min)...")
 
-    r = s.post(f"{host}/api/admin/exams", json={
+    r = s.post(f"{host}/api/v1/admin/exams", json={
         "exam_title": f"Load Test — {args.students} Students",
         "duration_minutes": args.duration,
     }, headers=headers)
@@ -97,7 +97,7 @@ def main():
             "image_url": "",
         })
 
-    r = s.post(f"{host}/api/admin/questions", json={
+    r = s.post(f"{host}/api/v1/admin/questions", json={
         "exam_id": exam_id,
         "questions": questions,
     }, headers=headers)
@@ -110,7 +110,7 @@ def main():
     # Set exam schedule to allow immediate access
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     end_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + args.duration * 60 + 7200))
-    r = s.post(f"{host}/api/admin/exam-schedule", json={
+    r = s.post(f"{host}/api/v1/admin/exam-schedule", json={
         "exam_id": exam_id,
         "starts_at": now_iso,
         "ends_at": end_iso,
@@ -139,7 +139,7 @@ def main():
                 "phone": "0000000000",
             })
 
-        r = s.post(f"{host}/api/admin/register-students-bulk", json={
+        r = s.post(f"{host}/api/v1/admin/register-students-bulk", json={
             "students": batch,
         }, headers=headers)
 

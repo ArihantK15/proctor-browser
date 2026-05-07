@@ -1586,7 +1586,15 @@ function DemoContent({ showCallouts }) {
 // ── Root app with Tweaks ─────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "showCallouts": true,
+  // Callouts disabled: the (lx, ly, ax, ay) coordinates in this file
+  // were authored against an earlier version of the scene chrome and
+  // now point at the wrong screen positions (e.g. S3's "Real-time AI
+  // event classification" was meant to land on a violation card at
+  // y≈800 but its coords say y=295, which is the chrome header). Until
+  // every callout's anchor is re-tuned to the current scene layout,
+  // hide them — the scenes read clearly without labels and broken
+  // labels look worse than no labels.
+  "showCallouts": false,
   "speed": 1
 }/*EDITMODE-END*/;
 

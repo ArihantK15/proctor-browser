@@ -20,7 +20,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
 # ── shared deps (config, auth, helpers, models) ────────────────────
 from .dependencies import (
@@ -236,8 +236,19 @@ class ETagMiddleware(BaseHTTPMiddleware):
             chunks.append(chunk)
             total += len(chunk)
             if total > self._MAX_BODY:
-                return Response(content=b"".join(chunks), status_code=200,
-                                headers=dict(response.headers), media_type=ct)
+                # Body too large for ETag — stream what we've buffered
+                # then drain the remaining iterator.
+                async def _drain():
+                    for c in chunks:
+                        yield c
+                    async for c in response.body_iterator:
+                        yield c
+                return StreamingResponse(
+                    _drain(),
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                    media_type=ct,
+                )
 
         body = b"".join(chunks)
         etag = f'"{hashlib.md5(body).hexdigest()[:12]}"'

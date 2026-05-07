@@ -16,6 +16,7 @@ Covers audit findings:
 import os
 import sys
 import time
+import asyncio
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, AsyncMock, patch, PropertyMock
 from jose import jwt as jose_jwt
@@ -155,12 +156,10 @@ class TestRecalculateScore:
         """FIX: _recalculate_score now raises RuntimeError after 2 retries
         instead of returning 0/0 (which permanently locked score)."""
         with patch("app.dependencies._load_questions", side_effect=Exception("DB down")), \
-             patch("app.dependencies.time") as mock_time:
-            mock_time.sleep = MagicMock()  # skip retry delay
-            mock_time.time = time.time
+             patch("app.dependencies.asyncio.sleep", new=AsyncMock()):
             from app.dependencies import _recalculate_score
             with pytest.raises(RuntimeError, match="Score recalculation failed"):
-                _recalculate_score("sess_1", {}, "tid", "eid")
+                asyncio.run(_recalculate_score("sess_1", {}, "tid", "eid"))
 
     def test_correct_scoring(self):
         """Normal scoring should work correctly."""
@@ -175,10 +174,10 @@ class TestRecalculateScore:
             {"question_id": 2, "answer": "A"},  # Wrong
         ]
         with patch("app.dependencies._load_questions", return_value=questions), \
-             patch.object(shared_supabase_mock(), "table") as mock_table:
-            mock_table.return_value.select.return_value.eq.return_value.execute.return_value = saved_answers
+             patch("app.dependencies._atable") as mock_atable:
+            mock_atable.return_value.select.return_value.eq.return_value.execute = AsyncMock(return_value=saved_answers)
             from app.dependencies import _recalculate_score
-            score, total = _recalculate_score("sess_1", {}, "tid", "eid")
+            score, total = asyncio.run(_recalculate_score("sess_1", {}, "tid", "eid"))
             assert total == 3
             assert score == 1  # Only Q1 correct
 
@@ -193,10 +192,10 @@ class TestRecalculateScore:
             {"question_id": 1, "answer": "A"},  # int, not string
         ]
         with patch("app.dependencies._load_questions", return_value=questions), \
-             patch.object(shared_supabase_mock(), "table") as mock_table:
-            mock_table.return_value.select.return_value.eq.return_value.execute.return_value = saved_answers
+             patch("app.dependencies._atable") as mock_atable:
+            mock_atable.return_value.select.return_value.eq.return_value.execute = AsyncMock(return_value=saved_answers)
             from app.dependencies import _recalculate_score
-            score, total = _recalculate_score("sess_1", {}, "tid", "eid")
+            score, total = asyncio.run(_recalculate_score("sess_1", {}, "tid", "eid"))
             # str(1) == "1" → should match thanks to the str() cast
             assert score == 1
 
@@ -205,10 +204,10 @@ class TestRecalculateScore:
         saved_answers = MagicMock()
         saved_answers.data = []
         with patch("app.dependencies._load_questions", return_value=[]), \
-             patch.object(shared_supabase_mock(), "table") as mock_table:
-            mock_table.return_value.select.return_value.eq.return_value.execute.return_value = saved_answers
+             patch("app.dependencies._atable") as mock_atable:
+            mock_atable.return_value.select.return_value.eq.return_value.execute = AsyncMock(return_value=saved_answers)
             from app.dependencies import _recalculate_score
-            score, total = _recalculate_score("sess_1", {}, "tid", "eid")
+            score, total = asyncio.run(_recalculate_score("sess_1", {}, "tid", "eid"))
             assert total == 0
             assert score == 0
 
@@ -615,13 +614,14 @@ class TestRiskScoring:
     """Tests for compute_risk_score."""
 
     def test_no_violations(self):
-        with patch.object(shared_supabase_mock(), "table") as mock_table:
-            mock_table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
-            mock_table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
-            from app.dependencies import compute_risk_score
-            result = compute_risk_score("sess_1", teacher_id="t1")
-            assert result["risk_score"] == 0
-            assert "Low" in result["label"]
+        from app.dependencies import compute_risk_score, _atable
+        # Use the shared mock infrastructure: _atable wraps the shared supabase mock
+        shared_mock = shared_supabase_mock()
+        shared_mock.reset_mock()
+        shared_mock.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[])
+        result = asyncio.run(compute_risk_score("sess_1", teacher_id="t1"))
+        assert result["risk_score"] == 0
+        assert "Low" in result["label"]
 
     def test_risk_label_boundaries(self):
         from app.dependencies import _risk_label

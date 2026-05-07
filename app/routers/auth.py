@@ -139,7 +139,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
 @router.get("/api/v1/auth/me")
 async def teacher_me(request: Request):
     """Get current teacher profile from Bearer token."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     return {
         "id": teacher["id"],
         "email": teacher["email"],
@@ -323,7 +323,7 @@ async def student_login(body: StudentLoginIn, request: Request):
 
 @router.get("/api/v1/student/auth/me")
 async def student_me(request: Request):
-    account = require_student_account(request)
+    account = await require_student_account(request)
     return {
         "id":        account["id"],
         "email":     account["email"],
@@ -361,7 +361,7 @@ async def student_exams(request: Request):
     enrollments in the ``students`` table by email, then enriches each
     with exam_config details and session status.
     """
-    account = require_student_account(request)
+    account = await require_student_account(request)
     email = account["email"].strip().lower()
 
     # Find all enrollment rows matching this email.
@@ -458,7 +458,7 @@ async def student_history(request: Request):
     Shows all completed exams with scores, risk levels, and violation
     counts across all teachers.
     """
-    account = require_student_account(request)
+    account = await require_student_account(request)
     email = account["email"].strip().lower()
 
     # Find all enrollment rows matching this email

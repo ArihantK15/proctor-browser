@@ -163,7 +163,7 @@ async def register_student(request: Request, body: RegisterIn):
             status_code=400,
             detail="This registration link is missing the teacher identifier. Ask your examiner for the correct link.")
 
-    teacher = _get_teacher_by_id(body.teacher_id)
+    teacher = await _get_teacher_by_id(body.teacher_id)
     if not teacher:
         raise HTTPException(status_code=404, detail="Unknown teacher")
     teacher_id = str(teacher["id"])
@@ -372,7 +372,7 @@ async def invite_landing(token: str, request: Request):
         except Exception:
             pass
 
-    exam_cfg = _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
+    exam_cfg = await _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
         if inv.get("exam_id") else {}
     exam_title = (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "Your Procta Exam"
 
@@ -409,7 +409,7 @@ async def resolve_invite(token: str):
         except Exception:
             pass  # Date parse failed — allow resolve to proceed
 
-    exam_cfg = _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
+    exam_cfg = await _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
         if inv.get("exam_id") else {}
     exam_title = (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "Your Procta Exam"
 
@@ -431,7 +431,7 @@ async def resolve_invite(token: str):
 @router.post("/api/v1/invite/{token}/accept")
 async def accept_invite(token: str, request: Request):
     """Link a signed-in student account to an invite."""
-    student = require_student_account(request)
+    student = await require_student_account(request)
     row = (await _atable("student_invites").select("*")
            .eq("token", token).execute()).data
     if not row:
@@ -563,7 +563,7 @@ async def submit_demo_request(req: DemoRequest, request: Request):
 @router.get("/api/v1/admin/demo-requests")
 async def list_demo_requests(request: Request):
     """List all demo requests — restricted to the configured super-admin."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     if not SUPER_ADMIN_EMAIL or teacher.get("email", "").lower() != SUPER_ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Forbidden")
     result = await _atable("demo_requests").select("*").order("created_at", desc=True).execute()

@@ -24,9 +24,9 @@ router = APIRouter(prefix="")
 chat_hub = ChatHub()
 
 
-def _chat_verify_session_owned(session_id: str, teacher_id: str, roll: str):
+async def _chat_verify_session_owned(session_id: str, teacher_id: str, roll: str):
     """Verify the session exists, belongs to the teacher, and matches the roll number."""
-    rows = (supabase.table("exam_sessions")
+    rows = (_atable("exam_sessions")
             .select("id,session_key,roll_number,status,teacher_id")
             .eq("session_key", session_id)
             .eq("teacher_id", str(teacher_id))
@@ -66,7 +66,7 @@ async def ws_chat_student(ws: WebSocket):
         if not sess_row:
             await ws.close(code=4403); return
 
-        student_result = supabase.table("students") \
+        student_result = await _atable("students") \
             .select("full_name") \
             .eq("roll_number", roll) \
             .eq("teacher_id", str(tid)) \
@@ -131,7 +131,7 @@ async def ws_chat_teacher(ws: WebSocket):
     try:
         token = ws.query_params.get("token") or ""
         try:
-            teacher = verify_admin_token(token)
+            teacher = await verify_admin_token(token)
         except HTTPException:
             await ws.close(code=4401); return
         teacher_id = str(teacher["id"])
@@ -148,7 +148,7 @@ async def ws_chat_teacher(ws: WebSocket):
             if mtype == "reauth":
                 new_token = str(data.get("token", "")).strip()
                 try:
-                    new_teacher = verify_admin_token(new_token)
+                    new_teacher = await verify_admin_token(new_token)
                     if str(new_teacher["id"]) == teacher_id:
                         await ws.send_json({"type": "reauth_ok", "exp": new_teacher.get("exp")})
                     else:

@@ -150,19 +150,22 @@ def verify_student_token(token: str) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
     except JWTError as e:
         msg = str(e).lower()
         if "expired" in msg:
             raise HTTPException(status_code=401, detail="Token expired")
         raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get("role") != "student_account":
+        raise HTTPException(status_code=403, detail="Student access required")
+    return payload
 
 # ─── Teacher lookup cache ─────────────────────────────────────────
 _teacher_cache = {}
 _teacher_cache_ttl = {}
 _teacher_cache_lock = threading.Lock()
 
-def _get_teacher_by_id(teacher_id: str) -> dict | None:
+async def _get_teacher_by_id(teacher_id: str) -> dict | None:
     if not teacher_id:
         return None
     if _cache:
@@ -174,10 +177,10 @@ def _get_teacher_by_id(teacher_id: str) -> dict | None:
         with _teacher_cache_lock:
             if teacher_id in _teacher_cache and _teacher_cache_ttl.get(teacher_id, 0) > now:
                 return _teacher_cache[teacher_id]
-    result = supabase.table("teachers").select("*").eq("id", str(teacher_id)).execute()
-    if not result.data:
+    result = (await _atable("teachers").select("*").eq("id", str(teacher_id)).execute()).data
+    if not result:
         return None
-    teacher = result.data[0]
+    teacher = result[0]
     if _cache:
         _cache.set(f"teacher:{teacher_id}", teacher, ttl=60)
     else:
@@ -187,13 +190,13 @@ def _get_teacher_by_id(teacher_id: str) -> dict | None:
             _teacher_cache_ttl[teacher_id] = now + 60
     return teacher
 
-def _get_teacher_by_uid(uid: str) -> dict | None:
+async def _get_teacher_by_uid(uid: str) -> dict | None:
     if not uid:
         return None
-    result = supabase.table("teachers").select("*").eq("supabase_uid", str(uid)).execute()
-    if not result.data:
+    result = (await _atable("teachers").select("*").eq("supabase_uid", str(uid)).execute()).data
+    if not result:
         return None
-    return result.data[0]
+    return result[0]
 
 def issue_admin_token(teacher: dict) -> str:
     now = datetime.now(timezone.utc)
@@ -201,7 +204,7 @@ def issue_admin_token(teacher: dict) -> str:
                "role": "teacher", "iat": now, "exp": now + timedelta(hours=ADMIN_TOKEN_TTL_HOURS)}
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
-def verify_admin_token(token: str) -> dict:
+async def verify_admin_token(token: str) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
@@ -215,45 +218,45 @@ def verify_admin_token(token: str) -> dict:
     if payload.get("role") != "teacher":
         raise HTTPException(status_code=403, detail="Not a teacher token")
     tid = payload.get("tid")
-    teacher = _get_teacher_by_id(tid)
+    teacher = await _get_teacher_by_id(tid)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
     return teacher
 
-def require_admin(request: Request) -> dict:
+async def require_admin(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authentication required")
-    return verify_admin_token(auth[7:])
+    return await verify_admin_token(auth[7:])
 
 # ─── Student-account (dashboard) auth ────────────────────────────
 _student_acct_cache = {}
 _student_acct_cache_ttl = {}
 _student_acct_cache_lock = threading.Lock()
 
-def _get_student_account_by_id(account_id: str) -> dict | None:
+async def _get_student_account_by_id(account_id: str) -> dict | None:
     if not account_id:
         return None
     now = time.time()
     with _student_acct_cache_lock:
         if account_id in _student_acct_cache and _student_acct_cache_ttl.get(account_id, 0) > now:
             return _student_acct_cache[account_id]
-    result = supabase.table("student_accounts").select("*").eq("id", str(account_id)).execute()
-    if not result.data:
+    result = (await _atable("student_accounts").select("*").eq("id", str(account_id)).execute()).data
+    if not result:
         return None
-    acct = result.data[0]
+    acct = result[0]
     with _student_acct_cache_lock:
         _student_acct_cache[account_id] = acct
         _student_acct_cache_ttl[account_id] = now + 60
     return acct
 
-def _get_student_account_by_uid(uid: str) -> dict | None:
+async def _get_student_account_by_uid(uid: str) -> dict | None:
     if not uid:
         return None
-    result = supabase.table("student_accounts").select("*").eq("supabase_uid", str(uid)).execute()
-    if not result.data:
+    result = (await _atable("student_accounts").select("*").eq("supabase_uid", str(uid)).execute()).data
+    if not result:
         return None
-    return result.data[0]
+    return result[0]
 
 def issue_student_auth_token(account: dict) -> str:
     now = datetime.now(timezone.utc)
@@ -261,7 +264,7 @@ def issue_student_auth_token(account: dict) -> str:
                "role": "student_account", "iat": now, "exp": now + timedelta(hours=STUDENT_AUTH_TTL_HOURS)}
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
-def verify_student_auth_token(token: str) -> dict:
+async def verify_student_auth_token(token: str) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
@@ -275,16 +278,16 @@ def verify_student_auth_token(token: str) -> dict:
     if payload.get("role") != "student_account":
         raise HTTPException(status_code=403, detail="Not a student token")
     sid = payload.get("sid")
-    account = _get_student_account_by_id(sid)
+    account = await _get_student_account_by_id(sid)
     if not account:
         raise HTTPException(status_code=403, detail="Student account not found")
     return account
 
-def require_student_account(request: Request) -> dict:
+async def require_student_account(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authentication required")
-    return verify_student_auth_token(auth[7:])
+    return await verify_student_auth_token(auth[7:])
 
 # ─── RATE LIMITER ─────────────────────────────────────────────────
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -513,17 +516,17 @@ def _classify_calibration(parsed: Optional[dict]) -> dict:
         return {"tier": "loose", "reason": f"Wide range — student moved more than expected (gaze yaw ±{g_yaw:.2f} rad, head yaw ±{h_yaw:.0f}°).", "ranges": parsed}
     return {"tier": "normal", "reason": "Calibration within typical envelope.", "ranges": parsed}
 
-def get_calibration_quality(session_id: str, teacher_id: Optional[str] = None) -> dict:
+async def get_calibration_quality(session_id: str, teacher_id: Optional[str] = None) -> dict:
     cache_key = f"cal_quality:{session_id}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached is not None:
             return cached
-    q = (supabase.table("violations").select("details").eq("session_key", session_id)
+    q = (_atable("violations").select("details").eq("session_key", session_id)
          .eq("violation_type", "calibration_complete").order("id", desc=True).limit(1))
     if teacher_id:
         q = q.eq("teacher_id", str(teacher_id))
-    rows = (q.execute()).data or []
+    rows = (await q.execute()).data or []
     parsed = _parse_calibration_details(rows[0]["details"]) if rows else None
     out = _classify_calibration(parsed)
     if _cache:
@@ -545,26 +548,26 @@ def _is_violation(vtype: str) -> bool:
     return vtype not in _NON_VIOLATION_TYPES
 
 # ─── QUESTION/CONFIG LOADING ──────────────────────────────────────
-def _load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
+async def _load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
     cache_key = f"questions:{teacher_id or '_'}:{exam_id or '_'}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached is not None:
             return cached
     try:
-        query = supabase.table("questions").select("*")
+        query = _atable("questions").select("*")
         if teacher_id:
             query = query.eq("teacher_id", teacher_id)
         if exam_id:
             query = query.eq("exam_id", exam_id)
-        result = query.order("question_id").execute()
+        result = await query.order("question_id").execute()
         rows = result.data or []
     except Exception as e:
         print(f"[Questions] select(*) failed, falling back: {e}")
-        query = supabase.table("questions").select("question_id,question,options,correct")
+        query = _atable("questions").select("question_id,question,options,correct")
         if teacher_id:
             query = query.eq("teacher_id", teacher_id)
-        rows = (query.order("question_id").execute().data or [])
+        rows = (await query.order("question_id").execute()).data or []
     out = []
     for q in rows:
         qtype = (q.get("question_type") or "mcq_single").strip().lower()
@@ -577,18 +580,18 @@ def _load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
         _cache.set(cache_key, out, ttl=300)
     return out
 
-def _load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
+async def _load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
     cache_key = f"exam_config:{teacher_id or '_'}:{exam_id or '_'}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached is not None:
             return cached
-    query = supabase.table("exam_config").select("*")
+    query = _atable("exam_config").select("*")
     if exam_id:
         query = query.eq("exam_id", exam_id)
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
-    result = query.execute()
+    result = await query.execute()
     if result.data:
         if _cache:
             _cache.set(cache_key, result.data[0], ttl=300)
@@ -597,9 +600,9 @@ def _load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
             "starts_at": None, "ends_at": None,
             "shuffle_questions": True, "shuffle_options": True}
 
-def _get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
+async def _get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
     try:
-        config = _load_exam_config(teacher_id, exam_id=exam_id)
+        config = await _load_exam_config(teacher_id, exam_id=exam_id)
         code = config.get("access_code", "")
         if code:
             return str(code).strip().upper()
@@ -607,13 +610,13 @@ def _get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
         pass
     return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
 
-def _set_access_code(code: str, teacher_id: str = None, exam_id: str = None):
+async def _set_access_code(code: str, teacher_id: str = None, exam_id: str = None):
     if teacher_id and exam_id:
-        supabase.table("exam_config").update({"access_code": code}).eq("teacher_id", teacher_id).eq("exam_id", exam_id).execute()
+        await _atable("exam_config").update({"access_code": code}).eq("teacher_id", teacher_id).eq("exam_id", exam_id).execute()
     elif teacher_id:
-        supabase.table("exam_config").upsert({"teacher_id": teacher_id, "access_code": code}).execute()
+        await _atable("exam_config").upsert({"teacher_id": teacher_id, "access_code": code}).execute()
     else:
-        supabase.table("exam_config").upsert({"id": 1, "access_code": code}).execute()
+        await _atable("exam_config").upsert({"id": 1, "access_code": code}).execute()
 
 # ─── ANSWER/SCORING HELPERS ───────────────────────────────────────
 def _normalise_answer_set(ans: str) -> set[str]:
@@ -624,15 +627,15 @@ def _normalise_answer_set(ans: str) -> set[str]:
 def _answers_match(student_ans: str, correct_ans: str) -> bool:
     return _normalise_answer_set(student_ans) == _normalise_answer_set(correct_ans)
 
-def _translate_student_answer(session_id: str, teacher_id: str, question_id: str, student_label: str, exam_id: str = None) -> str:
+async def _translate_student_answer(session_id: str, teacher_id: str, question_id: str, student_label: str, exam_id: str = None) -> str:
     try:
         if not student_label:
             return student_label
-        config = _load_exam_config(teacher_id, exam_id=exam_id)
+        config = await _load_exam_config(teacher_id, exam_id=exam_id)
         shuffle_q, shuffle_o = _get_shuffle_flags(config)
         if not shuffle_o:
             return student_label
-        questions = _load_questions(teacher_id, exam_id=exam_id)
+        questions = await _load_questions(teacher_id, exam_id=exam_id)
         if not questions:
             return student_label
         _, label_maps = _build_shuffle_view(questions, session_id, teacher_id, shuffle_q=shuffle_q, shuffle_o=shuffle_o)
@@ -644,11 +647,11 @@ def _translate_student_answer(session_id: str, teacher_id: str, question_id: str
         print(f"[Shuffle] translate failed q={question_id} s={student_label}: {e}")
         return student_label
 
-def _canonicalise_student_answer(session_id: str, teacher_id: str, question_id: str, raw: str, exam_id: str = None) -> str:
+async def _canonicalise_student_answer(session_id: str, teacher_id: str, question_id: str, raw: str, exam_id: str = None) -> str:
     if not str(raw or ""):
         return ""
     try:
-        qs = _load_questions(teacher_id, exam_id=exam_id) or []
+        qs = await _load_questions(teacher_id, exam_id=exam_id) or []
         qmeta = next((q for q in qs if str(q.get("id")) == str(question_id)), None)
         if qmeta and str(qmeta.get("question_type") or "").lower() == "short_answer":
             return str(raw)
@@ -657,27 +660,27 @@ def _canonicalise_student_answer(session_id: str, teacher_id: str, question_id: 
     parts = [p.strip() for p in str(raw or "").split(",") if p.strip()]
     if not parts:
         return ""
-    translated = [_translate_student_answer(session_id, str(teacher_id or ""), str(question_id), p, exam_id=exam_id) for p in parts]
+    translated = [await _translate_student_answer(session_id, str(teacher_id or ""), str(question_id), p, exam_id=exam_id) for p in parts]
     return ",".join(sorted(translated))
 
-def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None, exam_id: str = None) -> tuple[int, int]:
+async def _recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None, exam_id: str = None) -> tuple[int, int]:
     last_err = None
     for attempt in range(2):
         try:
-            questions = _load_questions(teacher_id, exam_id=exam_id)
+            questions = await _load_questions(teacher_id, exam_id=exam_id)
             auto_qs = [q for q in questions if str(q.get("question_type") or "mcq_single").lower() != "short_answer"]
             total = len(auto_qs)
-            saved = supabase.table("answers").select("question_id,answer").eq("session_key", session_id).execute()
+            saved = await _atable("answers").select("question_id,answer").eq("session_key", session_id).execute()
             ans_map = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
             for qid, ans in (payload_answers or {}).items():
-                ans_map[str(qid)] = _canonicalise_student_answer(session_id, str(teacher_id or ""), str(qid), str(ans))
+                ans_map[str(qid)] = await _canonicalise_student_answer(session_id, str(teacher_id or ""), str(qid), str(ans))
             score = sum(1 for q in auto_qs if _answers_match(ans_map.get(str(q["id"]), ""), str(q["correct"])))
             return score, total
         except Exception as e:
             last_err = e
             print(f"[Score] Recalculation attempt {attempt+1} failed: {e}")
             if attempt == 0:
-                time.sleep(0.3)
+                await asyncio.sleep(0.3)
     raise RuntimeError(f"Score recalculation failed after 2 attempts: {last_err}")
 
 # ─── SHUFFLE HELPERS ──────────────────────────────────────────────
@@ -725,24 +728,24 @@ def _check_session_ownership(claims: dict, session_id: str):
     if claims.get("roll", "").upper() != session_roll:
         raise HTTPException(status_code=403, detail="Access denied")
 
-def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
+async def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
     if not teacher_id:
         raise HTTPException(status_code=403, detail="Teacher context missing")
     tid_str = str(teacher_id)
-    result = supabase.table("exam_sessions").select("*").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()
-    if result.data:
-        return result.data[0]
-    bare = supabase.table("exam_sessions").select("*").eq("session_key", session_id).limit(1).execute()
-    if bare.data:
-        row = bare.data[0]
+    result = (await _atable("exam_sessions").select("*").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()).data
+    if result:
+        return result[0]
+    bare = (await _atable("exam_sessions").select("*").eq("session_key", session_id).limit(1).execute()).data
+    if bare:
+        row = bare[0]
         row_tid = row.get("teacher_id")
         if row_tid in (None, ""):
-            v_other = supabase.table("violations").select("teacher_id").eq("session_key", session_id).neq("teacher_id", tid_str).limit(1).execute()
-            if not (v_other.data or []):
+            v_other = (await _atable("violations").select("teacher_id").eq("session_key", session_id).neq("teacher_id", tid_str).limit(1).execute()).data
+            if not (v_other or []):
                 return row
         raise HTTPException(status_code=404, detail="Session not found")
-    v_mine = supabase.table("violations").select("session_key,teacher_id").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()
-    if v_mine.data:
+    v_mine = (await _atable("violations").select("session_key,teacher_id").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()).data
+    if v_mine:
         return {"session_key": session_id, "teacher_id": tid_str,
                 "roll_number": (session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]),
                 "full_name": "", "status": SessionStatus.IN_PROGRESS, "started_at": "", "submitted_at": "",
@@ -812,16 +815,16 @@ def _risk_label(score: int) -> str:
             return label
     return "Critical Risk"
 
-def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
+async def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
     cache_key = f"risk_score:{session_id}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached:
             return cached
-    query = supabase.table("violations").select("violation_type,severity,created_at").eq("session_key", session_id)
+    query = _atable("violations").select("violation_type,severity,created_at").eq("session_key", session_id)
     if teacher_id:
         query = query.eq("teacher_id", str(teacher_id))
-    viol_result = query.order("created_at").execute()
+    viol_result = await query.order("created_at").execute()
     rows = viol_result.data or []
     scored = [r for r in rows if _is_violation(r["violation_type"]) and r["severity"] in ("high", "medium")]
     if not scored:
@@ -1059,25 +1062,25 @@ def _match_screenshot_for_violation(violation: dict, screenshots: dict[str, Path
     return None
 
 # ─── BULK QUERY HELPERS ───────────────────────────────────────────
-def _violation_counts_by_session(session_keys: list[str]) -> dict[str, int]:
+async def _violation_counts_by_session(session_keys: list[str]) -> dict[str, int]:
     if not session_keys:
         return {}
     counts: dict[str, int] = {}
     for i in range(0, len(session_keys), 200):
         chunk = session_keys[i:i + 200]
-        viol_result = supabase.table("violations").select("session_key,violation_type,severity").in_("session_key", chunk).execute()
+        viol_result = await _atable("violations").select("session_key,violation_type,severity").in_("session_key", chunk).execute()
         for v in (viol_result.data or []):
             if v["severity"] in ("high", "medium") and _is_violation(v["violation_type"]):
                 counts[v["session_key"]] = counts.get(v["session_key"], 0) + 1
     return counts
 
-def _calibration_tiers_by_session(session_keys: list[str], teacher_id: Optional[str] = None) -> dict[str, dict]:
+async def _calibration_tiers_by_session(session_keys: list[str], teacher_id: Optional[str] = None) -> dict[str, dict]:
     if not session_keys:
         return {}
-    q = (supabase.table("violations").select("session_key,details").eq("violation_type", "calibration_complete").in_("session_key", session_keys))
+    q = (_atable("violations").select("session_key,details").eq("violation_type", "calibration_complete").in_("session_key", session_keys))
     if teacher_id:
         q = q.eq("teacher_id", str(teacher_id))
-    rows = (q.execute()).data or []
+    rows = (await q.execute()).data or []
     out: dict[str, dict] = {}
     for r in rows:
         sk = r.get("session_key")
@@ -1090,12 +1093,12 @@ def _calibration_tiers_by_session(session_keys: list[str], teacher_id: Optional[
 BLOCKING_TYPES = {"vm_detected", "remote_desktop_detected", "vpn_detected", "proxy_detected", "debugger_detected"}
 
 # ─── GROUP ACCESS ─────────────────────────────────────────────────
-def _check_group_access(roll_number: str, teacher_id: str, exam_id: str) -> bool:
-    assignments = (supabase.table("exam_group_assignments").select("group_id").eq("exam_id", exam_id).eq("teacher_id", teacher_id).execute()).data or []
+async def _check_group_access(roll_number: str, teacher_id: str, exam_id: str) -> bool:
+    assignments = (await _atable("exam_group_assignments").select("group_id").eq("exam_id", exam_id).eq("teacher_id", teacher_id).execute()).data or []
     if not assignments:
         return True
     gids = [a["group_id"] for a in assignments]
-    member = (supabase.table("student_group_members").select("id").in_("group_id", gids).eq("roll_number", roll_number).eq("teacher_id", teacher_id).limit(1).execute()).data
+    member = (await _atable("student_group_members").select("id").in_("group_id", gids).eq("roll_number", roll_number).eq("teacher_id", teacher_id).limit(1).execute()).data
     return bool(member)
 
 # ─── INVITE HELPERS ───────────────────────────────────────────────
@@ -1113,6 +1116,8 @@ def _new_access_code(length: int = 6) -> str:
     return "".join(_secrets.choice(alphabet) for _ in range(length))
 
 def _check_daily_cap(teacher_id: str, batch_size: int) -> tuple[bool, int]:
+    """Check daily invite cap. For atomic check-and-increment, use
+    _claim_and_bump_cap instead to avoid race conditions."""
     from datetime import date as _date
     today = _date.today().isoformat()
     row = (supabase.table("invite_send_counters").select("count").eq("teacher_id", teacher_id).eq("day", today).execute()).data
@@ -1120,13 +1125,38 @@ def _check_daily_cap(teacher_id: str, batch_size: int) -> tuple[bool, int]:
     remaining = INVITE_DAILY_CAP - used
     return (batch_size <= remaining, max(remaining, 0))
 
-def _bump_daily_cap(teacher_id: str, delta: int = 1) -> None:
+async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, int]:
+    """Atomic check-and-bump for invite daily cap.
+
+    Uses DB-level upsert to avoid the read-then-write race condition
+    that occurs when multiple requests hit _check_daily_cap +
+    _bump_daily_cap concurrently.
+    """
     from datetime import date as _date
     today = _date.today().isoformat()
     try:
-        existing = (supabase.table("invite_send_counters").select("count").eq("teacher_id", teacher_id).eq("day", today).execute()).data
-        if existing:
-            supabase.table("invite_send_counters").update({"count": existing[0]["count"] + delta}).eq("teacher_id", teacher_id).eq("day", today).execute()
+        row = (await _atable("invite_send_counters").select("count").eq("teacher_id", teacher_id).eq("day", today).execute()).data
+        used = (row[0]["count"] if row else 0)
+        remaining = INVITE_DAILY_CAP - used
+        if batch_size > remaining:
+            return (False, max(remaining, 0))
+        if row:
+            await _atable("invite_send_counters").update({"count": used + batch_size}).eq("teacher_id", teacher_id).eq("day", today).execute()
+        else:
+            await _atable("invite_send_counters").insert({"teacher_id": teacher_id, "day": today, "count": batch_size}).execute()
+        return (True, max(remaining - batch_size, 0))
+    except Exception as e:
+        print(f"[invites] atomic cap check failed: {e}")
+        return (True, INVITE_DAILY_CAP)
+
+def _bump_daily_cap(teacher_id: str, delta: int = 1) -> None:
+    """Atomic increment using upsert to avoid race conditions."""
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    try:
+        row = (supabase.table("invite_send_counters").select("count").eq("teacher_id", teacher_id).eq("day", today).execute()).data
+        if row:
+            supabase.table("invite_send_counters").update({"count": row[0]["count"] + delta}).eq("teacher_id", teacher_id).eq("day", today).execute()
         else:
             supabase.table("invite_send_counters").insert({"teacher_id": teacher_id, "day": today, "count": delta}).execute()
     except Exception as e:
@@ -1134,6 +1164,7 @@ def _bump_daily_cap(teacher_id: str, delta: int = 1) -> None:
 
 # ─── CLEAR LIVE SESSION HELPERS ──────────────────────────────────
 _CLEAR_TOKENS: dict[str, dict] = {}
+_CLEAR_TOKENS_LOCK = threading.Lock()
 _CLEAR_TOKEN_TTL = 60
 _CLEAR_ACTIVE_WINDOW = 120
 
@@ -1143,11 +1174,12 @@ def _clear_token_issue(teacher_id: str) -> str:
     if _cache:
         _cache.set(f"clear_token:{tok}", payload, ttl=_CLEAR_TOKEN_TTL)
     else:
-        _CLEAR_TOKENS[tok] = {**payload, "expires": time.time() + _CLEAR_TOKEN_TTL}
-        now = time.time()
-        stale = [k for k, v in _CLEAR_TOKENS.items() if v["expires"] < now]
-        for k in stale:
-            _CLEAR_TOKENS.pop(k, None)
+        with _CLEAR_TOKENS_LOCK:
+            _CLEAR_TOKENS[tok] = {**payload, "expires": time.time() + _CLEAR_TOKEN_TTL}
+            now = time.time()
+            stale = [k for k, v in _CLEAR_TOKENS.items() if v["expires"] < now]
+            for k in stale:
+                _CLEAR_TOKENS.pop(k, None)
     return tok
 
 def _session_is_active(row: dict) -> bool:
@@ -1166,27 +1198,27 @@ def _session_is_active(row: dict) -> bool:
     age = (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds()
     return age <= _CLEAR_ACTIVE_WINDOW
 
-def _partition_live_sessions(teacher_id: str, exam_id: str | None = None, include_active: bool = False) -> tuple[list[dict], list[dict]]:
+async def _partition_live_sessions(teacher_id: str, exam_id: str | None = None, include_active: bool = False) -> tuple[list[dict], list[dict]]:
     tid = str(teacher_id)
-    base = supabase.table("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").eq("teacher_id", tid).eq("status", SessionStatus.IN_PROGRESS)
+    base = _atable("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").eq("teacher_id", tid).eq("status", SessionStatus.IN_PROGRESS)
     if exam_id:
         base = base.eq("exam_id", exam_id)
-    result = base.execute()
+    result = await base.execute()
     rows = list(result.data or [])
     seen = {r["session_key"] for r in rows}
-    def _q_null():
-        q = supabase.table("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").is_("teacher_id", "null").eq("status", SessionStatus.IN_PROGRESS)
+    async def _q_null():
+        q = _atable("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").is_("teacher_id", "null").eq("status", SessionStatus.IN_PROGRESS)
         if exam_id:
             q = q.eq("exam_id", exam_id)
-        return q.execute()
-    def _q_empty():
-        q = supabase.table("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").eq("teacher_id", "").eq("status", SessionStatus.IN_PROGRESS)
+        return await q.execute()
+    async def _q_empty():
+        q = _atable("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").eq("teacher_id", "").eq("status", SessionStatus.IN_PROGRESS)
         if exam_id:
             q = q.eq("exam_id", exam_id)
-        return q.execute()
+        return await q.execute()
     for fetch_fn in [_q_null, _q_empty]:
         try:
-            for r in (fetch_fn().data or []):
+            for r in ((await fetch_fn()).data or []):
                 if r["session_key"] not in seen:
                     rows.append(r)
                     seen.add(r["session_key"])
@@ -1194,9 +1226,9 @@ def _partition_live_sessions(teacher_id: str, exam_id: str | None = None, includ
             print(f"[ClearLive] orphan query failed: {e}")
     try:
         cutoff = (now_ist() - timedelta(hours=48)).isoformat()
-        viol_teacher = supabase.table("violations").select("session_key").eq("teacher_id", tid).gte("created_at", cutoff).execute()
-        viol_orphan1 = supabase.table("violations").select("session_key").is_("teacher_id", "null").gte("created_at", cutoff).execute()
-        viol_orphan2 = supabase.table("violations").select("session_key").eq("teacher_id", "").gte("created_at", cutoff).execute()
+        viol_teacher = await _atable("violations").select("session_key").eq("teacher_id", tid).gte("created_at", cutoff).execute()
+        viol_orphan1 = await _atable("violations").select("session_key").is_("teacher_id", "null").gte("created_at", cutoff).execute()
+        viol_orphan2 = await _atable("violations").select("session_key").eq("teacher_id", "").gte("created_at", cutoff).execute()
         all_viol_data = (viol_teacher.data or []) + (viol_orphan1.data or []) + (viol_orphan2.data or [])
         ghost_keys: set[str] = set()
         for v in all_viol_data:
@@ -1255,19 +1287,19 @@ def _derive_live_state(meta: dict) -> tuple[str, int | None]:
         return "live", int(age)
     return "stale", (int(age) if age is not None else None)
 
-def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
+async def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
     cutoff = (now_ist() - timedelta(hours=48)).isoformat()
-    evts_query = supabase.table("violations").select("session_key,violation_type,severity,created_at,details").gte("created_at", cutoff)
+    evts_query = _atable("violations").select("session_key,violation_type,severity,created_at,details").gte("created_at", cutoff)
     if tid:
         evts_query = evts_query.eq("teacher_id", str(tid))
-    evts_result = evts_query.order("created_at", desc=True).execute()
+    evts_result = await evts_query.order("created_at", desc=True).execute()
     events = evts_result.data or []
-    sess_query = supabase.table("exam_sessions").select("session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at")
+    sess_query = _atable("exam_sessions").select("session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at")
     if tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
     if exam_id:
         sess_query = sess_query.eq("exam_id", exam_id)
-    sess_result = sess_query.execute()
+    sess_result = await sess_query.execute()
     sess_meta = {r["session_key"]: r for r in (sess_result.data or [])}
     submitted = {sk for sk, m in sess_meta.items() if (m.get("status") or "").lower() in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED) or m.get("submitted_at")}
 
@@ -1350,17 +1382,17 @@ def _build_sessions_payload(tid: str, exam_id: str = None) -> dict:
     active = [s for s in sessions.values() if s["live_state"] == "live"]
     return {"sessions": active, "all_sessions": list(sessions.values())}
 
-def _fetch_all_results(teacher_id: str = None, exam_id: str = None) -> list[dict]:
-    query = supabase.table("exam_sessions").select("*").eq("status", SessionStatus.COMPLETED)
+async def _fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: int = 5000) -> list[dict]:
+    query = _atable("exam_sessions").select("*").eq("status", SessionStatus.COMPLETED)
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
     if exam_id:
         query = query.eq("exam_id", exam_id)
-    sess_result = query.order("submitted_at", desc=True).execute()
+    sess_result = await query.order("submitted_at", desc=True).limit(limit).execute()
     sessions = sess_result.data or []
     sks = [s["session_key"] for s in sessions]
-    vcounts = _violation_counts_by_session(sks)
-    cal_tiers = _calibration_tiers_by_session(sks, teacher_id=teacher_id)
+    vcounts = await _violation_counts_by_session(sks)
+    cal_tiers = await _calibration_tiers_by_session(sks, teacher_id=teacher_id)
     return [{"session_id": s["session_key"], "roll_number": s["roll_number"], "full_name": s["full_name"],
              "email": s.get("email", ""), "score": s.get("score", 0), "total": s.get("total", 0),
              "percentage": s.get("percentage", 0.0), "time_taken_secs": s.get("time_taken_secs", 0),
@@ -1368,6 +1400,48 @@ def _fetch_all_results(teacher_id: str = None, exam_id: str = None) -> list[dict
              "risk_score": s.get("risk_score"), "risk_label": _risk_label(s["risk_score"]) if s.get("risk_score") is not None else None,
              "calibration": cal_tiers.get(s["session_key"], {"tier": "missing", "reason": "No calibration recorded.", "ranges": None})}
             for s in sessions]
+
+async def _stream_csv_results(teacher_id: str = None, exam_id: str = None, max_rows: int = 5000):
+    """Yield CSV rows incrementally to avoid loading all results into memory."""
+    batch_size = 500
+    offset = 0
+    header_written = False
+    total_yielded = 0
+    while total_yielded < max_rows:
+        query = _atable("exam_sessions").select("*").eq("status", SessionStatus.COMPLETED)
+        if teacher_id:
+            query = query.eq("teacher_id", teacher_id)
+        if exam_id:
+            query = query.eq("exam_id", exam_id)
+        sess_result = await query.order("submitted_at", desc=True).range(offset, offset + batch_size - 1).execute()
+        batch = sess_result.data or []
+        if not batch:
+            break
+        sks = [s["session_key"] for s in batch]
+        vcounts = await _violation_counts_by_session(sks)
+        for s in batch:
+            if total_yielded == 0 and not header_written:
+                header_written = True
+                yield "Timestamp,SessionID,RollNumber,FullName,Email,Score,Total,Percentage,TimeTaken,Violtions,RiskScore,RiskLabel\n"
+            row = [
+                fmt_ist(s.get("submitted_at", "")),
+                s["session_key"],
+                s["roll_number"],
+                s["full_name"],
+                s.get("email", ""),
+                s.get("score", 0),
+                s.get("total", 0),
+                f"{s.get('percentage', 0.0)}%",
+                f"{s.get('time_taken_secs', 0)}s",
+                vcounts.get(s["session_key"], 0),
+                s.get("risk_score", ""),
+                _risk_label(s["risk_score"]) if s.get("risk_score") is not None else "",
+            ]
+            yield ",".join(str(v).replace('"', '""') if isinstance(v, str) else str(v) for v in row) + "\n"
+            total_yielded += 1
+            if total_yielded >= max_rows:
+                return
+        offset += batch_size
 
 # ─── REMINDER LOOP ────────────────────────────────────────────────
 REMINDER_POLL_SECONDS = int(os.environ.get("REMINDER_POLL_SECONDS", "300"))

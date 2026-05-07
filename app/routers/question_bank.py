@@ -77,25 +77,25 @@ class UpdateQuestionsIn(BaseModel):
 # ─── QUESTION BANK ─────────────────────────────────────────────────
 
 @router.get("/api/v1/admin/question-bank")
-def list_bank_questions(request: Request):
+async def list_bank_questions(request: Request):
     """List all question bank entries for the teacher, optionally filtered by tag."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     tag = request.query_params.get("tag")
-    q = (supabase.table("question_bank").select("*")
+    q = (_atable("question_bank").select("*")
          .eq("teacher_id", tid)
          .order("created_at", desc=True)
          .limit(5000))
-    rows = (q.execute()).data or []
+    rows = (await q.execute()).data or []
     if tag:
         rows = [r for r in rows if tag in (r.get("tags") or [])]
     return rows
 
 
 @router.post("/api/v1/admin/question-bank")
-def add_bank_questions(request: Request, body: BankQuestionIn = Body(...)):
+async def add_bank_questions(request: Request, body: BankQuestionIn = Body(...)):
     """Add one or more questions to the bank."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     questions = body.questions or ([body.model_dump()] if "question" in body.model_dump() else [])
     if not questions:
@@ -111,14 +111,14 @@ def add_bank_questions(request: Request, body: BankQuestionIn = Body(...)):
             "image_url": q.get("image_url", ""),
             "tags": q.get("tags", []),
         })
-    result = supabase.table("question_bank").insert(rows).execute()
+    result = await _atable("question_bank").insert(rows).execute()
     return result.data or []
 
 
 @router.put("/api/v1/admin/question-bank/{qid}")
-def update_bank_question(qid: str, request: Request, body: UpdateQuestionIn = Body(...)):
+async def update_bank_question(qid: str, request: Request, body: UpdateQuestionIn = Body(...)):
     """Update a question in the bank."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     fields = {}
     for k in ("question", "question_type", "options", "correct", "image_url", "tags"):
@@ -128,7 +128,7 @@ def update_bank_question(qid: str, request: Request, body: UpdateQuestionIn = Bo
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     fields["updated_at"] = datetime.now(timezone.utc).isoformat()
-    result = (supabase.table("question_bank")
+    result = (_atable("question_bank")
               .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
     if not result.data:
         raise HTTPException(status_code=404, detail="Question not found")
@@ -136,22 +136,22 @@ def update_bank_question(qid: str, request: Request, body: UpdateQuestionIn = Bo
 
 
 @router.delete("/api/v1/admin/question-bank/{qid}")
-def delete_bank_question(qid: str, request: Request):
+async def delete_bank_question(qid: str, request: Request):
     """Delete a question from the bank."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    supabase.table("question_bank").delete().eq("id", qid).eq("teacher_id", tid).execute()
+    await _atable("question_bank").delete().eq("id", qid).eq("teacher_id", tid).execute()
     return {"ok": True}
 
 
 @router.post("/api/v1/admin/question-bank/import")
-def import_bank_questions(request: Request, body: ImportQuestionsIn = Body(...)):
+async def import_bank_questions(request: Request, body: ImportQuestionsIn = Body(...)):
     """Bulk import questions from CSV-style JSON array.
 
     Expected format: list of objects with keys:
     question, type, option_A, option_B, option_C, option_D, correct, image_url, tags
     """
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     items = body.questions
     if not items:
@@ -176,7 +176,7 @@ def import_bank_questions(request: Request, body: ImportQuestionsIn = Body(...))
             "tags": item.get("tags", []) if isinstance(item.get("tags"), list)
                     else [t.strip() for t in str(item.get("tags", "")).split(",") if t.strip()],
         })
-    result = supabase.table("question_bank").insert(rows).execute()
+    result = await _atable("question_bank").insert(rows).execute()
     inserted = result.data or []
     return {
         "imported": len(inserted),
@@ -185,11 +185,11 @@ def import_bank_questions(request: Request, body: ImportQuestionsIn = Body(...))
 
 
 @router.get("/api/v1/admin/question-bank/export")
-def export_bank_questions(request: Request):
+async def export_bank_questions(request: Request):
     """Export all bank questions as JSON."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    rows = (supabase.table("question_bank").select("*")
+    rows = (_atable("question_bank").select("*")
             .eq("teacher_id", tid)
             .order("created_at", desc=True)
             .limit(5000).execute()).data or []
@@ -212,13 +212,13 @@ def export_bank_questions(request: Request):
 
 @router.post("/api/v1/admin/question-bank/generate")
 @limiter.limit("20/minute")
-def generate_bank_questions(request: Request, body: GenerateQuestionsIn = Body(...)):
+async def generate_bank_questions(request: Request, body: GenerateQuestionsIn = Body(...)):
     """Generate question-bank rows from a topic / source text via LLM.
 
     Returns a *preview* — the teacher reviews and explicitly clicks
     'Add to Bank' to actually persist.
     """
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     _ = str(teacher["id"])
 
     from llm import is_configured, generate_questions
@@ -260,9 +260,9 @@ def generate_bank_questions(request: Request, body: GenerateQuestionsIn = Body(.
 
 @router.post("/api/v1/admin/question-bank/suggest-tags")
 @limiter.limit("60/minute")
-def suggest_question_tags(request: Request, body: SuggestTagsIn = Body(...)):
+async def suggest_question_tags(request: Request, body: SuggestTagsIn = Body(...)):
     """Suggest 3-5 tags for a single question."""
-    require_admin(request)
+    await require_admin(request)
     from llm import is_configured, suggest_tags
     if not is_configured():
         raise HTTPException(status_code=503,
@@ -280,9 +280,9 @@ def suggest_question_tags(request: Request, body: SuggestTagsIn = Body(...)):
 
 @router.post("/api/v1/admin/lint-questions")
 @limiter.limit("10/minute")
-def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body(...)):
+async def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body(...)):
     """Pre-publish AI review of an exam's questions."""
-    require_admin(request)
+    await require_admin(request)
     from llm import is_configured, lint_questions
     if not is_configured():
         raise HTTPException(status_code=503,
@@ -327,9 +327,9 @@ def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body(...))
 
 
 @router.post("/api/v1/admin/question-bank/to-exam")
-def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
+async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
     """Copy bank questions into an exam's question list."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     question_ids = body.question_ids
     exam_id = body.exam_id
@@ -340,17 +340,17 @@ def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
             detail="Too many questions. Max 500 per copy.")
 
     try:
-        own_via_config = (supabase.table("exam_config")
+        own_via_config = (_atable("exam_config")
                           .select("exam_id").eq("teacher_id", tid)
                           .eq("exam_id", exam_id).limit(1).execute()).data
         if not own_via_config:
-            own_via_questions = (supabase.table("questions")
+            own_via_questions = (_atable("questions")
                                  .select("exam_id").eq("teacher_id", tid)
                                  .eq("exam_id", exam_id).limit(1).execute()).data
             if not own_via_questions:
                 pass
 
-        bank_rows = (supabase.table("question_bank").select("*")
+        bank_rows = (_atable("question_bank").select("*")
                      .eq("teacher_id", tid).in_("id", question_ids).execute()).data or []
         if not bank_rows:
             raise HTTPException(status_code=404, detail="No matching bank questions found")
@@ -391,7 +391,7 @@ def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
             attempted_drops = []
             for _attempt in range(len(optional_cols) + 1):
                 try:
-                    supabase.table("questions").insert(new_rows).execute()
+                    await _atable("questions").insert(new_rows).execute()
                     if attempted_drops:
                         print(f"[bank-to-exam] succeeded after dropping "
                               f"{attempted_drops} due to schema mismatch.",
@@ -434,9 +434,9 @@ def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
 
 
 @router.get("/api/v1/admin/questions")
-def get_admin_questions(request: Request):
+async def get_admin_questions(request: Request):
     """Return all questions including correct answers (admin only)."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     exam_id = request.query_params.get("exam_id")
     try:
@@ -454,28 +454,28 @@ def get_admin_questions(request: Request):
 
 
 @router.get("/api/v1/admin/answers/{session_id:path}")
-def get_admin_answers(session_id: str, request: Request):
+async def get_admin_answers(session_id: str, request: Request):
     """Return student answers merged with correct answers for the detail modal."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
 
-    def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
+    async def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
         if not teacher_id:
             raise HTTPException(status_code=403, detail="Teacher context missing")
         tid_str = str(teacher_id)
-        result = supabase.table("exam_sessions").select("*").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()
+        result = await _atable("exam_sessions").select("*").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()
         if result.data:
             return result.data[0]
-        bare = supabase.table("exam_sessions").select("*").eq("session_key", session_id).limit(1).execute()
+        bare = await _atable("exam_sessions").select("*").eq("session_key", session_id).limit(1).execute()
         if bare.data:
             row = bare.data[0]
             row_tid = row.get("teacher_id")
             if row_tid in (None, ""):
-                v_other = supabase.table("violations").select("teacher_id").eq("session_key", session_id).neq("teacher_id", tid_str).limit(1).execute()
+                v_other = await _atable("violations").select("teacher_id").eq("session_key", session_id).neq("teacher_id", tid_str).limit(1).execute()
                 if not (v_other.data or []):
                     return row
             raise HTTPException(status_code=404, detail="Session not found")
-        v_mine = supabase.table("violations").select("session_key,teacher_id").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()
+        v_mine = await _atable("violations").select("session_key,teacher_id").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()
         if v_mine.data:
             return {"session_key": session_id, "teacher_id": tid_str,
                     "roll_number": (session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]),
@@ -483,10 +483,10 @@ def get_admin_answers(session_id: str, request: Request):
                     "score": None, "total": None, "risk_score": None}
         raise HTTPException(status_code=404, detail="Session not found")
 
-    _assert_session_owned(session_id, tid)
+    await _assert_session_owned(session_id, tid)
 
     questions = _load_questions(tid)
-    ans_result = supabase.table("answers").select("question_id,answer")\
+    ans_result = await _atable("answers").select("question_id,answer")\
         .eq("session_key", session_id)\
         .eq("teacher_id", str(tid))\
         .execute()
@@ -520,9 +520,9 @@ def get_admin_answers(session_id: str, request: Request):
 
 
 @router.post("/api/v1/admin/questions")
-def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)):
+async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)):
     """Update questions in Supabase."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     questions = body.questions
     if not isinstance(questions, list) or len(questions) == 0:
@@ -633,23 +633,23 @@ def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)):
         if body.duration_minutes is not None:
             update_fields["duration_minutes"] = body.duration_minutes
         if update_fields:
-            supabase.table("exam_config").update(update_fields)\
-                .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+            await _atable("exam_config").update(update_fields)\
+                .eq("teacher_id", tid).eq("exam_id", exam_idawait ).execute()
 
-    q_query = supabase.table("questions").select("*")
+    q_query = _atable("questions").select("*")
     if tid:
         q_query = q_query.eq("teacher_id", tid)
     if exam_id:
         q_query = q_query.eq("exam_id", exam_id)
-    backup = q_query.execute()
+    backup = await q_query.execute()
     backup_rows = backup.data or []
     try:
-        del_q = supabase.table("questions").delete()
+        del_q = _atable("questions").delete()
         if tid:
             del_q = del_q.eq("teacher_id", tid)
         if exam_id:
             del_q = del_q.eq("exam_id", exam_id)
-        del_q.execute() if tid or exam_id else del_q.neq("question_id", -1).execute()
+        await del_q.execute() if tid or exam_id else del_q.neq("question_id", -1).execute()
         extra = {}
         if tid:
             extra["teacher_id"] = tid
@@ -657,7 +657,7 @@ def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)):
             extra["exam_id"] = exam_id
         records = [{**r, **extra} for r in normalised]
         try:
-            supabase.table("questions").insert(records).execute()
+            await _atable("questions").insert(records).execute()
         except Exception as e:
             msg = str(e).lower()
             if "question_type" in msg or "image_url" in msg or "column" in msg \
@@ -669,14 +669,14 @@ def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)):
                                   "reference_answer", "rubric", "max_score")}
                     for r in records
                 ]
-                supabase.table("questions").insert(legacy).execute()
+                await _atable("questions").insert(legacy).execute()
             else:
                 raise
     except Exception as e:
         print(f"[Questions] Insert failed, rolling back: {e}")
         if backup_rows:
             try:
-                supabase.table("questions").upsert(backup_rows).execute()
+                await _atable("questions").upsert(backup_rows).execute()
             except Exception as e2:
                 print(f"[Questions] Rollback also failed: {e2}")
         raise HTTPException(status_code=500, detail=f"Failed to update questions: {e}")

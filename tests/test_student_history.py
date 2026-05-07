@@ -1,4 +1,5 @@
 """Tests for the student performance history feature."""
+import asyncio
 import json
 from unittest.mock import MagicMock, patch, PropertyMock
 
@@ -14,28 +15,24 @@ class FakeResponse:
         self.count = count
 
 
-class MockSupabaseTable:
-    """Chained mock for supabase.table().select().eq().execute()."""
-    def __init__(self, table_name, responses):
-        self._table = table_name
-        self._responses = responses
-        self._filters = []
-
-    def select(self, *args):
-        return self
-    def eq(self, *args):
-        self._filters.append(("eq", args))
-        return self
-    def in_(self, *args):
-        self._filters.append(("in", args))
-        return self
-    def order(self, *args, **kwargs):
-        return self
-    def limit(self, *args):
-        return self
-    def execute(self):
-        key = self._table
-        return FakeResponse(self._responses.get(key, []), self._responses.get(key + "_count"))
+def make_async_mock(response_data=None):
+    """Create a mock chain where .execute() returns an awaitable."""
+    mock = MagicMock()
+    resp = FakeResponse(response_data if response_data is not None else [])
+    
+    async def async_execute():
+        return resp
+    
+    # Configure the entire chain to return the same mock (for fluent chaining)
+    mock.select.return_value = mock
+    mock.eq.return_value = mock
+    mock.in_.return_value = mock
+    mock.order.return_value = mock
+    mock.limit.return_value = mock
+    mock.delete.return_value = mock
+    mock.update.return_value = mock
+    mock.execute.return_value = async_execute()
+    return mock
 
 
 class TestStudentSearch:
@@ -47,12 +44,12 @@ class TestStudentSearch:
         return req
 
     def test_empty_student_list(self):
-        with patch("app.routers.admin.supabase") as mock_supabase, \
+        mock_atable = MagicMock(return_value=make_async_mock([]))
+        with patch("app.routers.admin._atable", mock_atable), \
              patch("app.routers.admin.require_admin") as mock_admin:
             mock_admin.return_value = {"id": "t1", "full_name": "Test"}
-            mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value = FakeResponse([])
 
-            resp = search_students(self._make_request())
+            resp = asyncio.run(search_students(self._make_request()))
 
             assert resp["total"] == 0
             assert resp["students"] == []
@@ -67,56 +64,55 @@ class TestStudentHistory:
         return req
 
     def test_student_not_found(self):
-        with patch("app.routers.admin.supabase") as mock_supabase, \
+        mock_atable = MagicMock(return_value=make_async_mock([]))
+        with patch("app.routers.admin._atable", mock_atable), \
              patch("app.routers.admin.require_admin") as mock_admin:
             mock_admin.return_value = {"id": "t1", "full_name": "Test"}
-            mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = FakeResponse([])
 
             with pytest.raises(Exception) as exc_info:
-                get_student_history("R999", self._make_request())
+                asyncio.run(get_student_history("R999", self._make_request()))
             assert exc_info.value.status_code == 404
 
     def test_returns_history_with_aggregates(self):
-        def table_side_effect(name):
-            mock = MagicMock()
-            chain = mock.select.return_value.eq.return_value
-            if name == "students":
-                chain.eq.return_value.limit.return_value.execute.return_value = FakeResponse([
-                    {"roll_number": "R001", "full_name": "Alice", "email": "a@b.com", "teacher_id": "t1", "phone": ""},
-                ])
-            elif name == "exam_sessions":
-                chain.eq.return_value.eq.return_value.order.return_value.execute.return_value = FakeResponse([
-                    {
-                        "session_key": "R001_001",
-                        "exam_id": "ex1",
-                        "roll_number": "R001",
-                        "full_name": "Alice",
-                        "email": "a@b.com",
-                        "score": 8,
-                        "total": 10,
-                        "percentage": 80.0,
-                        "time_taken_secs": 1800,
-                        "status": "completed",
-                        "started_at": "2025-01-01T09:00:00Z",
-                        "submitted_at": "2025-01-01T09:30:00Z",
-                        "risk_score": 10,
-                    },
-                ])
-            elif name == "violations":
-                in_mock = MagicMock()
-                in_mock.execute.return_value = FakeResponse([
-                    {"session_key": "R001_001", "violation_type": "gaze_away", "severity": "low", "created_at": "2025-01-01T09:05:00Z"},
-                ])
-                chain.eq.return_value.in_.return_value = in_mock
-            elif name == "exam_config":
-                in_mock = MagicMock()
-                in_mock.execute.return_value = FakeResponse([
-                    {"exam_id": "ex1", "exam_title": "Midterm"},
-                ])
-                chain.eq.return_value.in_.return_value = in_mock
-            return mock
+        student_data = [
+            {"roll_number": "R001", "full_name": "Alice", "email": "a@b.com", "teacher_id": "t1", "phone": ""},
+        ]
+        session_data = [
+            {
+                "session_key": "R001_001",
+                "exam_id": "ex1",
+                "roll_number": "R001",
+                "full_name": "Alice",
+                "email": "a@b.com",
+                "score": 8,
+                "total": 10,
+                "percentage": 80.0,
+                "time_taken_secs": 1800,
+                "status": "completed",
+                "started_at": "2025-01-01T09:00:00Z",
+                "submitted_at": "2025-01-01T09:30:00Z",
+                "risk_score": 10,
+            },
+        ]
+        violation_data = [
+            {"session_key": "R001_001", "violation_type": "gaze_away", "severity": "low", "created_at": "2025-01-01T09:05:00Z"},
+        ]
+        config_data = [
+            {"exam_id": "ex1", "exam_title": "Midterm"},
+        ]
 
-        with patch("app.routers.admin.supabase") as mock_supabase, \
+        responses = {
+            "students": student_data,
+            "exam_sessions": session_data,
+            "violations": violation_data,
+            "exam_config": config_data,
+        }
+
+        def table_side_effect(name):
+            return make_async_mock(responses.get(name, []))
+
+        mock_atable = MagicMock(side_effect=table_side_effect)
+        with patch("app.routers.admin._atable", mock_atable), \
              patch("app.routers.admin.require_admin") as mock_admin, \
              patch("app.routers.admin.SessionStatus") as mock_status, \
              patch("app.routers.admin._risk_label") as mock_label, \
@@ -125,9 +121,8 @@ class TestStudentHistory:
             mock_status.COMPLETED = "completed"
             mock_label.return_value = "Low Risk"
             mock_vcounts.return_value = {"R001_001": 2}
-            mock_supabase.table.side_effect = table_side_effect
 
-            resp = get_student_history("R001", self._make_request())
+            resp = asyncio.run(get_student_history("R001", self._make_request()))
 
             assert resp["student"]["roll_number"] == "R001"
             assert resp["student"]["full_name"] == "Alice"

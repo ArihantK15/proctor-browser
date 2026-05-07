@@ -215,7 +215,7 @@ async def sse_sessions(request: Request):
     if not token:
         return Response(status_code=401, content="Missing token")
     try:
-        teacher = verify_admin_token(token)
+        teacher = await verify_admin_token(token)
     except HTTPException:
         return Response(status_code=401, content="Invalid token")
 
@@ -227,7 +227,7 @@ async def sse_sessions(request: Request):
 
         # Send initial snapshot
         try:
-            sessions_payload = _build_sessions_payload(teacher_id)
+            sessions_payload = await _build_sessions_payload(teacher_id)
             yield f"event: init\ndata: {json.dumps({'sessions': sessions_payload['sessions']})}\n\n"
         except Exception:
             pass  # Failed to build initial snapshot — stream will still work with updates

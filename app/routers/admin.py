@@ -27,7 +27,7 @@ from ..dependencies import (
     SCREENSHOTS_DIR, _cache, _atable,
     _collect_session_screenshots, _is_violation, _match_screenshot_for_violation,
     _get_invite_base_url, _get_teacher_by_id,
-    INVITE_DAILY_CAP, _new_invite_token, _uuid,
+    INVITE_DAILY_CAP, _new_invite_token, _uuid, _claim_and_bump_cap,
     _safe_path_component, _assert_within_directory, _html_escape,
     _violation_counts_by_session,
     generate_session_summary,
@@ -130,7 +130,7 @@ class UploadQuestionImageIn(BaseModel):
 
 # ─── HELPER: BUILD SCORECARD PDF ─────────────────────────
 
-def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]:
+async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]:
     """Render a single student's scorecard as a PDF and return
     ``(bytes, filename, exam_summary)``.
 
@@ -147,11 +147,11 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
     from reportlab.lib.styles import getSampleStyleSheet
 
     tid = teacher_id
-    exam = _assert_session_owned(session_id, tid)
+    exam = await _assert_session_owned(session_id, tid)
     exam_id = exam.get("exam_id")
 
     questions = _load_questions(teacher_id=tid, exam_id=exam_id)
-    ans_rows = (supabase.table("answers").select("question_id,answer")
+    ans_rows = (await _atable("answers").select("question_id,answer")
                 .eq("session_key", session_id)
                 .eq("teacher_id", str(tid)).execute()).data or []
     ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
@@ -174,7 +174,7 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
     score = exam.get("score", 0)
     total = exam.get("total", 0)
     pct = exam.get("percentage", 0)
-    risk = compute_risk_score(session_id, teacher_id=tid)
+    risk = await compute_risk_score(session_id, teacher_id=tid)
     passed = pct >= 40
 
     info = [
@@ -203,7 +203,7 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
     story.append(Spacer(1, 20))
 
     # ── Violation Summary ────────────────────────────────────────────
-    viol_rows = (supabase.table("violations")
+    viol_rows = (await _atable("violations")
                  .select("violation_type, severity")
                  .eq("session_key", session_id)
                  .eq("teacher_id", str(tid)).execute()).data or []
@@ -340,21 +340,21 @@ def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]
 # ─── 1. PENDING ID VERIFICATIONS ─────────────────────────
 
 @router.get("/api/v1/admin/pending-verifications")
-def pending_verifications(request: Request, exam_id: str = None):
+async def pending_verifications(request: Request, exam_id: str = None):
     """Return all pending ID verifications for this teacher."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     import json as _json
-    query = supabase.table("violations")\
+    query = _atable("violations")\
         .select("*")\
         .eq("teacher_id", str(tid))\
         .eq("violation_type", "id_verification")\
         .order("created_at", desc=True)
-    result = query.execute()
+    result = await query.execute()
 
     legacy_session_keys = None
     if exam_id:
-        es = supabase.table("exam_sessions").select("session_key")\
+        es = await _atable("exam_sessions").select("session_key")\
             .eq("teacher_id", str(tid)).eq("exam_id", exam_id).execute()
         legacy_session_keys = {r["session_key"] for r in (es.data or [])}
 
@@ -392,14 +392,14 @@ def pending_verifications(request: Request, exam_id: str = None):
 # ─── 2. ID DECISION ─────────────────────────────────
 
 @router.post("/api/v1/admin/id-decision")
-def id_decision(data: IdDecisionIn, request: Request):
+async def id_decision(data: IdDecisionIn, request: Request):
     """Teacher approves, requests retake, or rejects a student's ID."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     if data.decision not in ("approved", "retake", "rejected"):
         raise HTTPException(status_code=400, detail="Invalid decision")
     import json as _json
-    result = supabase.table("violations")\
+    result = await _atable("violations")\
         .select("*")\
         .eq("id", data.violation_id)\
         .eq("teacher_id", str(tid))\
@@ -415,7 +415,7 @@ def id_decision(data: IdDecisionIn, request: Request):
     obj["status"] = data.decision
     obj["decided_by"] = teacher.get("full_name", teacher.get("email", ""))
     obj["decided_at"] = now_ist().isoformat()
-    supabase.table("violations")\
+    await _atable("violations")\
         .update({"details": json.dumps(obj)})\
         .eq("id", data.violation_id)\
         .execute()
@@ -430,11 +430,11 @@ def id_decision(data: IdDecisionIn, request: Request):
         }
         if tid:
             reject_row["teacher_id"] = str(tid)
-        supabase.table("violations").insert(reject_row).execute()
+        await _atable("violations").insert(reject_row).execute()
         if _cache:
             _cache.delete(f"risk_score:{data.session_key}")
         try:
-            supabase.table("exam_sessions").update({
+            await _atable("exam_sessions").update({
                 "status":       SessionStatus.REJECTED,
                 "submitted_at": now_ist().isoformat(),
             }).eq("session_key", data.session_key).execute()
@@ -447,24 +447,24 @@ def id_decision(data: IdDecisionIn, request: Request):
 # ─── 3. RISK SCORE ─────────────────────────────────
 
 @router.get("/api/v1/risk-score/{session_id:path}")
-def get_risk_score(session_id: str, request: Request):
+async def get_risk_score(session_id: str, request: Request):
     """Compute behavioral risk score for any session (live or completed)."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
-    _assert_session_owned(session_id, tid)
-    result = compute_risk_score(session_id, teacher_id=tid)
+    await _assert_session_owned(session_id, tid)
+    result = await compute_risk_score(session_id, teacher_id=tid)
     result["session_id"] = session_id
     return result
 
 # ─── 4. TIMELINE ─────────────────────────────────
 
 @router.get("/api/v1/admin/timeline/{session_id:path}")
-def get_timeline(session_id: str, request: Request):
+async def get_timeline(session_id: str, request: Request):
     """Full forensics timeline: every event + screenshot paths for a session."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
-    session_info = _assert_session_owned(session_id, tid)
-    viol_result = supabase.table("violations")\
+    session_info = await _assert_session_owned(session_id, tid)
+    viol_result = await _atable("violations")\
         .select("*")\
         .eq("session_key", session_id)\
         .eq("teacher_id", str(tid))\
@@ -517,9 +517,9 @@ def get_timeline(session_id: str, request: Request):
 # ─── 5. UPLOAD QUESTION IMAGE ─────────────────────────
 
 @router.post("/api/v1/admin/upload-question-image")
-def upload_question_image(request: Request, body: UploadQuestionImageIn = Body(...)):
+async def upload_question_image(request: Request, body: UploadQuestionImageIn = Body(...)):
     """Teacher uploads a question image."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     raw = body.data_url or ""
     if not isinstance(raw, str) or not raw:
@@ -569,7 +569,7 @@ def upload_question_image(request: Request, body: UploadQuestionImageIn = Body(.
 # ─── 6. SERVE QUESTION IMAGE ────────────────────────────
 
 @router.get("/api/v1/question-image/{tid}/{filename}")
-def get_question_image(tid: str, filename: str, request: Request):
+async def get_question_image(tid: str, filename: str, request: Request):
     """Serve a question image."""
     from jose import jwt, JWTError
     auth = request.headers.get("Authorization", "")
@@ -577,7 +577,7 @@ def get_question_image(tid: str, filename: str, request: Request):
     if auth.startswith("Bearer "):
         tok = auth[7:]
         try:
-            teacher = verify_admin_token(tok)
+            teacher = await verify_admin_token(tok)
             if str(teacher.get("id")) == str(tid):
                 allowed = True
         except HTTPException:
@@ -615,9 +615,9 @@ def get_question_image(tid: str, filename: str, request: Request):
 # ─── 7. SERVE SCREENSHOT ──────────────────────────────
 
 @router.get("/api/v1/admin/screenshot/{roll}/{filename}")
-def get_screenshot(roll: str, filename: str, request: Request):
+async def get_screenshot(roll: str, filename: str, request: Request):
     """Serve a screenshot image to the admin dashboard."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     safe_roll = _safe_path_component(roll)
     safe_file = _safe_path_component(filename)
     tid = str(teacher["id"])
@@ -637,12 +637,12 @@ def get_screenshot(roll: str, filename: str, request: Request):
 # ─── 8. LIVE SESSIONS VIEW ──────────────────────────────
 
 @router.get("/api/v1/admin/sessions")
-def get_all_sessions(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
+async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
     """REST view of the Live tab."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     try:
-        payload = _build_sessions_payload(str(tid), exam_id=exam_id)
+        payload = await _build_sessions_payload(str(tid), exam_id=exam_id)
         start = (page - 1) * page_size
         end = start + page_size
         all_sessions = payload.get("sessions", [])
@@ -662,9 +662,9 @@ def get_all_sessions(request: Request, exam_id: str = None, page: int = 1, page_
 # ─── 9. RESULTS ─────────────────────────────────────────
 
 @router.get("/api/v1/results")
-def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
-    teacher = require_admin(request)
-    all_results = _fetch_all_results(teacher["id"], exam_id=exam_id)
+async def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
+    teacher = await require_admin(request)
+    all_results = await _fetch_all_results(teacher["id"], exam_id=exam_id)
     start = (page - 1) * page_size
     end = start + page_size
     return {
@@ -683,7 +683,7 @@ _BEHAVIORAL_PATTERNS = frozenset({
 })
 
 @router.get("/api/v1/student-history/{roll_number}")
-def get_student_history(
+async def get_student_history(
     roll_number: str,
     request: Request,
     exam_id: str = None,
@@ -696,14 +696,14 @@ def get_student_history(
     pattern flags, and aggregate statistics (avg score, total exams,
     worst risk).
     """
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     roll = roll_number.strip().upper()
     if not roll:
         raise HTTPException(status_code=400, detail="roll_number is required")
 
     # Student profile from `students` table
-    student_rows = (supabase.table("students")
+    student_rows = (await _atable("students")
                     .select("roll_number,full_name,email,phone,teacher_id")
                     .eq("roll_number", roll)
                     .eq("teacher_id", tid)
@@ -714,7 +714,7 @@ def get_student_history(
     student = student_rows[0]
 
     # All completed sessions for this student
-    sess_q = (supabase.table("exam_sessions")
+    sess_q = (_atable("exam_sessions")
               .select("session_key,exam_id,roll_number,full_name,email,"
                       "score,total,percentage,time_taken_secs,"
                       "status,started_at,submitted_at,risk_score")
@@ -724,16 +724,16 @@ def get_student_history(
               .order("submitted_at", desc=True))
     if exam_id:
         sess_q = sess_q.eq("exam_id", exam_id)
-    sessions = (sess_q.execute()).data or []
+    sessions = (await sess_q.execute()).data or []
 
     # Batch-fetch violations and exam titles
     session_keys = [s["session_key"] for s in sessions]
-    vcounts = _violation_counts_by_session(session_keys)
+    vcounts = await _violation_counts_by_session(session_keys)
 
     # Fetch violation details per session (for behavioral patterns)
     violations_by_session: dict[str, list[dict]] = {}
     if session_keys:
-        all_viols = (supabase.table("violations")
+        all_viols = (await _atable("violations")
                      .select("session_key,violation_type,severity,created_at")
                      .eq("teacher_id", tid)
                      .in_("session_key", session_keys)
@@ -746,7 +746,7 @@ def get_student_history(
     exam_ids = list({s["exam_id"] for s in sessions if s.get("exam_id")})
     exam_titles: dict[str, str] = {}
     if exam_ids:
-        configs = (supabase.table("exam_config")
+        configs = (await _atable("exam_config")
                    .select("exam_id,exam_title")
                    .eq("teacher_id", tid)
                    .in_("exam_id", exam_ids)
@@ -830,17 +830,18 @@ def get_student_history(
 # ─── 9c. STUDENT SEARCH ──────────────────────────────────
 
 @router.get("/api/v1/student-search")
-def search_students(request: Request, q: str = "", page: int = 1, page_size: int = 20):
+async def search_students(request: Request, q: str = "", page: int = 1, page_size: int = 20):
     """Search students by roll number, name, or email.
 
     Returns a list of students with aggregate stats (total exams taken,
     avg score, last exam date) for quick lookup in the Student History tab.
+    Uses batch queries to avoid N+1 problem.
     """
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
 
     # Fetch all students for this teacher
-    query = (supabase.table("students")
+    query = (_atable("students")
              .select("roll_number,full_name,email,phone,teacher_id")
              .eq("teacher_id", tid))
     if q:
@@ -848,38 +849,34 @@ def search_students(request: Request, q: str = "", page: int = 1, page_size: int
         query = query.or_(
             f"roll_number.ilike.*{q}*,full_name.ilike.*{q}*,email.ilike.*{q}*"
         )
-    students = (query.execute()).data or []
+    students = (await query.execute()).data or []
+    if not students:
+        return {"students": [], "page": page, "page_size": page_size, "total": 0}
 
-    # For each student, get aggregate stats from exam_sessions
+    # Batch fetch ALL sessions for all students in 2 queries (not 3 per student)
+    roll_numbers = [s["roll_number"] for s in students]
+
+    # Query 1: all completed sessions with stats
+    all_sessions = (await _atable("exam_sessions")
+                    .select("roll_number,session_key,percentage,risk_score,submitted_at,status")
+                    .eq("teacher_id", tid)
+                    .eq("status", SessionStatus.COMPLETED)
+                    .in_("roll_number", roll_numbers)
+                    .order("submitted_at", desc=True)
+                    .execute()).data or []
+
+    # Aggregate in Python: last exam, count, avg per roll
+    sessions_by_roll: dict[str, list[dict]] = {}
+    for sess in all_sessions:
+        sessions_by_roll.setdefault(sess["roll_number"], []).append(sess)
+
     result = []
     for s in students:
         roll = s["roll_number"]
-        sess_rows = (supabase.table("exam_sessions")
-                     .select("session_key,percentage,risk_score,submitted_at,status")
-                     .eq("roll_number", roll)
-                     .eq("teacher_id", tid)
-                     .eq("status", SessionStatus.COMPLETED)
-                     .order("submitted_at", desc=True)
-                     .limit(1)
-                     .execute()).data or []
-        last_exam = sess_rows[0] if sess_rows else None
-
-        # Count total exams
-        total_count = (supabase.table("exam_sessions")
-                       .select("session_key", count="exact")
-                       .eq("roll_number", roll)
-                       .eq("teacher_id", tid)
-                       .eq("status", SessionStatus.COMPLETED)
-                       .execute()).count or 0
-
-        # Avg score
-        all_sess = (supabase.table("exam_sessions")
-                    .select("percentage,risk_score")
-                    .eq("roll_number", roll)
-                    .eq("teacher_id", tid)
-                    .eq("status", SessionStatus.COMPLETED)
-                    .execute()).data or []
-        percentages = [x["percentage"] for x in all_sess if x.get("percentage") is not None]
+        sess_list = sessions_by_roll.get(roll, [])
+        last_exam = sess_list[0] if sess_list else None
+        total_count = len(sess_list)
+        percentages = [x["percentage"] for x in sess_list if x.get("percentage") is not None]
         avg_pct = round(sum(percentages) / len(percentages), 1) if percentages else None
 
         result.append({
@@ -905,31 +902,10 @@ def search_students(request: Request, q: str = "", page: int = 1, page_size: int
 # ─── 10. EXPORT CSV ──────────────────────────────────────
 
 @router.get("/api/v1/export-csv")
-def export_csv(request: Request, exam_id: str = None):
-    teacher = require_admin(request)
-    results = _fetch_all_results(teacher["id"], exam_id=exam_id)
-    buf = io.StringIO()
-    w   = csv.writer(buf)
-    w.writerow(["Timestamp","SessionID","RollNumber","FullName","Email",
-                "Score","Total","Percentage","TimeTaken","Violations","RiskScore","RiskLabel"])
-    for s in results:
-        w.writerow([
-            s["submitted_at"],
-            s["session_id"],
-            s["roll_number"],
-            s["full_name"],
-            s["email"],
-            s["score"],
-            s["total"],
-            f"{s['percentage']}%",
-            f"{s['time_taken_secs']}s",
-            s["violation_count"],
-            s.get("risk_score", ""),
-            s.get("risk_label", ""),
-        ])
-    buf.seek(0)
+async def export_csv(request: Request, exam_id: str = None):
+    teacher = await require_admin(request)
     return StreamingResponse(
-        iter([buf.getvalue()]),
+        _stream_csv_results(teacher["id"], exam_id=exam_id, max_rows=5000),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=results.csv"})
 
@@ -937,14 +913,14 @@ def export_csv(request: Request, exam_id: str = None):
 # ─── 11. EXPORT EXCEL ─────────────────────────────────────
 
 @router.get("/api/v1/export-excel")
-def export_excel(request: Request, exam_id: str = None):
-    """Results export as a formatted .xlsx workbook."""
+async def export_excel(request: Request, exam_id: str = None):
+    """Results export as a formatted .xlsx workbook. Capped at 5000 rows."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
 
-    teacher = require_admin(request)
-    results = _fetch_all_results(teacher["id"], exam_id=exam_id)
+    teacher = await require_admin(request)
+    results = await _fetch_all_results(teacher["id"], exam_id=exam_id)
 
     wb = Workbook()
     ws = wb.active
@@ -1025,8 +1001,8 @@ def export_excel(request: Request, exam_id: str = None):
 # ─── 12. EXPORT PDF ──────────────────────────────────
 
 @router.get("/api/v1/export-pdf/{session_id:path}")
-def export_pdf(session_id: str, request: Request):
-    teacher = require_admin(request)
+async def export_pdf(session_id: str, request: Request):
+    teacher = await require_admin(request)
     tid = teacher["id"]
     try:
         from reportlab.lib.pagesizes import A4
@@ -1037,9 +1013,9 @@ def export_pdf(session_id: str, request: Request):
                                          Image, PageBreak, KeepTogether)
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-        exam = _assert_session_owned(session_id, tid)
+        exam = await _assert_session_owned(session_id, tid)
 
-        viol_result = supabase.table("violations")\
+        viol_result = await _atable("violations")\
             .select("*")\
             .eq("session_key", session_id)\
             .eq("teacher_id", str(tid))\
@@ -1049,7 +1025,7 @@ def export_pdf(session_id: str, request: Request):
             if v["severity"] in ("high", "medium")
         ]
 
-        ans_result = supabase.table("answers")\
+        ans_result = await _atable("answers")\
             .select("*")\
             .eq("session_key", session_id)\
             .eq("teacher_id", str(tid))\
@@ -1077,7 +1053,7 @@ def export_pdf(session_id: str, request: Request):
                                f"{exam.get('time_taken_secs',0)%60}s)"],
             ["Total Violations", str(len(raw_violations))],
         ]
-        risk = compute_risk_score(session_id, teacher_id=tid)
+        risk = await compute_risk_score(session_id, teacher_id=tid)
         info.append(["Behavioral Risk Score",
                      f"{risk['risk_score']}/100 — {risk['label']}"])
         t = Table(info, colWidths=[160, 310])
@@ -1312,9 +1288,9 @@ def export_pdf(session_id: str, request: Request):
 # ─── 13. SCORECARD PDF ──────────────────────────────────
 
 @router.get("/api/v1/admin/scorecard-pdf/{session_id:path}")
-def scorecard_pdf(session_id: str, request: Request):
+async def scorecard_pdf(session_id: str, request: Request):
     """Generate a student-facing scorecard PDF."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     try:
         pdf_bytes, fname, _ = _build_scorecard_pdf(session_id, tid)
@@ -1331,9 +1307,9 @@ def scorecard_pdf(session_id: str, request: Request):
 # ─── 14. SCORECARD ZIP ──────────────────────────────────
 
 @router.get("/api/v1/admin/scorecard-zip")
-def scorecard_zip(request: Request, exam_id: str = None):
+async def scorecard_zip(request: Request, exam_id: str = None):
     """Generate a ZIP of all student scorecards for an exam."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     try:
         from reportlab.lib.pagesizes import A4
@@ -1342,12 +1318,12 @@ def scorecard_zip(request: Request, exam_id: str = None):
                                          TableStyle, Paragraph, Spacer)
         from reportlab.lib.styles import getSampleStyleSheet
 
-        sess_q = supabase.table("exam_sessions")\
+        sess_q = _atable("exam_sessions")\
             .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at,submitted_at,exam_id")\
             .eq("status", SessionStatus.COMPLETED).eq("teacher_id", str(tid))
         if exam_id:
             sess_q = sess_q.eq("exam_id", exam_id)
-        sessions = (sess_q.execute()).data or []
+        sessions = (await sess_q.execute()).data or []
         if not sessions:
             raise HTTPException(status_code=404, detail="No completed sessions found")
 
@@ -1364,7 +1340,7 @@ def scorecard_zip(request: Request, exam_id: str = None):
         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for sess in sessions:
                 sid = sess["session_key"]
-                ans_rows = (supabase.table("answers").select("question_id,answer")
+                ans_rows = (await _atable("answers").select("question_id,answer")
                             .eq("session_key", sid)
                             .eq("teacher_id", str(tid)).execute()).data or []
                 ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
@@ -1461,27 +1437,27 @@ def scorecard_zip(request: Request, exam_id: str = None):
 # ─── 15. EMAIL SCORECARDS ────────────────────────────────
 
 @router.post("/api/v1/admin/exams/{exam_id}/email-scorecards")
-def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = Body(default=EmailScorecardsIn())):
+async def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = Body(default=EmailScorecardsIn())):
     """Email every completed student their scorecard PDF for this exam."""
     from emailer import send_scorecard_email
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
 
     resend_all = body.resend_all
     custom_message = body.custom_message.strip() or None
     teacher_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
 
-    sess_q = (supabase.table("exam_sessions").select(
+    sess_q = (await _atable("exam_sessions").select(
         "session_key,roll_number,full_name,exam_id,scorecard_emailed_at"
     ).eq("teacher_id", tid).eq("status", SessionStatus.COMPLETED).eq("exam_id", exam_id)
         .limit(1000))
-    sessions = (sess_q.execute()).data or []
+    sessions = (await sess_q.execute()).data or []
     if not sessions:
         raise HTTPException(status_code=404, detail="No completed sessions found for this exam")
 
     roll_emails: dict[str, str] = {}
     try:
-        inv_rows = (supabase.table("student_invites").select("roll_number,email")
+        inv_rows = (await _atable("student_invites").select("roll_number,email")
                     .eq("teacher_id", tid).eq("exam_id", exam_id).execute()).data or []
         for r in inv_rows:
             roll = str(r.get("roll_number") or "").strip().upper()
@@ -1491,7 +1467,7 @@ def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = B
     except Exception as e:
         print(f"[email-scorecards] invite lookup failed: {e}", flush=True)
     try:
-        stud_rows = (supabase.table("students").select("roll_number,email")
+        stud_rows = (await _atable("students").select("roll_number,email")
                      .eq("teacher_id", tid).execute()).data or []
         for r in stud_rows:
             roll = str(r.get("roll_number") or "").strip().upper()
@@ -1524,7 +1500,7 @@ def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = B
 
         now_iso = datetime.now(timezone.utc).isoformat()
         if not resend_all:
-            claim = (supabase.table("exam_sessions")
+            claim = (await _atable("exam_sessions")
                      .update({"scorecard_emailed_at": now_iso})
                      .eq("session_key", sid)
                      .eq("teacher_id", tid)
@@ -1540,7 +1516,7 @@ def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = B
             print(f"[email-scorecards] PDF build failed sid={sid} err={e}", flush=True)
             if not resend_all:
                 try:
-                    (supabase.table("exam_sessions")
+                    (await _atable("exam_sessions")
                      .update({"scorecard_emailed_at": None})
                       .eq("session_key", sid).eq("teacher_id", tid).execute())
                 except Exception as e:
@@ -1568,7 +1544,7 @@ def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = B
                 update_row = {"scorecard_email_msg_id": result.provider_msg_id}
                 if resend_all:
                     update_row["scorecard_emailed_at"] = now_iso
-                (supabase.table("exam_sessions").update(update_row)
+                (await _atable("exam_sessions").update(update_row)
                  .eq("session_key", sid).eq("teacher_id", tid).execute())
             except Exception as e:
                 print(f"[email-scorecards] msg_id update failed sid={sid}: {e}", flush=True)
@@ -1576,7 +1552,7 @@ def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = B
         else:
             if not resend_all:
                 try:
-                    (supabase.table("exam_sessions")
+                    (await _atable("exam_sessions")
                      .update({"scorecard_emailed_at": None})
                       .eq("session_key", sid).eq("teacher_id", tid).execute())
                 except Exception as e:
@@ -1596,25 +1572,25 @@ def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = B
 # ─── 16. FAILED SESSIONS ────────────────────────────────#
 
 @router.get("/api/v1/admin-failed-sessions")
-def failed_sessions(request: Request, exam_id: str = None):
+async def failed_sessions(request: Request, exam_id: str = None):
     """Returns sessions with submit_failed events that never completed."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    failed = supabase.table("violations").select("session_key")\
+    failed = await _atable("violations").select("session_key")\
         .eq("violation_type", "submit_failed")\
         .eq("teacher_id", tid)\
         .execute()
     failed_keys = {r["session_key"] for r in (failed.data or [])}
-    sub_query = supabase.table("exam_sessions").select("session_key")\
+    sub_query = _atable("exam_sessions").select("session_key")\
         .eq("status", SessionStatus.COMPLETED)\
         .eq("teacher_id", tid)\
         .in_("session_key", list(failed_keys) or ["__none__"])
     if exam_id:
         sub_query = sub_query.eq("exam_id", exam_id)
-    submitted = sub_query.execute()
+    submitted = await sub_query.execute()
     submitted_keys = {r["session_key"] for r in (submitted.data or [])}
     if exam_id:
-        es = supabase.table("exam_sessions").select("session_key")\
+        es = await _atable("exam_sessions").select("session_key")\
             .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
         exam_skeys = {r["session_key"] for r in (es.data or [])}
         failed_keys = failed_keys & exam_skeys
@@ -1625,9 +1601,9 @@ def failed_sessions(request: Request, exam_id: str = None):
 # ─── 17. CLEANUP SCREENSHOTS ────────────────────────────#
 
 @router.post("/api/v1/admin-cleanup")
-def admin_cleanup(request: Request):
+async def admin_cleanup(request: Request):
     """Delete the calling teacher's screenshots older than 48 hours."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     deleted = 0
     cutoff  = now_ist() - timedelta(hours=48)
@@ -1649,9 +1625,9 @@ def admin_cleanup(request: Request):
 # ─── 18. CLEAR LIVE SESSIONS ─────────────────────────────#
 
 @router.post("/api/v1/admin/clear-live-sessions")
-def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
+async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
     """Destructive: wipe all in-progress sessions for the calling teacher."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     step = body.step.lower().strip()
 
@@ -1661,18 +1637,18 @@ def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
     exam_id_scope: str | None = raw_eid.strip() or None if raw_eid else None
 
     if step == "request":
-        active, stale = _partition_live_sessions(
+        active, stale = await _partition_live_sessions(
             tid, exam_id=exam_id_scope, include_active=include_active,
         )
         completed_rows: list[dict] = []
         if include_completed:
-            comp_q = supabase.table("exam_sessions")\
+            comp_q = _atable("exam_sessions")\
                 .select("session_key,roll_number,full_name,started_at,submitted_at,exam_id")\
                 .eq("teacher_id", tid)\
                 .eq("status", SessionStatus.COMPLETED)
             if exam_id_scope:
                 comp_q = comp_q.eq("exam_id", exam_id_scope)
-            comp = comp_q.execute()
+            comp = await comp_q.execute()
             completed_rows = comp.data or []
         token = _clear_token_issue(tid)
         return {
@@ -1721,20 +1697,20 @@ def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
             raise HTTPException(status_code=400,
                 detail="Confirmation token is invalid or expired — restart the clear flow")
 
-        active, stale = _partition_live_sessions(
+        active, stale = await _partition_live_sessions(
             tid, exam_id=exam_id_scope, include_active=include_active,
         )
 
         completed_keys: list[str] = []
         comp = None
         if include_completed:
-            comp_q = supabase.table("exam_sessions")\
+            comp_q = _atable("exam_sessions")\
                 .select("session_key,roll_number,exam_id")\
                 .eq("teacher_id", tid)\
                 .eq("status", SessionStatus.COMPLETED)
             if exam_id_scope:
                 comp_q = comp_q.eq("exam_id", exam_id_scope)
-            comp = comp_q.execute()
+            comp = await comp_q.execute()
             completed_keys = [r["session_key"] for r in (comp.data or [])]
 
         if not stale and not completed_keys:
@@ -1783,18 +1759,18 @@ def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
             sk_tid = _sk_tid.get(sk, tid)
             is_ghost = sk in _ghost_keys
             try:
-                q = supabase.table("answers").delete().eq("session_key", sk)
+                q = _atable("answers").delete().eq("session_key", sk)
                 if sk_tid and not is_ghost:
                     q = q.eq("teacher_id", sk_tid)
-                r = q.execute()
+                r = await q.execute()
                 ans_deleted += len(r.data or [])
             except Exception as e:
                 print(f"[ClearLive] answer delete failed {sk}: {e}")
             try:
-                q = supabase.table("violations").delete().eq("session_key", sk)
+                q = _atable("violations").delete().eq("session_key", sk)
                 if sk_tid and not is_ghost:
                     q = q.eq("teacher_id", sk_tid)
-                r = q.execute()
+                r = await q.execute()
                 viol_deleted += len(r.data or [])
             except Exception as e:
                 print(f"[ClearLive] violation delete failed {sk}: {e}")
@@ -1804,10 +1780,10 @@ def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
         for sk in session_keys:
             try:
                 if sk in _ghost_keys:
-                    supabase.table("exam_sessions").delete()\
+                    await _atable("exam_sessions").delete()\
                         .eq("session_key", sk).execute()
                 else:
-                    q = supabase.table("exam_sessions").delete()\
+                    q = _atable("exam_sessions").delete()\
                         .eq("session_key", sk)
                     sk_tid = _sk_tid.get(sk, tid)
                     if sk_tid:
@@ -1816,7 +1792,7 @@ def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
                         q = q.eq("status", SessionStatus.IN_PROGRESS)
                     else:
                         q = q.eq("status", SessionStatus.COMPLETED)
-                    q.execute()
+                    await q.execute()
                 sess_deleted += 1
             except Exception as e:
                 print(f"[ClearLive] session delete failed {sk}: {e}")
@@ -1834,7 +1810,7 @@ def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
                 if not rdir.is_dir():
                     continue
                 if not include_completed:
-                    comp_chk = supabase.table("exam_sessions")\
+                    comp_chk = await _atable("exam_sessions")\
                         .select("session_key", count="exact")\
                         .eq("teacher_id", tid)\
                         .eq("roll_number", roll)\
@@ -1875,20 +1851,20 @@ def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
 # ─── 19. BACKFILL RISK SCORES ──────────────────────────────#
 
 @router.post("/api/v1/admin/backfill-risk-scores")
-def backfill_risk_scores(request: Request, exam_id: str = None):
+async def backfill_risk_scores(request: Request, exam_id: str = None):
     """Recompute and cache risk scores for all completed sessions."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
-    query = supabase.table("exam_sessions").select("session_key")\
+    query = _atable("exam_sessions").select("session_key")\
         .eq("status", SessionStatus.COMPLETED)\
         .eq("teacher_id", str(tid))
     if exam_id:
         query = query.eq("exam_id", exam_id)
-    sessions = query.execute()
+    sessions = await query.execute()
     count = 0
     for s in (sessions.data or []):
-        risk = compute_risk_score(s["session_key"], teacher_id=tid)
-        supabase.table("exam_sessions").update(
+        risk = await compute_risk_score(s["session_key"], teacher_id=tid)
+        _atable("exam_sessions").update(
             {"risk_score": risk["risk_score"]}
         ).eq("session_key", s["session_key"])\
              .eq("teacher_id", str(tid))\
@@ -1898,11 +1874,11 @@ def backfill_risk_scores(request: Request, exam_id: str = None):
 # ─── 20. LIST EXAMS ─────────────────────────────────#
 
 @router.get("/api/v1/admin/exams")
-def list_exams(request: Request):
+async def list_exams(request: Request):
     """List all exams for the calling teacher."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    result = supabase.table("exam_config").select("*").eq("teacher_id", tid).execute()
+    result = await _atable("exam_config").select("*").eq("teacher_id", tid).execute()
     exams = result.data or []
     out = []
     for ex in exams:
@@ -1910,13 +1886,13 @@ def list_exams(request: Request):
         qcount = 0
         scount = 0
         try:
-            qr = supabase.table("questions").select("question_id", count="exact")\
+            qr = await _atable("questions").select("question_id", count="exact")\
                 .eq("teacher_id", tid).eq("exam_id", eid).execute()
             qcount = qr.count if qr.count is not None else len(qr.data or [])
         except Exception as e:
             logger.debug("Failed to count questions for exam %s: %s", eid, e)
         try:
-            sr = supabase.table("exam_sessions").select("session_key", count="exact")\
+            sr = await _atable("exam_sessions").select("session_key", count="exact")\
                 .eq("teacher_id", tid).eq("exam_id", eid).execute()
             scount = sr.count if sr.count is not None else len(sr.data or [])
         except Exception as e:
@@ -1938,15 +1914,15 @@ def list_exams(request: Request):
 # ─── 21. CREATE EXAM ─────────────────────────────────#
 
 @router.post("/api/v1/admin/exams")
-def create_exam(request: Request, body: CreateExamIn = Body(...)):
+async def create_exam(request: Request, body: CreateExamIn = Body(...)):
     """Create a new exam for the calling teacher."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     title = body.exam_title.strip() or "New Exam"
     duration = body.duration_minutes
     exam_id = str(_uuid.uuid4())
     try:
-        result = supabase.table("exam_config").insert({
+        result = _atable("exam_config").insert({
             "exam_id":          exam_id,
             "teacher_id":       tid,
             "exam_title":       title,
@@ -1962,21 +1938,21 @@ def create_exam(request: Request, body: CreateExamIn = Body(...)):
 # ─── 22. DELETE EXAM ─────────────────────────────────#
 
 @router.delete("/api/v1/admin/exams/{exam_id}")
-def delete_exam(exam_id: str, request: Request):
+async def delete_exam(exam_id: str, request: Request):
     """Delete an exam and its questions. Keeps session history."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    check = supabase.table("exam_config").select("exam_id")\
+    check = await _atable("exam_config").select("exam_id")\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     if not check.data:
         raise HTTPException(status_code=404, detail="Exam not found")
-    all_exams = supabase.table("exam_config").select("exam_id")\
+    all_exams = await _atable("exam_config").select("exam_id")\
         .eq("teacher_id", tid).execute()
     if len(all_exams.data or []) <= 1:
         raise HTTPException(status_code=400, detail="Cannot delete your only exam")
-    supabase.table("questions").delete()\
+    await _atable("questions").delete()\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    supabase.table("exam_config").delete()\
+    await _atable("exam_config").delete()\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     if _cache:
         _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
@@ -1987,12 +1963,12 @@ def delete_exam(exam_id: str, request: Request):
 # ─── 23. DUPLICATE EXAM ──────────────────────────────#
 
 @router.post("/api/v1/admin/exams/{exam_id}/duplicate")
-def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})):
+async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})):
     """Clone an exam's config + questions into a fresh exam_id."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
 
-    src_q = (supabase.table("exam_config").select("*")
+    src_q = (await _atable("exam_config").select("*")
              .eq("teacher_id", tid).eq("exam_id", exam_id).execute())
     if not src_q.data:
         raise HTTPException(status_code=404, detail="Exam not found")
@@ -2020,13 +1996,13 @@ def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})
             new_cfg[col] = src[col]
 
     try:
-        supabase.table("exam_config").insert(new_cfg).execute()
+        await _atable("exam_config").insert(new_cfg).execute()
     except Exception as e:
         print(f"[DuplicateExam] config insert failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to clone config: {e}")
 
     try:
-        qsrc = (supabase.table("questions").select("*")
+        qsrc = (await _atable("questions").select("*")
                 .eq("teacher_id", tid).eq("exam_id", exam_id)
                 .order("order_index").execute()).data or []
     except Exception as e:
@@ -2045,14 +2021,14 @@ def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})
             new_rows.append(row)
         try:
             for i in range(0, len(new_rows), 500):
-                supabase.table("questions").insert(new_rows[i:i+500]).execute()
+                await _atable("questions").insert(new_rows[i:i+500]).execute()
                 questions_copied += len(new_rows[i:i+500])
         except Exception as e:
             print(f"[DuplicateExam] question insert failed: {e}")
             try:
-                supabase.table("exam_config").delete()\
+                await _atable("exam_config").delete()\
                     .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
-                supabase.table("questions").delete()\
+                await _atable("questions").delete()\
                     .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
             except Exception as rollback_err:
                 logger.warning("Failed to rollback partial question clone: %s", rollback_err)
@@ -2072,9 +2048,9 @@ def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})
 # ─── 24. ANALYTICS ─────────────────────────────────#
 
 @router.get("/api/v1/admin/analytics")
-def get_analytics(request: Request):
+async def get_analytics(request: Request):
     """Compute exam analytics: score distribution, question analysis, violations, risk."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     exam_id = request.query_params.get("exam_id")
 
@@ -2084,14 +2060,14 @@ def get_analytics(request: Request):
         if cached:
             return cached
 
-    sess_q = supabase.table("exam_sessions")\
+    sess_q = _atable("exam_sessions")\
         .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at")\
         .eq("status", SessionStatus.COMPLETED)
     if tid:
         sess_q = sess_q.eq("teacher_id", tid)
     if exam_id:
         sess_q = sess_q.eq("exam_id", exam_id)
-    sessions = (sess_q.execute()).data or []
+    sessions = (await sess_q.execute()).data or []
 
     if not sessions:
         empty = {"exam_overview": {"count": 0}, "score_distribution": [],
@@ -2133,12 +2109,12 @@ def get_analytics(request: Request):
         all_answers = {sk: {} for sk in skeys}
         for i in range(0, len(skeys), 50):
             chunk = skeys[i:i+50]
-            ans_q = (supabase.table("answers")
+            ans_q = (_atable("answers")
                      .select("session_key,question_id,answer")
                      .in_("session_key", chunk))
             if tid:
                 ans_q = ans_q.eq("teacher_id", tid)
-            for r in (ans_q.execute()).data or []:
+            for r in (await ans_q.execute()).data or []:
                 sk = r.get("session_key")
                 qid = r.get("question_id")
                 if sk and qid is not None:
@@ -2185,11 +2161,11 @@ def get_analytics(request: Request):
                 "correct": total_correct,
             })
 
-    viol_q = supabase.table("violations")\
+    viol_q = _atable("violations")\
         .select("violation_type,severity,session_key,created_at")
     if tid:
         viol_q = viol_q.eq("teacher_id", tid)
-    viols = (viol_q.execute()).data or []
+    viols = (await viol_q.execute()).data or []
     scored_viols = [v for v in viols if True and v.get("severity") in ("high", "medium")]
 
     type_counts = {}
@@ -2223,17 +2199,17 @@ def get_analytics(request: Request):
 # ─── 25. LIST GROUPS ─────────────────────────────────#
 
 @router.get("/api/v1/admin/groups")
-def list_groups(request: Request):
+async def list_groups(request: Request):
     """List all groups for the authenticated teacher."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    rows = (supabase.table("student_groups")
+    rows = (await _atable("student_groups")
             .select("*").eq("teacher_id", tid)
             .order("created_at").execute()).data or []
     counts: dict[str, int] = {}
     if rows:
         gids = [g["id"] for g in rows]
-        members = (supabase.table("student_group_members")
+        members = (await _atable("student_group_members")
                    .select("group_id")
                    .in_("group_id", gids)
                    .eq("teacher_id", tid)
@@ -2248,15 +2224,15 @@ def list_groups(request: Request):
 # ─── 26. CREATE GROUP ─────────────────────────────────#
 
 @router.post("/api/v1/admin/groups")
-def create_group(request: Request, body: CreateGroupIn = Body(...)):
+async def create_group(request: Request, body: CreateGroupIn = Body(...)):
     """Create a new student group."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     name = (body.get("group_name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="group_name is required")
     try:
-        row = (supabase.table("student_groups")
+        row = (await _atable("student_groups")
                .insert({"teacher_id": tid, "group_name": name}).execute()).data
         return row[0] if row else {"ok": True}
     except Exception as e:
@@ -2268,14 +2244,14 @@ def create_group(request: Request, body: CreateGroupIn = Body(...)):
 # ─── 27. RENAME GROUP ─────────────────────────────────#
 
 @router.put("/api/v1/admin/groups/{group_id}")
-def rename_group(group_id: str, request: Request, body: RenameGroupIn = Body(...)):
+async def rename_group(group_id: str, request: Request, body: RenameGroupIn = Body(...)):
     """Rename a student group."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="group_name is required")
-    result = (supabase.table("student_groups")
+    result = (await _atable("student_groups")
               .update({"group_name": name})
               .eq("id", group_id).eq("teacher_id", tid).execute())
     if not result.data:
@@ -2286,11 +2262,11 @@ def rename_group(group_id: str, request: Request, body: RenameGroupIn = Body(...
 # ─── 28. DELETE GROUP ─────────────────────────────────#
 
 @router.delete("/api/v1/admin/groups/{group_id}")
-def delete_group(group_id: str, request: Request):
+async def delete_group(group_id: str, request: Request):
     """Delete a student group (cascades to members and exam assignments)."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    result = (supabase.table("student_groups")
+    result = (await _atable("student_groups")
               .delete().eq("id", group_id).eq("teacher_id", tid).execute())
     if not result.data:
         raise HTTPException(status_code=404, detail="Group not found")
@@ -2300,18 +2276,18 @@ def delete_group(group_id: str, request: Request):
 # ─── 29. LIST GROUP MEMBERS ──────────────────────────#
 
 @router.get("/api/v1/admin/groups/{group_id}/members")
-def list_group_members(group_id: str, request: Request):
+async def list_group_members(group_id: str, request: Request):
     """List members of a group, enriched with email/full_name."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    rows = (supabase.table("student_group_members")
+    rows = (await _atable("student_group_members")
             .select("*").eq("group_id", group_id)
             .eq("teacher_id", tid).execute()).data or []
     if not rows:
         return []
     rolls = [r["roll_number"] for r in rows if r.get("roll_number")]
     if rolls:
-        students = (supabase.table("students")
+        students = (await _atable("students")
                     .select("roll_number,email,full_name")
                     .eq("teacher_id", tid)
                     .in_("roll_number", rolls).execute()).data or []
@@ -2326,11 +2302,11 @@ def list_group_members(group_id: str, request: Request):
 # ─── 30. ADD GROUP MEMBERS ──────────────────────────────#
 
 @router.post("/api/v1/admin/groups/{group_id}/members")
-def add_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
+async def add_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
     """Add students to a group by roll numbers."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    grp = (supabase.table("student_groups")
+    grp = (await _atable("student_groups")
            .select("id").eq("id", group_id).eq("teacher_id", tid).execute()).data
     if not grp:
         raise HTTPException(status_code=404, detail="Group not found")
@@ -2340,22 +2316,22 @@ def add_group_members(group_id: str, request: Request, body: GroupMembersIn = Bo
     rows = [{"group_id": group_id, "roll_number": str(r).strip(), "teacher_id": tid}
             for r in rolls if str(r).strip()]
     if rows:
-        supabase.table("student_group_members").upsert(rows).execute()
+        await _atable("student_group_members").upsert(rows).execute()
     return {"added": len(rows)}
 
 
 # ─── 31. REMOVE GROUP MEMBERS ───────────────────────────#
 
 @router.delete("/api/v1/admin/groups/{group_id}/members")
-def remove_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
+async def remove_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
     """Remove students from a group by roll numbers."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     rolls = body.roll_numbers
     if not rolls:
         raise HTTPException(status_code=400, detail="roll_numbers list is required")
     for r in rolls:
-        supabase.table("student_group_members")\
+        await _atable("student_group_members")\
             .delete().eq("group_id", group_id)\
             .eq("roll_number", str(r).strip())\
             .eq("teacher_id", tid).execute()
@@ -2365,17 +2341,17 @@ def remove_group_members(group_id: str, request: Request, body: GroupMembersIn =
 # ─── 32. LIST EXAM GROUPS ──────────────────────────────#
 
 @router.get("/api/v1/admin/exams/{exam_id}/groups")
-def list_exam_groups(exam_id: str, request: Request):
+async def list_exam_groups(exam_id: str, request: Request):
     """List groups assigned to an exam."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    assignments = (supabase.table("exam_group_assignments")
+    assignments = (await _atable("exam_group_assignments")
                    .select("group_id").eq("exam_id", exam_id)
                    .eq("teacher_id", tid).execute()).data or []
     if not assignments:
         return []
     gids = [a["group_id"] for a in assignments]
-    groups = (supabase.table("student_groups")
+    groups = (await _atable("student_groups")
               .select("*").in_("id", gids).execute()).data or []
     return groups
 
@@ -2383,26 +2359,26 @@ def list_exam_groups(exam_id: str, request: Request):
 # ─── 33. ASSIGN GROUPS TO EXAM ───────────────────────────#
 
 @router.post("/api/v1/admin/exams/{exam_id}/groups")
-def assign_exam_groups(exam_id: str, request: Request, body: ExamGroupAssignIn = Body(...)):
+async def assign_exam_groups(exam_id: str, request: Request, body: ExamGroupAssignIn = Body(...)):
     """Assign groups to an exam for access control."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     group_ids = body.group_ids
     if not group_ids:
         raise HTTPException(status_code=400, detail="group_ids list is required")
     rows = [{"exam_id": exam_id, "group_id": gid, "teacher_id": tid} for gid in group_ids]
-    supabase.table("exam_group_assignments").upsert(rows).execute()
+    await _atable("exam_group_assignments").upsert(rows).execute()
     return {"assigned": len(rows)}
 
 
 # ─── 34. UNASSIGN GROUP FROM EXAM ────────────────────────#
 
 @router.delete("/api/v1/admin/exams/{exam_id}/groups/{group_id}")
-def unassign_exam_group(exam_id: str, group_id: str, request: Request):
+async def unassign_exam_group(exam_id: str, group_id: str, request: Request):
     """Remove a group assignment from an exam."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    supabase.table("exam_group_assignments")\
+    await _atable("exam_group_assignments")\
         .delete().eq("exam_id", exam_id)\
         .eq("group_id", group_id)\
         .eq("teacher_id", tid).execute()
@@ -2412,9 +2388,9 @@ def unassign_exam_group(exam_id: str, group_id: str, request: Request):
 # ─── 35. BULK REGISTER STUDENTS ───────────────────────────#
 
 @router.post("/api/v1/admin/register-students-bulk")
-def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
+async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
     """Admin-only bulk student registration."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     students = body.students
     if not students or not isinstance(students, list):
@@ -2445,7 +2421,7 @@ def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
     skipped = 0
     for row in rows:
         try:
-            supabase.table("students").insert(row).execute()
+            await _atable("students").insert(row).execute()
             registered += 1
         except Exception as e:
             if "duplicate" in str(e).lower() or "unique" in str(e).lower():
@@ -2457,9 +2433,9 @@ def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
 # ─── 36. GET ACCESS CODE ─────────────────────────#
 
 @router.get("/api/v1/admin/access-code")
-def get_access_code(request: Request):
+async def get_access_code(request: Request):
     """Return the current exam access code."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     exam_id = request.query_params.get("exam_id")
     code = _get_access_code(teacher["id"], exam_id=exam_id)
     return {"access_code": code, "enabled": bool(code)}
@@ -2468,9 +2444,9 @@ def get_access_code(request: Request):
 # ─── 37. SET ACCESS CODE ─────────────────────────#
 
 @router.post("/api/v1/admin/access-code")
-def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
+async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
     """Set or clear the exam access code."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     exam_id = body.exam_id
     new_code = body.access_code.strip().upper()
     _set_access_code(new_code, teacher["id"], exam_id=exam_id)
@@ -2482,23 +2458,23 @@ def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
 # ─── 38. REGISTERED COUNT ────────────────────────#
 
 @router.get("/api/v1/admin/registered-count")
-def registered_count(request: Request):
+async def registered_count(request: Request):
     """Return total number of registered students."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
-    query = supabase.table("students").select("roll_number", count="exact")
+    query = _atable("students").select("roll_number", count="exact")
     if tid:
         query = query.eq("teacher_id", tid)
-    result = query.execute()
+    result = await query.execute()
     return {"count": result.count if result.count is not None else len(result.data or [])}
 
 
 # ─── 39. GET EXAM SCHEDULE ────────────────────────#
 
 @router.get("/api/v1/admin/exam-schedule")
-def admin_get_schedule(request: Request):
+async def admin_get_schedule(request: Request):
     """Return current exam schedule for the admin dashboard."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     exam_id = request.query_params.get("exam_id")
     config = _load_exam_config(teacher["id"], exam_id=exam_id)
     return {
@@ -2511,9 +2487,9 @@ def admin_get_schedule(request: Request):
 # ─── 40. SET EXAM SCHEDULE ────────────────────────#
 
 @router.post("/api/v1/admin/exam-schedule")
-def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
+async def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
     """Set or clear exam start/end times."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     exam_id = body.exam_id
 
@@ -2523,7 +2499,7 @@ def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
     if body.ends_at is not None:
         update["ends_at"] = body.ends_at
     if update:
-        supabase.table("exam_config").update(update)\
+        await _atable("exam_config").update(update)\
             .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
 
     if _cache:
@@ -2538,9 +2514,9 @@ def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
 # ─── 41. GET SHUFFLE CONFIG ────────────────────────#
 
 @router.get("/api/v1/admin/shuffle-config")
-def admin_get_shuffle(request: Request):
+async def admin_get_shuffle(request: Request):
     """Return current per-student shuffle toggles."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     exam_id = request.query_params.get("exam_id")
     config = _load_exam_config(teacher["id"], exam_id=exam_id)
     sq, so = config.get("shuffle_questions", True), config.get("shuffle_options", True)
@@ -2550,9 +2526,9 @@ def admin_get_shuffle(request: Request):
 # ─── 42. SET SHUFFLE CONFIG ────────────────────────#
 
 @router.post("/api/v1/admin/shuffle-config")
-def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
+async def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
     """Toggle per-student question / option shuffling."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
     exam_id = body.exam_id
     fields: dict = {}
@@ -2563,11 +2539,11 @@ def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
     if not fields:
         raise HTTPException(status_code=400, detail="No shuffle fields provided")
     if tid and exam_id:
-        supabase.table("exam_config").update(fields)\
+        await _atable("exam_config").update(fields)\
             .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     else:
         update = {**({"teacher_id": tid} if tid else {"id": 1}), **fields}
-        supabase.table("exam_config").upsert(update).execute()
+        await _atable("exam_config").upsert(update).execute()
     if _cache:
         _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
     return {
@@ -2580,18 +2556,18 @@ def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
 # ─── 43. ADMIN FORCE-SUBMIT ────────────────────────#
 
 @router.post("/api/v1/admin-submit/{session_id}")
-def admin_submit(session_id: str, request: Request):
+async def admin_submit(session_id: str, request: Request):
     """Force-submit a session that failed to submit properly."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
 
-    existing_session = _assert_session_owned(session_id, tid)
+    existing_session = await _assert_session_owned(session_id, tid)
     if existing_session.get("status") == SessionStatus.COMPLETED:
         return {"status": "already_submitted"}
 
     from ..dependencies import _recalculate_score
 
-    ev_result = supabase.table("violations")\
+    ev_result = await _atable("violations")\
         .select("*")\
         .eq("session_key", session_id)\
         .eq("teacher_id", str(tid))\
@@ -2614,7 +2590,7 @@ def admin_submit(session_id: str, request: Request):
                 pass  # Malformed details string — use defaults
 
     try:
-        s_result = supabase.table("students").select("*")\
+        s_result = await _atable("students").select("*")\
             .eq("roll_number", roll_number)\
             .eq("teacher_id", str(tid))\
             .execute()
@@ -2645,7 +2621,7 @@ def admin_submit(session_id: str, request: Request):
     violations = [e for e in events
                   if e["severity"] in ("high", "medium")
                   and True]
-    risk = compute_risk_score(session_id, teacher_id=tid)
+    risk = await compute_risk_score(session_id, teacher_id=tid)
 
     sess_row = {
         "session_key":     session_id,
@@ -2663,7 +2639,7 @@ def admin_submit(session_id: str, request: Request):
     }
     if existing_eid:
         sess_row["exam_id"] = existing_eid
-    supabase.table("exam_sessions").upsert(sess_row).execute()
+    await _atable("exam_sessions").upsert(sess_row).execute()
 
     if answers_map:
         ans_rows = []
@@ -2673,9 +2649,9 @@ def admin_submit(session_id: str, request: Request):
             if existing_eid:
                 row["exam_id"] = existing_eid
             ans_rows.append(row)
-        supabase.table("answers").upsert(ans_rows).execute()
+        await _atable("answers").upsert(ans_rows).execute()
 
-    supabase.table("violations").insert({
+    await _atable("violations").insert({
         "session_key":    session_id,
         "teacher_id":     str(tid),
         "violation_type": "exam_submitted",
@@ -2698,10 +2674,10 @@ def admin_submit(session_id: str, request: Request):
 @router.post("/api/v1/admin/sessions/{session_id:path}/request-recalibration")
 async def request_recalibration(session_id: str, request: Request):
     """End a live session and ask the student to restart for fresh calibration."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = teacher["id"]
 
-    sess = _assert_session_owned(session_id, tid)
+    sess = await _assert_session_owned(session_id, tid)
     status = (sess.get("status") or "").lower()
     if status in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED):
         raise HTTPException(status_code=409,
@@ -2709,7 +2685,7 @@ async def request_recalibration(session_id: str, request: Request):
 
     if status != SessionStatus.ABANDONED:
         try:
-            supabase.table("exam_sessions")\
+            await _atable("exam_sessions")\
              .update({"status": SessionStatus.ABANDONED})\
              .eq("session_key", session_id)\
              .eq("teacher_id", str(tid)).execute()
@@ -2750,10 +2726,10 @@ async def request_recalibration(session_id: str, request: Request):
 # ─── 45. LIVE VIEW START ─────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/start")
-def live_view_start(session_id: str, request: Request):
-    teacher = require_admin(request)
+async def live_view_start(session_id: str, request: Request):
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    _assert_session_owned(session_id, tid)
+    await _assert_session_owned(session_id, tid)
     if _cache:
         _cache.set(f"liveview:{session_id}", {"tid": tid, "started_at": now_ist().isoformat()},
                    ttl=60)
@@ -2763,11 +2739,11 @@ def live_view_start(session_id: str, request: Request):
 # ─── 46. LIVE RISK TRIAGE ─────────────────────────#
 
 @router.get("/api/v1/admin/sessions/{session_id:path}/triage")
-def live_risk_triage_endpoint(session_id: str, request: Request):
+async def live_risk_triage_endpoint(session_id: str, request: Request):
     """One-line LLM TL;DR of a live session's recent violations."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    _assert_session_owned(session_id, tid)
+    await _assert_session_owned(session_id, tid)
 
     cache_key = f"triage:{session_id}"
     if _cache:
@@ -2776,7 +2752,7 @@ def live_risk_triage_endpoint(session_id: str, request: Request):
             return {**cached, "cached": True}
 
     try:
-        sess = (supabase.table("exam_sessions").select(
+        sess = (await _atable("exam_sessions").select(
                 "session_key,roll_number,full_name,exam_id,started_at,current_question")
                 .eq("session_key", session_id).eq("teacher_id", tid)
                 .limit(1).execute()).data or []
@@ -2812,7 +2788,7 @@ def live_risk_triage_endpoint(session_id: str, request: Request):
     }
 
     try:
-        viol_rows = (supabase.table("violations").select("*")
+        viol_rows = (await _atable("violations").select("*")
                      .eq("session_key", session_id).eq("teacher_id", tid)
                      .order("created_at", desc=True).limit(80)
                      .execute()).data or []
@@ -2836,10 +2812,10 @@ def live_risk_triage_endpoint(session_id: str, request: Request):
 # ─── 47. LIVE VIEW KEEPALIVE ────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/keepalive")
-def live_view_keepalive(session_id: str, request: Request):
-    teacher = require_admin(request)
+async def live_view_keepalive(session_id: str, request: Request):
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    _assert_session_owned(session_id, tid)
+    await _assert_session_owned(session_id, tid)
     if _cache:
         _cache.set(f"liveview:{session_id}", {"tid": tid, "renewed_at": now_ist().isoformat()},
                    ttl=60)
@@ -2849,10 +2825,10 @@ def live_view_keepalive(session_id: str, request: Request):
 # ─── 48. LIVE VIEW STOP ─────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/stop")
-def live_view_stop(session_id: str, request: Request):
-    teacher = require_admin(request)
+async def live_view_stop(session_id: str, request: Request):
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    _assert_session_owned(session_id, tid)
+    await _assert_session_owned(session_id, tid)
     if _cache:
         _cache.delete(f"liveview:{session_id}")
         _cache.delete(f"liveframe:{session_id}")
@@ -2862,15 +2838,15 @@ def live_view_stop(session_id: str, request: Request):
 # ─── 49. LIVE FRAME ─────────────────────────#
 
 @router.get("/api/v1/admin/sessions/{session_id:path}/live-frame")
-def live_view_frame(session_id: str, request: Request):
+async def live_view_frame(session_id: str, request: Request):
     """Return the latest webcam frame for this session.
 
     Supports both legacy base64 (from HTTP POST) and raw bytes
     (from WebSocket binary stream).
     """
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    _assert_session_owned(session_id, tid)
+    await _assert_session_owned(session_id, tid)
     from starlette.responses import Response
     if not _cache:
         return Response(status_code=204)
@@ -2899,10 +2875,10 @@ def live_view_frame(session_id: str, request: Request):
 # ─── 50. LIVE VIEW FORCE STOP ────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/force-stop")
-def live_view_force_stop(session_id: str, request: Request):
-    teacher = require_admin(request)
+async def live_view_force_stop(session_id: str, request: Request):
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    _assert_session_owned(session_id, tid)
+    await _assert_session_owned(session_id, tid)
     if _cache:
         _cache.delete(f"liveview:{session_id}")
         _cache.delete(f"liveframe:{session_id}")
@@ -2924,29 +2900,24 @@ class SendInvitesBody(BaseModel):
 
 
 @router.post("/api/v1/admin/invites/send")
-def send_invites(body: SendInvitesBody, request: Request):
+async def send_invites(body: SendInvitesBody, request: Request):
     """Send invites to a batch of students. Upserts on duplicate
-    (teacher, email, exam) to avoid double-invites."""
+     (teacher, email, exam) to avoid double-invites."""
     from ..emailer import send_invite_email
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     base_url = _get_invite_base_url()
-    today = datetime.now(timezone.utc).date().isoformat()
 
-    # Check remaining daily quota
-    counter_rows = (supabase.table("invite_send_counters")
-                    .select("count")
-                    .eq("teacher_id", tid).eq("day", today).execute()).data
-    used = counter_rows[0]["count"] if counter_rows else 0
-    remaining = INVITE_DAILY_CAP - used
-    if len(body.recipients) > remaining:
+    # Atomic check-and-reserve daily quota (avoids race condition)
+    ok, remaining = await _claim_and_bump_cap(tid, len(body.recipients))
+    if not ok:
         raise HTTPException(
             status_code=429,
             detail=f"Daily cap exceeded. {remaining} remaining, {len(body.recipients)} requested."
         )
 
     # Fetch exam config for invite template
-    exam_cfg = (supabase.table("exam_config")
+    exam_cfg = (await _atable("exam_config")
                 .select("*")
                 .eq("teacher_id", tid).eq("exam_id", body.exam_id).execute()).data
     exam_title = exam_cfg[0].get("exam_title", body.exam_id) if exam_cfg else body.exam_id
@@ -2973,7 +2944,7 @@ def send_invites(body: SendInvitesBody, request: Request):
         }
 
         # Check for existing invite to upsert
-        existing = (supabase.table("student_invites")
+        existing = (await _atable("student_invites")
                     .select("id,token")
                     .eq("teacher_id", tid)
                     .eq("email", rec.email.strip().lower())
@@ -2981,13 +2952,13 @@ def send_invites(body: SendInvitesBody, request: Request):
 
         if existing:
             # Upssert: update token and mark re-sent
-            (supabase.table("student_invites")
+            (await _atable("student_invites")
              .update({"token": token, "status": InviteStatus.SENT,
                       "sent_at": now_ist().isoformat(),
                       "custom_message": body.custom_message})
              .eq("id", existing[0]["id"]).execute())
         else:
-            (supabase.table("student_invites").insert(invite_row).execute())
+            (await _atable("student_invites").insert(invite_row).execute())
 
         # Send email
         send_result = send_invite_email(
@@ -3001,7 +2972,7 @@ def send_invites(body: SendInvitesBody, request: Request):
         )
         if send_result.ok:
             # Stamp provider_msg_id on the invite
-            (supabase.table("student_invites")
+            (await _atable("student_invites")
              .update({"provider_msg_id": send_result.provider_msg_id})
              .eq("teacher_id", tid).eq("email", rec.email.strip().lower())
              .eq("exam_id", body.exam_id).execute())
@@ -3009,32 +2980,23 @@ def send_invites(body: SendInvitesBody, request: Request):
         else:
             results["failed"] += 1
 
-    # Bump counter
-    if existing_counter := counter_rows:
-        (supabase.table("invite_send_counters")
-         .update({"count": used + len(body.recipients)})
-         .eq("teacher_id", tid).eq("day", today).execute())
-    else:
-        (supabase.table("invite_send_counters")
-         .insert({"teacher_id": tid, "day": today, "count": len(body.recipients)}).execute())
-
     return results
 
 
 @router.get("/api/v1/admin/invites")
-def list_invites(request: Request, exam_id: Optional[str] = None):
+async def list_invites(request: Request, exam_id: Optional[str] = None):
     """List all invites for the authenticated teacher."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     base_url = _get_invite_base_url()
 
-    query = (supabase.table("student_invites")
+    query = (_atable("student_invites")
              .select("*")
              .eq("teacher_id", tid)
              .order("sent_at", desc=True))
     if exam_id:
         query = query.eq("exam_id", exam_id)
-    result = query.execute()
+    result = await query.execute()
 
     invites = []
     for row in result.data or []:
@@ -3056,12 +3018,12 @@ def list_invites(request: Request, exam_id: Optional[str] = None):
 
 
 @router.delete("/api/v1/admin/invites/{invite_id}")
-def revoke_invite(invite_id: str, request: Request):
+async def revoke_invite(invite_id: str, request: Request):
     """Revoke a single invite by ID."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
 
-    result = (supabase.table("student_invites")
+    result = (await _atable("student_invites")
               .select("id,teacher_id,status")
               .eq("id", invite_id).execute())
     if not result.data:
@@ -3069,7 +3031,7 @@ def revoke_invite(invite_id: str, request: Request):
     if result.data[0].get("teacher_id") != tid:
         raise HTTPException(status_code=403, detail="Not your invite")
 
-    (supabase.table("student_invites")
+    (await _atable("student_invites")
      .update({"status": InviteStatus.REVOKED, "revoked_at": now_ist().isoformat()})
      .eq("id", invite_id).execute())
     return {"ok": True, "invite_id": invite_id}
@@ -3085,9 +3047,9 @@ class SaveTemplateIn(BaseModel):
 
 
 @router.post("/api/v1/templates")
-def save_template(request: Request, body: SaveTemplateIn):
+async def save_template(request: Request, body: SaveTemplateIn):
     """Save the current exam config (+ optionally questions) as a reusable template."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
 
     # Verify ownership
@@ -3117,7 +3079,7 @@ def save_template(request: Request, body: SaveTemplateIn):
         "shuffle_options": template_data["shuffle_options"],
         "questions": questions,
     }
-    result = (supabase.table("exam_templates")
+    result = (await _atable("exam_templates")
               .insert(row)
               .execute())
     template_id = result.data[0]["id"] if result.data else None
@@ -3125,11 +3087,11 @@ def save_template(request: Request, body: SaveTemplateIn):
 
 
 @router.get("/api/v1/templates")
-def list_templates(request: Request):
+async def list_templates(request: Request):
     """List all templates for the current teacher."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
-    result = (supabase.table("exam_templates")
+    result = (await _atable("exam_templates")
               .select("id,template_name,exam_title,duration_minutes,access_code,"
                       "shuffle_questions,shuffle_options,created_at,questions")
               .eq("teacher_id", tid)
@@ -3152,12 +3114,12 @@ def list_templates(request: Request):
 
 
 @router.post("/api/v1/templates/{template_id}/create-exam")
-def create_exam_from_template(template_id: str, request: Request):
+async def create_exam_from_template(template_id: str, request: Request):
     """Create a new exam from a template — copies config + questions."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
 
-    t_result = (supabase.table("exam_templates")
+    t_result = (await _atable("exam_templates")
                 .select("*")
                 .eq("id", template_id)
                 .eq("teacher_id", tid)
@@ -3180,7 +3142,7 @@ def create_exam_from_template(template_id: str, request: Request):
         "shuffle_questions": tmpl.get("shuffle_questions", False),
         "shuffle_options": tmpl.get("shuffle_options", False),
     }
-    (supabase.table("exam_config")
+    (await _atable("exam_config")
      .insert(config_row)
      .execute())
 
@@ -3190,7 +3152,7 @@ def create_exam_from_template(template_id: str, request: Request):
         # Re-assign question IDs to avoid collisions
         for q in questions:
             q["id"] = str(_uuid_mod.uuid4())
-        (supabase.table("questions")
+        (await _atable("questions")
          .insert(questions)
          .execute())
 
@@ -3203,12 +3165,12 @@ def create_exam_from_template(template_id: str, request: Request):
 
 
 @router.delete("/api/v1/templates/{template_id}")
-def delete_template(template_id: str, request: Request):
+async def delete_template(template_id: str, request: Request):
     """Delete a template."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
 
-    result = (supabase.table("exam_templates")
+    result = (await _atable("exam_templates")
               .delete()
               .eq("id", template_id)
               .eq("teacher_id", tid)

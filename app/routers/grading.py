@@ -56,8 +56,7 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
     eid = sess.data[0].get("exam_id")
 
     try:
-        mcq_score, mcq_total = await asyncio.to_thread(
-            _recalculate_score, session_key, {}, teacher_id, eid)
+        mcq_score, mcq_total = await _recalculate_score(session_key, {}, teacher_id, eid)
     except Exception as e:
         print(f"[rollup] mcq recalc failed: {e}")
         return None
@@ -98,7 +97,7 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
 async def pending_grades(request: Request):
     """List answers to short-answer questions that haven't been
     teacher-confirmed yet. Optionally filtered by exam_id."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     exam_id = request.query_params.get("exam_id")
 
@@ -173,7 +172,7 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
     a single request bounded; dashboard batches if the queue is
     larger.
     """
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     from llm import is_configured, grade_short_answer  # noqa
     if not is_configured():
@@ -229,7 +228,7 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
     Sets teacher_score (the value used in the gradebook) and
     graded_at (audit timestamp). Score can match the AI suggestion
     or be overridden — both flow through the same endpoint."""
-    teacher = require_admin(request)
+    teacher = await require_admin(request)
     tid = str(teacher["id"])
     answer_id = body.answer_id
     score = body.score

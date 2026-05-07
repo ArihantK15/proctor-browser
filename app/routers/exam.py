@@ -94,7 +94,7 @@ async def validate_student(request: Request, body: ValidateIn):
                 pre_exam_id = inv_pre.data[0].get("exam_id")
 
     # Check exam time window using the student's teacher config
-    config = await asyncio.to_thread(_load_exam_config, pre_tid, exam_id=exam_id)
+    config = await _load_exam_config(pre_tid, exam_id=exam_id)
     now_utc = datetime.now(timezone.utc)
     if config.get("starts_at"):
         starts = datetime.fromisoformat(str(config["starts_at"]).replace("Z", "+00:00"))
@@ -192,7 +192,7 @@ async def validate_student(request: Request, body: ValidateIn):
     student_tid = student.get("teacher_id")
 
     # Check exam access code if configured
-    current_code = await asyncio.to_thread(_get_access_code, student_tid, exam_id=exam_id)
+    current_code = await _get_access_code(student_tid, exam_id=exam_id)
     provided = (body.access_code or "").strip().upper()
     matched_invite_id = None
     if current_code:
@@ -226,7 +226,7 @@ async def validate_student(request: Request, body: ValidateIn):
                 detail="Invalid exam access code. Ask your examiner for the correct code.")
     # Check group-based access restrictions
     if exam_id and student_tid:
-        if not await asyncio.to_thread(_check_group_access, student["roll_number"], str(student_tid), exam_id):
+        if not await _check_group_access(student["roll_number"], str(student_tid), exam_id):
             raise HTTPException(
                 status_code=403,
                 detail="You are not in a group assigned to this exam. Contact your teacher.")
@@ -292,10 +292,10 @@ async def get_questions(request: Request):
     claims = require_auth(request)
     tid = claims.get("tid")
     eid = claims.get("eid")
-    questions = await asyncio.to_thread(_load_questions, tid, exam_id=eid)
+    questions = await _load_questions(tid, exam_id=eid)
     if not questions:
         raise HTTPException(status_code=404, detail="Questions not found")
-    config = await asyncio.to_thread(_load_exam_config, tid, exam_id=eid)
+    config = await _load_exam_config(tid, exam_id=eid)
 
     # Deterministic per-session shuffle
     session_id = (request.query_params.get("session_id") or "").strip()
@@ -345,12 +345,12 @@ async def check_session(roll_number: str, request: Request):
 
     # Build reverse map for shuffled options
     session_key = session["session_key"]
-    config = await asyncio.to_thread(_load_exam_config, str(tid or ""), exam_id=eid)
+    config = await _load_exam_config(str(tid or ""), exam_id=eid)
     shuffle_q, shuffle_o = _get_shuffle_flags(config)
     reverse: dict[str, dict[str, str]] = {}
     if shuffle_o:
         try:
-            questions = await asyncio.to_thread(_load_questions, str(tid or ""), exam_id=eid)
+            questions = await _load_questions(str(tid or ""), exam_id=eid)
             _, label_maps = _build_shuffle_view(
                 questions, session_key, str(tid or ""),
                 shuffle_q=shuffle_q, shuffle_o=shuffle_o)
@@ -554,8 +554,7 @@ async def save_answer(body: AnswerIn, request: Request):
     _check_session_ownership(claims, body.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
-    canonical = await asyncio.to_thread(
-        _canonicalise_student_answer,
+    canonical = await _canonicalise_student_answer(
         body.session_id, str(tid or ""), str(body.question_id), str(body.answer),
         eid)
     row = {
@@ -643,10 +642,8 @@ async def submit_exam(result: ResultIn, request: Request):
         raise HTTPException(status_code=409, detail="Exam already submitted")
 
     # Phase 1: Score + config in parallel
-    score_fut = asyncio.to_thread(
-        _recalculate_score, result.session_id, result.answers,
-        teacher_id=tid, exam_id=eid)
-    config_fut = asyncio.to_thread(_load_exam_config, teacher_id=tid, exam_id=eid)
+    score_fut = _recalculate_score(result.session_id, result.answers, teacher_id=tid, exam_id=eid)
+    config_fut = _load_exam_config(teacher_id=tid, exam_id=eid)
     try:
         (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
     except RuntimeError as e:
@@ -714,7 +711,7 @@ async def submit_exam(result: ResultIn, request: Request):
                                     detail="Failed to save exam submission. Please retry.")
 
     # Phase 3: Risk score
-    risk = await asyncio.to_thread(compute_risk_score, result.session_id, teacher_id=tid)
+    risk = await compute_risk_score(result.session_id, teacher_id=tid)
     upd = _atable("exam_sessions").eq("session_key", result.session_id)
     if tid:
         upd = upd.eq("teacher_id", str(tid))

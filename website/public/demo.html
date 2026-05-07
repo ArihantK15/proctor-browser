@@ -39,9 +39,15 @@ function useTime() {
   return t;
 }
 
-// Stage — fixed 1920×1080 canvas scaled to fit the viewport while
-// preserving aspect ratio. CSS transform:scale is GPU-accelerated and
-// keeps all internal coordinates pixel-perfect for the scenes.
+// Stage — fixed 1920×1080 canvas. The internal scenes were authored
+// with intentional negative space inside the canvas (BW wrapper with
+// maxWidth:1440 + flex-centered content), so a strict contain-scale
+// leaves the visible area looking sparse — black bands top + bottom
+// and tiny content. We scale to a slightly larger size than fit
+// (SCALE_BOOST) so the canvas overflows the viewport in one or both
+// axes; the parent's overflow:hidden crops the empty edges. Net
+// effect: the centered scene content fills the visible frame.
+const SCALE_BOOST = 1.18;
 function Stage({ width, height, duration, background, speed = 1, children }) {
   const wrapRef = _useRef(null);
   const [scale, setScale] = _useState(1);
@@ -54,9 +60,11 @@ function Stage({ width, height, duration, background, speed = 1, children }) {
       if (!wrapRef.current) return;
       const w = wrapRef.current.clientWidth;
       const h = wrapRef.current.clientHeight;
-      // Defensive: if the parent (an iframe) hasn't been sized yet,
-      // clientWidth/Height can be 0 → don't lock scale to 0.
-      if (w > 0 && h > 0) setScale(Math.min(w / width, h / height));
+      if (w > 0 && h > 0) {
+        // Contain-fit, then bump 18% so centered content fills the
+        // visible area and only the empty borders get cropped.
+        setScale(Math.min(w / width, h / height) * SCALE_BOOST);
+      }
     };
     recompute();
     const ro = new ResizeObserver(recompute);

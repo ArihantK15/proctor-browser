@@ -1,8 +1,37 @@
 import { motion } from 'framer-motion'
 import { Play } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useState, useRef, useEffect } from 'react'
 
 export default function Demo() {
+  // The demo is a 95 KB animated React app served from /demo.html. We only
+  // load it after the user clicks Play — it pulls React + Babel from a CDN
+  // (~250 KB) and immediately starts a requestAnimationFrame loop, neither
+  // of which we want running on first paint of the marketing page.
+  const [playing, setPlaying] = useState(false)
+  const cardRef = useRef(null)
+
+  // Lazy-mount the iframe when the demo card scrolls into view, so visitors
+  // who scroll past it don't pay the load cost. Click-to-play is still
+  // gated on the `playing` flag below — IntersectionObserver only warms
+  // the connection by setting an early "almost playing" hint via prefetch.
+  useEffect(() => {
+    if (!cardRef.current || playing) return
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) {
+        // Prefetch the demo HTML so the click→play feels instant.
+        const link = document.createElement('link')
+        link.rel = 'prefetch'
+        link.href = '/demo.html'
+        link.as = 'document'
+        document.head.appendChild(link)
+        io.disconnect()
+      }
+    }, { rootMargin: '200px' })
+    io.observe(cardRef.current)
+    return () => io.disconnect()
+  }, [playing])
+
   return (
     <section id="demo" className="relative py-24 md:py-32 bg-navy-900/30">
       <div className="pointer-events-none absolute inset-0 grain-overlay" />
@@ -32,16 +61,39 @@ export default function Demo() {
           transition={{ duration: 0.6, delay: 0.1 }}
           className="relative mx-auto mt-12 max-w-4xl"
         >
-          <div className="group relative aspect-video cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08] bg-navy-800 grain-overlay">
+          <div
+            ref={cardRef}
+            onClick={() => !playing && setPlaying(true)}
+            role={playing ? undefined : 'button'}
+            tabIndex={playing ? undefined : 0}
+            onKeyDown={(e) => {
+              if (!playing && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault()
+                setPlaying(true)
+              }
+            }}
+            className={`group relative aspect-video overflow-hidden rounded-2xl border border-white/[0.08] bg-navy-800 ${playing ? '' : 'cursor-pointer grain-overlay'}`}
+          >
             {/* Accent top line */}
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent/40 to-transparent z-10" />
-            {/* Placeholder — replace with actual video embed */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-accent-dark shadow-lg transition-transform group-hover:scale-110 accent-glow-strong">
-                <Play size={28} className="ml-1 text-white" fill="white" />
+
+            {playing ? (
+              <iframe
+                src="/demo.html"
+                title="Procta product demo"
+                loading="lazy"
+                className="absolute inset-0 h-full w-full"
+                style={{ border: 0 }}
+                allow="autoplay"
+              />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-accent-dark shadow-lg transition-transform group-hover:scale-110 accent-glow-strong">
+                  <Play size={28} className="ml-1 text-white" fill="white" />
+                </div>
+                <span className="label-mono text-slate-400" style={{ fontSize: '12px' }}>Product Demo — 1 min 38 s</span>
               </div>
-              <span className="label-mono text-slate-400" style={{ fontSize: '12px' }}>Product Demo — 2 min</span>
-            </div>
+            )}
           </div>
         </motion.div>
 

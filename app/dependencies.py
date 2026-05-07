@@ -294,6 +294,7 @@ async def require_student_account(request: Request) -> dict:
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from starlette.responses import JSONResponse
 
 def _rate_limit_key(request: Request) -> str:
     if _LOADTEST_SECRET and request.headers.get("X-Loadtest-Key") == _LOADTEST_SECRET:
@@ -301,6 +302,14 @@ def _rate_limit_key(request: Request) -> str:
     return get_remote_address(request)
 
 limiter = Limiter(key_func=_rate_limit_key)
+
+async def _custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """Rate limit exceeded handler with logging."""
+    _dep_log.warning("[rate-limit] %s %s from %s", request.method, request.url.path, get_remote_address(request))
+    return JSONResponse(
+        status_code=429,
+        content={"error": "RATE_LIMITED", "detail": "Too many requests. Please try again later."}
+    )
 
 # ─── PYDANTIC MODELS ──────────────────────────────────────────────
 class EventIn(BaseModel):
@@ -1345,45 +1354,49 @@ async def _fetch_all_results(teacher_id: str = None, exam_id: str = None, limit:
 
 async def _stream_csv_results(teacher_id: str = None, exam_id: str = None, max_rows: int = 5000):
     """Yield CSV rows incrementally to avoid loading all results into memory."""
-    batch_size = 500
-    offset = 0
-    header_written = False
-    total_yielded = 0
-    while total_yielded < max_rows:
-        query = _atable("exam_sessions").select("*").eq("status", SessionStatus.COMPLETED)
-        if teacher_id:
-            query = query.eq("teacher_id", teacher_id)
-        if exam_id:
-            query = query.eq("exam_id", exam_id)
-        sess_result = await query.order("submitted_at", desc=True).range(offset, offset + batch_size - 1).execute()
-        batch = sess_result.data or []
-        if not batch:
-            break
-        sks = [s["session_key"] for s in batch]
-        vcounts = await _violation_counts_by_session(sks)
-        for s in batch:
-            if total_yielded == 0 and not header_written:
-                header_written = True
-                yield "Timestamp,SessionID,RollNumber,FullName,Email,Score,Total,Percentage,TimeTaken,Violtions,RiskScore,RiskLabel\n"
-            row = [
-                fmt_ist(s.get("submitted_at", "")),
-                s["session_key"],
-                s["roll_number"],
-                s["full_name"],
-                s.get("email", ""),
-                s.get("score", 0),
-                s.get("total", 0),
-                f"{s.get('percentage', 0.0)}%",
-                f"{s.get('time_taken_secs', 0)}s",
-                vcounts.get(s["session_key"], 0),
-                s.get("risk_score", ""),
-                _risk_label(s["risk_score"]) if s.get("risk_score") is not None else "",
-            ]
-            yield ",".join(str(v).replace('"', '""') if isinstance(v, str) else str(v) for v in row) + "\n"
-            total_yielded += 1
-            if total_yielded >= max_rows:
-                return
-        offset += batch_size
+    try:
+        batch_size = 500
+        offset = 0
+        header_written = False
+        total_yielded = 0
+        while total_yielded < max_rows:
+            query = _atable("exam_sessions").select("*").eq("status", SessionStatus.COMPLETED)
+            if teacher_id:
+                query = query.eq("teacher_id", teacher_id)
+            if exam_id:
+                query = query.eq("exam_id", exam_id)
+            sess_result = await query.order("submitted_at", desc=True).range(offset, offset + batch_size - 1).execute()
+            batch = sess_result.data or []
+            if not batch:
+                break
+            sks = [s["session_key"] for s in batch]
+            vcounts = await _violation_counts_by_session(sks)
+            for s in batch:
+                if total_yielded == 0 and not header_written:
+                    header_written = True
+                    yield "Timestamp,SessionID,RollNumber,FullName,Email,Score,Total,Percentage,TimeTaken,Violtions,RiskScore,RiskLabel\n"
+                row = [
+                    fmt_ist(s.get("submitted_at", "")),
+                    s["session_key"],
+                    s["roll_number"],
+                    s["full_name"],
+                    s.get("email", ""),
+                    s.get("score", 0),
+                    s.get("total", 0),
+                    f"{s.get('percentage', 0.0)}%",
+                    f"{s.get('time_taken_secs', 0)}s",
+                    vcounts.get(s["session_key"], 0),
+                    s.get("risk_score", ""),
+                    _risk_label(s["risk_score"]) if s.get("risk_score") is not None else "",
+                ]
+                yield ",".join(str(v).replace('"', '""') if isinstance(v, str) else str(v) for v in row) + "\n"
+                total_yielded += 1
+                if total_yielded >= max_rows:
+                    return
+            offset += batch_size
+    except Exception as e:
+        _dep_log.error("[csv] stream failed: %s", e)
+        yield f"\n# Error: {e}\n"
 
 # ─── REMINDER LOOP ────────────────────────────────────────────────
 from .reminders import _reminder_tick, _reminder_loop, _send_reminder_for_invite, _reminder_window

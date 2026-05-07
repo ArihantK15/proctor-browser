@@ -92,6 +92,7 @@ class _InviteStub:
         chain._ins = {}      # {column: [allowed_values]} from .in_()
         chain._payload = None
         chain._op = None
+        chain._on_conflict = None
 
         def _select(*a, **k): chain._op = "select"; return chain
         def _eq(c, v): chain._eqs[c] = v; return chain
@@ -100,7 +101,11 @@ class _InviteStub:
         def _limit(*a, **k): return chain
         def _update(p): chain._op = "update"; chain._payload = p; return chain
         def _insert(p): chain._op = "insert"; chain._payload = p; return chain
-        def _upsert(p): chain._op = "upsert"; chain._payload = p; return chain
+        def _upsert(p, on_conflict=None):
+            chain._op = "upsert"
+            chain._payload = p
+            chain._on_conflict = on_conflict
+            return chain
         def _delete(): chain._op = "delete"; return chain
 
         def _execute():
@@ -138,7 +143,20 @@ class _InviteStub:
             if chain._op == "upsert":
                 new = chain._payload if isinstance(chain._payload, list) \
                     else [chain._payload]
-                ds.extend(new)
+                # If on_conflict columns are set, find and update matching rows
+                if hasattr(chain, '_on_conflict') and chain._on_conflict:
+                    conflict_cols = [c.strip() for c in chain._on_conflict.split(",")]
+                    for row in new:
+                        matched = False
+                        for existing in ds:
+                            if all(str(existing.get(c, "")) == str(row.get(c, "")) for c in conflict_cols):
+                                existing.update(row)
+                                matched = True
+                                break
+                        if not matched:
+                            ds.append(row)
+                else:
+                    ds.extend(new)
                 return MagicMock(data=new)
             if chain._op == "update":
                 matched = self._apply_filters(ds, chain._eqs, chain._ins)

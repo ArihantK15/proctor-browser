@@ -25,6 +25,7 @@ from starlette.responses import Response, StreamingResponse
 # ── shared deps (config, auth, helpers, models) ────────────────────
 from .dependencies import (
     _rate_limit_key,
+    _custom_rate_limit_handler,
     _cleanup_screenshots,
     _reminder_loop,
     SCREENSHOTS_DIR,
@@ -72,7 +73,7 @@ limiter = Limiter(key_func=_rate_limit_key)
 
 app = FastAPI(title="AI Proctor Server")
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _custom_rate_limit_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,

@@ -20,6 +20,33 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
 
+# ─── SHORT-LIVED CONNECTION TOKENS (avoid JWT in URL query params) ─
+_connect_tokens: dict[str, str] = {}  # token -> teacher_id
+_connect_tokens_lock = asyncio.Lock()
+
+@router.post("/api/v1/sse/connect-token")
+async def sse_connect_token(request: Request):
+    """Exchange a valid auth token for a short-lived (30s) connection token.
+
+    Use this instead of putting the main JWT in SSE/WebSocket query params
+    which get logged by proxies. The connection token is single-use and
+    expires quickly, minimizing exposure risk.
+    """
+    teacher = await require_admin(request)
+    token = base64.urlsafe_b64encode(time.monotonic_ns().to_bytes(8, 'big')).decode()
+    async with _connect_tokens_lock:
+        _connect_tokens[token] = str(teacher["id"])
+    async def _cleanup():
+        await asyncio.sleep(30)
+        async with _connect_tokens_lock:
+            _connect_tokens.pop(token, None)
+    asyncio.create_task(_cleanup())
+    return {"connect_token": token}
+
+def _connect_tokens_lock_sync():
+    """Sync version for use in sync contexts if needed."""
+    pass
+
 
 def _store_live_frame(session_id: str, jpeg_bytes: bytes):
     """Store live frame using Redis LRU-capped cache if available."""
@@ -223,15 +250,28 @@ async def sse_sessions(request: Request):
     - `refresh`: Full refresh signal
     - `ping`: Keepalive every 15s
 
-    Auth: token query parameter (JWT from login).
+    Auth: `token` query parameter — accepts either the main JWT (for
+    backward compat) or a short-lived connect token from
+    POST /api/v1/sse/connect-token.
     """
     token = request.query_params.get("token", "")
     if not token:
         return Response(status_code=401, content="Missing token")
-    try:
-        teacher = await verify_admin_token(token)
-    except HTTPException:
-        return Response(status_code=401, content="Invalid token")
+
+    teacher_id = None
+    # Try connect token first
+    async with _connect_tokens_lock:
+        teacher_id = _connect_tokens.pop(token, None)
+    if teacher_id:
+        teacher = await _get_teacher_by_id(teacher_id)
+        if not teacher:
+            return Response(status_code=401, content="Invalid token")
+    else:
+        # Fallback: accept main JWT for backward compat
+        try:
+            teacher = await verify_admin_token(token)
+        except HTTPException:
+            return Response(status_code=401, content="Invalid token")
 
     teacher_id = str(teacher["id"])
 

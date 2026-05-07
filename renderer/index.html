@@ -1616,6 +1616,7 @@ function renderQ(){
         const headers={'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
         fetch(`${SERVER}/api/save-answer`,{method:'POST',headers,
           body:JSON.stringify({session_id:sessionId,question_id:String(q.id),answer:v})})
+          .then(r=>{if(!r.ok) throw new Error(r.status);})
           .catch(()=>{
             isOffline=true;
             const s=document.getElementById('save-status');
@@ -1724,8 +1725,10 @@ function selAns(l){
     };
     const saveHeaders={'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
     fetch(`${SERVER}/api/save-answer`,{method:'POST',headers:saveHeaders,body:JSON.stringify(savePayload)})
+      .then(r=>{if(!r.ok) throw new Error(r.status);})
       .catch(()=>setTimeout(()=>
         fetch(`${SERVER}/api/save-answer`,{method:'POST',headers:saveHeaders,body:JSON.stringify(savePayload)})
+          .then(r=>{if(!r.ok) throw new Error(r.status);})
           .catch(()=>{
             isOffline=true;
             const s=document.getElementById('save-status');

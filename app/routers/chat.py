@@ -126,14 +126,30 @@ async def ws_chat_student(ws: WebSocket):
 
 @router.websocket("/ws/chat/teacher")
 async def ws_chat_teacher(ws: WebSocket):
-    """Teacher end of the chat.  Query param: token."""
+    """Teacher end of the chat.  Auth token sent as first message:
+    {"type": "auth", "token": "..."}.  For backward compat, also
+    accepts token in query params (deprecated — will be removed).
+    """
     await ws.accept()
     teacher_id = None
+    teacher = None
     try:
-        token = ws.query_params.get("token") or ""
+        # Accept auth as first message
+        auth_msg = await asyncio.wait_for(ws.receive_text(), timeout=10)
         try:
-            teacher = await verify_admin_token(token)
-        except HTTPException:
+            data = json.loads(auth_msg)
+            if data.get("type") == "auth":
+                token = data.get("token", "")
+                teacher = await verify_admin_token(token)
+            else:
+                # Backward compat: treat as JWT directly
+                teacher = await verify_admin_token(auth_msg.strip())
+        except (json.JSONDecodeError, HTTPException):
+            # Final backward compat: try query param
+            token = ws.query_params.get("token") or ""
+            if token:
+                teacher = await verify_admin_token(token)
+        if not teacher:
             await ws.close(code=4401); return
         teacher_id = str(teacher["id"])
 

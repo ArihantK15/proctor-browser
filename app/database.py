@@ -59,6 +59,7 @@ class AsyncTable:
         self._count_mode: str | None = None
         self._limit_val: int | None = None
         self._offset_val: int | None = None
+        self._on_conflict: str | None = None
         # Mutation state (set by insert/upsert/update/delete)
         self._op: str | None = None  # "select"|"insert"|"upsert"|"update"|"delete"
         self._payload = None
@@ -135,9 +136,10 @@ class AsyncTable:
         self._payload = rows if isinstance(rows, list) else [rows]
         return self
 
-    def upsert(self, rows) -> "AsyncTable":
+    def upsert(self, rows, on_conflict: str | None = None) -> "AsyncTable":
         self._op = "upsert"
         self._payload = rows if isinstance(rows, list) else [rows]
+        self._on_conflict = on_conflict
         return self
 
     def update(self, fields: dict) -> "AsyncTable":
@@ -197,8 +199,11 @@ class AsyncTable:
             return _AsyncResult(data=resp.json())
 
         elif op == "upsert":
+            params = {}
+            if self._on_conflict:
+                params["on_conflict"] = self._on_conflict
             resp = await c.post(
-                f"/{self._table}", json=self._payload,
+                f"/{self._table}", json=self._payload, params=params,
                 headers={"Prefer": "resolution=merge-duplicates,return=representation"})
             resp.raise_for_status()
             return _AsyncResult(data=resp.json())

@@ -2947,7 +2947,9 @@ async def send_invites(body: SendInvitesBody, request: Request):
         invite_url = f"{base_url}/invite/{token}"
         download_url = f"{base_url}/download"
 
-        # Upsert invite row
+        # Upsert invite row — use upsert instead of read-then-insert to
+        # avoid race condition where two concurrent sends for the same
+        # email both see "no existing invite" and insert duplicates.
         invite_row = {
             "id": _uuid.uuid4(),
             "teacher_id": tid,
@@ -2962,22 +2964,10 @@ async def send_invites(body: SendInvitesBody, request: Request):
             "custom_message": body.custom_message,
         }
 
-        # Check for existing invite to upsert
-        existing = (await _atable("student_invites")
-                    .select("id,token")
-                    .eq("teacher_id", tid)
-                    .eq("email", rec.email.strip().lower())
-                    .eq("exam_id", body.exam_id).execute()).data
-
-        if existing:
-            # Upssert: update token and mark re-sent
-            (await _atable("student_invites")
-             .update({"token": token, "status": InviteStatus.SENT,
-                      "sent_at": now_ist().isoformat(),
-                      "custom_message": body.custom_message})
-             .eq("id", existing[0]["id"]).execute())
-        else:
-            (await _atable("student_invites").insert(invite_row).execute())
+        # Upsert on (teacher_id, email, exam_id) unique constraint
+        (await _atable("student_invites")
+         .upsert(invite_row, on_conflict="teacher_id,email,exam_id")
+         .execute())
 
         # Send email
         send_result = send_invite_email(

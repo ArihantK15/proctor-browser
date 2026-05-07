@@ -2629,14 +2629,18 @@ function _onboardMaybeShow(){
   if(seen) return;
   const auth = document.getElementById('auth-overlay');
   // Wait for auth-overlay to be hidden (teacher logged in)
-  if(auth && !auth.classList.contains('hidden')){
+  if(auth && auth.classList.contains('hidden') === false){
     // Re-check every 500ms until login completes; cap at 30 seconds.
     let attempts = 0;
     const probe = setInterval(() => {
       attempts++;
-      if(attempts > 60 || (!auth.classList.contains('hidden'))){
+      if(attempts > 60){
         clearInterval(probe);
-        if(!auth.classList.contains('hidden')) onboardOpen();
+        return;
+      }
+      if(!auth.classList.contains('hidden')){
+        clearInterval(probe);
+        onboardOpen();
       }
     }, 500);
     return;

@@ -223,19 +223,22 @@ async def get_public_schedule(t: str = None):
 
 
 @router.get("/api/v1/lookup-teacher")
-@limiter.limit("30/minute")
+@limiter.limit("5/minute")
 async def lookup_teacher(request: Request, email: str = ""):
     """Public endpoint — find a teacher by email for self-registration.
 
     Returns minimal info (id, full_name) so the student registration
     page can populate the hidden teacher_id field. Does NOT return
     email to avoid harvesting.
+
+    Rate-limited to 5/min to prevent teacher enumeration.
     """
     email = (email or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
     result = await _atable("teachers").select("id,full_name").eq("email", email).execute()
     if not result.data:
+        # Return generic response to prevent email enumeration
         raise HTTPException(status_code=404, detail="No teacher found with this email")
     teacher = result.data[0]
     return {

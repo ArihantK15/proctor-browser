@@ -59,7 +59,7 @@ export default function Demo() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-40px' }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="relative mx-auto mt-12 max-w-4xl"
+          className="relative mx-auto mt-12 w-full max-w-5xl"
         >
           <div
             ref={cardRef}
@@ -72,19 +72,31 @@ export default function Demo() {
                 setPlaying(true)
               }
             }}
-            className={`group relative aspect-video overflow-hidden rounded-2xl border border-white/[0.08] bg-navy-800 ${playing ? '' : 'cursor-pointer grain-overlay'}`}
+            // Block + relative + explicit aspect ratio. Without `block`,
+            // the card can collapse to its content size and the iframe
+            // reports a tiny clientWidth → Stage scales the demo down.
+            // `w-full` forces the card to fill its motion.div parent so
+            // `aspect-video` has a real width to derive height from.
+            className={`group relative block w-full aspect-video overflow-hidden rounded-2xl border border-white/[0.08] bg-navy-800 ${playing ? '' : 'cursor-pointer grain-overlay'}`}
           >
             {/* Accent top line */}
-            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent/40 to-transparent z-10" />
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent/40 to-transparent z-10 pointer-events-none" />
 
             {playing ? (
               <iframe
                 src="/demo.html"
                 title="Procta product demo"
                 loading="lazy"
-                className="absolute inset-0 h-full w-full"
-                style={{ border: 0 }}
-                allow="autoplay"
+                // width/height attributes (not just CSS) — without these,
+                // some browsers fall back to the iframe's intrinsic
+                // 300×150 default for layout calculations, then the
+                // inner document sees a squished viewport.
+                width="100%"
+                height="100%"
+                className="absolute inset-0 block h-full w-full"
+                style={{ border: 0, display: 'block' }}
+                allow="autoplay; fullscreen"
+                scrolling="no"
               />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center">

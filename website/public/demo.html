@@ -22,9 +22,6 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 <script type="text/babel">
 const { useState: _useState, useEffect: _useEffect, useRef: _useRef, useLayoutEffect: _useLayoutEffect } = React;
 
-// useTime() — seconds since mount, looping at DURATION (set on Stage).
-// Stage stores the current speed + duration on a window-scoped clock so
-// useTime can read them without prop-drilling through every scene.
 window.__procta_clock = { speed: 1, duration: 98 };
 function useTime() {
   const [t, setT] = _useState(0);
@@ -57,11 +54,15 @@ function Stage({ width, height, duration, background, speed = 1, children }) {
       if (!wrapRef.current) return;
       const w = wrapRef.current.clientWidth;
       const h = wrapRef.current.clientHeight;
-      setScale(Math.min(w / width, h / height));
+      // Defensive: if the parent (an iframe) hasn't been sized yet,
+      // clientWidth/Height can be 0 → don't lock scale to 0.
+      if (w > 0 && h > 0) setScale(Math.min(w / width, h / height));
     };
     recompute();
+    const ro = new ResizeObserver(recompute);
+    if (wrapRef.current) ro.observe(wrapRef.current);
     window.addEventListener('resize', recompute);
-    return () => window.removeEventListener('resize', recompute);
+    return () => { ro.disconnect(); window.removeEventListener('resize', recompute); };
   }, [width, height]);
   return (
     <div ref={wrapRef} style={{
@@ -77,9 +78,7 @@ function Stage({ width, height, duration, background, speed = 1, children }) {
   );
 }
 
-// Tweaks panel + hooks — stubbed for production. The original file rendered
-// an in-page dev tool; on the marketing site we just want the demo to play
-// with default values, no UI affordances.
+// Tweaks panel + hooks — stubbed for production.
 function useTweaks(defaults) { return [defaults, () => {}]; }
 function TweaksPanel()   { return null; }
 function TweakSection()  { return null; }
@@ -487,6 +486,9 @@ function ChapterDots({ t }) {
   const cur = CHAPTERS.reduce((a,c,i) => t>=c.start?i:a, 0);
   return (
     <div style={{position:'absolute',bottom:16,right:36,display:'flex',gap:7,alignItems:'center',pointerEvents:'none',zIndex:50}}>
+      <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:500,letterSpacing:'0.08em',textTransform:'uppercase',color:C.midText,marginRight:6}}>
+        {String(cur+1).padStart(2,'0')} · {CHAPTERS[cur].label}
+      </span>
       {CHAPTERS.map((c,i)=>(
         <div key={i} style={{width:i===cur?16:5,height:5,borderRadius:3,background:i===cur?C.accent:C.surf3,transition:'all 0.3s ease',boxShadow:i===cur?`0 0 5px ${C.accent}`:'none'}}/>
       ))}
@@ -513,7 +515,7 @@ function Scene0({ t }) {
   for(let i=0;i<14;i++) gridLines.push(<line key={`v${i}`} x1={i*(1920/13)} y1={0} x2={i*(1920/13)} y2={1080} stroke="oklch(58% 0.19 260/0.04)" strokeWidth="1"/>);
   for(let i=0;i<8;i++)  gridLines.push(<line key={`h${i}`} x1={0} y1={i*(1080/7)} x2={1920} y2={i*(1080/7)} stroke="oklch(58% 0.19 260/0.04)" strokeWidth="1"/>);
 
-  const PILLS = ['Gaze Tracking','AI Violation Detection','Live Monitoring','Post-Exam Analytics'];
+  const PILLS = ['Built for India','AI Violation Detection','Live Monitoring','Browser-Native'];
 
   return (
     <div style={{width:'100%',height:'100%',background:'linear-gradient(135deg,oklch(7% 0.008 240),oklch(11% 0.012 260))',position:'relative',overflow:'hidden',opacity:out}}>
@@ -633,6 +635,32 @@ function Scene1({ t, showCallouts }) {
           </div>
         </div>
       </div>
+      {/* Avatar PiP — eyes track the active calibration dot */}
+      {(() => {
+        const cur = dots[Math.min(8, Math.max(0, floatDot))];
+        // Map dot position (0..1) to gaze (-1..1) with slight ease
+        const tgtX = (cur.x - 0.5) * 1.6;
+        const tgtY = (cur.y - 0.5) * 1.0;
+        // Smooth approach as the user "settles" gaze on the dot
+        const settle = clamp((dotProg - 0.1)/0.6, 0, 1);
+        const avState = {
+          headRot: tgtX * 6 * settle,
+          gazeX: tgtX * settle + (1-settle) * Math.sin(localT*2)*0.05,
+          gazeY: tgtY * settle * 0.8,
+          secondFace: false, phone: false, faceVisible: true, audioSpike: false, faceConf: 0.97,
+        };
+        return (
+          <div style={{position:'absolute',right:18,bottom:80,width:188,opacity:visible*0.95,zIndex:5}}>
+            <div style={{background:'#000',borderRadius:8,overflow:'hidden',border:`1px solid ${C.border}`,boxShadow:'0 8px 24px rgba(0,0,0,0.4)'}}>
+              <AvatarCam state={avState} w={188} h={118} showOverlay={true} label="You · calibrating"/>
+            </div>
+            <div style={{marginTop:6,display:'flex',alignItems:'center',gap:6,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.mutedText,letterSpacing:'0.06em',textTransform:'uppercase'}}>
+              <div style={{width:5,height:5,borderRadius:'50%',background:settle>0.7?C.success:C.accent,boxShadow:`0 0 6px ${settle>0.7?C.success:C.accent}`}}/>
+              {settle>0.7 ? 'Locked' : 'Tracking eyes'}
+            </div>
+          </div>
+        );
+      })()}
       <SceneLabel title="Gaze Calibration" sub="01 · Student Setup" opacity={visible}/>
     </div>
   );
@@ -792,6 +820,24 @@ function Scene2({ t }) {
           )}
         </div>
       </BrowserChrome>
+      {/* Tab-switch attempt teaser toast (sets up Scene 3) */}
+      {(() => {
+        const op = fadeIn(t,30.4,0.25) * (t>32.4?fadeOut(t,32.4,0.4):1);
+        if (op < 0.01) return null;
+        return (
+          <div style={{position:'absolute',top:90,right:36,opacity:op,transform:`translateY(${(1-op)*-12}px)`,zIndex:20}}>
+            <div style={{background:'oklch(22% 0.06 27)',border:`1px solid ${C.error}`,borderLeft:`3px solid ${C.error}`,borderRadius:8,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 8px 24px rgba(0,0,0,0.35)',minWidth:280}}>
+              <div style={{width:22,height:22,borderRadius:'50%',background:`${C.error}22`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.error} strokeWidth="2.5"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:2,flex:1}}>
+                <span style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,fontWeight:600,color:'#ffd1c9'}}>Tab switch blocked</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9.5,color:'#e9a59a',letterSpacing:'0.02em'}}>Logged to proctor · attempt #1</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       <SceneLabel title="Student Exam Window" sub="02 · Student Experience" opacity={visible}/>
     </div>
   );
@@ -867,7 +913,18 @@ function Scene3({ t }) {
     return s;
   })();
   const sevC = {CRITICAL:{fg:C.critical,bg:C.critBg},ERROR:{fg:C.error,bg:C.errorBg},WARN:{fg:C.warn,bg:C.warnBg},INFO:{fg:C.info,bg:C.infoBg}};
-  const riskV   = Math.min(0.91, 0.10 + localT*0.055);
+  // Stepwise risk: jumps at each violation, sized by severity, with smooth ease-in
+  const riskJump = {WARN:0.10, INFO:0.06, ERROR:0.16, CRITICAL:0.24};
+  const riskV = (() => {
+    let r = 0.08; // baseline
+    VIOLS.forEach(v => {
+      if (localT >= v.time) {
+        const p = clamp((localT - v.time)/0.6, 0, 1);
+        r += riskJump[v.sev] * easeInOut(p);
+      }
+    });
+    return Math.min(0.94, r);
+  })();
   const riskPct = Math.round(riskV*100);
   const riskC   = riskV>0.7?C.critical:riskV>0.4?C.error:riskV>0.2?C.warn:C.success;
 
@@ -901,7 +958,41 @@ function Scene3({ t }) {
           {/* Two-col */}
           <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 300px',overflow:'hidden'}}>
             {/* Left: Vision panel + Feed */}
-            <div style={{borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
+              {/* Connector overlay: avatar → most recent violation row */}
+              {(() => {
+                const recent = [...VIOLS].reverse().find(v => localT >= v.time);
+                if (!recent) return null;
+                const age = localT - recent.time;
+                // Pulse: appears 0.05s after violation, fades by 1.4s
+                const op = easeOut(clamp(age/0.25, 0, 1)) * (1 - clamp((age-0.9)/0.5, 0, 1));
+                if (op < 0.02) return null;
+                const sc = sevC[recent.sev] || sevC.INFO;
+                // Avatar bounds: x=14..314 (avatar is 300w at left:14), y=~46..234 inside container
+                // First feed card sits at top of feed section; container layout = vision header (40h) + vision body (~210h) + feed header (35h) = ~285h before first card
+                // First card top ≈ 290, height ≈ 60, so target y ≈ 320
+                const ax = 314, ay = 140;          // avatar right-mid
+                const tx = 360, ty = 322;          // first violation card left edge
+                // Bezier control points for a soft S-curve
+                const c1x = ax + 28, c1y = ay + 20;
+                const c2x = tx - 18, c2y = ty - 30;
+                const path = `M ${ax} ${ay} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`;
+                return (
+                  <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:5,overflow:'visible'}}>
+                    <defs>
+                      <marker id={`arr-${recent.sev}`} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 0 L 10 5 L 0 10 z" fill={sc.fg}/>
+                      </marker>
+                    </defs>
+                    <path d={path} fill="none" stroke={sc.fg} strokeWidth="1.6" strokeDasharray="4 3" opacity={op*0.85} markerEnd={`url(#arr-${recent.sev})`}/>
+                    <circle cx={ax} cy={ay} r={6} fill="none" stroke={sc.fg} strokeWidth="1.5" opacity={op*0.7}>
+                      <animate attributeName="r" from="4" to="14" dur="0.9s" repeatCount="indefinite"/>
+                      <animate attributeName="opacity" from={op*0.7} to="0" dur="0.9s" repeatCount="indefinite"/>
+                    </circle>
+                    <circle cx={ax} cy={ay} r={3} fill={sc.fg} opacity={op}/>
+                  </svg>
+                );
+              })()}
               {/* AI Vision panel */}
               <div style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
                 <span style={{fontSize:12,fontWeight:600,color:C.hiText}}>AI Vision · Priya Sharma</span>
@@ -1280,40 +1371,63 @@ function Scene6({ t }) {
             <span style={{fontSize:34,fontWeight:700,letterSpacing:'-0.04em',color:C.hiText}}>procta</span>
           </div>
           <div style={{opacity:fadeIn(t,85,0.5),transform:`translateY(${lerp(-18,0,easeOut(prog(t,85,85.7)))}px)`,marginBottom:10}}>
-            <div style={{fontSize:40,fontWeight:700,letterSpacing:'-0.03em',lineHeight:1.1,color:C.hiText,textWrap:'balance'}}>Honest proctoring for Indian higher education</div>
+            <div style={{fontSize:42,fontWeight:700,letterSpacing:'-0.03em',lineHeight:1.05,color:C.hiText,textWrap:'balance'}}>Run honest exams at scale.</div>
           </div>
-          <div style={{opacity:fadeIn(t,85.8,0.5),marginBottom:30}}>
-            <div style={{fontSize:17,fontWeight:300,color:C.midText,lineHeight:1.55,maxWidth:480}}>AI-powered, browser-native, works on any device. Designed for the scale and diversity of Indian universities.</div>
+          <div style={{opacity:fadeIn(t,85.8,0.5),marginBottom:28}}>
+            <div style={{fontSize:17,fontWeight:300,color:C.midText,lineHeight:1.55,maxWidth:480}}>AI proctoring built for Indian universities — works in any browser, on any device, no installs.</div>
           </div>
-          <div style={{opacity:fadeIn(t,86.5,0.4),display:'flex',gap:11}}>
-            <div style={{padding:'11px 26px',background:C.accent,color:'white',borderRadius:8,fontSize:14,fontWeight:600,letterSpacing:'-0.01em',cursor:'pointer'}}>Request a Demo</div>
-            <div style={{padding:'11px 22px',color:C.info,border:`1px solid ${C.accent}`,borderRadius:8,fontSize:14,fontWeight:500,cursor:'pointer'}}>procta.in</div>
+          <div style={{opacity:fadeIn(t,86.4,0.4),display:'flex',gap:11,marginBottom:18}}>
+            <div style={{padding:'13px 26px',background:C.accent,color:'white',borderRadius:8,fontSize:14,fontWeight:600,letterSpacing:'-0.01em',cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
+              Book a 30-min pilot
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </div>
+            <div style={{padding:'13px 22px',color:C.info,border:`1px solid ${C.accent}`,borderRadius:8,fontSize:14,fontWeight:500,cursor:'pointer'}}>procta.in</div>
           </div>
-          <div style={{opacity:fadeIn(t,87.2,0.4),marginTop:24,display:'flex',gap:18,flexWrap:'wrap'}}>
-            {['No hardware','Works in browser','NAAC aligned','10,000+ students'].map(tag=>(
-              <div key={tag} style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:C.mutedText}}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.success} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                {tag}
-              </div>
-            ))}
+          <div style={{opacity:fadeIn(t,87,0.4),display:'flex',flexDirection:'column',gap:8,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:C.mutedText,letterSpacing:'0.02em'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.mutedText} strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              hello@procta.in
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.mutedText} strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              +91 80 4718 2200 · Bengaluru
+            </div>
           </div>
         </div>
-        {/* Right: feature list */}
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          <div style={{fontSize:10,fontWeight:600,letterSpacing:'0.14em',textTransform:'uppercase',color:C.accent,marginBottom:2}}>What you just saw</div>
+        {/* Right: feature recap */}
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div style={{opacity:fadeIn(t,85,0.4),fontSize:10,fontWeight:600,letterSpacing:'0.14em',textTransform:'uppercase',color:C.accent,marginBottom:2}}>What you just saw</div>
           {FEATS.map((f,i)=>(
             <div key={i} style={{
-              display:'flex',alignItems:'center',gap:12,padding:'11px 14px',
+              display:'flex',alignItems:'center',gap:14,padding:'13px 16px',
               background:C.surf1,border:`1px solid ${C.border}`,borderRadius:8,
-              opacity:fadeIn(t,85+i*0.4,0.4),
-              transform:`translateX(${lerp(22,0,easeOut(prog(t,85+i*0.4,85+i*0.4+0.55)))}px)`,
+              opacity:fadeIn(t,85.1+i*0.18,0.4),
+              transform:`translateX(${lerp(20,0,easeOut(prog(t,85.1+i*0.18,85.7+i*0.18)))}px)`,
             }}>
-              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.accent,fontWeight:600,width:18,flexShrink:0}}>{f.n}</span>
-              <div style={{width:1,height:20,background:C.border}}/>
-              <span style={{fontSize:13,fontWeight:500,color:C.midText}}>{f.l}</span>
-              <div style={{marginLeft:'auto',width:5,height:5,borderRadius:'50%',background:C.success}}/>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:C.accent,fontWeight:600,width:20,flexShrink:0}}>{f.n}</span>
+              <div style={{width:1,height:22,background:C.border}}/>
+              <span style={{fontSize:14,fontWeight:500,color:C.midText}}>{f.l}</span>
+              <div style={{marginLeft:'auto',width:6,height:6,borderRadius:'50%',background:C.success,boxShadow:`0 0 6px ${C.success}`}}/>
             </div>
           ))}
+          {/* Tagline + flag */}
+          <div style={{opacity:fadeIn(t,87,0.4),marginTop:10,display:'flex',alignItems:'center',gap:12,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:C.mutedText,letterSpacing:'0.08em',textTransform:'uppercase'}}>
+            <div style={{display:'flex',flexDirection:'column',width:24,height:16,boxShadow:'0 0 0 1px oklch(30% 0.01 240)',borderRadius:1.5,overflow:'hidden',flexShrink:0}}>
+              <div style={{flex:1,background:'#ff9933'}}/>
+              <div style={{flex:1,background:'#ffffff',position:'relative',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg viewBox="0 0 20 20" width="10" height="10" style={{display:'block'}}>
+                  <circle cx="10" cy="10" r="4.4" fill="none" stroke="#000080" strokeWidth="0.7"/>
+                  <circle cx="10" cy="10" r="0.6" fill="#000080"/>
+                  {Array.from({length:24}).map((_,k)=>{
+                    const a = (k*15)*Math.PI/180;
+                    return <line key={k} x1="10" y1="10" x2={10+Math.cos(a)*4.4} y2={10+Math.sin(a)*4.4} stroke="#000080" strokeWidth="0.4"/>;
+                  })}
+                </svg>
+              </div>
+              <div style={{flex:1,background:'#138808'}}/>
+            </div>
+            Built in India · for India
+          </div>
         </div>
       </div>
       <div style={{position:'absolute',bottom:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${C.accent},transparent)`,opacity:0.5}}/>

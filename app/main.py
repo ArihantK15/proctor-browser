@@ -326,8 +326,10 @@ async def _count_requests(request: Request, call_next):
         _METRICS["active_requests"] -= 1
 
 @app.get("/api/v1/metrics")
-async def metrics():
-    """Prometheus-style metrics for monitoring."""
+async def metrics(request: Request):
+    """Prometheus-style metrics for monitoring. Requires auth to prevent information leakage."""
+    from .dependencies import require_auth
+    require_auth(request)
     uptime = round(time.time() - _METRICS["start_time"], 1)
     return {
         "proctor_uptime_seconds": uptime,
@@ -378,7 +380,12 @@ async def _on_startup():
         print("[startup] reminders loop disabled via REMINDER_LOOP_DISABLED=1", flush=True)
     else:
         import asyncio
-        asyncio.create_task(_reminder_loop())
+        reminder_task = asyncio.create_task(_reminder_loop())
+        reminder_task.add_done_callback(
+            lambda t: print(f"[startup] reminders loop ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
         print("[startup] reminders loop started", flush=True)
 
 

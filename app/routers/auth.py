@@ -122,7 +122,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     supabase_uid = str(auth_resp.user.id)
-    teacher = _get_teacher_by_uid(supabase_uid)
+    teacher = await _get_teacher_by_uid(supabase_uid)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found. Please sign up first.")
 
@@ -167,7 +167,7 @@ async def teacher_refresh(body: RefreshIn, request: Request):
         raise HTTPException(status_code=401, detail="Invalid refresh response")
 
     supabase_uid = str(auth_resp.user.id)
-    teacher = _get_teacher_by_uid(supabase_uid)
+    teacher = await _get_teacher_by_uid(supabase_uid)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
 
@@ -294,7 +294,7 @@ async def student_login(body: StudentLoginIn, request: Request):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     supabase_uid = str(auth_resp.user.id)
-    account = _get_student_account_by_uid(supabase_uid)
+    account = await _get_student_account_by_uid(supabase_uid)
     if not account:
         raise HTTPException(
             status_code=403,
@@ -344,7 +344,7 @@ async def student_refresh(body: RefreshIn, request: Request):
     if not auth_resp or not auth_resp.user or not auth_resp.session:
         raise HTTPException(status_code=401, detail="Invalid refresh response")
 
-    account = _get_student_account_by_uid(str(auth_resp.user.id))
+    account = await _get_student_account_by_uid(str(auth_resp.user.id))
     if not account:
         raise HTTPException(status_code=403, detail="Student account not found")
 
@@ -396,7 +396,7 @@ async def student_exams(request: Request):
         exam_id = cfg.get("exam_id")
 
         # Get teacher name
-        teacher = _get_teacher_by_id(teacher_id)
+        teacher = await _get_teacher_by_id(teacher_id)
         teacher_name = teacher.get("full_name", "Teacher") if teacher else "Teacher"
 
         # Parse exam window
@@ -500,7 +500,7 @@ async def student_history(request: Request):
                     exam_title = cfg_result[0].get("exam_title") or ""
 
             # Get teacher name
-            teacher = _get_teacher_by_id(teacher_id)
+            teacher = await _get_teacher_by_id(teacher_id)
             teacher_name = teacher.get("full_name", "Teacher") if teacher else "Teacher"
 
             # Count violations

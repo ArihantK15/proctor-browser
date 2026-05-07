@@ -711,16 +711,23 @@ async def submit_exam(result: ResultIn, request: Request):
                 raise HTTPException(status_code=500,
                                     detail="Failed to save exam submission. Please retry.")
 
-    # Phase 3: Risk score
-    risk = await compute_risk_score(result.session_id, teacher_id=tid)
-    upd = _atable("exam_sessions").eq("session_key", result.session_id)
-    if tid:
-        upd = upd.eq("teacher_id", str(tid))
-    await upd.update({"risk_score": risk["risk_score"]}).execute()
+    # Phase 3: Risk score (non-fatal — submission already saved)
+    risk_score_val = 0
+    risk_label = "Unknown"
+    try:
+        risk = await compute_risk_score(result.session_id, teacher_id=tid)
+        risk_score_val = risk["risk_score"]
+        risk_label = risk["label"]
+        upd = _atable("exam_sessions").eq("session_key", result.session_id)
+        if tid:
+            upd = upd.eq("teacher_id", str(tid))
+        await upd.update({"risk_score": risk_score_val}).execute()
+    except Exception as e:
+        _exam_log.warning("[SUBMIT] risk score failed for %s: %s", result.session_id, e)
 
     get_logger(result.session_id).info(
         f"[SUBMIT] {trusted_roll} score:{server_score}/{server_total} "
-        f"risk:{risk['risk_score']}/100")
+        f"risk:{risk_score_val}/100")
 
     # Publish submission to dashboard SSE
     if tid:
@@ -734,7 +741,7 @@ async def submit_exam(result: ResultIn, request: Request):
 
     return {"status": SessionStatus.SUBMITTED, "score": server_score,
             "total": server_total, "percentage": pct,
-            "risk_score": risk["risk_score"], "risk_label": risk["label"]}
+            "risk_score": risk_score_val, "risk_label": risk_label}
 
 
 def _save_frame(student_dir: str, data: FrameIn) -> str:

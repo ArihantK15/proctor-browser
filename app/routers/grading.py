@@ -204,13 +204,18 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
         if not q:
             results.append({"answer_id": a["id"], "error": "question not found"})
             continue
-        suggestion = grade_short_answer(
-            question=q.get("question") or "",
-            reference=q.get("reference_answer") or "",
-            rubric=q.get("rubric") or "",
-            student_answer=a.get("answer") or "",
-            max_score=float(q.get("max_score") or 1.0),
-        )
+        try:
+            suggestion = grade_short_answer(
+                question=q.get("question") or "",
+                reference=q.get("reference_answer") or "",
+                rubric=q.get("rubric") or "",
+                student_answer=a.get("answer") or "",
+                max_score=float(q.get("max_score") or 1.0),
+            )
+        except Exception as e:
+            _grading_log.warning("[grade-suggest] LLM call failed for %s: %s", a['id'], e)
+            results.append({"answer_id": a["id"], "error": f"LLM error: {str(e)[:120]}"})
+            continue
         try:
             await _atable("answers").update({
                 "ai_score":      suggestion.get("score"),

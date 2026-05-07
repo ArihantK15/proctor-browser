@@ -4484,7 +4484,7 @@ function clearQImage(idx){
 }
 
 function escAttr(s){
-  const d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML;
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
 function setCorrect(idx,key){
@@ -6650,7 +6650,7 @@ function _fmtDuration(secs){
   return m>0 ? `${m}m ${s}s` : `${s}s`;
 }
 function _escHtml(s){
-  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
 // ── STUDENT HISTORY TAB ──────────────────────────────────────────

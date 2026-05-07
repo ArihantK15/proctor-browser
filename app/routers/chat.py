@@ -7,6 +7,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 
 from ..dependencies import (
     supabase,
+    _atable,
     _get_teacher_by_id,
     require_auth,
     verify_student_token,
@@ -62,7 +63,7 @@ async def ws_chat_student(ws: WebSocket):
         if not roll or not tid:
             await ws.close(code=4401); return
 
-        sess_row = _chat_verify_session_owned(session_id, tid, roll)
+        sess_row = await _chat_verify_session_owned(session_id, tid, roll)
         if not sess_row:
             await ws.close(code=4403); return
 

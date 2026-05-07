@@ -718,9 +718,23 @@ def _get_shuffle_flags(config: dict) -> tuple[bool, bool]:
 
 # ─── SESSION OWNERSHIP ────────────────────────────────────────────
 def _check_session_ownership(claims: dict, session_id: str):
-    session_roll = session_id.rsplit("_", 1)[0].upper()
+    """Verify the session belongs to the authenticated student.
+
+    Checks roll number prefix. If the session key contains a UUID
+    teacher_id suffix (format: ROLL_<uuid>), also verifies it matches
+    the JWT's tid claim to prevent cross-tenant access.
+    """
+    import re
+    parts = session_id.rsplit("_", 1)
+    session_roll = parts[0].upper() if parts else ""
     if claims.get("roll", "").upper() != session_roll:
         raise HTTPException(status_code=403, detail="Access denied")
+    # If the session key contains a UUID teacher_id suffix, verify it
+    if len(parts) > 1 and re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', parts[1], re.I):
+        session_tid = parts[1]
+        claims_tid = str(claims.get("tid", ""))
+        if session_tid and claims_tid and session_tid != claims_tid:
+            raise HTTPException(status_code=403, detail="Access denied")
 
 async def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
     if not teacher_id:

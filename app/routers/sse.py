@@ -139,21 +139,19 @@ async def _ws_cleanup_loop():
 _WS_STALE_SEC = 30
 
 async def _ws_cleanup():
-    """Periodic cleanup: send a small text ping to detect dead clients."""
-    while True:
-        await asyncio.sleep(_WS_STALE_SEC)
-        async with _ws_lock:
-            for sid in list(_ws_clients.keys()):
-                dead = []
-                for c in _ws_clients[sid]:
-                    try:
-                        await c.send_text('{"_":"ping"}')
-                    except Exception:
-                        dead.append(c)  # Client disconnected
-                for c in dead:
-                    _ws_clients[sid].remove(c)
-                if not _ws_clients[sid]:
-                    _ws_clients.pop(sid, None)
+    """Single-pass cleanup: send a small text ping to detect dead clients."""
+    async with _ws_lock:
+        for sid in list(_ws_clients.keys()):
+            dead = []
+            for c in _ws_clients[sid]:
+                try:
+                    await c.send_text('{"_":"ping"}')
+                except Exception:
+                    dead.append(c)  # Client disconnected
+            for c in dead:
+                _ws_clients[sid].remove(c)
+            if not _ws_clients[sid]:
+                _ws_clients.pop(sid, None)
 
 
 @router.websocket("/ws/v1/live-frame/{session_id}")
@@ -170,14 +168,6 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
     """
     await websocket.accept()
 
-    # Limit concurrent connections per session
-    async with _ws_lock:
-        cnt = _ws_conn_count.get(session_id, 0)
-        if cnt >= MAX_WS_PER_SESSION:
-            await websocket.close(code=4002, reason="max_connections_reached")
-            return
-        _ws_conn_count[session_id] = cnt + 1
-
     await _ws_ensure_cleanup()
 
     try:
@@ -193,6 +183,14 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
     if claims.get("roll", "").upper() != session_roll:
         await websocket.close(code=4003, reason="access_denied")
         return
+
+    # Limit concurrent connections per session (AFTER auth succeeds)
+    async with _ws_lock:
+        cnt = _ws_conn_count.get(session_id, 0)
+        if cnt >= MAX_WS_PER_SESSION:
+            await websocket.close(code=4002, reason="max_connections_reached")
+            return
+        _ws_conn_count[session_id] = cnt + 1
 
     await _ws_subscribe(session_id, websocket)
 

@@ -211,9 +211,9 @@ async def register_student(request: Request, body: RegisterIn):
 
 
 @router.get("/api/v1/exam-schedule")
-def get_public_schedule(t: str = None):
+async def get_public_schedule(t: str = None):
     """Public endpoint — returns exam title and schedule for download/register pages."""
-    config = _load_exam_config(teacher_id=t)
+    config = await _load_exam_config(teacher_id=t)
     return {
         "exam_title":  config.get("exam_title", "Exam"),
         "duration_minutes": config.get("duration_minutes", 60),
@@ -264,7 +264,7 @@ async def resolve_access_code(request: Request, body: dict = Body(...)):
         raise HTTPException(status_code=404, detail="Invalid access code")
 
     cfg = result.data[0]
-    teacher = _get_teacher_by_id(cfg.get("teacher_id"))
+    teacher = await _get_teacher_by_id(cfg.get("teacher_id"))
     return {
         "teacher_id":       cfg.get("teacher_id"),
         "teacher_name":     teacher.get("full_name", "") if teacher else "",
@@ -422,49 +422,8 @@ async def resolve_invite(token: str):
         except HTTPException:
             raise
         except Exception:
-            pass  # Date parse failed — allow resolve to proceed
-
-    exam_cfg = await _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
-        if inv.get("exam_id") else {}
-    exam_title = (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "Your Procta Exam"
-
-    return {
-        "ok":           True,
-        "email":        inv.get("email"),
-        "full_name":    inv.get("full_name"),
-        "roll_number":  inv.get("roll_number"),
-        "access_code":  inv.get("access_code") or "",
-        "exam_id":      inv.get("exam_id"),
-        "exam_title":   exam_title,
-        "starts_at":    exam_cfg.get("starts_at") if isinstance(exam_cfg, dict) else None,
-        "ends_at":      exam_cfg.get("ends_at")   if isinstance(exam_cfg, dict) else None,
-        "status":       status or InviteStatus.SENT,
-        "accepted":     bool(inv.get("accepted_at")),
-    }
-
-
-@router.post("/api/v1/invite/{token}/accept")
-async def accept_invite(token: str, request: Request):
-    """Link a signed-in student account to an invite."""
-    student = await require_student_account(request)
-    row = (await _atable("student_invites").select("*")
-           .eq("token", token).execute()).data
-    if not row:
-        raise HTTPException(status_code=404, detail="Invite not found")
-    inv = row[0]
-    status = (inv.get("status") or "").lower()
-    if status == InviteStatus.REVOKED:
-        raise HTTPException(status_code=410, detail="Invite revoked")
-    exp = inv.get("expires_at")
-    if exp:
-        try:
-            dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) > dt:
-                raise HTTPException(status_code=410, detail="Invite expired")
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+            # Malformed expiry timestamp — fail closed (reject)
+            raise HTTPException(status_code=410, detail="Invite expired")
 
     inv_email = (inv.get("email") or "").strip().lower()
     stu_email = (student.get("email") or "").strip().lower()

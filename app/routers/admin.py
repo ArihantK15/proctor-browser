@@ -159,7 +159,7 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
 
     config = None
     try:
-        config = _load_exam_config(str(tid), exam_id=exam_id)
+        config = await _load_exam_config(str(tid), exam_id=exam_id)
     except Exception as e:
         logger.debug("Failed to load exam config for scorecard: %s", e)
     exam_title = (config or {}).get("exam_title") or (config or {}).get("title") or "Exam"
@@ -1331,7 +1331,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
         questions = await _load_questions(teacher_id=tid, exam_id=eid)
         config = None
         try:
-            config = _load_exam_config(str(tid), exam_id=eid)
+            config = await _load_exam_config(str(tid), exam_id=eid)
         except Exception as e:
             logger.debug("Failed to load exam config for ZIP export: %s", e)
         exam_title = (config or {}).get("title", "Exam")
@@ -2495,7 +2495,7 @@ async def admin_get_schedule(request: Request):
     """Return current exam schedule for the admin dashboard."""
     teacher = await require_admin(request)
     exam_id = request.query_params.get("exam_id")
-    config = _load_exam_config(teacher["id"], exam_id=exam_id)
+    config = await _load_exam_config(teacher["id"], exam_id=exam_id)
     return {
         "exam_title": config.get("exam_title", "Exam"),
         "starts_at":  config.get("starts_at"),
@@ -2537,7 +2537,7 @@ async def admin_get_shuffle(request: Request):
     """Return current per-student shuffle toggles."""
     teacher = await require_admin(request)
     exam_id = request.query_params.get("exam_id")
-    config = _load_exam_config(teacher["id"], exam_id=exam_id)
+    config = await _load_exam_config(teacher["id"], exam_id=exam_id)
     sq, so = config.get("shuffle_questions", True), config.get("shuffle_options", True)
     return {"shuffle_questions": sq, "shuffle_options": so}
 
@@ -2633,7 +2633,7 @@ async def admin_submit(session_id: str, request: Request):
                 pass  # Malformed answer details — skip
 
     existing_eid = existing_session.get("exam_id")
-    score, total = _recalculate_score(session_id, answers_map, tid, exam_id=existing_eid)
+    score, total = await _recalculate_score(session_id, answers_map, tid, exam_id=existing_eid)
 
     pct        = round((score / max(total, 1)) * 100, 1)
     now        = now_ist()
@@ -2783,7 +2783,7 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
     exam_id = sess_row.get("exam_id")
     exam_title = exam_id or "Exam"
     try:
-        cfg = _load_exam_config(teacher_id=tid, exam_id=exam_id) if exam_id else None
+        cfg = await _load_exam_config(teacher_id=tid, exam_id=exam_id) if exam_id else None
         if cfg:
             exam_title = cfg.get("exam_title") or cfg.get("title") or exam_title
     except Exception as e:
@@ -3072,7 +3072,7 @@ async def save_template(request: Request, body: SaveTemplateIn):
     tid = str(teacher["id"])
 
     # Verify ownership
-    cfg = _load_exam_config(tid, exam_id=body.exam_id)
+    cfg = await _load_exam_config(tid, exam_id=body.exam_id)
     if not cfg:
         raise HTTPException(status_code=404, detail="Exam not found")
 

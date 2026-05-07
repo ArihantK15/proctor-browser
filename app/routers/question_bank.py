@@ -436,7 +436,7 @@ async def get_admin_questions(request: Request):
     tid = teacher["id"]
     exam_id = request.query_params.get("exam_id")
     try:
-        config = _load_exam_config(str(tid) if tid else None, exam_id=exam_id)
+        config = await _load_exam_config(str(tid) if tid else None, exam_id=exam_id)
         questions = await _load_questions(str(tid) if tid else None, exam_id=exam_id)
         return {
             "exam_title": config.get("exam_title", "Exam"),

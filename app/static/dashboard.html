@@ -2113,13 +2113,21 @@ async function _onAuthed(teacher){
 let _sseSource = null;
 let _sseFallbackTimer = null;
 
-function _connectSSE(){
+async function _connectSSE(){
   // Clean up any existing connection
   if(_sseSource){ try{_sseSource.close();}catch(_){} _sseSource=null; }
   if(_sseFallbackTimer){ clearInterval(_sseFallbackTimer); _sseFallbackTimer=null; }
 
   try{
-    _sseSource = new EventSource(`${BASE}/api/v1/sse/sessions?token=${encodeURIComponent(authToken)}`);
+    // Fetch a short-lived connect token (avoids putting JWT in URL)
+    const ctr = await fetch(`${BASE}/api/v1/sse/connect-token`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${authToken}` },
+    });
+    if(!ctr.ok) throw new Error('connect-token failed');
+    const { connect_token } = await ctr.json();
+
+    _sseSource = new EventSource(`${BASE}/api/v1/sse/sessions?token=${encodeURIComponent(connect_token)}`);
 
     _sseSource.addEventListener('init', (e)=>{
       try{
@@ -5107,7 +5115,7 @@ chatBeep.volume = 0.5;
 function chatWsUrl(){
   const proto = (location.protocol==='https:')?'wss:':'ws:';
   const host = (BASE.replace(/^https?:\/\//,'').replace(/\/$/,'')) || location.host;
-  return `${proto}//${host}/ws/chat/teacher?token=${encodeURIComponent(authToken)}`;
+  return `${proto}//${host}/ws/chat/teacher`;
 }
 
 function chatConnect(){
@@ -5115,7 +5123,7 @@ function chatConnect(){
   if(chatWs && (chatWs.readyState===0||chatWs.readyState===1)) return;
   chatIntentionalClose = false;
   try{
-    chatWs = new WebSocket(chatWsUrl());
+    chatWs = new WebSocket(chatWsUrl(), [authToken]);
   }catch(e){
     console.warn('chat ws ctor failed',e);
     chatScheduleReconnect();
@@ -5123,6 +5131,8 @@ function chatConnect(){
   }
   chatWs.onopen = ()=>{
     chatReconnectDelay = 1000;
+    // Send auth as first message (server expects this)
+    chatWs.send(JSON.stringify({type:'auth', token: authToken}));
     document.getElementById('chat-roster-sub').textContent = 'Connected';
   };
   chatWs.onmessage = (ev)=>{

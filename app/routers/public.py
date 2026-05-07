@@ -379,7 +379,10 @@ async def invite_landing(token: str, request: Request):
                     status_code=410,
                 )
         except Exception:
-            pass
+            return HTMLResponse(
+                _render_invite_error("This invite has expired. Contact your teacher for a new one."),
+                status_code=410,
+            )
 
     if not inv.get("opened_at"):
         try:

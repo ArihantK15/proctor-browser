@@ -584,10 +584,10 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
         return {"status": "empty", "saved": 0}
     tid = claims.get("tid")
     eid = claims.get("eid")
-    def _build_records():
+    async def _build_records():
         recs = []
         for qid, ans in body.answers.items():
-            canonical = _canonicalise_student_answer(
+            canonical = await _canonicalise_student_answer(
                 body.session_id, str(tid or ""), str(qid), str(ans),
                 eid)
             rec = {"session_key": body.session_id,
@@ -599,7 +599,7 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
                 rec["exam_id"] = eid
             recs.append(rec)
         return recs
-    records = await asyncio.to_thread(_build_records)
+    records = await _build_records()
     await _atable("answers").upsert(records).execute()
     return {"status": "saved", "saved": len(records)}
 

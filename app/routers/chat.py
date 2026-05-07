@@ -27,7 +27,7 @@ chat_hub = ChatHub()
 
 async def _chat_verify_session_owned(session_id: str, teacher_id: str, roll: str):
     """Verify the session exists, belongs to the teacher, and matches the roll number."""
-    rows = (_atable("exam_sessions")
+    rows = (await _atable("exam_sessions")
             .select("id,session_key,roll_number,status,teacher_id")
             .eq("session_key", session_id)
             .eq("teacher_id", str(teacher_id))
@@ -126,29 +126,37 @@ async def ws_chat_student(ws: WebSocket):
 
 @router.websocket("/ws/chat/teacher")
 async def ws_chat_teacher(ws: WebSocket):
-    """Teacher end of the chat.  Auth token sent as first message:
-    {"type": "auth", "token": "..."}.  For backward compat, also
-    accepts token in query params (deprecated — will be removed).
+    """Teacher end of the chat.  Auth via Sec-WebSocket-Protocol subprotocol
+    header (set by `new WebSocket(url, [token])`) or as first message:
+    {"type": "auth", "token": "..."}.  Query params deprecated.
     """
     await ws.accept()
     teacher_id = None
     teacher = None
     try:
-        # Accept auth as first message
-        auth_msg = await asyncio.wait_for(ws.receive_text(), timeout=10)
-        try:
-            data = json.loads(auth_msg)
-            if data.get("type") == "auth":
-                token = data.get("token", "")
-                teacher = await verify_admin_token(token)
-            else:
-                # Backward compat: treat as JWT directly
-                teacher = await verify_admin_token(auth_msg.strip())
-        except (json.JSONDecodeError, HTTPException):
-            # Final backward compat: try query param
-            token = ws.query_params.get("token") or ""
-            if token:
-                teacher = await verify_admin_token(token)
+        # 1. Check Sec-WebSocket-Protocol subprotocol header
+        subproto = ws.headers.get("sec-websocket-protocol", "").strip()
+        if subproto and not subproto.startswith("websocket"):
+            try:
+                teacher = await verify_admin_token(subproto)
+            except HTTPException:
+                pass
+        # 2. If not authenticated, try auth as first message
+        if not teacher:
+            auth_msg = await asyncio.wait_for(ws.receive_text(), timeout=10)
+            try:
+                data = json.loads(auth_msg)
+                if data.get("type") == "auth":
+                    token = data.get("token", "")
+                    teacher = await verify_admin_token(token)
+                else:
+                    # Backward compat: treat as JWT directly
+                    teacher = await verify_admin_token(auth_msg.strip())
+            except (json.JSONDecodeError, HTTPException):
+                # Final backward compat: try query param
+                token = ws.query_params.get("token") or ""
+                if token:
+                    teacher = await verify_admin_token(token)
         if not teacher:
             await ws.close(code=4401); return
         teacher_id = str(teacher["id"])

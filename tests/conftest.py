@@ -199,6 +199,21 @@ def client():
     return TestClient(app, raise_server_exceptions=False)
 
 
+@pytest.fixture(autouse=True)
+def _disable_rate_limits():
+    """Disable rate limiting during tests so they don't bleed into each
+    other.  The real limiter is enforced in production; in tests we
+    only care about business-logic correctness."""
+    from app.main import app
+    from app.dependencies import limiter as dep_limiter
+    # Disable both limiter instances
+    app.state.limiter.enabled = False
+    dep_limiter.enabled = False
+    yield
+    app.state.limiter.enabled = True
+    dep_limiter.enabled = True
+
+
 @pytest.fixture
 def student_headers():
     """Authorization headers for a student."""

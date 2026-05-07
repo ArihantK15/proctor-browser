@@ -25,7 +25,7 @@ from ..dependencies import (
     _recalculate_score, _safe_filename,
     compute_risk_score, _build_sessions_payload, _partition_live_sessions,
     _clear_token_issue, _clear_token_consume, _CLEAR_TOKEN_TTL, _CLEAR_ACTIVE_WINDOW,
-    SCREENSHOTS_DIR, _cache, _atable,
+    SCREENSHOTS_DIR, _cache, _atable, limiter,
     _collect_session_screenshots, _is_violation, _match_screenshot_for_violation,
     _get_invite_base_url, _get_teacher_by_id,
     INVITE_DAILY_CAP, _new_invite_token, _uuid, _claim_and_bump_cap,
@@ -341,6 +341,7 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
 # ─── 1. PENDING ID VERIFICATIONS ─────────────────────────
 
 @router.get("/api/v1/admin/pending-verifications")
+@limiter.limit("30/minute")
 async def pending_verifications(request: Request, exam_id: str = None):
     """Return all pending ID verifications for this teacher."""
     teacher = await require_admin(request)
@@ -393,6 +394,7 @@ async def pending_verifications(request: Request, exam_id: str = None):
 # ─── 2. ID DECISION ─────────────────────────────────
 
 @router.post("/api/v1/admin/id-decision")
+@limiter.limit("20/minute")
 async def id_decision(data: IdDecisionIn, request: Request):
     """Teacher approves, requests retake, or rejects a student's ID."""
     teacher = await require_admin(request)
@@ -448,6 +450,7 @@ async def id_decision(data: IdDecisionIn, request: Request):
 # ─── 3. RISK SCORE ─────────────────────────────────
 
 @router.get("/api/v1/risk-score/{session_id:path}")
+@limiter.limit("60/minute")
 async def get_risk_score(session_id: str, request: Request):
     """Compute behavioral risk score for any session (live or completed)."""
     teacher = await require_admin(request)
@@ -460,6 +463,7 @@ async def get_risk_score(session_id: str, request: Request):
 # ─── 4. TIMELINE ─────────────────────────────────
 
 @router.get("/api/v1/admin/timeline/{session_id:path}")
+@limiter.limit("60/minute")
 async def get_timeline(session_id: str, request: Request):
     """Full forensics timeline: every event + screenshot paths for a session."""
     teacher = await require_admin(request)
@@ -518,6 +522,7 @@ async def get_timeline(session_id: str, request: Request):
 # ─── 5. UPLOAD QUESTION IMAGE ─────────────────────────
 
 @router.post("/api/v1/admin/upload-question-image")
+@limiter.limit("30/minute")
 async def upload_question_image(request: Request, body: UploadQuestionImageIn = Body(...)):
     """Teacher uploads a question image."""
     teacher = await require_admin(request)
@@ -570,6 +575,7 @@ async def upload_question_image(request: Request, body: UploadQuestionImageIn = 
 # ─── 6. SERVE QUESTION IMAGE ────────────────────────────
 
 @router.get("/api/v1/question-image/{tid}/{filename}")
+@limiter.limit("60/minute")
 async def get_question_image(tid: str, filename: str, request: Request):
     """Serve a question image."""
     from jose import jwt, JWTError
@@ -616,6 +622,7 @@ async def get_question_image(tid: str, filename: str, request: Request):
 # ─── 7. SERVE SCREENSHOT ──────────────────────────────
 
 @router.get("/api/v1/admin/screenshot/{roll}/{filename}")
+@limiter.limit("60/minute")
 async def get_screenshot(roll: str, filename: str, request: Request):
     """Serve a screenshot image to the admin dashboard."""
     teacher = await require_admin(request)
@@ -638,6 +645,7 @@ async def get_screenshot(roll: str, filename: str, request: Request):
 # ─── 8. LIVE SESSIONS VIEW ──────────────────────────────
 
 @router.get("/api/v1/admin/sessions")
+@limiter.limit("60/minute")
 async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
     """REST view of the Live tab."""
     teacher = await require_admin(request)
@@ -662,6 +670,7 @@ async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1,
 # ─── 9. RESULTS ─────────────────────────────────────────
 
 @router.get("/api/v1/results")
+@limiter.limit("60/minute")
 async def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
     teacher = await require_admin(request)
     all_results = await _fetch_all_results(teacher["id"], exam_id=exam_id)
@@ -683,6 +692,7 @@ _BEHAVIORAL_PATTERNS = frozenset({
 })
 
 @router.get("/api/v1/student-history/{roll_number}")
+@limiter.limit("30/minute")
 async def get_student_history(
     roll_number: str,
     request: Request,
@@ -830,6 +840,7 @@ async def get_student_history(
 # ─── 9c. STUDENT SEARCH ──────────────────────────────────
 
 @router.get("/api/v1/student-search")
+@limiter.limit("30/minute")
 async def search_students(request: Request, q: str = "", page: int = 1, page_size: int = 20):
     """Search students by roll number, name, or email.
 
@@ -902,6 +913,7 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
 # ─── 10. EXPORT CSV ──────────────────────────────────────
 
 @router.get("/api/v1/export-csv")
+@limiter.limit("10/minute")
 async def export_csv(request: Request, exam_id: str = None):
     teacher = await require_admin(request)
     return StreamingResponse(
@@ -913,6 +925,7 @@ async def export_csv(request: Request, exam_id: str = None):
 # ─── 11. EXPORT EXCEL ─────────────────────────────────────
 
 @router.get("/api/v1/export-excel")
+@limiter.limit("10/minute")
 async def export_excel(request: Request, exam_id: str = None):
     """Results export as a formatted .xlsx workbook. Capped at 5000 rows."""
     from openpyxl import Workbook
@@ -1001,6 +1014,7 @@ async def export_excel(request: Request, exam_id: str = None):
 # ─── 12. EXPORT PDF ──────────────────────────────────
 
 @router.get("/api/v1/export-pdf/{session_id:path}")
+@limiter.limit("10/minute")
 async def export_pdf(session_id: str, request: Request):
     teacher = await require_admin(request)
     tid = teacher["id"]
@@ -1288,6 +1302,7 @@ async def export_pdf(session_id: str, request: Request):
 # ─── 13. SCORECARD PDF ──────────────────────────────────
 
 @router.get("/api/v1/admin/scorecard-pdf/{session_id:path}")
+@limiter.limit("10/minute")
 async def scorecard_pdf(session_id: str, request: Request):
     """Generate a student-facing scorecard PDF."""
     teacher = await require_admin(request)
@@ -1307,6 +1322,7 @@ async def scorecard_pdf(session_id: str, request: Request):
 # ─── 14. SCORECARD ZIP ──────────────────────────────────
 
 @router.get("/api/v1/admin/scorecard-zip")
+@limiter.limit("5/minute")
 async def scorecard_zip(request: Request, exam_id: str = None):
     """Generate a ZIP of all student scorecards for an exam."""
     teacher = await require_admin(request)
@@ -1437,6 +1453,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
 # ─── 15. EMAIL SCORECARDS ────────────────────────────────
 
 @router.post("/api/v1/admin/exams/{exam_id}/email-scorecards")
+@limiter.limit("5/minute")
 async def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = Body(default=EmailScorecardsIn())):
     """Email every completed student their scorecard PDF for this exam."""
     from emailer import send_scorecard_email
@@ -1572,6 +1589,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
 # ─── 16. FAILED SESSIONS ────────────────────────────────#
 
 @router.get("/api/v1/admin-failed-sessions")
+@limiter.limit("30/minute")
 async def failed_sessions(request: Request, exam_id: str = None):
     """Returns sessions with submit_failed events that never completed."""
     teacher = await require_admin(request)
@@ -1601,6 +1619,7 @@ async def failed_sessions(request: Request, exam_id: str = None):
 # ─── 17. CLEANUP SCREENSHOTS ────────────────────────────#
 
 @router.post("/api/v1/admin-cleanup")
+@limiter.limit("10/minute")
 async def admin_cleanup(request: Request):
     """Delete the calling teacher's screenshots older than 48 hours."""
     teacher = await require_admin(request)
@@ -1625,6 +1644,7 @@ async def admin_cleanup(request: Request):
 # ─── 18. CLEAR LIVE SESSIONS ─────────────────────────────#
 
 @router.post("/api/v1/admin/clear-live-sessions")
+@limiter.limit("5/minute")
 async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
     """Destructive: wipe all in-progress sessions for the calling teacher."""
     teacher = await require_admin(request)
@@ -1864,6 +1884,7 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
 # ─── 19. BACKFILL RISK SCORES ──────────────────────────────#
 
 @router.post("/api/v1/admin/backfill-risk-scores")
+@limiter.limit("10/minute")
 async def backfill_risk_scores(request: Request, exam_id: str = None):
     """Recompute and cache risk scores for all completed sessions."""
     teacher = await require_admin(request)
@@ -1887,6 +1908,7 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
 # ─── 20. LIST EXAMS ─────────────────────────────────#
 
 @router.get("/api/v1/admin/exams")
+@limiter.limit("60/minute")
 async def list_exams(request: Request):
     """List all exams for the calling teacher."""
     teacher = await require_admin(request)
@@ -1927,6 +1949,7 @@ async def list_exams(request: Request):
 # ─── 21. CREATE EXAM ─────────────────────────────────#
 
 @router.post("/api/v1/admin/exams")
+@limiter.limit("10/hour")
 async def create_exam(request: Request, body: CreateExamIn = Body(...)):
     """Create a new exam for the calling teacher."""
     teacher = await require_admin(request)
@@ -1951,6 +1974,7 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
 # ─── 22. DELETE EXAM ─────────────────────────────────#
 
 @router.delete("/api/v1/admin/exams/{exam_id}")
+@limiter.limit("10/hour")
 async def delete_exam(exam_id: str, request: Request):
     """Delete an exam and its questions. Keeps session history."""
     teacher = await require_admin(request)
@@ -1976,6 +2000,7 @@ async def delete_exam(exam_id: str, request: Request):
 # ─── 23. DUPLICATE EXAM ──────────────────────────────#
 
 @router.post("/api/v1/admin/exams/{exam_id}/duplicate")
+@limiter.limit("10/hour")
 async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})):
     """Clone an exam's config + questions into a fresh exam_id."""
     teacher = await require_admin(request)
@@ -2067,6 +2092,7 @@ async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(defau
 # ─── 24. ANALYTICS ─────────────────────────────────#
 
 @router.get("/api/v1/admin/analytics")
+@limiter.limit("20/minute")
 async def get_analytics(request: Request):
     """Compute exam analytics: score distribution, question analysis, violations, risk."""
     teacher = await require_admin(request)
@@ -2218,6 +2244,7 @@ async def get_analytics(request: Request):
 # ─── 25. LIST GROUPS ─────────────────────────────────#
 
 @router.get("/api/v1/admin/groups")
+@limiter.limit("60/minute")
 async def list_groups(request: Request):
     """List all groups for the authenticated teacher."""
     teacher = await require_admin(request)
@@ -2243,6 +2270,7 @@ async def list_groups(request: Request):
 # ─── 26. CREATE GROUP ─────────────────────────────────#
 
 @router.post("/api/v1/admin/groups")
+@limiter.limit("20/hour")
 async def create_group(request: Request, body: CreateGroupIn = Body(...)):
     """Create a new student group."""
     teacher = await require_admin(request)
@@ -2263,6 +2291,7 @@ async def create_group(request: Request, body: CreateGroupIn = Body(...)):
 # ─── 27. RENAME GROUP ─────────────────────────────────#
 
 @router.put("/api/v1/admin/groups/{group_id}")
+@limiter.limit("20/hour")
 async def rename_group(group_id: str, request: Request, body: RenameGroupIn = Body(...)):
     """Rename a student group."""
     teacher = await require_admin(request)
@@ -2281,6 +2310,7 @@ async def rename_group(group_id: str, request: Request, body: RenameGroupIn = Bo
 # ─── 28. DELETE GROUP ─────────────────────────────────#
 
 @router.delete("/api/v1/admin/groups/{group_id}")
+@limiter.limit("20/hour")
 async def delete_group(group_id: str, request: Request):
     """Delete a student group (cascades to members and exam assignments)."""
     teacher = await require_admin(request)
@@ -2295,6 +2325,7 @@ async def delete_group(group_id: str, request: Request):
 # ─── 29. LIST GROUP MEMBERS ──────────────────────────#
 
 @router.get("/api/v1/admin/groups/{group_id}/members")
+@limiter.limit("60/minute")
 async def list_group_members(group_id: str, request: Request):
     """List members of a group, enriched with email/full_name."""
     teacher = await require_admin(request)
@@ -2321,6 +2352,7 @@ async def list_group_members(group_id: str, request: Request):
 # ─── 30. ADD GROUP MEMBERS ──────────────────────────────#
 
 @router.post("/api/v1/admin/groups/{group_id}/members")
+@limiter.limit("20/minute")
 async def add_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
     """Add students to a group by roll numbers."""
     teacher = await require_admin(request)
@@ -2342,6 +2374,7 @@ async def add_group_members(group_id: str, request: Request, body: GroupMembersI
 # ─── 31. REMOVE GROUP MEMBERS ───────────────────────────#
 
 @router.delete("/api/v1/admin/groups/{group_id}/members")
+@limiter.limit("20/minute")
 async def remove_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
     """Remove students from a group by roll numbers."""
     teacher = await require_admin(request)
@@ -2360,6 +2393,7 @@ async def remove_group_members(group_id: str, request: Request, body: GroupMembe
 # ─── 32. LIST EXAM GROUPS ──────────────────────────────#
 
 @router.get("/api/v1/admin/exams/{exam_id}/groups")
+@limiter.limit("60/minute")
 async def list_exam_groups(exam_id: str, request: Request):
     """List groups assigned to an exam."""
     teacher = await require_admin(request)
@@ -2378,6 +2412,7 @@ async def list_exam_groups(exam_id: str, request: Request):
 # ─── 33. ASSIGN GROUPS TO EXAM ───────────────────────────#
 
 @router.post("/api/v1/admin/exams/{exam_id}/groups")
+@limiter.limit("20/minute")
 async def assign_exam_groups(exam_id: str, request: Request, body: ExamGroupAssignIn = Body(...)):
     """Assign groups to an exam for access control."""
     teacher = await require_admin(request)
@@ -2393,6 +2428,7 @@ async def assign_exam_groups(exam_id: str, request: Request, body: ExamGroupAssi
 # ─── 34. UNASSIGN GROUP FROM EXAM ────────────────────────#
 
 @router.delete("/api/v1/admin/exams/{exam_id}/groups/{group_id}")
+@limiter.limit("20/hour")
 async def unassign_exam_group(exam_id: str, group_id: str, request: Request):
     """Remove a group assignment from an exam."""
     teacher = await require_admin(request)
@@ -2407,6 +2443,7 @@ async def unassign_exam_group(exam_id: str, group_id: str, request: Request):
 # ─── 35. BULK REGISTER STUDENTS ───────────────────────────#
 
 @router.post("/api/v1/admin/register-students-bulk")
+@limiter.limit("10/minute")
 async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
     """Admin-only bulk student registration."""
     teacher = await require_admin(request)
@@ -2452,6 +2489,7 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
 # ─── 36. GET ACCESS CODE ─────────────────────────#
 
 @router.get("/api/v1/admin/access-code")
+@limiter.limit("60/minute")
 async def get_access_code(request: Request):
     """Return the current exam access code."""
     teacher = await require_admin(request)
@@ -2463,6 +2501,7 @@ async def get_access_code(request: Request):
 # ─── 37. SET ACCESS CODE ─────────────────────────#
 
 @router.post("/api/v1/admin/access-code")
+@limiter.limit("10/minute")
 async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
     """Set or clear the exam access code."""
     teacher = await require_admin(request)
@@ -2477,6 +2516,7 @@ async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
 # ─── 38. REGISTERED COUNT ────────────────────────#
 
 @router.get("/api/v1/admin/registered-count")
+@limiter.limit("60/minute")
 async def registered_count(request: Request):
     """Return total number of registered students."""
     teacher = await require_admin(request)
@@ -2491,6 +2531,7 @@ async def registered_count(request: Request):
 # ─── 39. GET EXAM SCHEDULE ────────────────────────#
 
 @router.get("/api/v1/admin/exam-schedule")
+@limiter.limit("60/minute")
 async def admin_get_schedule(request: Request):
     """Return current exam schedule for the admin dashboard."""
     teacher = await require_admin(request)
@@ -2506,6 +2547,7 @@ async def admin_get_schedule(request: Request):
 # ─── 40. SET EXAM SCHEDULE ────────────────────────#
 
 @router.post("/api/v1/admin/exam-schedule")
+@limiter.limit("20/minute")
 async def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
     """Set or clear exam start/end times."""
     teacher = await require_admin(request)
@@ -2533,6 +2575,7 @@ async def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
 # ─── 41. GET SHUFFLE CONFIG ────────────────────────#
 
 @router.get("/api/v1/admin/shuffle-config")
+@limiter.limit("60/minute")
 async def admin_get_shuffle(request: Request):
     """Return current per-student shuffle toggles."""
     teacher = await require_admin(request)
@@ -2545,6 +2588,7 @@ async def admin_get_shuffle(request: Request):
 # ─── 42. SET SHUFFLE CONFIG ────────────────────────#
 
 @router.post("/api/v1/admin/shuffle-config")
+@limiter.limit("20/minute")
 async def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
     """Toggle per-student question / option shuffling."""
     teacher = await require_admin(request)
@@ -2575,6 +2619,7 @@ async def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
 # ─── 43. ADMIN FORCE-SUBMIT ────────────────────────#
 
 @router.post("/api/v1/admin-submit/{session_id}")
+@limiter.limit("10/minute")
 async def admin_submit(session_id: str, request: Request):
     """Force-submit a session that failed to submit properly."""
     teacher = await require_admin(request)
@@ -2691,6 +2736,7 @@ async def admin_submit(session_id: str, request: Request):
 # ─── 44. REQUEST RECALIBRATION ─────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/request-recalibration")
+@limiter.limit("10/minute")
 async def request_recalibration(session_id: str, request: Request):
     """End a live session and ask the student to restart for fresh calibration."""
     teacher = await require_admin(request)
@@ -2745,6 +2791,7 @@ async def request_recalibration(session_id: str, request: Request):
 # ─── 45. LIVE VIEW START ─────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/start")
+@limiter.limit("30/minute")
 async def live_view_start(session_id: str, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
@@ -2758,6 +2805,7 @@ async def live_view_start(session_id: str, request: Request):
 # ─── 46. LIVE RISK TRIAGE ─────────────────────────#
 
 @router.get("/api/v1/admin/sessions/{session_id:path}/triage")
+@limiter.limit("10/minute")
 async def live_risk_triage_endpoint(session_id: str, request: Request):
     """One-line LLM TL;DR of a live session's recent violations."""
     teacher = await require_admin(request)
@@ -2831,6 +2879,7 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
 # ─── 47. LIVE VIEW KEEPALIVE ────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/keepalive")
+@limiter.limit("60/minute")
 async def live_view_keepalive(session_id: str, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
@@ -2844,6 +2893,7 @@ async def live_view_keepalive(session_id: str, request: Request):
 # ─── 48. LIVE VIEW STOP ─────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/stop")
+@limiter.limit("30/minute")
 async def live_view_stop(session_id: str, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
@@ -2857,6 +2907,7 @@ async def live_view_stop(session_id: str, request: Request):
 # ─── 49. LIVE FRAME ─────────────────────────#
 
 @router.get("/api/v1/admin/sessions/{session_id:path}/live-frame")
+@limiter.limit("30/minute")
 async def live_view_frame(session_id: str, request: Request):
     """Return the latest webcam frame for this session.
 
@@ -2894,6 +2945,7 @@ async def live_view_frame(session_id: str, request: Request):
 # ─── 50. LIVE VIEW FORCE STOP ────────────────────────#
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/force-stop")
+@limiter.limit("10/minute")
 async def live_view_force_stop(session_id: str, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
@@ -2919,6 +2971,7 @@ class SendInvitesBody(BaseModel):
 
 
 @router.post("/api/v1/admin/invites/send")
+@limiter.limit("5/minute")
 async def send_invites(body: SendInvitesBody, request: Request):
     """Send invites to a batch of students. Upserts on duplicate
      (teacher, email, exam) to avoid double-invites."""
@@ -2993,6 +3046,7 @@ async def send_invites(body: SendInvitesBody, request: Request):
 
 
 @router.get("/api/v1/admin/invites")
+@limiter.limit("30/minute")
 async def list_invites(request: Request, exam_id: Optional[str] = None):
     """List all invites for the authenticated teacher."""
     teacher = await require_admin(request)
@@ -3027,6 +3081,7 @@ async def list_invites(request: Request, exam_id: Optional[str] = None):
 
 
 @router.delete("/api/v1/admin/invites/{invite_id}")
+@limiter.limit("20/hour")
 async def revoke_invite(invite_id: str, request: Request):
     """Revoke a single invite by ID."""
     teacher = await require_admin(request)
@@ -3056,6 +3111,7 @@ class SaveTemplateIn(BaseModel):
 
 
 @router.post("/api/v1/templates")
+@limiter.limit("10/hour")
 async def save_template(request: Request, body: SaveTemplateIn):
     """Save the current exam config (+ optionally questions) as a reusable template."""
     teacher = await require_admin(request)
@@ -3096,6 +3152,7 @@ async def save_template(request: Request, body: SaveTemplateIn):
 
 
 @router.get("/api/v1/templates")
+@limiter.limit("60/minute")
 async def list_templates(request: Request):
     """List all templates for the current teacher."""
     teacher = await require_admin(request)
@@ -3123,6 +3180,7 @@ async def list_templates(request: Request):
 
 
 @router.post("/api/v1/templates/{template_id}/create-exam")
+@limiter.limit("10/hour")
 async def create_exam_from_template(template_id: str, request: Request):
     """Create a new exam from a template — copies config + questions."""
     teacher = await require_admin(request)
@@ -3174,6 +3232,7 @@ async def create_exam_from_template(template_id: str, request: Request):
 
 
 @router.delete("/api/v1/templates/{template_id}")
+@limiter.limit("20/hour")
 async def delete_template(template_id: str, request: Request):
     """Delete a template."""
     teacher = await require_admin(request)

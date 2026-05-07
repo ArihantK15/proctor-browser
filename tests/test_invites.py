@@ -189,10 +189,17 @@ def _atable_async_stub(stub):
 
 def _patch(stub, cap=None):
     """Patch both supabase.table (sync code paths) and _atable (async code paths)
-    so that endpoints in public.py work regardless of which DB wrapper they use."""
+    so that endpoints in admin.py, public.py, and dependencies.py work regardless
+    of which DB wrapper they use.  Also configure supabase.rpc to raise a "function
+    not found" error so _claim_and_bump_cap falls back to the _atable-based path."""
+    mock_supabase = shared_supabase_mock()
+    mock_supabase.rpc.side_effect = Exception(
+        "function claim_invite_cap does not exist")
     patches = [
-        patch.object(shared_supabase_mock(), "table"),
+        patch.object(mock_supabase, "table"),
         patch("app.routers.public._atable", side_effect=_atable_async_stub(stub)),
+        patch("app.routers.admin._atable", side_effect=_atable_async_stub(stub)),
+        patch("app.dependencies._atable", side_effect=_atable_async_stub(stub)),
     ]
     if cap is not None:
         patches.append(patch("app.dependencies.INVITE_DAILY_CAP", cap))

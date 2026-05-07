@@ -6,6 +6,8 @@ the central ``dependencies`` module via relative imports.
 
 import logging
 
+_exam_log = logging.getLogger("exam")
+
 from ..dependencies import (
     supabase,
     _atable,
@@ -357,7 +359,7 @@ async def check_session(roll_number: str, request: Request):
             for qid, qmap in label_maps.items():
                 reverse[qid] = {orig: disp for disp, orig in qmap.items()}
         except Exception as e:
-            print(f"[Resume] reverse map failed: {e}")
+            _exam_log.warning("[Resume] reverse map failed: %s", e)
 
     resumed = {}
     for r in (answers.data or []):
@@ -458,8 +460,7 @@ async def log_event(event: EventIn, request: Request):
 
     # Alert on submission failure
     if event.event_type == "submit_failed":
-        print(f"[ALERT] SUBMIT FAILED for session {event.session_id} "
-              f"— use /api/v1/admin-submit/{event.session_id} to recover")
+        _exam_log.error("[ALERT] SUBMIT FAILED for session %s — use /api/v1/admin-submit/%s to recover", event.session_id, event.session_id)
 
     viol_row = {
         "session_key":    event.session_id,
@@ -647,12 +648,12 @@ async def submit_exam(result: ResultIn, request: Request):
     try:
         (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
     except RuntimeError as e:
-        print(f"[SUBMIT] Score calculation failed for {result.session_id}: {e}")
+        _exam_log.warning("[SUBMIT] Score calculation failed for %s: %s", result.session_id, e)
         raise HTTPException(status_code=503,
                             detail="Score calculation temporarily unavailable. Please retry.")
 
     if server_score == 0 and server_total == 0:
-        print(f"[WARN] Score recalculation returned 0/0 for {result.session_id}")
+        _exam_log.warning("[SUBMIT] Score recalculation returned 0/0 for %s", result.session_id)
 
     pct = round((server_score / max(server_total, 1)) * 100, 1)
 
@@ -705,7 +706,7 @@ async def submit_exam(result: ResultIn, request: Request):
     results = await asyncio.gather(*parallel_ops, return_exceptions=True)
     for i, r in enumerate(results):
         if isinstance(r, Exception):
-            print(f"[SUBMIT] Phase 2 op {i} failed for {result.session_id}: {r}")
+            _exam_log.error("[SUBMIT] Phase 2 op %d failed for %s: %s", i, result.session_id, r)
             if i == 0:
                 raise HTTPException(status_code=500,
                                     detail="Failed to save exam submission. Please retry.")
@@ -723,9 +724,13 @@ async def submit_exam(result: ResultIn, request: Request):
 
     # Publish submission to dashboard SSE
     if tid:
-        asyncio.create_task(_bus_async_publish(f"sessions:{tid}", {"kind": "submitted",
+        pub_task = asyncio.create_task(_bus_async_publish(f"sessions:{tid}", {"kind": "submitted",
                      "session_id": result.session_id,
                      "score": server_score, "total": server_total}))
+        pub_task.add_done_callback(
+            lambda t: _exam_log.warning("[submit] SSE publish failed: %s", t.exception())
+            if not t.cancelled() and t.exception() else None
+        )
 
     return {"status": SessionStatus.SUBMITTED, "score": server_score,
             "total": server_total, "percentage": pct,
@@ -785,7 +790,7 @@ async def analyze_frame(data: FrameIn, request: Request):
     try:
         await asyncio.to_thread(_save_frame, student_dir, data)
     except Exception as e:
-        print(f"[Frame] Error saving frame for {data.session_id}: {e}")
+        _exam_log.error("[Frame] Error saving frame for %s: %s", data.session_id, e)
         raise HTTPException(status_code=500, detail="Failed to save frame")
     return {"status": "received"}
 
@@ -839,7 +844,7 @@ async def id_verification(data: IdVerifyIn, request: Request):
         selfie_fname, id_fname = await asyncio.to_thread(
             _save_id_verification_images, student_dir, data.selfie_frame, data.id_frame)
     except Exception as e:
-        print(f"[ID Verify] File save error: {e}")
+        _exam_log.error("[ID Verify] File save error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save verification images")
 
     try:
@@ -861,7 +866,8 @@ async def id_verification(data: IdVerifyIn, request: Request):
             viol_row["teacher_id"] = str(tid)
         await _atable("violations").insert(viol_row).execute()
     except Exception as e:
-        print(f"[ID Verify] DB error: {e}")
+        _exam_log.error("[ID Verify] DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to record verification. Please try again.")
 
     return {"status": "received"}
 

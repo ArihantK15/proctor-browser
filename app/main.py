@@ -375,8 +375,40 @@ async def _on_startup():
 
     # Reminder loop (can be disabled via env var)
     if os.environ.get("REMINDER_LOOP_DISABLED", "") == "1":
-        print("[reminders] loop disabled via REMINDER_LOOP_DISABLED=1", flush=True)
+        print("[startup] reminders loop disabled via REMINDER_LOOP_DISABLED=1", flush=True)
     else:
         import asyncio
         asyncio.create_task(_reminder_loop())
-        print("[reminders] loop started", flush=True)
+        print("[startup] reminders loop started", flush=True)
+
+
+@app.on_event("shutdown")
+async def _on_shutdown():
+    """Graceful shutdown: cancel background tasks, flush caches, close connections."""
+    import logging
+    log = logging.getLogger("shutdown")
+    log.info("[shutdown] Starting graceful shutdown...")
+
+    # Cancel reminder loop
+    for task in asyncio.all_tasks():
+        coro_name = task.get_coro().__name__ if hasattr(task, 'get_coro') else str(task)
+        if "reminder" in coro_name.lower():
+            task.cancel()
+            log.info("[shutdown] Cancelled reminder task")
+
+    # Clear in-memory caches
+    from .dependencies import _teacher_cache, _student_acct_cache
+    _teacher_cache.clear()
+    _student_acct_cache.clear()
+    log.info("[shutdown] Cleared in-memory caches")
+
+    # Close Redis connections (if available)
+    try:
+        from .cache import _r
+        if _r:
+            _r.close()
+            log.info("[shutdown] Closed Redis connection")
+    except Exception:
+        pass
+
+    log.info("[shutdown] Graceful shutdown complete")

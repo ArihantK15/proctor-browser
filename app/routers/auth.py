@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 import json
 import logging
+_auth_log = logging.getLogger("auth")
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 
@@ -62,7 +63,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         err_msg = str(e).lower()
         if "already registered" in err_msg or "duplicate" in err_msg:
             raise HTTPException(status_code=409, detail="An account with this email already exists")
-        print(f"[TeacherSignup] Supabase Auth error: {e}")
+        _auth_log.error("[TeacherSignup] Supabase Auth error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create account")
 
     # Insert teacher record — if this fails, roll back the Auth user
@@ -75,13 +76,13 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         result = await _atable("teachers").insert(teacher_row).execute()
         teacher = result.data[0]
     except Exception as e:
-        print(f"[TeacherSignup] DB insert error: {e}")
+        _auth_log.error("[TeacherSignup] DB insert error: %s", e)
         # Roll back: delete the orphaned Supabase Auth user
         try:
             supabase.auth.admin.delete_user(str(supabase_uid))
-            print(f"[TeacherSignup] Rolled back Auth user {supabase_uid}")
+            _auth_log.info("[TeacherSignup] Rolled back Auth user %s", supabase_uid)
         except Exception as rollback_err:
-            print(f"[TeacherSignup] CRITICAL: Failed to rollback Auth user {supabase_uid}: {rollback_err}")
+            _auth_log.critical("[TeacherSignup] Failed to rollback Auth user %s: %s", supabase_uid, rollback_err)
         raise HTTPException(status_code=500, detail="Failed to create teacher record")
 
     # Create default exam_config for this teacher
@@ -97,7 +98,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
 
     # Auto-login after signup so the teacher goes straight to dashboard
     access_token = issue_admin_token(teacher)
-    print(f"[TeacherSignup] {name} <{email}> created")
+    _auth_log.info("[TeacherSignup] %s <%s> created", name, email)
     return {
         "teacher_id":    teacher["id"],
         "email":         email,
@@ -117,7 +118,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             "password": body.password,
         })
     except Exception as e:
-        print(f"[TeacherLogin] Auth error: {e}")
+        _auth_log.warning("[TeacherLogin] Auth error: %s", e)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     supabase_uid = str(auth_resp.user.id)
@@ -159,7 +160,7 @@ async def teacher_refresh(body: RefreshIn, request: Request):
     try:
         auth_resp = supabase.auth.refresh_session(body.refresh_token)
     except Exception as e:
-        print(f"[TeacherRefresh] Error: {e}")
+        _auth_log.warning("[TeacherRefresh] Error: %s", e)
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     if not auth_resp or not auth_resp.user or not auth_resp.session:
@@ -186,7 +187,7 @@ async def teacher_password_reset(body: PasswordResetIn, request: Request):
     try:
         supabase.auth.reset_password_for_email(email)
     except Exception as e:
-        print(f"[PasswordReset] Error for {email}: {e}")
+        _auth_log.warning("[PasswordReset] Error for %s: %s", email, e)
         # Don't reveal whether the email exists or not
     return {"status": "ok", "message": "If that email is registered, a reset link has been sent."}
 
@@ -241,7 +242,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
         err_msg = str(e).lower()
         if "already registered" in err_msg or "duplicate" in err_msg:
             raise HTTPException(status_code=409, detail="An account with this email already exists")
-        print(f"[StudentSignup] Supabase Auth error: {e}")
+        _auth_log.error("[StudentSignup] Supabase Auth error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create account")
 
     try:
@@ -252,13 +253,13 @@ async def student_signup(body: StudentSignupIn, request: Request):
         }).execute()
         account = result.data[0]
     except Exception as e:
-        print(f"[StudentSignup] DB insert error: {e}")
+        _auth_log.error("[StudentSignup] DB insert error: %s", e)
         # Roll back: delete the orphaned Supabase Auth user
         try:
             supabase.auth.admin.delete_user(str(supabase_uid))
-            print(f"[StudentSignup] Rolled back Auth user {supabase_uid}")
+            _auth_log.info("[StudentSignup] Rolled back Auth user %s", supabase_uid)
         except Exception as rollback_err:
-            print(f"[StudentSignup] CRITICAL: Failed to rollback Auth user {supabase_uid}: {rollback_err}")
+            _auth_log.critical("[StudentSignup] Failed to rollback Auth user %s: %s", supabase_uid, rollback_err)
         raise HTTPException(status_code=500, detail="Failed to create student record")
 
     # Auto-link any existing enrollments by matching email (case-insensitive).
@@ -269,9 +270,9 @@ async def student_signup(body: StudentSignupIn, request: Request):
             .is_("account_id", "null")\
             .execute()
     except Exception as e:
-        print(f"[StudentSignup] Auto-link warning: {e}")
+        _auth_log.warning("[StudentSignup] Auto-link warning: %s", e)
 
-    print(f"[StudentSignup] {name} <{email}> created")
+    _auth_log.info("[StudentSignup] %s <%s> created", name, email)
     return {
         "account_id": account["id"],
         "email":      email,
@@ -289,7 +290,7 @@ async def student_login(body: StudentLoginIn, request: Request):
             "password": body.password,
         })
     except Exception as e:
-        print(f"[StudentLogin] Auth error: {e}")
+        _auth_log.warning("[StudentLogin] Auth error: %s", e)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     supabase_uid = str(auth_resp.user.id)
@@ -337,7 +338,7 @@ async def student_refresh(body: RefreshIn, request: Request):
     try:
         auth_resp = supabase.auth.refresh_session(body.refresh_token)
     except Exception as e:
-        print(f"[StudentRefresh] Error: {e}")
+        _auth_log.warning("[StudentRefresh] Error: %s", e)
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     if not auth_resp or not auth_resp.user or not auth_resp.session:

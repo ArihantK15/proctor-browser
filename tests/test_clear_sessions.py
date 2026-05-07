@@ -331,3 +331,87 @@ class TestConfirmStepDeletes:
         ]
         assert "S_A1" in deleted_session_keys
         assert "S_B1" not in deleted_session_keys
+
+
+# ─── Partial failure reporting ────────────────────────────────────────
+
+class TestPartialFailureReporting:
+    """When deletions fail, the response must include partial_failures
+    and failure_details so the admin knows the operation was incomplete."""
+
+    def _request_then_confirm(self, client, admin_headers, stub, body_extra):
+        req = client.post("/api/v1/admin/clear-live-sessions",
+                          headers=admin_headers,
+                          json={"step": "request", **body_extra})
+        assert req.status_code == 200, req.text
+        token = req.json()["token"]
+        return client.post("/api/v1/admin/clear-live-sessions",
+                           headers=admin_headers,
+                           json={"step": "confirm", "token": token,
+                                 "ack": "DELETE", **body_extra})
+
+    def test_successful_clear_has_no_failure_fields(self, client, admin_headers):
+        stub = _SupabaseStub(in_progress=[
+            _sess("S_OLD", "bob", hb_seconds_ago=999),
+        ])
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.dependencies._cache", None), \
+             patch("app.dependencies.Path") as mock_path:
+            mock_table.side_effect = stub
+            mock_path.return_value.is_dir.return_value = False
+            resp = self._request_then_confirm(client, admin_headers, stub, {})
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert "partial_failures" not in d
+        assert "failure_details" not in d
+
+    def test_delete_failure_reported_in_response(self, client, admin_headers):
+        class _FailingStub(_SupabaseStub):
+            def __call__(self, table_name):
+                chain = super().__call__(table_name)
+                original_execute = chain.execute.side_effect
+                call_count = {"n": 0}
+
+                def _fail_on_third():
+                    call_count["n"] += 1
+                    if table_name == "answers" and call_count["n"] == 1:
+                        raise RuntimeError("DB connection lost")
+                    return original_execute()
+
+                chain.execute.side_effect = _fail_on_third
+                return chain
+
+        stub = _FailingStub(in_progress=[
+            _sess("S_OLD", "bob", hb_seconds_ago=999),
+        ])
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.dependencies._cache", None), \
+             patch("app.dependencies.Path") as mock_path:
+            mock_table.side_effect = stub
+            mock_path.return_value.is_dir.return_value = False
+            resp = self._request_then_confirm(client, admin_headers, stub, {})
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d.get("partial_failures", 0) > 0, f"No failures reported: {d}"
+        assert "failure_details" in d
+        details = d["failure_details"]
+        assert details.get("answers", 0) > 0 or details.get("sessions", 0) > 0
+
+    def test_failure_details_structure(self, client, admin_headers):
+        stub = _SupabaseStub(in_progress=[
+            _sess("S_OLD", "bob", hb_seconds_ago=999),
+        ])
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.dependencies._cache", None), \
+             patch("app.dependencies.Path") as mock_path:
+            mock_table.side_effect = stub
+            mock_path.return_value.is_dir.return_value = False
+            resp = self._request_then_confirm(client, admin_headers, stub, {})
+        # Even on success, if we ever add failure_details, it should have this structure
+        d = resp.json()
+        if "failure_details" in d:
+            fd = d["failure_details"]
+            assert "answers" in fd
+            assert "violations" in fd
+            assert "sessions" in fd
+            assert "screenshots" in fd

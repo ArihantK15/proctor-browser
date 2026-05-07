@@ -116,7 +116,7 @@ async def ws_chat_student(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"[ws_chat_student] error: {e}")
+        logger.error("[ws_chat_student] error: %s", e)
     finally:
         sid = (ws.query_params.get("session_id") or "").strip()
         if sid:
@@ -171,7 +171,7 @@ async def ws_chat_teacher(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"[ws_chat_teacher] error: {e}")
+        logger.error("[ws_chat_teacher] error: %s", e)
     finally:
         if teacher_id is not None:
             await chat_hub.unregister_teacher(teacher_id, ws)

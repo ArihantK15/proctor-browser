@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 import uuid as _uuid
-from collections import deque
+from collections import deque, OrderedDict
 
 from fastapi import Request, HTTPException, Body, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict
@@ -30,6 +30,22 @@ from enum import StrEnum
 
 from .database import supabase, async_table as _atable
 from .logger import get_logger
+from .constants import (
+    IST, SECRET_KEY, SUPER_ADMIN_EMAIL, SCREENSHOTS_DIR, QUESTION_IMG_DIR,
+    STATIC_DIR, DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN,
+    CORS_ALLOWED_ORIGINS, RELEASE_REPO, RELEASE_TTL_SEC, GITHUB_TOKEN,
+    TOKEN_TTL_HOURS, ADMIN_TOKEN_TTL_HOURS, STUDENT_AUTH_TTL_HOURS,
+    _LOADTEST_SECRET, PRACTICE_PREFIX, _CAL_TIGHT_GAZE, _CAL_LOOSE_GAZE,
+    _CAL_TIGHT_HEAD, _CAL_LOOSE_HEAD, _SATURATION_K, _BASELINE_DURATION_MINS,
+    _DEFAULT_WEIGHT_HIGH, _DEFAULT_WEIGHT_MED, _CRITICAL_TYPES, INVITE_DAILY_CAP,
+    INVITE_URL_TTL, REMINDER_POLL_SECONDS, REMINDER_1H_WINDOW_MIN,
+    REMINDER_24H_WINDOW_MIN, CHAT_MAX_TEXT_LEN, CHAT_HISTORY_LIMIT,
+    _TEACHER_CACHE_MAX, _STUDENT_ACCT_CACHE_MAX, _CLEAR_TOKEN_TTL,
+    _CLEAR_ACTIVE_WINDOW, _PENDING_VERIFICATION_LIMIT, _PENDING_VERIFICATION_TTL,
+)
+
+import os
+import time
 
 
 # ─── Domain enums (string-backed for DB compatibility) ────────────
@@ -62,6 +78,7 @@ class VerificationStatus(StrEnum):
 # ─── Redis/event bus imports (defensive) ──────────────────────────
 import logging as _logging
 _boot_log = _logging.getLogger("boot")
+_dep_log = _logging.getLogger("dependencies")
 try:
     from .event_bus import publish as _bus_publish, async_publish as _bus_async_publish, subscribe as _bus_subscribe
     _HAS_REDIS = True
@@ -79,7 +96,8 @@ except Exception as _e:
     _boot_log.warning("cache import failed (%s) — running without Redis cache.", _e)
 
 # ─── CONFIG ───────────────────────────────────────────────────────
-IST = timezone(timedelta(hours=5, minutes=30))
+os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+os.makedirs(QUESTION_IMG_DIR, exist_ok=True)
 
 def now_ist():
     return datetime.now(IST)
@@ -97,35 +115,6 @@ def fmt_ist(ts_str):
         return dt.astimezone(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
     except Exception:
         return str(ts_str)
-
-SECRET_KEY        = os.environ["SUPABASE_JWT_SECRET"]
-SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "").strip().lower()
-SCREENSHOTS_DIR   = os.getenv("SCREENSHOTS_DIR", "/app/screenshots")
-QUESTION_IMG_DIR  = os.getenv("QUESTION_IMG_DIR", "/app/question_images")
-STATIC_DIR        = Path(__file__).parent / "static"
-DOWNLOAD_MAC_ARM  = os.getenv("DOWNLOAD_MAC_ARM", "")
-DOWNLOAD_MAC_X64  = os.getenv("DOWNLOAD_MAC_X64", "")
-DOWNLOAD_WIN      = os.getenv("DOWNLOAD_WIN", "")
-
-# CORS allowed origins. Default includes localhost for dev.
-# Set CORS_ALLOWED_ORIGINS to a comma-separated list in prod
-# to restrict to known domains.
-_CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "")
-CORS_ALLOWED_ORIGINS = [o.strip() for o in _CORS_RAW.split(",") if o.strip()] if _CORS_RAW else [
-    "http://localhost",
-    "http://localhost:5173",   # Vite dev server
-    "https://app.procta.net",
-]
-RELEASE_REPO      = os.getenv("RELEASE_REPO", "ArihantK15/proctor-browser")
-RELEASE_TTL_SEC   = int(os.getenv("RELEASE_TTL_SEC", "600"))
-GITHUB_TOKEN      = os.getenv("GITHUB_TOKEN", "")
-TOKEN_TTL_HOURS   = 10
-ADMIN_TOKEN_TTL_HOURS = 12
-STUDENT_AUTH_TTL_HOURS = 12
-_LOADTEST_SECRET  = os.environ.get("LOADTEST_SECRET", "")
-
-os.makedirs(SCREENSHOTS_DIR,  exist_ok=True)
-os.makedirs(QUESTION_IMG_DIR, exist_ok=True)
 
 # ─── JWT AUTH HELPERS ─────────────────────────────────────────────
 def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None) -> str:
@@ -161,7 +150,7 @@ def verify_student_token(token: str) -> dict:
     return payload
 
 # ─── Teacher lookup cache ─────────────────────────────────────────
-_teacher_cache = {}
+_teacher_cache = OrderedDict()
 _teacher_cache_ttl = {}
 _teacher_cache_lock = threading.Lock()
 
@@ -176,6 +165,7 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
         now = time.time()
         with _teacher_cache_lock:
             if teacher_id in _teacher_cache and _teacher_cache_ttl.get(teacher_id, 0) > now:
+                _teacher_cache.move_to_end(teacher_id)
                 return _teacher_cache[teacher_id]
     result = (await _atable("teachers").select("*").eq("id", str(teacher_id)).execute()).data
     if not result:
@@ -187,7 +177,12 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
         now = time.time()
         with _teacher_cache_lock:
             _teacher_cache[teacher_id] = teacher
+            _teacher_cache.move_to_end(teacher_id)
             _teacher_cache_ttl[teacher_id] = now + 60
+            while len(_teacher_cache) > _TEACHER_CACHE_MAX:
+                oldest = next(iter(_teacher_cache))
+                _teacher_cache.popitem(last=False)
+                _teacher_cache_ttl.pop(oldest, None)
     return teacher
 
 async def _get_teacher_by_uid(uid: str) -> dict | None:
@@ -230,7 +225,7 @@ async def require_admin(request: Request) -> dict:
     return await verify_admin_token(auth[7:])
 
 # ─── Student-account (dashboard) auth ────────────────────────────
-_student_acct_cache = {}
+_student_acct_cache = OrderedDict()
 _student_acct_cache_ttl = {}
 _student_acct_cache_lock = threading.Lock()
 
@@ -240,6 +235,7 @@ async def _get_student_account_by_id(account_id: str) -> dict | None:
     now = time.time()
     with _student_acct_cache_lock:
         if account_id in _student_acct_cache and _student_acct_cache_ttl.get(account_id, 0) > now:
+            _student_acct_cache.move_to_end(account_id)
             return _student_acct_cache[account_id]
     result = (await _atable("student_accounts").select("*").eq("id", str(account_id)).execute()).data
     if not result:
@@ -247,7 +243,12 @@ async def _get_student_account_by_id(account_id: str) -> dict | None:
     acct = result[0]
     with _student_acct_cache_lock:
         _student_acct_cache[account_id] = acct
+        _student_acct_cache.move_to_end(account_id)
         _student_acct_cache_ttl[account_id] = now + 60
+        while len(_student_acct_cache) > _STUDENT_ACCT_CACHE_MAX:
+            oldest = next(iter(_student_acct_cache))
+            _student_acct_cache.popitem(last=False)
+            _student_acct_cache_ttl.pop(oldest, None)
     return acct
 
 async def _get_student_account_by_uid(uid: str) -> dict | None:
@@ -436,8 +437,6 @@ def ts_to_id(ts_str: str) -> int:
         return 0
 
 # ─── PRACTICE MODE ────────────────────────────────────────────────
-PRACTICE_PREFIX = "PRACTICE_"
-
 def is_practice(identifier: Optional[str]) -> bool:
     return bool(identifier) and str(identifier).startswith(PRACTICE_PREFIX)
 
@@ -464,11 +463,6 @@ def _practice_validate_response(roll_number: str) -> dict:
             "roll_number": roll_number, "token": "", "practice": True}
 
 # ─── CALIBRATION QUALITY ─────────────────────────────────────────
-_CAL_TIGHT_GAZE = 0.10
-_CAL_LOOSE_GAZE = 0.50
-_CAL_TIGHT_HEAD = 8.0
-_CAL_LOOSE_HEAD = 30.0
-
 def _parse_calibration_details(details: str) -> Optional[dict]:
     if not details:
         return None
@@ -563,7 +557,7 @@ async def _load_questions(teacher_id: str = None, exam_id: str = None) -> list[d
         result = await query.order("question_id").execute()
         rows = result.data or []
     except Exception as e:
-        print(f"[Questions] select(*) failed, falling back: {e}")
+        _dep_log.warning("[Questions] select(*) failed, falling back: %s", e)
         query = _atable("questions").select("question_id,question,options,correct")
         if teacher_id:
             query = query.eq("teacher_id", teacher_id)
@@ -644,7 +638,7 @@ async def _translate_student_answer(session_id: str, teacher_id: str, question_i
             return student_label
         return qmap.get(str(student_label), student_label)
     except Exception as e:
-        print(f"[Shuffle] translate failed q={question_id} s={student_label}: {e}")
+        _dep_log.debug("[Shuffle] translate failed q=%s s=%s: %s", question_id, student_label, e)
         return student_label
 
 async def _canonicalise_student_answer(session_id: str, teacher_id: str, question_id: str, raw: str, exam_id: str = None) -> str:
@@ -678,7 +672,7 @@ async def _recalculate_score(session_id: str, payload_answers: dict, teacher_id:
             return score, total
         except Exception as e:
             last_err = e
-            print(f"[Score] Recalculation attempt {attempt+1} failed: {e}")
+            _dep_log.warning("[Score] Recalculation attempt %d failed: %s", attempt+1, e)
             if attempt == 0:
                 await asyncio.sleep(0.3)
     raise RuntimeError(f"Score recalculation failed after 2 attempts: {last_err}")
@@ -763,19 +757,9 @@ VIOLATION_WEIGHTS: dict[str, float] = {
     "phone_consulting": 32, "collaboration": 30, "answer_memo": 28,
     "note_reading": 25, "sustained_offtask": 15, "nervous_evasion": 12,
 }
-_SATURATION_K = 5
-_BASELINE_DURATION_MINS = 30
-_DEFAULT_WEIGHT_HIGH = 10
-_DEFAULT_WEIGHT_MED  = 5
 _SEVERITY_MULTIPLIER = {"high": 1.0, "medium": 0.4}
 RISK_LABELS = [(15, "Low Risk"), (40, "Moderate Risk"), (70, "High Risk"), (100, "Critical Risk")]
 
-_CRITICAL_TYPES = frozenset({
-    "phone_consulting", "collaboration", "answer_memo",
-    "note_reading", "wrong_person", "calibration_abort",
-    "cheat_object_detected", "vm_detected",
-    "remote_desktop_detected",
-})
 
 
 async def publish_critical_alert(
@@ -1102,132 +1086,15 @@ async def _check_group_access(roll_number: str, teacher_id: str, exam_id: str) -
     return bool(member)
 
 # ─── INVITE HELPERS ───────────────────────────────────────────────
-import secrets as _secrets
-INVITE_DAILY_CAP = int(os.environ.get("INVITE_DAILY_CAP", "500"))
+from .invites import (
+    _get_invite_base_url, _new_invite_token, _new_access_code,
+    _claim_and_bump_cap, _claim_and_bump_cap_legacy,
+)
 
-def _get_invite_base_url() -> str:
-    return os.environ.get("INVITE_BASE_URL", "").rstrip("/") or "https://app.procta.net"
-
-def _new_invite_token() -> str:
-    return _secrets.token_urlsafe(32)
-
-def _new_access_code(length: int = 6) -> str:
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    return "".join(_secrets.choice(alphabet) for _ in range(length))
-
-def _check_daily_cap(teacher_id: str, batch_size: int) -> tuple[bool, int]:
-    """Check daily invite cap. For atomic check-and-increment, use
-    _claim_and_bump_cap instead to avoid race conditions."""
-    from datetime import date as _date
-    today = _date.today().isoformat()
-    row = (supabase.table("invite_send_counters").select("count").eq("teacher_id", teacher_id).eq("day", today).execute()).data
-    used = (row[0]["count"] if row else 0)
-    remaining = INVITE_DAILY_CAP - used
-    return (batch_size <= remaining, max(remaining, 0))
-
-async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, int]:
-    """Atomic check-and-bump for invite daily cap.
-
-    Calls the `claim_invite_cap` Postgres RPC, which folds the
-    check + increment into a single conditional UPDATE under a row
-    lock. Two concurrent callers serialise behind the lock and the
-    one that would overshoot the cap is denied — no read-then-write
-    race window.
-
-    The RPC returns the remaining quota after a successful claim,
-    or -1 to signal "denied, would overshoot."
-
-    Falls back to the legacy read-then-write path if the RPC isn't
-    deployed yet (PGRST202 / "function does not exist"). The fallback
-    is racy by design — that's the bug the migration fixes — so the
-    log is loud enough to make the missing migration obvious.
-    """
-    if batch_size <= 0:
-        return (True, INVITE_DAILY_CAP)
-    try:
-        # Supabase Python client doesn't have an async rpc helper that
-        # honours service-role auth in all SDK versions, so we run the
-        # sync call in a worker thread to keep the event loop free.
-        result = await asyncio.to_thread(
-            lambda: supabase.rpc(
-                "claim_invite_cap",
-                {"p_teacher_id": teacher_id,
-                 "p_batch": batch_size,
-                 "p_cap": INVITE_DAILY_CAP},
-            ).execute()
-        )
-        # PostgREST returns the scalar in .data — could be int directly
-        # or wrapped in [{"claim_invite_cap": N}] depending on version.
-        data = result.data
-        if isinstance(data, list) and data:
-            data = data[0].get("claim_invite_cap", data[0]) if isinstance(data[0], dict) else data[0]
-        remaining = int(data)
-        if remaining < 0:
-            # Denied. Re-read current usage so the caller can show an
-            # accurate "X remaining" hint. Failure here is non-fatal —
-            # we just return 0 remaining.
-            try:
-                row = (await _atable("invite_send_counters")
-                       .select("count").eq("teacher_id", teacher_id)
-                       .eq("day", _date.today().isoformat())
-                       .execute()).data
-                used = (row[0]["count"] if row else 0)
-                return (False, max(INVITE_DAILY_CAP - used, 0))
-            except Exception:
-                return (False, 0)
-        return (True, remaining)
-    except Exception as e:
-        msg = str(e).lower()
-        if "claim_invite_cap" in msg or "pgrst202" in msg or "function" in msg:
-            # Migration phase15 not yet deployed — fall back to the
-            # legacy racy path so we don't block invites entirely.
-            print(f"[invites] RPC missing, falling back to RACY check-and-bump. "
-                  f"Run migrations/phase15_invite_cap_rpc.sql to fix. ({e})")
-            return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
-        print(f"[invites] atomic cap claim failed: {e}")
-        # On any other error, deny rather than silently allowing an
-        # uncapped send — flipping from "permissive on error" (the old
-        # behaviour) to "deny on error" because letting cap-bypass
-        # through is the worse failure mode for the business.
-        return (False, 0)
-
-
-async def _claim_and_bump_cap_legacy(teacher_id: str, batch_size: int) -> tuple[bool, int]:
-    """Pre-RPC fallback. Racy — only used when the migration hasn't run."""
-    today = _date.today().isoformat()
-    try:
-        row = (await _atable("invite_send_counters").select("count").eq("teacher_id", teacher_id).eq("day", today).execute()).data
-        used = (row[0]["count"] if row else 0)
-        remaining = INVITE_DAILY_CAP - used
-        if batch_size > remaining:
-            return (False, max(remaining, 0))
-        if row:
-            await _atable("invite_send_counters").update({"count": used + batch_size}).eq("teacher_id", teacher_id).eq("day", today).execute()
-        else:
-            await _atable("invite_send_counters").insert({"teacher_id": teacher_id, "day": today, "count": batch_size}).execute()
-        return (True, max(remaining - batch_size, 0))
-    except Exception as e:
-        print(f"[invites] legacy cap check failed: {e}")
-        return (False, 0)
-
-def _bump_daily_cap(teacher_id: str, delta: int = 1) -> None:
-    """Atomic increment using upsert to avoid race conditions."""
-    from datetime import date as _date
-    today = _date.today().isoformat()
-    try:
-        row = (supabase.table("invite_send_counters").select("count").eq("teacher_id", teacher_id).eq("day", today).execute()).data
-        if row:
-            supabase.table("invite_send_counters").update({"count": row[0]["count"] + delta}).eq("teacher_id", teacher_id).eq("day", today).execute()
-        else:
-            supabase.table("invite_send_counters").insert({"teacher_id": teacher_id, "day": today, "count": delta}).execute()
-    except Exception as e:
-        print(f"[invites] cap bump failed: {e}")
 
 # ─── CLEAR LIVE SESSION HELPERS ──────────────────────────────────
 _CLEAR_TOKENS: dict[str, dict] = {}
 _CLEAR_TOKENS_LOCK = threading.Lock()
-_CLEAR_TOKEN_TTL = 60
-_CLEAR_ACTIVE_WINDOW = 120
 
 def _clear_token_issue(teacher_id: str) -> str:
     tok = _uuid.uuid4().hex
@@ -1284,7 +1151,7 @@ async def _partition_live_sessions(teacher_id: str, exam_id: str | None = None, 
                     rows.append(r)
                     seen.add(r["session_key"])
         except Exception as e:
-            print(f"[ClearLive] orphan query failed: {e}")
+            _dep_log.warning("[ClearLive] orphan query failed: %s", e)
     try:
         cutoff = (now_ist() - timedelta(hours=48)).isoformat()
         viol_teacher = await _atable("violations").select("session_key").eq("teacher_id", tid).gte("created_at", cutoff).execute()
@@ -1302,7 +1169,7 @@ async def _partition_live_sessions(teacher_id: str, exam_id: str | None = None, 
                          "teacher_id": tid, "_ghost": True})
             seen.add(sk)
     except Exception as e:
-        print(f"[ClearLive] violations ghost discovery failed: {e}")
+        _dep_log.warning("[ClearLive] violations ghost discovery failed: %s", e)
     active, stale = [], []
     for r in rows:
         if include_active:
@@ -1505,14 +1372,8 @@ async def _stream_csv_results(teacher_id: str = None, exam_id: str = None, max_r
         offset += batch_size
 
 # ─── REMINDER LOOP ────────────────────────────────────────────────
-REMINDER_POLL_SECONDS = int(os.environ.get("REMINDER_POLL_SECONDS", "300"))
-REMINDER_1H_WINDOW_MIN  = 10
-REMINDER_24H_WINDOW_MIN = 20
+from .reminders import _reminder_tick, _reminder_loop, _send_reminder_for_invite, _reminder_window
 
-def _reminder_window(target_minutes: int, half_width_min: int):
-    now = datetime.now(timezone.utc)
-    centre = now + timedelta(minutes=target_minutes)
-    return (centre - timedelta(minutes=half_width_min), centre + timedelta(minutes=half_width_min))
 
 def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bool:
     from emailer import send_exam_reminder
@@ -1521,7 +1382,7 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
     try:
         claim = (supabase.table("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute())
     except Exception as e:
-        print(f"[reminders] claim failed token={inv.get('token','?')[:8]} err={e}", flush=True)
+        _dep_log.warning("[reminders] claim failed token=%s err=%s", inv.get('token','?')[:8], e)
         return False
     if not claim.data:
         return False
@@ -1535,16 +1396,16 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
                                      hours_until=hours_until, exam_starts_at_display=starts_display,
                                      access_code=inv.get("access_code") or None)
     except Exception as e:
-        print(f"[reminders] send raised: {e}", flush=True)
+        _dep_log.error("[reminders] send raised: %s", e)
         result = None
     if result is None or not getattr(result, "ok", False):
         try:
             supabase.table("student_invites").update({col: None}).eq("token", inv["token"]).execute()
         except Exception:
             pass
-        print(f"[reminders] FAILED {hours_until}h reminder to={inv.get('email')} err={getattr(result,'error',None)!r}", flush=True)
+        _dep_log.warning("[reminders] FAILED %dh reminder to=%s err=%r", hours_until, inv.get('email'), getattr(result,'error',None))
         return False
-    print(f"[reminders] SENT {hours_until}h reminder to={inv.get('email')} exam={exam_cfg.get('exam_id') or '?'}", flush=True)
+    _dep_log.info("[reminders] SENT %dh reminder to=%s exam=%s", hours_until, inv.get('email'), exam_cfg.get('exam_id') or '?')
     return True
 
 async def _reminder_tick():
@@ -1552,10 +1413,9 @@ async def _reminder_tick():
     for col, target_min, half_width, hours_until in buckets:
         lo, hi = _reminder_window(target_min, half_width)
         try:
-            exams_resp = (supabase.table("exam_config").select("exam_id,teacher_id,exam_title,starts_at,access_code,ends_at")
-                          .gte("starts_at", lo.isoformat()).lte("starts_at", hi.isoformat()).execute())
+            exams_resp = await _atable("exam_config").select("exam_id,teacher_id,exam_title,starts_at,access_code,ends_at").gte("starts_at", lo.isoformat()).lte("starts_at", hi.isoformat()).execute()
         except Exception as e:
-            print(f"[reminders] exam query failed: {e}", flush=True)
+            _dep_log.warning("[reminders] exam query failed: %s", e)
             continue
         exams = exams_resp.data or []
         if not exams:
@@ -1565,18 +1425,17 @@ async def _reminder_tick():
             if not eid:
                 continue
             try:
-                inv_resp = (supabase.table("student_invites").select("token,email,full_name,roll_number,access_code,exam_id,status")
-                            .eq("exam_id", eid).is_(col, "null").in_("status", [InviteStatus.SENT, InviteStatus.OPENED, InviteStatus.ACCEPTED]).execute())
+                inv_resp = await _atable("student_invites").select("token,email,full_name,roll_number,access_code,exam_id,status").eq("exam_id", eid).is_(col, "null").in_("status", [InviteStatus.SENT, InviteStatus.OPENED, InviteStatus.ACCEPTED]).execute()
             except Exception as e:
-                print(f"[reminders] invites query failed exam={eid}: {e}", flush=True)
+                _dep_log.warning("[reminders] invites query failed exam=%s: %s", eid, e)
                 continue
             for inv in (inv_resp.data or []):
                 if not inv.get("email"):
                     continue
                 try:
-                    _send_reminder_for_invite(inv, exam_cfg, hours_until)
+                    await asyncio.to_thread(_send_reminder_for_invite, inv, exam_cfg, hours_until)
                 except Exception as e:
-                    print(f"[reminders] per-invite error: {e}", flush=True)
+                    _dep_log.warning("[reminders] per-invite error: %s", e)
 
 async def _reminder_loop():
     import asyncio as _asyncio
@@ -1585,7 +1444,7 @@ async def _reminder_loop():
         try:
             await _reminder_tick()
         except Exception as e:
-            print(f"[reminders] tick crashed: {e}", flush=True)
+            _dep_log.error("[reminders] tick crashed: %s", e)
             _tb.print_exc()
         await _asyncio.sleep(REMINDER_POLL_SECONDS)
 
@@ -1616,12 +1475,12 @@ async def _refresh_release_cache() -> None:
         async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as c:
             r = await c.get(url, headers=headers)
             if r.status_code != 200:
-                print(f"[Release] GitHub API returned {r.status_code}: {r.text[:200]}")
+                _dep_log.warning("[Release] GitHub API returned %s: %s", r.status_code, r.text[:200])
                 _RELEASE_CACHE_EXPIRES = time.time() + 60
                 return
             data = r.json()
     except Exception as e:
-        print(f"[Release] Fetch failed: {e}")
+        _dep_log.error("[Release] Fetch failed: %s", e)
         _RELEASE_CACHE_EXPIRES = time.time() + 60
         return
     assets = data.get("assets", []) or []
@@ -1640,7 +1499,7 @@ async def _refresh_release_cache() -> None:
             found["win"] = url_
     _RELEASE_CACHE = {**found, "tag": tag}
     _RELEASE_CACHE_EXPIRES = time.time() + RELEASE_TTL_SEC
-    print(f"[Release] Auto-discovered {tag}: mac_arm={'✓' if found['mac_arm'] else '✗'} mac_x64={'✓' if found['mac_x64'] else '✗'} win={'✓' if found['win'] else '✗'}")
+    _dep_log.info("[Release] Auto-discovered %s: mac_arm=%s mac_x64=%s win=%s", tag, '✓' if found['mac_arm'] else '✗', '✓' if found['mac_x64'] else '✗', '✓' if found['win'] else '✗')
 
 async def _resolve_release_asset(key: str) -> str:
     if time.time() >= _RELEASE_CACHE_EXPIRES:
@@ -1844,10 +1703,6 @@ function openInApp(e){{
 }}
 </script>
 </body></html>"""
-
-
-CHAT_MAX_TEXT_LEN = 2000
-CHAT_HISTORY_LIMIT = 50
 
 
 class ChatHub:
@@ -2095,57 +1950,4 @@ def _cleanup_screenshots():
                         if f.is_file() and f.stat().st_mtime < cutoff.timestamp():
                             f.unlink()
         except Exception as e:
-            print(f"[Cleanup] {e}")
-
-
-# ─── RETRY UTILITY ────────────────────────────────────────────────
-def with_retry(retries: int = 3, backoff_base: float = 0.5,
-               retry_on: tuple = (Exception,)):
-    """Decorator that retries a function with exponential backoff.
-
-    Usage:
-        @with_retry(retries=3)
-        def fetch_questions():
-            return supabase.table("questions").select("*").execute()
-
-    Retries on network errors, timeouts, and HTTP 5xx responses.
-    Does NOT retry on HTTP 4xx (client errors are not transient).
-    """
-    def decorator(fn):
-        def wrapper(*args, **kwargs):
-            last_exc = None
-            for attempt in range(retries):
-                try:
-                    return fn(*args, **kwargs)
-                except retry_on as e:
-                    last_exc = e
-                    # Don't retry client errors (4xx)
-                    if hasattr(e, "status_code") and 400 <= e.status_code < 500:
-                        raise
-                    if attempt < retries - 1:
-                        wait = backoff_base * (2 ** attempt)
-                        time.sleep(wait)
-            raise last_exc  # type: ignore[misc]
-        return wrapper
-    return decorator
-
-
-async def with_retry_async(retries: int = 3, backoff_base: float = 0.5,
-                           retry_on: tuple = (Exception,)):
-    """Async version of with_retry for use with async database calls."""
-    def decorator(fn):
-        async def wrapper(*args, **kwargs):
-            last_exc = None
-            for attempt in range(retries):
-                try:
-                    return await fn(*args, **kwargs)
-                except retry_on as e:
-                    last_exc = e
-                    if hasattr(e, "status_code") and 400 <= e.status_code < 500:
-                        raise
-                    if attempt < retries - 1:
-                        wait = backoff_base * (2 ** attempt)
-                        await asyncio.sleep(wait)
-            raise last_exc  # type: ignore[misc]
-        return wrapper
-    return decorator
+            _dep_log.warning("[Cleanup] %s", e)

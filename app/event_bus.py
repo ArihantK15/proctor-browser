@@ -6,6 +6,7 @@ Channels:
 """
 import asyncio
 import json
+import logging
 import os
 import time
 from typing import AsyncGenerator
@@ -14,6 +15,7 @@ import redis
 import redis.asyncio as aioredis
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+_event_log = logging.getLogger("event_bus")
 
 # Sync client for publishing from sync endpoints
 _sync: redis.Redis | None = None
@@ -83,9 +85,9 @@ def publish(channel: str, payload: dict) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         # Connection broken — reset so next call reconnects
         _sync = None
-        print(f"[EventBus] publish connection lost on {channel}, will reconnect")
+        _event_log.warning("[EventBus] publish connection lost on %s, will reconnect", channel)
     except Exception as e:
-        print(f"[EventBus] publish error on {channel}: {e}")
+        _event_log.error("[EventBus] publish error on %s: %s", channel, e)
 
 
 async def async_publish(channel: str, payload: dict) -> None:
@@ -94,10 +96,10 @@ async def async_publish(channel: str, payload: dict) -> None:
         r = await _get_async()
         await r.publish(channel, json.dumps(payload, default=str))
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
-        print(f"[EventBus] async publish connection lost on {channel}, reconnecting")
+        _event_log.warning("[EventBus] async publish connection lost on %s, reconnecting", channel)
         await _reconnect_async()
     except Exception as e:
-        print(f"[EventBus] async publish error on {channel}: {e}")
+        _event_log.error("[EventBus] async publish error on %s: %s", channel, e)
 
 
 async def subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dict, None]:

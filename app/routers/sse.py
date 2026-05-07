@@ -117,7 +117,23 @@ async def _ws_ensure_cleanup():
     global _WS_CLEANUP_STARTED
     if not _WS_CLEANUP_STARTED:
         _WS_CLEANUP_STARTED = True
-        asyncio.create_task(_ws_cleanup())
+        task = asyncio.create_task(_ws_cleanup_loop())
+        task.add_done_callback(_log_task_failure)
+
+
+def _log_task_failure(task):
+    if not task.cancelled() and task.exception():
+        logger.error("[ws_cleanup] task died: %s", task.exception())
+
+
+async def _ws_cleanup_loop():
+    """Background task: periodic cleanup with crash recovery."""
+    while True:
+        try:
+            await _ws_cleanup()
+        except Exception as e:
+            logger.error("[ws_cleanup] iteration failed: %s", e)
+            await asyncio.sleep(5)
 
 
 _WS_STALE_SEC = 30
@@ -229,8 +245,8 @@ async def sse_sessions(request: Request):
         try:
             sessions_payload = await _build_sessions_payload(teacher_id)
             yield f"event: init\ndata: {json.dumps({'sessions': sessions_payload['sessions']})}\n\n"
-        except Exception:
-            pass  # Failed to build initial snapshot — stream will still work with updates
+        except Exception as e:
+            logger.warning("[sse_sessions] initial snapshot failed: %s", e)
 
         # Start async generators for each channel
         async def _channel_reader(channel: str, evt_type: str, queue: asyncio.Queue):
@@ -242,8 +258,8 @@ async def sse_sessions(request: Request):
                     if msg.get("_keepalive"):
                         continue
                     await queue.put((evt_type, msg))
-            except Exception:
-                pass  # Redis subscription failed — stream continues without real-time updates
+            except Exception as e:
+                logger.warning("[sse_sessions] subscription failed channel=%s: %s", channel, e)
 
         queue: asyncio.Queue = asyncio.Queue()
         tasks = [

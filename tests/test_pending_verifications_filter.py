@@ -72,10 +72,12 @@ class TestIdVerificationWriter:
         class _AsyncMockResult:
             def __init__(self, data):
                 self._data = data
+            async def _resolve(self):
+                class _R:
+                    data = self._data
+                return _R()
             def __await__(self):
-                r = MagicMock()
-                r.data = self._data
-                yield r
+                return self._resolve().__await__()
             awaitable = True
 
         class _AtableChainMock:
@@ -142,10 +144,12 @@ class TestIdVerificationWriter:
         class _AsyncMockResult:
             def __init__(self, data):
                 self._data = data
+            async def _resolve(self):
+                class _R:
+                    data = self._data
+                return _R()
             def __await__(self):
-                r = MagicMock()
-                r.data = self._data
-                yield r
+                return self._resolve().__await__()
 
         class _AtableChainMock:
             def __init__(self, table, insert_cb=None):

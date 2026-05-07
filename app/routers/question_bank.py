@@ -1,8 +1,10 @@
 """Question bank CRUD and AI features router."""
 
 import json
+import logging
 import re
 import time
+_qbank_log = logging.getLogger("question_bank")
 from datetime import datetime, timezone
 
 import httpx
@@ -246,10 +248,10 @@ async def generate_bank_questions(request: Request, body: GenerateQuestionsIn = 
             grade_level=grade_level,
         )
     except httpx.HTTPStatusError as e:
-        print(f"[llm] groq error: {e}", flush=True)
+        _qbank_log.error("[llm] groq error: %s", e)
         raise HTTPException(status_code=502, detail="AI provider error. Try again.")
     except Exception as e:
-        print(f"[llm] generate failed: {e}", flush=True)
+        _qbank_log.error("[llm] generate failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
     if not questions:
@@ -273,7 +275,7 @@ async def suggest_question_tags(request: Request, body: SuggestTagsIn = Body(...
     try:
         tags = suggest_tags(question[:2000], options, str(correct)[:50])
     except Exception as e:
-        print(f"[llm] suggest_tags failed: {e}", flush=True)
+        _qbank_log.warning("[llm] suggest_tags failed: %s", e)
         raise HTTPException(status_code=502, detail="AI provider error.")
     return {"tags": tags}
 
@@ -319,7 +321,7 @@ async def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body
             else:
                 all_results.extend(chunk_results)
     except Exception as e:
-        print(f"[llm] lint_questions failed: {e}", flush=True)
+        _qbank_log.error("[llm] lint_questions failed: %s", e)
         raise HTTPException(status_code=502, detail=f"AI provider error: {e}")
 
     total_issues = sum(len(r.get("issues", [])) for r in all_results)
@@ -355,7 +357,7 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
         if not bank_rows:
             raise HTTPException(status_code=404, detail="No matching bank questions found")
 
-        existing = _load_questions(teacher_id=tid, exam_id=exam_id)
+        existing = await _load_questions(teacher_id=tid, exam_id=exam_id)
         max_id = max((int(q.get("question_id", q.get("id", 0))) for q in existing), default=0)
 
         new_rows = []
@@ -393,9 +395,7 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
                 try:
                     await _atable("questions").insert(new_rows).execute()
                     if attempted_drops:
-                        print(f"[bank-to-exam] succeeded after dropping "
-                              f"{attempted_drops} due to schema mismatch.",
-                              flush=True)
+                        _qbank_log.info("[bank-to-exam] succeeded after dropping %s due to schema mismatch.", attempted_drops)
                     break
                 except Exception as ie:
                     msg = str(ie)
@@ -405,8 +405,7 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
                     missing_col = m.group(1)
                     if missing_col not in optional_cols:
                         raise
-                    print(f"[bank-to-exam] column '{missing_col}' "
-                          f"missing — dropping + retrying", flush=True)
+                    _qbank_log.warning("[bank-to-exam] column '%s' missing — dropping + retrying", missing_col)
                     for row in new_rows:
                         row.pop(missing_col, None)
                     attempted_drops.append(missing_col)
@@ -425,10 +424,7 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[bank-to-exam][ERROR] tid={tid} exam={exam_id} "
-              f"qcount={len(question_ids)} err={type(e).__name__}: {e}",
-              flush=True)
-        import traceback; traceback.print_exc()
+        _qbank_log.error("[bank-to-exam][ERROR] tid=%s exam=%s qcount=%d err=%s: %s", tid, exam_id, len(question_ids), type(e).__name__, e, exc_info=True)
         raise HTTPException(status_code=502,
             detail=f"Couldn't copy questions: {type(e).__name__}: {e}")
 
@@ -441,15 +437,14 @@ async def get_admin_questions(request: Request):
     exam_id = request.query_params.get("exam_id")
     try:
         config = _load_exam_config(str(tid) if tid else None, exam_id=exam_id)
-        questions = _load_questions(str(tid) if tid else None, exam_id=exam_id)
+        questions = await _load_questions(str(tid) if tid else None, exam_id=exam_id)
         return {
             "exam_title": config.get("exam_title", "Exam"),
             "duration_minutes": config.get("duration_minutes", 60),
             "questions": questions,
         }
     except Exception as e:
-        print(f"[Questions] ERROR: {e}")
-        import traceback; traceback.print_exc()
+        _qbank_log.error("[Questions] ERROR: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -485,7 +480,7 @@ async def get_admin_answers(session_id: str, request: Request):
 
     await _assert_session_owned(session_id, tid)
 
-    questions = _load_questions(tid)
+    questions = await _load_questions(tid)
     ans_result = await _atable("answers").select("question_id,answer")\
         .eq("session_key", session_id)\
         .eq("teacher_id", str(tid))\
@@ -662,7 +657,7 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
             msg = str(e).lower()
             if "question_type" in msg or "image_url" in msg or "column" in msg \
                     or "reference_answer" in msg or "rubric" in msg or "max_score" in msg:
-                print("[Questions] new columns missing on DB, retrying without")
+                _qbank_log.warning("[Questions] new columns missing on DB, retrying without")
                 legacy = [
                     {k: v for k, v in r.items()
                      if k not in ("question_type", "image_url",
@@ -673,12 +668,12 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
             else:
                 raise
     except Exception as e:
-        print(f"[Questions] Insert failed, rolling back: {e}")
+        _qbank_log.error("[Questions] Insert failed, rolling back: %s", e)
         if backup_rows:
             try:
                 await _atable("questions").upsert(backup_rows).execute()
             except Exception as e2:
-                print(f"[Questions] Rollback also failed: {e2}")
+                _qbank_log.critical("[Questions] Rollback also failed: %s", e2)
         raise HTTPException(status_code=500, detail=f"Failed to update questions: {e}")
     if _cache:
         _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")

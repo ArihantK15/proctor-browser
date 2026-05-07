@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import logging
+_pub_log = logging.getLogger("public")
 import os
 import time
 import asyncio
@@ -82,22 +83,30 @@ def robots_txt():
     return Response(content=content, media_type="text/plain")
 
 
+import time
+_health_start = time.time()
+_req_total = 0
+_req_errors = 0
+
 @router.get("/health")
-def health():
+async def health():
     """Lightweight health probe for uptime monitors and load balancers.
 
     Returns 200 only when Supabase is reachable and disk has space.
     Redis is optional (the API works without it — SSE just won't broadcast).
     """
+    global _req_total, _req_errors
+    _req_total += 1
     checks = {}
     ok = True
 
     # Supabase — required
     try:
-        supabase.table("exam_config").select("id").limit(1).execute()
+        await _atable("exam_config").select("id").limit(1).execute()
         checks["supabase"] = "ok"
     except Exception as e:
-        checks["supabase"] = f"error: {e}"
+        _pub_log.warning("[health] supabase check failed: %s", e)
+        checks["supabase"] = "error: suppressed"
         ok = False
 
     # Redis — optional
@@ -132,12 +141,18 @@ def health():
         else:
             checks["disk"] = "ok"
     except Exception as e:
-        checks["disk"] = f"error: {e}"
+        checks["disk"] = "error: suppressed"
         ok = False
 
+    uptime_sec = time.time() - _health_start
     status = 200 if ok else 503
     return Response(
-        content=json.dumps({"status": "ok" if ok else "degraded", "checks": checks}),
+        content=json.dumps({
+            "status": "ok" if ok else "degraded",
+            "uptime_sec": round(uptime_sec, 1),
+            "health_checks": _req_total,
+            "checks": checks,
+        }),
         media_type="application/json",
         status_code=status,
     )
@@ -477,7 +492,7 @@ async def email_webhook(request: Request):
     raw = await request.body()
     if not verify_webhook(raw, request.headers):
         sid = request.headers.get("svix-id") or "?"
-        print(f"[webhook] rejected svix-id={sid}", flush=True)
+        _pub_log.warning("[webhook] rejected svix-id=%s", sid)
         raise HTTPException(status_code=403, detail="Invalid webhook signature")
     try:
         payload = json.loads(raw)
@@ -512,7 +527,7 @@ async def email_webhook(request: Request):
                 .update({"opened_at": now_iso})\
                 .eq("provider_msg_id", msg_id).is_("opened_at", "null").execute()
         except Exception as e:
-            print(f"[webhook] opened update failed msg_id={msg_id}: {e}", flush=True)
+            _pub_log.warning("[webhook] opened update failed msg_id=%s: %s", msg_id, e)
     elif evt == "email.clicked":
         try:
             existing = (await _atable("student_invites")
@@ -528,10 +543,10 @@ async def email_webhook(request: Request):
                 await _atable("student_invites").update({"status": InviteStatus.CLICKED})\
                     .eq("id", row["id"]).in_("status", [InviteStatus.SENT, InviteStatus.OPENED]).execute()
         except Exception as e:
-            print(f"[webhook] clicked update failed msg_id={msg_id}: {e}", flush=True)
+            _pub_log.warning("[webhook] clicked update failed msg_id=%s: %s", msg_id, e)
     elif evt == "email.delivered":
         pass
-    print(f"[webhook] {evt} msg_id={msg_id}", flush=True)
+    _pub_log.info("[webhook] %s msg_id=%s", evt, msg_id)
     return {"ok": True, "event": evt}
 
 
@@ -553,10 +568,10 @@ async def submit_demo_request(req: DemoRequest, request: Request):
     try:
         await _atable("demo_requests").insert(row).execute()
     except Exception as e:
-        print(f"[DemoRequest] Failed to store: {e}")
+        _pub_log.error("[DemoRequest] Failed to store: %s", e)
         raise HTTPException(status_code=500, detail="Failed to store request")
 
-    print(f"[DemoRequest] {req.name} <{req.email}> from {req.institution}")
+    _pub_log.info("[DemoRequest] %s <%s> from %s", req.name, req.email, req.institution)
     return {"status": "ok", "message": "Demo request received"}
 
 

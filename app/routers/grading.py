@@ -1,11 +1,13 @@
 """Grading endpoints: pending grades, AI grade suggestions, teacher grade confirmation."""
 import json
+import logging
 import time
 import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, Body, HTTPException
 from pydantic import BaseModel, ConfigDict
+_grading_log = logging.getLogger("grading")
 
 from ..dependencies import (
     supabase,
@@ -58,7 +60,7 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
     try:
         mcq_score, mcq_total = await _recalculate_score(session_key, {}, teacher_id, eid)
     except Exception as e:
-        print(f"[rollup] mcq recalc failed: {e}")
+        _grading_log.warning("[rollup] mcq recalc failed: %s", e)
         return None
 
     sa_qs = await _atable("questions")\
@@ -130,7 +132,7 @@ async def pending_grades(request: Request):
                 .in_("session_key", session_keys).execute()).data or []
             roll_map = {s["session_key"]: s for s in sess_rows}
         except Exception as e:
-            print(f"[pending-grades] session lookup failed: {e}", flush=True)
+            _grading_log.warning("[pending-grades] session lookup failed: %s", e)
 
     enriched = []
     for a in pending:
@@ -217,7 +219,7 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
             }).eq("id", a["id"]).eq("teacher_id", tid).execute()
             results.append({"answer_id": a["id"], **suggestion})
         except Exception as e:
-            print(f"[grade-suggest] DB write failed for {a['id']}: {e}", flush=True)
+            _grading_log.warning("[grade-suggest] DB write failed for %s: %s", a['id'], e)
             results.append({"answer_id": a["id"], "error": str(e)[:120]})
     return {"graded": len(results), "results": results}
 
@@ -263,7 +265,7 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
         try:
             new_totals = await _apply_short_answer_to_session(session_key, tid)
         except Exception as e:
-            print(f"[grade-confirm] rollup failed for {session_key}: {e}")
+            _grading_log.warning("[grade-confirm] rollup failed for %s: %s", session_key, e)
 
     return {"ok": True, "answer_id": answer_id,
             "teacher_score": score,

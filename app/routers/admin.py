@@ -7,6 +7,7 @@ import io
 import csv
 import json
 import logging
+_admin_log = logging.getLogger("admin")
 import base64
 import hashlib
 import time
@@ -150,7 +151,7 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
     exam = await _assert_session_owned(session_id, tid)
     exam_id = exam.get("exam_id")
 
-    questions = _load_questions(teacher_id=tid, exam_id=exam_id)
+    questions = await _load_questions(teacher_id=tid, exam_id=exam_id)
     ans_rows = (await _atable("answers").select("question_id,answer")
                 .eq("session_key", session_id)
                 .eq("teacher_id", str(tid)).execute()).data or []
@@ -561,7 +562,7 @@ async def upload_question_image(request: Request, body: UploadQuestionImageIn = 
             with open(fpath, "wb") as f:
                 f.write(blob)
         except OSError as e:
-            print(f"[QImage] write failed: {e}")
+            _admin_log.error("[QImage] write failed: %s", e)
             raise HTTPException(status_code=500, detail="Failed to store image")
 
     url = f"/api/v1/question-image/{tid}/{filename}"
@@ -654,8 +655,7 @@ async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1,
             "total": len(all_sessions),
         }
     except Exception as e:
-        print(f"[Sessions] ERROR: {e}")
-        import traceback; traceback.print_exc()
+        _admin_log.error("[Sessions] ERROR: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1232,7 +1232,7 @@ async def export_pdf(session_id: str, request: Request):
         story.append(Spacer(1, 8))
 
         try:
-            pdf_questions = _load_questions(teacher_id=tid)
+            pdf_questions = await _load_questions(teacher_id=tid)
             q_correct = {q["id"]: q["correct"] for q in pdf_questions}
             q_texts = {q["id"]: q.get("question", "")[:50] for q in pdf_questions}
         except Exception as e:
@@ -1283,7 +1283,7 @@ async def export_pdf(session_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[PDF] {e}")
+        _admin_log.error("[PDF] %s", e)
         raise HTTPException(status_code=500, detail=f"PDF error: {e}")
 # ─── 13. SCORECARD PDF ──────────────────────────────────
 
@@ -1300,7 +1300,7 @@ async def scorecard_pdf(session_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[Scorecard PDF] {e}")
+        _admin_log.error("[Scorecard PDF] %s", e)
         raise HTTPException(status_code=500, detail=f"Scorecard PDF error: {e}")
 
 
@@ -1328,7 +1328,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
             raise HTTPException(status_code=404, detail="No completed sessions found")
 
         eid = exam_id or (sessions[0].get("exam_id") if sessions else None)
-        questions = _load_questions(teacher_id=tid, exam_id=eid)
+        questions = await _load_questions(teacher_id=tid, exam_id=eid)
         config = None
         try:
             config = _load_exam_config(str(tid), exam_id=eid)
@@ -1430,7 +1430,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[Scorecard ZIP] {e}")
+        _admin_log.error("[Scorecard ZIP] %s", e)
         raise HTTPException(status_code=500, detail=f"Scorecard ZIP error: {e}")
 
 
@@ -1465,7 +1465,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             if roll and email:
                 roll_emails[roll] = email
     except Exception as e:
-        print(f"[email-scorecards] invite lookup failed: {e}", flush=True)
+        _admin_log.warning("[email-scorecards] invite lookup failed: %s", e)
     try:
         stud_rows = (await _atable("students").select("roll_number,email")
                      .eq("teacher_id", tid).execute()).data or []
@@ -1475,7 +1475,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             if roll and email and roll not in roll_emails:
                 roll_emails[roll] = email
     except Exception as e:
-        print(f"[email-scorecards] student lookup failed: {e}", flush=True)
+        _admin_log.warning("[email-scorecards] student lookup failed: %s", e)
 
     sent = 0
     failed = 0
@@ -1513,7 +1513,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
         try:
             pdf_bytes, fname, summary = _build_scorecard_pdf(sid, tid)
         except Exception as e:
-            print(f"[email-scorecards] PDF build failed sid={sid} err={e}", flush=True)
+            _admin_log.warning("[email-scorecards] PDF build failed sid=%s err=%s", sid, e)
             if not resend_all:
                 try:
                     (await _atable("exam_sessions")
@@ -1547,7 +1547,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
                 (await _atable("exam_sessions").update(update_row)
                  .eq("session_key", sid).eq("teacher_id", tid).execute())
             except Exception as e:
-                print(f"[email-scorecards] msg_id update failed sid={sid}: {e}", flush=True)
+                _admin_log.warning("[email-scorecards] msg_id update failed sid=%s: %s", sid, e)
             sent += 1
         else:
             if not resend_all:
@@ -1559,7 +1559,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
                     logger.debug("Failed to reset scorecard_emailed_at (send error): %s", e)
             failed += 1
             failures.append({"roll": roll, "reason": result.error or "send failed"})
-            print(f"[email-scorecards][SEND_ERROR] roll={roll} reason={result.error!r}", flush=True)
+            _admin_log.error("[email-scorecards][SEND_ERROR] roll=%s reason=%r", roll, result.error)
 
     return {
         "sent": sent,
@@ -1744,12 +1744,15 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
             for r in active
         ]
         if active:
-            print(f"[ClearLive] teacher={tid} protecting {len(active)} "
-                  f"active session(s) from wipe")
+            _admin_log.info("[ClearLive] teacher=%s protecting %d active session(s) from wipe", tid, len(active))
 
         ans_deleted = 0
         viol_deleted = 0
         scr_deleted = 0
+        ans_failures = 0
+        viol_failures = 0
+        sess_failures = 0
+        scr_failures = 0
 
         _sk_tid = {r["session_key"]: r.get("teacher_id") or ""
                    for r in stale}
@@ -1765,7 +1768,8 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
                 r = await q.execute()
                 ans_deleted += len(r.data or [])
             except Exception as e:
-                print(f"[ClearLive] answer delete failed {sk}: {e}")
+                ans_failures += 1
+                _admin_log.warning("[ClearLive] answer delete failed %s: %s", sk, e)
             try:
                 q = _atable("violations").delete().eq("session_key", sk)
                 if sk_tid and not is_ghost:
@@ -1773,7 +1777,8 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
                 r = await q.execute()
                 viol_deleted += len(r.data or [])
             except Exception as e:
-                print(f"[ClearLive] violation delete failed {sk}: {e}")
+                viol_failures += 1
+                _admin_log.warning("[ClearLive] violation delete failed %s: %s", sk, e)
 
         stale_key_set = {r["session_key"] for r in stale}
         sess_deleted = 0
@@ -1795,7 +1800,8 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
                     await q.execute()
                 sess_deleted += 1
             except Exception as e:
-                print(f"[ClearLive] session delete failed {sk}: {e}")
+                sess_failures += 1
+                _admin_log.warning("[ClearLive] session delete failed %s: %s", sk, e)
 
         active_rolls = {r.get("roll_number") for r in active if r.get("roll_number")}
         t_screens = Path(SCREENSHOTS_DIR) / tid
@@ -1825,14 +1831,11 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
                             scr_deleted += 1
                     rdir.rmdir()
                 except Exception as e:
-                    print(f"[ClearLive] screenshot cleanup failed {rdir}: {e}")
+                    scr_failures += 1
+                    _admin_log.warning("[ClearLive] screenshot cleanup failed %s: %s", rdir, e)
 
-        print(f"[ClearLive] teacher={tid} sessions={sess_deleted} "
-              f"(completed={len(completed_keys)}) "
-              f"answers={ans_deleted} violations={viol_deleted} "
-              f"screenshots={scr_deleted} "
-              f"protected_active={len(active)}")
-        return {
+        _admin_log.info("[ClearLive] teacher=%s sessions=%d (completed=%d) answers=%d violations=%d screenshots=%d protected_active=%d", tid, sess_deleted, len(completed_keys), ans_deleted, viol_deleted, scr_deleted, len(active))
+        resp = {
             "step":           "confirm",
             "cleared":        sess_deleted,
             "sessions":       sess_deleted,
@@ -1843,6 +1846,16 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
             "skipped_active": len(active),
             "skipped":        skipped_active,
         }
+        total_failures = ans_failures + viol_failures + sess_failures + scr_failures
+        if total_failures > 0:
+            resp["partial_failures"] = total_failures
+            resp["failure_details"] = {
+                "answers": ans_failures,
+                "violations": viol_failures,
+                "sessions": sess_failures,
+                "screenshots": scr_failures,
+            }
+        return resp
 
     raise HTTPException(status_code=400,
         detail="'step' must be 'request' or 'confirm'")
@@ -1929,8 +1942,8 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
             "duration_minutes": duration,
         }).execute()
     except Exception as e:
-        print(f"[CreateExam] DB error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create exam: {e}")
+        _admin_log.error("[CreateExam] DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to create exam. Please try again.")
     row = result.data[0] if result.data else {}
     return {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration}
 
@@ -1998,16 +2011,22 @@ async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(defau
     try:
         await _atable("exam_config").insert(new_cfg).execute()
     except Exception as e:
-        print(f"[DuplicateExam] config insert failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to clone config: {e}")
+        _admin_log.error("[DuplicateExam] config insert failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to clone config. Please try again.")
 
     try:
         qsrc = (await _atable("questions").select("*")
                 .eq("teacher_id", tid).eq("exam_id", exam_id)
                 .order("order_index").execute()).data or []
     except Exception as e:
-        print(f"[DuplicateExam] question fetch failed: {e}")
-        qsrc = []
+        _admin_log.error("[DuplicateExam] question fetch failed: %s", e)
+        # Rollback the config insert since we can't copy questions
+        try:
+            await _atable("exam_config").delete()\
+                .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail="Failed to fetch source questions. Clone aborted.")
 
     questions_copied = 0
     if qsrc:
@@ -2024,7 +2043,7 @@ async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(defau
                 await _atable("questions").insert(new_rows[i:i+500]).execute()
                 questions_copied += len(new_rows[i:i+500])
         except Exception as e:
-            print(f"[DuplicateExam] question insert failed: {e}")
+            _admin_log.error("[DuplicateExam] question insert failed: %s", e)
             try:
                 await _atable("exam_config").delete()\
                     .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
@@ -2102,7 +2121,7 @@ async def get_analytics(request: Request):
         buckets[idx] += 1
     score_dist = [{"range": f"{i*10}-{i*10+10}%", "count": buckets[i]} for i in range(10)]
 
-    questions = _load_questions(tid, exam_id=exam_id)
+    questions = await _load_questions(tid, exam_id=exam_id)
     q_analysis = []
     if questions:
         skeys = [s["session_key"] for s in sessions]
@@ -2659,7 +2678,7 @@ async def admin_submit(session_id: str, request: Request):
         "details":        f"Admin force-submitted | Violations:{len(violations)} | Risk:{risk['risk_score']}/100",
     }).execute()
 
-    print(f"[ForceSubmit] {session_id} score:{score}/{total} risk:{risk['risk_score']}/100")
+    _admin_log.info("[ForceSubmit] %s score:%d/%d risk:%d/100", session_id, score, total, risk['risk_score'])
     return {
         "status":          SessionStatus.FORCE_SUBMITTED,
         "session_id":      session_id,
@@ -2690,7 +2709,7 @@ async def request_recalibration(session_id: str, request: Request):
              .eq("session_key", session_id)\
              .eq("teacher_id", str(tid)).execute()
         except Exception as e:
-            print(f"[recalibration] status update failed sid={session_id}: {e}", flush=True)
+            _admin_log.warning("[recalibration] status update failed sid=%s: %s", session_id, e)
 
     msg = ("Your teacher has requested re-calibration. Please close "
            "this exam window and re-launch from the lobby — your "
@@ -2700,7 +2719,7 @@ async def request_recalibration(session_id: str, request: Request):
         from ..routers.chat import chat_hub
         await chat_hub.teacher_send(str(tid), session_id, msg)
     except Exception as e:
-        print(f"[recalibration] chat notify failed sid={session_id}: {e}", flush=True)
+        _admin_log.warning("[recalibration] chat notify failed sid=%s: %s", session_id, e)
 
     try:
         viol_row = {
@@ -2712,7 +2731,7 @@ async def request_recalibration(session_id: str, request: Request):
         }
         await _atable("violations").insert(viol_row).execute()
     except Exception as e:
-        print(f"[recalibration] audit log failed sid={session_id}: {e}", flush=True)
+        _admin_log.warning("[recalibration] audit log failed sid=%s: %s", session_id, e)
 
     if _cache:
         try:
@@ -2757,7 +2776,7 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
                 .eq("session_key", session_id).eq("teacher_id", tid)
                 .limit(1).execute()).data or []
     except Exception as e:
-        print(f"[triage] session lookup failed sid={session_id}: {e}", flush=True)
+        _admin_log.warning("[triage] session lookup failed sid=%s: %s", session_id, e)
         sess = []
     sess_row = sess[0] if sess else {}
 
@@ -2793,7 +2812,7 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
                      .order("created_at", desc=True).limit(80)
                      .execute()).data or []
     except Exception as e:
-        print(f"[triage] violation lookup failed sid={session_id}: {e}", flush=True)
+        _admin_log.warning("[triage] violation lookup failed sid=%s: %s", session_id, e)
         viol_rows = []
 
     from llm import live_risk_triage as _triage
@@ -3067,7 +3086,7 @@ async def save_template(request: Request, body: SaveTemplateIn):
 
     questions = []
     if body.include_questions:
-        questions = _load_questions(tid, exam_id=body.exam_id)
+        questions = await _load_questions(tid, exam_id=body.exam_id)
 
     row = {
         "teacher_id": tid,

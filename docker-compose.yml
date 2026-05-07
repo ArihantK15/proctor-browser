@@ -23,7 +23,7 @@ services:
         limits:
           memory: 1200m       # 2 sync workers; ~500-600 MB each under load
           cpus: "0.7"         # droplet has 1 CPU total; leave headroom for Caddy + Redis
-    memswap_limit: 1000m      # don't let them silently spill into swap
+    memswap_limit: 1200m      # equal to memory = no swap allowed
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

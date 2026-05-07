@@ -39,15 +39,14 @@ function useTime() {
   return t;
 }
 
-// Stage — fixed 1920×1080 canvas. The internal scenes were authored
-// with intentional negative space inside the canvas (BW wrapper with
-// maxWidth:1440 + flex-centered content), so a strict contain-scale
-// leaves the visible area looking sparse — black bands top + bottom
-// and tiny content. We scale to a slightly larger size than fit
-// (SCALE_BOOST) so the canvas overflows the viewport in one or both
-// axes; the parent's overflow:hidden crops the empty edges. Net
-// effect: the centered scene content fills the visible frame.
-const SCALE_BOOST = 1.18;
+// Stage — fixed 1920×1080 canvas, strict contain-scale (no boost).
+// We tried scale-boosting earlier to fight the perceived "small"
+// look from the demo's intentional negative space, but the
+// callouts use stage-space coordinates that humans perceive
+// relative to the visible frame — cropping the edges visually
+// displaced labels from their targets. Keep contain-scale and
+// give the embed more real estate via the marketing card width
+// instead.
 function Stage({ width, height, duration, background, speed = 1, children }) {
   const wrapRef = _useRef(null);
   const [scale, setScale] = _useState(1);
@@ -61,9 +60,7 @@ function Stage({ width, height, duration, background, speed = 1, children }) {
       const w = wrapRef.current.clientWidth;
       const h = wrapRef.current.clientHeight;
       if (w > 0 && h > 0) {
-        // Contain-fit, then bump 18% so centered content fills the
-        // visible area and only the empty borders get cropped.
-        setScale(Math.min(w / width, h / height) * SCALE_BOOST);
+        setScale(Math.min(w / width, h / height));
       }
     };
     recompute();

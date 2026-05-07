@@ -59,7 +59,7 @@ export default function Demo() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-40px' }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="relative mx-auto mt-12 w-full max-w-6xl"
+          className="relative mx-auto mt-12 w-full max-w-7xl"
         >
           <div
             ref={cardRef}

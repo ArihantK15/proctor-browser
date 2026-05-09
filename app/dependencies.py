@@ -570,6 +570,8 @@ async def _load_questions(teacher_id: str = None, exam_id: str = None) -> list[d
         query = _atable("questions").select("question_id,question,options,correct")
         if teacher_id:
             query = query.eq("teacher_id", teacher_id)
+        if exam_id:
+            query = query.eq("exam_id", exam_id)
         rows = (await query.order("question_id").execute()).data or []
     out = []
     for q in rows:
@@ -733,7 +735,6 @@ def _check_session_ownership(claims: dict, session_id: str):
     teacher_id suffix (format: ROLL_<uuid>), also verifies it matches
     the JWT's tid claim to prevent cross-tenant access.
     """
-    import re
     parts = session_id.rsplit("_", 1)
     session_roll = parts[0].upper() if parts else ""
     if claims.get("roll", "").upper() != session_roll:
@@ -1374,7 +1375,7 @@ async def _stream_csv_results(teacher_id: str = None, exam_id: str = None, max_r
             for s in batch:
                 if total_yielded == 0 and not header_written:
                     header_written = True
-                    yield "Timestamp,SessionID,RollNumber,FullName,Email,Score,Total,Percentage,TimeTaken,Violtions,RiskScore,RiskLabel\n"
+                    yield "Timestamp,SessionID,RollNumber,FullName,Email,Score,Total,Percentage,TimeTaken,Violations,RiskScore,RiskLabel\n"
                 row = [
                     fmt_ist(s.get("submitted_at", "")),
                     s["session_key"],
@@ -1401,85 +1402,11 @@ async def _stream_csv_results(teacher_id: str = None, exam_id: str = None, max_r
 # ─── REMINDER LOOP ────────────────────────────────────────────────
 from .reminders import _reminder_tick, _reminder_loop, _send_reminder_for_invite, _reminder_window
 
-
-def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bool:
-    from emailer import send_exam_reminder
-    col = "reminder_1h_at" if hours_until < 24 else "reminder_24h_at"
-    now_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        claim = (supabase.table("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute())
-    except Exception as e:
-        _dep_log.warning("[reminders] claim failed token=%s err=%s", inv.get('token','?')[:8], e)
-        return False
-    if not claim.data:
-        return False
-    base = os.environ.get("INVITE_BASE_URL", "https://app.procta.net").rstrip("/")
-    invite_url = f"{base}/invite/{inv['token']}"
-    starts_display = fmt_ist(exam_cfg.get("starts_at")) if exam_cfg.get("starts_at") else ""
-    try:
-        result = send_exam_reminder(to_email=inv["email"], to_name=inv.get("full_name") or "",
-                                     exam_title=exam_cfg.get("exam_title") or "Your exam",
-                                     invite_url=invite_url, roll_number=inv.get("roll_number") or "",
-                                     hours_until=hours_until, exam_starts_at_display=starts_display,
-                                     access_code=inv.get("access_code") or None)
-    except Exception as e:
-        _dep_log.error("[reminders] send raised: %s", e)
-        result = None
-    if result is None or not getattr(result, "ok", False):
-        try:
-            supabase.table("student_invites").update({col: None}).eq("token", inv["token"]).execute()
-        except Exception:
-            pass
-        _dep_log.warning("[reminders] FAILED %dh reminder to=%s err=%r", hours_until, inv.get('email'), getattr(result,'error',None))
-        return False
-    _dep_log.info("[reminders] SENT %dh reminder to=%s exam=%s", hours_until, inv.get('email'), exam_cfg.get('exam_id') or '?')
-    return True
-
-async def _reminder_tick():
-    buckets = [("reminder_1h_at", 60, REMINDER_1H_WINDOW_MIN, 1), ("reminder_24h_at", 24 * 60, REMINDER_24H_WINDOW_MIN, 24)]
-    for col, target_min, half_width, hours_until in buckets:
-        lo, hi = _reminder_window(target_min, half_width)
-        try:
-            exams_resp = await _atable("exam_config").select("exam_id,teacher_id,exam_title,starts_at,access_code,ends_at").gte("starts_at", lo.isoformat()).lte("starts_at", hi.isoformat()).execute()
-        except Exception as e:
-            _dep_log.warning("[reminders] exam query failed: %s", e)
-            continue
-        exams = exams_resp.data or []
-        if not exams:
-            continue
-        for exam_cfg in exams:
-            eid = exam_cfg.get("exam_id")
-            if not eid:
-                continue
-            try:
-                inv_resp = await _atable("student_invites").select("token,email,full_name,roll_number,access_code,exam_id,status").eq("exam_id", eid).is_(col, "null").in_("status", [InviteStatus.SENT, InviteStatus.OPENED, InviteStatus.ACCEPTED]).execute()
-            except Exception as e:
-                _dep_log.warning("[reminders] invites query failed exam=%s: %s", eid, e)
-                continue
-            for inv in (inv_resp.data or []):
-                if not inv.get("email"):
-                    continue
-                try:
-                    await asyncio.to_thread(_send_reminder_for_invite, inv, exam_cfg, hours_until)
-                except Exception as e:
-                    _dep_log.warning("[reminders] per-invite error: %s", e)
-
-async def _reminder_loop():
-    import asyncio as _asyncio
-    import traceback as _tb
-    while True:
-        try:
-            await _reminder_tick()
-        except Exception as e:
-            _dep_log.error("[reminders] tick crashed: %s", e)
-            _tb.print_exc()
-        await _asyncio.sleep(REMINDER_POLL_SECONDS)
-
 # ─── DOWNLOAD/RELEASE CACHE ──────────────────────────────────────
 import httpx
 _RELEASE_CACHE: dict = {"mac_arm": "", "mac_x64": "", "win": "", "tag": ""}
 _RELEASE_CACHE_EXPIRES: float = 0.0
-_RELEASE_CACHE_LOCK = __import__("asyncio").Lock()
+_RELEASE_CACHE_LOCK = asyncio.Lock()
 
 def _match_mac_arm64(name: str) -> bool:
     return name.lower().endswith("-arm64.dmg")
@@ -1741,10 +1668,15 @@ class ChatHub:
 
     Safety caps:
     - MAX_TEACHER_SOCKETS_PER_TENANT: limits tabs per teacher (50)
+    - GLOBAL_MAX_CONNECTIONS: total student + teacher sockets before eviction (500)
+    - IDLE_TIMEOUT_SECONDS: close a socket with no activity after this (30 min)
     - STUDENT_META_TTL: evicts stale student metadata after 4 hours
     """
 
     MAX_TEACHER_SOCKETS_PER_TENANT = 50
+    GLOBAL_MAX_CONNECTIONS = 500
+    IDLE_TIMEOUT_SECONDS = 1800  # 30 minutes
+    CLEANUP_INTERVAL = 60  # run scavenger every 60 seconds
     STUDENT_META_TTL_SECONDS = 4 * 3600  # 4 hours
 
     def __init__(self) -> None:
@@ -1757,6 +1689,10 @@ class ChatHub:
         self.threads: dict[str, dict[str, deque]] = {}
         # session_id -> {roll, name, teacher_id, joined_at, last_seen}
         self.student_meta: dict[str, dict] = {}
+        # teacher_id -> {WebSocket -> last_activity (monotonic time)}
+        self.teacher_last_seen: dict[str, dict[WebSocket, float]] = {}
+        # background cleanup task reference
+        self._cleanup_task: asyncio.Task | None = None
 
     # ── helpers ────────────────────────────────────────────────
     def _evict_stale_meta(self) -> None:
@@ -1801,7 +1737,30 @@ class ChatHub:
     # ── student side ───────────────────────────────────────────
     async def register_student(self, *, session_id: str, teacher_id: str,
                                roll: str, name: str, ws: WebSocket) -> None:
+        self._start_cleanup()
         async with self._lock:
+            # Global cap — evict the most-idle student if over limit
+            if self._global_connection_count() >= self.GLOBAL_MAX_CONNECTIONS:
+                oldest_sid = None
+                oldest_ts = time.monotonic()
+                for sid, m in self.student_meta.items():
+                    last_seen = m.get("last_seen")
+                    if last_seen:
+                        try:
+                            ts = datetime.fromisoformat(last_seen).timestamp()
+                            if ts < oldest_ts:
+                                oldest_ts = ts
+                                oldest_sid = sid
+                        except Exception:
+                            pass
+                if oldest_sid:
+                    old_ws = self.student_conns.pop(oldest_sid, None)
+                    self.student_meta.pop(oldest_sid, None)
+                    if old_ws:
+                        try:
+                            await old_ws.close(code=4002, reason="global_cap")
+                        except Exception:
+                            pass
             old = self.student_conns.get(session_id)
             if old is not None and old is not ws:
                 try:
@@ -1846,6 +1805,7 @@ class ChatHub:
 
     # ── teacher side ───────────────────────────────────────────
     async def register_teacher(self, teacher_id: str, ws: WebSocket) -> None:
+        self._start_cleanup()
         async with self._lock:
             conns = self.teacher_conns.setdefault(teacher_id, set())
             # Cap sockets per teacher — reject oldest if over limit
@@ -1853,11 +1813,39 @@ class ChatHub:
                 # Drop the first (oldest) socket to make room
                 oldest = next(iter(conns))
                 conns.discard(oldest)
+                by_sock = self.teacher_last_seen.get(teacher_id)
+                if by_sock is not None:
+                    by_sock.pop(oldest, None)
                 try:
                     await oldest.close(code=4000, reason="too_many_tabs")
                 except Exception:
                     pass
+            # Global cap — evict the most-idle teacher socket if over limit
+            if self._global_connection_count() >= self.GLOBAL_MAX_CONNECTIONS:
+                oldest_tid = None
+                oldest_ws = None
+                oldest_ts = time.monotonic()
+                for tid, by_sock in self.teacher_last_seen.items():
+                    for sock, last in by_sock.items():
+                        if last < oldest_ts:
+                            oldest_ts = last
+                            oldest_tid = tid
+                            oldest_ws = sock
+                if oldest_ws is not None:
+                    pts = self.teacher_conns.get(oldest_tid)
+                    if pts:
+                        pts.discard(oldest_ws)
+                    by_sock = self.teacher_last_seen.get(oldest_tid)
+                    if by_sock is not None:
+                        by_sock.pop(oldest_ws, None)
+                        if not by_sock:
+                            self.teacher_last_seen.pop(oldest_tid, None)
+                    try:
+                        await oldest_ws.close(code=4002, reason="global_cap")
+                    except Exception:
+                        pass
             conns.add(ws)
+            self.teacher_last_seen.setdefault(teacher_id, {})[ws] = time.monotonic()
             # Evict stale student metadata on each teacher connect
             self._evict_stale_meta()
 
@@ -1887,6 +1875,11 @@ class ChatHub:
                 conns.discard(ws)
                 if not conns:
                     self.teacher_conns.pop(teacher_id, None)
+            by_sock = self.teacher_last_seen.get(teacher_id)
+            if by_sock is not None:
+                by_sock.pop(ws, None)
+                if not by_sock:
+                    self.teacher_last_seen.pop(teacher_id, None)
 
     async def teacher_send(self, teacher_id: str, session_id: str,
                            text: str) -> Optional[dict]:
@@ -1937,6 +1930,7 @@ class ChatHub:
         dead: list[WebSocket] = []
         conns = list(self.teacher_conns.get(teacher_id, ()))
         for ws in conns:
+            self._update_teacher_activity(teacher_id, ws)
             if not await self._safe_send(ws, payload):
                 dead.append(ws)
         if dead:
@@ -1947,6 +1941,12 @@ class ChatHub:
                         s.discard(ws)
                     if not s:
                         self.teacher_conns.pop(teacher_id, None)
+                by_sock = self.teacher_last_seen.get(teacher_id)
+                if by_sock is not None:
+                    for ws in dead:
+                        by_sock.pop(ws, None)
+                    if not by_sock:
+                        self.teacher_last_seen.pop(teacher_id, None)
 
     async def _notify_teachers_presence(self, teacher_id: str,
                                         session_id: str, *, online: bool) -> None:
@@ -1958,6 +1958,117 @@ class ChatHub:
             "name": meta.get("name") or "",
             "online": online,
         })
+
+    # ── scavenger: idle eviction + global cap ────────────────────
+    def _global_connection_count(self) -> int:
+        return len(self.student_conns) + sum(len(s) for s in self.teacher_conns.values())
+
+    def _update_teacher_activity(self, teacher_id: str, ws: WebSocket) -> None:
+        by_sock = self.teacher_last_seen.get(teacher_id)
+        if by_sock is not None:
+            by_sock[ws] = time.monotonic()
+
+    def _start_cleanup(self) -> None:
+        if self._cleanup_task is not None:
+            return
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+    async def _cleanup_loop(self) -> None:
+        """Background task that periodically evicts idle sockets."""
+        try:
+            while True:
+                await asyncio.sleep(self.CLEANUP_INTERVAL)
+                await self._cleanup_idle()
+        except asyncio.CancelledError:
+            pass
+
+    async def _cleanup_idle(self) -> None:
+        """Close sockets idle longer than IDLE_TIMEOUT_SECONDS and enforce
+        GLOBAL_MAX_CONNECTIONS by evicting the most-idle sockets."""
+        now = time.monotonic()
+        cutoff = now - self.IDLE_TIMEOUT_SECONDS
+        async with self._lock:
+            # -- evict idle students --
+            idle_students = []
+            for sid, ws in self.student_conns.items():
+                meta = self.student_meta.get(sid)
+                last_seen = meta.get("last_seen") if meta else None
+                if last_seen:
+                    try:
+                        dt = datetime.fromisoformat(last_seen)
+                        if (datetime.now(timezone.utc) - dt).total_seconds() > self.IDLE_TIMEOUT_SECONDS:
+                            idle_students.append((sid, ws))
+                    except Exception:
+                        idle_students.append((sid, ws))
+            for sid, ws in idle_students:
+                try:
+                    await ws.close(code=4001, reason="idle_timeout")
+                except Exception:
+                    pass
+                self.student_conns.pop(sid, None)
+                self.student_meta.pop(sid, None)
+
+            # -- evict idle teachers --
+            idle_teachers: list[tuple[str, WebSocket]] = []
+            for tid, by_sock in self.teacher_last_seen.items():
+                for ws, last in list(by_sock.items()):
+                    if last < cutoff:
+                        idle_teachers.append((tid, ws))
+            for tid, ws in idle_teachers:
+                try:
+                    await ws.close(code=4001, reason="idle_timeout")
+                except Exception:
+                    pass
+                conns = self.teacher_conns.get(tid)
+                if conns:
+                    conns.discard(ws)
+                by_sock = self.teacher_last_seen.get(tid)
+                if by_sock is not None:
+                    by_sock.pop(ws, None)
+                    if not by_sock:
+                        self.teacher_last_seen.pop(tid, None)
+
+            # -- enforce global cap if still over --
+            over = self._global_connection_count() - self.GLOBAL_MAX_CONNECTIONS
+            if over <= 0:
+                return
+
+            # Evict the oldest (most-idle) connections from the overage.
+            # Sort all connections by last activity, youngest first.
+            candidates: list[tuple[float, str, str, WebSocket]] = []  # (last_act, kind, id, ws)
+            for sid, ws in self.student_conns.items():
+                meta = self.student_meta.get(sid, {})
+                last_seen = meta.get("last_seen")
+                ts = 0.0
+                if last_seen:
+                    try:
+                        ts = datetime.fromisoformat(last_seen).timestamp()
+                    except Exception:
+                        pass
+                candidates.append((ts, "student", sid, ws))
+            for tid, by_sock in self.teacher_last_seen.items():
+                for ws, last in by_sock.items():
+                    candidates.append((last, "teacher", tid, ws))
+
+            candidates.sort(key=lambda x: x[0])  # oldest first
+            to_evict = candidates[:over]
+            for _ts, kind, kid, ws in to_evict:
+                try:
+                    await ws.close(code=4002, reason="global_cap")
+                except Exception:
+                    pass
+                if kind == "student":
+                    self.student_conns.pop(kid, None)
+                    self.student_meta.pop(kid, None)
+                else:
+                    conns = self.teacher_conns.get(kid)
+                    if conns:
+                        conns.discard(ws)
+                    by_sock = self.teacher_last_seen.get(kid)
+                    if by_sock is not None:
+                        by_sock.pop(ws, None)
+                        if not by_sock:
+                            self.teacher_last_seen.pop(kid, None)
 
 
 def _cleanup_screenshots():

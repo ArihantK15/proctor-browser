@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import (
     supabase, _bus_subscribe, _HAS_REDIS, _get_teacher_by_id,
-    require_admin, verify_admin_token,
+    require_admin, verify_admin_token, verify_student_token,
     _build_sessions_payload, _cache, _bus_async_publish,
     SECRET_KEY, require_auth, now_ist, fmt_ist, SessionStatus,
     VIOLATION_WEIGHTS, _CRITICAL_TYPES,
@@ -234,6 +234,39 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
         logger.debug("WebSocket live-frame error: %s", e)
     finally:
         await _ws_unsubscribe(session_id, websocket)
+
+
+@router.get("/api/v1/proctor/control/{session_id}")
+async def proctor_control(session_id: str, request: Request):
+    """Pinged by proctor.py every 2s. Returns {"live_view": bool}
+    indicating whether a teacher has activated the live camera view
+    for this session via POST .../live-view/start.
+
+    The student's JWT must be in the Authorization header. The roll
+    number embedded in the JWT must match the session_id prefix.
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    if not token:
+        return Response(status_code=401, content="Missing Authorization header")
+    try:
+        claims = verify_student_token(token)
+    except HTTPException:
+        return Response(status_code=401, content="Invalid token")
+
+    session_roll = session_id.rsplit("_", 1)[0].upper()
+    if (claims.get("roll") or "").upper() != session_roll:
+        return Response(status_code=403, content="Access denied")
+
+    active = False
+    if _cache:
+        try:
+            val = _cache.get(f"liveview:{session_id}")
+            active = val is not None
+        except Exception:
+            pass
+
+    return {"live_view": active}
 
 
 # ─── SSE SESSIONS STREAM (teacher dashboard live updates) ────────

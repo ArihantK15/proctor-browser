@@ -3,6 +3,7 @@
 Extracted from main.py. Imports shared dependencies from `dependencies`.
 """
 
+import asyncio
 import io
 import csv
 import json
@@ -10,6 +11,8 @@ import logging
 _admin_log = logging.getLogger("admin")
 import base64
 import hashlib
+import os
+import tempfile
 import time
 import zipfile
 from datetime import datetime, timezone, timedelta
@@ -17,6 +20,8 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException, Body
+from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import (
@@ -25,7 +30,7 @@ from ..dependencies import (
     _recalculate_score, _safe_filename,
     compute_risk_score, _build_sessions_payload, _partition_live_sessions,
     _clear_token_issue, _clear_token_consume, _CLEAR_TOKEN_TTL, _CLEAR_ACTIVE_WINDOW,
-    SCREENSHOTS_DIR, _cache, _atable, limiter,
+    SCREENSHOTS_DIR, QUESTION_IMG_DIR, _cache, _atable, limiter,
     _collect_session_screenshots, _is_violation, _match_screenshot_for_violation,
     _get_invite_base_url, _get_teacher_by_id,
     INVITE_DAILY_CAP, _new_invite_token, _uuid, _claim_and_bump_cap,
@@ -1003,14 +1008,19 @@ async def export_excel(request: Request, exam_id: str = None):
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = max(w + 2, 10)
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    fname = f"results_{safe_eid or 'all'}_{now_ist().strftime('%Y%m%d')}.xlsx"
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={fname}"})
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    try:
+        wb.save(tmp.name)
+        tmp.close()
+        fname = f"results_{safe_eid or 'all'}_{now_ist().strftime('%Y%m%d')}.xlsx"
+        return FileResponse(
+            tmp.name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=fname,
+            background=BackgroundTask(os.unlink, tmp.name))
+    except Exception:
+        os.unlink(tmp.name)
+        raise
 # ─── 12. EXPORT PDF ──────────────────────────────────
 
 @router.get("/api/v1/export-pdf/{session_id:path}")
@@ -1246,7 +1256,7 @@ async def export_pdf(session_id: str, request: Request):
         story.append(Spacer(1, 8))
 
         try:
-            pdf_questions = await _load_questions(teacher_id=tid)
+            pdf_questions = await _load_questions(teacher_id=tid, exam_id=exam.get("exam_id"))
             q_correct = {q["id"]: q["correct"] for q in pdf_questions}
             q_texts = {q["id"]: q.get("question", "")[:50] for q in pdf_questions}
         except Exception as e:
@@ -1308,7 +1318,7 @@ async def scorecard_pdf(session_id: str, request: Request):
     teacher = await require_admin(request)
     tid = teacher["id"]
     try:
-        pdf_bytes, fname, _ = _build_scorecard_pdf(session_id, tid)
+        pdf_bytes, fname, _ = await _build_scorecard_pdf(session_id, tid)
         return StreamingResponse(
             io.BytesIO(pdf_bytes), media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={fname}"})
@@ -1352,96 +1362,101 @@ async def scorecard_zip(request: Request, exam_id: str = None):
             logger.debug("Failed to load exam config for ZIP export: %s", e)
         exam_title = (config or {}).get("title", "Exam")
 
-        zip_buf = io.BytesIO()
-        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for sess in sessions:
-                sid = sess["session_key"]
-                ans_rows = (await _atable("answers").select("question_id,answer")
-                            .eq("session_key", sid)
-                            .eq("teacher_id", str(tid)).execute()).data or []
-                ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        try:
+            with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+                for sess in sessions:
+                    sid = sess["session_key"]
+                    ans_rows = (await _atable("answers").select("question_id,answer")
+                                .eq("session_key", sid)
+                                .eq("teacher_id", str(tid)).execute()).data or []
+                    ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
 
-                pdf_buf = io.BytesIO()
-                doc = SimpleDocTemplate(pdf_buf, pagesize=A4, topMargin=40, bottomMargin=40)
-                styles = getSampleStyleSheet()
-                story = []
+                    pdf_buf = io.BytesIO()
+                    doc = SimpleDocTemplate(pdf_buf, pagesize=A4, topMargin=40, bottomMargin=40)
+                    styles = getSampleStyleSheet()
+                    story = []
 
-                story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
-                story.append(Spacer(1, 12))
+                    story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
+                    story.append(Spacer(1, 12))
 
-                score = sess.get("score", 0)
-                total = sess.get("total", 0)
-                pct = sess.get("percentage", 0)
-                passed = pct >= 40
+                    score = sess.get("score", 0)
+                    total = sess.get("total", 0)
+                    pct = sess.get("percentage", 0)
+                    passed = pct >= 40
 
-                info = [
-                    ["Field", "Value"],
-                    ["Student Name", sess.get("full_name", "")],
-                    ["Roll Number", sess.get("roll_number", "")],
-                    ["Date", fmt_ist(sess.get("submitted_at", sess.get("started_at", "")))],
-                    ["Score", f"{score}/{total}"],
-                    ["Percentage", f"{pct}%"],
-                    ["Result", "PASS" if passed else "FAIL"],
-                    ["Time Taken", f"{sess.get('time_taken_secs', 0) // 60}m {sess.get('time_taken_secs', 0) % 60}s"],
-                ]
-                t = Table(info, colWidths=[140, 330])
-                t.setStyle(TableStyle([
-                    ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
-                    ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                    ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
-                    ("FONTSIZE",  (0,0), (-1, -1), 10),
-                    ("ROWBACKGROUNDS", (0,1), (-1, -1),
-                     [colors.HexColor("#f0f4ff"), colors.white]),
-                    ("GRID",    (0,0), (-1, -1), 0.5, colors.grey),
-                    ("PADDING", (0,0), (-1, -1), 8),
-                ]))
-                story.append(t)
-                story.append(Spacer(1, 20))
-
-                story.append(Paragraph("Question-wise Results", styles["Heading2"]))
-                story.append(Spacer(1, 8))
-
-                if questions:
-                    qd = [["#", "Question", "Your Answer", "Correct", "Result"]]
-                    for i, q in enumerate(questions, 1):
-                        qid = str(q.get("question_id", q.get("id", "")))
-                        correct_ans = str(q.get("correct", ""))
-                        student_ans = ans_map.get(qid, "—")
-                        is_right = str(student_ans) == correct_ans
-                        q_text = q.get("question", "")
-                        if len(q_text) > 60:
-                            q_text = q_text[:57] + "..."
-                        qd.append([str(i), q_text, str(student_ans)[:20], correct_ans[:20],
-                                   "✓" if is_right else "✗"])
-                    qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
-                    qt.setStyle(TableStyle([
+                    info = [
+                        ["Field", "Value"],
+                        ["Student Name", sess.get("full_name", "")],
+                        ["Roll Number", sess.get("roll_number", "")],
+                        ["Date", fmt_ist(sess.get("submitted_at", sess.get("started_at", "")))],
+                        ["Score", f"{score}/{total}"],
+                        ["Percentage", f"{pct}%"],
+                        ["Result", "PASS" if passed else "FAIL"],
+                        ["Time Taken", f"{sess.get('time_taken_secs', 0) // 60}m {sess.get('time_taken_secs', 0) % 60}s"],
+                    ]
+                    t = Table(info, colWidths=[140, 330])
+                    t.setStyle(TableStyle([
                         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
                         ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
                         ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
-                        ("FONTSIZE",  (0,0), (-1, -1), 9),
+                        ("FONTSIZE",  (0,0), (-1, -1), 10),
                         ("ROWBACKGROUNDS", (0,1), (-1, -1),
-                         [colors.HexColor("#f8f9fa"), colors.white]),
+                         [colors.HexColor("#f0f4ff"), colors.white]),
                         ("GRID",    (0,0), (-1, -1), 0.5, colors.grey),
-                        ("PADDING", (0,0), (-1, -1), 6),
-                        ("ALIGN", (4,1), (4, -1), "CENTER"),
+                        ("PADDING", (0,0), (-1, -1), 8),
                     ]))
-                    story.append(qt)
+                    story.append(t)
+                    story.append(Spacer(1, 20))
 
-                story.append(Spacer(1, 20))
-                story.append(Paragraph(
-                    f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
-                    styles["Normal"]))
+                    story.append(Paragraph("Question-wise Results", styles["Heading2"]))
+                    story.append(Spacer(1, 8))
 
-                doc.build(story)
-                pdf_buf.seek(0)
-                roll = _safe_filename(sess.get("roll_number"), "unknown")
-                zf.writestr(f"scorecard_{roll}.pdf", pdf_buf.getvalue())
+                    if questions:
+                        qd = [["#", "Question", "Your Answer", "Correct", "Result"]]
+                        for i, q in enumerate(questions, 1):
+                            qid = str(q.get("question_id", q.get("id", "")))
+                            correct_ans = str(q.get("correct", ""))
+                            student_ans = ans_map.get(qid, "—")
+                            is_right = str(student_ans) == correct_ans
+                            q_text = q.get("question", "")
+                            if len(q_text) > 60:
+                                q_text = q_text[:57] + "..."
+                            qd.append([str(i), q_text, str(student_ans)[:20], correct_ans[:20],
+                                       "✓" if is_right else "✗"])
+                        qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
+                        qt.setStyle(TableStyle([
+                            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
+                            ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
+                            ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
+                            ("FONTSIZE",  (0,0), (-1, -1), 9),
+                            ("ROWBACKGROUNDS", (0,1), (-1, -1),
+                             [colors.HexColor("#f8f9fa"), colors.white]),
+                            ("GRID",    (0,0), (-1, -1), 0.5, colors.grey),
+                            ("PADDING", (0,0), (-1, -1), 6),
+                            ("ALIGN", (4,1), (4, -1), "CENTER"),
+                        ]))
+                        story.append(qt)
 
-        zip_buf.seek(0)
-        fname = f"scorecards_{_safe_filename(exam_id, 'all')}_{now_ist().strftime('%Y%m%d')}.zip"
-        return StreamingResponse(
-            zip_buf, media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename={fname}"})
+                    story.append(Spacer(1, 20))
+                    story.append(Paragraph(
+                        f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
+                        styles["Normal"]))
+
+                    doc.build(story)
+                    pdf_buf.seek(0)
+                    roll = _safe_filename(sess.get("roll_number"), "unknown")
+                    zf.writestr(f"scorecard_{roll}.pdf", pdf_buf.getvalue())
+
+            fname = f"scorecards_{_safe_filename(exam_id, 'all')}_{now_ist().strftime('%Y%m%d')}.zip"
+            return FileResponse(
+                tmp.name,
+                media_type="application/zip",
+                filename=fname,
+                background=BackgroundTask(os.unlink, tmp.name))
+        except Exception:
+            os.unlink(tmp.name)
+            raise
 
     except HTTPException:
         raise
@@ -1456,7 +1471,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
 @limiter.limit("5/minute")
 async def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = Body(default=EmailScorecardsIn())):
     """Email every completed student their scorecard PDF for this exam."""
-    from emailer import send_scorecard_email
+    from ..emailer import send_scorecard_email
     teacher = await require_admin(request)
     tid = str(teacher["id"])
 
@@ -1517,18 +1532,19 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
 
         now_iso = datetime.now(timezone.utc).isoformat()
         if not resend_all:
-            claim = (await _atable("exam_sessions")
-                     .update({"scorecard_emailed_at": now_iso})
-                     .eq("session_key", sid)
-                     .eq("teacher_id", tid)
-                     .is_("scorecard_emailed_at", "null")
-                     .execute())
-            if not claim.data:
+            claim = await asyncio.to_thread(
+                lambda: supabase.rpc("claim_scorecard_email",
+                    {"p_session_key": sid, "p_teacher_id": tid}).execute()
+            )
+            claimed = claim.data
+            if isinstance(claimed, list):
+                claimed = claimed[0] if claimed else False
+            if not claimed:
                 already_sent += 1
                 continue
 
         try:
-            pdf_bytes, fname, summary = _build_scorecard_pdf(sid, tid)
+            pdf_bytes, fname, summary = await _build_scorecard_pdf(sid, tid)
         except Exception as e:
             _admin_log.warning("[email-scorecards] PDF build failed sid=%s err=%s", sid, e)
             if not resend_all:
@@ -1898,7 +1914,7 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
     count = 0
     for s in (sessions.data or []):
         risk = await compute_risk_score(s["session_key"], teacher_id=tid)
-        _atable("exam_sessions").update(
+        await _atable("exam_sessions").update(
             {"risk_score": risk["risk_score"]}
         ).eq("session_key", s["session_key"])\
              .eq("teacher_id", str(tid))\
@@ -1958,7 +1974,7 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
     duration = body.duration_minutes
     exam_id = str(_uuid.uuid4())
     try:
-        result = _atable("exam_config").insert({
+        result = await _atable("exam_config").insert({
             "exam_id":          exam_id,
             "teacher_id":       tid,
             "exam_title":       title,
@@ -2211,7 +2227,7 @@ async def get_analytics(request: Request):
     if tid:
         viol_q = viol_q.eq("teacher_id", tid)
     viols = (await viol_q.execute()).data or []
-    scored_viols = [v for v in viols if True and v.get("severity") in ("high", "medium")]
+    scored_viols = [v for v in viols if v.get("severity") in ("high", "medium")]
 
     type_counts = {}
     for v in scored_viols:
@@ -2275,7 +2291,7 @@ async def create_group(request: Request, body: CreateGroupIn = Body(...)):
     """Create a new student group."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
-    name = (body.get("group_name") or "").strip()
+    name = (body.group_name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="group_name is required")
     try:
@@ -2296,7 +2312,7 @@ async def rename_group(group_id: str, request: Request, body: RenameGroupIn = Bo
     """Rename a student group."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
-    name = body.name.strip()
+    name = body.group_name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="group_name is required")
     result = (await _atable("student_groups")
@@ -2494,7 +2510,7 @@ async def get_access_code(request: Request):
     """Return the current exam access code."""
     teacher = await require_admin(request)
     exam_id = request.query_params.get("exam_id")
-    code = _get_access_code(teacher["id"], exam_id=exam_id)
+    code = await _get_access_code(teacher["id"], exam_id=exam_id)
     return {"access_code": code, "enabled": bool(code)}
 
 
@@ -2507,7 +2523,7 @@ async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
     teacher = await require_admin(request)
     exam_id = body.exam_id
     new_code = body.access_code.strip().upper()
-    _set_access_code(new_code, teacher["id"], exam_id=exam_id)
+    await _set_access_code(new_code, teacher["id"], exam_id=exam_id)
     if _cache:
         _cache.delete(f"exam_config:{teacher['id']}:{exam_id or '_'}")
     return {"access_code": new_code, "enabled": bool(new_code)}

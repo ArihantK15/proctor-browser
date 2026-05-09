@@ -38,7 +38,7 @@ import requests
 import cv2
 import numpy as np
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from queue import Queue, Empty
 from typing import Optional, Tuple
 
@@ -911,7 +911,7 @@ def log_event(etype, severity, details):
 
 def save_evidence(frame, label):
     try:
-        ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         path = os.path.join(EVIDENCE_DIR, f"{label}_{ts}.jpg")
         cv2.imwrite(path, frame)
         print(f"[Evidence] → {path}")
@@ -947,7 +947,7 @@ def _evidence_upload_loop():
                 json={
                     "session_id": SESSION_ID,
                     "frame":      b64,
-                    "timestamp":  datetime.now().isoformat(),
+                    "timestamp":  datetime.now(timezone.utc).isoformat(),
                     "event_type": label,
                 },
                 timeout=10,
@@ -1268,7 +1268,7 @@ def run_system_check() -> dict:
     """Verify camera, audio, network, and detection models."""
     results = {
         "session_id": SESSION_ID,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "checks": {},
         "overall": "pass",
     }

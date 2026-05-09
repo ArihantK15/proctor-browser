@@ -23,7 +23,7 @@ def _reminder_window(target_minutes: int, half_width_min: int):
 
 
 def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bool:
-    from emailer import send_exam_reminder
+    from .emailer import send_exam_reminder
     col = "reminder_1h_at" if hours_until < 24 else "reminder_24h_at"
     now_iso = datetime.now(timezone.utc).isoformat()
     try:

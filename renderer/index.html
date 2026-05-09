@@ -632,15 +632,43 @@ function _clearLocalAnswers(){
 }
 function _mergeLocalAnswers(){
   const local = _loadLocalAnswers();
-  if(!local || !Object.keys(local).length) return;
+  // Also scan for orphaned answers from a prior crashed session
+  // (Electron killed mid-exam; new sessionId doesn't match the old key)
+  const orphan = _recoverOrphanAnswers();
+  const combined = { ...orphan, ...local };
+  if(!combined || !Object.keys(combined).length) return;
   let merged = 0;
-  for(const [qid, ans] of Object.entries(local)){
+  for(const [qid, ans] of Object.entries(combined)){
     if(!(qid in answers)){
       answers[qid] = ans;
       merged++;
     }
   }
   if(merged) console.log(`[Offline] merged ${merged} locally-saved answers`);
+}
+function _recoverOrphanAnswers(){
+  const prefix = 'answers_' + (normalizedRoll || '') + '_';
+  let newest = null, newestTs = 0;
+  for(let i = 0; i < localStorage.length; i++){
+    const key = localStorage.key(i);
+    if(!key || !key.startsWith(prefix)) continue;
+    const ts = parseInt(key.slice(prefix.length), 10);
+    if(ts > newestTs){ newestTs = ts; newest = key; }
+  }
+  if(!newest) return {};
+  try{
+    const raw = localStorage.getItem(newest);
+    const data = raw ? JSON.parse(raw) : {};
+    // Cleanup all orphaned keys (keep only the current session's)
+    const cutoff = Date.now() - 7 * 86400000;
+    for(let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if(!k || !k.startsWith(prefix)) continue;
+      const t = parseInt(k.slice(prefix.length), 10);
+      if(t !== newestTs && t < cutoff) localStorage.removeItem(k);
+    }
+    return data;
+  }catch(_){ return {}; }
 }
 window.addEventListener('online', ()=>{
   if(!isOffline) return;

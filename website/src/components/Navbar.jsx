@@ -13,11 +13,12 @@ export default function Navbar() {
   //   "What about my data?"      (Privacy — DPDP Act 2023)
   //   "Anything I'm missing?"    (FAQ)
   const links = [
-    { label: 'Why Procta',   href: '#differentiators' },
-    { label: 'Features',     href: '#features' },
-    { label: 'How It Works', href: '#how-it-works' },
-    { label: 'Privacy',      href: '#privacy' },
-    { label: 'FAQ',          href: '#faq' },
+    { label: 'Features',     href: '/features' },
+    { label: 'How It Works', href: '/how-it-works' },
+    { label: 'Why Procta',   href: '/#differentiators' },
+    { label: 'Privacy',      href: '/privacy' },
+    { label: 'FAQ',          href: '/#faq' },
+    { label: 'Blog',         href: '/blog' },
   ]
 
   return (
@@ -34,15 +35,18 @@ export default function Navbar() {
         </Link>
 
         <div className="hidden items-center gap-8 md:flex">
-          {links.map(l => (
-            <a
-              key={l.href}
-              href={l.href}
-              className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline"
-            >
-              {l.label}
-            </a>
-          ))}
+          {links.map(l => {
+            const isHash = l.href.startsWith('/#') || l.href.startsWith('#')
+            return isHash ? (
+              <a key={l.href} href={l.href} className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">
+                {l.label}
+              </a>
+            ) : (
+              <Link key={l.href} to={l.href} className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">
+                {l.label}
+              </Link>
+            )
+          })}
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
@@ -72,16 +76,18 @@ export default function Navbar() {
       {open && (
         <div className="border-t border-white/5 bg-navy-950/95 backdrop-blur-xl md:hidden">
           <div className="flex flex-col gap-1 px-6 py-4">
-            {links.map(l => (
-              <a
-                key={l.href}
-                href={l.href}
-                onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-accent-light no-underline"
-              >
-                {l.label}
-              </a>
-            ))}
+            {links.map(l => {
+              const isHash = l.href.startsWith('/#') || l.href.startsWith('#')
+              return isHash ? (
+                <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-accent-light no-underline">
+                  {l.label}
+                </a>
+              ) : (
+                <Link key={l.href} to={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-accent-light no-underline">
+                  {l.label}
+                </Link>
+              )
+            })}
             <div className="mt-3 flex flex-col gap-2 border-t border-white/5 pt-3">
               <a
                 href={`${APP_URL}/dashboard`}

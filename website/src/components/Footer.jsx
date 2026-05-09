@@ -26,20 +26,21 @@ export default function Footer() {
           <div>
             <h4 className="mb-4 label-mono text-slate-500">Product</h4>
             <ul className="space-y-2.5 list-none p-0">
-              <li><a href="#features" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Features</a></li>
-              <li><a href="#how-it-works" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">How It Works</a></li>
-              <li><a href="#use-cases" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Use Cases</a></li>
-              <li><a href="#demo" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Demo</a></li>
+              <li><Link to="/features" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Features</Link></li>
+              <li><Link to="/how-it-works" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">How It Works</Link></li>
+              <li><a href="/#use-cases" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Use Cases</a></li>
+              <li><a href="/#demo" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Demo</a></li>
             </ul>
           </div>
 
-          {/* Company */}
+          {/* Resources */}
           <div>
-            <h4 className="mb-4 label-mono text-slate-500">Company</h4>
+            <h4 className="mb-4 label-mono text-slate-500">Resources</h4>
             <ul className="space-y-2.5 list-none p-0">
+              <li><Link to="/blog" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Blog</Link></li>
+              <li><Link to="/blog/ai-proctoring-vs-traditional-proctoring" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">AI vs Traditional Proctoring</Link></li>
               <li><Link to="/privacy" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Privacy Policy</Link></li>
               <li><Link to="/terms" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Terms of Service</Link></li>
-              <li><a href="mailto:contact@procta.net" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Contact</a></li>
             </ul>
           </div>
 

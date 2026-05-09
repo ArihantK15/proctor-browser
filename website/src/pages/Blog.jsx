@@ -7,6 +7,20 @@ import Footer from '../components/Footer'
 
 const posts = [
   {
+    slug: 'online-exam-cheating-prevention-ai-proctoring',
+    title: 'Online Exam Cheating Statistics & Prevention: How AI Proctoring Stops Academic Dishonesty in 2026',
+    desc: 'Latest cheating statistics, common methods students use, and how AI proctoring with gaze tracking and object detection prevents academic dishonesty in online exams.',
+    date: 'May 9, 2026',
+    readTime: '10 min read',
+  },
+  {
+    slug: 'dpdp-act-compliance-online-proctoring-indian-universities',
+    title: 'DPDP Act Compliance for Online Proctoring: A Complete Guide for Indian Universities 2026',
+    desc: 'Navigate DPDP Act 2023 compliance for AI proctoring in Indian higher education. Covers data minimization, consent, on-device processing, and step-by-step compliance checklist.',
+    date: 'May 9, 2026',
+    readTime: '9 min read',
+  },
+  {
     slug: 'ai-proctoring-vs-traditional-proctoring',
     title: 'AI Proctoring vs Traditional Proctoring: A Complete Comparison for 2026',
     desc: 'Compare cost, scalability, accuracy, and privacy trade-offs between AI-powered and in-person exam proctoring.',

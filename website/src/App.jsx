@@ -10,6 +10,8 @@ const Features = lazy(() => import('./pages/Features'))
 const HowItWorks = lazy(() => import('./pages/HowItWorks'))
 const Blog = lazy(() => import('./pages/Blog'))
 const BlogAiVsTraditional = lazy(() => import('./pages/BlogAiVsTraditional'))
+const BlogCheatingPrevention = lazy(() => import('./pages/BlogCheatingPrevention'))
+const BlogDPDPCompliance = lazy(() => import('./pages/BlogDPDPCompliance'))
 
 function RouteFallback() {
   return (
@@ -35,6 +37,8 @@ export default function App() {
       <Route path="/how-it-works" element={<Suspense fallback={<RouteFallback />}><HowItWorks /></Suspense>} />
       <Route path="/blog" element={<Suspense fallback={<RouteFallback />}><Blog /></Suspense>} />
       <Route path="/blog/ai-proctoring-vs-traditional-proctoring" element={<Suspense fallback={<RouteFallback />}><BlogAiVsTraditional /></Suspense>} />
+      <Route path="/blog/online-exam-cheating-prevention-ai-proctoring" element={<Suspense fallback={<RouteFallback />}><BlogCheatingPrevention /></Suspense>} />
+      <Route path="/blog/dpdp-act-compliance-online-proctoring-indian-universities" element={<Suspense fallback={<RouteFallback />}><BlogDPDPCompliance /></Suspense>} />
     </Routes>
   )
 }

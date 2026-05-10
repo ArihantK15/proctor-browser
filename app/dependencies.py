@@ -50,7 +50,7 @@ import time
 from .models import (
     SessionStatus, InviteStatus, VerificationStatus,
     EventIn, RegisterIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn,
-    FrameIn, IdVerifyIn, IdDecisionIn,
+    FrameIn, IdVerifyIn,
     TeacherSignupIn, TeacherLoginIn, RefreshIn,
     StudentSignupIn, StudentLoginIn, PasswordResetIn,
 )

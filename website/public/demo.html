@@ -15,13 +15,9 @@
 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #root { width: 100%; height: 100%; }
 </style>
-<!-- ── Inline replacements for the external animations.jsx + tweaks-panel.jsx
-     scripts. The original file expected a Stage/useTime helper bundle from
-     whatever tool generated it; for the marketing embed we only need a
-     looping time source, an aspect-ratio scaler, and no-op tweaks. ── -->
+<!-- Inline replacements for Stage/useTime/tweaks stubs -->
 <script type="text/babel">
 const { useState: _useState, useEffect: _useEffect, useRef: _useRef, useLayoutEffect: _useLayoutEffect } = React;
-
 window.__procta_clock = { speed: 1, duration: 98 };
 function useTime() {
   const [t, setT] = _useState(0);
@@ -31,20 +27,14 @@ function useTime() {
       const { speed, duration } = window.__procta_clock;
       const elapsed = ((now - start) / 1000) * speed;
       if (elapsed >= duration) {
-        // Play-once: clamp to the final frame so the last scene
-        // stays on-screen, then notify the parent (Demo.jsx) so
-        // it can close the modal / restore the placeholder. The
-        // parent decides whether to remount us for a replay.
         if (!ended) {
           ended = true;
           setT(duration);
           try {
             window.parent && window.parent !== window &&
               window.parent.postMessage({ type: 'procta-demo-ended' }, '*');
-          } catch (e) { /* sandboxed parent — safe to ignore */ }
+          } catch (e) {}
         }
-        // Stop the RAF loop — no need to keep painting once we're
-        // pinned to the final frame.
         return;
       }
       setT(elapsed);
@@ -55,15 +45,6 @@ function useTime() {
   }, []);
   return t;
 }
-
-// Stage — fixed 1920×1080 canvas, strict contain-scale (no boost).
-// We tried scale-boosting earlier to fight the perceived "small"
-// look from the demo's intentional negative space, but the
-// callouts use stage-space coordinates that humans perceive
-// relative to the visible frame — cropping the edges visually
-// displaced labels from their targets. Keep contain-scale and
-// give the embed more real estate via the marketing card width
-// instead.
 function Stage({ width, height, duration, background, speed = 1, children }) {
   const wrapRef = _useRef(null);
   const [scale, setScale] = _useState(1);
@@ -99,8 +80,6 @@ function Stage({ width, height, duration, background, speed = 1, children }) {
     </div>
   );
 }
-
-// Tweaks panel + hooks — stubbed for production.
 function useTweaks(defaults) { return [defaults, () => {}]; }
 function TweaksPanel()   { return null; }
 function TweakSection()  { return null; }

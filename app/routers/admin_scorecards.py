@@ -8,7 +8,6 @@ import logging
 import os
 import tempfile
 import zipfile
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +24,7 @@ from ..dependencies import (
 )
 from ..models import EmailScorecardsIn
 from ..services.scorecard import _build_scorecard_pdf
+from ..jobs import enqueue_job, send_scorecard_email_job
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
@@ -575,7 +575,6 @@ async def scorecard_zip(request: Request, exam_id: str = None):
 @router.post("/api/v1/admin/exams/{exam_id}/email-scorecards")
 @limiter.limit("5/minute")
 async def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = Body(default=EmailScorecardsIn())):
-    from ..emailer import send_scorecard_email
     teacher = await require_admin(request)
     tid = str(teacher["id"])
 
@@ -634,7 +633,6 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             failures.append({"roll": roll, "reason": "no email on file"})
             continue
 
-        now_iso = datetime.now(timezone.utc).isoformat()
         if not resend_all:
             claim = await asyncio.to_thread(
                 lambda: supabase.rpc("claim_scorecard_email",
@@ -647,56 +645,23 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
                 already_sent += 1
                 continue
 
-        try:
-            pdf_bytes, fname, summary = await _build_scorecard_pdf(sid, tid)
-        except Exception as e:
-            _admin_log.warning("[email-scorecards] PDF build failed sid=%s err=%s", sid, e)
-            if not resend_all:
-                try:
-                    (await _atable("exam_sessions")
-                     .update({"scorecard_emailed_at": None})
-                      .eq("session_key", sid).eq("teacher_id", tid).execute())
-                except Exception as e:
-                    logger.debug("Failed to reset scorecard_emailed_at: %s", e)
-            failed += 1
-            failures.append({"roll": roll, "reason": f"pdf: {e}"})
-            continue
-
-        result = send_scorecard_email(
-            to_email=email,
-            to_name=full_name,
-            exam_title=summary.get("exam_title") or "Exam",
-            score=int(summary.get("score") or 0),
-            total=int(summary.get("total") or 0),
-            percentage=float(summary.get("percentage") or 0.0),
-            passed=bool(summary.get("passed")),
-            pdf_bytes=pdf_bytes,
-            pdf_filename=fname,
+        job_result = enqueue_job(
+            send_scorecard_email_job,
+            session_key=sid,
+            teacher_id=tid,
+            email=email,
+            full_name=full_name,
             teacher_name=teacher_name,
             custom_message=custom_message,
+            resend_all=resend_all,
         )
-
-        if result.ok:
-            try:
-                update_row = {"scorecard_email_msg_id": result.provider_msg_id}
-                if resend_all:
-                    update_row["scorecard_emailed_at"] = now_iso
-                (await _atable("exam_sessions").update(update_row)
-                 .eq("session_key", sid).eq("teacher_id", tid).execute())
-            except Exception as e:
-                _admin_log.warning("[email-scorecards] msg_id update failed sid=%s: %s", sid, e)
+        if job_result is None:
+            sent += 1
+        elif job_result.get("ok"):
             sent += 1
         else:
-            if not resend_all:
-                try:
-                    (await _atable("exam_sessions")
-                     .update({"scorecard_emailed_at": None})
-                      .eq("session_key", sid).eq("teacher_id", tid).execute())
-                except Exception as e:
-                    logger.debug("Failed to reset scorecard_emailed_at (send error): %s", e)
             failed += 1
-            failures.append({"roll": roll, "reason": result.error or "send failed"})
-            _admin_log.error("[email-scorecards][SEND_ERROR] roll=%s reason=%r", roll, result.error)
+            failures.append({"roll": roll, "reason": job_result.get("error", "send failed")})
 
     return {
         "sent": sent,

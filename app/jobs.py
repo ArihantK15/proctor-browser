@@ -95,6 +95,61 @@ def send_demo_request_notification_job(
     }
 
 
+def send_scorecard_email_job(
+    *,
+    session_key: str,
+    teacher_id: str,
+    email: str,
+    full_name: str,
+    teacher_name: str,
+    custom_message: Optional[str] = None,
+    resend_all: bool = False,
+) -> dict:
+    """Build PDF, send scorecard email, and update DB.
+
+    Runs synchronously when called directly, or in an RQ worker when
+    enqueued.  Handles the DB update internally regardless of mode.
+    """
+    import asyncio
+    from datetime import datetime, timezone
+    from ..services.scorecard import _build_scorecard_pdf
+
+    async def _run():
+        pdf_bytes, fname, summary = await _build_scorecard_pdf(session_key, teacher_id)
+        result = emailer.send_scorecard_email(
+            to_email=email,
+            to_name=full_name,
+            exam_title=summary.get("exam_title") or "Exam",
+            score=int(summary.get("score") or 0),
+            total=int(summary.get("total") or 0),
+            percentage=float(summary.get("percentage") or 0.0),
+            passed=bool(summary.get("passed")),
+            pdf_bytes=pdf_bytes,
+            pdf_filename=fname,
+            teacher_name=teacher_name,
+            custom_message=custom_message,
+        )
+        if result.ok:
+            from ..dependencies import _atable
+            update = {"scorecard_email_msg_id": result.provider_msg_id}
+            if resend_all:
+                update["scorecard_emailed_at"] = datetime.now(timezone.utc).isoformat()
+            await _atable("exam_sessions").update(update)\
+                .eq("session_key", session_key).eq("teacher_id", teacher_id).execute()
+        return {
+            "ok": result.ok,
+            "provider_msg_id": result.provider_msg_id,
+            "session_key": session_key,
+            "error": result.error,
+        }
+
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        log.exception("[scorecard-job] failed sid=%s", session_key)
+        return {"ok": False, "error": str(e), "session_key": session_key}
+
+
 def send_new_account_notification_job(
     *,
     account_type: str,

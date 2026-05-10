@@ -149,3 +149,103 @@ class StudentLoginIn(BaseModel):
 class PasswordResetIn(BaseModel):
     model_config = ConfigDict(strict=True)
     email: str
+
+
+# ─── Admin-facing models (extracted from app/routers/admin.py) ─────
+
+class ClearSessionsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    step: str = ""
+    include_active: bool = False
+    include_completed: bool = False
+    exam_id: str = ""
+    token: str = ""
+    ack: str = ""
+
+
+class EmailScorecardsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    resend_all: bool = False
+    custom_message: str = ""
+
+
+class ScheduleIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    starts_at: str | None = None
+    ends_at: str | None = None
+
+
+class ShuffleIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    shuffle_questions: bool | None = None
+    shuffle_options: bool | None = None
+
+
+class AccessCodeIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str | None = None
+    access_code: str = ""
+
+
+class BulkRegisterIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str | None = None
+    students: list[dict[str, str]]
+
+
+class BulkStudentIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    students: list[dict[str, str]]
+
+
+class CreateExamIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_title: str = "Exam"
+    duration_minutes: int = 60
+
+
+class CreateGroupIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    group_name: str
+
+
+class RenameGroupIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    group_name: str
+
+
+class GroupMembersIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    roll_numbers: list[str]
+
+
+class ExamGroupAssignIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    group_ids: list[str]
+
+
+class UploadQuestionImageIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    question_id: str = ""
+    data_url: str = ""
+
+
+class InviteRecipient(BaseModel):
+    email: str
+    full_name: str
+    roll_number: str
+
+
+class SendInvitesBody(BaseModel):
+    recipients: list[InviteRecipient]
+    exam_id: str
+    custom_message: Optional[str] = None
+
+
+class SaveTemplateIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    template_name: str
+    include_questions: bool = True

@@ -23,10 +23,7 @@ import uuid as _uuid
 from collections import deque, OrderedDict
 
 from fastapi import Request, HTTPException, Body, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ConfigDict
 from jose import jwt, JWTError
-
-from enum import StrEnum
 
 from .database import supabase, async_table as _atable
 from .logger import get_logger
@@ -40,7 +37,8 @@ from .constants import (
     _DEFAULT_WEIGHT_HIGH, _DEFAULT_WEIGHT_MED, _CRITICAL_TYPES, INVITE_DAILY_CAP,
     INVITE_URL_TTL, REMINDER_POLL_SECONDS, REMINDER_1H_WINDOW_MIN,
     REMINDER_24H_WINDOW_MIN, CHAT_MAX_TEXT_LEN, CHAT_HISTORY_LIMIT,
-    _TEACHER_CACHE_MAX, _STUDENT_ACCT_CACHE_MAX, _CLEAR_TOKEN_TTL,
+    _TEACHER_CACHE_MAX, _STUDENT_ACCT_CACHE_MAX,
+    _CLEAR_TOKEN_TTL,
     _CLEAR_ACTIVE_WINDOW, _PENDING_VERIFICATION_LIMIT, _PENDING_VERIFICATION_TTL,
 )
 
@@ -48,32 +46,18 @@ import os
 import time
 
 
-# ─── Domain enums (string-backed for DB compatibility) ────────────
-
-class SessionStatus(StrEnum):
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    SUBMITTED = "submitted"
-    FORCE_SUBMITTED = "force_submitted"
-    ABANDONED = "abandoned"
-    REJECTED = "rejected"
-
-
-class InviteStatus(StrEnum):
-    SENT = "sent"
-    OPENED = "opened"
-    CLICKED = "clicked"
-    ACCEPTED = "accepted"
-    BOUNCED = "bounced"
-    FAILED = "failed"
-    REVOKED = "revoked"
-    QUEUED = "queued"
-
-
-class VerificationStatus(StrEnum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
+# ─── Re-export from extracted modules ─────────────────────────────
+from .models import (
+    SessionStatus, InviteStatus, VerificationStatus,
+    EventIn, RegisterIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn,
+    FrameIn, IdVerifyIn, IdDecisionIn,
+    TeacherSignupIn, TeacherLoginIn, RefreshIn,
+    StudentSignupIn, StudentLoginIn, PasswordResetIn,
+)
+from .utils import (
+    now_ist, fmt_ist, _xlsx_safe, _safe_filename,
+    _safe_path_component, _assert_within_directory, _html_escape, ts_to_id,
+)
 
 # ─── Redis/event bus imports (defensive) ──────────────────────────
 import logging as _logging
@@ -98,23 +82,6 @@ except Exception as _e:
 # ─── CONFIG ───────────────────────────────────────────────────────
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 os.makedirs(QUESTION_IMG_DIR, exist_ok=True)
-
-def now_ist():
-    return datetime.now(IST)
-
-def fmt_ist(ts_str):
-    if not ts_str:
-        return ""
-    try:
-        if isinstance(ts_str, datetime):
-            dt = ts_str
-        else:
-            dt = datetime.fromisoformat(str(ts_str).replace('Z', '+00:00'))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
-    except Exception:
-        return str(ts_str)
 
 # ─── JWT AUTH HELPERS ─────────────────────────────────────────────
 def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None) -> str:
@@ -310,140 +277,6 @@ async def _custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
         status_code=429,
         content={"error": "RATE_LIMITED", "detail": "Too many requests. Please try again later."}
     )
-
-# ─── PYDANTIC MODELS ──────────────────────────────────────────────
-class EventIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    session_id: str
-    event_type: str
-    severity:   str
-    details:    Optional[str] = None
-
-class RegisterIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    full_name:   str
-    roll_number: str
-    email:       str
-    phone:       Optional[str] = None
-    teacher_id:  Optional[str] = None
-
-class ValidateIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    roll_number: str
-    access_code: Optional[str] = None
-    exam_id: Optional[str] = None
-
-class ResultIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    session_id:      str
-    roll_number:     str
-    full_name:       str
-    email:           str
-    time_taken_secs: int
-    answers:         dict = {}
-    score:           int  = 0
-    total:           int  = 0
-    violations:      list = []
-
-class AnswerIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    session_id:  str
-    question_id: str
-    answer:      str
-
-class BulkAnswerIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    session_id: str
-    answers:    dict
-
-class FrameIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    session_id: str
-    frame:      str
-    timestamp:  str
-    event_type: Optional[str] = None
-
-class IdVerifyIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    session_id:   str
-    roll_number:  str
-    selfie_frame: str
-    id_frame:     str
-    full_name:    str = ""
-    timestamp:    str = ""
-
-class IdDecisionIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    violation_id: int
-    session_key:  str
-    decision:     str
-
-class TeacherSignupIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    email:     str
-    password:  str
-    full_name: str
-
-class TeacherLoginIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    email:    str
-    password: str
-
-class RefreshIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    refresh_token: str
-
-class StudentSignupIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    email:     str
-    password:  str
-    full_name: str
-
-class StudentLoginIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    email:    str
-    password: str
-
-class PasswordResetIn(BaseModel):
-    model_config = ConfigDict(strict=True)
-    email: str
-
-# ─── HELPERS ──────────────────────────────────────────────────────
-def _xlsx_safe(v):
-    if isinstance(v, str) and v and v[0] in ("=", "+", "-", "@", "\t", "\r"):
-        return "'" + v
-    return v
-
-def _safe_filename(s: str, fallback: str = "file") -> str:
-    if not s:
-        return fallback
-    cleaned = "".join(c for c in str(s) if c.isalnum() or c in "-_.")[:80]
-    return cleaned or fallback
-
-def _safe_path_component(s: str, fallback: str = "path") -> str:
-    """Strip directory traversal, keep only safe chars.  Use for URL
-    params that become path segments."""
-    if not s:
-        return fallback
-    return _safe_filename(Path(str(s)).name, fallback)
-
-def _assert_within_directory(path: Path, base: Path) -> None:
-    """Raise ValueError if *path* is not a descendant of *base*."""
-    path.resolve().relative_to(base.resolve())
-
-def _html_escape(s) -> str:
-    """Escape user data for safe embedding in HTML content."""
-    if s is None:
-        return ""
-    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))
-
-def ts_to_id(ts_str: str) -> int:
-    try:
-        dt = datetime.fromisoformat(str(ts_str).replace('Z', '+00:00'))
-        return int(dt.timestamp() * 1000)
-    except Exception:
-        return 0
 
 # ─── PRACTICE MODE ────────────────────────────────────────────────
 def is_practice(identifier: Optional[str]) -> bool:

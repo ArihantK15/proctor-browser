@@ -22,7 +22,7 @@ from ..dependencies import (
     SECRET_KEY, SUPER_ADMIN_EMAIL,
     SessionStatus, InviteStatus, VerificationStatus,
 )
-from ..emailer import send_demo_request_notification
+from ..jobs import enqueue_job, send_demo_request_notification_job
 
 
 class DemoRequest(BaseModel):
@@ -541,12 +541,12 @@ async def submit_demo_request(req: DemoRequest, request: Request):
 
     # Notify super admin (fire-and-forget — the form response should
     # not depend on the email provider being available).
-    send_demo_request_notification(
-        name=req.name.strip(),
-        email=req.email.strip().lower(),
-        institution=req.institution.strip(),
-        role=req.role.strip(),
-        message=req.message.strip(),
+    enqueue_job(send_demo_request_notification_job,
+                name=req.name.strip(),
+                email=req.email.strip().lower(),
+                institution=req.institution.strip(),
+                role=req.role.strip(),
+                message=req.message.strip(),
     )
 
     return {"status": "ok", "message": "Demo request received"}

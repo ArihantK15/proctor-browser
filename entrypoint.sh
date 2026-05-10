@@ -19,6 +19,13 @@ python scripts/run_migrations.py || true
   done
 ) &
 
+# Start RQ worker in background when enabled
+if [ "${RQ_ENABLED:-0}" = "1" ]; then
+  python worker.py &
+  _worker_pid=$!
+  echo "[entrypoint] RQ worker started (PID=$_worker_pid)"
+fi
+
 # Replace shell with uvicorn (signal passthrough)
 exec uvicorn app.main:app \
   --host 0.0.0.0 \

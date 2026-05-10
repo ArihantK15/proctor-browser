@@ -8,6 +8,7 @@ from ..dependencies import (
     _get_invite_base_url, _new_invite_token, _claim_and_bump_cap, _uuid,
     now_ist, InviteStatus, fmt_ist, limiter,
 )
+from ..jobs import enqueue_job, send_invite_email_job
 from ..models import SendInvitesBody, SaveTemplateIn
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,8 @@ async def send_invites(body: SendInvitesBody, request: Request):
          .upsert(invite_row, on_conflict="teacher_id,email,exam_id")
          .execute())
 
-        send_result = send_invite_email(
+        send_result = enqueue_job(
+            send_invite_email_job,
             to_email=rec.email,
             to_name=rec.full_name,
             exam_title=exam_title,
@@ -68,9 +70,11 @@ async def send_invites(body: SendInvitesBody, request: Request):
             roll_number=rec.roll_number,
             teacher_name=teacher.get("email"),
         )
-        if send_result.ok:
+        if send_result is None:
+            results["sent"] += 1
+        elif send_result.get("ok"):
             (await _atable("student_invites")
-             .update({"provider_msg_id": send_result.provider_msg_id})
+             .update({"provider_msg_id": send_result["provider_msg_id"]})
              .eq("teacher_id", tid).eq("email", rec.email.strip().lower())
              .eq("exam_id", body.exam_id).execute())
             results["sent"] += 1

@@ -27,7 +27,7 @@ from ..dependencies import (
     now_ist,
     SessionStatus,
 )
-from ..emailer import send_new_account_notification
+from ..jobs import enqueue_job, send_new_account_notification_job
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,8 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     _auth_log.info("[TeacherSignup] %s <%s> created", name, email)
 
     # Notify super admin (fire-and-forget — never blocks response).
-    send_new_account_notification(account_type="teacher", name=name, email=email)
+    enqueue_job(send_new_account_notification_job,
+                account_type="teacher", name=name, email=email)
 
     return {
         "teacher_id":    teacher["id"],

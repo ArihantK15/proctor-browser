@@ -59,7 +59,31 @@ services:
       # hitting the site during the ~15 s API warm-up after deploy.
       api:
         condition: service_healthy
-      redis:
+  worker:
+    build: .
+    container_name: proctor-worker
+    restart: unless-stopped
+    command: python worker.py
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RQ_ENABLED=1
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+    memswap_limit: 512m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  redis:
         condition: service_started
     logging:
       driver: "json-file"

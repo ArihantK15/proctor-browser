@@ -16,7 +16,7 @@ export default function Signup() {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch(`${APP_URL}/api/demo-request`, {
+      const res = await fetch(`${APP_URL}/api/v1/demo-request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

@@ -39,6 +39,8 @@ from typing import Optional
 
 from .dependencies import _html_escape as _esc
 
+log = logging.getLogger(__name__)
+
 
 # ─── Public surface ─────────────────────────────────────────────────
 
@@ -190,6 +192,179 @@ def send_scorecard_email(
         )
     except Exception as e:
         log.exception("send_scorecard_email failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
+# ─── Admin notifications ─────────────────────────────────────────────
+
+def send_demo_request_notification(
+    *,
+    name: str,
+    email: str,
+    institution: str,
+    role: str,
+    message: str = "",
+) -> SendResult:
+    """Email the super admin with full demo request details.
+
+    Never raises — returns SendResult(ok=False) so the form response
+    isn't blocked by a notification failure."""
+    admin_email = os.environ.get("SUPER_ADMIN_EMAIL", "").strip().lower()
+    if not admin_email:
+        return SendResult(ok=False, error="SUPER_ADMIN_EMAIL not set")
+
+    subject = f"[Procta] Demo request from {name}"
+
+    role_labels = {
+        "faculty": "Faculty / Professor",
+        "admin": "Exam Administrator",
+        "it": "IT Department",
+        "management": "Management",
+        "hr": "HR / Recruitment",
+        "other": "Other",
+    }
+    role_display = role_labels.get(role, role)
+
+    text_lines = [
+        "New demo request received:",
+        "",
+        f"Name:        {name}",
+        f"Email:       {email}",
+        f"Institution: {institution}",
+        f"Role:        {role_display}",
+    ]
+    if message:
+        text_lines += ["", "Message:", message, ""]
+    text = "\n".join(text_lines)
+
+    message_block = (
+        f'<div style="background:#fff7ed;border-left:3px solid #f59e0b;'
+        f'padding:12px 16px;margin:16px 0;border-radius:6px;color:#78350f;'
+        f'font-size:14px;line-height:1.5;">'
+        f'<div style="font-weight:600;margin-bottom:4px;color:#92400e;">'
+        f'Message</div>'
+        f'{_esc(message).replace(chr(10), "<br>")}'
+        f'</div>'
+        if message else ""
+    )
+
+    html = f"""\
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Demo request — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
+             style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;">
+        <tr><td style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);padding:28px 32px;">
+          <div style="color:#ffffff;font-size:12px;letter-spacing:2px;font-weight:600;opacity:.9;">PROCTA · DEMO REQUEST</div>
+          <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:6px;">New demo request</div>
+        </td></tr>
+        <tr><td style="padding:32px;color:#0f172a;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                 style="background:#f8fafc;border-radius:10px;padding:16px 18px;margin:0 0 16px 0;border:1px solid #e2e8f0;">
+            <tr><td style="padding:6px 0;font-size:15px;color:#334155;"><b>Name</b><br>{_esc(name)}</td></tr>
+            <tr><td style="padding:6px 0;font-size:15px;color:#334155;"><b>Email</b><br>{_esc(email)}</td></tr>
+            <tr><td style="padding:6px 0;font-size:15px;color:#334155;"><b>Institution</b><br>{_esc(institution)}</td></tr>
+            <tr><td style="padding:6px 0;font-size:15px;color:#334155;"><b>Role</b><br>{_esc(role_display)}</td></tr>
+          </table>
+          {message_block}
+          <p style="margin:16px 0 0 0;color:#94a3b8;font-size:12px;">
+            View all demo requests in the
+            <a href="https://app.procta.net/dashboard" style="color:#3b82f6;">admin dashboard</a>.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
+          Procta — proctored exams, made simple.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+    try:
+        backend = _pick_backend()
+        return backend.send(
+            to_email=admin_email,
+            to_name="Admin",
+            subject=subject,
+            html=html,
+            text=text,
+        )
+    except Exception as e:
+        log.exception("send_demo_request_notification failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
+def send_new_account_notification(
+    *,
+    account_type: str,
+    name: str,
+    email: str,
+) -> SendResult:
+    """Email the super admin when a new account is created.
+
+    ``account_type`` is ``"teacher"`` or ``"student"``.
+    Never raises — returns SendResult(ok=False) on provider failure so
+    the signup response isn't blocked."""
+    admin_email = os.environ.get("SUPER_ADMIN_EMAIL", "").strip().lower()
+    if not admin_email:
+        return SendResult(ok=False, error="SUPER_ADMIN_EMAIL not set")
+
+    label = "Teacher" if account_type == "teacher" else "Student"
+    subject = f"[Procta] New {label.lower()} account: {name}"
+
+    text = f"""\
+New {label.lower()} account created:
+
+Name:  {name}
+Email: {email}
+"""
+
+    html = f"""\
+<!doctype html>
+<html><head><meta charset="utf-8"><title>New account — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
+             style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;">
+        <tr><td style="background:linear-gradient(135deg,#10b981,#3b82f6);padding:28px 32px;">
+          <div style="color:#ffffff;font-size:12px;letter-spacing:2px;font-weight:600;opacity:.9;">PROCTA · NEW {label.upper()}</div>
+          <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:6px;">New {label.lower()} account</div>
+        </td></tr>
+        <tr><td style="padding:32px;color:#0f172a;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                 style="background:#f8fafc;border-radius:10px;padding:16px 18px;border:1px solid #e2e8f0;">
+            <tr><td style="padding:6px 0;font-size:15px;color:#334155;"><b>Name</b><br>{_esc(name)}</td></tr>
+            <tr><td style="padding:6px 0;font-size:15px;color:#334155;"><b>Email</b><br>{_esc(email)}</td></tr>
+          </table>
+          <p style="margin:16px 0 0 0;color:#94a3b8;font-size:12px;">
+            View details in the
+            <a href="https://app.procta.net/dashboard" style="color:#3b82f6;">admin dashboard</a>.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
+          Procta — proctored exams, made simple.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+    try:
+        backend = _pick_backend()
+        return backend.send(
+            to_email=admin_email,
+            to_name="Admin",
+            subject=subject,
+            html=html,
+            text=text,
+        )
+    except Exception as e:
+        log.exception("send_new_account_notification failed: %s", e)
         return SendResult(ok=False, error=str(e))
 
 

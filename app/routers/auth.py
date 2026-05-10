@@ -27,6 +27,7 @@ from ..dependencies import (
     now_ist,
     SessionStatus,
 )
+from ..emailer import send_new_account_notification
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,10 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     # Auto-login after signup so the teacher goes straight to dashboard
     access_token = issue_admin_token(teacher)
     _auth_log.info("[TeacherSignup] %s <%s> created", name, email)
+
+    # Notify super admin (fire-and-forget — never blocks response).
+    send_new_account_notification(account_type="teacher", name=name, email=email)
+
     return {
         "teacher_id":    teacher["id"],
         "email":         email,

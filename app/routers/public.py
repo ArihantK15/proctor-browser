@@ -22,6 +22,7 @@ from ..dependencies import (
     SECRET_KEY, SUPER_ADMIN_EMAIL,
     SessionStatus, InviteStatus, VerificationStatus,
 )
+from ..emailer import send_demo_request_notification
 
 
 class DemoRequest(BaseModel):
@@ -537,6 +538,17 @@ async def submit_demo_request(req: DemoRequest, request: Request):
         raise HTTPException(status_code=500, detail="Failed to store request")
 
     _pub_log.info("[DemoRequest] %s <%s> from %s", req.name, req.email, req.institution)
+
+    # Notify super admin (fire-and-forget — the form response should
+    # not depend on the email provider being available).
+    send_demo_request_notification(
+        name=req.name.strip(),
+        email=req.email.strip().lower(),
+        institution=req.institution.strip(),
+        role=req.role.strip(),
+        message=req.message.strip(),
+    )
+
     return {"status": "ok", "message": "Demo request received"}
 
 

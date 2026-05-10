@@ -6,19 +6,16 @@ Domain-specific routes have been split into sub-routers:
   admin_invites.py, admin_settings.py
 """
 
-import asyncio
 import base64
 import hashlib
-import io
 import json
 import logging
 import os
-import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, Body
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from starlette.responses import Response
 
 from ..dependencies import (
@@ -47,8 +44,6 @@ from ..models import (
     InviteRecipient, SendInvitesBody,
     SaveTemplateIn,
 )
-from ..services.scorecard import _build_scorecard_pdf
-
 from .admin_settings import router as settings_router
 from .admin_invites import router as invites_router
 from .admin_scorecards import router as scorecards_router

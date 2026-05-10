@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from app.routers.admin import get_student_history, search_students
+from app.routers.admin_students import get_student_history, search_students
 
 
 class FakeResponse:
@@ -45,8 +45,8 @@ class TestStudentSearch:
 
     def test_empty_student_list(self):
         mock_atable = MagicMock(return_value=make_async_mock([]))
-        with patch("app.routers.admin._atable", mock_atable), \
-             patch("app.routers.admin.require_admin") as mock_admin:
+        with patch("app.routers.admin_students._atable", mock_atable), \
+             patch("app.routers.admin_students.require_admin") as mock_admin:
             mock_admin.return_value = {"id": "t1", "full_name": "Test"}
 
             resp = asyncio.run(search_students(self._make_request()))
@@ -65,8 +65,8 @@ class TestStudentHistory:
 
     def test_student_not_found(self):
         mock_atable = MagicMock(return_value=make_async_mock([]))
-        with patch("app.routers.admin._atable", mock_atable), \
-             patch("app.routers.admin.require_admin") as mock_admin:
+        with patch("app.routers.admin_students._atable", mock_atable), \
+             patch("app.routers.admin_students.require_admin") as mock_admin:
             mock_admin.return_value = {"id": "t1", "full_name": "Test"}
 
             with pytest.raises(Exception) as exc_info:
@@ -112,11 +112,11 @@ class TestStudentHistory:
             return make_async_mock(responses.get(name, []))
 
         mock_atable = MagicMock(side_effect=table_side_effect)
-        with patch("app.routers.admin._atable", mock_atable), \
-             patch("app.routers.admin.require_admin") as mock_admin, \
-             patch("app.routers.admin.SessionStatus") as mock_status, \
-             patch("app.routers.admin._risk_label") as mock_label, \
-             patch("app.routers.admin._violation_counts_by_session") as mock_vcounts:
+        with patch("app.routers.admin_students._atable", mock_atable), \
+             patch("app.routers.admin_students.require_admin") as mock_admin, \
+             patch("app.routers.admin_students.SessionStatus") as mock_status, \
+             patch("app.routers.admin_students._risk_label") as mock_label, \
+             patch("app.routers.admin_students._violation_counts_by_session") as mock_vcounts:
             mock_admin.return_value = {"id": "t1", "full_name": "Test"}
             mock_status.COMPLETED = "completed"
             mock_label.return_value = "Low Risk"

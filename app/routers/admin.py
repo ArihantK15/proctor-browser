@@ -1,27 +1,26 @@
 """Admin router — all teacher-facing endpoints.
 
 Extracted from main.py. Imports shared dependencies from `dependencies`.
+Domain-specific routes have been split into sub-routers:
+  admin_exams.py, admin_students.py, admin_scorecards.py,
+  admin_invites.py, admin_settings.py
 """
 
 import asyncio
-import io
-import csv
-import json
-import logging
-_admin_log = logging.getLogger("admin")
 import base64
 import hashlib
+import io
+import json
+import logging
 import os
-import tempfile
 import time
-import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException, Body
 from fastapi.responses import FileResponse, StreamingResponse
-from starlette.background import BackgroundTask
+from starlette.responses import Response
+
 from ..dependencies import (
     supabase, get_logger, fmt_ist, require_admin, require_auth,
     now_ist, _assert_session_owned, _load_exam_config, _load_questions,
@@ -37,6 +36,7 @@ from ..dependencies import (
     generate_session_summary,
     SessionStatus, InviteStatus, VerificationStatus,
     SECRET_KEY,     _risk_label,
+    verify_admin_token, _fetch_all_results,
 )
 from ..models import (
     IdDecisionIn, ClearSessionsIn, EmailScorecardsIn,
@@ -49,21 +49,29 @@ from ..models import (
 )
 from ..services.scorecard import _build_scorecard_pdf
 
+from .admin_settings import router as settings_router
+from .admin_invites import router as invites_router
+from .admin_scorecards import router as scorecards_router
+from .admin_exams import router as exams_router
+from .admin_students import router as students_router
+
+_admin_log = logging.getLogger("admin")
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
+router.include_router(settings_router)
+router.include_router(invites_router)
+router.include_router(scorecards_router)
+router.include_router(exams_router)
+router.include_router(students_router)
 
-
-# ═══════════════════════════════════════════════════════════════
-# ROUTES
-# ═══════════════════════════════════════════════════════════════
 
 # ─── 1. PENDING ID VERIFICATIONS ─────────────────────────
 
 @router.get("/api/v1/admin/pending-verifications")
 @limiter.limit("30/minute")
 async def pending_verifications(request: Request, exam_id: str = None):
-    """Return all pending ID verifications for this teacher."""
     teacher = await require_admin(request)
     tid = teacher["id"]
     import json as _json
@@ -85,7 +93,7 @@ async def pending_verifications(request: Request, exam_id: str = None):
         try:
             obj = json.loads(row.get("details", "{}"))
         except Exception:
-            continue  # Malformed JSON in details
+            continue
         if obj.get("status") != VerificationStatus.PENDING:
             continue
         if exam_id:
@@ -116,7 +124,6 @@ async def pending_verifications(request: Request, exam_id: str = None):
 @router.post("/api/v1/admin/id-decision")
 @limiter.limit("20/minute")
 async def id_decision(data: IdDecisionIn, request: Request):
-    """Teacher approves, requests retake, or rejects a student's ID."""
     teacher = await require_admin(request)
     tid = teacher["id"]
     if data.decision not in ("approved", "retake", "rejected"):
@@ -134,7 +141,7 @@ async def id_decision(data: IdDecisionIn, request: Request):
     try:
         obj = json.loads(row.get("details", "{}"))
     except Exception:
-        obj = {}  # Malformed JSON — use empty defaults
+        obj = {}
     obj["status"] = data.decision
     obj["decided_by"] = teacher.get("full_name", teacher.get("email", ""))
     obj["decided_at"] = now_ist().isoformat()
@@ -172,7 +179,6 @@ async def id_decision(data: IdDecisionIn, request: Request):
 @router.get("/api/v1/risk-score/{session_id:path}")
 @limiter.limit("60/minute")
 async def get_risk_score(session_id: str, request: Request):
-    """Compute behavioral risk score for any session (live or completed)."""
     teacher = await require_admin(request)
     tid = teacher["id"]
     await _assert_session_owned(session_id, tid)
@@ -180,12 +186,12 @@ async def get_risk_score(session_id: str, request: Request):
     result["session_id"] = session_id
     return result
 
+
 # ─── 4. TIMELINE ─────────────────────────────────
 
 @router.get("/api/v1/admin/timeline/{session_id:path}")
 @limiter.limit("60/minute")
 async def get_timeline(session_id: str, request: Request):
-    """Full forensics timeline: every event + screenshot paths for a session."""
     teacher = await require_admin(request)
     tid = teacher["id"]
     session_info = await _assert_session_owned(session_id, tid)
@@ -244,7 +250,6 @@ async def get_timeline(session_id: str, request: Request):
 @router.post("/api/v1/admin/upload-question-image")
 @limiter.limit("30/minute")
 async def upload_question_image(request: Request, body: UploadQuestionImageIn = Body(...)):
-    """Teacher uploads a question image."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     raw = body.data_url or ""
@@ -292,12 +297,13 @@ async def upload_question_image(request: Request, body: UploadQuestionImageIn = 
 
     url = f"/api/v1/question-image/{tid}/{filename}"
     return {"url": url, "bytes": len(blob), "media_type": media}
+
+
 # ─── 6. SERVE QUESTION IMAGE ────────────────────────────
 
 @router.get("/api/v1/question-image/{tid}/{filename}")
 @limiter.limit("60/minute")
 async def get_question_image(tid: str, filename: str, request: Request):
-    """Serve a question image."""
     from jose import jwt, JWTError
     auth = request.headers.get("Authorization", "")
     allowed = False
@@ -344,7 +350,6 @@ async def get_question_image(tid: str, filename: str, request: Request):
 @router.get("/api/v1/admin/screenshot/{roll}/{filename}")
 @limiter.limit("60/minute")
 async def get_screenshot(roll: str, filename: str, request: Request):
-    """Serve a screenshot image to the admin dashboard."""
     teacher = await require_admin(request)
     safe_roll = _safe_path_component(roll)
     safe_file = _safe_path_component(filename)
@@ -367,7 +372,6 @@ async def get_screenshot(roll: str, filename: str, request: Request):
 @router.get("/api/v1/admin/sessions")
 @limiter.limit("60/minute")
 async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
-    """REST view of the Live tab."""
     teacher = await require_admin(request)
     tid = teacher["id"]
     try:
@@ -404,955 +408,11 @@ async def get_all_results(request: Request, exam_id: str = None, page: int = 1, 
     }
 
 
-# ─── 9b. STUDENT PERFORMANCE HISTORY ──────────────────────
-
-_BEHAVIORAL_PATTERNS = frozenset({
-    "phone_consulting", "collaboration", "answer_memo",
-    "note_reading", "sustained_offtask", "nervous_evasion",
-})
-
-@router.get("/api/v1/student-history/{roll_number}")
-@limiter.limit("30/minute")
-async def get_student_history(
-    roll_number: str,
-    request: Request,
-    exam_id: str = None,
-    page: int = 1,
-    page_size: int = 50,
-):
-    """Full exam history for a single student across all exams.
-
-    Returns per-exam results with violation breakdowns, behavioral
-    pattern flags, and aggregate statistics (avg score, total exams,
-    worst risk).
-    """
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    roll = roll_number.strip().upper()
-    if not roll:
-        raise HTTPException(status_code=400, detail="roll_number is required")
-
-    # Student profile from `students` table
-    student_rows = (await _atable("students")
-                    .select("roll_number,full_name,email,phone,teacher_id")
-                    .eq("roll_number", roll)
-                    .eq("teacher_id", tid)
-                    .limit(1)
-                    .execute()).data or []
-    if not student_rows:
-        raise HTTPException(status_code=404, detail="Student not found for this teacher")
-    student = student_rows[0]
-
-    # All completed sessions for this student
-    sess_q = (_atable("exam_sessions")
-              .select("session_key,exam_id,roll_number,full_name,email,"
-                      "score,total,percentage,time_taken_secs,"
-                      "status,started_at,submitted_at,risk_score")
-              .eq("roll_number", roll)
-              .eq("teacher_id", tid)
-              .eq("status", SessionStatus.COMPLETED)
-              .order("submitted_at", desc=True))
-    if exam_id:
-        sess_q = sess_q.eq("exam_id", exam_id)
-    sessions = (await sess_q.execute()).data or []
-
-    # Batch-fetch violations and exam titles
-    session_keys = [s["session_key"] for s in sessions]
-    vcounts = await _violation_counts_by_session(session_keys)
-
-    # Fetch violation details per session (for behavioral patterns)
-    violations_by_session: dict[str, list[dict]] = {}
-    if session_keys:
-        all_viols = (await _atable("violations")
-                     .select("session_key,violation_type,severity,created_at")
-                     .eq("teacher_id", tid)
-                     .in_("session_key", session_keys)
-                     .execute()).data or []
-        for v in all_viols:
-            sk = v["session_key"]
-            violations_by_session.setdefault(sk, []).append(v)
-
-    # Fetch exam titles
-    exam_ids = list({s["exam_id"] for s in sessions if s.get("exam_id")})
-    exam_titles: dict[str, str] = {}
-    if exam_ids:
-        configs = (await _atable("exam_config")
-                   .select("exam_id,exam_title")
-                   .eq("teacher_id", tid)
-                   .in_("exam_id", exam_ids)
-                   .execute()).data or []
-        exam_titles = {c["exam_id"]: c.get("exam_title") or "Exam" for c in configs}
-
-    # Build per-exam history entries
-    history = []
-    for s in sessions:
-        sk = s["session_key"]
-        viols = violations_by_session.get(sk, [])
-        std_viols = [v for v in viols if v["violation_type"] not in _BEHAVIORAL_PATTERNS]
-        behav_viols = [v for v in viols if v["violation_type"] in _BEHAVIORAL_PATTERNS]
-        behav_patterns = list({v["violation_type"] for v in behav_viols})
-
-        summary = generate_session_summary(viols, {
-            "full_name": s.get("full_name", ""),
-            "roll_number": s.get("roll_number", ""),
-            "risk_score": s.get("risk_score"),
-        })
-
-        history.append({
-            "session_id": sk,
-            "exam_id": s.get("exam_id", ""),
-            "exam_title": exam_titles.get(s.get("exam_id", ""), ""),
-            "score": s.get("score", 0),
-            "total": s.get("total", 0),
-            "percentage": s.get("percentage", 0.0),
-            "time_taken_secs": s.get("time_taken_secs", 0),
-            "submitted_at": fmt_ist(s.get("submitted_at", "")),
-            "started_at": fmt_ist(s.get("started_at", "")),
-            "violation_count": vcounts.get(sk, 0),
-            "standard_violations": len(std_viols),
-            "behavioral_patterns": behav_patterns,
-            "behavioral_violation_count": len(behav_viols),
-            "risk_score": s.get("risk_score"),
-            "risk_label": _risk_label(s["risk_score"]) if s.get("risk_score") is not None else None,
-            "summary": summary,
-        })
-
-    # Pagination
-    start = (page - 1) * page_size
-    end = start + page_size
-    paginated = history[start:end]
-
-    # Aggregate stats (computed over ALL sessions, not just the page)
-    all_history = history
-    scores = [h["percentage"] for h in all_history if h["percentage"] is not None]
-    risk_scores = [h["risk_score"] for h in all_history if h["risk_score"] is not None]
-    all_behav = set()
-    for h in all_history:
-        all_behav.update(h["behavioral_patterns"])
-
-    aggregates = {
-        "total_exams": len(all_history),
-        "avg_percentage": round(sum(scores) / len(scores), 1) if scores else None,
-        "highest_percentage": max(scores) if scores else None,
-        "lowest_percentage": min(scores) if scores else None,
-        "avg_risk_score": round(sum(risk_scores) / len(risk_scores)) if risk_scores else None,
-        "highest_risk_score": max(risk_scores) if risk_scores else None,
-        "total_violations": sum(h["violation_count"] for h in all_history),
-        "total_behavioral_violations": sum(h["behavioral_violation_count"] for h in all_history),
-        "behavioral_patterns_seen": sorted(all_behav),
-    }
-
-    return {
-        "student": {
-            "roll_number": student["roll_number"],
-            "full_name": student.get("full_name", ""),
-            "email": student.get("email", ""),
-            "phone": student.get("phone", ""),
-        },
-        "aggregates": aggregates,
-        "history": paginated,
-        "page": page,
-        "page_size": page_size,
-        "total": len(all_history),
-    }
-
-
-# ─── 9c. STUDENT SEARCH ──────────────────────────────────
-
-@router.get("/api/v1/student-search")
-@limiter.limit("30/minute")
-async def search_students(request: Request, q: str = "", page: int = 1, page_size: int = 20):
-    """Search students by roll number, name, or email.
-
-    Returns a list of students with aggregate stats (total exams taken,
-    avg score, last exam date) for quick lookup in the Student History tab.
-    Uses batch queries to avoid N+1 problem.
-    """
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-
-    # Fetch all students for this teacher
-    query = (_atable("students")
-             .select("roll_number,full_name,email,phone,teacher_id")
-             .eq("teacher_id", tid))
-    if q:
-        q_upper = q.strip().upper()
-        query = query.or_(
-            f"roll_number.ilike.*{q}*,full_name.ilike.*{q}*,email.ilike.*{q}*"
-        )
-    students = (await query.execute()).data or []
-    if not students:
-        return {"students": [], "page": page, "page_size": page_size, "total": 0}
-
-    # Batch fetch ALL sessions for all students in 2 queries (not 3 per student)
-    roll_numbers = [s["roll_number"] for s in students]
-
-    # Query 1: all completed sessions with stats
-    all_sessions = (await _atable("exam_sessions")
-                    .select("roll_number,session_key,percentage,risk_score,submitted_at,status")
-                    .eq("teacher_id", tid)
-                    .eq("status", SessionStatus.COMPLETED)
-                    .in_("roll_number", roll_numbers)
-                    .order("submitted_at", desc=True)
-                    .execute()).data or []
-
-    # Aggregate in Python: last exam, count, avg per roll
-    sessions_by_roll: dict[str, list[dict]] = {}
-    for sess in all_sessions:
-        sessions_by_roll.setdefault(sess["roll_number"], []).append(sess)
-
-    result = []
-    for s in students:
-        roll = s["roll_number"]
-        sess_list = sessions_by_roll.get(roll, [])
-        last_exam = sess_list[0] if sess_list else None
-        total_count = len(sess_list)
-        percentages = [x["percentage"] for x in sess_list if x.get("percentage") is not None]
-        avg_pct = round(sum(percentages) / len(percentages), 1) if percentages else None
-
-        result.append({
-            "roll_number": roll,
-            "full_name": s.get("full_name", ""),
-            "email": s.get("email", ""),
-            "total_exams": total_count,
-            "avg_percentage": avg_pct,
-            "last_exam_date": fmt_ist(last_exam.get("submitted_at", "")) if last_exam else None,
-            "last_exam_risk": last_exam.get("risk_score") if last_exam else None,
-        })
-
-    start = (page - 1) * page_size
-    end = start + page_size
-    return {
-        "students": result[start:end],
-        "page": page,
-        "page_size": page_size,
-        "total": len(result),
-    }
-
-
-# ─── 10. EXPORT CSV ──────────────────────────────────────
-
-@router.get("/api/v1/export-csv")
-@limiter.limit("10/minute")
-async def export_csv(request: Request, exam_id: str = None):
-    teacher = await require_admin(request)
-    return StreamingResponse(
-        _stream_csv_results(teacher["id"], exam_id=exam_id, max_rows=5000),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=results.csv"})
-
-
-# ─── 11. EXPORT EXCEL ─────────────────────────────────────
-
-@router.get("/api/v1/export-excel")
-@limiter.limit("10/minute")
-async def export_excel(request: Request, exam_id: str = None):
-    """Results export as a formatted .xlsx workbook. Capped at 5000 rows."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
-    from openpyxl.utils import get_column_letter
-
-    teacher = await require_admin(request)
-    results = await _fetch_all_results(teacher["id"], exam_id=exam_id)
-
-    wb = Workbook()
-    ws = wb.active
-    safe_eid = "".join(c for c in (exam_id or "all") if c.isalnum() or c in "-_")[:24]
-    ws.title = f"Results_{safe_eid}" if safe_eid else "Results"
-
-    headers = ["Timestamp", "Session ID", "Roll Number", "Full Name",
-               "Email", "Score", "Total", "Percentage", "Time (min)",
-               "Violations", "Risk Score", "Risk Label"]
-    ws.append(headers)
-
-    hdr_fill = PatternFill("solid", fgColor="1A1A2E")
-    hdr_font = Font(bold=True, color="FFFFFF")
-    for col_idx in range(1, len(headers) + 1):
-        c = ws.cell(row=1, column=col_idx)
-        c.fill = hdr_fill
-        c.font = hdr_font
-        c.alignment = Alignment(horizontal="center", vertical="center")
-
-    risk_fills = {
-        "Low":    PatternFill("solid", fgColor="D1FAE5"),
-        "Medium": PatternFill("solid", fgColor="FEF3C7"),
-        "High":   PatternFill("solid", fgColor="FEE2E2"),
-    }
-
-    for s in results:
-        try:
-            pct_val = float(s.get("percentage") or 0)
-        except Exception:
-            pct_val = 0.0  # Invalid percentage — default to 0
-        try:
-            secs = int(s.get("time_taken_secs") or 0)
-        except Exception:
-            secs = 0  # Invalid time — default to 0
-        mins = round(secs / 60, 2) if secs else 0
-
-        ws.append([
-            _xlsx_safe(s.get("submitted_at", "")),
-            _xlsx_safe(s.get("session_id", "")),
-            _xlsx_safe(s.get("roll_number", "")),
-            _xlsx_safe(s.get("full_name", "")),
-            _xlsx_safe(s.get("email", "")),
-            s.get("score", 0),
-            s.get("total", 0),
-            pct_val,
-            mins,
-            s.get("violation_count", 0),
-            s.get("risk_score", ""),
-            _xlsx_safe(s.get("risk_label", "")),
-        ])
-        label = s.get("risk_label")
-        fill = risk_fills.get(label)
-        if fill:
-            ws.cell(row=ws.max_row, column=12).fill = fill
-
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(ws.max_row,1)}"
-
-    for row in range(2, ws.max_row + 1):
-        ws.cell(row=row, column=8).number_format = '0.0"%"'
-        ws.cell(row=row, column=9).number_format = '0.00'
-
-    widths = [0] * len(headers)
-    for row in ws.iter_rows(values_only=True):
-        for i, v in enumerate(row):
-            widths[i] = max(widths[i], min(len(str(v or "")), 40))
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = max(w + 2, 10)
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    try:
-        wb.save(tmp.name)
-        tmp.close()
-        fname = f"results_{safe_eid or 'all'}_{now_ist().strftime('%Y%m%d')}.xlsx"
-        return FileResponse(
-            tmp.name,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=fname,
-            background=BackgroundTask(os.unlink, tmp.name))
-    except Exception:
-        os.unlink(tmp.name)
-        raise
-# ─── 12. EXPORT PDF ──────────────────────────────────
-
-@router.get("/api/v1/export-pdf/{session_id:path}")
-@limiter.limit("10/minute")
-async def export_pdf(session_id: str, request: Request):
-    teacher = await require_admin(request)
-    tid = teacher["id"]
-    try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.lib.units import inch
-        from reportlab.platypus import (SimpleDocTemplate, Table,
-                                         TableStyle, Paragraph, Spacer,
-                                         Image, PageBreak, KeepTogether)
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-
-        exam = await _assert_session_owned(session_id, tid)
-
-        viol_result = await _atable("violations")\
-            .select("*")\
-            .eq("session_key", session_id)\
-            .eq("teacher_id", str(tid))\
-            .order("created_at").execute()
-        raw_violations = [
-            v for v in (viol_result.data or [])
-            if v["severity"] in ("high", "medium")
-        ]
-
-        ans_result = await _atable("answers")\
-            .select("*")\
-            .eq("session_key", session_id)\
-            .eq("teacher_id", str(tid))\
-            .execute()
-        answers = ans_result.data or []
-
-        buf    = io.BytesIO()
-        doc    = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
-        styles = getSampleStyleSheet()
-        story  = []
-
-        story.append(Paragraph("AI Proctored Exam — Report", styles["Title"]))
-        story.append(Spacer(1, 12))
-
-        info = [
-            ["Field",          "Value"],
-            ["Full Name",      exam["full_name"]],
-            ["Roll Number",    exam["roll_number"]],
-            ["Email",          exam.get("email", "")],
-            ["Submitted At",   fmt_ist(exam.get("submitted_at", ""))],
-            ["Score",          f"{exam.get('score',0)}/{exam.get('total',0)} "
-                               f"({exam.get('percentage',0)}%)"],
-            ["Time Taken",     f"{exam.get('time_taken_secs',0)} seconds "
-                               f"({exam.get('time_taken_secs',0)//60}m "
-                               f"{exam.get('time_taken_secs',0)%60}s)"],
-            ["Total Violations", str(len(raw_violations))],
-        ]
-        risk = await compute_risk_score(session_id, teacher_id=tid)
-        info.append(["Behavioral Risk Score",
-                     f"{risk['risk_score']}/100 — {risk['label']}"])
-        t = Table(info, colWidths=[160, 310])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
-            ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-            ("FONTNAME",   (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE",   (0,0), (-1,-1), 10),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1),
-             [colors.HexColor("#f0f4ff"), colors.white]),
-            ("GRID",    (0,0), (-1,-1), 0.5, colors.grey),
-            ("PADDING", (0,0), (-1,-1), 8),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 20))
-
-        story.append(Paragraph(
-            f"Violations ({len(raw_violations)} total)", styles["Heading2"]))
-        story.append(Spacer(1, 8))
-
-        CONF_MAP = {
-            "face_missing": 0.95, "multiple_faces": 0.92,
-            "wrong_person": 0.78, "eyes_closed": 0.88,
-            "earphone_detected": 0.72, "cheat_object_detected": 0.85,
-            "gaze_away": 0.70, "head_away": 0.80,
-            "voice_detected": 0.75, "window_focus_lost": 0.99,
-            "tab_hidden": 0.99, "lighting_issue": 0.90,
-            "shortcut_blocked": 0.99, "camera_covered": 0.95,
-        }
-
-        def get_conf(vtype, details):
-            det = str(details or "")
-            if "confidence:" in det:
-                try:
-                    raw = det.split("confidence:")[1].split("|")[0].strip()
-                    return raw if "%" in raw else f"{raw}%"
-                except Exception:
-                    pass  # Malformed confidence string — fall through
-            if "conf:" in det:
-                try:
-                    raw = det.split("conf:")[1].split(" ")[0].strip()
-                    val = float(raw)
-                    return f"{int(val)}%" if val > 1 else f"{int(val*100)}%"
-                except Exception:
-                    pass  # Malformed conf value — fall through
-            return f"{int(CONF_MAP.get(vtype, 0.75) * 100)}%"
-
-        def clean_details(details):
-            det = str(details or "")
-            raw = det.split("| confidence:")[0].strip()[:40] \
-                   if "| confidence:" in det else det[:40]
-            return _html_escape(raw)
-
-        if raw_violations:
-            total_conf_vals = []
-            vd = [["#", "Type", "Severity", "Time", "Conf", "Details"]]
-            for i, v in enumerate(raw_violations, 1):
-                conf_str = get_conf(v["violation_type"], v.get("details"))
-                try:
-                    total_conf_vals.append(float(conf_str.strip("%")) / 100)
-                except Exception:
-                    pass  # Non-numeric confidence — skip from average
-                ts_part = ""
-                if v.get("created_at"):
-                    _fmted = fmt_ist(v["created_at"])
-                    _comma = _fmted.find(",")
-                    if _comma >= 0:
-                        ts_part = _fmted[_comma+1:].replace("IST","").strip()
-                    else:
-                        ts_part = _fmted
-                vd.append([
-                    str(i),
-                    v["violation_type"].replace("_", " ").title()[:22],
-                    v["severity"].upper(),
-                    ts_part,
-                    conf_str,
-                    clean_details(v.get("details"))[:35],
-                ])
-            vt = Table(vd, colWidths=[20, 120, 55, 70, 40, 165])
-            vt.setStyle(TableStyle([
-                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#c0392b")),
-                ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                ("FONTNAME",   (0,0), (-1,0), "Helvetica-Bold"),
-                ("FONTSIZE",   (0,0), (-1,-1), 8),
-                ("ROWBACKGROUNDS", (0,1), (-1,-1),
-                 [colors.HexColor("#fff5f5"), colors.white]),
-                ("GRID",    (0,0), (-1,-1), 0.5, colors.grey),
-                ("PADDING", (0,0), (-1,-1), 5),
-                ("ALIGN",   (0,0), (0,-1), "CENTER"),
-            ]))
-            story.append(vt)
-            story.append(Spacer(1, 8))
-
-            if total_conf_vals:
-                avg_conf  = sum(total_conf_vals) / len(total_conf_vals)
-                high_conf = len([c for c in total_conf_vals if c >= 0.85])
-                conf_data = [[
-                    f"Overall Detection Confidence: {avg_conf:.0%}",
-                    f"High Confidence Violations: {high_conf}/{len(raw_violations)}",
-                    f"Reliability: {'High' if avg_conf>=0.85 else 'Medium' if avg_conf>=0.70 else 'Low'}",
-                ]]
-                ct = Table(conf_data, colWidths=[160, 160, 150])
-                ct.setStyle(TableStyle([
-                    ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#eafaf1")),
-                    ("TEXTCOLOR",  (0,0), (-1,-1), colors.HexColor("#1e8449")),
-                    ("FONTNAME",   (0,0), (-1,-1), "Helvetica-Bold"),
-                    ("FONTSIZE",   (0,0), (-1,-1), 8),
-                    ("GRID",    (0,0), (-1,-1), 0.5, colors.grey),
-                    ("PADDING", (0,0), (-1,-1), 6),
-                    ("ALIGN",   (0,0), (-1,-1), "CENTER"),
-                ]))
-                story.append(ct)
-        else:
-            story.append(Paragraph("No violations recorded.", styles["Normal"]))
-
-        # Visual Evidence Timeline
-        roll_for_evidence = exam.get("roll_number") or (
-            session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]
-        )
-        evidence_paths = _collect_session_screenshots(roll_for_evidence, str(tid))
-        evidence_items = []
-        for idx, v in enumerate(raw_violations, 1):
-            match = _match_screenshot_for_violation(v, evidence_paths)
-            if match is not None and match.exists():
-                evidence_items.append((idx, v, match))
-
-        if evidence_items:
-            story.append(Spacer(1, 18))
-            story.append(PageBreak())
-            story.append(Paragraph(
-                f"Visual Evidence ({len(evidence_items)} captures)",
-                styles["Heading2"]))
-            story.append(Paragraph(
-                "Screenshots are listed in the same order as the violations table above.",
-                styles["Italic"]))
-            story.append(Spacer(1, 10))
-
-            evidence_caption_style = ParagraphStyle(
-                "EvidenceCaption", parent=styles["Normal"],
-                fontSize=9, leading=12, spaceAfter=4,
-            )
-
-            for idx, v, img_path in evidence_items:
-                ts_str = fmt_ist(v.get("created_at", ""))
-                sev = v["severity"].upper()
-                sev_color = "#c0392b" if v["severity"] == "high" else "#d68910"
-                vtype_pretty = v["violation_type"].replace("_", " ").title()
-                caption = (
-                    f'<b>#{idx} — {vtype_pretty}</b>  ·  '
-                    f'<font color="{sev_color}"><b>{sev}</b></font>  ·  '
-                    f'{ts_str}'
-                )
-                detail = clean_details(v.get("details"))
-                if detail:
-                    caption += f'<br/><font size="8" color="#666">{detail}</font>'
-
-                try:
-                    img_flowable = Image(
-                        str(img_path),
-                        width=4.5 * inch, height=3.4 * inch,
-                        kind="proportional",
-                    )
-                    story.append(KeepTogether([
-                        Paragraph(caption, evidence_caption_style),
-                        img_flowable,
-                        Spacer(1, 14),
-                    ]))
-                except Exception as img_err:
-                    story.append(Paragraph(
-                        caption + f'  <font color="#999">(image unreadable: {img_err})</font>',
-                        evidence_caption_style))
-                    story.append(Spacer(1, 8))
-
-        story.append(Spacer(1, 20))
-        story.append(Paragraph("Answer Sheet", styles["Heading2"]))
-        story.append(Spacer(1, 8))
-
-        try:
-            pdf_questions = await _load_questions(teacher_id=tid, exam_id=exam.get("exam_id"))
-            q_correct = {q["id"]: q["correct"] for q in pdf_questions}
-            q_texts = {q["id"]: q.get("question", "")[:50] for q in pdf_questions}
-        except Exception as e:
-            logger.warning("Failed to load questions for PDF export: %s", e)
-            q_correct = {}
-            q_texts = {}
-
-        if answers:
-            ad = [["#", "Question", "Student", "Correct", "Result"]]
-            for a in answers:
-                qid = str(a["question_id"])
-                correct = q_correct.get(qid, "?")
-                is_right = str(a["answer"]) == correct
-                ad.append([
-                    f"Q{qid}",
-                    q_texts.get(qid, "")[:40],
-                    a["answer"],
-                    correct,
-                    "✓" if is_right else "✗",
-                ])
-            at = Table(ad, colWidths=[30, 180, 50, 50, 40])
-            at.setStyle(TableStyle([
-                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
-                ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                ("FONTNAME",   (0,0), (-1,0), "Helvetica-Bold"),
-                ("FONTSIZE",   (0,0), (-1,-1), 9),
-                ("ROWBACKGROUNDS", (0,1), (-1,-1),
-                 [colors.HexColor("#f8f9fa"), colors.white]),
-                ("GRID",    (0,0), (-1,-1), 0.5, colors.grey),
-                ("PADDING", (0,0), (-1,-1), 6),
-            ]))
-            story.append(at)
-
-        story.append(Spacer(1, 20))
-        story.append(Paragraph(
-            f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST | "
-            f"Session: {session_id[:20]}...",
-            styles["Normal"]))
-
-        doc.build(story)
-        buf.seek(0)
-        fname = (f"report_{_safe_filename(exam.get('roll_number'), 'unknown')}_"
-                 f"{now_ist().strftime('%Y%m%d')}.pdf")
-        return StreamingResponse(
-            buf, media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={fname}"})
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        _admin_log.error("[PDF] %s", e)
-        raise HTTPException(status_code=500, detail=f"PDF error: {e}")
-# ─── 13. SCORECARD PDF ──────────────────────────────────
-
-@router.get("/api/v1/admin/scorecard-pdf/{session_id:path}")
-@limiter.limit("10/minute")
-async def scorecard_pdf(session_id: str, request: Request):
-    """Generate a student-facing scorecard PDF."""
-    teacher = await require_admin(request)
-    tid = teacher["id"]
-    try:
-        pdf_bytes, fname, _ = await _build_scorecard_pdf(session_id, tid)
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes), media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={fname}"})
-    except HTTPException:
-        raise
-    except Exception as e:
-        _admin_log.error("[Scorecard PDF] %s", e)
-        raise HTTPException(status_code=500, detail=f"Scorecard PDF error: {e}")
-
-
-# ─── 14. SCORECARD ZIP ──────────────────────────────────
-
-@router.get("/api/v1/admin/scorecard-zip")
-@limiter.limit("5/minute")
-async def scorecard_zip(request: Request, exam_id: str = None):
-    """Generate a ZIP of all student scorecards for an exam."""
-    teacher = await require_admin(request)
-    tid = teacher["id"]
-    try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.platypus import (SimpleDocTemplate, Table,
-                                         TableStyle, Paragraph, Spacer)
-        from reportlab.lib.styles import getSampleStyleSheet
-
-        sess_q = _atable("exam_sessions")\
-            .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at,submitted_at,exam_id")\
-            .eq("status", SessionStatus.COMPLETED).eq("teacher_id", str(tid))
-        if exam_id:
-            sess_q = sess_q.eq("exam_id", exam_id)
-        sessions = (await sess_q.execute()).data or []
-        if not sessions:
-            raise HTTPException(status_code=404, detail="No completed sessions found")
-
-        eid = exam_id or (sessions[0].get("exam_id") if sessions else None)
-        questions = await _load_questions(teacher_id=tid, exam_id=eid)
-        config = None
-        try:
-            config = await _load_exam_config(str(tid), exam_id=eid)
-        except Exception as e:
-            logger.debug("Failed to load exam config for ZIP export: %s", e)
-        exam_title = (config or {}).get("title", "Exam")
-
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-        try:
-            with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
-                for sess in sessions:
-                    sid = sess["session_key"]
-                    ans_rows = (await _atable("answers").select("question_id,answer")
-                                .eq("session_key", sid)
-                                .eq("teacher_id", str(tid)).execute()).data or []
-                    ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
-
-                    pdf_buf = io.BytesIO()
-                    doc = SimpleDocTemplate(pdf_buf, pagesize=A4, topMargin=40, bottomMargin=40)
-                    styles = getSampleStyleSheet()
-                    story = []
-
-                    story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
-                    story.append(Spacer(1, 12))
-
-                    score = sess.get("score", 0)
-                    total = sess.get("total", 0)
-                    pct = sess.get("percentage", 0)
-                    passed = pct >= 40
-
-                    info = [
-                        ["Field", "Value"],
-                        ["Student Name", sess.get("full_name", "")],
-                        ["Roll Number", sess.get("roll_number", "")],
-                        ["Date", fmt_ist(sess.get("submitted_at", sess.get("started_at", "")))],
-                        ["Score", f"{score}/{total}"],
-                        ["Percentage", f"{pct}%"],
-                        ["Result", "PASS" if passed else "FAIL"],
-                        ["Time Taken", f"{sess.get('time_taken_secs', 0) // 60}m {sess.get('time_taken_secs', 0) % 60}s"],
-                    ]
-                    t = Table(info, colWidths=[140, 330])
-                    t.setStyle(TableStyle([
-                        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
-                        ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                        ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
-                        ("FONTSIZE",  (0,0), (-1, -1), 10),
-                        ("ROWBACKGROUNDS", (0,1), (-1, -1),
-                         [colors.HexColor("#f0f4ff"), colors.white]),
-                        ("GRID",    (0,0), (-1, -1), 0.5, colors.grey),
-                        ("PADDING", (0,0), (-1, -1), 8),
-                    ]))
-                    story.append(t)
-                    story.append(Spacer(1, 20))
-
-                    story.append(Paragraph("Question-wise Results", styles["Heading2"]))
-                    story.append(Spacer(1, 8))
-
-                    if questions:
-                        qd = [["#", "Question", "Your Answer", "Correct", "Result"]]
-                        for i, q in enumerate(questions, 1):
-                            qid = str(q.get("question_id", q.get("id", "")))
-                            correct_ans = str(q.get("correct", ""))
-                            student_ans = ans_map.get(qid, "—")
-                            is_right = str(student_ans) == correct_ans
-                            q_text = q.get("question", "")
-                            if len(q_text) > 60:
-                                q_text = q_text[:57] + "..."
-                            qd.append([str(i), q_text, str(student_ans)[:20], correct_ans[:20],
-                                       "✓" if is_right else "✗"])
-                        qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
-                        qt.setStyle(TableStyle([
-                            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
-                            ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                            ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
-                            ("FONTSIZE",  (0,0), (-1, -1), 9),
-                            ("ROWBACKGROUNDS", (0,1), (-1, -1),
-                             [colors.HexColor("#f8f9fa"), colors.white]),
-                            ("GRID",    (0,0), (-1, -1), 0.5, colors.grey),
-                            ("PADDING", (0,0), (-1, -1), 6),
-                            ("ALIGN", (4,1), (4, -1), "CENTER"),
-                        ]))
-                        story.append(qt)
-
-                    story.append(Spacer(1, 20))
-                    story.append(Paragraph(
-                        f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
-                        styles["Normal"]))
-
-                    doc.build(story)
-                    pdf_buf.seek(0)
-                    roll = _safe_filename(sess.get("roll_number"), "unknown")
-                    zf.writestr(f"scorecard_{roll}.pdf", pdf_buf.getvalue())
-
-            fname = f"scorecards_{_safe_filename(exam_id, 'all')}_{now_ist().strftime('%Y%m%d')}.zip"
-            return FileResponse(
-                tmp.name,
-                media_type="application/zip",
-                filename=fname,
-                background=BackgroundTask(os.unlink, tmp.name))
-        except Exception:
-            os.unlink(tmp.name)
-            raise
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        _admin_log.error("[Scorecard ZIP] %s", e)
-        raise HTTPException(status_code=500, detail=f"Scorecard ZIP error: {e}")
-
-
-# ─── 15. EMAIL SCORECARDS ────────────────────────────────
-
-@router.post("/api/v1/admin/exams/{exam_id}/email-scorecards")
-@limiter.limit("5/minute")
-async def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = Body(default=EmailScorecardsIn())):
-    """Email every completed student their scorecard PDF for this exam."""
-    from ..emailer import send_scorecard_email
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-
-    resend_all = body.resend_all
-    custom_message = body.custom_message.strip() or None
-    teacher_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
-
-    sess_q = (await _atable("exam_sessions").select(
-        "session_key,roll_number,full_name,exam_id,scorecard_emailed_at"
-    ).eq("teacher_id", tid).eq("status", SessionStatus.COMPLETED).eq("exam_id", exam_id)
-        .limit(1000))
-    sessions = (await sess_q.execute()).data or []
-    if not sessions:
-        raise HTTPException(status_code=404, detail="No completed sessions found for this exam")
-
-    roll_emails: dict[str, str] = {}
-    try:
-        inv_rows = (await _atable("student_invites").select("roll_number,email")
-                    .eq("teacher_id", tid).eq("exam_id", exam_id).execute()).data or []
-        for r in inv_rows:
-            roll = str(r.get("roll_number") or "").strip().upper()
-            email = str(r.get("email") or "").strip().lower()
-            if roll and email:
-                roll_emails[roll] = email
-    except Exception as e:
-        _admin_log.warning("[email-scorecards] invite lookup failed: %s", e)
-    try:
-        stud_rows = (await _atable("students").select("roll_number,email")
-                     .eq("teacher_id", tid).execute()).data or []
-        for r in stud_rows:
-            roll = str(r.get("roll_number") or "").strip().upper()
-            email = str(r.get("email") or "").strip().lower()
-            if roll and email and roll not in roll_emails:
-                roll_emails[roll] = email
-    except Exception as e:
-        _admin_log.warning("[email-scorecards] student lookup failed: %s", e)
-
-    sent = 0
-    failed = 0
-    already_sent = 0
-    skipped_no_email = 0
-    failures: list[dict] = []
-
-    for sess in sessions:
-        sid = sess["session_key"]
-        roll = str(sess.get("roll_number") or "").strip().upper()
-        full_name = sess.get("full_name") or "Student"
-
-        if sess.get("scorecard_emailed_at") and not resend_all:
-            already_sent += 1
-            continue
-
-        email = roll_emails.get(roll)
-        if not email:
-            skipped_no_email += 1
-            failures.append({"roll": roll, "reason": "no email on file"})
-            continue
-
-        now_iso = datetime.now(timezone.utc).isoformat()
-        if not resend_all:
-            claim = await asyncio.to_thread(
-                lambda: supabase.rpc("claim_scorecard_email",
-                    {"p_session_key": sid, "p_teacher_id": tid}).execute()
-            )
-            claimed = claim.data
-            if isinstance(claimed, list):
-                claimed = claimed[0] if claimed else False
-            if not claimed:
-                already_sent += 1
-                continue
-
-        try:
-            pdf_bytes, fname, summary = await _build_scorecard_pdf(sid, tid)
-        except Exception as e:
-            _admin_log.warning("[email-scorecards] PDF build failed sid=%s err=%s", sid, e)
-            if not resend_all:
-                try:
-                    (await _atable("exam_sessions")
-                     .update({"scorecard_emailed_at": None})
-                      .eq("session_key", sid).eq("teacher_id", tid).execute())
-                except Exception as e:
-                    logger.debug("Failed to reset scorecard_emailed_at: %s", e)
-            failed += 1
-            failures.append({"roll": roll, "reason": f"pdf: {e}"})
-            continue
-
-        result = send_scorecard_email(
-            to_email=email,
-            to_name=full_name,
-            exam_title=summary.get("exam_title") or "Exam",
-            score=int(summary.get("score") or 0),
-            total=int(summary.get("total") or 0),
-            percentage=float(summary.get("percentage") or 0.0),
-            passed=bool(summary.get("passed")),
-            pdf_bytes=pdf_bytes,
-            pdf_filename=fname,
-            teacher_name=teacher_name,
-            custom_message=custom_message,
-        )
-
-        if result.ok:
-            try:
-                update_row = {"scorecard_email_msg_id": result.provider_msg_id}
-                if resend_all:
-                    update_row["scorecard_emailed_at"] = now_iso
-                (await _atable("exam_sessions").update(update_row)
-                 .eq("session_key", sid).eq("teacher_id", tid).execute())
-            except Exception as e:
-                _admin_log.warning("[email-scorecards] msg_id update failed sid=%s: %s", sid, e)
-            sent += 1
-        else:
-            if not resend_all:
-                try:
-                    (await _atable("exam_sessions")
-                     .update({"scorecard_emailed_at": None})
-                      .eq("session_key", sid).eq("teacher_id", tid).execute())
-                except Exception as e:
-                    logger.debug("Failed to reset scorecard_emailed_at (send error): %s", e)
-            failed += 1
-            failures.append({"roll": roll, "reason": result.error or "send failed"})
-            _admin_log.error("[email-scorecards][SEND_ERROR] roll=%s reason=%r", roll, result.error)
-
-    return {
-        "sent": sent,
-        "failed": failed,
-        "already_sent": already_sent,
-        "skipped_no_email": skipped_no_email,
-        "total": len(sessions),
-        "failures": failures[:50],
-    }
-# ─── 16. FAILED SESSIONS ────────────────────────────────#
-
-@router.get("/api/v1/admin-failed-sessions")
-@limiter.limit("30/minute")
-async def failed_sessions(request: Request, exam_id: str = None):
-    """Returns sessions with submit_failed events that never completed."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    failed = await _atable("violations").select("session_key")\
-        .eq("violation_type", "submit_failed")\
-        .eq("teacher_id", tid)\
-        .execute()
-    failed_keys = {r["session_key"] for r in (failed.data or [])}
-    sub_query = _atable("exam_sessions").select("session_key")\
-        .eq("status", SessionStatus.COMPLETED)\
-        .eq("teacher_id", tid)\
-        .in_("session_key", list(failed_keys) or ["__none__"])
-    if exam_id:
-        sub_query = sub_query.eq("exam_id", exam_id)
-    submitted = await sub_query.execute()
-    submitted_keys = {r["session_key"] for r in (submitted.data or [])}
-    if exam_id:
-        es = await _atable("exam_sessions").select("session_key")\
-            .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-        exam_skeys = {r["session_key"] for r in (es.data or [])}
-        failed_keys = failed_keys & exam_skeys
-    unrecovered = [k for k in failed_keys if k not in submitted_keys]
-    return {"failed_sessions": unrecovered, "count": len(unrecovered)}
-
-
-# ─── 17. CLEANUP SCREENSHOTS ────────────────────────────#
+# ─── 16. FAILED SESSIONS ────────────────────────────────
 
 @router.post("/api/v1/admin-cleanup")
 @limiter.limit("10/minute")
 async def admin_cleanup(request: Request):
-    """Delete the calling teacher's screenshots older than 48 hours."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     deleted = 0
@@ -1372,12 +432,11 @@ async def admin_cleanup(request: Request):
     return {"deleted": deleted}
 
 
-# ─── 18. CLEAR LIVE SESSIONS ─────────────────────────────#
+# ─── 18. CLEAR LIVE SESSIONS ─────────────────────────────
 
 @router.post("/api/v1/admin/clear-live-sessions")
 @limiter.limit("5/minute")
 async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
-    """Destructive: wipe all in-progress sessions for the calling teacher."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     step = body.step.lower().strip()
@@ -1612,12 +671,11 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
         detail="'step' must be 'request' or 'confirm'")
 
 
-# ─── 19. BACKFILL RISK SCORES ──────────────────────────────#
+# ─── 19. BACKFILL RISK SCORES ──────────────────────────────
 
 @router.post("/api/v1/admin/backfill-risk-scores")
 @limiter.limit("10/minute")
 async def backfill_risk_scores(request: Request, exam_id: str = None):
-    """Recompute and cache risk scores for all completed sessions."""
     teacher = await require_admin(request)
     tid = teacher["id"]
     query = _atable("exam_sessions").select("session_key")\
@@ -1636,723 +694,13 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
              .execute()
         count += 1
     return {"backfilled": count}
-# ─── 20. LIST EXAMS ─────────────────────────────────#
 
-@router.get("/api/v1/admin/exams")
-@limiter.limit("60/minute")
-async def list_exams(request: Request):
-    """List all exams for the calling teacher."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    result = await _atable("exam_config").select("*").eq("teacher_id", tid).execute()
-    exams = result.data or []
-    out = []
-    for ex in exams:
-        eid = ex.get("exam_id")
-        qcount = 0
-        scount = 0
-        try:
-            qr = await _atable("questions").select("question_id", count="exact")\
-                .eq("teacher_id", tid).eq("exam_id", eid).execute()
-            qcount = qr.count if qr.count is not None else len(qr.data or [])
-        except Exception as e:
-            logger.debug("Failed to count questions for exam %s: %s", eid, e)
-        try:
-            sr = await _atable("exam_sessions").select("session_key", count="exact")\
-                .eq("teacher_id", tid).eq("exam_id", eid).execute()
-            scount = sr.count if sr.count is not None else len(sr.data or [])
-        except Exception as e:
-            logger.debug("Failed to count sessions for exam %s: %s", eid, e)
-        out.append({
-            "exam_id":          eid,
-            "exam_title":       ex.get("exam_title", "Exam"),
-            "duration_minutes": ex.get("duration_minutes", 60),
-            "starts_at":        ex.get("starts_at"),
-            "ends_at":          ex.get("ends_at"),
-            "access_code":      ex.get("access_code", ""),
-            "question_count":   qcount,
-            "session_count":    scount,
-            "created_at":       ex.get("created_at", ""),
-        })
-    return {"exams": out}
 
-
-# ─── 21. CREATE EXAM ─────────────────────────────────#
-
-@router.post("/api/v1/admin/exams")
-@limiter.limit("10/hour")
-async def create_exam(request: Request, body: CreateExamIn = Body(...)):
-    """Create a new exam for the calling teacher."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    title = body.exam_title.strip() or "New Exam"
-    duration = body.duration_minutes
-    exam_id = str(_uuid.uuid4())
-    try:
-        result = await _atable("exam_config").insert({
-            "exam_id":          exam_id,
-            "teacher_id":       tid,
-            "exam_title":       title,
-            "duration_minutes": duration,
-        }).execute()
-    except Exception as e:
-        _admin_log.error("[CreateExam] DB error: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to create exam. Please try again.")
-    row = result.data[0] if result.data else {}
-    return {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration}
-
-
-# ─── 22. DELETE EXAM ─────────────────────────────────#
-
-@router.delete("/api/v1/admin/exams/{exam_id}")
-@limiter.limit("10/hour")
-async def delete_exam(exam_id: str, request: Request):
-    """Delete an exam and its questions. Keeps session history."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    check = await _atable("exam_config").select("exam_id")\
-        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    if not check.data:
-        raise HTTPException(status_code=404, detail="Exam not found")
-    all_exams = await _atable("exam_config").select("exam_id")\
-        .eq("teacher_id", tid).execute()
-    if len(all_exams.data or []) <= 1:
-        raise HTTPException(status_code=400, detail="Cannot delete your only exam")
-    await _atable("questions").delete()\
-        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    await _atable("exam_config").delete()\
-        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    if _cache:
-        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
-        _cache.delete(f"questions:{tid}:{exam_id or '_'}")
-    return {"status": "deleted", "exam_id": exam_id}
-
-
-# ─── 23. DUPLICATE EXAM ──────────────────────────────#
-
-@router.post("/api/v1/admin/exams/{exam_id}/duplicate")
-@limiter.limit("10/hour")
-async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})):
-    """Clone an exam's config + questions into a fresh exam_id."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-
-    src_q = (await _atable("exam_config").select("*")
-             .eq("teacher_id", tid).eq("exam_id", exam_id).execute())
-    if not src_q.data:
-        raise HTTPException(status_code=404, detail="Exam not found")
-    src = src_q.data[0]
-
-    new_exam_id = str(_uuid.uuid4())
-    src_title = src.get("exam_title") or "Exam"
-    new_title = (str(body.get("new_title") or "").strip()
-                 or f"{src_title} (copy)")
-
-    COPYABLE = [
-        "duration_minutes",
-        "shuffle_questions", "shuffle_options",
-    ]
-    new_cfg = {
-        "exam_id":    new_exam_id,
-        "teacher_id": tid,
-        "exam_title": new_title,
-        "starts_at":  None,
-        "ends_at":    None,
-        "access_code": "",
-    }
-    for col in COPYABLE:
-        if col in src and src[col] is not None:
-            new_cfg[col] = src[col]
-
-    try:
-        await _atable("exam_config").insert(new_cfg).execute()
-    except Exception as e:
-        _admin_log.error("[DuplicateExam] config insert failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to clone config. Please try again.")
-
-    try:
-        qsrc = (await _atable("questions").select("*")
-                .eq("teacher_id", tid).eq("exam_id", exam_id)
-                .order("order_index").execute()).data or []
-    except Exception as e:
-        _admin_log.error("[DuplicateExam] question fetch failed: %s", e)
-        # Rollback the config insert since we can't copy questions
-        try:
-            await _atable("exam_config").delete()\
-                .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail="Failed to fetch source questions. Clone aborted.")
-
-    questions_copied = 0
-    if qsrc:
-        new_rows = []
-        for q in qsrc:
-            row = dict(q)
-            for k in ("id", "question_id", "created_at", "updated_at"):
-                row.pop(k, None)
-            row["exam_id"] = new_exam_id
-            row["teacher_id"] = tid
-            new_rows.append(row)
-        try:
-            for i in range(0, len(new_rows), 500):
-                await _atable("questions").insert(new_rows[i:i+500]).execute()
-                questions_copied += len(new_rows[i:i+500])
-        except Exception as e:
-            _admin_log.error("[DuplicateExam] question insert failed: %s", e)
-            try:
-                await _atable("exam_config").delete()\
-                    .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
-                await _atable("questions").delete()\
-                    .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
-            except Exception as rollback_err:
-                logger.warning("Failed to rollback partial question clone: %s", rollback_err)
-            raise HTTPException(status_code=500, detail=f"Failed to clone questions: {e}")
-
-    if _cache:
-        _cache.delete(f"exam_config:{tid}:{new_exam_id}")
-        _cache.delete(f"questions:{tid}:{new_exam_id}")
-
-    return {
-        "status":           "duplicated",
-        "source_exam_id":   exam_id,
-        "exam_id":          new_exam_id,
-        "exam_title":       new_title,
-        "questions_copied": questions_copied,
-    }
-# ─── 24. ANALYTICS ─────────────────────────────────#
-
-@router.get("/api/v1/admin/analytics")
-@limiter.limit("20/minute")
-async def get_analytics(request: Request):
-    """Compute exam analytics: score distribution, question analysis, violations, risk."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    exam_id = request.query_params.get("exam_id")
-
-    cache_key = f"analytics:{tid}:{exam_id or '_'}"
-    if _cache:
-        cached = _cache.get(cache_key)
-        if cached:
-            return cached
-
-    sess_q = _atable("exam_sessions")\
-        .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at")\
-        .eq("status", SessionStatus.COMPLETED)
-    if tid:
-        sess_q = sess_q.eq("teacher_id", tid)
-    if exam_id:
-        sess_q = sess_q.eq("exam_id", exam_id)
-    sessions = (await sess_q.execute()).data or []
-
-    if not sessions:
-        empty = {"exam_overview": {"count": 0}, "score_distribution": [],
-                 "question_analysis": [], "violation_summary": {},
-                 "risk_distribution": {"low": 0, "medium": 0, "high": 0}}
-        if _cache:
-            _cache.set(cache_key, empty, ttl=60)
-        return empty
-
-    count = len(sessions)
-    pcts = [s.get("percentage") or 0 for s in sessions]
-    times = [s.get("time_taken_secs") or 0 for s in sessions]
-    scores = [s.get("score") or 0 for s in sessions]
-    totals = [s.get("total") or 1 for s in sessions]
-    avg_score = round(sum(scores) / count, 1)
-    avg_pct = round(sum(pcts) / count, 1)
-    sorted_times = sorted(t for t in times if t > 0)
-    median_time = sorted_times[len(sorted_times)//2] if sorted_times else 0
-    pass_count = sum(1 for p in pcts if p >= 40)
-    overview = {
-        "count": count,
-        "avg_score": avg_score,
-        "avg_total": round(sum(totals) / count, 1),
-        "avg_percentage": avg_pct,
-        "median_time_secs": median_time,
-        "pass_rate": round(pass_count / count * 100, 1),
-    }
-
-    buckets = [0] * 10
-    for p in pcts:
-        idx = min(int(p // 10), 9)
-        buckets[idx] += 1
-    score_dist = [{"range": f"{i*10}-{i*10+10}%", "count": buckets[i]} for i in range(10)]
-
-    questions = await _load_questions(tid, exam_id=exam_id)
-    q_analysis = []
-    if questions:
-        skeys = [s["session_key"] for s in sessions]
-        all_answers = {sk: {} for sk in skeys}
-        for i in range(0, len(skeys), 50):
-            chunk = skeys[i:i+50]
-            ans_q = (_atable("answers")
-                     .select("session_key,question_id,answer")
-                     .in_("session_key", chunk))
-            if tid:
-                ans_q = ans_q.eq("teacher_id", tid)
-            for r in (await ans_q.execute()).data or []:
-                sk = r.get("session_key")
-                qid = r.get("question_id")
-                if sk and qid is not None:
-                    all_answers.setdefault(sk, {})[qid] = r.get("answer")
-
-        sorted_sess = sorted(sessions, key=lambda s: s.get("percentage") or 0)
-        q1_cutoff = max(1, count // 4)
-        bottom_keys = set(s["session_key"] for s in sorted_sess[:q1_cutoff])
-        top_keys = set(s["session_key"] for s in sorted_sess[-q1_cutoff:])
-
-        for q in questions:
-            qid = str(q.get("question_id") or q.get("id", ""))
-            correct = str(q.get("correct", ""))
-            total_attempted = 0
-            total_correct = 0
-            top_correct = 0
-            top_total = 0
-            bottom_correct = 0
-            bottom_total = 0
-            for sk, ans_map in all_answers.items():
-                if qid in ans_map:
-                    total_attempted += 1
-                    is_correct = ans_map[qid] == correct
-                    if is_correct:
-                        total_correct += 1
-                    if sk in top_keys:
-                        top_total += 1
-                        if is_correct:
-                            top_correct += 1
-                    if sk in bottom_keys:
-                        bottom_total += 1
-                        if is_correct:
-                            bottom_correct += 1
-            difficulty = round(total_correct / max(total_attempted, 1) * 100, 1)
-            top_rate = top_correct / max(top_total, 1)
-            bottom_rate = bottom_correct / max(bottom_total, 1)
-            discrimination = round(top_rate - bottom_rate, 2)
-            q_analysis.append({
-                "question_id": qid,
-                "question": (q.get("question", "")[:80] + "...") if len(q.get("question", "")) > 80 else q.get("question", ""),
-                "difficulty_pct": difficulty,
-                "discrimination": discrimination,
-                "attempted": total_attempted,
-                "correct": total_correct,
-            })
-
-    viol_q = _atable("violations")\
-        .select("violation_type,severity,session_key,created_at")
-    if tid:
-        viol_q = viol_q.eq("teacher_id", tid)
-    viols = (await viol_q.execute()).data or []
-    scored_viols = [v for v in viols if v.get("severity") in ("high", "medium")]
-
-    type_counts = {}
-    for v in scored_viols:
-        vt = v["violation_type"]
-        type_counts[vt] = type_counts.get(vt, 0) + 1
-    viol_summary = {"by_type": type_counts, "total": len(scored_viols)}
-
-    risk_dist = {"low": 0, "medium": 0, "high": 0}
-    for s in sessions:
-        rs = s.get("risk_score") or 0
-        if rs <= 30:
-            risk_dist["low"] += 1
-        elif rs <= 60:
-            risk_dist["medium"] += 1
-        else:
-            risk_dist["high"] += 1
-
-    result = {
-        "exam_overview": overview,
-        "score_distribution": score_dist,
-        "question_analysis": q_analysis,
-        "violation_summary": viol_summary,
-        "risk_distribution": risk_dist,
-    }
-    if _cache:
-        _cache.set(cache_key, result, ttl=60)
-    return result
-
-
-# ─── 25. LIST GROUPS ─────────────────────────────────#
-
-@router.get("/api/v1/admin/groups")
-@limiter.limit("60/minute")
-async def list_groups(request: Request):
-    """List all groups for the authenticated teacher."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    rows = (await _atable("student_groups")
-            .select("*").eq("teacher_id", tid)
-            .order("created_at").execute()).data or []
-    counts: dict[str, int] = {}
-    if rows:
-        gids = [g["id"] for g in rows]
-        members = (await _atable("student_group_members")
-                   .select("group_id")
-                   .in_("group_id", gids)
-                   .eq("teacher_id", tid)
-                   .limit(50000).execute()).data or []
-        for m in members:
-            gid = m.get("group_id")
-            if gid:
-                counts[gid] = counts.get(gid, 0) + 1
-    for g in rows:
-        g["member_count"] = counts.get(g["id"], 0)
-    return rows
-# ─── 26. CREATE GROUP ─────────────────────────────────#
-
-@router.post("/api/v1/admin/groups")
-@limiter.limit("20/hour")
-async def create_group(request: Request, body: CreateGroupIn = Body(...)):
-    """Create a new student group."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    name = (body.group_name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="group_name is required")
-    try:
-        row = (await _atable("student_groups")
-               .insert({"teacher_id": tid, "group_name": name}).execute()).data
-        return row[0] if row else {"ok": True}
-    except Exception as e:
-        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
-            raise HTTPException(status_code=409, detail="Group name already exists")
-        raise
-
-
-# ─── 27. RENAME GROUP ─────────────────────────────────#
-
-@router.put("/api/v1/admin/groups/{group_id}")
-@limiter.limit("20/hour")
-async def rename_group(group_id: str, request: Request, body: RenameGroupIn = Body(...)):
-    """Rename a student group."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    name = body.group_name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="group_name is required")
-    result = (await _atable("student_groups")
-              .update({"group_name": name})
-              .eq("id", group_id).eq("teacher_id", tid).execute())
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Group not found")
-    return result.data[0]
-
-
-# ─── 28. DELETE GROUP ─────────────────────────────────#
-
-@router.delete("/api/v1/admin/groups/{group_id}")
-@limiter.limit("20/hour")
-async def delete_group(group_id: str, request: Request):
-    """Delete a student group (cascades to members and exam assignments)."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    result = (await _atable("student_groups")
-              .delete().eq("id", group_id).eq("teacher_id", tid).execute())
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Group not found")
-    return {"ok": True}
-
-
-# ─── 29. LIST GROUP MEMBERS ──────────────────────────#
-
-@router.get("/api/v1/admin/groups/{group_id}/members")
-@limiter.limit("60/minute")
-async def list_group_members(group_id: str, request: Request):
-    """List members of a group, enriched with email/full_name."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    rows = (await _atable("student_group_members")
-            .select("*").eq("group_id", group_id)
-            .eq("teacher_id", tid).execute()).data or []
-    if not rows:
-        return []
-    rolls = [r["roll_number"] for r in rows if r.get("roll_number")]
-    if rolls:
-        students = (await _atable("students")
-                    .select("roll_number,email,full_name")
-                    .eq("teacher_id", tid)
-                    .in_("roll_number", rolls).execute()).data or []
-        by_roll = {s["roll_number"]: s for s in students}
-        for r in rows:
-            s = by_roll.get(r.get("roll_number")) or {}
-            r["email"] = s.get("email") or ""
-            r["full_name"] = s.get("full_name") or ""
-    return rows
-
-
-# ─── 30. ADD GROUP MEMBERS ──────────────────────────────#
-
-@router.post("/api/v1/admin/groups/{group_id}/members")
-@limiter.limit("20/minute")
-async def add_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
-    """Add students to a group by roll numbers."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    grp = (await _atable("student_groups")
-           .select("id").eq("id", group_id).eq("teacher_id", tid).execute()).data
-    if not grp:
-        raise HTTPException(status_code=404, detail="Group not found")
-    rolls = body.roll_numbers
-    if not rolls:
-        raise HTTPException(status_code=400, detail="roll_numbers list is required")
-    rows = [{"group_id": group_id, "roll_number": str(r).strip(), "teacher_id": tid}
-            for r in rolls if str(r).strip()]
-    if rows:
-        await _atable("student_group_members").upsert(rows).execute()
-    return {"added": len(rows)}
-
-
-# ─── 31. REMOVE GROUP MEMBERS ───────────────────────────#
-
-@router.delete("/api/v1/admin/groups/{group_id}/members")
-@limiter.limit("20/minute")
-async def remove_group_members(group_id: str, request: Request, body: GroupMembersIn = Body(...)):
-    """Remove students from a group by roll numbers."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    rolls = body.roll_numbers
-    if not rolls:
-        raise HTTPException(status_code=400, detail="roll_numbers list is required")
-    for r in rolls:
-        await _atable("student_group_members")\
-            .delete().eq("group_id", group_id)\
-            .eq("roll_number", str(r).strip())\
-            .eq("teacher_id", tid).execute()
-    return {"removed": len(rolls)}
-
-
-# ─── 32. LIST EXAM GROUPS ──────────────────────────────#
-
-@router.get("/api/v1/admin/exams/{exam_id}/groups")
-@limiter.limit("60/minute")
-async def list_exam_groups(exam_id: str, request: Request):
-    """List groups assigned to an exam."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    assignments = (await _atable("exam_group_assignments")
-                   .select("group_id").eq("exam_id", exam_id)
-                   .eq("teacher_id", tid).execute()).data or []
-    if not assignments:
-        return []
-    gids = [a["group_id"] for a in assignments]
-    groups = (await _atable("student_groups")
-              .select("*").in_("id", gids).execute()).data or []
-    return groups
-
-
-# ─── 33. ASSIGN GROUPS TO EXAM ───────────────────────────#
-
-@router.post("/api/v1/admin/exams/{exam_id}/groups")
-@limiter.limit("20/minute")
-async def assign_exam_groups(exam_id: str, request: Request, body: ExamGroupAssignIn = Body(...)):
-    """Assign groups to an exam for access control."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    group_ids = body.group_ids
-    if not group_ids:
-        raise HTTPException(status_code=400, detail="group_ids list is required")
-    rows = [{"exam_id": exam_id, "group_id": gid, "teacher_id": tid} for gid in group_ids]
-    await _atable("exam_group_assignments").upsert(rows).execute()
-    return {"assigned": len(rows)}
-
-
-# ─── 34. UNASSIGN GROUP FROM EXAM ────────────────────────#
-
-@router.delete("/api/v1/admin/exams/{exam_id}/groups/{group_id}")
-@limiter.limit("20/hour")
-async def unassign_exam_group(exam_id: str, group_id: str, request: Request):
-    """Remove a group assignment from an exam."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    await _atable("exam_group_assignments")\
-        .delete().eq("exam_id", exam_id)\
-        .eq("group_id", group_id)\
-        .eq("teacher_id", tid).execute()
-    return {"ok": True}
-
-
-# ─── 35. BULK REGISTER STUDENTS ───────────────────────────#
-
-@router.post("/api/v1/admin/register-students-bulk")
-@limiter.limit("10/minute")
-async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
-    """Admin-only bulk student registration."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    students = body.students
-    if not students or not isinstance(students, list):
-        raise HTTPException(status_code=400, detail="'students' must be a non-empty list")
-    if len(students) > 500:
-        raise HTTPException(status_code=400, detail="Max 500 students per batch")
-
-    rows = []
-    for s in students:
-        roll = str(s.get("roll_number", "")).strip().upper()
-        name = str(s.get("full_name", "")).strip()
-        email = str(s.get("email", "")).strip().lower()
-        phone = str(s.get("phone", "")).strip() or None
-        if not roll or not name or not email:
-            continue
-        rows.append({
-            "roll_number": roll,
-            "full_name": name,
-            "email": email,
-            "phone": phone,
-            "teacher_id": tid,
-        })
-
-    if not rows:
-        raise HTTPException(status_code=400, detail="No valid students in payload")
-
-    registered = 0
-    skipped = 0
-    for row in rows:
-        try:
-            await _atable("students").insert(row).execute()
-            registered += 1
-        except Exception as e:
-            if "duplicate" in str(e).lower() or "unique" in str(e).lower():
-                skipped += 1
-            else:
-                skipped += 1
-
-    return {"registered": registered, "skipped": skipped, "total": len(rows)}
-# ─── 36. GET ACCESS CODE ─────────────────────────#
-
-@router.get("/api/v1/admin/access-code")
-@limiter.limit("60/minute")
-async def get_access_code(request: Request):
-    """Return the current exam access code."""
-    teacher = await require_admin(request)
-    exam_id = request.query_params.get("exam_id")
-    code = await _get_access_code(teacher["id"], exam_id=exam_id)
-    return {"access_code": code, "enabled": bool(code)}
-
-
-# ─── 37. SET ACCESS CODE ─────────────────────────#
-
-@router.post("/api/v1/admin/access-code")
-@limiter.limit("10/minute")
-async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
-    """Set or clear the exam access code."""
-    teacher = await require_admin(request)
-    exam_id = body.exam_id
-    new_code = body.access_code.strip().upper()
-    await _set_access_code(new_code, teacher["id"], exam_id=exam_id)
-    if _cache:
-        _cache.delete(f"exam_config:{teacher['id']}:{exam_id or '_'}")
-    return {"access_code": new_code, "enabled": bool(new_code)}
-
-
-# ─── 38. REGISTERED COUNT ────────────────────────#
-
-@router.get("/api/v1/admin/registered-count")
-@limiter.limit("60/minute")
-async def registered_count(request: Request):
-    """Return total number of registered students."""
-    teacher = await require_admin(request)
-    tid = teacher["id"]
-    query = _atable("students").select("roll_number", count="exact")
-    if tid:
-        query = query.eq("teacher_id", tid)
-    result = await query.execute()
-    return {"count": result.count if result.count is not None else len(result.data or [])}
-
-
-# ─── 39. GET EXAM SCHEDULE ────────────────────────#
-
-@router.get("/api/v1/admin/exam-schedule")
-@limiter.limit("60/minute")
-async def admin_get_schedule(request: Request):
-    """Return current exam schedule for the admin dashboard."""
-    teacher = await require_admin(request)
-    exam_id = request.query_params.get("exam_id")
-    config = await _load_exam_config(teacher["id"], exam_id=exam_id)
-    return {
-        "exam_title": config.get("exam_title", "Exam"),
-        "starts_at":  config.get("starts_at"),
-        "ends_at":    config.get("ends_at"),
-    }
-
-
-# ─── 40. SET EXAM SCHEDULE ────────────────────────#
-
-@router.post("/api/v1/admin/exam-schedule")
-@limiter.limit("20/minute")
-async def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
-    """Set or clear exam start/end times."""
-    teacher = await require_admin(request)
-    tid = teacher["id"]
-    exam_id = body.exam_id
-
-    update = {}
-    if body.starts_at is not None:
-        update["starts_at"] = body.starts_at
-    if body.ends_at is not None:
-        update["ends_at"] = body.ends_at
-    if update:
-        await _atable("exam_config").update(update)\
-            .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-
-    if _cache:
-        _cache.delete(f"exam_config:{tid}:{exam_id}")
-    return {
-        "status":    "updated",
-        "starts_at": body.starts_at,
-        "ends_at":   body.ends_at,
-    }
-
-
-# ─── 41. GET SHUFFLE CONFIG ────────────────────────#
-
-@router.get("/api/v1/admin/shuffle-config")
-@limiter.limit("60/minute")
-async def admin_get_shuffle(request: Request):
-    """Return current per-student shuffle toggles."""
-    teacher = await require_admin(request)
-    exam_id = request.query_params.get("exam_id")
-    config = await _load_exam_config(teacher["id"], exam_id=exam_id)
-    sq, so = config.get("shuffle_questions", True), config.get("shuffle_options", True)
-    return {"shuffle_questions": sq, "shuffle_options": so}
-
-
-# ─── 42. SET SHUFFLE CONFIG ────────────────────────#
-
-@router.post("/api/v1/admin/shuffle-config")
-@limiter.limit("20/minute")
-async def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
-    """Toggle per-student question / option shuffling."""
-    teacher = await require_admin(request)
-    tid = teacher["id"]
-    exam_id = body.exam_id
-    fields: dict = {}
-    if body.shuffle_questions is not None:
-        fields["shuffle_questions"] = body.shuffle_questions
-    if body.shuffle_options is not None:
-        fields["shuffle_options"] = body.shuffle_options
-    if not fields:
-        raise HTTPException(status_code=400, detail="No shuffle fields provided")
-    if tid and exam_id:
-        await _atable("exam_config").update(fields)\
-            .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    else:
-        update = {**({"teacher_id": tid} if tid else {"id": 1}), **fields}
-        await _atable("exam_config").upsert(update).execute()
-    if _cache:
-        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
-    return {
-        "status": "updated",
-        "shuffle_questions": fields.get("shuffle_questions"),
-        "shuffle_options":   fields.get("shuffle_options"),
-    }
-
-
-# ─── 43. ADMIN FORCE-SUBMIT ────────────────────────#
+# ─── 43. ADMIN FORCE-SUBMIT ────────────────────────
 
 @router.post("/api/v1/admin-submit/{session_id}")
 @limiter.limit("10/minute")
 async def admin_submit(session_id: str, request: Request):
-    """Force-submit a session that failed to submit properly."""
     teacher = await require_admin(request)
     tid = teacher["id"]
 
@@ -2382,7 +730,7 @@ async def admin_submit(session_id: str, request: Request):
                     full_name   = parts.split("(")[0].strip()
                     roll_number = parts.split("(")[1].replace(")", "").strip()
             except Exception:
-                pass  # Malformed details string — use defaults
+                pass
 
     try:
         s_result = await _atable("students").select("*")\
@@ -2393,7 +741,7 @@ async def admin_submit(session_id: str, request: Request):
             full_name = s_result.data[0].get("full_name", full_name)
             email     = s_result.data[0].get("email", email)
     except Exception:
-        pass  # Student lookup failed — use enrollment event data
+        pass
 
     answers_map: dict = {}
     for e in events:
@@ -2406,7 +754,7 @@ async def admin_submit(session_id: str, request: Request):
                 if "q" in parts and "a" in parts:
                     answers_map[parts["q"]] = parts["a"]
             except Exception:
-                pass  # Malformed answer details — skip
+                pass
 
     existing_eid = existing_session.get("exam_id")
     score, total = await _recalculate_score(session_id, answers_map, tid, exam_id=existing_eid)
@@ -2464,12 +812,13 @@ async def admin_submit(session_id: str, request: Request):
         "risk_score":      risk["risk_score"],
         "risk_label":      risk["label"],
     }
-# ─── 44. REQUEST RECALIBRATION ─────────────────────────#
+
+
+# ─── 44. REQUEST RECALIBRATION ─────────────────────────
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/request-recalibration")
 @limiter.limit("10/minute")
 async def request_recalibration(session_id: str, request: Request):
-    """End a live session and ask the student to restart for fresh calibration."""
     teacher = await require_admin(request)
     tid = teacher["id"]
 
@@ -2514,12 +863,12 @@ async def request_recalibration(session_id: str, request: Request):
         try:
             _cache.delete(f"cal_quality:{session_id}")
         except Exception:
-            pass  # Cache delete is non-fatal
+            pass
 
     return {"ok": True, "session_id": session_id, "status": "recalibration_requested"}
 
 
-# ─── 45. LIVE VIEW START ─────────────────────────#
+# ─── 45. LIVE VIEW START ─────────────────────────
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/start")
 @limiter.limit("30/minute")
@@ -2533,12 +882,11 @@ async def live_view_start(session_id: str, request: Request):
     return {"ok": True, "session_id": session_id, "ttl_sec": 60}
 
 
-# ─── 46. LIVE RISK TRIAGE ─────────────────────────#
+# ─── 46. LIVE RISK TRIAGE ─────────────────────────
 
 @router.get("/api/v1/admin/sessions/{session_id:path}/triage")
 @limiter.limit("10/minute")
 async def live_risk_triage_endpoint(session_id: str, request: Request):
-    """One-line LLM TL;DR of a live session's recent violations."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     await _assert_session_owned(session_id, tid)
@@ -2575,7 +923,7 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
             t0 = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
             elapsed_minutes = max(0, int((datetime.now(timezone.utc) - t0).total_seconds() // 60))
         except Exception:
-            pass  # Malformed timestamp — elapsed unknown
+            pass
 
     session_meta = {
         "roll_number": sess_row.get("roll_number"),
@@ -2607,7 +955,7 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
     return {**payload, "cached": False}
 
 
-# ─── 47. LIVE VIEW KEEPALIVE ────────────────────────#
+# ─── 47. LIVE VIEW KEEPALIVE ────────────────────────
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/keepalive")
 @limiter.limit("60/minute")
@@ -2621,7 +969,7 @@ async def live_view_keepalive(session_id: str, request: Request):
     return {"ok": True}
 
 
-# ─── 48. LIVE VIEW STOP ─────────────────────────#
+# ─── 48. LIVE VIEW STOP ─────────────────────────
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/stop")
 @limiter.limit("30/minute")
@@ -2635,45 +983,37 @@ async def live_view_stop(session_id: str, request: Request):
     return {"ok": True}
 
 
-# ─── 49. LIVE FRAME ─────────────────────────#
+# ─── 49. LIVE FRAME ─────────────────────────
 
 @router.get("/api/v1/admin/sessions/{session_id:path}/live-frame")
 @limiter.limit("30/minute")
 async def live_view_frame(session_id: str, request: Request):
-    """Return the latest webcam frame for this session.
-
-    Supports both legacy base64 (from HTTP POST) and raw bytes
-    (from WebSocket binary stream).
-    """
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     await _assert_session_owned(session_id, tid)
-    from starlette.responses import Response
     if not _cache:
         return Response(status_code=204)
     payload = _cache.get(f"liveframe:{session_id}")
     if not payload or not isinstance(payload, dict):
         return Response(status_code=204)
 
-    # New WS path stores raw bytes directly
     jpeg = payload.get("jpeg_bytes")
     if jpeg:
         return Response(content=jpeg, media_type="image/jpeg",
                         headers={"Cache-Control": "no-store, max-age=0"})
 
-    # Legacy path: base64-encoded from old HTTP POST
     b64 = payload.get("jpeg_b64")
     if not b64:
         return Response(status_code=204)
     try:
         jpeg = base64.b64decode(b64)
     except Exception:
-        return Response(status_code=204)  # Invalid base64 — no frame available
+        return Response(status_code=204)
     return Response(content=jpeg, media_type="image/jpeg",
                     headers={"Cache-Control": "no-store, max-age=0"})
 
 
-# ─── 50. LIVE VIEW FORCE STOP ────────────────────────#
+# ─── 50. LIVE VIEW FORCE STOP ────────────────────────
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/force-stop")
 @limiter.limit("10/minute")
@@ -2684,277 +1024,4 @@ async def live_view_force_stop(session_id: str, request: Request):
     if _cache:
         _cache.delete(f"liveview:{session_id}")
         _cache.delete(f"liveframe:{session_id}")
-    return {"ok": True}
-
-
-# ─── 51. INVITES ─────────────────────────────────────#
-
-@router.post("/api/v1/admin/invites/send")
-@limiter.limit("5/minute")
-async def send_invites(body: SendInvitesBody, request: Request):
-    """Send invites to a batch of students. Upserts on duplicate
-     (teacher, email, exam) to avoid double-invites."""
-    from ..emailer import send_invite_email
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    base_url = _get_invite_base_url()
-
-    # Atomic check-and-reserve daily quota (avoids race condition)
-    ok, remaining = await _claim_and_bump_cap(tid, len(body.recipients))
-    if not ok:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Daily cap exceeded. {remaining} remaining, {len(body.recipients)} requested."
-        )
-
-    # Fetch exam config for invite template
-    exam_cfg = (await _atable("exam_config")
-                .select("*")
-                .eq("teacher_id", tid).eq("exam_id", body.exam_id).execute()).data
-    exam_title = exam_cfg[0].get("exam_title", body.exam_id) if exam_cfg else body.exam_id
-
-    results = {"sent": 0, "failed": 0, "skipped": 0}
-    for rec in body.recipients:
-        token = _new_invite_token()
-        invite_url = f"{base_url}/invite/{token}"
-        download_url = f"{base_url}/download"
-
-        # Upsert invite row — use upsert instead of read-then-insert to
-        # avoid race condition where two concurrent sends for the same
-        # email both see "no existing invite" and insert duplicates.
-        invite_row = {
-            "id": _uuid.uuid4(),
-            "teacher_id": tid,
-            "email": rec.email.strip().lower(),
-            "full_name": rec.full_name,
-            "roll_number": rec.roll_number.strip().upper(),
-            "exam_id": body.exam_id,
-            "token": token,
-            "status": InviteStatus.SENT,
-            "sent_at": now_ist().isoformat(),
-            "access_code": None,
-            "custom_message": body.custom_message,
-        }
-
-        # Upsert on (teacher_id, email, exam_id) unique constraint
-        (await _atable("student_invites")
-         .upsert(invite_row, on_conflict="teacher_id,email,exam_id")
-         .execute())
-
-        # Send email
-        send_result = send_invite_email(
-            to_email=rec.email,
-            to_name=rec.full_name,
-            exam_title=exam_title,
-            invite_url=invite_url,
-            download_url=download_url,
-            roll_number=rec.roll_number,
-            teacher_name=teacher.get("email"),
-        )
-        if send_result.ok:
-            # Stamp provider_msg_id on the invite
-            (await _atable("student_invites")
-             .update({"provider_msg_id": send_result.provider_msg_id})
-             .eq("teacher_id", tid).eq("email", rec.email.strip().lower())
-             .eq("exam_id", body.exam_id).execute())
-            results["sent"] += 1
-        else:
-            results["failed"] += 1
-
-    return results
-
-
-@router.get("/api/v1/admin/invites")
-@limiter.limit("30/minute")
-async def list_invites(request: Request, exam_id: Optional[str] = None):
-    """List all invites for the authenticated teacher."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    base_url = _get_invite_base_url()
-
-    query = (_atable("student_invites")
-             .select("*")
-             .eq("teacher_id", tid)
-             .order("sent_at", desc=True))
-    if exam_id:
-        query = query.eq("exam_id", exam_id)
-    result = await query.execute()
-
-    invites = []
-    for row in result.data or []:
-        invites.append({
-            "id": row.get("id"),
-            "email": row.get("email"),
-            "full_name": row.get("full_name"),
-            "roll_number": row.get("roll_number"),
-            "exam_id": row.get("exam_id"),
-            "token": row.get("token"),
-            "status": row.get("status"),
-            "invite_url": f"{base_url}/invite/{row.get('token', '')}",
-            "sent_at": row.get("sent_at"),
-            "opened_at": row.get("opened_at"),
-            "bounced_at": row.get("bounced_at"),
-            "provider_msg_id": row.get("provider_msg_id"),
-        })
-    return {"invites": invites, "total": len(invites)}
-
-
-@router.delete("/api/v1/admin/invites/{invite_id}")
-@limiter.limit("20/hour")
-async def revoke_invite(invite_id: str, request: Request):
-    """Revoke a single invite by ID."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-
-    result = (await _atable("student_invites")
-              .select("id,teacher_id,status")
-              .eq("id", invite_id).execute())
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Invite not found")
-    if result.data[0].get("teacher_id") != tid:
-        raise HTTPException(status_code=403, detail="Not your invite")
-
-    (await _atable("student_invites")
-     .update({"status": InviteStatus.REVOKED, "revoked_at": now_ist().isoformat()})
-     .eq("id", invite_id).execute())
-    return {"ok": True, "invite_id": invite_id}
-
-
-# ─── 20. EXAM TEMPLATES ──────────────────────────────────
-
-@router.post("/api/v1/templates")
-@limiter.limit("10/hour")
-async def save_template(request: Request, body: SaveTemplateIn):
-    """Save the current exam config (+ optionally questions) as a reusable template."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-
-    # Verify ownership
-    cfg = await _load_exam_config(tid, exam_id=body.exam_id)
-    if not cfg:
-        raise HTTPException(status_code=404, detail="Exam not found")
-
-    template_data = {
-        "exam_title": cfg.get("exam_title") or cfg.get("title") or "Exam",
-        "duration_minutes": cfg.get("duration_minutes", 60),
-        "access_code": cfg.get("access_code", ""),
-        "shuffle_questions": cfg.get("shuffle_questions", False),
-        "shuffle_options": cfg.get("shuffle_options", False),
-    }
-
-    questions = []
-    if body.include_questions:
-        questions = await _load_questions(tid, exam_id=body.exam_id)
-
-    row = {
-        "teacher_id": tid,
-        "template_name": body.template_name.strip(),
-        "exam_title": template_data["exam_title"],
-        "duration_minutes": template_data["duration_minutes"],
-        "access_code": template_data["access_code"],
-        "shuffle_questions": template_data["shuffle_questions"],
-        "shuffle_options": template_data["shuffle_options"],
-        "questions": questions,
-    }
-    result = (await _atable("exam_templates")
-              .insert(row)
-              .execute())
-    template_id = result.data[0]["id"] if result.data else None
-    return {"ok": True, "template_id": template_id, "questions_count": len(questions)}
-
-
-@router.get("/api/v1/templates")
-@limiter.limit("60/minute")
-async def list_templates(request: Request):
-    """List all templates for the current teacher."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    result = (await _atable("exam_templates")
-              .select("id,template_name,exam_title,duration_minutes,access_code,"
-                      "shuffle_questions,shuffle_options,created_at,questions")
-              .eq("teacher_id", tid)
-              .order("created_at", desc=True)
-              .execute())
-    templates = []
-    for t in (result.data or []):
-        templates.append({
-            "id": t["id"],
-            "template_name": t.get("template_name", ""),
-            "exam_title": t.get("exam_title", ""),
-            "duration_minutes": t.get("duration_minutes", 60),
-            "access_code_required": bool(t.get("access_code", "").strip()),
-            "shuffle_questions": t.get("shuffle_questions", False),
-            "shuffle_options": t.get("shuffle_options", False),
-            "questions_count": len(t.get("questions") or []),
-            "created_at": fmt_ist(t.get("created_at", "")),
-        })
-    return {"templates": templates}
-
-
-@router.post("/api/v1/templates/{template_id}/create-exam")
-@limiter.limit("10/hour")
-async def create_exam_from_template(template_id: str, request: Request):
-    """Create a new exam from a template — copies config + questions."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-
-    t_result = (await _atable("exam_templates")
-                .select("*")
-                .eq("id", template_id)
-                .eq("teacher_id", tid)
-                .execute())
-    if not t_result.data:
-        raise HTTPException(status_code=404, detail="Template not found")
-    tmpl = t_result.data[0]
-
-    # Generate a new exam_id
-    import uuid as _uuid_mod
-    new_exam_id = str(_uuid_mod.uuid4())
-
-    # Create exam_config
-    config_row = {
-        "exam_id": new_exam_id,
-        "teacher_id": tid,
-        "exam_title": tmpl.get("exam_title", "New Exam"),
-        "duration_minutes": tmpl.get("duration_minutes", 60),
-        "access_code": tmpl.get("access_code", ""),
-        "shuffle_questions": tmpl.get("shuffle_questions", False),
-        "shuffle_options": tmpl.get("shuffle_options", False),
-    }
-    (await _atable("exam_config")
-     .insert(config_row)
-     .execute())
-
-    # Copy questions if present
-    questions = tmpl.get("questions") or []
-    if questions:
-        # Re-assign question IDs to avoid collisions
-        for q in questions:
-            q["id"] = str(_uuid_mod.uuid4())
-        (await _atable("questions")
-         .insert(questions)
-         .execute())
-
-    return {
-        "ok": True,
-        "exam_id": new_exam_id,
-        "exam_title": config_row["exam_title"],
-        "questions_copied": len(questions),
-    }
-
-
-@router.delete("/api/v1/templates/{template_id}")
-@limiter.limit("20/hour")
-async def delete_template(template_id: str, request: Request):
-    """Delete a template."""
-    teacher = await require_admin(request)
-    tid = str(teacher["id"])
-
-    result = (await _atable("exam_templates")
-              .delete()
-              .eq("id", template_id)
-              .eq("teacher_id", tid)
-              .execute())
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Template not found")
     return {"ok": True}

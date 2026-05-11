@@ -83,13 +83,6 @@ services:
         max-size: "20m"
         max-file: "3"
 
-  redis:
-        condition: service_started
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   redis:
     image: redis:7-alpine

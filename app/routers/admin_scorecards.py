@@ -47,28 +47,31 @@ async def export_csv(request: Request, exam_id: str = None):
 async def export_excel(request: Request, exam_id: str = None):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
-    from openpyxl.utils import get_column_letter
+    from openpyxl.cell import WriteOnlyCell
 
     teacher = await require_admin(request)
     results = await _fetch_all_results(teacher["id"], exam_id=exam_id)
 
-    wb = Workbook()
-    ws = wb.active
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet()
     safe_eid = "".join(c for c in (exam_id or "all") if c.isalnum() or c in "-_")[:24]
     ws.title = f"Results_{safe_eid}" if safe_eid else "Results"
 
     headers = ["Timestamp", "Session ID", "Roll Number", "Full Name",
                "Email", "Score", "Total", "Percentage", "Time (min)",
                "Violations", "Risk Score", "Risk Label"]
-    ws.append(headers)
 
     hdr_fill = PatternFill("solid", fgColor="1A1A2E")
     hdr_font = Font(bold=True, color="FFFFFF")
-    for col_idx in range(1, len(headers) + 1):
-        c = ws.cell(row=1, column=col_idx)
+    hdr_align = Alignment(horizontal="center", vertical="center")
+    styled_headers = []
+    for h in headers:
+        c = WriteOnlyCell(ws, value=h)
         c.fill = hdr_fill
         c.font = hdr_font
-        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.alignment = hdr_align
+        styled_headers.append(c)
+    ws.append(styled_headers)
 
     risk_fills = {
         "Low":    PatternFill("solid", fgColor="D1FAE5"),
@@ -87,7 +90,7 @@ async def export_excel(request: Request, exam_id: str = None):
             secs = 0
         mins = round(secs / 60, 2) if secs else 0
 
-        ws.append([
+        row = [
             _xlsx_safe(s.get("submitted_at", "")),
             _xlsx_safe(s.get("session_id", "")),
             _xlsx_safe(s.get("roll_number", "")),
@@ -100,25 +103,14 @@ async def export_excel(request: Request, exam_id: str = None):
             s.get("violation_count", 0),
             s.get("risk_score", ""),
             _xlsx_safe(s.get("risk_label", "")),
-        ])
+        ]
         label = s.get("risk_label")
         fill = risk_fills.get(label)
         if fill:
-            ws.cell(row=ws.max_row, column=12).fill = fill
-
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(ws.max_row,1)}"
-
-    for row in range(2, ws.max_row + 1):
-        ws.cell(row=row, column=8).number_format = '0.0"%"'
-        ws.cell(row=row, column=9).number_format = '0.00'
-
-    widths = [0] * len(headers)
-    for row in ws.iter_rows(values_only=True):
-        for i, v in enumerate(row):
-            widths[i] = max(widths[i], min(len(str(v or "")), 40))
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = max(w + 2, 10)
+            cell = WriteOnlyCell(ws, value=row[-1])
+            cell.fill = fill
+            row[-1] = cell
+        ws.append(row)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     try:

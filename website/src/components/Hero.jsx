@@ -53,7 +53,7 @@ export default function Hero() {
               to="/signup"
               className="group flex items-center gap-2 rounded-xl bg-accent-dark px-7 py-3.5 text-sm font-semibold text-white glow-btn no-underline"
             >
-              Request Demo
+              Start Free Trial
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
             </Link>
             <a

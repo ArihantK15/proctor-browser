@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from ..dependencies import (
     require_admin, _atable, _cache, _load_exam_config, _get_access_code, _set_access_code,
     _violation_counts_by_session, generate_session_summary, _risk_label,
-    fmt_ist, now_ist, SessionStatus, limiter,
+    fmt_ist, now_ist, SessionStatus, limiter, check_org_limits,
 )
 from ..models import BulkRegisterIn, AccessCodeIn
 
@@ -217,6 +217,7 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
 async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
+    org_id = teacher.get("org_id")
     students = body.students
     if not students or not isinstance(students, list):
         raise HTTPException(status_code=400, detail="'students' must be a non-empty list")
@@ -237,10 +238,13 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
             "email": email,
             "phone": phone,
             "teacher_id": tid,
+            "org_id": str(org_id) if org_id else None,
         })
 
     if not rows:
         raise HTTPException(status_code=400, detail="No valid students in payload")
+
+    await check_org_limits(teacher, delta=len(rows))
 
     registered = 0
     skipped = 0

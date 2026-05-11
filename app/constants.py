@@ -49,6 +49,15 @@ _CAL_LOOSE_GAZE = 0.50
 _CAL_TIGHT_HEAD = 8.0
 _CAL_LOOSE_HEAD = 30.0
 
+# ─── Plan / billing ──────────────────────────────────────────────
+PLANS = {
+    "starter":    {"students": 30,  "price_inr": 149},
+    "growth":     {"students": 150, "price_inr": 999},
+    "pro":        {"students": 500, "price_inr": 2499},
+    "enterprise": {"students": 999999, "price_inr": 0},
+}
+TRIAL_DAYS = 7
+
 # ─── Risk scoring ─────────────────────────────────────────────────
 _SATURATION_K = 5
 _BASELINE_DURATION_MINS = 30

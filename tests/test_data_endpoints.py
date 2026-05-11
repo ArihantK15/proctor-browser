@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.conftest import shared_supabase_mock,  make_student_token, make_admin_token
 
-TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T"}
+TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T", "org_id": "org-1", "org_role": "admin"}
 
 
 def admin_headers():
@@ -32,7 +32,7 @@ def admin_headers():
 
 
 def admin_patch():
-    return patch("app.dependencies._get_teacher_by_id", return_value=TEACHER)
+    return patch("app.auth.admin_auth._get_teacher_by_id", return_value=TEACHER)
 
 
 # ─── Analyze Frame ────────────────────────────────────────────────────
@@ -275,7 +275,9 @@ class TestBulkRegistration:
             assert "500" in resp.json()["detail"]
 
     def test_skips_invalid_entries(self, client):
-        with admin_patch(), patch.object(shared_supabase_mock(), "table") as mock_table:
+        with admin_patch(), \
+             patch("app.routers.admin_students.check_org_limits", return_value={"max_students": 999}), \
+             patch.object(shared_supabase_mock(), "table") as mock_table:
             mock_table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
             mock_table.return_value.insert.return_value.execute.return_value = MagicMock(data=[{"roll_number": "R001"}])
             resp = client.post("/api/v1/admin/register-students-bulk",

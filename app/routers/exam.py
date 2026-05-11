@@ -81,13 +81,23 @@ async def validate_student(request: Request, body: ValidateIn):
     if is_practice(body.roll_number):
         return _practice_validate_response(roll_upper)
 
-    # Look up student first to get their teacher_id for config loading
-    pre_check = await _atable("students").select("teacher_id").eq("roll_number", roll_upper).execute()
-    pre_tid = pre_check.data[0].get("teacher_id") if pre_check.data else None
-
-    # If not found in students table, check student_invites for config lookup
-    # so we can enforce time windows even before auto-enrollment.
+    # Look up teacher_id scoped by exam_id to prevent cross-tenant roll_number collision.
+    # When exam_id is known, use student_invites to find the owning teacher.
+    pre_tid = None
     pre_exam_id = exam_id
+    if exam_id:
+        inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).eq("exam_id", exam_id).limit(1).execute()
+        if inv_pre.data:
+            pre_tid = inv_pre.data[0].get("teacher_id")
+            pre_exam_id = exam_id
+
+    # If exam_id didn't resolve a teacher, fall back to students table lookup
+    # (backward compatible for legacy flows without exam_id)
+    if pre_tid is None:
+        pre_check = await _atable("students").select("teacher_id").eq("roll_number", roll_upper).execute()
+        pre_tid = pre_check.data[0].get("teacher_id") if pre_check.data else None
+
+    # If still not found, try unscoped student_invites (broadest fallback)
     if pre_tid is None:
         inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).limit(1).execute()
         if inv_pre.data:
@@ -111,8 +121,11 @@ async def validate_student(request: Request, body: ValidateIn):
                 status_code=403,
                 detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
 
-    # Look up student (most common error = wrong roll number)
-    result = await _atable("students").select("*").eq("roll_number", roll_upper).execute()
+    # Look up student scoped by teacher_id to prevent cross-tenant collision
+    result_q = _atable("students").select("*").eq("roll_number", roll_upper)
+    if pre_tid:
+        result_q = result_q.eq("teacher_id", str(pre_tid))
+    result = await result_q.execute()
     if not result.data:
         # Fallback: check if this roll number exists in student_invites.
         # Teachers often send invites without pre-registering students —
@@ -159,7 +172,10 @@ async def validate_student(request: Request, body: ValidateIn):
                         }).eq("id", inv["id"]).execute()
                 else:
                     # Insert succeeded but returned no data — re-query
-                    recheck = await _atable("students").select("*").eq("roll_number", roll_upper).execute()
+                    recheck_q = _atable("students").select("*").eq("roll_number", roll_upper)
+                    if "teacher_id" in student_row:
+                        recheck_q = recheck_q.eq("teacher_id", str(student_row["teacher_id"]))
+                    recheck = await recheck_q.execute()
                     if recheck.data:
                         student = recheck.data[0]
                     else:
@@ -172,7 +188,10 @@ async def validate_student(request: Request, body: ValidateIn):
                 err = str(e).lower()
                 if "duplicate" in err or "unique" in err:
                     # Race condition — another validation created it
-                    recheck = await _atable("students").select("*").eq("roll_number", roll_upper).execute()
+                    recheck_q = _atable("students").select("*").eq("roll_number", roll_upper)
+                    if "teacher_id" in inv:
+                        recheck_q = recheck_q.eq("teacher_id", str(inv["teacher_id"]))
+                    recheck = await recheck_q.execute()
                     if recheck.data:
                         student = recheck.data[0]
                     else:

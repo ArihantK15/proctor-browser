@@ -34,7 +34,7 @@ export default function CTA() {
                 to="/signup"
                 className="group flex items-center gap-2 rounded-xl bg-accent-dark px-8 py-4 text-base font-semibold text-white glow-btn no-underline"
               >
-                Request Demo
+                Start Free Trial
                 <ArrowRight size={18} className="transition-transform group-hover:translate-x-0.5" />
               </Link>
               <a

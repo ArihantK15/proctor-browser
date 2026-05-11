@@ -20,10 +20,18 @@ from pathlib import Path
 from typing import Optional
 
 import uuid as _uuid
-from collections import deque, OrderedDict
+from collections import deque
 
 from fastapi import Request, HTTPException, Body, WebSocket, WebSocketDisconnect
-from jose import jwt, JWTError
+from .auth import (
+    create_token, require_auth, verify_student_token,
+    issue_admin_token, issue_student_auth_token,
+    _check_session_ownership,
+    _get_teacher_by_id, _get_teacher_by_uid,
+    verify_admin_token, require_admin,
+    _get_student_account_by_id, _get_student_account_by_uid,
+    verify_student_auth_token, require_student_account,
+)
 
 from .database import supabase, async_table as _atable
 from .logger import get_logger
@@ -37,9 +45,10 @@ from .constants import (
     _DEFAULT_WEIGHT_HIGH, _DEFAULT_WEIGHT_MED, _CRITICAL_TYPES, INVITE_DAILY_CAP,
     INVITE_URL_TTL, REMINDER_POLL_SECONDS, REMINDER_1H_WINDOW_MIN,
     REMINDER_24H_WINDOW_MIN, CHAT_MAX_TEXT_LEN, CHAT_HISTORY_LIMIT,
-    _TEACHER_CACHE_MAX, _STUDENT_ACCT_CACHE_MAX,
     _CLEAR_TOKEN_TTL,
-    _CLEAR_ACTIVE_WINDOW, _PENDING_VERIFICATION_LIMIT, _PENDING_VERIFICATION_TTL,
+
+    _CLEAR_ACTIVE_WINDOW,
+    PLANS, TRIAL_DAYS,
 )
 
 import os
@@ -53,6 +62,8 @@ from .models import (
     FrameIn, IdVerifyIn,
     TeacherSignupIn, TeacherLoginIn, RefreshIn,
     StudentSignupIn, StudentLoginIn, PasswordResetIn,
+    OrgRole, OrgInviteStatus, SubscriptionStatus, PlanTier,
+    OrgOut, OrgMemberOut, OrgInviteIn, OrgInviteOut, OrgBillingOut, SubscriptionOut,
 )
 from .utils import (
     now_ist, fmt_ist, _xlsx_safe, _safe_filename,
@@ -83,179 +94,54 @@ except Exception as _e:
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 os.makedirs(QUESTION_IMG_DIR, exist_ok=True)
 
-# ─── JWT AUTH HELPERS ─────────────────────────────────────────────
-def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {"roll": roll_number, "exp": now + timedelta(hours=TOKEN_TTL_HOURS), "iat": now}
-    if teacher_id:
-        payload["tid"] = teacher_id
-    if exam_id:
-        payload["eid"] = exam_id
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+# Auth helpers imported from app.auth — see app/auth/
 
-def require_auth(request: Request) -> dict:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
+# ─── Org / plan helpers ─────────────────────────────────────────
+
+async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
+    """Check if the org can accommodate *delta* more students.
+
+    Returns the org dict. Raises 403 if the limit would be exceeded.
+    Super admin bypasses all limits.
+    """
+    if teacher.get("org_role") == "superadmin":
+        return {"max_students": 999999}
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated with this account")
     try:
-        return jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-def verify_student_token(token: str) -> dict:
-    if not token:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        org_result = await _atable("organizations").select("id,name,slug,max_students").eq("id", str(org_id)).single().execute()
+        org = org_result.data if hasattr(org_result, 'data') else org_result[0]
+        if not org or not isinstance(org, dict):
+            raise HTTPException(status_code=404, detail="Organization not found")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Organization not found")
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-    except JWTError as e:
-        msg = str(e).lower()
-        if "expired" in msg:
-            raise HTTPException(status_code=401, detail="Token expired")
-        raise HTTPException(status_code=401, detail="Invalid token")
-    if payload.get("role") != "student_account":
-        raise HTTPException(status_code=403, detail="Student access required")
-    return payload
+        count_result = await _atable("students").select("id", count="exact").eq("org_id", str(org_id)).execute()
+        current_count = count_result.count if hasattr(count_result, 'count') else len(count_result.data or [])
+    except Exception:
+        current_count = 0
+    max_students = int(org.get("max_students", 30))
+    if current_count + delta > max_students:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Student limit reached ({current_count}/{max_students}). Upgrade your plan."
+        )
+    return org
 
-# ─── Teacher lookup cache ─────────────────────────────────────────
-_teacher_cache = OrderedDict()
-_teacher_cache_ttl = {}
-_teacher_cache_lock = threading.Lock()
 
-async def _get_teacher_by_id(teacher_id: str) -> dict | None:
-    if not teacher_id:
-        return None
-    if _cache:
-        cached = _cache.get(f"teacher:{teacher_id}")
-        if cached:
-            return cached
-    else:
-        now = time.time()
-        with _teacher_cache_lock:
-            if teacher_id in _teacher_cache and _teacher_cache_ttl.get(teacher_id, 0) > now:
-                _teacher_cache.move_to_end(teacher_id)
-                return _teacher_cache[teacher_id]
-    result = (await _atable("teachers").select("*").eq("id", str(teacher_id)).execute()).data
-    if not result:
-        return None
-    teacher = result[0]
-    if _cache:
-        _cache.set(f"teacher:{teacher_id}", teacher, ttl=60)
-    else:
-        now = time.time()
-        with _teacher_cache_lock:
-            _teacher_cache[teacher_id] = teacher
-            _teacher_cache.move_to_end(teacher_id)
-            _teacher_cache_ttl[teacher_id] = now + 60
-            while len(_teacher_cache) > _TEACHER_CACHE_MAX:
-                oldest = next(iter(_teacher_cache))
-                _teacher_cache.popitem(last=False)
-                _teacher_cache_ttl.pop(oldest, None)
-    return teacher
-
-async def _get_teacher_by_uid(uid: str) -> dict | None:
-    if not uid:
-        return None
-    result = (await _atable("teachers").select("*").eq("supabase_uid", str(uid)).execute()).data
-    if not result:
-        return None
-    return result[0]
-
-def issue_admin_token(teacher: dict) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {"tid": str(teacher["id"]), "email": teacher.get("email", ""),
-               "role": "teacher", "iat": now, "exp": now + timedelta(hours=ADMIN_TOKEN_TTL_HOURS)}
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
-
-async def verify_admin_token(token: str) -> dict:
-    if not token:
-        raise HTTPException(status_code=401, detail="Authentication required")
+async def get_org_subscription(org_id: str) -> dict | None:
+    """Return subscription for an org, or None."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"],
-                             options={"verify_aud": False, "require": ["exp", "tid"]})
-    except JWTError as e:
-        msg = str(e).lower()
-        if "expired" in msg:
-            raise HTTPException(status_code=401, detail="Token expired")
-        raise HTTPException(status_code=401, detail="Invalid token")
-    if payload.get("role") != "teacher":
-        raise HTTPException(status_code=403, detail="Not a teacher token")
-    tid = payload.get("tid")
-    teacher = await _get_teacher_by_id(tid)
-    if not teacher:
-        raise HTTPException(status_code=403, detail="Teacher account not found")
-    return teacher
-
-async def require_admin(request: Request) -> dict:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return await verify_admin_token(auth[7:])
-
-# ─── Student-account (dashboard) auth ────────────────────────────
-_student_acct_cache = OrderedDict()
-_student_acct_cache_ttl = {}
-_student_acct_cache_lock = threading.Lock()
-
-async def _get_student_account_by_id(account_id: str) -> dict | None:
-    if not account_id:
+        result = await _atable("subscriptions").select("*").eq("org_id", str(org_id)).limit(1).execute()
+        return (result.data or [None])[0]
+    except Exception:
         return None
-    now = time.time()
-    with _student_acct_cache_lock:
-        if account_id in _student_acct_cache and _student_acct_cache_ttl.get(account_id, 0) > now:
-            _student_acct_cache.move_to_end(account_id)
-            return _student_acct_cache[account_id]
-    result = (await _atable("student_accounts").select("*").eq("id", str(account_id)).execute()).data
-    if not result:
-        return None
-    acct = result[0]
-    with _student_acct_cache_lock:
-        _student_acct_cache[account_id] = acct
-        _student_acct_cache.move_to_end(account_id)
-        _student_acct_cache_ttl[account_id] = now + 60
-        while len(_student_acct_cache) > _STUDENT_ACCT_CACHE_MAX:
-            oldest = next(iter(_student_acct_cache))
-            _student_acct_cache.popitem(last=False)
-            _student_acct_cache_ttl.pop(oldest, None)
-    return acct
 
-async def _get_student_account_by_uid(uid: str) -> dict | None:
-    if not uid:
-        return None
-    result = (await _atable("student_accounts").select("*").eq("supabase_uid", str(uid)).execute()).data
-    if not result:
-        return None
-    return result[0]
 
-def issue_student_auth_token(account: dict) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {"sid": str(account["id"]), "email": account.get("email", ""),
-               "role": "student_account", "iat": now, "exp": now + timedelta(hours=STUDENT_AUTH_TTL_HOURS)}
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
-
-async def verify_student_auth_token(token: str) -> dict:
-    if not token:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"],
-                             options={"verify_aud": False, "require": ["exp", "sid"]})
-    except JWTError as e:
-        msg = str(e).lower()
-        if "expired" in msg:
-            raise HTTPException(status_code=401, detail="Token expired")
-        raise HTTPException(status_code=401, detail="Invalid token")
-    if payload.get("role") != "student_account":
-        raise HTTPException(status_code=403, detail="Not a student token")
-    sid = payload.get("sid")
-    account = await _get_student_account_by_id(sid)
-    if not account:
-        raise HTTPException(status_code=403, detail="Student account not found")
-    return account
-
-async def require_student_account(request: Request) -> dict:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return await verify_student_auth_token(auth[7:])
+PLAN_LIMITS = {p: v["students"] for p, v in PLANS.items()}
 
 # ─── RATE LIMITER ─────────────────────────────────────────────────
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -559,25 +445,6 @@ def _get_shuffle_flags(config: dict) -> tuple[bool, bool]:
     if so is None:
         so = True
     return bool(sq), bool(so)
-
-# ─── SESSION OWNERSHIP ────────────────────────────────────────────
-def _check_session_ownership(claims: dict, session_id: str):
-    """Verify the session belongs to the authenticated student.
-
-    Checks roll number prefix. If the session key contains a UUID
-    teacher_id suffix (format: ROLL_<uuid>), also verifies it matches
-    the JWT's tid claim to prevent cross-tenant access.
-    """
-    parts = session_id.rsplit("_", 1)
-    session_roll = parts[0].upper() if parts else ""
-    if claims.get("roll", "").upper() != session_roll:
-        raise HTTPException(status_code=403, detail="Access denied")
-    # If the session key contains a UUID teacher_id suffix, verify it
-    if len(parts) > 1 and re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', parts[1], re.I):
-        session_tid = parts[1]
-        claims_tid = str(claims.get("tid", ""))
-        if session_tid and claims_tid and session_tid != claims_tid:
-            raise HTTPException(status_code=403, detail="Access denied")
 
 async def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
     if not teacher_id:

@@ -60,7 +60,7 @@ export default function Navbar() {
             to="/signup"
             className="rounded-lg bg-accent-dark px-4 py-2 text-sm font-medium text-white glow-btn no-underline"
           >
-            Request Demo
+            Start Free Trial
           </Link>
         </div>
 
@@ -101,7 +101,7 @@ export default function Navbar() {
                 onClick={() => setOpen(false)}
                 className="rounded-lg bg-accent-dark px-3 py-2.5 text-center text-sm font-medium text-white glow-btn no-underline"
               >
-                Request Demo
+                Start Free Trial
               </Link>
             </div>
           </div>

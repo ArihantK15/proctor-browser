@@ -434,14 +434,25 @@ class TestValidateStudent:
 
     def test_unknown_roll_number(self, client):
         """Non-existent roll number should return 404."""
-        with patch.object(shared_supabase_mock(), "table") as mock_table:
-            # First call for teacher_id lookup
-            mock_table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
-            # _load_exam_config returns default
-            with patch("app.routers.exam._load_exam_config", return_value={}):
-                resp = client.post("/api/v1/validate-student",
-                                   json={"roll_number": "UNKNOWN999"})
-                assert resp.status_code == 404
+        class _EmptyChain:
+            """Fluent mock that returns empty data at any chain depth."""
+            async def execute(self):
+                r = MagicMock()
+                r.data = []
+                return r
+            def __getattr__(self, name):
+                if name == 'execute':
+                    return self.execute
+                return self
+            def __call__(self, *a, **kw):
+                return self
+
+        with patch.object(shared_supabase_mock(), "table",
+                          side_effect=lambda name: _EmptyChain()), \
+             patch("app.routers.exam._load_exam_config", return_value={}):
+            resp = client.post("/api/v1/validate-student",
+                               json={"roll_number": "UNKNOWN999"})
+            assert resp.status_code == 404
 
     def test_already_completed(self, client):
         """Student who already submitted should get 403."""
@@ -507,21 +518,21 @@ class TestTeacherSignup:
     def test_weak_password(self, client):
         resp = client.post("/api/v1/auth/signup",
                            json={"email": "x@test.com", "password": "short",
-                                 "full_name": "Test"})
+                                 "full_name": "Test", "org_name": "TestOrg"})
         assert resp.status_code == 400
         assert "8 characters" in resp.json()["detail"]
 
     def test_invalid_email(self, client):
         resp = client.post("/api/v1/auth/signup",
                            json={"email": "notanemail", "password": "longpassword",
-                                 "full_name": "Test"})
+                                 "full_name": "Test", "org_name": "TestOrg"})
         assert resp.status_code == 400
         assert "email" in resp.json()["detail"].lower()
 
     def test_empty_name(self, client):
         resp = client.post("/api/v1/auth/signup",
                            json={"email": "x@test.com", "password": "longpassword",
-                                 "full_name": "  "})
+                                 "full_name": "  ", "org_name": "TestOrg"})
         assert resp.status_code == 400
 
     def test_duplicate_email_detected(self, client):
@@ -531,7 +542,7 @@ class TestTeacherSignup:
                 data=[{"id": "existing"}])
             resp = client.post("/api/v1/auth/signup",
                                json={"email": "dup@test.com", "password": "longpassword",
-                                     "full_name": "Dup"})
+                                     "full_name": "Dup", "org_name": "TestOrg"})
             assert resp.status_code == 409
 
 
@@ -575,7 +586,7 @@ class TestInProcessCaches:
     def test_teacher_cache_grows_unbounded(self):
         """Each unique teacher_id adds an entry that never expires if TTL
         is checked lazily. With enough distinct IDs, memory grows."""
-        from app.dependencies import _teacher_cache, _teacher_cache_ttl
+        from app.auth.admin_auth import _teacher_cache, _teacher_cache_ttl
         initial_size = len(_teacher_cache)
         # The cache has no max size — this is the audit finding
         # We just verify the structure exists and is a plain dict

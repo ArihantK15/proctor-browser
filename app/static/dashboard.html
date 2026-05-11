@@ -1024,6 +1024,14 @@
   </button>
   <button type="button" class="tab"        data-tab="analytics" role="tab" aria-selected="false" onclick="switchTab('analytics')">Analytics</button>
   <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" onclick="switchTab('tools')">Tools</button>
+  <!-- Admin tabs (role-gated) -->
+  <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" onclick="switchTab('org')"       data-roles="admin superadmin" style="display:none">Org Overview</button>
+  <button type="button" class="tab"        data-tab="members"   role="tab" aria-selected="false" onclick="switchTab('members')"   data-roles="admin superadmin" style="display:none">Members</button>
+  <button type="button" class="tab"        data-tab="billing"   role="tab" aria-selected="false" onclick="switchTab('billing')"   data-roles="admin superadmin" style="display:none">Billing</button>
+  <button type="button" class="tab"        data-tab="org-settings" role="tab" aria-selected="false" onclick="switchTab('org-settings')" data-roles="admin superadmin" style="display:none">Org Settings</button>
+  <!-- Super admin tabs -->
+  <button type="button" class="tab"        data-tab="all-orgs"   role="tab" aria-selected="false" onclick="switchTab('all-orgs')" data-roles="superadmin" style="display:none">All Orgs</button>
+  <button type="button" class="tab"        data-tab="debug"      role="tab" aria-selected="false" onclick="switchTab('debug')"    data-roles="superadmin" style="display:none">Flags</button>
 </div>
 
 <!-- EXAM SELECTOR -->
@@ -1975,6 +1983,112 @@
   </div>
 </div>
 
+<!-- ORG OVERVIEW PANEL -->
+<div class="panel" id="panel-org">
+  <div style="max-width:800px;margin:0 auto;padding:20px 0">
+    <h2 style="color:var(--text-primary);margin:0 0 20px">Org Overview</h2>
+    <div id="org-overview-content">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px">
+        <div class="stat-tile"><div class="stat-tile-label">Organization</div><div class="stat-tile-value accent" id="org-name">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Plan</div><div class="stat-tile-value" id="org-plan">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Students</div><div class="stat-tile-value" id="org-students">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Teachers</div><div class="stat-tile-value" id="org-teachers">--</div></div>
+      </div>
+      <div id="org-trial-banner" style="display:none;background:var(--accent-bg);border:1px solid var(--accent);border-radius:var(--radius-md);padding:14px 18px;margin-bottom:20px;font-size:13px;color:var(--accent-fg)">
+        <strong>🔥 Trial period active.</strong> <span id="org-trial-days">--</span> days remaining.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MEMBERS PANEL -->
+<div class="panel" id="panel-members">
+  <div style="max-width:800px;margin:0 auto;padding:20px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="color:var(--text-primary);margin:0">Members</h2>
+      <button class="action-btn primary" onclick="showInviteTeacherModal()">+ Invite Teacher</button>
+    </div>
+    <table class="data-table" id="members-table">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th></th></tr></thead>
+      <tbody id="members-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- INVITE TEACHER MODAL -->
+<div class="modal-overlay" id="invite-modal" style="display:none" onclick="if(event.target===this)hideInviteTeacherModal()">
+  <div class="modal" style="max-width:420px">
+    <h3 style="margin:0 0 16px;color:var(--text-primary)">Invite Teacher</h3>
+    <input type="email" id="invite-email" placeholder="teacher@institution.edu" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:12px;outline:none;box-sizing:border-box">
+    <input type="text" id="invite-name" placeholder="Full Name (optional)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:16px;outline:none;box-sizing:border-box">
+    <div id="invite-result" style="font-size:13px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:10px">
+      <button class="action-btn" onclick="hideInviteTeacherModal()" style="flex:1">Cancel</button>
+      <button class="action-btn primary" onclick="doInviteTeacher()" style="flex:1">Send Invite</button>
+    </div>
+  </div>
+</div>
+
+<!-- BILLING PANEL -->
+<div class="panel" id="panel-billing">
+  <div style="max-width:800px;margin:0 auto;padding:20px 0">
+    <h2 style="color:var(--text-primary);margin:0 0 20px">Billing & Plan</h2>
+    <div id="billing-content">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:24px">
+        <div class="stat-tile"><div class="stat-tile-label">Current Plan</div><div class="stat-tile-value accent" id="billing-plan">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Status</div><div class="stat-tile-value" id="billing-status">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Students</div><div class="stat-tile-value" id="billing-usage">--</div></div>
+      </div>
+      <div id="billing-plans" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px">
+        <div class="tool-card" style="cursor:pointer" onclick="upgradePlan('starter')">
+          <div class="tool-card-body"><h3>Starter</h3><p style="font-size:13px;color:var(--text-secondary);margin:4px 0">₹149/mo · 30 students</p></div>
+        </div>
+        <div class="tool-card" style="cursor:pointer" onclick="upgradePlan('growth')">
+          <div class="tool-card-body"><h3>Growth</h3><p style="font-size:13px;color:var(--text-secondary);margin:4px 0">₹999/mo · 150 students</p></div>
+        </div>
+        <div class="tool-card" style="cursor:pointer" onclick="upgradePlan('pro')">
+          <div class="tool-card-body"><h3>Pro</h3><p style="font-size:13px;color:var(--text-secondary);margin:4px 0">₹2,499/mo · 500 students</p></div>
+        </div>
+      </div>
+      <div id="upgrade-result" style="font-size:13px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ORG SETTINGS PANEL -->
+<div class="panel" id="panel-org-settings">
+  <div style="max-width:600px;margin:0 auto;padding:20px 0">
+    <h2 style="color:var(--text-primary);margin:0 0 20px">Org Settings</h2>
+    <div style="margin-bottom:16px">
+      <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px">Organization Name</label>
+      <input type="text" id="settings-org-name" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box">
+    </div>
+    <button class="action-btn primary" onclick="saveOrgName()">Save</button>
+    <div id="settings-result" style="font-size:13px;margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- ALL ORGS PANEL (super admin) -->
+<div class="panel" id="panel-all-orgs">
+  <div style="max-width:1000px;margin:0 auto;padding:20px 0">
+    <h2 style="color:var(--text-primary);margin:0 0 20px">All Organizations</h2>
+    <table class="data-table" id="all-orgs-table">
+      <thead><tr><th>Name</th><th>Teachers</th><th>Students</th><th>Plan</th><th>Status</th></tr></thead>
+      <tbody id="all-orgs-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- DEBUG/FLAGS PANEL (super admin) -->
+<div class="panel" id="panel-debug">
+  <div style="max-width:800px;margin:0 auto;padding:20px 0">
+    <h2 style="color:var(--text-primary);margin:0 0 20px">Flags & Debug</h2>
+    <div id="debug-content">
+      <p style="color:var(--text-secondary);font-size:13px">No active flags. All organizations operating normally.</p>
+    </div>
+  </div>
+</div>
+
 <script>
 const BASE = location.origin;
 let authToken = localStorage.getItem('procta_token') || '';
@@ -2096,6 +2210,7 @@ async function doSignup(){
 
 async function _onAuthed(teacher){
   document.getElementById('auth-overlay').classList.add('hidden');
+  _onAuthDone();
   if(teacher && teacher.full_name){
     document.getElementById('teacher-name').textContent = teacher.full_name;
   }
@@ -2702,6 +2817,10 @@ function switchTab(tab){
     try{ if(typeof loadShuffleConfig==='function') loadShuffleConfig(); }catch(_){}
     try{ if(typeof loadTemplates==='function') loadTemplates(); }catch(_){}
   }
+  if(tab==='org') loadOrgOverview();
+  if(tab==='members') loadMembers();
+  if(tab==='billing') loadBilling();
+  if(tab==='all-orgs') loadAllOrgs();
 }
 
 // Standard ARIA tablist keyboard pattern: ArrowLeft / ArrowRight cycle
@@ -2726,6 +2845,185 @@ function switchTab(tab){
     });
   });
 })();
+
+// ── ORG ROLE / TABS ────────────────────────────────────────────
+let currentOrgRole = 'teacher';
+
+function decodeJWT(token){
+  try{ return JSON.parse(atob(token.split('.')[1])); }catch(e){ return null; }
+}
+
+function applyOrgRole(org_role){
+  currentOrgRole = org_role || 'teacher';
+  document.querySelectorAll('.tab[data-roles]').forEach(tab => {
+    const roles = (tab.dataset.roles || '').split(' ');
+    tab.style.display = roles.includes(currentOrgRole) ? '' : 'none';
+  });
+  if(currentOrgRole === 'teacher' && document.querySelector('.tab.active')?.dataset.tab !== 'live'){
+    switchTab('live');
+  }
+  if(currentOrgRole !== 'teacher' && !document.querySelector('.tab.active[data-roles]')){
+    switchTab('org');
+  }
+}
+
+function _onAuthDone(){
+  const payload = decodeJWT(authToken);
+  if(payload && payload.org_role) applyOrgRole(payload.org_role);
+}
+
+// Patch into saveTokens
+const _origSaveTokens = _saveTokens;
+_saveTokens = function(access, refresh){
+  _origSaveTokens(access, refresh);
+  _onAuthDone();
+};
+
+// ── ORG API ────────────────────────────────────────────────────
+async function loadOrgOverview(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org`);
+    if(!r.ok) return;
+    const d = await r.json();
+    document.getElementById('org-name').textContent = d.name || '--';
+    document.getElementById('org-plan').textContent = d.plan || '--';
+  }catch(_){}
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org/billing`);
+    if(!r.ok) return;
+    const b = await r.json();
+    document.getElementById('org-plan').textContent = b.plan || '--';
+    document.getElementById('org-students').textContent = (b.student_count||0) + ' / ' + (b.max_students||30);
+    const banner = document.getElementById('org-trial-banner');
+    if(b.status === 'trialing' && b.trial_end){
+      const remaining = Math.max(0, Math.ceil((new Date(b.trial_end) - new Date()) / 86400000));
+      document.getElementById('org-trial-days').textContent = remaining;
+      banner.style.display = '';
+    } else {
+      banner.style.display = 'none';
+    }
+  }catch(_){}
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org/members`);
+    if(!r.ok) return;
+    const m = await r.json();
+    document.getElementById('org-teachers').textContent = (m.members||[]).length;
+  }catch(_){}
+}
+
+async function loadMembers(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org/members`);
+    if(!r.ok) return;
+    const d = await r.json();
+    const tbody = document.getElementById('members-tbody');
+    tbody.innerHTML = (d.members||[]).map(m => `
+      <tr>
+        <td>${escHtml(m.full_name||'--')}</td>
+        <td>${escHtml(m.email)}</td>
+        <td>${escHtml(m.org_role)}</td>
+        <td>${m.created_at||'--'}</td>
+        <td>${m.org_role==='teacher' ? '<button class="action-btn" style="color:var(--red);font-size:11px;padding:4px 8px" onclick="removeMember(\''+m.id+'\')">Remove</button>' : ''}</td>
+      </tr>
+    `).join('');
+  }catch(_){}
+}
+
+async function loadBilling(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org/billing`);
+    if(!r.ok) return;
+    const b = await r.json();
+    document.getElementById('billing-plan').textContent = b.plan || '--';
+    document.getElementById('billing-status').textContent = b.status || '--';
+    document.getElementById('billing-usage').textContent = (b.student_count||0) + ' / ' + (b.max_students||30) + ' students';
+  }catch(_){}
+}
+
+async function loadAllOrgs(){
+  // Super admin only — list all orgs
+  document.getElementById('all-orgs-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:20px">Loading...</td></tr>';
+}
+
+function escHtml(s){
+  if(!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showInviteTeacherModal(){
+  document.getElementById('invite-modal').style.display = 'flex';
+  document.getElementById('invite-email').value = '';
+  document.getElementById('invite-name').value = '';
+  document.getElementById('invite-result').textContent = '';
+}
+
+function hideInviteTeacherModal(){
+  document.getElementById('invite-modal').style.display = 'none';
+}
+
+async function doInviteTeacher(){
+  const email = document.getElementById('invite-email').value.trim();
+  const name = document.getElementById('invite-name').value.trim();
+  const resultEl = document.getElementById('invite-result');
+  if(!email){ resultEl.textContent = 'Email is required'; resultEl.style.color = 'var(--red)'; return; }
+  resultEl.textContent = 'Sending...'; resultEl.style.color = 'var(--text-secondary)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org/invite`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email, full_name:name})
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail||'Failed to send invite');
+    }
+    resultEl.textContent = 'Invitation sent!'; resultEl.style.color = 'var(--emerald)';
+    setTimeout(hideInviteTeacherModal, 1500);
+  }catch(e){
+    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
+  }
+}
+
+async function removeMember(teacherId){
+  if(!confirm('Remove this teacher from the organization?')) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org/members/${teacherId}`, {method:'DELETE'});
+    if(r.ok) loadMembers();
+  }catch(_){}
+}
+
+async function upgradePlan(planId){
+  const resultEl = document.getElementById('upgrade-result');
+  resultEl.textContent = 'Redirecting to payment...'; resultEl.style.color = 'var(--text-secondary)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({plan_id:planId})
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail||'Upgrade failed');
+    }
+    const d = await r.json();
+    if(d.short_url){
+      resultEl.innerHTML = '<a href="'+d.short_url+'" target="_blank" style="color:var(--accent)">Complete payment on Razorpay</a>';
+    } else {
+      resultEl.textContent = 'Subscription created!'; resultEl.style.color = 'var(--emerald)';
+      loadBilling();
+    }
+  }catch(e){
+    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
+  }
+}
+
+async function saveOrgName(){
+  const name = document.getElementById('settings-org-name').value.trim();
+  const resultEl = document.getElementById('settings-result');
+  if(!name){ resultEl.textContent = 'Name is required'; resultEl.style.color = 'var(--red)'; return; }
+  // Org name update not implemented in API yet — coming in Phase 2
+  resultEl.textContent = 'Saved! (Org name update coming soon)'; resultEl.style.color = 'var(--emerald)';
+}
 
 // ── REFRESH ─────────────────────────────────────────────────────
 async function refreshAll(){

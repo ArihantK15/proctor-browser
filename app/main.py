@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
+import os
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -32,7 +33,6 @@ from .dependencies import (
     QUESTION_IMG_DIR,
     STATIC_DIR,
     CORS_ALLOWED_ORIGINS,
-    os,
 )
 
 # ── routers ───────────────────────────────────────────────────────
@@ -44,6 +44,7 @@ from .routers.grading import router as grading_router
 from .routers.public import router as public_router
 from .routers.sse import router as sse_router
 from .routers.chat import router as chat_router
+from .routers.billing import router as billing_router
 
 # ── structured logger ─────────────────────────────────────────────
 logger = logging.getLogger("proctor.api")
@@ -348,6 +349,7 @@ app.include_router(grading_router)
 app.include_router(public_router)
 app.include_router(sse_router)
 app.include_router(chat_router)
+app.include_router(billing_router)
 
 # ── startup tasks ─────────────────────────────────────────────────
 @app.on_event("startup")
@@ -405,7 +407,7 @@ async def _on_shutdown():
             log.info("[shutdown] Cancelled reminder task")
 
     # Clear in-memory caches
-    from .dependencies import _teacher_cache, _student_acct_cache
+    from .auth.admin_auth import _teacher_cache, _student_acct_cache
     _teacher_cache.clear()
     _student_acct_cache.clear()
     log.info("[shutdown] Cleared in-memory caches")

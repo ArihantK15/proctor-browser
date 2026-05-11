@@ -297,6 +297,80 @@ def send_demo_request_notification(
         return SendResult(ok=False, error=str(e))
 
 
+def send_org_invite_email(
+    *,
+    to_email: str,
+    invite_url: str,
+    org_name: str,
+    invited_by_name: str = "Your admin",
+) -> SendResult:
+    """Send an org invitation email to a teacher being invited to join an org."""
+    subject = f"You've been invited to join {org_name} on Procta"
+    text = f"""\
+Hi there,
+
+{invited_by_name} has invited you to join {org_name} on Procta.
+
+Click the link below to accept the invitation and create your account:
+
+{invite_url}
+
+If you didn't expect this invitation, you can safely ignore this email.
+
+— Procta
+"""
+    html = f"""\
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Invitation to {_esc(org_name)} — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
+             style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;">
+        <tr><td style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);padding:28px 32px;">
+          <div style="color:#ffffff;font-size:12px;letter-spacing:2px;font-weight:600;opacity:.9;">PROCTA</div>
+          <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:6px;">You're invited to join {_esc(org_name)}</div>
+        </td></tr>
+        <tr><td style="padding:32px;color:#0f172a;">
+          <p style="margin:0 0 16px 0;font-size:16px;">Hi there,</p>
+          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.55;color:#334155;">
+            <b>{_esc(invited_by_name)}</b> has invited you to join
+            <b>{_esc(org_name)}</b> on Procta.
+          </p>
+          <div style="margin:24px 0;">
+            <a href="{_esc(invite_url)}"
+               style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;
+                      padding:12px 24px;border-radius:8px;font-weight:600;font-size:15px;">
+              Accept invitation
+            </a>
+          </div>
+          <p style="margin:20px 0 0 0;color:#94a3b8;font-size:12px;">
+            If you weren't expecting this email, you can safely ignore it.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
+          Procta — proctored exams, made simple.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+    try:
+        backend = _pick_backend()
+        return backend.send(
+            to_email=to_email,
+            to_name="",
+            subject=subject,
+            html=html,
+            text=text,
+        )
+    except Exception as e:
+        log.exception("send_org_invite_email failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
 def send_new_account_notification(
     *,
     account_type: str,

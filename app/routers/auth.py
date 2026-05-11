@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
 import json
 import logging
+import re
 _auth_log = logging.getLogger("auth")
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
@@ -26,7 +28,9 @@ from ..dependencies import (
     fmt_ist,
     now_ist,
     SessionStatus,
+    PLANS, TRIAL_DAYS,
 )
+from ..utils import _html_escape as _esc
 from ..jobs import enqueue_job, send_new_account_notification_job
 
 logger = logging.getLogger(__name__)
@@ -34,26 +38,42 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="")
 
 
+def _slugify(text: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower().strip())
+    return s.strip("-") or "org"
+
+
 @router.post("/api/v1/auth/signup")
 @limiter.limit("5/hour")
 async def teacher_signup(body: TeacherSignupIn, request: Request):
-    """Create a new teacher account via Supabase Auth."""
+    """Create a new teacher account with org and trial subscription."""
     email = body.email.strip().lower()
     name = body.full_name.strip()
+    org_name = (body.org_name or "").strip()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
     if not name:
         raise HTTPException(status_code=400, detail="Full name is required")
+    if not org_name:
+        raise HTTPException(status_code=400, detail="Organization name is required")
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
-    # Check if teacher already exists in our table
+    # Check if teacher already exists
     existing = await _atable("teachers").select("id").eq("email", email).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
+    # Check if org slug already exists
+    slug = _slugify(org_name)
+    org_exists = await _atable("organizations").select("id,name").eq("slug", slug).execute()
+    if org_exists.data:
+        raise HTTPException(
+            status_code=409,
+            detail=f"'{org_name}' is already registered. Ask your admin for an invite."
+        )
+
     try:
-        # Create Supabase Auth user (email_confirm=True skips verification for v1)
         auth_resp = supabase.auth.admin.create_user({
             "email": email,
             "password": body.password,
@@ -67,27 +87,37 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         _auth_log.error("[TeacherSignup] Supabase Auth error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create account")
 
-    # Insert teacher record — if this fails, roll back the Auth user
-    teacher_row = {
-        "email": email,
-        "full_name": name,
-        "supabase_uid": str(supabase_uid),
-    }
+    # Create org, subscription, teacher — transactional rollback
     try:
-        result = await _atable("teachers").insert(teacher_row).execute()
-        teacher = result.data[0]
-    except Exception as e:
-        _auth_log.error("[TeacherSignup] DB insert error: %s", e)
-        # Roll back: delete the orphaned Supabase Auth user
-        try:
-            supabase.auth.admin.delete_user(str(supabase_uid))
-            _auth_log.info("[TeacherSignup] Rolled back Auth user %s", supabase_uid)
-        except Exception as rollback_err:
-            _auth_log.critical("[TeacherSignup] Failed to rollback Auth user %s: %s", supabase_uid, rollback_err)
-        raise HTTPException(status_code=500, detail="Failed to create teacher record")
+        # Create org
+        org_result = await _atable("organizations").insert({
+            "name": org_name,
+            "slug": slug,
+            "max_students": PLANS["starter"]["students"],
+        }).execute()
+        org = org_result.data[0]
+        org_id = org["id"]
 
-    # Create default exam_config for this teacher
-    try:
+        # Create trial subscription
+        trial_end = (datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)).isoformat()
+        await _atable("subscriptions").insert({
+            "org_id": str(org_id),
+            "plan": "starter",
+            "status": "trialing",
+            "trial_end": trial_end,
+        }).execute()
+
+        # Create teacher with org context
+        teacher_result = await _atable("teachers").insert({
+            "email": email,
+            "full_name": name,
+            "supabase_uid": str(supabase_uid),
+            "org_id": str(org_id),
+            "org_role": "admin",
+        }).execute()
+        teacher = teacher_result.data[0]
+
+        # Create default exam_config
         await _atable("exam_config").insert({
             "exam_id": str(_uuid.uuid4()),
             "teacher_id": teacher["id"],
@@ -95,13 +125,16 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "duration_minutes": 60,
         }).execute()
     except Exception as e:
-        logger.debug("Default exam_config creation failed: %s", e)  # Non-fatal
+        _auth_log.error("[TeacherSignup] DB error: %s", e)
+        try:
+            supabase.auth.admin.delete_user(str(supabase_uid))
+        except Exception as rollback_err:
+            _auth_log.critical("[TeacherSignup] Rollback failed: %s", rollback_err)
+        raise HTTPException(status_code=500, detail="Failed to create account")
 
-    # Auto-login after signup so the teacher goes straight to dashboard
     access_token = issue_admin_token(teacher)
-    _auth_log.info("[TeacherSignup] %s <%s> created", name, email)
+    _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", name, email, org_name)
 
-    # Notify super admin (fire-and-forget — never blocks response).
     enqueue_job(send_new_account_notification_job,
                 account_type="teacher", name=name, email=email)
 
@@ -109,6 +142,9 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         "teacher_id":    teacher["id"],
         "email":         email,
         "full_name":     name,
+        "org_id":        str(org_id),
+        "org_name":      org_name,
+        "org_role":      "admin",
         "access_token":  access_token,
     }
 
@@ -196,6 +232,181 @@ async def teacher_password_reset(body: PasswordResetIn, request: Request):
         _auth_log.warning("[PasswordReset] Error for %s: %s", email, e)
         # Don't reveal whether the email exists or not
     return {"status": "ok", "message": "If that email is registered, a reset link has been sent."}
+
+
+# ─── ORG INVITE ACCEPTANCE ───────────────────────────────────────
+
+_INVITE_PAGE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Accept Invitation — Procta</title>
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+        background:#0f172a; display:flex; align-items:center; justify-content:center;
+        min-height:100vh; color:#0f172a; }
+  .card{ background:#fff; border-radius:16px; padding:40px; max-width:440px; width:90%; }
+  h1{ font-size:22px; font-weight:700; margin-bottom:8px; }
+  p{ color:#475569; font-size:14px; line-height:1.5; margin-bottom:24px; }
+  .field{ margin-bottom:16px; }
+  label{ display:block; font-size:13px; font-weight:600; color:#334155; margin-bottom:4px; }
+  input{ width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px;
+         font-size:15px; outline:none; transition:border-color .15s; }
+  input:focus{ border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,.15); }
+  button{ width:100%; padding:12px; background:#3b82f6; color:#fff; border:none;
+          border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; }
+  button:hover{ background:#2563eb; }
+  .error{ background:#fef2f2; color:#991b1b; padding:12px; border-radius:8px;
+          font-size:13px; margin-bottom:16px; display:none; }
+  .org-badge{ background:#f1f5f9; border-radius:8px; padding:12px; margin-bottom:24px;
+              font-size:14px; text-align:center; color:#334155; }
+</style></head>
+<body>
+<div class="card">
+  <h1>Join {org_name}</h1>
+  <div class="org-badge">You've been invited to <strong>{org_name}</strong></div>
+  <div class="error" id="error"></div>
+  <form id="acceptForm">
+    <div class="field">
+      <label for="full_name">Full name</label>
+      <input type="text" id="full_name" name="full_name" required placeholder="Your full name">
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required minlength="8" placeholder="At least 8 characters">
+    </div>
+    <button type="submit">Accept &amp; Join</button>
+  </form>
+  <p style="margin-top:16px;font-size:12px;color:#94a3b8;text-align:center;">
+    Already have an account? <a href="https://app.procta.net/dashboard" style="color:#3b82f6;">Go to dashboard</a>
+  </p>
+</div>
+<script>
+document.getElementById('acceptForm').addEventListener('submit', async function(e){
+  e.preventDefault();
+  const errEl = document.getElementById('error');
+  errEl.style.display = 'none';
+  const full_name = document.getElementById('full_name').value.trim();
+  const password = document.getElementById('password').value;
+  if (!full_name) { errEl.textContent='Name is required'; errEl.style.display='block'; return; }
+  if (password.length < 8) { errEl.textContent='Password must be at least 8 characters'; errEl.style.display='block'; return; }
+  try {
+    const r = await fetch('/api/v1/auth/accept-org-invite', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:'{token}',full_name,password})
+    });
+    if (!r.ok) { const d=await r.json(); errEl.textContent=d.detail||'Failed to accept invite'; errEl.style.display='block'; return; }
+    window.location.href = 'https://app.procta.net/dashboard';
+  } catch(e) { errEl.textContent='Network error'; errEl.style.display='block'; }
+});
+</script>
+</body>
+</html>
+"""
+
+
+@router.get("/org-invite/{token}")
+async def get_org_invite_page(token: str, request: Request):
+    """Serve the org invite acceptance page."""
+    result = await _atable("org_invites").select("id,org_id,email,full_name,status,expires_at").eq("token", token).limit(1).execute()
+    if not result.data:
+        return HTMLResponse("<h1>Invalid or expired invitation link</h1>", status_code=404)
+    invite = result.data[0]
+    if invite["status"] != "pending":
+        return HTMLResponse("<h1>This invitation has already been used</h1>", status_code=410)
+    if invite.get("expires_at"):
+        try:
+            expires = datetime.fromisoformat(str(invite["expires_at"]).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > expires:
+                return HTMLResponse("<h1>This invitation has expired</h1>", status_code=410)
+        except Exception:
+            pass
+    org_result = await _atable("organizations").select("name").eq("id", str(invite["org_id"])).limit(1).execute()
+    org_name = org_result.data[0]["name"] if org_result.data else "an organization"
+    page = _INVITE_PAGE.replace("{org_name}", _esc(org_name)).replace("{token}", token)
+    return HTMLResponse(page)
+
+
+@router.post("/api/v1/auth/accept-org-invite")
+@limiter.limit("5/hour")
+async def accept_org_invite(body: dict, request: Request):
+    """Accept an org invite: create teacher account and join org."""
+    token = (body.get("token") or "").strip()
+    full_name = (body.get("full_name") or "").strip()
+    password = (body.get("password") or "").strip()
+
+    if not token:
+        raise HTTPException(status_code=400, detail="Invalid token")
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Full name is required")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    result = await _atable("org_invites").select("*").eq("token", token).eq("status", "pending").limit(1).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Invalid or expired invitation")
+    invite = result.data[0]
+
+    if invite.get("expires_at"):
+        try:
+            expires = datetime.fromisoformat(str(invite["expires_at"]).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > expires:
+                raise HTTPException(status_code=410, detail="Invitation has expired")
+        except Exception:
+            pass
+
+    email = invite["email"].strip().lower()
+    org_id = str(invite["org_id"])
+
+    # Check if teacher already exists
+    existing = await _atable("teachers").select("id").eq("email", email).execute()
+    if existing.data:
+        teacher = existing.data[0]
+        if teacher.get("org_id"):
+            raise HTTPException(status_code=409, detail="This email is already part of an organization")
+        await _atable("teachers").update({"org_id": org_id, "org_role": "teacher"}).eq("id", teacher["id"]).execute()
+        teacher["org_id"] = org_id
+        teacher["org_role"] = "teacher"
+    else:
+        try:
+            auth_resp = supabase.auth.admin.create_user({
+                "email": email,
+                "password": password,
+                "email_confirm": True,
+            })
+            supabase_uid = auth_resp.user.id
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "already registered" in err_msg or "duplicate" in err_msg:
+                raise HTTPException(status_code=409, detail="An account with this email already exists")
+            _auth_log.error("[AcceptInvite] Supabase Auth error: %s", e)
+            raise HTTPException(status_code=500, detail="Failed to create account")
+
+        teacher_result = await _atable("teachers").insert({
+            "email": email,
+            "full_name": full_name,
+            "supabase_uid": str(supabase_uid),
+            "org_id": org_id,
+            "org_role": "teacher",
+        }).execute()
+        teacher = teacher_result.data[0]
+
+    await _atable("org_invites").update({"status": "accepted", "accepted_at": now_ist().isoformat()}).eq("id", invite["id"]).execute()
+
+    access_token = issue_admin_token(teacher)
+    _auth_log.info("[AcceptInvite] %s <%s> joined org %s", full_name, email, org_id)
+    enqueue_job(send_new_account_notification_job, account_type="teacher", name=full_name, email=email)
+
+    return {
+        "access_token": access_token,
+        "teacher_id": teacher["id"],
+        "email": email,
+        "full_name": full_name,
+        "org_id": org_id,
+        "org_role": "teacher",
+    }
 
 
 # ─── STUDENT DASHBOARD AUTH ──────────────────────────────────────

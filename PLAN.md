@@ -1,79 +1,157 @@
 # Procta — Architecture & Engineering Roadmap
 
-> CTO-level analysis of the current state and phased plan to scale.
+> Updated 2026-05-12. Covers Phases 0–4 and all hardening sprints.
 
 ---
 
-## Architecture Audit
+## Current Architecture
 
-**Current state at a glance:**
+| Layer | Modules | Notes |
+|-------|---------|-------|
+| **Routers** (`app/routers/`) | 22 files | admin, exam, auth, billing, chat, grading, lti, public, question_bank, sse, + domain routers |
+| **Services** (`app/services/`) | 13 files | billing, calibration, chat, i18n, invite_landing, practice, release, risk, scorecard, scoring, sessions |
+| **Repositories** (`app/repositories/`) | 3 files | questions, sessions, (more as needed) |
+| **Models** (`app/models/`) | 9 files | Pydantic schemas for billing, exam, groups, invites, lti, org, student, teacher |
+| **Auth** (`app/auth/`) | 3 files | JWT tokens (AuthCtx, require_auth, extract_auth), admin/student auth |
+| **Jobs** (`app/jobs/`) | 2 files | email_jobs, helpers (Redis RQ background workers) |
+| **LTI 1.3** (`app/lti/`) | 7 files | AGS, Deep Linking, NRPS, key mgmt, launch, registration |
+| **Static** (`app/static/`) | 14 files | HTML surfaces, CSS design system, JS helpers |
+| **Electron** (`renderer/`) | 1 file | index.html (kiosk exam window) |
 
-| Metric | Value | Verdict |
-|--------|-------|---------|
-| `app/dependencies.py` | 193 lines | Thin orchestrator — models/auth/services extracted |
-| `app/routers/` | 22 domain files | Split from monolithic admin.py into per-domain routers |
-| `app/services/` | 12 modules | Service layer extracted (chat, scorecard, risk, billing, etc.) |
-| `app/models/` | 10 modules | Pydantic models extracted |
-| `app/repositories/` | 5 modules | Data access layer extracted |
-| `app/auth/` | 5 modules | Auth helpers extracted |
-| Background jobs | Redis RQ in `app/jobs/` | Async job queue with retries, separate worker container |
-| Email notifications | `app/emailer.py` with RQ | Async via job queue, EMAIL_PROVIDER=noop for tests |
-
----
-
-## Phased Roadmap
-
-### Phase 0 — Foundation ✅ (months 1-2)
-**Unlocks everything else. No new features, just structural debt paydown.**
-
-1. ~~Fix `log` bug in emailer.py~~ ✅ (committed)
-2. ~~Extract service layer from `dependencies.py` (2091 → 193 lines)~~ ✅
-3. ~~Extract service layer from `admin.py` (3264 → 22 domain routers)~~ ✅
-4. ~~Background job system (Redis RQ + worker container)~~ ✅
-5. ~~Fix test infrastructure (`EMAIL_PROVIDER=noop`, conftest helpers)~~ ✅
-
-### Phase 1 — Self-Service & Revenue (months 3-4)
-**Unlocks the business model directly.**
-
-6. Organization/tenant model
-7. Stripe billing
-8. Convert demo-request gate to free trial
-
-### Phase 2 — Institutional Sales (months 4-6)
-**#1 procurement requirement for universities.**
-
-9. LTI 1.3 integration (Canvas, Moodle, Blackboard)
-10. Public REST API with developer portal
-
-### Phase 3 — Scale & Polish (months 6-9)
-11. Observability (structured logging, tracing, dashboards)
-12. Live proctoring dashboard
-
-### Phase 4 — MOAT (months 9-12)
-13. PWA for students (mobile exam-taking)
-14. AI audit trail with bulk review UI
+**Key metrics:**
+- `app/main.py`: ~420 lines (down from 7,642)
+- `app/dependencies.py`: ~193 lines (down from 2,091) — pure re-export hub
+- Test suite: 474 passing, 21 skipped across 20 test files
+- Design system: 3 themes (dark/OLED/light), 155 component classes, Periwinkle Blue accent
 
 ---
 
-## Phase 0 — Completed (commit `b24fea1`)
+## Phase 0 — Foundation ✅
 
-All five Steps were shipped in a single refactor pass (2026-05-11):
+*Shipped 2026-05-11 (`b24fea1`)*
 
-- **Step 2:** `dependencies.py` went from 2091 → 193 lines. Auth helpers moved to `app/auth/`, models to `app/models/`, business logic to `app/services/`, data access to `app/repositories/`, utilities to `app/utils/`.
-- **Step 3:** `admin.py` split into 22 domain-specific router files under `app/routers/` (admin_exams, admin_students, admin_invites, admin_scorecards, etc.). `app/main.py` is now a thin 420-line orchestrator.
-- **Step 4:** Redis RQ background job system with `app/jobs/` (email_jobs, helpers) and a separate `worker` container in docker-compose.
-- **Step 5:** Test infrastructure fixed — `EMAIL_PROVIDER=noop` env var, conftest helpers (`make_admin_token`, `shared_supabase_mock`), tests use `SendResult` return values instead of mocking the emailer.
+1. **`dependencies.py` split** — 2,091 → 193 lines. Auth → `app/auth/`, models → `app/models/`, business logic → `app/services/`, data access → `app/repositories/`, utilities → `app/utils/`.
+2. **`admin.py` split** — 3,264 lines → 22 domain routers under `app/routers/`.
+3. **Background jobs** — Redis RQ queue with `app/jobs/` and separate worker container. Scorecard email bulk-send migrated.
+4. **Test infrastructure** — `EMAIL_PROVIDER=noop`, conftest helpers, shared Supabase mock.
 
 ---
 
-## What I'd do differently (if starting from scratch)
+## Phase 1 — Self-Service & Revenue
 
-| Current approach | What I'd change | Why |
-|---|---|---|
-| ~~`dependencies.py` (2k lines)~~ | ✅ Extracted to `app/models/`, `app/auth/`, `app/repositories/` | — |
-| ~~`admin.py` (3.2k lines)~~ | ✅ Split into 22 domain routers | — |
-| ~~Sync email in async handler~~ | ✅ Migrated to Redis RQ job queue | — |
-| `_atable("table")` everywhere | Typed repository layer | Tests become trivial, provider swaps possible |
-| Raw SQL migration files | Alembic | Schema versioning, rollbacks, auto-generation |
-| Single flat teacher model | Org → Admin → Teacher hierarchy | Cannot sell to universities without this |
-| No feature flags | Simple env-var flag system | Canary releases with friendly schools |
+*Shipped 2026-05-12 (`64cd7a9`)*
+
+5. **Org/tenant model** — organizations table, org_id propagation, per-org billing plans (free/pro/enterprise). Org Overview, Members, and Billing panels on dashboard.
+6. **Billing stubs** — `app/routers/billing.py`, `app/services/billing.py`, `app/models/billing.py`. Plan gating (free trial, pro, enterprise). Stripe integration endpoints defined, actual Stripe SDK wiring deferred.
+7. **Free trial gate** — 14-day trial with countdown banner on Org Overview panel.
+
+**Remaining:**
+- Wire Stripe checkout/portal/webhooks
+- Usage tracking + plan enforcement
+- Invoice history
+
+---
+
+## Phase 2 — Hardening & Design System ⚡
+
+*Shipped across 4 commits (`50e9c7a`, `79048a7`, `82ee2a1`, and prior)*
+
+### 2.0 Structural Hardening
+
+52 deferred items from TODO.md §2 and §2.A audited and fixed:
+
+| Category | Items completed |
+|----------|----------------|
+| Race conditions | Scorecard claim on hard-kill, sessionId orphan recovery, validate-student TOCTOU |
+| Performance | ChatHub socket cap + idle eviction, async Supabase hot paths, 2 uvicorn workers |
+| Security | Caddy HSTS/X-Frame-Options, filesystem path traversal guards, cross-tenant roll_number isolation |
+| Code quality | `except Exception` audit, naive datetime → aware, Status → StrEnum, `AuthCtx` typed auth |
+| UX | Focus-traps on modals, WCAG AA contrast fix, spinner/disabled on slow exports, mobile breakpoints |
+| Infra | Backup story (restic + cron), disk-fill prevention (screenshot retention), dependency pins |
+
+### 2.1 Codebase Refactoring (this sprint)
+
+- **Escape helpers** — consolidated `chatEscape`/`chatJsEscape` into `_safe.js`, removed inline duplicates
+- **CSS extraction** — ~900 lines moved from dashboard.html → `dashboard.css`
+- **Long functions split** — `_build_scorecard_pdf` (201→70 LOC), `_render_invite_landing` (166→50 LOC), `export_pdf` (284→120 LOC)
+- **Cross-tenant isolation** — `validate_student` chains through invite access_code token; all queries scoped by teacher_id + exam_id
+- **Naming normalization** — `safe_tid`→`safe_teacher_id`, `AuthCtx` dataclass, `extract_auth()` helper
+- **i18n infrastructure** — `app/services/i18n.py` + `app/static/_i18n.js` with `t()` helpers and ~40 string keys
+
+### 2.2 Visual Redesign (§1.6 — 16 surfaces ported)
+
+The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is live across all surfaces:
+
+| Surface | Status | Notes |
+|---------|--------|-------|
+| Live Sessions | ✅ | stats-bar, table-toolbar, severity row accents |
+| Analytics | ✅ | stat-chip strip, 2-col ax-card grid, histogram |
+| Results | ✅ | stat-tile strip, table-toolbar with risk filter |
+| Tools | ✅ | tool-card design system cards |
+| Questions | ✅ | 3-column shell (sidebar | content | AI/Bank) |
+| History | ✅ | stats-bar + table-toolbar, detail drill-down |
+| Org Overview | ✅ | stat-tile strip, trial banner |
+| Chat | ✅ | btn classes, broadcast modal design tokens |
+| Members | ✅ | stats-bar + table-toolbar + design token table |
+| All Orgs | ✅ | stats-bar + table-toolbar + design token table |
+| Org Settings | ✅ | card wrapper, input class, btn-primary |
+| Billing | ✅ | stat-tile top, tool-card plans |
+| Student Lobby | ✅ | exam cards with card chrome |
+| Marketing Landing | ✅ | full vanilla HTML port (hero, features, pricing) |
+| Renderer (Electron) | ✅ | accent recolor (emerald→periwinkle), tokens embedded inline |
+| Calibration | ✅ | concentric-ring dots, calmer pulse |
+
+**Design system assets:** `tokens.css`, `components.css`, `theme.css`, `logo.svg`, `dashboard.css`
+
+---
+
+## Phase 3 — Institutional Sales
+
+*LTI code shipped, API/portal deferred*
+
+8. **LTI 1.3 integration** — `app/lti/` implements AGS (grade passback), Deep Linking (content selection), NRPS (roster sync), key management, OIDC launch, and dynamic registration. Canvas/Moodle/Blackboard compatible. Router at `app/routers/lti.py`.
+9. **Public REST API** — not started. Developer portal + API keys deferred.
+
+---
+
+## Phase 4 — Scale & Polish
+
+*Not started*
+
+10. **Observability** — structured logging, distributed tracing, dashboards.
+11. **Live proctoring** — multi-camera, screen mirror, audio monitoring.
+
+---
+
+## Phase 5 — MOAT
+
+*Not started*
+
+12. **Mobile PWA** — exam-taking on phones (BYOD). React Native or Flutter.
+13. **AI audit trail** — bulk review UI for AI-suggested grades.
+
+---
+
+## What's Left (Priority Order)
+
+| Priority | Item | Effort |
+|----------|------|--------|
+| **High** | Wire Stripe checkout/portal/webhooks (Phase 1) | 1-2 weeks |
+| **High** | `action-btn` → `.btn` class migration (remaining toolbar buttons) | 1 day |
+| **Medium** | Public REST API + developer portal (Phase 3) | 2-4 weeks |
+| **Medium** | Alembic migrations (replace raw SQL) | 1 week |
+| **Medium** | Typed repository layer (replace `_atable("table")` pattern) | 2 weeks |
+| **Low** | Caddy /login rate-limiting | 1 day |
+| **Low** | macOS/Windows code signing (EV cert) | 1 week |
+| **Backlog** | Mobile app (Phase 5) | 2-3 months |
+| **Backlog** | Observability (Phase 4) | 1 month |
+
+---
+
+## Notes
+
+- Redis with Append-Only File persistence is the only stateful service. RQ workers process email jobs.
+- Caddy reverse-proxies HTTPS with auto-renewing Let's Encrypt certificates.
+- Screenshots auto-delete after 90 days (configurable via `SCREENSHOT_RETENTION_DAYS`).
+- All HTML surfaces load the design token system; 16 of 16 panels on Phase 2 layout.
+- Test suite: 474 passed, 21 skipped, 0 failures. Runs in ~11s.

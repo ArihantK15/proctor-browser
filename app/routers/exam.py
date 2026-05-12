@@ -870,10 +870,10 @@ async def analyze_frame(data: FrameIn, request: Request):
     raw_roll = data.session_id.rsplit("_", 1)[0] if "_" in data.session_id \
                else data.session_id[:20]
     roll = "".join(c if c.isalnum() or c in "_-" else "_" for c in raw_roll)[:40]
-    safe_tid = "".join(c if c.isalnum() or c in "_-" else "_" for c in (tid or ""))[:40]
+    safe_teacher_id = "".join(c if c.isalnum() or c in "_-" else "_" for c in (tid or ""))[:40]
 
-    if safe_tid:
-        student_dir = os.path.join(SCREENSHOTS_DIR, safe_tid, roll)
+    if safe_teacher_id:
+        student_dir = os.path.join(SCREENSHOTS_DIR, safe_teacher_id, roll)
     else:
         student_dir = os.path.join(SCREENSHOTS_DIR, roll)
 
@@ -923,10 +923,10 @@ async def id_verification(data: IdVerifyIn, request: Request):
     # Sanitize roll for filesystem safety
     raw_roll = data.roll_number.strip().upper() or "UNKNOWN"
     roll = "".join(c if c.isalnum() or c in "_-" else "_" for c in raw_roll)[:40]
-    safe_tid = "".join(c if c.isalnum() or c in "_-" else "_" for c in (tid or ""))[:40]
+    safe_teacher_id = "".join(c if c.isalnum() or c in "_-" else "_" for c in (tid or ""))[:40]
 
-    if safe_tid:
-        student_dir = os.path.join(SCREENSHOTS_DIR, safe_tid, roll)
+    if safe_teacher_id:
+        student_dir = os.path.join(SCREENSHOTS_DIR, safe_teacher_id, roll)
     else:
         student_dir = os.path.join(SCREENSHOTS_DIR, roll)
 

@@ -639,7 +639,7 @@
             <div class="chat-roster-title">Active Students</div>
             <div class="chat-roster-sub" id="chat-roster-sub">Not connected</div>
           </div>
-          <button class="action-btn" onclick="openBroadcastModal()" title="Send a message to every online student">Broadcast</button>
+          <button class="btn btn-ghost btn-sm" onclick="openBroadcastModal()" title="Send a message to every online student">Broadcast</button>
         </div>
         <div class="chat-roster-body" id="chat-roster-body">
           <div class="chat-empty">No students online yet.</div>
@@ -655,27 +655,26 @@
         </div>
         <form class="chat-composer" id="chat-composer" onsubmit="return sendTeacherMsg(event)">
           <textarea id="chat-input" placeholder="Type a reply&hellip; (Enter to send, Shift+Enter for newline)" rows="2" disabled></textarea>
-          <button type="submit" class="action-btn primary" id="chat-send" disabled>Send</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="chat-send" disabled>Send</button>
         </form>
       </section>
     </div>
   </div>
 
-  <!-- BROADCAST MODAL -->
+  <!-- BROADCAST MODAL (Phase 2 design) -->
   <div class="modal-bg" id="broadcast-modal" onclick="if(event.target===this)closeBroadcastModal()">
-    <div class="modal" style="width:480px">
+    <div class="modal" style="width:480px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-xl)">
       <button class="close" onclick="closeBroadcastModal()">&times;</button>
-      <h3>Broadcast to all students</h3>
-      <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
+      <h3 style="margin:0 0 8px;color:var(--text-high);font-family:var(--font-display);font-weight:600">Broadcast to all students</h3>
+      <p style="color:var(--text-muted);font-size:var(--text-sm,13px);margin-bottom:16px;line-height:1.5">
         This message will be delivered to every student currently online under your exam.
       </p>
       <textarea id="broadcast-text" rows="4" placeholder="Type your broadcast&hellip;"
-        style="width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);
-               border-radius:8px;padding:10px;color:var(--text);font:inherit;resize:vertical"></textarea>
-      <div id="broadcast-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--emerald)"></div>
-      <div style="margin-top:12px;display:flex;gap:10px;justify-content:flex-end">
-        <button class="action-btn" onclick="closeBroadcastModal()">Cancel</button>
-        <button class="action-btn primary" onclick="sendBroadcast()">Send Broadcast</button>
+        class="input" style="width:100%;min-height:90px;resize:vertical;box-sizing:border-box"></textarea>
+      <div id="broadcast-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--sev-success-fg,var(--emerald))"></div>
+      <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-secondary btn-sm" onclick="closeBroadcastModal()">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="sendBroadcast()">Send Broadcast</button>
       </div>
     </div>
   </div>
@@ -1226,15 +1225,20 @@
   </div>
 </div>
 
-<!-- MEMBERS PANEL -->
+<!-- MEMBERS PANEL (Phase 2 design) -->
 <div class="panel" id="panel-members">
-  <div style="max-width:800px;margin:0 auto;padding:20px 0">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h2 style="color:var(--text-primary);margin:0">Members</h2>
-      <button class="action-btn primary" onclick="showInviteTeacherModal()">+ Invite Teacher</button>
+  <div style="max-width:960px;margin:0 auto;padding:20px 0">
+    <div class="stats-bar" id="members-stats">
+      <div class="stat-tile"><div class="stat-tile-label">Members</div><div class="stat-tile-value accent" id="members-count">--</div></div>
     </div>
-    <table class="data-table" id="members-table">
-      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th></th></tr></thead>
+    <div class="table-toolbar">
+      <span style="font-size:var(--text-lg,16px);font-weight:600;letter-spacing:-0.01em;color:var(--text-primary)">Team</span>
+      <div style="margin-left:auto">
+        <button class="btn btn-primary btn-sm" onclick="showInviteTeacherModal()">+ Invite Teacher</button>
+      </div>
+    </div>
+    <table id="members-table" style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">
+      <thead><tr style="background:var(--surface-1);border-bottom:1px solid var(--border-subtle)"><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Name</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Email</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Role</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Joined</th><th></th></tr></thead>
       <tbody id="members-tbody"></tbody>
     </table>
   </div>
@@ -1280,25 +1284,36 @@
   </div>
 </div>
 
-<!-- ORG SETTINGS PANEL -->
+<!-- ORG SETTINGS PANEL (Phase 2 design) -->
 <div class="panel" id="panel-org-settings">
   <div style="max-width:600px;margin:0 auto;padding:20px 0">
-    <h2 style="color:var(--text-primary);margin:0 0 20px">Org Settings</h2>
-    <div style="margin-bottom:16px">
-      <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px">Organization Name</label>
-      <input type="text" id="settings-org-name" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box">
+    <div style="display:flex;align-items:center;gap:12px;margin:0 0 24px">
+      <h2 style="color:var(--text-primary);margin:0;font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-0.02em">Org Settings</h2>
     </div>
-    <button class="action-btn primary" onclick="saveOrgName()">Save</button>
-    <div id="settings-result" style="font-size:13px;margin-top:12px"></div>
+    <div class="card" style="padding:24px">
+      <div style="margin-bottom:20px">
+        <label style="display:block;font-size:var(--text-sm);font-weight:600;letter-spacing:var(--tracking-wider,0.03em);text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Organization Name</label>
+        <input type="text" id="settings-org-name" class="input" style="width:100%;box-sizing:border-box" placeholder="Your organization name">
+      </div>
+      <div style="display:flex;gap:12px;align-items:center">
+        <button class="btn btn-primary" onclick="saveOrgName()">Save Changes</button>
+        <span id="settings-result" style="font-size:var(--text-sm,13px);color:var(--text-muted)"></span>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- ALL ORGS PANEL (super admin) -->
+<!-- ALL ORGS PANEL (Phase 2 design) -->
 <div class="panel" id="panel-all-orgs">
   <div style="max-width:1000px;margin:0 auto;padding:20px 0">
-    <h2 style="color:var(--text-primary);margin:0 0 20px">All Organizations</h2>
-    <table class="data-table" id="all-orgs-table">
-      <thead><tr><th>Name</th><th>Teachers</th><th>Students</th><th>Plan</th><th>Status</th><th>Created</th></tr></thead>
+    <div class="stats-bar" id="all-orgs-stats">
+      <div class="stat-tile"><div class="stat-tile-label">Organizations</div><div class="stat-tile-value accent" id="all-orgs-count">--</div></div>
+    </div>
+    <div class="table-toolbar">
+      <span style="font-size:var(--text-lg,16px);font-weight:600;letter-spacing:-0.01em;color:var(--text-primary)">All Organizations</span>
+    </div>
+    <table id="all-orgs-table" style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">
+      <thead><tr style="background:var(--surface-1);border-bottom:1px solid var(--border-subtle)"><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Name</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Teachers</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Students</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Plan</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Status</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Created</th></tr></thead>
       <tbody id="all-orgs-tbody"></tbody>
     </table>
   </div>
@@ -6299,14 +6314,14 @@ function renderHistoryDetail(){
   const s = d.student;
   const ag = d.aggregates;
   document.getElementById('history-detail-stats').innerHTML = `
-    <div class="stat-tile"><div class="stat-label">Student</div><div class="stat-value" style="font-size:14px">${_escHtml(s.full_name)}</div><div class="stat-sub">${_escHtml(s.roll_number)}</div></div>
-    <div class="stat-tile"><div class="stat-label">Email</div><div class="stat-value" style="font-size:12px">${_escHtml(s.email||'—')}</div></div>
-    <div class="stat-tile"><div class="stat-label">Exams Taken</div><div class="stat-value">${ag.total_exams}</div></div>
-    <div class="stat-tile"><div class="stat-label">Avg Score</div><div class="stat-value">${ag.avg_percentage!=null?ag.avg_percentage+'%':'—'}</div></div>
-    <div class="stat-tile"><div class="stat-label">Highest</div><div class="stat-value green">${ag.highest_percentage!=null?ag.highest_percentage+'%':'—'}</div></div>
-    <div class="stat-tile"><div class="stat-label">Lowest</div><div class="stat-value red">${ag.lowest_percentage!=null?ag.lowest_percentage+'%':'—'}</div></div>
-    <div class="stat-tile"><div class="stat-label">Avg Risk</div><div class="stat-value">${ag.avg_risk_score!=null?ag.avg_risk_score:'—'}</div></div>
-    <div class="stat-tile"><div class="stat-label">Total Violations</div><div class="stat-value">${ag.total_violations}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Student</div><div class="stat-tile-value" style="font-size:14px">${_escHtml(s.full_name)}</div><div class="stat-tile-sub">${_escHtml(s.roll_number)}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Email</div><div class="stat-tile-value" style="font-size:12px">${_escHtml(s.email||'—')}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Exams Taken</div><div class="stat-tile-value">${ag.total_exams}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Avg Score</div><div class="stat-tile-value">${ag.avg_percentage!=null?ag.avg_percentage+'%':'—'}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Highest</div><div class="stat-tile-value green">${ag.highest_percentage!=null?ag.highest_percentage+'%':'—'}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Lowest</div><div class="stat-tile-value red">${ag.lowest_percentage!=null?ag.lowest_percentage+'%':'—'}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Avg Risk</div><div class="stat-tile-value">${ag.avg_risk_score!=null?ag.avg_risk_score:'—'}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Total Violations</div><div class="stat-tile-value">${ag.total_violations}</div></div>
   `;
 
   const body = document.getElementById('history-detail-body');

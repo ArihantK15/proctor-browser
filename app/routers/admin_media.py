@@ -98,9 +98,9 @@ async def get_question_image(tid: str, filename: str, request: Request):
     if not allowed:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    safe_tid = _safe_path_component(tid)
+    safe_teacher_id = _safe_path_component(tid)
     safe_file = _safe_path_component(filename)
-    fpath = Path(QUESTION_IMG_DIR) / safe_tid / safe_file
+    fpath = Path(QUESTION_IMG_DIR) / safe_teacher_id / safe_file
     try:
         _assert_within_directory(fpath, Path(QUESTION_IMG_DIR))
     except (ValueError, RuntimeError):

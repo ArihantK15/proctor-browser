@@ -1,5 +1,6 @@
 """Auth helpers: JWT issue/verify, admin/student auth."""
 from .tokens import (
+    AuthCtx, extract_auth,
     create_token, require_auth, verify_student_token,
     issue_admin_token, issue_student_auth_token,
     _check_session_ownership,
@@ -12,6 +13,7 @@ from .admin_auth import (
 )
 
 __all__ = [
+    "AuthCtx", "extract_auth",
     "create_token", "require_auth", "verify_student_token",
     "issue_admin_token", "issue_student_auth_token",
     "_check_session_ownership",

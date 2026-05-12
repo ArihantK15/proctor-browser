@@ -1,11 +1,49 @@
 """JWT issue and verify helpers."""
+from __future__ import annotations
 import re
+from dataclasses import dataclass
+from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 from fastapi import Request, HTTPException
 from jose import jwt, JWTError
 
 from ..constants import SECRET_KEY, TOKEN_TTL_HOURS, ADMIN_TOKEN_TTL_HOURS, STUDENT_AUTH_TTL_HOURS
+
+
+@dataclass(frozen=True)
+class AuthCtx:
+    """Canonical typed container for exam-student auth token claims.
+
+    Replaces the ad-hoc ``claims.get("tid")`` / ``claims.get("eid")`` /
+    ``claims.get("roll")`` pattern.  Use :func:`extract_auth` to build
+    one from a FastAPI request (requires ``Authorization: Bearer ...``).
+    """
+    teacher_id: str
+    roll_number: str
+    exam_id: Optional[str] = None
+    email: Optional[str] = None
+    org_id: Optional[str] = None
+    org_role: Optional[str] = None
+    sid: Optional[str] = None  # student_account id (for student-auth tokens)
+
+    @classmethod
+    def from_claims(cls, claims: dict) -> AuthCtx:
+        return cls(
+            teacher_id=str(claims.get("tid") or ""),
+            roll_number=str(claims.get("roll") or ""),
+            exam_id=claims.get("eid"),
+            email=claims.get("email"),
+            org_id=claims.get("org_id"),
+            org_role=claims.get("org_role"),
+            sid=claims.get("sid"),
+        )
+
+
+async def extract_auth(request: Request) -> AuthCtx:
+    """Shortcut: decode the Bearer token and return a typed :class:`AuthCtx`."""
+    claims = require_auth(request)
+    return AuthCtx.from_claims(claims)
 
 
 def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None) -> str:

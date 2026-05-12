@@ -177,7 +177,7 @@ async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
         _admin_log.info("[ClearLive] teacher=%s protecting %d active session(s) from wipe",
                         tid, len(active))
 
-    ans_deleted = viol_deleted = ans_failures = viol_failures = sess_failures = 0
+    ans_deleted = viol_deleted = sess_deleted = ans_failures = viol_failures = sess_failures = 0
     for sk in session_keys:
         sk_tid = _sk_tid.get(sk, tid)
         try:

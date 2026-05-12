@@ -101,7 +101,7 @@ class TestDependencyMirror:
 
     def test_critical_types_mirror(self):
         """If this fails, update the local mirror in this file."""
-        from app.dependencies import _CRITICAL_TYPES as real_types
+        from app.constants import _CRITICAL_TYPES as real_types
         assert _CRITICAL_TYPES == real_types, (
             "Local _CRITICAL_TYPES mirror in test_alerts.py is out of sync. "
             "Update the local copy to match app/dependencies.py."

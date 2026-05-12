@@ -37,7 +37,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from .dependencies import _html_escape as _esc
+from .utils import _html_escape as _esc
 
 log = logging.getLogger(__name__)
 
@@ -485,6 +485,7 @@ def verify_webhook(raw_body: bytes, headers) -> bool:
         try:
             return headers.get(name) or headers.get(name.lower()) or ""
         except Exception:
+            log.debug("webhook: _hget failed for header %s", name)
             return ""
 
     svix_id = _hget("svix-id")
@@ -509,6 +510,7 @@ def verify_webhook(raw_body: bytes, headers) -> bool:
         try:
             key = base64.b64decode(secret[len("whsec_"):])
         except Exception:
+            log.warning("webhook: failed to base64-decode whsec_ secret")
             return False
     else:
         key = secret.encode()
@@ -641,6 +643,7 @@ class _ResendBackend(_Backend):
                 try:
                     msg_id = r.json().get("id")
                 except Exception:
+                    log.warning("resend: 2xx response with non-JSON body (status %s)", r.status_code)
                     msg_id = None
                 return SendResult(ok=True, provider_msg_id=msg_id)
 

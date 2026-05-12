@@ -7,29 +7,17 @@ _auth_log = logging.getLogger("auth")
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 
-from ..dependencies import (
-    supabase,
-    _atable,
-    limiter,
-    TeacherSignupIn,
-    TeacherLoginIn,
-    RefreshIn,
-    StudentSignupIn,
-    StudentLoginIn,
-    PasswordResetIn,
-    issue_admin_token,
-    _get_teacher_by_id,
-    _get_teacher_by_uid,
-    issue_student_auth_token,
-    _get_student_account_by_id,
-    _get_student_account_by_uid,
-    require_admin,
-    require_student_account,
-    fmt_ist,
-    now_ist,
-    SessionStatus,
-    PLANS, TRIAL_DAYS,
+from ..database import supabase, async_table as _atable
+from ..limiter import limiter
+from ..models import TeacherSignupIn, TeacherLoginIn, RefreshIn, StudentSignupIn, StudentLoginIn, PasswordResetIn
+from ..auth import (
+    issue_admin_token, _get_teacher_by_id, _get_teacher_by_uid,
+    issue_student_auth_token, _get_student_account_by_id, _get_student_account_by_uid,
+    require_admin, require_student_account,
 )
+from ..utils import fmt_ist, now_ist
+from ..models import SessionStatus
+from ..constants import PLANS, TRIAL_DAYS
 from ..utils import _html_escape as _esc
 from ..jobs import enqueue_job, send_new_account_notification_job
 

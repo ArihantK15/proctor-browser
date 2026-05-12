@@ -1,7 +1,7 @@
 """Tests for the automated suspicious activity summary feature."""
 import pytest
 
-from app.dependencies import generate_session_summary
+from app.services.risk import generate_session_summary
 
 
 class TestGenerateSessionSummary:

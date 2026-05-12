@@ -1,62 +1,33 @@
-"""Student exam flow endpoints.
+"""Student exam flow endpoints."""
 
-Extracted from main.py. All shared dependencies are imported from
-the central ``dependencies`` module via relative imports.
-"""
-
+import asyncio
+import base64
+import json
 import logging
+import os
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import Request, HTTPException, Body
 
 _exam_log = logging.getLogger("exam")
 
-from ..dependencies import (
-    supabase,
-    _atable,
-    _bus_async_publish,
-    _cache,
-    _HAS_REDIS,
-    EventIn,
-    ValidateIn,
-    ResultIn,
-    AnswerIn,
-    BulkAnswerIn,
-    FrameIn,
-    IdVerifyIn,
-    require_auth,
-    create_token,
-    fmt_ist,
-    now_ist,
-    _check_session_ownership,
-    is_practice,
-    _practice_validate_response,
-    PRACTICE_QUESTIONS,
-    _load_questions,
-    _load_exam_config,
-    _get_access_code,
-    _check_group_access,
-    _build_shuffle_view,
-    _get_shuffle_flags,
-    _recalculate_score,
-    _canonicalise_student_answer,
-    compute_risk_score,
-    _assert_session_owned,
-    SCREENSHOTS_DIR,
-    get_logger,
-    json,
-    base64,
-    time,
-    os,
-    Path,
-    asyncio,
-    datetime,
-    timezone,
-    HTTPException,
-    Request,
-    Body,
-    limiter,
-    SessionStatus,
-    InviteStatus,
-    publish_critical_alert,
-)
+from ..database import supabase, async_table as _atable
+from ..event_bus import async_publish as _bus_async_publish, _HAS_REDIS
+from .. import cache as _cache
+from ..models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, FrameIn, IdVerifyIn
+from ..auth import require_auth, create_token, _check_session_ownership
+from ..utils import fmt_ist, now_ist
+from ..services.practice import is_practice, _practice_validate_response, PRACTICE_QUESTIONS
+from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config, get_access_code as _get_access_code
+from ..repositories.sessions import check_group_access as _check_group_access, assert_session_owned as _assert_session_owned
+from ..services.scoring import build_shuffle_view as _build_shuffle_view, get_shuffle_flags as _get_shuffle_flags, recalculate_score as _recalculate_score, canonicalise_student_answer as _canonicalise_student_answer
+from ..services.risk import compute_risk_score, publish_critical_alert
+from ..constants import SCREENSHOTS_DIR
+from ..logger import get_logger
+from ..limiter import limiter
+from ..models import SessionStatus, InviteStatus
 
 from fastapi import APIRouter
 
@@ -81,23 +52,38 @@ async def validate_student(request: Request, body: ValidateIn):
     if is_practice(body.roll_number):
         return _practice_validate_response(roll_upper)
 
-    # Look up teacher_id scoped by exam_id to prevent cross-tenant roll_number collision.
-    # When exam_id is known, use student_invites to find the owning teacher.
+    # Resolve teacher_id via invite token chain to prevent cross-tenant
+    # roll_number collision.  When the student provides access_code we
+    # find the *exact* invite first — that gives us a trusted teacher+exam
+    # scope for every subsequent query.
     pre_tid = None
     pre_exam_id = exam_id
-    if exam_id:
-        inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).eq("exam_id", exam_id).limit(1).execute()
+
+    provided_code = (body.access_code or "").strip().upper()
+
+    # 1) Invite-token chain: access_code → invite → teacher_id + exam_id
+    if provided_code and not exam_id:
+        inv_by_code = await _atable("student_invites").select("teacher_id,exam_id").eq("access_code", provided_code).limit(1).execute()
+        if inv_by_code.data:
+            pre_tid = str(inv_by_code.data[0]["teacher_id"])
+            pre_exam_id = inv_by_code.data[0].get("exam_id")
+
+    # 2) exam_id-scoped: roll_number + exam_id → teacher_id
+    if pre_tid is None and pre_exam_id:
+        inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).eq("exam_id", pre_exam_id).limit(1).execute()
         if inv_pre.data:
             pre_tid = inv_pre.data[0].get("teacher_id")
-            pre_exam_id = exam_id
+        else:
+            cfg = await _load_exam_config(None, exam_id=pre_exam_id)
+            if cfg and cfg.get("teacher_id"):
+                pre_tid = str(cfg["teacher_id"])
 
-    # If exam_id didn't resolve a teacher, fall back to students table lookup
-    # (backward compatible for legacy flows without exam_id)
+    # 3) Legacy fallback (no access_code, no exam_id) — unscoped, kept
+    #    for backward compat with pre-invite deployments.
     if pre_tid is None:
         pre_check = await _atable("students").select("teacher_id").eq("roll_number", roll_upper).execute()
         pre_tid = pre_check.data[0].get("teacher_id") if pre_check.data else None
 
-    # If still not found, try unscoped student_invites (broadest fallback)
     if pre_tid is None:
         inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).limit(1).execute()
         if inv_pre.data:
@@ -131,7 +117,12 @@ async def validate_student(request: Request, body: ValidateIn):
         # Teachers often send invites without pre-registering students —
         # the invite IS the enrollment. Auto-create the students row on
         # first validation so the exam flow continues seamlessly.
-        inv_result = await _atable("student_invites").select("*").eq("roll_number", roll_upper).execute()
+        inv_q = _atable("student_invites").select("*").eq("roll_number", roll_upper)
+        if pre_tid:
+            inv_q = inv_q.eq("teacher_id", str(pre_tid))
+        if pre_exam_id:
+            inv_q = inv_q.eq("exam_id", pre_exam_id)
+        inv_result = await inv_q.execute()
         if inv_result.data:
             inv = inv_result.data[0]
             inv_status = (inv.get("status") or "").lower()
@@ -150,7 +141,7 @@ async def validate_student(request: Request, body: ValidateIn):
                 except HTTPException:
                     raise
                 except Exception:
-                    pass  # Date parse failed — allow invite to proceed
+                    _exam_log.warning("validate_student: bad expires_at date on invite %s", inv.get("id"))
 
             # Auto-enroll: create students row from invite data
             student_row = {
@@ -214,19 +205,18 @@ async def validate_student(request: Request, body: ValidateIn):
 
     # Check exam access code if configured
     current_code = await _get_access_code(student_tid, exam_id=exam_id)
-    provided = (body.access_code or "").strip().upper()
     matched_invite_id = None
     if current_code:
-        shared_ok = bool(provided) and provided == current_code
+        shared_ok = bool(provided_code) and provided_code == current_code
         invite_ok = False
-        if not shared_ok and provided and student_tid:
+        if not shared_ok and provided_code and student_tid:
             inv_q = _atable("student_invites").select("id,access_code,status,expires_at,exam_id").eq("teacher_id", str(student_tid)).eq("roll_number", student["roll_number"])
             if exam_id:
                 inv_q.eq("exam_id", exam_id)
             inv_result = await inv_q.execute()
             for inv in (inv_result.data or []):
                 code = (inv.get("access_code") or "").upper()
-                if not code or code != provided:
+                if not code or code != provided_code:
                     continue
                 if (inv.get("status") or "") == InviteStatus.REVOKED:
                     continue
@@ -237,7 +227,7 @@ async def validate_student(request: Request, body: ValidateIn):
                                 str(exp).replace("Z", "+00:00")):
                             continue
                     except Exception:
-                        pass  # Malformed expiry — allow invite to proceed
+                        _exam_log.warning("validate_student: bad expires_at on code-invite %s", inv.get("id"))
                 invite_ok = True
                 matched_invite_id = inv["id"]
                 break
@@ -623,6 +613,80 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
     return {"status": "saved", "saved": len(records)}
 
 
+async def _try_ags_grade_passback(
+    roll_number: str,
+    score: int,
+    total: int,
+    percentage: float,
+):
+    """Attempt to push this student's score to their LMS via AGS.
+
+    This is called fire-and-forget after exam submission.  If the
+    student was created via LTI, we have their lti_user_id which lets
+    us look up the AGS deployment context and push the grade.
+    """
+    try:
+        student = (await _atable("students")
+            .select("lti_user_id")
+            .eq("roll_number", roll_number)
+            .limit(1)
+            .execute()).data
+        if not student or not student[0].get("lti_user_id"):
+            return
+
+        lti_user_id = student[0]["lti_user_id"]
+        from ..lti.launch import get_lti_student_context, get_ags_context
+        from ..lti.registration import find_registration
+        from ..lti.ags import get_access_token, post_score
+
+        ctx = get_lti_student_context(lti_user_id)
+        if not ctx:
+            return
+
+        iss = ctx.get("iss", "")
+        sub = ctx.get("sub", "")
+        deployment_id = ctx.get("deployment_id", "")
+        if not iss or not sub:
+            return
+
+        ags_ctx = get_ags_context(iss, deployment_id)
+        if not ags_ctx or not ags_ctx.get("ags_lineitems"):
+            _exam_log.debug("[AGS] No AGS context for %s/%s", iss, deployment_id)
+            return
+
+        registration = find_registration(iss, "")
+        if not registration:
+            _exam_log.debug("[AGS] No registration for issuer=%s", iss)
+            return
+
+        access_token = await get_access_token(
+            issuer=iss,
+            client_id=registration.client_id,
+            auth_token_url=registration.auth_token_url,
+            scopes=ags_ctx.get("ags_scope") or [
+                "https://purl.imsglobal.org/spec/lti-ags/scope/score",
+            ],
+        )
+        if not access_token:
+            _exam_log.warning("[AGS] Failed to get access token for %s", iss)
+            return
+
+        from datetime import datetime, timezone
+        ok = await post_score(
+            lineitem_url=ags_ctx["ags_lineitems"],
+            access_token=access_token,
+            user_id=sub,
+            score_given=float(score),
+            score_maximum=float(total),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            comment=f"Score: {score}/{total} ({percentage}%)",
+        )
+        if ok:
+            _exam_log.info("[AGS] Grade pushed for %s: %d/%d", roll_number, score, total)
+    except Exception as e:
+        _exam_log.warning("[AGS] Grade passback failed for %s: %s", roll_number, e)
+
+
 @router.post("/api/v1/submit-exam")
 @limiter.limit("5/minute")
 async def submit_exam(result: ResultIn, request: Request):
@@ -757,6 +821,12 @@ async def submit_exam(result: ResultIn, request: Request):
             lambda t: _exam_log.warning("[submit] SSE publish failed: %s", t.exception())
             if not t.cancelled() and t.exception() else None
         )
+
+    # Fire-and-forget: push grade to LMS via AGS if this is an LTI student
+    if trusted_roll and server_total > 0:
+        asyncio.create_task(_try_ags_grade_passback(
+            trusted_roll, server_score, server_total, pct,
+        ))
 
     return {"status": SessionStatus.SUBMITTED, "score": server_score,
             "total": server_total, "percentage": pct,
@@ -923,7 +993,8 @@ async def id_verification_status(request: Request, session_id: str = ""):
         obj = json.loads(raw)
         return {"status": obj.get("status", "pending")}
     except Exception:
-        return {"status": "pending"}  # Malformed JSON — treat as pending
+        _exam_log.warning("id_verification_status: malformed JSON for session %s", session_id)
+        return {"status": "pending"}
 
 
 @router.get("/api/v1/events/{session_id}")

@@ -111,3 +111,8 @@ class SaveTemplateIn(BaseModel):
     exam_id: str
     template_name: str
     include_questions: bool = True
+
+
+class DuplicateExamIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    new_title: str = ""

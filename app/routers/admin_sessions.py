@@ -5,15 +5,26 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, Body
 
-from ..dependencies import (
-    require_admin, _assert_session_owned, _build_sessions_payload,
-    _fetch_all_results, _partition_live_sessions,
-    _clear_token_issue, _clear_token_consume,
-    _CLEAR_TOKEN_TTL, _CLEAR_ACTIVE_WINDOW,
-    _atable, limiter, _cache, SCREENSHOTS_DIR, now_ist,
-    _load_exam_config, compute_risk_score, _recalculate_score,
-    SessionStatus,
+from ..auth import require_admin
+from ..repositories.sessions import (
+    assert_session_owned as _assert_session_owned,
+    fetch_all_results as _fetch_all_results,
 )
+from ..services.sessions import (
+    build_sessions_payload as _build_sessions_payload,
+    partition_live_sessions as _partition_live_sessions,
+    clear_token_issue as _clear_token_issue,
+    clear_token_consume as _clear_token_consume,
+)
+from ..constants import _CLEAR_TOKEN_TTL, _CLEAR_ACTIVE_WINDOW, SCREENSHOTS_DIR
+from ..database import async_table as _atable
+from ..limiter import limiter
+from .. import cache as _cache
+from ..utils import now_ist
+from ..repositories.questions import load_exam_config as _load_exam_config
+from ..services.risk import compute_risk_score
+from ..services.scoring import recalculate_score as _recalculate_score
+from ..models import SessionStatus
 from ..models import ClearSessionsIn
 
 _admin_log = logging.getLogger("admin")
@@ -59,193 +70,151 @@ async def get_all_results(request: Request, exam_id: str = None, page: int = 1, 
     }
 
 
+async def _fetch_completed_sessions(tid: str, exam_id_scope: str | None,
+                                    fields: str) -> list[dict]:
+    q = _atable("exam_sessions").select(fields)\
+        .eq("teacher_id", tid).eq("status", SessionStatus.COMPLETED)
+    if exam_id_scope:
+        q = q.eq("exam_id", exam_id_scope)
+    return (await q.execute()).data or []
+
+
 @router.post("/api/v1/admin/clear-live-sessions")
 @limiter.limit("5/minute")
 async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     step = body.step.lower().strip()
-
-    include_completed = body.include_completed
-    include_active = body.include_active
     raw_eid = body.exam_id
     exam_id_scope: str | None = raw_eid.strip() or None if raw_eid else None
 
     if step == "request":
-        active, stale = await _partition_live_sessions(
-            tid, exam_id=exam_id_scope, include_active=include_active,
-        )
-        completed_rows: list[dict] = []
-        if include_completed:
-            comp_q = _atable("exam_sessions")\
-                .select("session_key,roll_number,full_name,started_at,submitted_at,exam_id")\
-                .eq("teacher_id", tid)\
-                .eq("status", SessionStatus.COMPLETED)
-            if exam_id_scope:
-                comp_q = comp_q.eq("exam_id", exam_id_scope)
-            comp = await comp_q.execute()
-            completed_rows = comp.data or []
-        token = _clear_token_issue(tid)
-        return {
-            "step":          "request",
-            "token":          token,
-            "expires_in":     _CLEAR_TOKEN_TTL,
-            "active_window_s": _CLEAR_ACTIVE_WINDOW,
-            "include_completed": include_completed,
-            "include_active":    include_active,
-            "exam_id":           exam_id_scope or "",
-            "count":          len(stale) + len(completed_rows),
-            "stale_count":    len(stale),
-            "active_count":   len(active),
-            "completed_count": len(completed_rows),
-            "preview":    [
-                {"session_key": r["session_key"],
-                 "roll_number": r.get("roll_number"),
-                 "full_name":   r.get("full_name"),
-                 "started_at":  r.get("started_at"),
-                 "last_heartbeat": r.get("last_heartbeat")}
-                for r in stale[:20]
-            ],
-            "active_preview": [
-                {"session_key": r["session_key"],
-                 "roll_number": r.get("roll_number"),
-                 "full_name":   r.get("full_name"),
-                 "last_heartbeat": r.get("last_heartbeat")}
-                for r in active[:20]
-            ],
-            "completed_preview": [
-                {"session_key": r["session_key"],
-                 "roll_number": r.get("roll_number"),
-                 "full_name":   r.get("full_name"),
-                 "submitted_at": r.get("submitted_at")}
-                for r in completed_rows[:20]
-            ],
-        }
-
+        return await _clear_request_preview(
+            tid, body.include_active, body.include_completed, exam_id_scope)
     if step == "confirm":
-        ack = body.ack
-        if ack != "DELETE":
-            raise HTTPException(status_code=400,
-                detail="Missing or incorrect ack — expected 'DELETE'")
-        if not _clear_token_consume(body.token, tid):
-            raise HTTPException(status_code=400,
-                detail="Invalid, expired, or stale clear token — re-request preview")
-
-        active, stale = await _partition_live_sessions(
-            tid, exam_id=exam_id_scope, include_active=include_active,
-        )
-
-        completed_keys: list[str] = []
-        if include_completed:
-            comp_q = _atable("exam_sessions")\
-                .select("session_key,roll_number,exam_id")\
-                .eq("teacher_id", tid)\
-                .eq("status", SessionStatus.COMPLETED)
-            if exam_id_scope:
-                comp_q = comp_q.eq("exam_id", exam_id_scope)
-            comp = await comp_q.execute()
-            completed_keys = [r["session_key"] for r in (comp.data or [])]
-
-        if not stale and not completed_keys:
-            skipped_active = [
-                {"session_key": r["session_key"],
-                 "roll_number": r.get("roll_number"),
-                 "full_name":   r.get("full_name")}
-                for r in active
-            ]
-            return {"step": "confirm", "cleared": 0, "sessions": 0,
-                    "answers": 0, "violations": 0, "screenshots": 0,
-                    "skipped_active": len(active), "skipped": skipped_active,
-                    "note": ("No sessions to clear"
-                             + (" — active students were protected"
-                                if active else ""))}
-
-        session_keys = [r["session_key"] for r in stale] + completed_keys
-        rolls_seen = set()
-        for r in stale:
-            if r.get("roll_number"):
-                rolls_seen.add(r["roll_number"])
-        if include_completed:
-            for r in (comp.data or []):
-                if r.get("roll_number"):
-                    rolls_seen.add(r["roll_number"])
-
-        skipped_active = [
-            {"session_key": r["session_key"],
-             "roll_number": r.get("roll_number"),
-             "full_name":   r.get("full_name")}
-            for r in active
-        ]
-        if active:
-            _admin_log.info("[ClearLive] teacher=%s protecting %d active session(s) from wipe", tid, len(active))
-
-        ans_deleted = 0
-        viol_deleted = 0
-        ans_failures = 0
-        viol_failures = 0
-        sess_failures = 0
-        scr_failures: list[dict] = []
-
-        _sk_tid = {r["session_key"]: r.get("teacher_id") or ""
-                   for r in stale}
-
-        for sk in session_keys:
-            sk_tid = _sk_tid.get(sk, tid)
-            try:
-                q = _atable("answers").delete().eq("session_key", sk)
-                if sk_tid:
-                    q = q.eq("teacher_id", sk_tid)
-                r = await q.execute()
-                ans_deleted += len(r.data or [])
-            except Exception as e:
-                ans_failures += 1
-                _admin_log.warning("[ClearLive] answer delete failed %s: %s", sk, e)
-            try:
-                q = _atable("violations").delete().eq("session_key", sk)
-                if sk_tid:
-                    q = q.eq("teacher_id", sk_tid)
-                r = await q.execute()
-                viol_deleted += len(r.data or [])
-            except Exception as e:
-                viol_failures += 1
-                _admin_log.warning("[ClearLive] violation delete failed %s: %s", sk, e)
-
-        sess_deleted = 0
-        for sk in session_keys:
-            try:
-                q = _atable("exam_sessions").delete().eq("session_key", sk)
-                sk_tid = _sk_tid.get(sk, tid)
-                if sk_tid:
-                    q = q.eq("teacher_id", sk_tid)
-                r = await q.execute()
-                sess_deleted += len(r.data or [])
-            except Exception as e:
-                sess_failures += 1
-                _admin_log.warning("[ClearLive] session delete failed %s: %s", sk, e)
-
-        total_failures = ans_failures + viol_failures + sess_failures + len(scr_failures)
-        resp: dict = {
-            "step":           "confirm",
-            "cleared":        len(session_keys),
-            "sessions":       len(session_keys),
-            "answers":        ans_deleted,
-            "violations":     viol_deleted,
-            "screenshots":    0,
-            "skipped_active": len(active),
-            "skipped":        skipped_active,
-        }
-        if total_failures:
-            resp["partial_failures"] = total_failures
-            resp["failure_details"] = {
-                "answers":    ans_failures,
-                "violations": viol_failures,
-                "sessions":   sess_failures,
-                "screenshots": len(scr_failures),
-            }
-        return resp
+        return await _clear_confirm_execute(tid, body, exam_id_scope)
 
     raise HTTPException(status_code=400,
-        detail="'step' must be 'request' or 'confirm'")
+                        detail="'step' must be 'request' or 'confirm'")
+
+
+async def _clear_request_preview(tid: str, include_active: bool,
+                                 include_completed: bool,
+                                 exam_id_scope: str | None) -> dict:
+    active, stale = await _partition_live_sessions(
+        tid, exam_id=exam_id_scope, include_active=include_active)
+    completed_rows = (await _fetch_completed_sessions(
+        tid, exam_id_scope,
+        "session_key,roll_number,full_name,started_at,submitted_at,exam_id")
+        if include_completed else [])
+    token = _clear_token_issue(tid)
+    return {
+        "step": "request", "token": token,
+        "expires_in": _CLEAR_TOKEN_TTL,
+        "active_window_s": _CLEAR_ACTIVE_WINDOW,
+        "include_completed": include_completed,
+        "include_active": include_active,
+        "exam_id": exam_id_scope or "",
+        "count": len(stale) + len(completed_rows),
+        "stale_count": len(stale),
+        "active_count": len(active),
+        "completed_count": len(completed_rows),
+        "preview": [{"session_key": r["session_key"],
+                     "roll_number": r.get("roll_number"),
+                     "full_name": r.get("full_name"),
+                     "started_at": r.get("started_at"),
+                     "last_heartbeat": r.get("last_heartbeat")}
+                    for r in stale[:20]],
+        "active_preview": [{"session_key": r["session_key"],
+                            "roll_number": r.get("roll_number"),
+                            "full_name": r.get("full_name"),
+                            "last_heartbeat": r.get("last_heartbeat")}
+                           for r in active[:20]],
+        "completed_preview": [{"session_key": r["session_key"],
+                               "roll_number": r.get("roll_number"),
+                               "full_name": r.get("full_name"),
+                               "submitted_at": r.get("submitted_at")}
+                              for r in completed_rows[:20]],
+    }
+
+
+async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
+                                 exam_id_scope: str | None) -> dict:
+    ack = body.ack
+    if ack != "DELETE":
+        raise HTTPException(status_code=400,
+                            detail="Missing or incorrect ack — expected 'DELETE'")
+    if not _clear_token_consume(body.token, tid):
+        raise HTTPException(status_code=400,
+                            detail="Invalid, expired, or stale clear token — re-request preview")
+
+    active, stale = await _partition_live_sessions(
+        tid, exam_id=exam_id_scope, include_active=body.include_active)
+    comp_data = (await _fetch_completed_sessions(
+        tid, exam_id_scope, "session_key,roll_number,exam_id")
+        if body.include_completed else [])
+    completed_keys = [r["session_key"] for r in comp_data]
+
+    if not stale and not completed_keys:
+        skipped = [{"session_key": r["session_key"],
+                    "roll_number": r.get("roll_number"),
+                    "full_name": r.get("full_name")}
+                   for r in active]
+        return {"step": "confirm", "cleared": 0, "sessions": 0,
+                "answers": 0, "violations": 0, "screenshots": 0,
+                "skipped_active": len(active), "skipped": skipped,
+                "note": ("No sessions to clear"
+                         + (" — active students were protected" if active else ""))}
+
+    session_keys = [r["session_key"] for r in stale] + completed_keys
+    _sk_tid = {r["session_key"]: r.get("teacher_id") or "" for r in stale}
+
+    skipped_active = [{"session_key": r["session_key"],
+                       "roll_number": r.get("roll_number"),
+                       "full_name": r.get("full_name")}
+                      for r in active]
+    if active:
+        _admin_log.info("[ClearLive] teacher=%s protecting %d active session(s) from wipe",
+                        tid, len(active))
+
+    ans_deleted = viol_deleted = ans_failures = viol_failures = sess_failures = 0
+    for sk in session_keys:
+        sk_tid = _sk_tid.get(sk, tid)
+        try:
+            r = await _atable("answers").delete().eq("session_key", sk)\
+                .eq("teacher_id", sk_tid).execute()
+            ans_deleted += len(r.data or [])
+        except Exception as e:
+            ans_failures += 1
+            _admin_log.warning("[ClearLive] answer delete failed %s: %s", sk, e)
+        try:
+            r = await _atable("violations").delete().eq("session_key", sk)\
+                .eq("teacher_id", sk_tid).execute()
+            viol_deleted += len(r.data or [])
+        except Exception as e:
+            viol_failures += 1
+            _admin_log.warning("[ClearLive] violation delete failed %s: %s", sk, e)
+
+    for sk in session_keys:
+        try:
+            r = await _atable("exam_sessions").delete().eq("session_key", sk)\
+                .eq("teacher_id", _sk_tid.get(sk, tid)).execute()
+            sess_deleted += len(r.data or [])
+        except Exception as e:
+            sess_failures += 1
+            _admin_log.warning("[ClearLive] session delete failed %s: %s", sk, e)
+
+    resp: dict = {"step": "confirm", "cleared": len(session_keys),
+                  "sessions": len(session_keys), "answers": ans_deleted,
+                  "violations": viol_deleted, "screenshots": 0,
+                  "skipped_active": len(active), "skipped": skipped_active}
+    total_fails = ans_failures + viol_failures + sess_failures
+    if total_fails:
+        resp["partial_failures"] = total_fails
+        resp["failure_details"] = {"answers": ans_failures,
+                                   "violations": viol_failures,
+                                   "sessions": sess_failures}
+    return resp
 
 
 @router.post("/api/v1/admin-submit/{session_id}")

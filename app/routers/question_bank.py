@@ -12,8 +12,12 @@ from fastapi import Request, HTTPException, Body
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, ConfigDict
 
-from ..dependencies import supabase, limiter, require_admin, _cache, SessionStatus
-from ..dependencies import _load_questions, _load_exam_config
+from ..database import supabase, async_table as _atable
+from ..limiter import limiter
+from ..auth import require_admin
+from .. import cache as _cache
+from ..models import SessionStatus
+from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
 
 router = APIRouter(prefix="")
 
@@ -130,8 +134,8 @@ async def update_bank_question(qid: str, request: Request, body: UpdateQuestionI
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     fields["updated_at"] = datetime.now(timezone.utc).isoformat()
-    result = (_atable("question_bank")
-              .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
+    result = await (_atable("question_bank")
+                    .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
     if not result.data:
         raise HTTPException(status_code=404, detail="Question not found")
     return result.data[0]
@@ -191,7 +195,7 @@ async def export_bank_questions(request: Request):
     """Export all bank questions as JSON."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
-    rows = (_atable("question_bank").select("*")
+    rows = (await _atable("question_bank").select("*")
             .eq("teacher_id", tid)
             .order("created_at", desc=True)
             .limit(5000).execute()).data or []
@@ -223,7 +227,7 @@ async def generate_bank_questions(request: Request, body: GenerateQuestionsIn = 
     teacher = await require_admin(request)
     _ = str(teacher["id"])
 
-    from llm import is_configured, generate_questions
+    from ..llm import is_configured, generate_questions
     if not is_configured():
         raise HTTPException(status_code=503,
             detail="AI features unavailable. Set GROQ_API_KEY on the server.")
@@ -265,7 +269,7 @@ async def generate_bank_questions(request: Request, body: GenerateQuestionsIn = 
 async def suggest_question_tags(request: Request, body: SuggestTagsIn = Body(...)):
     """Suggest 3-5 tags for a single question."""
     await require_admin(request)
-    from llm import is_configured, suggest_tags
+    from ..llm import is_configured, suggest_tags
     if not is_configured():
         raise HTTPException(status_code=503,
             detail="AI features unavailable. Set GROQ_API_KEY on the server.")
@@ -285,7 +289,7 @@ async def suggest_question_tags(request: Request, body: SuggestTagsIn = Body(...
 async def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body(...)):
     """Pre-publish AI review of an exam's questions."""
     await require_admin(request)
-    from llm import is_configured, lint_questions
+    from ..llm import is_configured, lint_questions
     if not is_configured():
         raise HTTPException(status_code=503,
             detail="AI features unavailable. Set LLM_API_KEY on the server.")
@@ -342,18 +346,25 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
             detail="Too many questions. Max 500 per copy.")
 
     try:
-        own_via_config = (_atable("exam_config")
-                          .select("exam_id").eq("teacher_id", tid)
-                          .eq("exam_id", exam_id).limit(1).execute()).data
+        own_via_config = (
+            await _atable("exam_config")
+            .select("exam_id").eq("teacher_id", tid)
+            .eq("exam_id", exam_id).limit(1).execute()
+        ).data
         if not own_via_config:
-            own_via_questions = (_atable("questions")
-                                 .select("exam_id").eq("teacher_id", tid)
-                                 .eq("exam_id", exam_id).limit(1).execute()).data
+            own_via_questions = (
+                await _atable("questions")
+                .select("exam_id").eq("teacher_id", tid)
+                .eq("exam_id", exam_id).limit(1).execute()
+            ).data
             if not own_via_questions:
                 pass
 
-        bank_rows = (_atable("question_bank").select("*")
-                     .eq("teacher_id", tid).in_("id", question_ids).execute()).data or []
+        res = await (
+            _atable("question_bank").select("*")
+            .eq("teacher_id", tid).in_("id", question_ids).execute()
+        )
+        bank_rows = res.data or []
         if not bank_rows:
             raise HTTPException(status_code=404, detail="No matching bank questions found")
 

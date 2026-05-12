@@ -3,7 +3,10 @@
 import json
 import logging
 from fastapi import APIRouter, Request, HTTPException
-from ..dependencies import require_admin, _atable, limiter, PLAN_LIMITS
+from ..auth import require_admin
+from ..database import async_table as _atable
+from ..limiter import limiter
+from ..services.sessions import PLAN_LIMITS
 from ..constants import PLANS
 from ..services.billing import (
     create_subscription as billing_create_subscription,

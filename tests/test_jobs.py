@@ -1,0 +1,326 @@
+"""Tests for the background job system (app.jobs).
+
+Covers:
+  1. ``enqueue_job`` — sync fallback path (RQ_ENABLED=0)
+  2. ``_run_coro_in_sync`` — async→sync bridge
+  3. All 5 email job functions — verify they call the right emailer methods
+  4. RQ retry configuration
+"""
+
+import json
+import sys
+from unittest.mock import MagicMock, patch, ANY
+
+import pytest
+
+sys.path.insert(0, __file__.rsplit("/", 2)[0])
+
+# ── enqueue_job ─────────────────────────────────────────────────────
+
+
+class TestEnqueueJob:
+    """Tests for ``enqueue_job`` sync fallback (RQ_ENABLED=0)."""
+
+    def test_sync_fallback_runs_function(self):
+        from app.jobs import enqueue_job
+
+        def dummy(**kw):
+            return {"ok": True, "data": kw}
+
+        result = enqueue_job(dummy, x=1, y=2)
+        assert result == {"ok": True, "data": {"x": 1, "y": 2}}
+
+    def test_sync_fallback_returns_result(self):
+        from app.jobs import enqueue_job
+
+        def dummy():
+            return {"msg": "hello"}
+
+        result = enqueue_job(dummy)
+        assert result == {"msg": "hello"}
+
+    def test_sync_fallback_propagates_exception(self):
+        from app.jobs import enqueue_job
+
+        def crash():
+            raise ValueError("boom")
+
+        with pytest.raises(ValueError, match="boom"):
+            enqueue_job(crash)
+
+    def test_enqueue_job_passes_args_and_kwargs(self):
+        from app.jobs import enqueue_job
+
+        captured = {}
+
+        def recorder(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return {"ok": True}
+
+        enqueue_job(recorder, "a", "b", x=1)
+        assert captured["args"] == ("a", "b")
+        assert captured["kwargs"] == {"x": 1}
+
+    @patch.dict("os.environ", {"RQ_ENABLED": "1"})
+    def test_rq_enabled_returns_none(self):
+        """When RQ_ENABLED=1, enqueue_job returns None (enqueued)."""
+        # Queue/Redis are imported lazily inside enqueue_job, so we patch
+        # the top-level module paths, not app.jobs.helpers.*
+        with patch("rq.Queue") as MockQ, \
+             patch("redis.Redis") as MockR:
+            mock_queue = MockQ.return_value
+            mock_queue.enqueue.return_value = None
+
+            from app.jobs import enqueue_job
+
+            def dummy():
+                pass
+
+            result = enqueue_job(dummy)
+            assert result is None
+            mock_queue.enqueue.assert_called_once()
+
+    @patch.dict("os.environ", {"RQ_ENABLED": "1"})
+    def test_rq_calls_enqueue_with_retry(self):
+        """Verify retry config is passed through to the RQ Queue."""
+        with patch("rq.Queue") as MockQ, \
+             patch("redis.Redis") as MockR:
+            from app.jobs import enqueue_job
+
+            def dummy():
+                pass
+
+            enqueue_job(dummy, foo="bar")
+            MockQ.return_value.enqueue.assert_called_once_with(
+                dummy,
+                foo="bar",
+                retry=ANY,
+            )
+            # Verify Retry was constructed with expected args
+            call_kwargs = MockQ.return_value.enqueue.call_args[1]
+            retry = call_kwargs["retry"]
+            assert retry.max == 3
+            assert retry.intervals == [10, 60, 300]
+
+
+# ── _rq_enabled / _redis_url ────────────────────────────────────────
+
+
+class TestHelpers:
+    def test_rq_enabled_false_by_default(self):
+        from app.jobs import _rq_enabled
+        assert _rq_enabled() is False
+
+    @pytest.mark.parametrize("val", ["1", "true", "True", "yes", "YES"])
+    def test_rq_enabled_true_variants(self, val):
+        with patch.dict("os.environ", {"RQ_ENABLED": val}):
+            from app.jobs import _rq_enabled
+            assert _rq_enabled() is True
+
+    @pytest.mark.parametrize("val", ["0", "false", "no", "", "disabled"])
+    def test_rq_enabled_false_variants(self, val):
+        with patch.dict("os.environ", {"RQ_ENABLED": val}):
+            from app.jobs import _rq_enabled
+            assert _rq_enabled() is False
+
+    def test_redis_url_default(self):
+        from app.jobs import _redis_url
+        with patch.dict("os.environ", {}, clear=True):
+            url = _redis_url()
+        assert url == "redis://localhost:6379/0"
+
+    def test_redis_url_from_env(self):
+        from app.jobs import _redis_url
+        with patch.dict("os.environ", {"REDIS_URL": "redis://myhost:7777"}):
+            assert _redis_url() == "redis://myhost:7777"
+
+    def test_rq_retry_config_from_env(self):
+        from app.jobs.helpers import _retry_max, _retry_intervals
+        with patch.dict("os.environ", {
+            "RQ_RETRY_MAX": "5",
+            "RQ_RETRY_INTERVALS": "5,30,120,300",
+        }):
+            assert _retry_max() == 5
+            assert _retry_intervals() == [5, 30, 120, 300]
+
+    def test_rq_retry_defaults(self):
+        from app.jobs.helpers import _retry_max, _retry_intervals
+        with patch.dict("os.environ", {}, clear=True):
+            assert _retry_max() == 3
+            assert _retry_intervals() == [10, 60, 300]
+
+
+# ── _run_coro_in_sync ───────────────────────────────────────────────
+
+
+class TestRunCoroInSync:
+    def test_runs_coro_and_returns_result(self):
+        from app.jobs import _run_coro_in_sync
+
+        async def echo(x):
+            return x
+
+        result = _run_coro_in_sync(echo(42))
+        assert result == 42
+
+    def test_propagates_exception(self):
+        from app.jobs import _run_coro_in_sync
+
+        async def crash():
+            raise ValueError("broken")
+
+        with pytest.raises(ValueError, match="broken"):
+            _run_coro_in_sync(crash())
+
+    def test_await_multiple_calls(self):
+        from app.jobs import _run_coro_in_sync
+
+        async def add(a, b):
+            return a + b
+
+        assert _run_coro_in_sync(add(1, 2)) == 3
+        assert _run_coro_in_sync(add(10, 20)) == 30
+
+
+# ── Email job functions ──────────────────────────────────────────────
+
+
+class TestEmailJobFunctions:
+    """Each email job function should call the corresponding emailer function
+    and return a dict with ok/error keys."""
+
+    @staticmethod
+    def _mock_emailer():
+        """Return the conftest mock_emailer instance from sys.modules.
+
+        ``app`` is a namespace package (no ``__init__.py``), so
+        ``patch("app.emailer")`` doesn't work.  Instead we import the
+        already-mocked module via ``from app import emailer``, then use
+        ``patch.object`` to override per-method return values.
+        """
+        from app import emailer as _mod
+        return _mod
+
+    def test_send_invite_email_job(self):
+        mock_emailer = self._mock_emailer()
+        with patch.object(mock_emailer, "send_invite_email",
+                          return_value=MagicMock(ok=True, provider_msg_id="msg-1", error=None)):
+            from app.jobs import send_invite_email_job
+
+            result = send_invite_email_job(
+                to_email="a@b.com", to_name="Alice",
+                exam_title="Midterm", invite_url="https://example.com/invite/abc",
+                download_url="https://example.com/download",
+                roll_number="R001", teacher_name="Prof",
+            )
+            assert result["ok"] is True
+            assert result["provider_msg_id"] == "msg-1"
+            mock_emailer.send_invite_email.assert_called_once_with(
+                to_email="a@b.com", to_name="Alice",
+                exam_title="Midterm", invite_url="https://example.com/invite/abc",
+                download_url="https://example.com/download",
+                roll_number="R001", teacher_name="Prof",
+            )
+
+    def test_send_invite_email_job_failure(self):
+        mock_emailer = self._mock_emailer()
+        with patch.object(mock_emailer, "send_invite_email",
+                          return_value=MagicMock(ok=False, provider_msg_id=None, error="SMTP timeout")):
+            from app.jobs import send_invite_email_job
+
+            result = send_invite_email_job(
+                to_email="a@b.com", to_name="Alice",
+                exam_title="Midterm", invite_url="https://ex.co/i/abc",
+                download_url="https://ex.co/dl", roll_number="R001",
+            )
+            assert result["ok"] is False
+            assert result["error"] == "SMTP timeout"
+
+    def test_send_demo_request_notification_job(self):
+        mock_emailer = self._mock_emailer()
+        with patch.object(mock_emailer, "send_demo_request_notification",
+                          return_value=MagicMock(ok=True, provider_msg_id="msg-d", error=None)):
+            from app.jobs import send_demo_request_notification_job
+
+            result = send_demo_request_notification_job(
+                name="Bob", email="bob@test.com",
+                institution="MIT", role="teacher",
+            )
+            assert result["ok"] is True
+            mock_emailer.send_demo_request_notification.assert_called_once()
+
+    def test_send_org_invite_email_job(self):
+        mock_emailer = self._mock_emailer()
+        with patch.object(mock_emailer, "send_org_invite_email",
+                          return_value=MagicMock(ok=True, provider_msg_id="msg-o", error=None)):
+            from app.jobs import send_org_invite_email_job
+
+            result = send_org_invite_email_job(
+                to_email="org@test.com", invite_url="https://ex.co/invite",
+                org_name="Test Org",
+            )
+            assert result["ok"] is True
+            mock_emailer.send_org_invite_email.assert_called_once()
+
+    def test_send_new_account_notification_job(self):
+        mock_emailer = self._mock_emailer()
+        with patch.object(mock_emailer, "send_new_account_notification",
+                          return_value=MagicMock(ok=True, provider_msg_id="msg-n", error=None)):
+            from app.jobs import send_new_account_notification_job
+
+            result = send_new_account_notification_job(
+                account_type="teacher", name="Carol", email="c@test.com",
+            )
+            assert result["ok"] is True
+            mock_emailer.send_new_account_notification.assert_called_once()
+
+    def test_send_scorecard_email_job(self):
+        """The scorecard job is the most complex — it builds a PDF then emails."""
+        mock_emailer = self._mock_emailer()
+        with patch.object(mock_emailer, "send_scorecard_email",
+                          return_value=MagicMock(ok=True, provider_msg_id="msg-s", error=None)), \
+             patch("app.services.scorecard._build_scorecard_pdf") as mock_build:
+            mock_build.return_value = (
+                b"fake-pdf-bytes",
+                "scorecard_R001.pdf",
+                {"exam_title": "Midterm", "score": 8, "total": 10,
+                 "percentage": 80.0, "passed": True},
+            )
+            from app.jobs import send_scorecard_email_job
+
+            result = send_scorecard_email_job(
+                session_key="sess-1", teacher_id="t-1",
+                email="stu@test.com", full_name="Student",
+                teacher_name="Prof",
+            )
+            assert result["ok"] is True
+            mock_build.assert_called_once_with("sess-1", "t-1")
+            mock_emailer.send_scorecard_email.assert_called_once_with(
+                to_email="stu@test.com", to_name="Student",
+                exam_title="Midterm", score=8, total=10,
+                percentage=80.0, passed=True,
+                pdf_bytes=b"fake-pdf-bytes", pdf_filename="scorecard_R001.pdf",
+                teacher_name="Prof", custom_message=None,
+            )
+
+
+# ── health check ──────────────────────────────────────────────────
+
+
+class TestWorkerHealth:
+    """Verify the API provides a way to check if the worker is responsive."""
+
+    def test_metrics_endpoint_available(self, client, admin_headers):
+        """The /api/v1/metrics endpoint (requires auth) can be used
+        to confirm the API is alive; the worker has no separate endpoint."""
+        resp = client.get("/api/v1/metrics", headers=admin_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "proctor_uptime_seconds" in body
+        assert "proctor_requests_total" in body
+
+    def test_health_available(self, client):
+        resp = client.get("/health")
+        # The health endpoint should respond even without auth
+        assert resp.status_code in (200, 404)

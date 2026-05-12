@@ -1,14 +1,18 @@
 """Exams and groups router. Extracted from admin.py."""
 
 import logging
+import uuid as _uuid
 from fastapi import APIRouter, Request, HTTPException, Body
-from ..dependencies import (
-    require_admin, _atable, _cache, _load_questions,
-    _load_exam_config, _uuid, SessionStatus, generate_session_summary, limiter,
-)
+from ..auth import require_admin
+from ..database import async_table as _atable
+from .. import cache as _cache
+from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
+from ..models import SessionStatus
+from ..services.risk import generate_session_summary
+from ..limiter import limiter
 from ..models import (
     CreateExamIn, CreateGroupIn, RenameGroupIn,
-    GroupMembersIn, ExamGroupAssignIn,
+    GroupMembersIn, ExamGroupAssignIn, DuplicateExamIn,
 )
 
 _admin_log = logging.getLogger("admin")
@@ -102,7 +106,7 @@ async def delete_exam(exam_id: str, request: Request):
 
 @router.post("/api/v1/admin/exams/{exam_id}/duplicate")
 @limiter.limit("10/hour")
-async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(default={})):
+async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
 
@@ -114,7 +118,7 @@ async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(defau
 
     new_exam_id = str(_uuid.uuid4())
     src_title = src.get("exam_title") or "Exam"
-    new_title = (str(body.get("new_title") or "").strip()
+    new_title = (body.new_title.strip()
                  or f"{src_title} (copy)")
 
     COPYABLE = [
@@ -149,7 +153,7 @@ async def duplicate_exam(exam_id: str, request: Request, body: dict = Body(defau
             await _atable("exam_config").delete()\
                 .eq("teacher_id", tid).eq("exam_id", new_exam_id).execute()
         except Exception:
-            pass
+            _admin_log.warning("[DuplicateExam] cleanup rollback failed for %s", new_exam_id)
         raise HTTPException(status_code=500, detail="Failed to fetch source questions. Clone aborted.")
 
     questions_copied = 0
@@ -379,6 +383,7 @@ async def create_group(request: Request, body: CreateGroupIn = Body(...)):
     except Exception as e:
         if "duplicate" in str(e).lower() or "unique" in str(e).lower():
             raise HTTPException(status_code=409, detail="Group name already exists")
+        _admin_log.error("[CreateGroup] failed: %s", e)
         raise
 
 

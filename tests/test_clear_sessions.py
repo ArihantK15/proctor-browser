@@ -34,7 +34,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.conftest import shared_supabase_mock,  make_admin_token  # noqa: E402
-from app.dependencies import supabase as _supabase, _cache as _cache
+from app.database import supabase as _supabase
+from app import cache as _cache
 
 
 def _iso_ago(seconds: int) -> str:
@@ -269,7 +270,8 @@ class TestConfirmStepDeletes:
         ])
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.dependencies._cache", None), \
-             patch("app.dependencies.Path") as mock_path:
+             patch("app.services.sessions._cache", None), \
+             patch("app.services.sessions.Path") as mock_path:
             mock_table.side_effect = stub
             mock_path.return_value.is_dir.return_value = False
             mock_path.return_value.__truediv__.return_value.is_dir.return_value = False
@@ -291,7 +293,8 @@ class TestConfirmStepDeletes:
         ])
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.dependencies._cache", None), \
-             patch("app.dependencies.Path") as mock_path:
+             patch("app.services.sessions._cache", None), \
+             patch("app.services.sessions.Path") as mock_path:
             mock_table.side_effect = stub
             mock_path.return_value.is_dir.return_value = False
             mock_path.return_value.__truediv__.return_value.is_dir.return_value = False
@@ -316,7 +319,8 @@ class TestConfirmStepDeletes:
         ])
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.dependencies._cache", None), \
-             patch("app.dependencies.Path") as mock_path:
+             patch("app.services.sessions._cache", None), \
+             patch("app.services.sessions.Path") as mock_path:
             mock_table.side_effect = stub
             mock_path.return_value.is_dir.return_value = False
             mock_path.return_value.__truediv__.return_value.is_dir.return_value = False
@@ -356,7 +360,8 @@ class TestPartialFailureReporting:
         ])
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.dependencies._cache", None), \
-             patch("app.dependencies.Path") as mock_path:
+             patch("app.services.sessions._cache", None), \
+             patch("app.services.sessions.Path") as mock_path:
             mock_table.side_effect = stub
             mock_path.return_value.is_dir.return_value = False
             resp = self._request_then_confirm(client, admin_headers, stub, {})
@@ -386,7 +391,8 @@ class TestPartialFailureReporting:
         ])
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.dependencies._cache", None), \
-             patch("app.dependencies.Path") as mock_path:
+             patch("app.services.sessions._cache", None), \
+             patch("app.services.sessions.Path") as mock_path:
             mock_table.side_effect = stub
             mock_path.return_value.is_dir.return_value = False
             resp = self._request_then_confirm(client, admin_headers, stub, {})
@@ -403,7 +409,8 @@ class TestPartialFailureReporting:
         ])
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.dependencies._cache", None), \
-             patch("app.dependencies.Path") as mock_path:
+             patch("app.services.sessions._cache", None), \
+             patch("app.services.sessions.Path") as mock_path:
             mock_table.side_effect = stub
             mock_path.return_value.is_dir.return_value = False
             resp = self._request_then_confirm(client, admin_headers, stub, {})

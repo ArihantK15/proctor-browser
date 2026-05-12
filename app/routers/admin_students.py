@@ -2,11 +2,16 @@
 
 import logging
 from fastapi import APIRouter, Request, HTTPException, Body
-from ..dependencies import (
-    require_admin, _atable, _cache, _load_exam_config, _get_access_code, _set_access_code,
-    _violation_counts_by_session, generate_session_summary, _risk_label,
-    fmt_ist, now_ist, SessionStatus, limiter, check_org_limits,
-)
+from ..auth import require_admin
+from ..database import async_table as _atable
+from .. import cache as _cache
+from ..repositories.questions import load_exam_config as _load_exam_config, get_access_code as _get_access_code, set_access_code as _set_access_code
+from ..repositories.sessions import violation_counts_by_session as _violation_counts_by_session
+from ..services.risk import generate_session_summary, _risk_label
+from ..utils import fmt_ist, now_ist
+from ..models import SessionStatus
+from ..limiter import limiter
+from ..services.sessions import check_org_limits
 from ..models import BulkRegisterIn, AccessCodeIn
 
 logger = logging.getLogger(__name__)

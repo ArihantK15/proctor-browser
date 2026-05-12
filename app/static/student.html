@@ -22,6 +22,7 @@
 <link rel="stylesheet" href="/static/components.css">
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="/static/theme.css">
+<script src="/static/_safe.js"></script>
 <style>
   body { padding: 24px; }
 
@@ -711,7 +712,7 @@ function statusBadge(status) {
     closed:      ['badge-red',     'Closed'],
     completed:   ['badge-muted',   'Submitted'],
   };
-  const [cls, label] = map[status] || ['badge-muted', escapeHtml(status)];
+  const [cls, label] = map[status] || ['badge-muted', _escHtml(status)];
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
@@ -737,7 +738,7 @@ async function loadExams(opts) {
     _lastExamsFetch = Date.now();
   } catch (e) {
     if (!silent) {
-      container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>' + escapeHtml(e.message||'') + '</div>';
+      container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>' + _escHtml(e.message||'') + '</div>';
     }
   } finally {
     _examsInflight = false;
@@ -816,13 +817,13 @@ function renderExams(exams) {
       <div class="exam-card">
         <div class="exam-card-head">
           <div>
-            <div class="exam-title">${escapeHtml(e.exam_title || 'Exam')}</div>
-            <div class="exam-teacher">${escapeHtml(e.teacher_name || 'Teacher')}</div>
+            <div class="exam-title">${_escHtml(e.exam_title || 'Exam')}</div>
+            <div class="exam-teacher">${_escHtml(e.teacher_name || 'Teacher')}</div>
           </div>
           ${statusBadge(e.status)}
         </div>
         <div class="exam-meta">
-          <div>Roll number<strong>${escapeHtml(roll)}</strong></div>
+          <div>Roll number<strong>${_escHtml(roll)}</strong></div>
           <div>Starts<strong>${fmtWhen(e.starts_at)}</strong></div>
           <div>Ends<strong>${fmtWhen(e.ends_at)}</strong></div>
           <div>Duration<strong>${dur}</strong></div>
@@ -861,8 +862,8 @@ function renderHistory(items){
       <div class="exam-card">
         <div class="exam-card-head">
           <div>
-            <div class="exam-title">${escapeHtml(h.exam_title||'Exam')}</div>
-            <div class="exam-teacher">${escapeHtml(h.teacher_name||'')}</div>
+            <div class="exam-title">${_escHtml(h.exam_title||'Exam')}</div>
+            <div class="exam-teacher">${_escHtml(h.teacher_name||'')}</div>
           </div>
           <span class="badge" style="color:${pctColor};border-color:${pctColor}">${h.percentage}%</span>
         </div>
@@ -870,8 +871,8 @@ function renderHistory(items){
           <div>Score<strong>${h.score} / ${h.total}</strong></div>
           <div>Time<strong>${_fmtDuration(h.time_taken_secs)}</strong></div>
           <div>Violations<strong>${h.violation_count}</strong></div>
-          ${riskStr?'<div>Risk<strong style="color:'+_riskColor(h.risk_score)+'">'+escapeHtml(riskStr)+'</strong></div>':''}
-          <div>Submitted<strong>${escapeHtml(h.submitted_at)}</strong></div>
+          ${riskStr?'<div>Risk<strong style="color:'+_riskColor(h.risk_score)+'">'+_escHtml(riskStr)+'</strong></div>':''}
+          <div>Submitted<strong>${_escHtml(h.submitted_at)}</strong></div>
         </div>
       </div>`;
   }).join('');
@@ -999,12 +1000,6 @@ document.getElementById('modal-code').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') confirmStartExam();
 });
 
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  })[c]);
-}
-
 // ─── invite deep-link (procta://invite/<token>) ──────────────
 // When the student clicks "Open in Procta app" on their email landing
 // page, the OS launches (or focuses) this app with the invite token.
@@ -1055,8 +1050,8 @@ function _applyInvitePrefill(){
     if (card) card.insertBefore(banner, card.firstChild.nextSibling);
   }
   banner.innerHTML = 'You\'re accepting an invite for <b>'
-    + escapeHtml(_pendingInvite.exam_title || 'your exam') + '</b>.'
-    + ' Sign in or sign up with <b>' + escapeHtml(_pendingInvite.email) + '</b> to continue.';
+    + _escHtml(_pendingInvite.exam_title || 'your exam') + '</b>.'
+    + ' Sign in or sign up with <b>' + _escHtml(_pendingInvite.email) + '</b> to continue.';
   // If the email doesn't exist yet on Procta, signup makes more sense
   // than login. Default to signup and pre-fill the name.
   setAuthMode('signup');

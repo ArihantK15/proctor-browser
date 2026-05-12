@@ -7,11 +7,10 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Body
 from fastapi.responses import FileResponse
 
-from ..dependencies import (
-    require_admin, verify_admin_token, limiter, SECRET_KEY,
-    QUESTION_IMG_DIR, SCREENSHOTS_DIR,
-    _safe_path_component, _assert_within_directory,
-)
+from ..auth import require_admin, verify_admin_token
+from ..limiter import limiter
+from ..constants import SECRET_KEY, QUESTION_IMG_DIR, SCREENSHOTS_DIR
+from ..utils import _safe_path_component, _assert_within_directory
 from ..models import UploadQuestionImageIn
 
 _admin_log = logging.getLogger("admin")

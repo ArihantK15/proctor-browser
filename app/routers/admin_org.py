@@ -1,15 +1,17 @@
 """Org management router — admin-only org/billing/member routes."""
 
 import logging
+import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException
 
-from ..dependencies import (
-    require_admin, _atable, limiter, _uuid,
-    now_ist, fmt_ist, SUPER_ADMIN_EMAIL,
-    get_org_subscription,
-    PLAN_LIMITS, _get_invite_base_url,
-)
+from ..auth import require_admin
+from ..database import async_table as _atable
+from ..limiter import limiter
+from ..utils import now_ist, fmt_ist
+from ..constants import SUPER_ADMIN_EMAIL
+from ..services.sessions import get_org_subscription, PLAN_LIMITS
+from ..invites import _get_invite_base_url
 from ..models import OrgInviteIn
 from ..jobs import enqueue_job, send_org_invite_email_job
 

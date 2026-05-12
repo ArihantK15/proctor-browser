@@ -4,10 +4,12 @@ import logging
 
 from fastapi import APIRouter, Request, HTTPException
 
-from ..dependencies import (
-    require_admin, fmt_ist, now_ist, _atable, limiter, _cache,
-    SessionStatus, VerificationStatus,
-)
+from ..auth import require_admin
+from ..utils import fmt_ist, now_ist
+from ..database import async_table as _atable
+from ..limiter import limiter
+from .. import cache as _cache
+from ..models import SessionStatus, VerificationStatus
 from ..models import IdDecisionIn
 
 _admin_log = logging.getLogger("admin")
@@ -41,6 +43,7 @@ async def pending_verifications(request: Request, exam_id: str = None):
         try:
             obj = json.loads(row.get("details", "{}"))
         except Exception:
+            _verif_log.warning("pending-list: malformed details JSON on violation %s", row.get("id"))
             continue
         if obj.get("status") != VerificationStatus.PENDING:
             continue
@@ -86,6 +89,7 @@ async def id_decision(data: IdDecisionIn, request: Request):
     try:
         obj = json.loads(row.get("details", "{}"))
     except Exception:
+        logger.warning("id-decision: malformed details JSON on violation %s", data.violation_id)
         obj = {}
     obj["status"] = data.decision
     obj["decided_by"] = teacher.get("full_name", teacher.get("email", ""))

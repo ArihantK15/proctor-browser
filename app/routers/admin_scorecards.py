@@ -6,22 +6,27 @@ import csv
 import json
 import logging
 import os
-import tempfile
 import zipfile
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException, Body
-from fastapi.responses import FileResponse, StreamingResponse
-from starlette.background import BackgroundTask
+from fastapi.responses import StreamingResponse
 
-from ..dependencies import (
-    require_admin, supabase, _atable, _assert_session_owned, _load_questions,
-    _load_exam_config, compute_risk_score, _safe_filename,
-    _collect_session_screenshots, _match_screenshot_for_violation,
-    _html_escape, _xlsx_safe, fmt_ist, now_ist, SessionStatus, _cache,
-    _fetch_all_results, _stream_csv_results, limiter,
+from ..auth import require_admin
+from ..database import supabase, async_table as _atable
+from ..repositories.sessions import (
+    assert_session_owned as _assert_session_owned,
+    fetch_all_results as _fetch_all_results,
+    stream_csv_results as _stream_csv_results,
 )
+from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
+from ..services.risk import compute_risk_score
+from ..utils import _safe_filename, _html_escape, _xlsx_safe, fmt_ist, now_ist
+from ..models import SessionStatus
+from .. import cache as _cache
+from ..services.sessions import collect_session_screenshots as _collect_session_screenshots, match_screenshot_for_violation as _match_screenshot_for_violation
+from ..limiter import limiter
 from ..models import EmailScorecardsIn
 from ..services.scorecard import _build_scorecard_pdf
 from ..jobs import enqueue_job, send_scorecard_email_job
@@ -83,10 +88,14 @@ async def export_excel(request: Request, exam_id: str = None):
         try:
             pct_val = float(s.get("percentage") or 0)
         except Exception:
+            logger.debug("excel: bad percentage value %r for %s",
+                         s.get("percentage"), s.get("session_key"))
             pct_val = 0.0
         try:
             secs = int(s.get("time_taken_secs") or 0)
         except Exception:
+            logger.debug("excel: bad time_taken_secs %r for %s",
+                         s.get("time_taken_secs"), s.get("session_key"))
             secs = 0
         mins = round(secs / 60, 2) if secs else 0
 
@@ -112,19 +121,193 @@ async def export_excel(request: Request, exam_id: str = None):
             row[-1] = cell
         ws.append(row)
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    try:
-        wb.save(tmp.name)
-        tmp.close()
-        fname = f"results_{safe_eid or 'all'}_{now_ist().strftime('%Y%m%d')}.xlsx"
-        return FileResponse(
-            tmp.name,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=fname,
-            background=BackgroundTask(os.unlink, tmp.name))
-    except Exception:
-        os.unlink(tmp.name)
-        raise
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"results_{safe_eid or 'all'}_{now_ist().strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+# ── PDF helper: confidence parsing ────────────────────────────────
+
+_CONF_MAP = {
+    "face_missing": 0.95, "multiple_faces": 0.92,
+    "wrong_person": 0.78, "eyes_closed": 0.88,
+    "earphone_detected": 0.72, "cheat_object_detected": 0.85,
+    "gaze_away": 0.70, "head_away": 0.80,
+    "voice_detected": 0.75, "window_focus_lost": 0.99,
+    "tab_hidden": 0.99, "lighting_issue": 0.90,
+    "shortcut_blocked": 0.99, "camera_covered": 0.95,
+}
+
+
+def _pdf_get_conf(vtype: str, details) -> str:
+    det = str(details or "")
+    for prefix in ("confidence:", "conf:"):
+        if prefix in det:
+            try:
+                suffix = prefix.replace(":", "")
+                raw = det.split(f"{prefix}")[1].split("|")[0].strip() if prefix == "confidence:" else det.split(f"{prefix}")[1].split(" ")[0].strip()
+                if prefix == "conf:":
+                    val = float(raw)
+                    return f"{int(val)}%" if val > 1 else f"{int(val*100)}%"
+                return raw if "%" in raw else f"{raw}%"
+            except Exception:
+                logger.debug("_pdf_get_conf: bad %s format in %s", prefix, vtype)
+    return f"{int(_CONF_MAP.get(vtype, 0.75) * 100)}%"
+
+
+def _pdf_clean_details(details) -> str:
+    det = str(details or "")
+    raw = det.split("| confidence:")[0].strip()[:40] if "| confidence:" in det else det[:40]
+    return _html_escape(raw)
+
+
+async def _pdf_fetch_violations(session_id: str, tid: str) -> list[dict]:
+    result = await _atable("violations").select("*")\
+        .eq("session_key", session_id)\
+        .eq("teacher_id", str(tid))\
+        .order("created_at").execute()
+    return [v for v in (result.data or []) if v["severity"] in ("high", "medium")]
+
+
+async def _pdf_fetch_answers(session_id: str, tid: str) -> list[dict]:
+    result = await _atable("answers").select("*")\
+        .eq("session_key", session_id)\
+        .eq("teacher_id", str(tid)).execute()
+    return result.data or []
+
+
+def _pdf_build_info_table(exam: dict, raw_violations: list, risk: dict):
+    from reportlab.lib import colors as _c
+    from reportlab.platypus import Table, TableStyle
+    info = [
+        ["Field", "Value"],
+        ["Full Name", exam["full_name"]],
+        ["Roll Number", exam["roll_number"]],
+        ["Email", exam.get("email", "")],
+        ["Submitted At", fmt_ist(exam.get("submitted_at", ""))],
+        ["Score", f"{exam.get('score', 0)}/{exam.get('total', 0)} ({exam.get('percentage', 0)}%)"],
+        ["Time Taken", f"{exam.get('time_taken_secs', 0)}s ({exam.get('time_taken_secs', 0)//60}m {exam.get('time_taken_secs', 0)%60}s)"],
+        ["Total Violations", str(len(raw_violations))],
+        ["Behavioral Risk Score", f"{risk['risk_score']}/100 \u2014 {risk['label']}"],
+    ]
+    t = Table(info, colWidths=[160, 310])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), _c.HexColor("#1a1a2e")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), _c.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [_c.HexColor("#f0f4ff"), _c.white]),
+        ("GRID", (0, 0), (-1, -1), 0.5, _c.grey),
+        ("PADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return t
+
+
+def _pdf_build_violations_table(raw_violations: list):
+    from reportlab.lib import colors as _c
+    from reportlab.platypus import Table, TableStyle
+
+    total_conf_vals = []
+    vd = [["#", "Type", "Severity", "Time", "Conf", "Details"]]
+    for i, v in enumerate(raw_violations, 1):
+        conf_str = _pdf_get_conf(v["violation_type"], v.get("details"))
+        try:
+            total_conf_vals.append(float(conf_str.strip("%")) / 100)
+        except Exception:
+            pass
+        ts_part = ""
+        if v.get("created_at"):
+            _fmted = fmt_ist(v["created_at"])
+            _comma = _fmted.find(",")
+            ts_part = _fmted[_comma + 1:].replace("IST", "").strip() if _comma >= 0 else _fmted
+        vd.append([
+            str(i),
+            v["violation_type"].replace("_", " ").title()[:22],
+            v["severity"].upper(),
+            ts_part, conf_str,
+            _pdf_clean_details(v.get("details"))[:35],
+        ])
+
+    vt = Table(vd, colWidths=[20, 120, 55, 70, 40, 165])
+    vt.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), _c.HexColor("#c0392b")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), _c.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [_c.HexColor("#fff5f5"), _c.white]),
+        ("GRID", (0, 0), (-1, -1), 0.5, _c.grey),
+        ("PADDING", (0, 0), (-1, -1), 5),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+    ]))
+    return vt, total_conf_vals
+
+
+def _pdf_build_confidence_summary(total_conf_vals: list, raw_count: int):
+    from reportlab.lib import colors as _c
+    from reportlab.platypus import Table, TableStyle
+    if not total_conf_vals:
+        return None
+    avg_conf = sum(total_conf_vals) / len(total_conf_vals)
+    high_conf = len([c for c in total_conf_vals if c >= 0.85])
+    reliability = "High" if avg_conf >= 0.85 else "Medium" if avg_conf >= 0.70 else "Low"
+    ct = Table(
+        [[f"Overall Detection Confidence: {avg_conf:.0%}",
+          f"High Confidence Violations: {high_conf}/{raw_count}",
+          f"Reliability: {reliability}"]],
+        colWidths=[160, 160, 150])
+    ct.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), _c.HexColor("#eafaf1")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), _c.HexColor("#1e8449")),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, _c.grey),
+        ("PADDING", (0, 0), (-1, -1), 6),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+    ]))
+    return ct
+
+
+def _pdf_find_evidence(session_id: str, exam: dict, raw_violations: list, tid: str) -> list:
+    roll = exam.get("roll_number") or (
+        session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20])
+    paths = _collect_session_screenshots(roll, tid)
+    items = []
+    for idx, v in enumerate(raw_violations, 1):
+        match = _match_screenshot_for_violation(v, paths)
+        if match is not None and match.exists():
+            items.append((idx, v, match))
+    return items
+
+
+def _pdf_build_evidence_section(evidence_items: list, styles, evidence_caption_style):
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Paragraph, Spacer, Image, KeepTogether
+
+    story = []
+    for idx, v, img_path in evidence_items:
+        ts_str = fmt_ist(v.get("created_at", ""))
+        sev = v["severity"].upper()
+        sev_color = "#c0392b" if v["severity"] == "high" else "#d68910"
+        vtype_pretty = v["violation_type"].replace("_", " ").title()
+        caption = (f'<b>#{idx} \u2014 {vtype_pretty}</b>  \xb7  '
+                   f'<font color="{sev_color}"><b>{sev}</b></font>  \xb7  {ts_str}')
+        detail = _pdf_clean_details(v.get("details"))
+        if detail:
+            caption += f'<br/><font size="8" color="#666">{detail}</font>'
+        try:
+            img = Image(str(img_path), width=4.5 * inch, height=3.4 * inch, kind="proportional")
+            story.append(KeepTogether([Paragraph(caption, evidence_caption_style), img, Spacer(1, 14)]))
+        except Exception as err:
+            logger.warning("pdf: unreadable screenshot %s: %s", img_path, err)
+            story.append(Paragraph(
+                caption + f'  <font color="#999">(image unreadable: {err})</font>',
+                evidence_caption_style))
+            story.append(Spacer(1, 8))
+    return story
 
 
 @router.get("/api/v1/export-pdf/{session_id:path}")
@@ -142,177 +325,40 @@ async def export_pdf(session_id: str, request: Request):
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
         exam = await _assert_session_owned(session_id, tid)
+        raw_violations = await _pdf_fetch_violations(session_id, tid)
+        answers = await _pdf_fetch_answers(session_id, tid)
 
-        viol_result = await _atable("violations")\
-            .select("*")\
-            .eq("session_key", session_id)\
-            .eq("teacher_id", str(tid))\
-            .order("created_at").execute()
-        raw_violations = [
-            v for v in (viol_result.data or [])
-            if v["severity"] in ("high", "medium")
-        ]
-
-        ans_result = await _atable("answers")\
-            .select("*")\
-            .eq("session_key", session_id)\
-            .eq("teacher_id", str(tid))\
-            .execute()
-        answers = ans_result.data or []
-
-        buf    = io.BytesIO()
-        doc    = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
         styles = getSampleStyleSheet()
-        story  = []
+        story = []
 
-        story.append(Paragraph("AI Proctored Exam — Report", styles["Title"]))
+        story.append(Paragraph("AI Proctored Exam \u2014 Report", styles["Title"]))
         story.append(Spacer(1, 12))
 
-        info = [
-            ["Field",          "Value"],
-            ["Full Name",      exam["full_name"]],
-            ["Roll Number",    exam["roll_number"]],
-            ["Email",          exam.get("email", "")],
-            ["Submitted At",   fmt_ist(exam.get("submitted_at", ""))],
-            ["Score",          f"{exam.get('score',0)}/{exam.get('total',0)} "
-                               f"({exam.get('percentage',0)}%)"],
-            ["Time Taken",     f"{exam.get('time_taken_secs',0)} seconds "
-                               f"({exam.get('time_taken_secs',0)//60}m "
-                               f"{exam.get('time_taken_secs',0)%60}s)"],
-            ["Total Violations", str(len(raw_violations))],
-        ]
         risk = await compute_risk_score(session_id, teacher_id=tid)
-        info.append(["Behavioral Risk Score",
-                     f"{risk['risk_score']}/100 — {risk['label']}"])
-        t = Table(info, colWidths=[160, 310])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
-            ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-            ("FONTNAME",   (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE",   (0,0), (-1,-1), 10),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1),
-             [colors.HexColor("#f0f4ff"), colors.white]),
-            ("GRID",    (0,0), (-1,-1), 0.5, colors.grey),
-            ("PADDING", (0,0), (-1,-1), 8),
-        ]))
-        story.append(t)
+        story.append(_pdf_build_info_table(exam, raw_violations, risk))
         story.append(Spacer(1, 20))
 
-        story.append(Paragraph(
-            f"Violations ({len(raw_violations)} total)", styles["Heading2"]))
+        story.append(Paragraph(f"Violations ({len(raw_violations)} total)", styles["Heading2"]))
         story.append(Spacer(1, 8))
 
-        CONF_MAP = {
-            "face_missing": 0.95, "multiple_faces": 0.92,
-            "wrong_person": 0.78, "eyes_closed": 0.88,
-            "earphone_detected": 0.72, "cheat_object_detected": 0.85,
-            "gaze_away": 0.70, "head_away": 0.80,
-            "voice_detected": 0.75, "window_focus_lost": 0.99,
-            "tab_hidden": 0.99, "lighting_issue": 0.90,
-            "shortcut_blocked": 0.99, "camera_covered": 0.95,
-        }
-
-        def get_conf(vtype, details):
-            det = str(details or "")
-            if "confidence:" in det:
-                try:
-                    raw = det.split("confidence:")[1].split("|")[0].strip()
-                    return raw if "%" in raw else f"{raw}%"
-                except Exception:
-                    pass
-            if "conf:" in det:
-                try:
-                    raw = det.split("conf:")[1].split(" ")[0].strip()
-                    val = float(raw)
-                    return f"{int(val)}%" if val > 1 else f"{int(val*100)}%"
-                except Exception:
-                    pass
-            return f"{int(CONF_MAP.get(vtype, 0.75) * 100)}%"
-
-        def clean_details(details):
-            det = str(details or "")
-            raw = det.split("| confidence:")[0].strip()[:40] \
-                   if "| confidence:" in det else det[:40]
-            return _html_escape(raw)
-
         if raw_violations:
-            total_conf_vals = []
-            vd = [["#", "Type", "Severity", "Time", "Conf", "Details"]]
-            for i, v in enumerate(raw_violations, 1):
-                conf_str = get_conf(v["violation_type"], v.get("details"))
-                try:
-                    total_conf_vals.append(float(conf_str.strip("%")) / 100)
-                except Exception:
-                    pass
-                ts_part = ""
-                if v.get("created_at"):
-                    _fmted = fmt_ist(v["created_at"])
-                    _comma = _fmted.find(",")
-                    if _comma >= 0:
-                        ts_part = _fmted[_comma+1:].replace("IST","").strip()
-                    else:
-                        ts_part = _fmted
-                vd.append([
-                    str(i),
-                    v["violation_type"].replace("_", " ").title()[:22],
-                    v["severity"].upper(),
-                    ts_part,
-                    conf_str,
-                    clean_details(v.get("details"))[:35],
-                ])
-            vt = Table(vd, colWidths=[20, 120, 55, 70, 40, 165])
-            vt.setStyle(TableStyle([
-                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#c0392b")),
-                ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                ("FONTNAME",   (0,0), (-1,0), "Helvetica-Bold"),
-                ("FONTSIZE",   (0,0), (-1,-1), 8),
-                ("ROWBACKGROUNDS", (0,1), (-1,-1),
-                 [colors.HexColor("#fff5f5"), colors.white]),
-                ("GRID",    (0,0), (-1,-1), 0.5, colors.grey),
-                ("PADDING", (0,0), (-1,-1), 5),
-                ("ALIGN",   (0,0), (0,-1), "CENTER"),
-            ]))
+            vt, conf_vals = _pdf_build_violations_table(raw_violations)
             story.append(vt)
             story.append(Spacer(1, 8))
-
-            if total_conf_vals:
-                avg_conf  = sum(total_conf_vals) / len(total_conf_vals)
-                high_conf = len([c for c in total_conf_vals if c >= 0.85])
-                conf_data = [[
-                    f"Overall Detection Confidence: {avg_conf:.0%}",
-                    f"High Confidence Violations: {high_conf}/{len(raw_violations)}",
-                    f"Reliability: {'High' if avg_conf>=0.85 else 'Medium' if avg_conf>=0.70 else 'Low'}",
-                ]]
-                ct = Table(conf_data, colWidths=[160, 160, 150])
-                ct.setStyle(TableStyle([
-                    ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#eafaf1")),
-                    ("TEXTCOLOR",  (0,0), (-1,-1), colors.HexColor("#1e8449")),
-                    ("FONTNAME",   (0,0), (-1,-1), "Helvetica-Bold"),
-                    ("FONTSIZE",   (0,0), (-1,-1), 8),
-                    ("GRID",    (0,0), (-1,-1), 0.5, colors.grey),
-                    ("PADDING", (0,0), (-1,-1), 6),
-                    ("ALIGN",   (0,0), (-1,-1), "CENTER"),
-                ]))
+            ct = _pdf_build_confidence_summary(conf_vals, len(raw_violations))
+            if ct:
                 story.append(ct)
         else:
             story.append(Paragraph("No violations recorded.", styles["Normal"]))
 
-        roll_for_evidence = exam.get("roll_number") or (
-            session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]
-        )
-        evidence_paths = _collect_session_screenshots(roll_for_evidence, str(tid))
-        evidence_items = []
-        for idx, v in enumerate(raw_violations, 1):
-            match = _match_screenshot_for_violation(v, evidence_paths)
-            if match is not None and match.exists():
-                evidence_items.append((idx, v, match))
-
+        evidence_items = _pdf_find_evidence(session_id, exam, raw_violations, tid)
         if evidence_items:
             story.append(Spacer(1, 18))
             story.append(PageBreak())
             story.append(Paragraph(
-                f"Visual Evidence ({len(evidence_items)} captures)",
-                styles["Heading2"]))
+                f"Visual Evidence ({len(evidence_items)} captures)", styles["Heading2"]))
             story.append(Paragraph(
                 "Screenshots are listed in the same order as the violations table above.",
                 styles["Italic"]))
@@ -320,39 +366,8 @@ async def export_pdf(session_id: str, request: Request):
 
             evidence_caption_style = ParagraphStyle(
                 "EvidenceCaption", parent=styles["Normal"],
-                fontSize=9, leading=12, spaceAfter=4,
-            )
-
-            for idx, v, img_path in evidence_items:
-                ts_str = fmt_ist(v.get("created_at", ""))
-                sev = v["severity"].upper()
-                sev_color = "#c0392b" if v["severity"] == "high" else "#d68910"
-                vtype_pretty = v["violation_type"].replace("_", " ").title()
-                caption = (
-                    f'<b>#{idx} — {vtype_pretty}</b>  ·  '
-                    f'<font color="{sev_color}"><b>{sev}</b></font>  ·  '
-                    f'{ts_str}'
-                )
-                detail = clean_details(v.get("details"))
-                if detail:
-                    caption += f'<br/><font size="8" color="#666">{detail}</font>'
-
-                try:
-                    img_flowable = Image(
-                        str(img_path),
-                        width=4.5 * inch, height=3.4 * inch,
-                        kind="proportional",
-                    )
-                    story.append(KeepTogether([
-                        Paragraph(caption, evidence_caption_style),
-                        img_flowable,
-                        Spacer(1, 14),
-                    ]))
-                except Exception as img_err:
-                    story.append(Paragraph(
-                        caption + f'  <font color="#999">(image unreadable: {img_err})</font>',
-                        evidence_caption_style))
-                    story.append(Spacer(1, 8))
+                fontSize=9, leading=12, spaceAfter=4)
+            story.extend(_pdf_build_evidence_section(evidence_items, styles, evidence_caption_style))
 
         story.append(Spacer(1, 20))
         story.append(Paragraph("Answer Sheet", styles["Heading2"]))
@@ -373,30 +388,22 @@ async def export_pdf(session_id: str, request: Request):
                 qid = str(a["question_id"])
                 correct = q_correct.get(qid, "?")
                 is_right = str(a["answer"]) == correct
-                ad.append([
-                    f"Q{qid}",
-                    q_texts.get(qid, "")[:40],
-                    a["answer"],
-                    correct,
-                    "\u2713" if is_right else "\u2717",
-                ])
+                ad.append([f"Q{qid}", q_texts.get(qid, "")[:40], a["answer"], correct, "\u2713" if is_right else "\u2717"])
             at = Table(ad, colWidths=[30, 180, 50, 50, 40])
             at.setStyle(TableStyle([
-                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
-                ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                ("FONTNAME",   (0,0), (-1,0), "Helvetica-Bold"),
-                ("FONTSIZE",   (0,0), (-1,-1), 9),
-                ("ROWBACKGROUNDS", (0,1), (-1,-1),
-                 [colors.HexColor("#f8f9fa"), colors.white]),
-                ("GRID",    (0,0), (-1,-1), 0.5, colors.grey),
-                ("PADDING", (0,0), (-1,-1), 6),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f8f9fa"), colors.white]),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("PADDING", (0, 0), (-1, -1), 6),
             ]))
             story.append(at)
 
         story.append(Spacer(1, 20))
         story.append(Paragraph(
-            f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST | "
-            f"Session: {session_id[:20]}...",
+            f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST | Session: {session_id[:20]}...",
             styles["Normal"]))
 
         doc.build(story)
@@ -461,101 +468,96 @@ async def scorecard_zip(request: Request, exam_id: str = None):
             logger.debug("Failed to load exam config for ZIP export: %s", e)
         exam_title = (config or {}).get("title", "Exam")
 
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-        try:
-            with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
-                for sess in sessions:
-                    sid = sess["session_key"]
-                    ans_rows = (await _atable("answers").select("question_id,answer")
-                                .eq("session_key", sid)
-                                .eq("teacher_id", str(tid)).execute()).data or []
-                    ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for sess in sessions:
+                sid = sess["session_key"]
+                ans_rows = (await _atable("answers").select("question_id,answer")
+                            .eq("session_key", sid)
+                            .eq("teacher_id", str(tid)).execute()).data or []
+                ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
 
-                    pdf_buf = io.BytesIO()
-                    doc = SimpleDocTemplate(pdf_buf, pagesize=A4, topMargin=40, bottomMargin=40)
-                    styles = getSampleStyleSheet()
-                    story = []
+                pdf_buf = io.BytesIO()
+                doc = SimpleDocTemplate(pdf_buf, pagesize=A4, topMargin=40, bottomMargin=40)
+                styles = getSampleStyleSheet()
+                story = []
 
-                    story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
-                    story.append(Spacer(1, 12))
+                story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
+                story.append(Spacer(1, 12))
 
-                    score = sess.get("score", 0)
-                    total = sess.get("total", 0)
-                    pct = sess.get("percentage", 0)
-                    passed = pct >= 40
+                score = sess.get("score", 0)
+                total = sess.get("total", 0)
+                pct = sess.get("percentage", 0)
+                passed = pct >= 40
 
-                    info = [
-                        ["Field", "Value"],
-                        ["Student Name", sess.get("full_name", "")],
-                        ["Roll Number", sess.get("roll_number", "")],
-                        ["Date", fmt_ist(sess.get("submitted_at", sess.get("started_at", "")))],
-                        ["Score", f"{score}/{total}"],
-                        ["Percentage", f"{pct}%"],
-                        ["Result", "PASS" if passed else "FAIL"],
-                        ["Time Taken", f"{sess.get('time_taken_secs', 0) // 60}m {sess.get('time_taken_secs', 0) % 60}s"],
-                    ]
-                    t = Table(info, colWidths=[140, 330])
-                    t.setStyle(TableStyle([
+                info = [
+                    ["Field", "Value"],
+                    ["Student Name", sess.get("full_name", "")],
+                    ["Roll Number", sess.get("roll_number", "")],
+                    ["Date", fmt_ist(sess.get("submitted_at", sess.get("started_at", "")))],
+                    ["Score", f"{score}/{total}"],
+                    ["Percentage", f"{pct}%"],
+                    ["Result", "PASS" if passed else "FAIL"],
+                    ["Time Taken", f"{sess.get('time_taken_secs', 0) // 60}m {sess.get('time_taken_secs', 0) % 60}s"],
+                ]
+                t = Table(info, colWidths=[140, 330])
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
+                    ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
+                    ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
+                    ("FONTSIZE",  (0,0), (-1, -1), 10),
+                    ("ROWBACKGROUNDS", (0,1), (-1, -1),
+                     [colors.HexColor("#f0f4ff"), colors.white]),
+                    ("GRID",    (0,0), (-1, -1), 0.5, colors.grey),
+                    ("PADDING", (0,0), (-1, -1), 8),
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 20))
+
+                story.append(Paragraph("Question-wise Results", styles["Heading2"]))
+                story.append(Spacer(1, 8))
+
+                if questions:
+                    qd = [["#", "Question", "Your Answer", "Correct", "Result"]]
+                    for i, q in enumerate(questions, 1):
+                        qid = str(q.get("question_id", q.get("id", "")))
+                        correct_ans = str(q.get("correct", ""))
+                        student_ans = ans_map.get(qid, "\u2014")
+                        is_right = str(student_ans) == correct_ans
+                        q_text = q.get("question", "")
+                        if len(q_text) > 60:
+                            q_text = q_text[:57] + "..."
+                        qd.append([str(i), q_text, str(student_ans)[:20], correct_ans[:20],
+                                   "\u2713" if is_right else "\u2717"])
+                    qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
+                    qt.setStyle(TableStyle([
                         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
                         ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
                         ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
-                        ("FONTSIZE",  (0,0), (-1, -1), 10),
+                        ("FONTSIZE",  (0,0), (-1, -1), 9),
                         ("ROWBACKGROUNDS", (0,1), (-1, -1),
-                         [colors.HexColor("#f0f4ff"), colors.white]),
+                         [colors.HexColor("#f8f9fa"), colors.white]),
                         ("GRID",    (0,0), (-1, -1), 0.5, colors.grey),
-                        ("PADDING", (0,0), (-1, -1), 8),
+                        ("PADDING", (0,0), (-1, -1), 6),
+                        ("ALIGN", (4,1), (4, -1), "CENTER"),
                     ]))
-                    story.append(t)
-                    story.append(Spacer(1, 20))
+                    story.append(qt)
 
-                    story.append(Paragraph("Question-wise Results", styles["Heading2"]))
-                    story.append(Spacer(1, 8))
+                story.append(Spacer(1, 20))
+                story.append(Paragraph(
+                    f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
+                    styles["Normal"]))
 
-                    if questions:
-                        qd = [["#", "Question", "Your Answer", "Correct", "Result"]]
-                        for i, q in enumerate(questions, 1):
-                            qid = str(q.get("question_id", q.get("id", "")))
-                            correct_ans = str(q.get("correct", ""))
-                            student_ans = ans_map.get(qid, "\u2014")
-                            is_right = str(student_ans) == correct_ans
-                            q_text = q.get("question", "")
-                            if len(q_text) > 60:
-                                q_text = q_text[:57] + "..."
-                            qd.append([str(i), q_text, str(student_ans)[:20], correct_ans[:20],
-                                       "\u2713" if is_right else "\u2717"])
-                        qt = Table(qd, colWidths=[25, 230, 80, 80, 35])
-                        qt.setStyle(TableStyle([
-                            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1a1a2e")),
-                            ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                            ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
-                            ("FONTSIZE",  (0,0), (-1, -1), 9),
-                            ("ROWBACKGROUNDS", (0,1), (-1, -1),
-                             [colors.HexColor("#f8f9fa"), colors.white]),
-                            ("GRID",    (0,0), (-1, -1), 0.5, colors.grey),
-                            ("PADDING", (0,0), (-1, -1), 6),
-                            ("ALIGN", (4,1), (4, -1), "CENTER"),
-                        ]))
-                        story.append(qt)
+                doc.build(story)
+                pdf_buf.seek(0)
+                roll = _safe_filename(sess.get("roll_number"), "unknown")
+                zf.writestr(f"scorecard_{roll}.pdf", pdf_buf.getvalue())
 
-                    story.append(Spacer(1, 20))
-                    story.append(Paragraph(
-                        f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
-                        styles["Normal"]))
-
-                    doc.build(story)
-                    pdf_buf.seek(0)
-                    roll = _safe_filename(sess.get("roll_number"), "unknown")
-                    zf.writestr(f"scorecard_{roll}.pdf", pdf_buf.getvalue())
-
-            fname = f"scorecards_{_safe_filename(exam_id, 'all')}_{now_ist().strftime('%Y%m%d')}.zip"
-            return FileResponse(
-                tmp.name,
-                media_type="application/zip",
-                filename=fname,
-                background=BackgroundTask(os.unlink, tmp.name))
-        except Exception:
-            os.unlink(tmp.name)
-            raise
+        buf.seek(0)
+        fname = f"scorecards_{_safe_filename(exam_id, 'all')}_{now_ist().strftime('%Y%m%d')}.zip"
+        return StreamingResponse(
+            buf, media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={fname}"})
 
     except HTTPException:
         raise

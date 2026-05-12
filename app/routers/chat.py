@@ -5,18 +5,14 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 
-from ..dependencies import (
-    supabase,
-    _atable,
-    _get_teacher_by_id,
-    require_auth,
-    verify_student_token,
-    verify_admin_token,
-    CHAT_MAX_TEXT_LEN,
-    ChatHub,
-    SessionStatus,
-    now_ist,
+from ..auth import (
+    _get_teacher_by_id, require_auth, verify_student_token, verify_admin_token,
 )
+from ..database import supabase, async_table as _atable
+from ..constants import CHAT_MAX_TEXT_LEN
+from ..models import SessionStatus
+from ..utils import now_ist
+from ..services.chat import ChatHub
 
 logger = logging.getLogger(__name__)
 

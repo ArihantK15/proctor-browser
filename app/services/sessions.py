@@ -1,0 +1,331 @@
+"""Session liveness, clear-token helpers, and live-session payload building.
+
+Extracted from app/dependencies.py.
+"""
+
+import asyncio
+import logging
+import threading
+import time
+import uuid as _uuid
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Optional
+
+from fastapi import HTTPException
+
+from ..models import SessionStatus
+from ..database import async_table as _atable
+from ..constants import (
+    _CLEAR_TOKEN_TTL, _CLEAR_ACTIVE_WINDOW,
+    SCREENSHOTS_DIR, PLANS,
+)
+from ..utils import now_ist, fmt_ist, _safe_path_component
+from .risk import _is_violation, _risk_label, _batch_risk_scores
+from .calibration import parse_calibration_details, classify_calibration
+
+logger = logging.getLogger(__name__)
+
+try:
+    from .. import cache as _cache
+except Exception:
+    _cache = None
+
+
+# ─── ORG LIMITS ────────────────────────────────────────────────────
+
+PLAN_LIMITS = {p: v["students"] for p, v in PLANS.items()}
+
+
+async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
+    if teacher.get("org_role") == "superadmin":
+        return {"max_students": 999999}
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated with this account")
+    try:
+        org_result = await _atable("organizations").select("id,name,slug,max_students").eq("id", str(org_id)).single().execute()
+        org = org_result.data if hasattr(org_result, 'data') else org_result[0]
+        if not org or not isinstance(org, dict):
+            raise HTTPException(status_code=404, detail="Organization not found")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    try:
+        count_result = await _atable("students").select("id", count="exact").eq("org_id", str(org_id)).execute()
+        current_count = count_result.count if hasattr(count_result, 'count') else len(count_result.data or [])
+    except Exception:
+        current_count = 0
+    max_students = int(org.get("max_students", 30))
+    if current_count + delta > max_students:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Student limit reached ({current_count}/{max_students}). Upgrade your plan."
+        )
+    return org
+
+
+async def get_org_subscription(org_id: str) -> dict | None:
+    try:
+        result = await _atable("subscriptions").select("*").eq("org_id", str(org_id)).limit(1).execute()
+        return (result.data or [None])[0]
+    except Exception:
+        return None
+
+
+# ─── SESSION LIVENESS ──────────────────────────────────────────────
+
+def heartbeat_age_seconds(hb) -> float | None:
+    if not hb:
+        return None
+    try:
+        if isinstance(hb, datetime):
+            dt = hb
+        else:
+            dt = datetime.fromisoformat(str(hb).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+    return (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds()
+
+
+def derive_live_state(meta: dict) -> tuple[str, int | None]:
+    status = (meta.get("status") or "").lower()
+    if status in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED) or meta.get("submitted_at"):
+        return "submitted", None
+    age = heartbeat_age_seconds(meta.get("last_heartbeat"))
+    if age is not None and age <= _CLEAR_ACTIVE_WINDOW:
+        return "live", int(age)
+    return "stale", (int(age) if age is not None else None)
+
+
+# ─── CLEAR LIVE SESSION HELPERS ────────────────────────────────────
+
+_CLEAR_TOKENS: dict[str, dict] = {}
+_CLEAR_TOKENS_LOCK = threading.Lock()
+
+
+def clear_token_issue(teacher_id: str) -> str:
+    tok = _uuid.uuid4().hex
+    payload = {"teacher_id": str(teacher_id)}
+    if _cache:
+        _cache.set(f"clear_token:{tok}", payload, ttl=_CLEAR_TOKEN_TTL)
+    else:
+        with _CLEAR_TOKENS_LOCK:
+            _CLEAR_TOKENS[tok] = {**payload, "expires": time.time() + _CLEAR_TOKEN_TTL}
+            now = time.time()
+            stale = [k for k, v in _CLEAR_TOKENS.items() if v["expires"] < now]
+            for k in stale:
+                _CLEAR_TOKENS.pop(k, None)
+    return tok
+
+
+def session_is_active(row: dict) -> bool:
+    hb = row.get("last_heartbeat")
+    if not hb:
+        return False
+    try:
+        if isinstance(hb, datetime):
+            dt = hb
+        else:
+            dt = datetime.fromisoformat(str(hb).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    age = (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds()
+    return age <= _CLEAR_ACTIVE_WINDOW
+
+
+async def partition_live_sessions(teacher_id: str, exam_id: str | None = None, include_active: bool = False) -> tuple[list[dict], list[dict]]:
+    tid = str(teacher_id)
+    base = _atable("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").eq("teacher_id", tid).eq("status", SessionStatus.IN_PROGRESS)
+    if exam_id:
+        base = base.eq("exam_id", exam_id)
+    result = await base.execute()
+    rows = list(result.data or [])
+    seen = {r["session_key"] for r in rows}
+
+    async def _q_null():
+        q = _atable("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").is_("teacher_id", "null").eq("status", SessionStatus.IN_PROGRESS)
+        if exam_id:
+            q = q.eq("exam_id", exam_id)
+        return await q.execute()
+
+    async def _q_empty():
+        q = _atable("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").eq("teacher_id", "").eq("status", SessionStatus.IN_PROGRESS)
+        if exam_id:
+            q = q.eq("exam_id", exam_id)
+        return await q.execute()
+
+    for fetch_fn in [_q_null, _q_empty]:
+        try:
+            for r in ((await fetch_fn()).data or []):
+                if r["session_key"] not in seen:
+                    rows.append(r)
+                    seen.add(r["session_key"])
+        except Exception as e:
+            logger.warning("[ClearLive] orphan query failed: %s", e)
+
+    try:
+        cutoff = (now_ist() - timedelta(hours=48)).isoformat()
+        viol_teacher = await _atable("violations").select("session_key").eq("teacher_id", tid).gte("created_at", cutoff).execute()
+        viol_orphan1 = await _atable("violations").select("session_key").is_("teacher_id", "null").gte("created_at", cutoff).execute()
+        viol_orphan2 = await _atable("violations").select("session_key").eq("teacher_id", "").gte("created_at", cutoff).execute()
+        all_viol_data = (viol_teacher.data or []) + (viol_orphan1.data or []) + (viol_orphan2.data or [])
+        ghost_keys: set[str] = set()
+        for v in all_viol_data:
+            sk = v.get("session_key")
+            if sk and sk not in seen:
+                ghost_keys.add(sk)
+        for sk in ghost_keys:
+            rows.append({
+                "session_key": sk,
+                "roll_number": sk.split("_")[0] if "_" in sk else sk,
+                "full_name": None, "started_at": None, "last_heartbeat": None,
+                "teacher_id": tid, "_ghost": True,
+            })
+            seen.add(sk)
+    except Exception as e:
+        logger.warning("[ClearLive] violations ghost discovery failed: %s", e)
+
+    active, stale = [], []
+    for r in rows:
+        if include_active:
+            stale.append(r)
+        else:
+            (active if session_is_active(r) else stale).append(r)
+    return active, stale
+
+
+def clear_token_consume(token: str, teacher_id: str) -> bool:
+    if _cache:
+        rec = _cache.get(f"clear_token:{token}")
+        if not rec or rec.get("teacher_id") != str(teacher_id):
+            return False
+        _cache.delete(f"clear_token:{token}")
+        return True
+    rec = _CLEAR_TOKENS.pop(token, None)
+    if not rec or rec["teacher_id"] != str(teacher_id) or rec["expires"] < time.time():
+        return False
+    return True
+
+
+# ─── BUILD SESSIONS PAYLOAD ────────────────────────────────────────
+
+async def build_sessions_payload(tid: str, exam_id: str = None) -> dict:
+    cutoff = (now_ist() - timedelta(hours=48)).isoformat()
+    evts_query = _atable("violations").select("session_key,violation_type,severity,created_at,details").gte("created_at", cutoff)
+    if tid:
+        evts_query = evts_query.eq("teacher_id", str(tid))
+    evts_result = await evts_query.order("created_at", desc=True).execute()
+    events = evts_result.data or []
+
+    sess_query = _atable("exam_sessions").select("session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at")
+    if tid:
+        sess_query = sess_query.eq("teacher_id", str(tid))
+    if exam_id:
+        sess_query = sess_query.eq("exam_id", exam_id)
+    sess_result = await sess_query.execute()
+    sess_meta = {r["session_key"]: r for r in (sess_result.data or [])}
+    submitted = {
+        sk for sk, m in sess_meta.items()
+        if (m.get("status") or "").lower() in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED) or m.get("submitted_at")
+    }
+
+    viol_by_session: dict[str, list[dict]] = {}
+    for e in events:
+        viol_by_session.setdefault(e["session_key"], []).append(e)
+
+    batch_risks = _batch_risk_scores(viol_by_session)
+
+    sessions: dict = {}
+    for e in events:
+        sk = e["session_key"]
+        if exam_id and sk not in sess_meta:
+            continue
+        if sk not in sessions:
+            meta = sess_meta.get(sk, {})
+            cached_risk = meta.get("risk_score")
+            if cached_risk is None and sk not in submitted:
+                cached_risk, risk_label = batch_risks.get(sk, (None, None))
+            else:
+                risk_label = _risk_label(cached_risk) if cached_risk is not None else None
+            live_state, hb_age = derive_live_state(meta)
+            sessions[sk] = {
+                "session_id": sk,
+                "last_event": e["violation_type"],
+                "last_severity": e["severity"],
+                "last_seen": fmt_ist(e.get("created_at", "")),
+                "details": e.get("details"),
+                "submitted": sk in submitted,
+                "live_state": live_state,
+                "heartbeat_age_sec": hb_age,
+                "risk_score": cached_risk,
+                "risk_label": risk_label,
+            }
+
+    cal_tiers: dict[str, dict] = {}
+    seen_cal_keys: set[str] = set()
+    for e in events:
+        if e["violation_type"] == "calibration_complete" and e["session_key"] not in seen_cal_keys:
+            seen_cal_keys.add(e["session_key"])
+            cal_tiers[e["session_key"]] = classify_calibration(parse_calibration_details(e.get("details")))
+
+    for sk, sess in sessions.items():
+        sess["calibration"] = cal_tiers.get(sk, {"tier": "missing", "reason": "No calibration recorded.", "ranges": None})
+
+    active = [s for s in sessions.values() if s["live_state"] == "live"]
+    return {"sessions": active, "all_sessions": list(sessions.values())}
+
+
+# ─── SCREENSHOT HELPERS ────────────────────────────────────────────
+
+def collect_session_screenshots(roll: str, teacher_id: str) -> dict[str, Path]:
+    if not roll or not teacher_id:
+        return {}
+    student_dir = Path(SCREENSHOTS_DIR) / _safe_path_component(str(teacher_id)) / _safe_path_component(roll)
+    if not student_dir.is_dir():
+        return {}
+    out: dict[str, Path] = {}
+    for f in sorted(student_dir.iterdir()):
+        if f.suffix.lower() in (".jpg", ".jpeg", ".png"):
+            out[f.name] = f
+    return out
+
+
+def match_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]) -> Path | None:
+    if not screenshots or not violation.get("created_at"):
+        return None
+    try:
+        evt_ts = datetime.fromisoformat(str(violation["created_at"]).replace("Z", "+00:00")).astimezone(tz=timezone.utc).replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+    vtype = violation.get("violation_type", "")
+    window_keys = {(evt_ts + timedelta(seconds=delta)).strftime("%Y%m%d_%H%M%S") for delta in range(-2, 3)}
+    for fname, fpath in screenshots.items():
+        if fname.startswith(f"evt_{vtype}_") and any(k in fname for k in window_keys):
+            return fpath
+    for fname, fpath in screenshots.items():
+        if fname.startswith("evt_") and any(k in fname for k in window_keys):
+            return fpath
+    for fname, fpath in screenshots.items():
+        if any(k in fname for k in window_keys):
+            return fpath
+    return None
+
+
+def cleanup_screenshots():
+    while True:
+        time.sleep(3600)
+        try:
+            cutoff = now_ist() - timedelta(hours=48)
+            for student_dir in Path(SCREENSHOTS_DIR).iterdir():
+                if student_dir.is_dir():
+                    for f in student_dir.iterdir():
+                        if f.is_file() and f.stat().st_mtime < cutoff.timestamp():
+                            f.unlink()
+        except Exception as e:
+            logger.warning("[Cleanup] %s", e)

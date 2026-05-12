@@ -15,7 +15,7 @@ from .exam import (
     EventIn, FrameIn, IdVerifyIn, IdDecisionIn,
     ClearSessionsIn, EmailScorecardsIn, ScheduleIn, ShuffleIn,
     AccessCodeIn, BulkRegisterIn, CreateExamIn,
-    UploadQuestionImageIn, SaveTemplateIn,
+    UploadQuestionImageIn, SaveTemplateIn, DuplicateExamIn,
 )
 from .invites import InviteStatus, InviteRecipient, SendInvitesBody
 from .groups import CreateGroupIn, RenameGroupIn, GroupMembersIn, ExamGroupAssignIn
@@ -34,7 +34,7 @@ __all__ = [
     "EventIn", "FrameIn", "IdVerifyIn", "IdDecisionIn",
     "ClearSessionsIn", "EmailScorecardsIn", "ScheduleIn", "ShuffleIn",
     "AccessCodeIn", "BulkRegisterIn", "CreateExamIn",
-    "UploadQuestionImageIn", "SaveTemplateIn",
+    "UploadQuestionImageIn", "SaveTemplateIn", "DuplicateExamIn",
     # invites
     "InviteStatus", "InviteRecipient", "SendInvitesBody",
     # groups

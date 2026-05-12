@@ -1,7 +1,11 @@
 """Settings router — schedule and shuffle config. Extracted from admin.py."""
 
 from fastapi import APIRouter, Request, HTTPException, Body
-from ..dependencies import require_admin, _load_exam_config, _atable, _cache, limiter
+from ..auth import require_admin
+from ..repositories.questions import load_exam_config as _load_exam_config
+from ..database import async_table as _atable
+from .. import cache as _cache
+from ..limiter import limiter
 from ..models import ScheduleIn, ShuffleIn
 
 router = APIRouter(prefix="")

@@ -299,7 +299,100 @@
     .chat-status-dot{width:7px;height:7px;border-radius:50%;background:var(--sev-success-fg);
       display:inline-block;margin-right:5px;box-shadow:0 0 0 2px rgba(63,185,80,0.18)}
     .chat-status-dot.off{background:var(--text-disabled);box-shadow:none}
+  /* ── Proctoring: hide scrollbars, prevent text selection ─────── */
+  html{overflow:hidden}
+  body{user-select:none;-webkit-user-select:none}
+  ::-webkit-scrollbar{display:none}
+  /* Prevent pull-to-refresh / overscroll on macOS/iOS */
+  body{touch-action:pan-y;overscroll-behavior:none}
   </style>
+<script>
+// ── Proctoring enforcement ──────────────────────────────────────────
+// Fullscreen lockdown, screen-recording prevention, microphone block,
+// and navigation prevention. Runs immediately so overrides are in place
+// before any user interaction.
+(function(){
+  // ─── Fullscreen enforcement ───────────────────────────────────
+  function _reqFS(){
+    try{
+      if(!document.fullscreenElement && document.documentElement.requestFullscreen)
+        document.documentElement.requestFullscreen();
+    }catch(_){}
+  }
+  _reqFS();
+  document.addEventListener('fullscreenchange', function _fsch(){
+    if(!document.fullscreenElement) setTimeout(_reqFS, 150);
+  });
+  document.addEventListener('webkitfullscreenchange', function _wfsch(){
+    if(!document.webkitFullscreenElement) setTimeout(_reqFS, 150);
+  });
+
+  // ─── Screen-recording prevention ─────────────────────────────
+  // Override getDisplayMedia (screen-capture API) to always deny.
+  if(navigator.mediaDevices){
+    var _odm = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getDisplayMedia = function(){
+      return Promise.reject(new DOMException(
+        'Screen sharing is not permitted during exam', 'NotAllowedError'));
+    };
+  }
+
+  // ─── Microphone-access prevention ────────────────────────────
+  // Strip audio from all getUserMedia calls so no JS code path can
+  // request mic access. Video-only requests (camera for ID verify)
+  // continue to work normally.
+  if(navigator.mediaDevices){
+    var _ogum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = function(c){
+      if(c && c.audio){
+        c = Object.assign({}, c, {audio:false});
+      }
+      return _ogum(c);
+    };
+  }
+
+  // ─── Navigation & close prevention ───────────────────────────
+  window.addEventListener('beforeunload', function(e){
+    e.preventDefault();
+    e.returnValue = '';
+  });
+  window.open = function(){ return null; };
+
+  // ─── Block back/forward navigation ───────────────────────────
+  window.addEventListener('popstate', function(e){
+    history.pushState(null, '', location.href);
+  });
+  history.pushState(null, '', location.href);
+
+  // ─── Prevent drag-and-drop of external content ───────────────
+  document.addEventListener('drop', function(e){ e.preventDefault(); });
+  document.addEventListener('dragover', function(e){ e.preventDefault(); });
+
+  // ─── Screenshot & shortcut prevention ────────────────────────
+  document.addEventListener('keydown', function(e){
+    var k = e.key, c = e.ctrlKey, m = e.metaKey, s = e.shiftKey;
+
+    // Navigation: close tab/quit/new tab/reload
+    if((m||c)&&['w','q','n','r','t'].includes(k.toLowerCase()))
+      { e.preventDefault(); return; }
+
+    // Printing
+    if((m||c)&&k.toLowerCase()==='p'){ e.preventDefault(); return; }
+
+    // macOS screenshots: Cmd+Shift+3/4/5
+    if(m&&s&&['3','4','5'].includes(k)){ e.preventDefault(); return; }
+
+    // Windows Snipping Tool: Ctrl+Shift+S
+    if(c&&s&&k.toLowerCase()==='s'){ e.preventDefault(); return; }
+
+    // PrintScreen variants (bare, Alt+PrtScn, Ctrl+PrtScn)
+    if(k==='PrintScreen'||k==='PRINTSCREEN'){ e.preventDefault(); return; }
+
+    // Win+Shift+S (Windows Snip & Sketch) — Win key is e.metaKey on some browsers
+    // but typically not accessible via keydown, so we rely on PrintScreen variant above
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -553,6 +646,16 @@
 const SERVER = (window.proctor && window.proctor.getServerUrl)
   ? window.proctor.getServerUrl()
   : 'https://app.procta.net';
+
+// Shared escape helpers (mirrors app/static/_safe.js for file:// context)
+function _escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function _escGrp(s) {
+  return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
 
 let student=null, sessionId=null, questions=[], answers={};
 let studentToken=null;
@@ -1541,13 +1644,19 @@ async function startExam(){
           try { panicUnlock(); } catch(err) { console.error('[Panic fallback]', err); }
           return;
         }
-        if(['F12','F11','F5','PrintScreen'].includes(e.key))
+        var _k=e.key, _c=e.ctrlKey, _m=e.metaKey, _s=e.shiftKey;
+        // Block all screenshot triggers
+        if(['F12','F11','F5','PrintScreen','PRINTSCREEN'].includes(_k)||
+           (_m&&_s&&['3','4','5'].includes(_k))||
+           (_c&&_s&&_k.toLowerCase()==='s')){
           e.preventDefault();
+          logV('screenshot_blocked',`Blocked: ${_k}`);
+        }
         if(!examActive) return;
-        if((e.ctrlKey||e.metaKey)&&
-           ['c','v','x','a','u','s','p'].includes(e.key.toLowerCase())){
+        if((_m||_c)&&
+           ['c','v','x','a','u','s','p'].includes(_k.toLowerCase())){
           e.preventDefault();
-          logV('shortcut_blocked',`Blocked: ${e.key}`);
+          logV('shortcut_blocked',`Blocked: ${_k}`);
         }
       });
     }
@@ -2058,11 +2167,6 @@ async function panicUnlock(){
 let chatWs=null, chatReconnectTimer=null, chatReconnectDelay=1000;
 let chatMsgs=[], chatUnread=0, chatPanelOpen=false, chatIntentionalClose=false;
 
-function chatEscape(s){
-  return String(s==null?'':s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
 function chatFmtTime(ts){
   if(!ts) return '';
   try{ return new Date(ts).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',hour12:true}); }
@@ -2201,7 +2305,7 @@ function chatRender(){
     let sender = '';
     if(isB)                       sender = 'Admin Broadcast · ';
     else if(m.sender==='teacher') sender = 'Admin · ';
-    return `<div class="chat-msg ${cls}">${chatEscape(m.text)}<span class="ts">${sender}${chatFmtTime(m.ts)}</span></div>`;
+    return `<div class="chat-msg ${cls}">${_escHtml(m.text)}<span class="ts">${sender}${chatFmtTime(m.ts)}</span></div>`;
   }).join('');
   body.scrollTop = body.scrollHeight;
 }

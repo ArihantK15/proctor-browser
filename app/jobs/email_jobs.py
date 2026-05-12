@@ -1,8 +1,9 @@
 """Email-related background job functions."""
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+
+from .helpers import _run_coro_in_sync
 
 log = logging.getLogger(__name__)
 
@@ -76,19 +77,18 @@ def send_scorecard_email_job(
             teacher_name=teacher_name, custom_message=custom_message,
         )
         if result.ok:
-            from ..dependencies import _atable
-            update = {"scorecard_email_msg_id": result.provider_msg_id}
-            if resend_all:
-                update["scorecard_emailed_at"] = datetime.now(timezone.utc).isoformat()
-            await _atable("exam_sessions").update(update)\
-                .eq("session_key", session_key).eq("teacher_id", teacher_id).execute()
+            from ..database import async_table as _atable
+            await _atable("exam_sessions").update({
+                "scorecard_email_msg_id": result.provider_msg_id,
+                "scorecard_emailed_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("session_key", session_key).eq("teacher_id", teacher_id).execute()
         return {
             "ok": result.ok, "provider_msg_id": result.provider_msg_id,
             "session_key": session_key, "error": result.error,
         }
 
     try:
-        return asyncio.run(_run())
+        return _run_coro_in_sync(_run())
     except Exception as e:
         log.exception("[scorecard-job] failed sid=%s", session_key)
         return {"ok": False, "error": str(e), "session_key": session_key}

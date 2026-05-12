@@ -12,14 +12,17 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException
 
-from ..dependencies import (
-    supabase, fmt_ist, require_admin,
-    now_ist, _assert_session_owned, _load_exam_config, _collect_session_screenshots,
-    compute_risk_score, _is_violation, _match_screenshot_for_violation,
-    _atable, limiter, SCREENSHOTS_DIR,
-    generate_session_summary, _fetch_all_results,
-    SessionStatus,
-)
+from ..auth import require_admin
+from ..utils import fmt_ist, now_ist
+from ..repositories.sessions import assert_session_owned as _assert_session_owned, fetch_all_results as _fetch_all_results
+from ..repositories.questions import load_exam_config as _load_exam_config
+from ..services.sessions import collect_session_screenshots as _collect_session_screenshots
+from ..services.risk import compute_risk_score, _is_violation, generate_session_summary
+from ..services.sessions import match_screenshot_for_violation as _match_screenshot_for_violation
+from ..database import supabase, async_table as _atable
+from ..limiter import limiter
+from ..constants import SCREENSHOTS_DIR
+from ..models import SessionStatus
 from ..models import IdDecisionIn
 
 from .admin_settings import router as settings_router

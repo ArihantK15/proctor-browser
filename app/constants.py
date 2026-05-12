@@ -89,6 +89,11 @@ _CLEAR_ACTIVE_WINDOW = 120
 CHAT_MAX_TEXT_LEN = 2000
 CHAT_HISTORY_LIMIT = 50
 
+# ─── LTI 1.3 ──────────────────────────────────────────────────────
+LTI_LOGIN_URL = os.getenv("LTI_LOGIN_URL", "")
+LTI_LAUNCH_URL = os.getenv("LTI_LAUNCH_URL", "")
+LTI_DEEP_LINKING_URL = os.getenv("LTI_DEEP_LINKING_URL", "")
+
 # ─── Pending verifications ────────────────────────────────────────
 _PENDING_VERIFICATION_LIMIT = 50
 _PENDING_VERIFICATION_TTL = 300

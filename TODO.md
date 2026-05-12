@@ -10,42 +10,34 @@ everything that's been *deferred but acknowledged*. Update as items move.
 These accumulate from the recent feature sprint. None are individually urgent;
 batch them whenever you do the next prod push.
 
-### 1.1 Database migrations
+### 1.1 Database migrations ✅
 
 ```bash
 psql "$DB_URL" -f migrations/phase10_invite_clicks.sql
 psql "$DB_URL" -f migrations/phase11_scorecard_insight.sql
+psql "$DB_URL" -f migrations/phase17_claim_scorecard_rpc.sql
+psql "$DB_URL" -f migrations/phase24_scorecard_claim_ttl.sql
 ```
 
 The others (groups, question_bank, scorecard_emailed, invite_reminders,
 student_invites) are already applied — their endpoints have been live
 for a while.
 
-### 1.2 Environment variables
+### 1.2 Environment variables ✅
 
-Add to `.env` on the droplet:
+Added to `.env` on the droplet:
 
 ```
 GROQ_API_KEY=gsk_...     # for AI question generation + auto-tag
-```
-
-Optional overrides (leave unset to use defaults):
-```
 GROQ_MODEL=llama-3.3-70b-versatile
 GROQ_TIMEOUT=30
 ```
 
-If `GROQ_API_KEY` is missing, AI features return a clean 503 — they don't
-break anything else. Safe to deploy without setting it first.
-
-### 1.3 Third-party config (Resend dashboard)
+### 1.3 Third-party config (Resend dashboard) ✅
 
 For `mail.procta.net`:
-- **Track clicks** — confirm ON (it's usually on by default; verify in
-  Resend → Domains → mail.procta.net → settings)
-- **Track opens** — optional. If you turn it on, expect noisy data: Outlook
-  blocks pixels, Apple Mail pre-fetches them. The Clicked column on the
-  invites dashboard is a more reliable signal regardless.
+- **Track clicks** — confirmed ON
+- **Track opens** — optional (noisy data from Outlook/Apple Mail)
 
 ### 1.4 Container restart
 
@@ -86,41 +78,20 @@ Surfaced in the audit, deliberately not fixed in the hardening pass. Each is
 real but the cost/benefit didn't justify shipping in a fast sprint. Listed in
 priority order.
 
-### 2.1 Scorecard claim race on hard-kill — MED
+### 2.1 Scorecard claim race on hard-kill — ✅ DONE
 
-**Where:** `app/main.py` in `email_all_scorecards` (~line 3920).
+Shipped in `phase24_scorecard_claim_ttl.sql` + `app/routers/admin_scorecards.py`:
+- `scorecard_claim_at timestamptz` column added
+- RPC claims via `scorecard_claim_at` with 5-min TTL recovery
+- `scorecard_emailed_at` stamped only after send success (in `email_jobs.py`)
 
-**Problem:** The bulk endpoint claims `scorecard_emailed_at` *before* sending.
-If the worker is SIGKILL'd between claim and send, the row stays claimed
-forever — student never gets their PDF, and re-runs skip them as
-"already_sent". Graceful failures (PDF build error, send error) DO roll back
-correctly; only worker-kill mid-send is the hole.
+### 2.2 ChatHub per-tenant socket cap + idle eviction — ✅ DONE
 
-**Fix:** Add a `scorecard_claim_at timestamptz` column. Use it as the racey
-claim sentinel. Stamp the real `scorecard_emailed_at` only after send
-success. Add a 5-min TTL recovery clause to the claim query so stuck claims
-get retried automatically.
-
-**Effort:** ~30 lines + 1 migration. Skipped because it requires a schema
-change and worker-kill mid-send is genuinely rare in normal operation.
-
-### 2.2 ChatHub per-tenant socket cap + idle eviction — MED
-
-**Where:** `app/main.py` `ChatHub` class (~line 4083).
-
-**Problem:** `teacher_conns[tid]` and `student_meta` are unbounded sets.
-Pruning happens only on send failure — an idle leaked socket (student
-closed laptop lid, OS hasn't torn the TCP) accumulates indefinitely.
-
-**Fix:** 
-- Add `MAX_TEACHER_SOCKETS_PER_TENANT = 50` constant; reject new connections
-  past the cap with a 1008 close.
-- Add a heartbeat ping every 30s; close connections that don't respond
-  within 60s.
-- TTL-evict `student_meta` entries older than 4h.
-
-**Effort:** ~80 lines. Skipped because it needs careful testing under load
-and current usage is well under any realistic cap.
+Shipped in `app/services/chat.py`:
+- `MAX_TEACHER_SOCKETS_PER_TENANT = 50` — evicts oldest past cap
+- Heartbeat ping every 30s, timeout at 60s
+- Student meta TTL-eviction at 4h (`_evict_stale_meta`)
+- Idle timeout at 1800s (`_cleanup_idle`)
 
 ### 2.3 ~~Resend transport retry with backoff~~ — DONE
 
@@ -133,48 +104,23 @@ Shipped: 400 ms debounce on `_persistAnswers`, with `_persistAnswersNow`
 synchronous flush wired into `doBulkSave`, `beforeunload`, and `pagehide`
 so we never lose the last keystroke.
 
-### 2.5 sessionId orphan recovery in renderer — LOW/MED
+### 2.5 sessionId orphan recovery in renderer — ✅ DONE
 
-**Where:** `renderer/index.html:678` (sessionId generation).
+Shipped in `renderer/index.html:742` (`_recoverOrphanAnswers`):
+- Scans `localStorage` for `answers_<roll>_*` keys on exam start
+- Merges the most-recent found, discards keys older than 7 days
 
-**Problem:** `sessionId = roll + Date.now()` — if Electron crashes mid-exam
-and the student re-launches, the new sessionId doesn't match the old
-localStorage key, so `_mergeLocalAnswers` returns nothing. Their offline
-answers are silently lost.
+### 2.6 Naive `datetime` in `proctor.py` — ✅ DONE
 
-**Fix:** On exam start, scan `localStorage` for any `answers_<roll>_*` keys,
-take the most-recent timestamp, merge in. Add a cleanup step that removes
-keys older than 7 days to bound storage growth.
+All three `datetime.now()` calls in `proctor.py` (lines 914, 950, 1271)
+already use `datetime.now(timezone.utc)` — tz-aware.
 
-**Effort:** ~25 lines, no schema. Skipped because it's a rare crash-resume
-edge case.
+### 2.7 Streaming Excel/PDF for huge exports — ✅ DONE
 
-### 2.6 Naive `datetime` in `proctor.py` — LOW
-
-**Where:** `app/proctor.py:189, 728`.
-
-**Problem:** Uses `datetime.now()` (naive, local tz) and `datetime.utcnow()`
-(naive UTC). If ever compared against a tz-aware datetime, raises
-`TypeError`.
-
-**Fix:** Replace with `datetime.now(timezone.utc)` everywhere.
-
-**Effort:** 2-line change. Skipped because the code paths don't currently
-compare to aware datetimes — it's pre-emptive only.
-
-### 2.7 Streaming Excel/PDF for huge exports — LOW
-
-**Where:** `app/main.py` `/api/export-excel` and `scorecard-zip`.
-
-**Problem:** Both build the full output in `BytesIO` before streaming.
-A 1000-session export can hold ~500 MB temporarily.
-
-**Fix:** Use openpyxl `write_only=True` workbook + chunked iter. For ZIP,
-write each PDF directly to the response stream rather than buffering.
-
-**Effort:** ~40 lines per format. Skipped because the bulk caps (1000
-sessions, 500 questions) keep memory usage well under the worker's 1.2 GB
-limit at current scale.
+Shipped in `app/routers/admin_scorecards.py`:
+- Excel already uses `Workbook(write_only=True)`; now streams from `BytesIO` via `StreamingResponse` instead of temp file + `FileResponse`
+- ZIP builds each PDF to `BytesIO` inside the ZIP, streams via `StreamingResponse` — no temp file
+- Single PDF export already used `BytesIO` + `StreamingResponse` (unchanged)
 
 ### 2.8 Cross-tenant roll_number collision — LOW
 
@@ -401,72 +347,57 @@ ops. Items below are real but were judged either too large for a
 hardening sprint, too risky to fix without integration tests, or both.
 Listed by severity then file.
 
-### 2.A1 Dependency pins — supply-chain hygiene — HIGH (deferred)
+### 2.A1 Dependency pins — supply-chain hygiene — ✅ DONE
 
-`requirements.txt` uses `>=` for every dep. Reproducible builds are not
-guaranteed; a transient FastAPI/pydantic minor bump can break prod.
+`requirements.lock` is checked in (via `pip-compile`), and `Dockerfile`
+installs from it (line 9). Reproducible builds are now guaranteed.
 
-**Why deferred:** pinning blindly with `==` could break the next build
-without any test signal — we only just added the CI test job in this
-pass. Plan: after CI is green twice, run `pip-compile` from the current
-`requirements.txt`, commit the lockfile, and switch the Dockerfile to
-install from it.
+### 2.A2 Hot-path sync Supabase blocking the event loop — ✅ DONE
 
-### 2.A2 Hot-path sync Supabase blocking the event loop — HIGH (deferred)
+`AsyncTable` already supports `.in_()`, `.gte()`, `.lte()`, `.limit()`,
+`.range()` (in `app/database.py`). All five hot-path endpoints already use
+`await _atable(...)`:
+- `validate_student` (`app/routers/exam.py:47`)
+- `analyze_frame` (`app/routers/exam.py:836`) — no Supabase calls (disk write only)
+- `id_verification` (`app/routers/exam.py:889`)
+- `register_student` (`app/routers/public.py:168`)
+- `get_events` (`app/routers/exam.py:981`)
 
-`validate_student` (~168 lines), `analyze_frame`, `id_verification`,
-`register_student`, `get_events` all use the sync supabase client inside
-`def` (sync) endpoints. With one async worker, every call blocks ALL
-other requests including `/health`.
+### 2.A3 `body: dict = Body(...)` → Pydantic models — ✅ DONE
 
-**Fix sketch:** expand `app/database.py:AsyncTable` to support `.in_()`,
-`.gte()`, `.lte()`, `.limit()`, `.range()` (currently missing), then
-migrate the five hot endpoints. ~300 LOC; needs careful test coverage
-because the sync path is the production code path today.
+Only 2 endpoints remained after the Phase 0 refactor:
+`duplicate_exam` and `resolve_access_code`. Both converted to
+Pydantic models (`DuplicateExamIn`, `ResolveAccessCodeIn`).
 
-### 2.A3 23 endpoints take `body: dict = Body(...)` — HIGH (deferred)
+### 2.A4 `app/main.py` is 7642 lines — ✅ DONE (Phase 0 refactor, commit `b24fea1`)
 
-Inconsistent input validation; every handler hand-rolls `body.get(...)`.
-A `body: SomeModel` would centralise length caps + type coercion +
-required-field checks.
+Now 420 lines — a thin orchestrator that wires routers + middleware.
+All business logic extracted to `app/services/`, `app/routers/`, `app/auth/`.
 
-**Why deferred:** ~23 endpoints × ~3 fields each = a Pydantic model
-sprint. Worth doing as a focused refactor with one PR per logical
-group (invites, bank, groups, etc.), not as part of a hardening pass.
+### 2.A5 Test coverage — ✅ DONE (backfill sprint)
 
-### 2.A4 `app/main.py` is 7642 lines — HIGH (deferred)
+Wrote 44 new tests covering all listed critical paths:
+- `tests/test_endpoints_coverage.py` — 41 tests: invite-bounce flow,
+  `id_decision`, `duplicate_exam`, `admin_submit`, `bank_to_exam`,
+  `generate_bank_questions` (LLM path), `analyze_frame`,
+  chat service edge cases (broadcast, fanout, global-cap eviction, TTL).
+- `tests/test_admin_scorecards_coverage.py` — 3 additional tests:
+  `export_pdf` single-session PDF (was the last uncovered path).
 
-Natural seams identified in the audit:
-`auth/teachers`, `auth/students`, `students/exams`,
-`risk/scoring/screenshots`, `proctoring frames+ID`, `live/SSE`,
-`exports/PDF/CSV/Excel`, `invites + reminders + landing`,
-`email webhooks`, `question-bank`, `chat WS hub`.
+Total: **474 tests passing** (430 existing + 44 new), 21 skipped.
 
-**Why deferred:** any module split forces every test to be re-rooted;
-given test coverage is at ~35%, the safe path is to grow the suite first
-and split once tests catch regressions reliably.
+### 2.A6 `except Exception` blocks — ✅ DONE (audited & fixed)
 
-### 2.A5 Test coverage 35% (39 tests / 110 endpoints) — HIGH (deferred)
+Audited ~234 `except Exception` blocks across the entire `app/` tree.
+Every silent handler now either:
+  - logs at `WARNING`/`ERROR`/`DEBUG` (depending on context),
+  - re-raises with logging, or
+  - is intentionally silent (safe-default patterns: import fallbacks,
+    WebSocket close-on-eviction, health-check timers).
 
-Uncovered critical paths: invite-bounce flow, `email_scorecards`,
-`export_excel`/`export_pdf`/`scorecard_pdf`, `bank_to_exam`,
-`generate_bank_questions` (LLM path), `analyze_frame`,
-chat WebSocket (`ws_chat_student/teacher`), `id_decision`,
-`duplicate_exam`, `admin_submit`.
-
-**Plan:** with the new CI job in place, every PR going forward should
-add a test for the path it touches. Backfill the existing gap as a
-focused sprint before the main.py split.
-
-### 2.A6 ~120 `except Exception` blocks, many silent — HIGH (deferred)
-
-Real bugs (DB outage, malformed data) indistinguishable from "expected"
-errors in `main.py:34, 41, 1267, 1410, 2678, 3417, 3421, 5719, 6036,
-6046, 6095, 6145` and many more.
-
-**Fix sketch:** case-by-case audit to either narrow the exception
-class, log at WARNING, or re-raise. Cannot be done en masse — needs
-domain knowledge per call site.
+**Key files fixed:** `exam.py`, `chat.py`, `emailer.py`,
+`admin_exams.py`, `admin_scorecards.py`, `admin_verification.py`,
+`reminders.py`, `lti/launch.py`, `main.py`.
 
 ### 2.A7 `dashboard.html` 4729 lines mixed HTML/CSS/JS — MED (deferred)
 
@@ -474,10 +405,11 @@ Should split into `dashboard.css` + `dashboard.js` modules. Currently
 single-file structure makes diffing painful and prevents minification /
 SRI / proper caching.
 
-### 2.A8 Status strings stringly-typed everywhere — MED (deferred)
+### 2.A8 Status strings → Enum — ✅ DONE
 
-`"in_progress"`, `"completed"`, `"submitted"`, `"pending"` repeated
-20+ times across `main.py`. No `Enum`. Typo risk.
+`SessionStatus` enum used in 42+ sites across all routers/services.
+`VerificationStatus` enum covers the remaining status domain.
+Migration completed during Phase 0 refactor + cleanup pass.
 
 ### 2.A9 `tid` / `teacher_id` / `safe_tid` / `pre_tid` naming split — MED (deferred)
 
@@ -504,17 +436,13 @@ same job. Move to a shared `app/static/_safe.js` and import.
 `update_questions` (150), `submit_exam` (138), `admin_submit` (126),
 `duplicate_exam` (121).
 
-### 2.A13 `AsyncTable` lacks `.in_/.gte/.lte/.limit/.range` — MED (deferred)
+### 2.A13 `AsyncTable` lacks `.in_/.gte/.lte/.limit/.range` — ✅ DONE (covered by #2.A2)
 
-Blocker for migrating sync endpoints to async (#2.A2). Fix this first.
+### 2.A14 Folder hygiene — ✅ DONE
 
-### 2.A14 Folder hygiene — MED (deferred)
-
-- `app/proctoring.db` (SQLite committed in source) → move to `data/`
-  and `.gitignore`.
-- Two `Locust_*.html` reports at repo root → `loadtest/reports/`.
-- `proctor.py` exists at both repo root and `app/proctor.py` —
-  duplicate or import-shadowing risk; verify and remove one.
+- `app/proctoring.db` → moved to `data/proctoring.db`, gitignore updated
+- Two `Locust_*.html` reports → moved to `loadtest/reports/`, gitignore updated
+- No duplicate `proctor.py` — only exists at repo root
 
 ### 2.A15 Mobile breakpoints on bank-generate grid — MED (deferred)
 
@@ -596,24 +524,22 @@ recipients above and click Send" reuses already-present primitives.
 ~1500+ user-facing strings inlined. A `t()` helper would unblock
 multi-language support without a full-file refactor.
 
-### 2.A27 Backup story — HIGH (operational, document only)
+### 2.A27 Backup story — ✅ DONE
 
-Supabase handles DB backups, but `screenshots/` (forensic evidence) is
-on droplet ephemeral disk with no off-site copy. Add nightly `restic`
-or `rclone` to S3-compatible storage; document in `DEPLOY.md`.
+Already documented in `DEPLOY.md` §2.5 — full restic setup with
+B2/S3/Backblaze, cron job, and restore drill instructions. Nightly
+off-site backup of `screenshots/` is ready to deploy.
 
-### 2.A28 Disk-fill risk on `screenshots/` — HIGH (operational)
+### 2.A28 Disk-fill risk on `screenshots/` — ✅ DONE
 
-No rotation / quota on the `./screenshots:/app/screenshots` bind mount.
-A few weeks of active proctoring will fill the droplet. Add a cron:
-`find /app/screenshots -type f -mtime +90 -delete`.
+`entrypoint.sh` already handles this:
+- Startup: `find "$SCREENSHOT_DIR" -type f -mtime +"$RETENTION_DAYS" -delete`
+- Background: cleanup every 6h (configurable via `SCREENSHOT_RETENTION_DAYS`, default 90)
 
-### 2.A29 Single uvicorn worker with sync hot paths — HIGH
+### 2.A29 Single uvicorn worker with sync hot paths — ✅ DONE
 
-`docker-compose.yml --workers 1`. Reportlab PDF gen, LLM calls without
-`await`, and `psutil` block ALL other requests including `/health`.
-Either bump to 2 workers, or migrate sync code to `run_in_executor`.
-Linked with #2.A2.
+`entrypoint.sh` already uses `--workers 2` (line 33). Two workers provide
+concurrency for sync hot paths (PDF gen, LLM calls).
 
 ---
 

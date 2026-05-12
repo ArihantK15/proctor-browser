@@ -5,9 +5,11 @@ import logging
 from fastapi import APIRouter, Request
 from starlette.responses import Response
 
-from ..dependencies import (
-    require_admin, _assert_session_owned, _cache, limiter, now_ist,
-)
+from ..auth import require_admin
+from ..repositories.sessions import assert_session_owned as _assert_session_owned
+from .. import cache as _cache
+from ..limiter import limiter
+from ..utils import now_ist
 
 logger = logging.getLogger(__name__)
 

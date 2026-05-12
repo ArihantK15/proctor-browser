@@ -7,20 +7,24 @@ import time
 import asyncio
 import httpx
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Request, HTTPException, Body
+from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict
 
-from ..dependencies import (
-    supabase, limiter, _atable, _cache,
-    RegisterIn, require_admin, require_student_account, verify_student_auth_token,
-    fmt_ist, now_ist, _load_exam_config, _get_invite_base_url,
-    _render_invite_error, _render_invite_landing,
-    _refresh_release_cache, _resolve_release_asset, _download_redirect,
-    _get_teacher_by_id, _RELEASE_CACHE, _RELEASE_CACHE_EXPIRES,
-    DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN,
-    SECRET_KEY, SUPER_ADMIN_EMAIL,
-    SessionStatus, InviteStatus, VerificationStatus,
+from ..auth import (
+    require_admin, require_student_account, verify_student_auth_token, _get_teacher_by_id,
+)
+from ..database import supabase, async_table as _atable
+from ..limiter import limiter
+from .. import cache as _cache
+from ..models import RegisterIn, SessionStatus, InviteStatus, VerificationStatus
+from ..utils import fmt_ist, now_ist
+from ..constants import SECRET_KEY, SUPER_ADMIN_EMAIL, DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN
+from ..repositories.questions import load_exam_config as _load_exam_config
+from ..invites import _get_invite_base_url
+from ..services.invite_landing import _render_invite_error, _render_invite_landing
+from ..services.release import (
+    _RELEASE_CACHE, _RELEASE_CACHE_EXPIRES, _refresh_release_cache, _resolve_release_asset, _download_redirect,
 )
 from ..jobs import enqueue_job, send_demo_request_notification_job
 
@@ -32,6 +36,12 @@ class DemoRequest(BaseModel):
     institution: str
     role: str
     message: str = ""
+
+
+class ResolveAccessCodeIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    access_code: str
+
 
 logger = logging.getLogger(__name__)
 
@@ -250,13 +260,13 @@ async def lookup_teacher(request: Request, email: str = ""):
 
 @router.post("/api/v1/resolve-access-code")
 @limiter.limit("30/minute")
-async def resolve_access_code(request: Request, body: dict = Body(...)):
+async def resolve_access_code(request: Request, body: ResolveAccessCodeIn):
     """Public endpoint — resolve an exam access code to teacher + exam info.
 
     Students who received an access code from their teacher can use this
     to find the right registration context without needing a direct link.
     """
-    code = (body.get("access_code") or "").strip().upper()
+    code = body.access_code.strip().upper()
     if not code:
         raise HTTPException(status_code=400, detail="Access code is required")
 

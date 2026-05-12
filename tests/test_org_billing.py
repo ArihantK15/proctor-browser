@@ -79,9 +79,9 @@ def _apply_atable_patches(data_map):
     """Patch _atable in every module that imports it from dependencies."""
     se = _data_map_side_effect(data_map)
     return [
-        patch("app.dependencies._atable", side_effect=se),
         patch("app.routers.admin_org._atable", side_effect=se),
         patch("app.routers.billing._atable", side_effect=se),
+        patch("app.services.sessions._atable", side_effect=se),
     ]
 
 
@@ -188,7 +188,6 @@ class TestInviteOrgMember:
             return _chain([])
         with _admin_patch(), contextlib.ExitStack() as es:
             for p in [
-                patch("app.dependencies._atable", side_effect=side_effect),
                 patch("app.routers.admin_org._atable", side_effect=side_effect),
                 patch("app.routers.billing._atable", side_effect=side_effect),
             ]:
@@ -331,7 +330,6 @@ class TestListAllOrgs:
              patch("app.routers.admin_org.SUPER_ADMIN_EMAIL", "super@admin.com"), \
              contextlib.ExitStack() as es:
             for p in [
-                patch("app.dependencies._atable", side_effect=atable_side_effect),
                 patch("app.routers.admin_org._atable", side_effect=atable_side_effect),
                 patch("app.routers.billing._atable", side_effect=atable_side_effect),
             ]:

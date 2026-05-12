@@ -153,13 +153,13 @@ class TestRecalculateScore:
     """Tests for _recalculate_score edge cases."""
 
     def test_score_raises_on_persistent_failure(self):
-        """FIX: _recalculate_score now raises RuntimeError after 2 retries
+        """FIX: recalculate_score now raises RuntimeError after 2 retries
         instead of returning 0/0 (which permanently locked score)."""
-        with patch("app.dependencies._load_questions", side_effect=Exception("DB down")), \
-             patch("app.dependencies.asyncio.sleep", new=AsyncMock()):
-            from app.dependencies import _recalculate_score
+        with patch("app.services.scoring.load_questions", side_effect=Exception("DB down")), \
+             patch("asyncio.sleep", new=AsyncMock()):
+            from app.services.scoring import recalculate_score
             with pytest.raises(RuntimeError, match="Score recalculation failed"):
-                asyncio.run(_recalculate_score("sess_1", {}, "tid", "eid"))
+                asyncio.run(recalculate_score("sess_1", {}, "tid", "eid"))
 
     def test_correct_scoring(self):
         """Normal scoring should work correctly."""
@@ -173,11 +173,11 @@ class TestRecalculateScore:
             {"question_id": 1, "answer": "A"},
             {"question_id": 2, "answer": "A"},  # Wrong
         ]
-        with patch("app.dependencies._load_questions", return_value=questions), \
-             patch("app.dependencies._atable") as mock_atable:
+        with patch("app.services.scoring.load_questions", return_value=questions), \
+             patch("app.database.async_table") as mock_atable:
             mock_atable.return_value.select.return_value.eq.return_value.execute = AsyncMock(return_value=saved_answers)
-            from app.dependencies import _recalculate_score
-            score, total = asyncio.run(_recalculate_score("sess_1", {}, "tid", "eid"))
+            from app.services.scoring import recalculate_score
+            score, total = asyncio.run(recalculate_score("sess_1", {}, "tid", "eid"))
             assert total == 3
             assert score == 1  # Only Q1 correct
 
@@ -191,11 +191,11 @@ class TestRecalculateScore:
         saved_answers.data = [
             {"question_id": 1, "answer": "A"},  # int, not string
         ]
-        with patch("app.dependencies._load_questions", return_value=questions), \
-             patch("app.dependencies._atable") as mock_atable:
+        with patch("app.services.scoring.load_questions", return_value=questions), \
+             patch("app.database.async_table") as mock_atable:
             mock_atable.return_value.select.return_value.eq.return_value.execute = AsyncMock(return_value=saved_answers)
-            from app.dependencies import _recalculate_score
-            score, total = asyncio.run(_recalculate_score("sess_1", {}, "tid", "eid"))
+            from app.services.scoring import recalculate_score
+            score, total = asyncio.run(recalculate_score("sess_1", {}, "tid", "eid"))
             # str(1) == "1" → should match thanks to the str() cast
             assert score == 1
 
@@ -203,11 +203,11 @@ class TestRecalculateScore:
         """No questions in DB → total should be 0."""
         saved_answers = MagicMock()
         saved_answers.data = []
-        with patch("app.dependencies._load_questions", return_value=[]), \
-             patch("app.dependencies._atable") as mock_atable:
+        with patch("app.services.scoring.load_questions", return_value=[]), \
+             patch("app.database.async_table") as mock_atable:
             mock_atable.return_value.select.return_value.eq.return_value.execute = AsyncMock(return_value=saved_answers)
-            from app.dependencies import _recalculate_score
-            score, total = asyncio.run(_recalculate_score("sess_1", {}, "tid", "eid"))
+            from app.services.scoring import recalculate_score
+            score, total = asyncio.run(recalculate_score("sess_1", {}, "tid", "eid"))
             assert total == 0
             assert score == 0
 
@@ -600,22 +600,22 @@ class TestAnswerNormalization:
     """Tests for _normalise_answer_set and _answers_match."""
 
     def test_single_answer(self):
-        from app.dependencies import _normalise_answer_set, _answers_match
+        from app.services.scoring import normalise_answer_set as _normalise_answer_set, answers_match as _answers_match
         assert _normalise_answer_set("A") == {"A"}
         assert _answers_match("A", "A") is True
         assert _answers_match("A", "B") is False
 
     def test_multi_answer_order_insensitive(self):
-        from app.dependencies import _answers_match
+        from app.services.scoring import answers_match as _answers_match
         assert _answers_match("A,C", "C,A") is True
         assert _answers_match("A, C", "C,A") is True
 
     def test_empty_answer(self):
-        from app.dependencies import _normalise_answer_set
+        from app.services.scoring import normalise_answer_set as _normalise_answer_set
         assert _normalise_answer_set("") == set()
 
     def test_whitespace_handling(self):
-        from app.dependencies import _normalise_answer_set
+        from app.services.scoring import normalise_answer_set as _normalise_answer_set
         assert _normalise_answer_set(" A , B ") == {"A", "B"}
 
 
@@ -625,7 +625,8 @@ class TestRiskScoring:
     """Tests for compute_risk_score."""
 
     def test_no_violations(self):
-        from app.dependencies import compute_risk_score, _atable
+        from app.services.risk import compute_risk_score
+        from app.database import async_table as _atable
         # Use the shared mock infrastructure: _atable wraps the shared supabase mock
         shared_mock = shared_supabase_mock()
         shared_mock.reset_mock()
@@ -635,7 +636,7 @@ class TestRiskScoring:
         assert "Low" in result["label"]
 
     def test_risk_label_boundaries(self):
-        from app.dependencies import _risk_label
+        from app.services.risk import _risk_label
         assert _risk_label(0) == "Low Risk"
         assert _risk_label(15) == "Low Risk"
         assert _risk_label(16) == "Moderate Risk"

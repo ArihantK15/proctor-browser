@@ -1,13 +1,17 @@
 """Invites and templates router. Extracted from admin.py."""
 
 import logging
+import uuid as _uuid
 from typing import Optional
 from fastapi import APIRouter, Request, HTTPException, Body
-from ..dependencies import (
-    require_admin, _atable, _cache, _load_exam_config, _load_questions,
-    _get_invite_base_url, _new_invite_token, _claim_and_bump_cap, _uuid,
-    now_ist, InviteStatus, fmt_ist, limiter,
-)
+from ..auth import require_admin
+from ..database import async_table as _atable
+from .. import cache as _cache
+from ..repositories.questions import load_exam_config as _load_exam_config, load_questions as _load_questions
+from ..invites import _get_invite_base_url, _new_invite_token, _claim_and_bump_cap
+from ..utils import now_ist, fmt_ist
+from ..models import InviteStatus
+from ..limiter import limiter
 from ..jobs import enqueue_job, send_invite_email_job
 from ..models import SendInvitesBody, SaveTemplateIn
 
@@ -19,7 +23,6 @@ router = APIRouter(prefix="")
 @router.post("/api/v1/admin/invites/send")
 @limiter.limit("5/minute")
 async def send_invites(body: SendInvitesBody, request: Request):
-    from ..emailer import send_invite_email
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     base_url = _get_invite_base_url()

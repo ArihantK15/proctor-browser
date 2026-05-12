@@ -316,7 +316,7 @@ class TestUtilityFunctions:
         assert fmt_ist("") == ""
 
     def test_fmt_ist_with_valid_iso(self):
-        from app.dependencies import fmt_ist
+        from app.utils import fmt_ist
         result = fmt_ist("2025-01-15T10:00:00Z")
         assert "IST" in result
         assert "15 Jan 2025" in result
@@ -334,6 +334,7 @@ class TestUtilityFunctions:
         assert result == "not-a-date"
 
     def test_now_ist_timezone(self):
-        from app.dependencies import now_ist, IST
+        from app.utils import now_ist
+        from app.constants import IST
         result = now_ist()
         assert result.tzinfo == IST

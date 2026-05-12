@@ -36,7 +36,7 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
     base = os.environ.get("INVITE_BASE_URL", "https://app.procta.net").rstrip("/")
     invite_url = f"{base}/invite/{inv['token']}"
 
-    from .dependencies import fmt_ist
+    from .utils import fmt_ist
     starts_display = fmt_ist(exam_cfg.get("starts_at")) if exam_cfg.get("starts_at") else ""
     try:
         result = send_exam_reminder(to_email=inv["email"], to_name=inv.get("full_name") or "",
@@ -51,7 +51,7 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
         try:
             supabase.table("student_invites").update({col: None}).eq("token", inv["token"]).execute()
         except Exception:
-            pass
+            _dep_log.warning("[reminders] cleanup rollback failed for %s", inv.get('token','?')[:8])
         _dep_log.warning("[reminders] FAILED %dh reminder to=%s err=%r", hours_until, inv.get('email'), getattr(result,'error',None))
         return False
     _dep_log.info("[reminders] SENT %dh reminder to=%s exam=%s", hours_until, inv.get('email'), exam_cfg.get('exam_id') or '?')
@@ -59,7 +59,7 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
 
 
 async def _reminder_tick():
-    from .dependencies import InviteStatus
+    from .models import InviteStatus
 
     buckets = [("reminder_1h_at", 60, REMINDER_1H_WINDOW_MIN, 1), ("reminder_24h_at", 24 * 60, REMINDER_24H_WINDOW_MIN, 24)]
     for col, target_min, half_width, hours_until in buckets:

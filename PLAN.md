@@ -10,27 +10,27 @@
 
 | Metric | Value | Verdict |
 |--------|-------|---------|
-| `app/dependencies.py` | 2,091 lines | God module — auth, models, helpers, rendering, caching |
-| `app/routers/admin.py` | 3,264 lines | Monolithic — every admin operation in one file |
-| `app/services/` | Empty dir | No service layer |
-| Frontends | React SPA + jQuery-in-HTML | Two stacks to maintain |
-| Background jobs | Polling loop in `reminders.py` | No retries, no queues |
-| Email notifications | Sync HTTP call in async handler | Blocks event loop |
-
-The biggest problem isn't missing features — it's that the architecture makes adding features expensive and risky.
+| `app/dependencies.py` | 193 lines | Thin orchestrator — models/auth/services extracted |
+| `app/routers/` | 22 domain files | Split from monolithic admin.py into per-domain routers |
+| `app/services/` | 12 modules | Service layer extracted (chat, scorecard, risk, billing, etc.) |
+| `app/models/` | 10 modules | Pydantic models extracted |
+| `app/repositories/` | 5 modules | Data access layer extracted |
+| `app/auth/` | 5 modules | Auth helpers extracted |
+| Background jobs | Redis RQ in `app/jobs/` | Async job queue with retries, separate worker container |
+| Email notifications | `app/emailer.py` with RQ | Async via job queue, EMAIL_PROVIDER=noop for tests |
 
 ---
 
 ## Phased Roadmap
 
-### Phase 0 — Foundation (months 1-2)
+### Phase 0 — Foundation ✅ (months 1-2)
 **Unlocks everything else. No new features, just structural debt paydown.**
 
 1. ~~Fix `log` bug in emailer.py~~ ✅ (committed)
-2. Extract service layer from `dependencies.py` (2091 lines)
-3. Extract service layer from `admin.py` (3264 lines)
-4. Background job system (Redis RQ)
-5. Fix test infrastructure
+2. ~~Extract service layer from `dependencies.py` (2091 → 193 lines)~~ ✅
+3. ~~Extract service layer from `admin.py` (3264 → 22 domain routers)~~ ✅
+4. ~~Background job system (Redis RQ + worker container)~~ ✅
+5. ~~Fix test infrastructure (`EMAIL_PROVIDER=noop`, conftest helpers)~~ ✅
 
 ### Phase 1 — Self-Service & Revenue (months 3-4)
 **Unlocks the business model directly.**
@@ -55,89 +55,14 @@ The biggest problem isn't missing features — it's that the architecture makes 
 
 ---
 
-## Phase 0 — Detailed Execution Plan
+## Phase 0 — Completed (commit `b24fea1`)
 
-### Step 2: Extract service layer from `app/dependencies.py`
+All five Steps were shipped in a single refactor pass (2026-05-11):
 
-**Current state:** Auth helpers, Pydantic models, DB helpers, rendering functions, constants, caching — all in one file. Every import pulls in the entire Supabase client.
-
-**Target structure:**
-
-```
-app/
-  models/              # Pydantic models only (no side effects)
-    __init__.py
-    teacher.py         # TeacherSignupIn, TeacherLoginIn, etc.
-    student.py         # StudentSignupIn, RegisterIn, etc.
-    exam.py            # ExamConfig, SessionStatus, etc.
-    invites.py         # Invite models
-    demo_request.py    # DemoRequest
-  repositories/        # Data access layer (wraps Supabase)
-    __init__.py
-    teacher_repo.py
-    student_repo.py
-    exam_repo.py
-    invite_repo.py
-    demo_request_repo.py
-  services/            # Business logic (currently empty!)
-    __init__.py
-    teacher_service.py
-    exam_service.py
-    invite_service.py
-    scorecard_service.py
-    demo_request_service.py
-  auth/                # Auth-specific helpers
-    __init__.py
-    tokens.py          # JWT issue/verify
-    admin_auth.py      # require_admin, require_student_account
-  utils/
-    __init__.py
-    html_escape.py
-    fmt_ist.py
-  constants.py         # Keep as-is (env-based, no side effects)
-  emailer.py           # Keep as-is (clean abstraction)
-```
-
-**Migration strategy (safe, incremental):**
-1. Create new files — no deletions yet
-2. One by one, move a model/function out of `dependencies.py`, update all imports in routers to point to the new location
-3. Keep old imports working via re-exports in `dependencies.py` with deprecation warnings
-4. Once all callers migrate, delete the old code
-
-### Step 3: Extract service layer from `app/routers/admin.py`
-
-**Target:** Each logical domain gets its own router file and a corresponding service:
-
-```
-app/routers/
-  admin.py              # Shrinks to ~300 lines — just route defs + auth
-  admin_exams.py        # Exam CRUD
-  admin_students.py     # Student management, bulk register
-  admin_invites.py      # Send invites, revoke, list
-  admin_scorecards.py   # Scorecard emailing
-  admin_settings.py     # Teacher settings
-```
-
-### Step 4: Background job system (Redis RQ)
-
-```
-app/
-  worker.py             # RQ worker entrypoint (separate container)
-  jobs/
-    __init__.py
-    send_email.py       # All email sends go through here
-    send_reminders.py   # Schedule reminder emails
-    cleanup.py          # Periodic cleanup tasks
-```
-
-**Docker-compose:** Add `worker` service.
-
-### Step 5: Fix test infrastructure
-
-- Stop mocking the full emailer module
-- Set `EMAIL_PROVIDER=noop` in test env
-- Test email notifications via `SendResult` return values
-- Add proper integration test helpers
+- **Step 2:** `dependencies.py` went from 2091 → 193 lines. Auth helpers moved to `app/auth/`, models to `app/models/`, business logic to `app/services/`, data access to `app/repositories/`, utilities to `app/utils/`.
+- **Step 3:** `admin.py` split into 22 domain-specific router files under `app/routers/` (admin_exams, admin_students, admin_invites, admin_scorecards, etc.). `app/main.py` is now a thin 420-line orchestrator.
+- **Step 4:** Redis RQ background job system with `app/jobs/` (email_jobs, helpers) and a separate `worker` container in docker-compose.
+- **Step 5:** Test infrastructure fixed — `EMAIL_PROVIDER=noop` env var, conftest helpers (`make_admin_token`, `shared_supabase_mock`), tests use `SendResult` return values instead of mocking the emailer.
 
 ---
 
@@ -145,9 +70,9 @@ app/
 
 | Current approach | What I'd change | Why |
 |---|---|---|
-| `dependencies.py` (2k lines) | `app/models/`, `app/auth/`, `app/repositories/` | Every new feature becomes harder, not easier |
-| `admin.py` (3.2k lines) | Router dispatches to service layer | Business logic should be testable without HTTP |
-| Sync email in async handler | Async job queue (Redis RQ) | Currently blocks the event loop on every send |
+| ~~`dependencies.py` (2k lines)~~ | ✅ Extracted to `app/models/`, `app/auth/`, `app/repositories/` | — |
+| ~~`admin.py` (3.2k lines)~~ | ✅ Split into 22 domain routers | — |
+| ~~Sync email in async handler~~ | ✅ Migrated to Redis RQ job queue | — |
 | `_atable("table")` everywhere | Typed repository layer | Tests become trivial, provider swaps possible |
 | Raw SQL migration files | Alembic | Schema versioning, rollbacks, auto-generation |
 | Single flat teacher model | Org → Admin → Teacher hierarchy | Cannot sell to universities without this |

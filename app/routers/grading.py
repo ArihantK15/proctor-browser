@@ -9,15 +9,11 @@ from fastapi import APIRouter, Request, Body, HTTPException
 from pydantic import BaseModel, ConfigDict
 _grading_log = logging.getLogger("grading")
 
-from ..dependencies import (
-    supabase,
-    _atable,
-    limiter,
-    require_admin,
-    fmt_ist,
-    _load_questions,
-    now_ist,
-)
+from ..database import supabase, async_table as _atable
+from ..limiter import limiter
+from ..auth import require_admin
+from ..utils import fmt_ist, now_ist
+from ..repositories.questions import load_questions as _load_questions
 
 router = APIRouter(prefix="")
 
@@ -46,7 +42,7 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
 
     Returns the new totals or None if the session wasn't found.
     """
-    from ..dependencies import _recalculate_score
+    from ..services.scoring import recalculate_score as _recalculate_score
 
     sess = await _atable("exam_sessions")\
         .select("session_key,exam_id,teacher_id")\

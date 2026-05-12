@@ -15,7 +15,7 @@ app/credentials.json
 # Runtime data — generated on server
 logs/
 screenshots/
-app/proctoring.db
+data/proctoring.db
 *.db
 
 # Installer binaries — too large for git (use GitHub Releases)
@@ -27,7 +27,7 @@ app/downloads/
 questions.json
 
 # Load test reports — generated locally
-Locust_*.html
+loadtest/reports/
 
 # PDF reports — generated locally
 Procta_Development_Report.pdf

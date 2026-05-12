@@ -24,16 +24,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, StreamingResponse
 
 # ── shared deps (config, auth, helpers, models) ────────────────────
-from .dependencies import (
-    _rate_limit_key,
-    _custom_rate_limit_handler,
-    _cleanup_screenshots,
-    _reminder_loop,
-    SCREENSHOTS_DIR,
-    QUESTION_IMG_DIR,
-    STATIC_DIR,
-    CORS_ALLOWED_ORIGINS,
-)
+from .limiter import _rate_limit_key, _custom_rate_limit_handler
+from .services.sessions import cleanup_screenshots as _cleanup_screenshots
+from .reminders import _reminder_loop
+from .constants import SCREENSHOTS_DIR, QUESTION_IMG_DIR, STATIC_DIR, CORS_ALLOWED_ORIGINS
 
 # ── routers ───────────────────────────────────────────────────────
 from .routers.auth import router as auth_router
@@ -45,6 +39,7 @@ from .routers.public import router as public_router
 from .routers.sse import router as sse_router
 from .routers.chat import router as chat_router
 from .routers.billing import router as billing_router
+from .routers.lti import router as lti_router
 
 # ── structured logger ─────────────────────────────────────────────
 logger = logging.getLogger("proctor.api")
@@ -330,7 +325,7 @@ async def _count_requests(request: Request, call_next):
 @app.get("/api/v1/metrics")
 async def metrics(request: Request):
     """Prometheus-style metrics for monitoring. Requires auth to prevent information leakage."""
-    from .dependencies import require_auth
+    from .auth import require_auth
     require_auth(request)
     uptime = round(time.time() - _METRICS["start_time"], 1)
     return {
@@ -350,12 +345,13 @@ app.include_router(public_router)
 app.include_router(sse_router)
 app.include_router(chat_router)
 app.include_router(billing_router)
+app.include_router(lti_router)
 
 # ── startup tasks ─────────────────────────────────────────────────
 @app.on_event("startup")
 async def _on_startup():
     # Supabase connectivity check — fail fast instead of serving 502s
-    from .dependencies import supabase
+    from .database import supabase
     try:
         supabase.table("exam_config").select("id").limit(1).execute()
         print("[startup] Supabase connected", flush=True)
@@ -419,6 +415,6 @@ async def _on_shutdown():
             _r.close()
             log.info("[shutdown] Closed Redis connection")
     except Exception:
-        pass
+        log.warning("[shutdown] Failed to close Redis connection")
 
     log.info("[shutdown] Graceful shutdown complete")

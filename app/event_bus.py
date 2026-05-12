@@ -11,8 +11,14 @@ import os
 import time
 from typing import AsyncGenerator
 
-import redis
-import redis.asyncio as aioredis
+try:
+    import redis
+    import redis.asyncio as aioredis
+    _HAS_REDIS = True
+except ImportError:
+    redis = None
+    aioredis = None
+    _HAS_REDIS = False
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 _event_log = logging.getLogger("event_bus")
@@ -75,6 +81,10 @@ async def _reconnect_async() -> aioredis.Redis | None:
             return _async_pool
         except Exception:
             return None
+
+
+if not _HAS_REDIS:
+    _event_log.warning("redis package not installed — event bus is a no-op")
 
 
 def publish(channel: str, payload: dict) -> None:

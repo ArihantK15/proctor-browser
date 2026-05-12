@@ -65,9 +65,20 @@ class _AsyncTableMock:
 
 class _AsyncChainWrapper:
     """Wraps a MagicMock chain so .execute() is awaitable but all
-    other attribute access passes through to the underlying mock."""
+    other attribute access passes through to the underlying mock.
+
+    The wrapper itself is also awaitable (``await chain``) for callers
+    that split the builder from execution::
+
+        q = await _atable("t").select("a").eq("x", 1)
+        rows = (await q.execute()).data
+    """
     def __init__(self, chain):
         self._chain = chain
+    def __await__(self):
+        async def _resolve():
+            return self._chain
+        return _resolve().__await__()
     def __getattr__(self, name):
         attr = getattr(self._chain, name)
         if name == "execute":
@@ -205,7 +216,7 @@ def _disable_rate_limits():
     other.  The real limiter is enforced in production; in tests we
     only care about business-logic correctness."""
     from app.main import app
-    from app.dependencies import limiter as dep_limiter
+    from app.limiter import limiter as dep_limiter
     # Disable both limiter instances
     app.state.limiter.enabled = False
     dep_limiter.enabled = False

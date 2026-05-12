@@ -8,13 +8,17 @@ from fastapi.responses import StreamingResponse, Response
 from jose import jwt, JWTError
 from pydantic import BaseModel, ConfigDict
 
-from ..dependencies import (
-    supabase, _bus_subscribe, _HAS_REDIS, _get_teacher_by_id,
-    require_admin, verify_admin_token, verify_student_token,
-    _build_sessions_payload, _cache, _bus_async_publish,
-    SECRET_KEY, require_auth, now_ist, fmt_ist, SessionStatus,
-    VIOLATION_WEIGHTS, _CRITICAL_TYPES,
+from ..auth import (
+    require_admin, verify_admin_token, verify_student_token, _get_teacher_by_id, require_auth,
 )
+from ..database import supabase
+from ..event_bus import subscribe as _bus_subscribe, _HAS_REDIS, async_publish as _bus_async_publish
+from ..services.sessions import build_sessions_payload as _build_sessions_payload
+from .. import cache as _cache
+from ..constants import SECRET_KEY, _CRITICAL_TYPES
+from ..utils import now_ist, fmt_ist
+from ..models import SessionStatus
+from ..services.risk import VIOLATION_WEIGHTS
 
 logger = logging.getLogger(__name__)
 

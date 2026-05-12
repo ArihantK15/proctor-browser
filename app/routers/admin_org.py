@@ -131,6 +131,27 @@ async def remove_member(teacher_id: str, request: Request):
     return {"ok": True}
 
 
+@router.patch("/api/v1/org")
+@limiter.limit("10/hour")
+async def update_org(body: dict, request: Request):
+    """Update org settings (name)."""
+    teacher = await require_admin(request)
+    if teacher.get("org_role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only admins can update org settings")
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Organization name is required")
+
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:64]
+    await _atable("organizations").update({"name": name, "slug": slug}).eq("id", str(org_id)).execute()
+    return {"ok": True, "name": name, "slug": slug}
+
+
 @router.get("/api/v1/org/billing")
 @limiter.limit("30/minute")
 async def get_billing(request: Request):
@@ -155,3 +176,37 @@ async def get_billing(request: Request):
         "student_count": student_count,
         "max_students": max_students,
     }
+
+
+@router.get("/api/v1/admin/all-orgs")
+@limiter.limit("30/minute")
+async def list_all_orgs(request: Request):
+    """Superadmin: list all organizations."""
+    teacher = await require_admin(request)
+    if teacher.get("email", "").lower() != SUPER_ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Super admin access required")
+
+    orgs = await _atable("organizations").select("id,name,slug,max_students,created_at").execute()
+    rows = orgs.data or []
+
+    result = []
+    for org in rows:
+        org_id = str(org["id"])
+        sub = await get_org_subscription(org_id)
+        count_result = await _atable("students").select("id", count="exact").eq("org_id", org_id).execute()
+        student_count = count_result.count if hasattr(count_result, 'count') else len(count_result.data or [])
+        teacher_result = await _atable("teachers").select("id").eq("org_id", org_id).execute()
+        teacher_count = len(teacher_result.data or [])
+        result.append({
+            "id": org_id,
+            "name": org["name"],
+            "slug": org["slug"],
+            "max_students": org["max_students"],
+            "plan": (sub or {}).get("plan", "starter"),
+            "status": (sub or {}).get("status", "unknown"),
+            "student_count": student_count,
+            "teacher_count": teacher_count,
+            "created_at": fmt_ist(org.get("created_at", "")),
+        })
+
+    return {"orgs": result}

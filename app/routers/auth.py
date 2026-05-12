@@ -393,17 +393,18 @@ async def accept_org_invite(body: dict, request: Request):
         }).execute()
         teacher = teacher_result.data[0]
 
-    await _atable("org_invites").update({"status": "accepted", "accepted_at": now_ist().isoformat()}).eq("id", invite["id"]).execute()
+    resolved_name = teacher.get("full_name") or body.full_name
+    await _atable("org_invites").update({"status": "accepted", "accepted_at": datetime.now(timezone.utc).isoformat()}).eq("id", invite["id"]).execute()
 
     access_token = issue_admin_token(teacher)
-    _auth_log.info("[AcceptInvite] %s <%s> joined org %s", full_name, email, org_id)
-    enqueue_job(send_new_account_notification_job, account_type="teacher", name=full_name, email=email)
+    _auth_log.info("[AcceptInvite] %s <%s> joined org %s", resolved_name, email, org_id)
+    enqueue_job(send_new_account_notification_job, account_type="teacher", name=resolved_name, email=email)
 
     return {
         "access_token": access_token,
         "teacher_id": teacher["id"],
         "email": email,
-        "full_name": full_name,
+        "full_name": resolved_name,
         "org_id": org_id,
         "org_role": "teacher",
     }

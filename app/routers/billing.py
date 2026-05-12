@@ -4,9 +4,10 @@ import json
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from ..dependencies import require_admin, _atable, limiter, PLAN_LIMITS
+from ..constants import PLANS
 from ..services.billing import (
     create_subscription as billing_create_subscription,
-    verify_webhook, PLANS,
+    verify_webhook,
 )
 
 logger = logging.getLogger(__name__)
@@ -131,15 +132,21 @@ async def razorpay_webhook(request: Request):
 
     elif event_type == "subscription.completed":
         await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
-        await _atable("organizations").update({"max_students": 30}).eq("id", str(org_id)).execute()
+        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
         logger.info("Subscription completed for org=%s", org_id)
 
     elif event_type == "subscription.paused":
         await _atable("subscriptions").update({"status": "paused"}).eq("id", db_sub.data[0]["id"]).execute()
-        await _atable("organizations").update({"max_students": 30}).eq("id", str(org_id)).execute()
+        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
         logger.info("Subscription paused for org=%s", org_id)
+
+    elif event_type == "subscription.cancelled":
+        await _atable("subscriptions").update({"status": "cancelled"}).eq("id", db_sub.data[0]["id"]).execute()
+        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+        logger.info("Subscription cancelled for org=%s", org_id)
 
     elif event_type == "payment.failed":
         logger.warning("Payment failed for org=%s sub=%s", org_id, sub_id)
+        await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
 
     return {"status": "ok"}

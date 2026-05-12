@@ -19,13 +19,9 @@ import json
 import logging
 import os
 
-logger = logging.getLogger(__name__)
+from ..constants import PLANS
 
-PLANS = {
-    "starter":  {"name": "Starter",  "price_inr": 149,  "students": 30,  "desc": "For small classes & tutorials"},
-    "growth":   {"name": "Growth",   "price_inr": 999,  "students": 150, "desc": "For departments & mid-size programs"},
-    "pro":      {"name": "Pro",      "price_inr": 2499, "students": 500, "desc": "For large universities & institutions"},
-}
+logger = logging.getLogger(__name__)
 
 
 def _is_live() -> bool:

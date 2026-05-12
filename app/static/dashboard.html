@@ -2073,7 +2073,7 @@
   <div style="max-width:1000px;margin:0 auto;padding:20px 0">
     <h2 style="color:var(--text-primary);margin:0 0 20px">All Organizations</h2>
     <table class="data-table" id="all-orgs-table">
-      <thead><tr><th>Name</th><th>Teachers</th><th>Students</th><th>Plan</th><th>Status</th></tr></thead>
+      <thead><tr><th>Name</th><th>Teachers</th><th>Students</th><th>Plan</th><th>Status</th><th>Created</th></tr></thead>
       <tbody id="all-orgs-tbody"></tbody>
     </table>
   </div>
@@ -2941,8 +2941,25 @@ async function loadBilling(){
 }
 
 async function loadAllOrgs(){
-  // Super admin only — list all orgs
-  document.getElementById('all-orgs-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:20px">Loading...</td></tr>';
+  const tbody = document.getElementById('all-orgs-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:20px">Loading...</td></tr>';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/all-orgs`);
+    if(!r.ok){ tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:20px">Access denied</td></tr>'; return; }
+    const d = await r.json();
+    tbody.innerHTML = (d.orgs||[]).map(o => `
+      <tr>
+        <td>${escHtml(o.name)}</td>
+        <td>${o.teacher_count||0}</td>
+        <td>${(o.student_count||0)+' / '+(o.max_students||30)}</td>
+        <td>${escHtml(o.plan)}</td>
+        <td>${escHtml(o.status)}</td>
+        <td style="font-size:11px;color:var(--text-secondary)">${o.created_at||''}</td>
+      </tr>
+    `).join('');
+  }catch(_){
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:20px">Failed to load</td></tr>';
+  }
 }
 
 function escHtml(s){
@@ -3021,8 +3038,19 @@ async function saveOrgName(){
   const name = document.getElementById('settings-org-name').value.trim();
   const resultEl = document.getElementById('settings-result');
   if(!name){ resultEl.textContent = 'Name is required'; resultEl.style.color = 'var(--red)'; return; }
-  // Org name update not implemented in API yet — coming in Phase 2
-  resultEl.textContent = 'Saved! (Org name update coming soon)'; resultEl.style.color = 'var(--emerald)';
+  resultEl.textContent = 'Saving...'; resultEl.style.color = 'var(--text-secondary)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name})
+    });
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Failed to save'); }
+    resultEl.textContent = 'Organization name updated!'; resultEl.style.color = 'var(--emerald)';
+    loadOrgOverview();
+  }catch(e){
+    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
+  }
 }
 
 // ── REFRESH ─────────────────────────────────────────────────────

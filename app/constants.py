@@ -51,10 +51,10 @@ _CAL_LOOSE_HEAD = 30.0
 
 # ─── Plan / billing ──────────────────────────────────────────────
 PLANS = {
-    "starter":    {"students": 30,  "price_inr": 149},
-    "growth":     {"students": 150, "price_inr": 999},
-    "pro":        {"students": 500, "price_inr": 2499},
-    "enterprise": {"students": 999999, "price_inr": 0},
+    "starter":    {"name": "Starter",  "students": 30,  "price_inr": 149,  "desc": "For small classes & tutorials"},
+    "growth":     {"name": "Growth",   "students": 150, "price_inr": 999,  "desc": "For departments & mid-size programs"},
+    "pro":        {"name": "Pro",      "students": 500, "price_inr": 2499, "desc": "For large universities & institutions"},
+    "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "desc": "Custom pricing — contact sales"},
 }
 TRIAL_DAYS = 7
 

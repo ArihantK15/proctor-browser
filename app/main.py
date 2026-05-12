@@ -40,6 +40,7 @@ from .routers.sse import router as sse_router
 from .routers.chat import router as chat_router
 from .routers.billing import router as billing_router
 from .routers.lti import router as lti_router
+from .routers.api import router as api_router
 
 # ── structured logger ─────────────────────────────────────────────
 logger = logging.getLogger("proctor.api")
@@ -346,6 +347,7 @@ app.include_router(sse_router)
 app.include_router(chat_router)
 app.include_router(billing_router)
 app.include_router(lti_router)
+app.include_router(api_router)
 
 # ── startup tasks ─────────────────────────────────────────────────
 @app.on_event("startup")

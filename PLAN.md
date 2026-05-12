@@ -54,7 +54,7 @@
 
 ## Phase 2 — Hardening & Design System ⚡
 
-*Shipped across 4 commits (`50e9c7a`, `79048a7`, `82ee2a1`, and prior)*
+*Shipped across 5 commits (`50e9c7a`, `79048a7`, `82ee2a1`, `05399de`, and prior)*
 
 ### 2.0 Structural Hardening
 
@@ -64,12 +64,12 @@
 |----------|----------------|
 | Race conditions | Scorecard claim on hard-kill, sessionId orphan recovery, validate-student TOCTOU |
 | Performance | ChatHub socket cap + idle eviction, async Supabase hot paths, 2 uvicorn workers |
-| Security | Caddy HSTS/X-Frame-Options, filesystem path traversal guards, cross-tenant roll_number isolation |
-| Code quality | `except Exception` audit, naive datetime → aware, Status → StrEnum, `AuthCtx` typed auth |
+| Security | Caddy HSTS/X-Frame-Options, filesystem path traversal guards, cross-tenant roll_number isolation, /login rate-limiting (10 req/min) |
+| Code quality | `except Exception` audit, naive datetime → aware, Status → StrEnum, `AuthCtx` typed auth, action-btn → .btn migration (90 instances) |
 | UX | Focus-traps on modals, WCAG AA contrast fix, spinner/disabled on slow exports, mobile breakpoints |
 | Infra | Backup story (restic + cron), disk-fill prevention (screenshot retention), dependency pins |
 
-### 2.1 Codebase Refactoring (this sprint)
+### 2.1 Codebase Refactoring
 
 - **Escape helpers** — consolidated `chatEscape`/`chatJsEscape` into `_safe.js`, removed inline duplicates
 - **CSS extraction** — ~900 lines moved from dashboard.html → `dashboard.css`
@@ -77,6 +77,8 @@
 - **Cross-tenant isolation** — `validate_student` chains through invite access_code token; all queries scoped by teacher_id + exam_id
 - **Naming normalization** — `safe_tid`→`safe_teacher_id`, `AuthCtx` dataclass, `extract_auth()` helper
 - **i18n infrastructure** — `app/services/i18n.py` + `app/static/_i18n.js` with `t()` helpers and ~40 string keys
+- **btn migration** — all 90 `action-btn` references converted to `.btn`/`.btn-primary`/`.btn-secondary`/`.btn-ghost`; old CSS rules removed
+- **Rate limiting** — Caddy auth endpoint rate limiting (10 req/min per IP)
 
 ### 2.2 Visual Redesign (§1.6 — 16 surfaces ported)
 
@@ -105,12 +107,14 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 
 ---
 
-## Phase 3 — Institutional Sales
+## Phase 3 — Institutional Sales ✅
 
-*LTI code shipped, API/portal deferred*
+*Shipped 2026-05-12 (`05399de`)*
 
 8. **LTI 1.3 integration** — `app/lti/` implements AGS (grade passback), Deep Linking (content selection), NRPS (roster sync), key management, OIDC launch, and dynamic registration. Canvas/Moodle/Blackboard compatible. Router at `app/routers/lti.py`.
-9. **Public REST API** — not started. Developer portal + API keys deferred.
+9. **Public REST API** — `app/routers/api.py` with X-API-Key auth. Endpoints: list exams, get exam details, list/session students, session drill-down. API key management at `/api/v1/admin/api-keys` (create/list/revoke). `app/auth/api_auth.py` handles key generation (SHA-256 hashed, prefix-identified) and authentication middleware.
+10. **Alembic migrations** — `alembic.ini` + `migrations/alembic/env.py` configured for PostgreSQL (reads `DATABASE_URL` or constructs from `SUPABASE_*` vars). Existing raw SQL migrations coexist in `migrations/*.sql`.
+11. **Typed repository** — `app/repositories/base.py` provides `Repository` base class with fluent `QueryBuilder` (select/insert/update/delete with .eq/.neq/.gt/.gte/.lt/.lte/.in_/.order/.limit/.offset/.maybe_single) and `QueryResult` typed wrapper. Table-specific repositories can subclass with `table = "tablename"`.
 
 ---
 
@@ -137,11 +141,6 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 | Priority | Item | Effort |
 |----------|------|--------|
 | **High** | Wire Stripe checkout/portal/webhooks (Phase 1) | 1-2 weeks |
-| **High** | `action-btn` → `.btn` class migration (remaining toolbar buttons) | 1 day |
-| **Medium** | Public REST API + developer portal (Phase 3) | 2-4 weeks |
-| **Medium** | Alembic migrations (replace raw SQL) | 1 week |
-| **Medium** | Typed repository layer (replace `_atable("table")` pattern) | 2 weeks |
-| **Low** | Caddy /login rate-limiting | 1 day |
 | **Low** | macOS/Windows code signing (EV cert) | 1 week |
 | **Backlog** | Mobile app (Phase 5) | 2-3 months |
 | **Backlog** | Observability (Phase 4) | 1 month |

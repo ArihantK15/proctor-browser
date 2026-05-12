@@ -3,7 +3,7 @@
 import asyncio
 import os
 import secrets
-from datetime import date as _date
+from datetime import date, datetime, timezone
 
 from .database import supabase, async_table as _atable
 from .constants import INVITE_DAILY_CAP
@@ -61,7 +61,7 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
             try:
                 row = (await _atable("invite_send_counters")
                        .select("count").eq("teacher_id", teacher_id)
-                       .eq("day", _date.today().isoformat())
+                       .eq("day", datetime.now(timezone.utc).date().isoformat())
                        .execute()).data
                 used = (row[0]["count"] if row else 0)
                 return (False, max(INVITE_DAILY_CAP - used, 0))
@@ -79,7 +79,7 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
 
 async def _claim_and_bump_cap_legacy(teacher_id: str, batch_size: int) -> tuple[bool, int]:
     """Pre-RPC fallback. Racy — only used when the migration hasn't run."""
-    today = _date.today().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     try:
         row = (await _atable("invite_send_counters").select("count").eq("teacher_id", teacher_id).eq("day", today).execute()).data
         used = (row[0]["count"] if row else 0)

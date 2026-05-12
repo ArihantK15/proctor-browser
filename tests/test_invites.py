@@ -218,9 +218,10 @@ def _patch(stub, cap=None):
         patch("app.routers.public._atable", side_effect=_atable_async_stub(stub)),
         patch("app.routers.admin._atable", side_effect=_atable_async_stub(stub)),
         patch("app.dependencies._atable", side_effect=_atable_async_stub(stub)),
+        patch("app.invites._atable", side_effect=_atable_async_stub(stub)),
     ]
     if cap is not None:
-        patches.append(patch("app.dependencies.INVITE_DAILY_CAP", cap))
+        patches.append(patch("app.invites.INVITE_DAILY_CAP", cap))
     return patches
 
 
@@ -284,7 +285,7 @@ class TestSendInvites:
             "count": 498,
         }])
         patches = _patch(stub, cap=500)
-        with patches[0] as mock_table, patches[1]:
+        with patches[0] as mock_table, patches[1], patches[3], patches[4], patches[5]:
             mock_table.side_effect = stub
             r = client.post("/api/v1/admin/invites/send", headers=admin_headers,
                 json={"recipients": [

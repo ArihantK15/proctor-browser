@@ -133,6 +133,33 @@ def issue_student_auth_token(account: dict) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 
+# ─── Special-purpose token generators ───────────────────────────
+
+def issue_email_verify_token(user_id: str, email: str, kind: str = "teacher") -> str:
+    return jwt.encode({
+        "scope": "email_verify", "uid": user_id, "email": email, "kind": kind,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=24),
+    }, SECRET_KEY, algorithm="HS256")
+
+
+def issue_reauth_token(user_id: str) -> str:
+    return jwt.encode({
+        "scope": "reauth", "uid": user_id,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }, SECRET_KEY, algorithm="HS256")
+
+
+def verify_email_token(token: str) -> dict | None:
+    """Decode and validate an email_verify token. Returns claims dict or None."""
+    try:
+        claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        if claims.get("scope") != "email_verify":
+            return None
+        return claims
+    except Exception:
+        return None
+
+
 def _check_session_ownership(claims: dict, session_id: str) -> None:
     parts = session_id.rsplit("_", 1)
     session_roll = parts[0].upper() if parts else ""

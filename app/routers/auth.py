@@ -18,6 +18,10 @@ from ..auth import (
 from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus
 from ..constants import PLANS, TRIAL_DAYS
+from ..services.passwords import validate_password, PasswordError
+from ..services.auth_lockout import check_lockout, record_failure, clear_failures
+from ..services.auth_events import record as record_auth_event
+from ..auth.tokens import issue_email_verify_token, issue_reauth_token, verify_email_token
 from ..utils import _html_escape as _esc
 from ..jobs import enqueue_job, send_new_account_notification_job
 
@@ -44,8 +48,10 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         raise HTTPException(status_code=400, detail="Full name is required")
     if not org_name:
         raise HTTPException(status_code=400, detail="Organization name is required")
-    if len(body.password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        validate_password(body.password)
+    except PasswordError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Check if teacher already exists
     existing = await _atable("teachers").select("id").eq("email", email).execute()
@@ -65,7 +71,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         auth_resp = supabase.auth.admin.create_user({
             "email": email,
             "password": body.password,
-            "email_confirm": True,
+            "email_confirm": False,
         })
         supabase_uid = auth_resp.user.id
     except Exception as e:
@@ -120,11 +126,19 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.critical("[TeacherSignup] Rollback failed: %s", rollback_err)
         raise HTTPException(status_code=500, detail="Failed to create account")
 
-    access_token = issue_admin_token(teacher)
     _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", name, email, org_name)
+
+    await record_auth_event("signup", request, "teacher", teacher["id"], email)
 
     enqueue_job(send_new_account_notification_job,
                 account_type="teacher", name=name, email=email)
+
+    # Issue email verification
+    from ..emailer import send_email_verification
+    from ..invites import _get_invite_base_url
+    vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
+    base = _get_invite_base_url()
+    send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
 
     return {
         "teacher_id":    teacher["id"],
@@ -133,7 +147,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         "org_id":        str(org_id),
         "org_name":      org_name,
         "org_role":      "admin",
-        "access_token":  access_token,
+        "status":        "pending_verification",
     }
 
 
@@ -142,19 +156,43 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
 async def teacher_login(body: TeacherLoginIn, request: Request):
     """Log in a teacher via Supabase Auth, return JWT tokens."""
     email = body.email.strip().lower()
+
+    # Lockout check
+    locked, retry_after = await check_lockout("teacher", email)
+    if locked:
+        await record_auth_event("login_failed", request, "teacher", "", email, {"reason": "locked_out"})
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts. Try again in {retry_after // 60} minutes."
+        )
+
     try:
         auth_resp = supabase.auth.sign_in_with_password({
             "email": email,
             "password": body.password,
         })
     except Exception as e:
+        await record_failure("teacher", email)
+        await record_auth_event("login_failed", request, "teacher", "", email)
         _auth_log.warning("[TeacherLogin] Auth error: %s", e)
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    await clear_failures("teacher", email)
 
     supabase_uid = str(auth_resp.user.id)
     teacher = await _get_teacher_by_uid(supabase_uid)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found. Please sign up first.")
+
+    # Email verification check
+    if not teacher.get("email_verified_at"):
+        await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "email_unverified"})
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "EMAIL_UNVERIFIED", "message": "Please verify your email before logging in. Check your inbox for the verification link."}
+        )
+
+    await record_auth_event("login_success", request, "teacher", teacher["id"], email)
 
     return {
         "access_token": issue_admin_token(teacher),
@@ -364,7 +402,7 @@ async def accept_org_invite(body: dict, request: Request):
             auth_resp = supabase.auth.admin.create_user({
                 "email": email,
                 "password": password,
-                "email_confirm": True,
+                "email_confirm": False,
             })
             supabase_uid = auth_resp.user.id
         except Exception as e:
@@ -443,7 +481,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
         auth_resp = supabase.auth.admin.create_user({
             "email": email,
             "password": body.password,
-            "email_confirm": True,
+            "email_confirm": False,
         })
         supabase_uid = auth_resp.user.id
     except Exception as e:
@@ -790,3 +828,130 @@ def _exam_window_status(starts_at, ends_at, now, duration):
         return "open"
 
     return "open"  # no schedule = always open
+
+
+# ─── EMAIL VERIFICATION ──────────────────────────────────────────
+
+EMAIL_VERIFY_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Email verified — Procta</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;padding:40px 20px;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center}
+h2{color:#e2e8f0;margin-bottom:8px}p{color:#94a3b8;font-size:14px;line-height:1.6}
+.btn{display:inline-block;padding:12px 32px;border-radius:6px;background:#5b8af0;color:#fff;font-size:15px;font-weight:600;text-decoration:none;margin-top:16px}
+.err{color:#ef4444}</style></head>
+<body><div style="max-width:480px;margin:0 auto">
+  <div style="width:48px;height:48px;border-radius:50%;background:rgba(16,185,129,0.15);margin:0 auto 16px;display:flex;align-items:center;justify-content:center">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+  </div>
+  <h2 id="title">%(title)s</h2>
+  <p id="msg">%(msg)s</p>
+  <a class="btn" href="%(login_url)s" id="btn">%(btn)s</a>
+</div></body></html>"""
+
+
+@router.get("/verify-email")
+async def verify_email(request: Request, token: str = ""):
+    """Verify email address via token from verification email."""
+    claims = verify_email_token(token)
+    if not claims:
+        return HTMLResponse(EMAIL_VERIFY_HTML % {
+            "title": "Link expired or invalid",
+            "msg": "This verification link has expired or is invalid. Request a new one from the login page.",
+            "login_url": "/login",
+            "btn": "Back to Login",
+        }, status_code=400)
+
+    user_id = claims.get("uid", "")
+    kind = claims.get("kind", "teacher")
+    table = "teachers" if kind == "teacher" else "student_accounts"
+
+    await _atable(table).update({
+        "email_verified_at": now_ist().isoformat(),
+    }).eq("id", user_id).execute()
+
+    await record_auth_event("email_verified", request, kind, user_id, claims.get("email"))
+
+    return HTMLResponse(EMAIL_VERIFY_HTML % {
+        "title": "Email verified!",
+        "msg": "Your email has been verified. You can now log in to Procta.",
+        "login_url": "/login",
+        "btn": "Log In",
+    })
+
+
+@router.post("/api/v1/auth/resend-verification")
+@limiter.limit("1/minute")
+async def resend_verification(body: dict, request: Request):
+    """Resend the email verification link."""
+    email = (body.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+
+    for table, kind in [("teachers", "teacher"), ("student_accounts", "student_account")]:
+        row = await _atable(table).select("id,full_name,email_verified_at").eq("email", email).limit(1).execute()
+        if row.data:
+            user = row.data[0]
+            if user.get("email_verified_at"):
+                return {"status": "already_verified"}
+            from ..emailer import send_email_verification
+            from ..invites import _get_invite_base_url
+            vtoken = issue_email_verify_token(user["id"], email, kind)
+            base = _get_invite_base_url()
+            send_email_verification(email, user.get("full_name", ""), f"{base}/verify-email?token={vtoken}")
+            return {"status": "sent"}
+    return {"status": "not_found"}
+
+
+# ─── AUTH AUDIT LOG ──────────────────────────────────────────────
+
+@router.get("/api/v1/auth/events")
+@limiter.limit("30/minute")
+async def auth_events(request: Request):
+    """Return the current user's auth audit log (last 50 entries)."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    rows = await _atable("auth_events").select("*")\
+        .eq("user_kind", "teacher").eq("user_id", tid)\
+        .order("created_at", desc=True).limit(50).execute()
+    return {"events": rows.data or []}
+
+
+# ─── RE-AUTHENTICATION ──────────────────────────────────────────
+
+@router.post("/api/v1/auth/reauth")
+@limiter.limit("10/minute")
+async def reauth(request: Request):
+    """Issue a short-lived re-auth token (needs current password or 2FA)."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+
+    body_data = await request.json()
+    password = body_data.get("password", "")
+    if not password:
+        raise HTTPException(status_code=400, detail="Password required")
+
+    email = teacher.get("email", "")
+    try:
+        supabase.auth.sign_in_with_password({"email": email, "password": password})
+    except Exception:
+        raise HTTPException(status_code=403, detail="Invalid password")
+
+    reauth_token = issue_reauth_token(tid)
+    return {"reauth_token": reauth_token, "expires_in_seconds": 300}
+
+
+# ─── STUDENT PASSWORD RESET ─────────────────────────────────────
+
+@router.post("/api/v1/student-auth/password-reset")
+@limiter.limit("3/minute")
+async def student_password_reset(body: dict, request: Request):
+    """Send a password reset email for student accounts."""
+    email = (body.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    try:
+        supabase.auth.reset_password_for_email(email)
+        return {"status": "sent"}
+    except Exception as e:
+        _auth_log.warning("[StudentPasswordReset] Supabase error: %s", e)
+        return {"status": "sent"}  # Don't reveal whether account exists

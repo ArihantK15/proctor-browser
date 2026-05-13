@@ -520,7 +520,7 @@ class TestTeacherSignup:
                            json={"email": "x@test.com", "password": "short",
                                  "full_name": "Test", "org_name": "TestOrg"})
         assert resp.status_code == 400
-        assert "8 characters" in resp.json()["detail"]
+        assert "at least" in resp.json()["detail"].lower()
 
     def test_invalid_email(self, client):
         resp = client.post("/api/v1/auth/signup",
@@ -541,7 +541,7 @@ class TestTeacherSignup:
             mock_table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
                 data=[{"id": "existing"}])
             resp = client.post("/api/v1/auth/signup",
-                               json={"email": "dup@test.com", "password": "longpassword",
+                               json={"email": "dup@test.com", "password": "StrongP@ss1",
                                      "full_name": "Dup", "org_name": "TestOrg"})
             assert resp.status_code == 409
 

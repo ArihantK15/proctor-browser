@@ -350,3 +350,15 @@ Allen, Aakash, Vedantu, Physics Wallah run **more proctored exams per month than
 ### Verdict
 
 Would fund at pre-seed (₹1.5-3Cr) contingent on: (a) pricing page live within 1 week, (b) co-founder search started within 30 days, (c) mobile PWA started within 60 days. The product risk is already retired — the remaining risk is distribution, not code.
+
+---
+
+## What's Left (Priority Order)
+
+| Priority | Item | Effort | Depends on |
+|----------|------|--------|------------|
+| **Low** | macOS/Windows code signing (EV cert) | 1 week | Apple Developer acct + cert |
+| **Low** | Google Classroom API — set up OAuth credentials in Google Cloud Console | 30 min | Google account + project |
+| **Low** | TOTP encryption key — generate `TOTP_ENCRYPTION_KEY` via `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and add to production `.env` | 5 min | Production server access |
+| **Backlog** | Mobile app (Phase 5) — BYOD phone exam-taking (React Native / Flutter) | 2-3 months | — |
+| **Backlog** | AI audit trail — bulk review UI for AI-suggested grades | 2-4 weeks | — |

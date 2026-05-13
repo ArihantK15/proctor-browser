@@ -42,7 +42,7 @@
 *Shipped across 2 commits (`64cd7a9`, `23a1eab`)*
 
 5. **Org/tenant model** — organizations table, org_id propagation, per-org billing plans (free/pro/enterprise). Org Overview, Members, and Billing panels on dashboard.
-6. **Stripe billing** — `app/services/billing.py` with Stripe Checkout (create-checkout), Billing Portal (manage billing), and webhooks (checkout.session.completed, customer.subscription.*). Sandbox mode works without Stripe keys for local dev. `app/routers/billing.py` serves plan listing, checkout creation, portal session, and webhook endpoints. Dashboard billing panel shows plan/status/usage with "Manage billing" portal button.
+6. **Razorpay billing** — `app/services/billing.py` with Razorpay subscription creation, webhook verification (HMAC-SHA256), and sandbox mode (no keys needed for local dev). `app/routers/billing.py` serves plan listing, subscription creation (returns Razorpay short_url), webhooks, and invoice history. Dashboard billing panel shows plan/status/usage with upgrade buttons.
 7. **Free trial gate** — 14-day trial with countdown banner on Org Overview panel.
 
 ---
@@ -135,9 +135,7 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 
 | Priority | Item | Effort |
 |----------|------|--------|
-| **Medium** | Usage tracking + plan enforcement (limit checks on student creation) | 1 week |
-| **Low** | macOS/Windows code signing (EV cert) | 1 week |
-| **Low** | Invoice history page | 3 days |
+| **Medium** | macOS/Windows code signing (EV cert) | 1 week |
 | **Backlog** | Mobile app (Phase 5) | 2-3 months |
 | **Backlog** | Observability (Phase 4) | 1 month |
 

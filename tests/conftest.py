@@ -9,7 +9,12 @@ import asyncio
 import os
 import sys
 import time
+import warnings
 from datetime import datetime, timezone, timedelta
+
+# Suppress httpx's 'app' shortcut deprecation (unavoidable with current
+# FastAPI test client — the 'transport' kwarg requires httpx>=0.28)
+warnings.filterwarnings("ignore", message="The 'app' shortcut is now deprecated", category=DeprecationWarning)
 from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest

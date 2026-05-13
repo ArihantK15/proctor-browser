@@ -67,7 +67,8 @@ async def live_view_frame(session_id: str, request: Request):
     jpeg = payload.get("jpeg_bytes")
     if jpeg:
         return Response(content=jpeg, media_type="image/jpeg",
-                        headers={"Cache-Control": "no-store, max-age=0"})
+                        headers={"Cache-Control": "no-store, max-age=0",
+                                 "X-Content-Type-Options": "nosniff"})
 
     b64 = payload.get("jpeg_b64")
     if not b64:
@@ -77,7 +78,8 @@ async def live_view_frame(session_id: str, request: Request):
     except Exception:
         return Response(status_code=204)
     return Response(content=jpeg, media_type="image/jpeg",
-                    headers={"Cache-Control": "no-store, max-age=0"})
+                    headers={"Cache-Control": "no-store, max-age=0",
+                             "X-Content-Type-Options": "nosniff"})
 
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/live-view/force-stop")
@@ -143,7 +145,8 @@ async def room_cam_frame(session_id: str, request: Request):
     jpeg = payload.get("jpeg_bytes")
     if jpeg:
         return Response(content=jpeg, media_type="image/jpeg",
-                        headers={"Cache-Control": "no-store, max-age=0"})
+                        headers={"Cache-Control": "no-store, max-age=0",
+                                 "X-Content-Type-Options": "nosniff"})
     return Response(status_code=204)
 
 

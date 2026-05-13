@@ -168,6 +168,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
 
 
 @router.get("/api/v1/auth/me")
+@limiter.limit("30/minute")
 async def teacher_me(request: Request):
     """Get current teacher profile from Bearer token."""
     teacher = await require_admin(request)
@@ -296,6 +297,7 @@ document.getElementById('acceptForm').addEventListener('submit', async function(
 
 
 @router.get("/org-invite/{token}")
+@limiter.limit("30/minute")
 async def get_org_invite_page(token: str, request: Request):
     """Serve the org invite acceptance page."""
     result = await _atable("org_invites").select("id,org_id,email,full_name,status,expires_at").eq("token", token).limit(1).execute()
@@ -529,6 +531,7 @@ async def student_login(body: StudentLoginIn, request: Request):
 
 
 @router.get("/api/v1/student/auth/me")
+@limiter.limit("30/minute")
 async def student_me(request: Request):
     account = await require_student_account(request)
     return {
@@ -561,6 +564,7 @@ async def student_refresh(body: RefreshIn, request: Request):
 
 
 @router.get("/api/student/exams")
+@limiter.limit("30/minute")
 async def student_exams(request: Request):
     """Return all exams the authenticated student is enrolled in.
 
@@ -659,6 +663,7 @@ async def student_exams(request: Request):
 
 
 @router.get("/api/student/history")
+@limiter.limit("30/minute")
 async def student_history(request: Request):
     """Return the authenticated student's own exam history.
 

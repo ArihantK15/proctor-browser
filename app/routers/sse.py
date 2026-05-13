@@ -186,6 +186,20 @@ async def _room_cam_offline_check():
     """Single pass: check all tracked room cam sessions for heartbeat timeout."""
     now = time.time()
     stale_threshold = now - 300  # 5 minutes — cleanup stale in-memory entries
+
+    # Periodic stale Redis key cleanup (every 5 minutes)
+    if not hasattr(_room_cam_offline_check, "_last_cleanup"):
+        _room_cam_offline_check._last_cleanup = 0
+    if now - _room_cam_offline_check._last_cleanup > 300:
+        _room_cam_offline_check._last_cleanup = now
+        try:
+            from .. import cache as _cache
+            if _cache:
+                _cache.delete_pattern("roomframe:*")
+                _cache.delete_pattern("roomcam:*")
+                logger.debug("[room_cam] flushed stale roomframe/roomcam keys from Redis")
+        except Exception as e:
+            logger.warning("[room_cam] stale key flush failed: %s", e)
     for sid, last_beat in list(_last_room_frame.items()):
         if last_beat < stale_threshold:
             _last_room_frame.pop(sid, None)

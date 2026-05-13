@@ -103,9 +103,23 @@ async def room_cam_start(session_id: str, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     await _assert_session_owned(session_id, tid)
+
+    # Audit log: if viewing post-exam room cam, record the access
+    from ..database import async_table as _atable
+    sess = await _atable("exam_sessions").select("status").eq("session_key", session_id).limit(1).execute()
+    sess_data = sess.data[0] if sess.data else {}
+    if sess_data.get("status") in ("completed", "submitted", "force_submitted"):
+        await _atable("violations").insert({
+            "session_key": session_id,
+            "teacher_id": tid,
+            "violation_type": "room_cam_post_exam_viewed",
+            "severity": "low",
+            "details": f"Teacher {tid} viewed post-exam room camera footage",
+        }).execute()
+        logger.info("[audit] teacher=%s viewed post-exam room cam session=%s", tid, session_id)
+
     if _cache:
         _cache.set(f"roomcam:{session_id}", {"tid": tid, "started_at": now_ist().isoformat()}, ttl=60)
-    logger.info("[audit] teacher=%s action=view_room_cam session=%s", tid, session_id)
     return {"ok": True, "session_id": session_id, "ttl_sec": 60}
 
 
@@ -162,7 +176,6 @@ async def room_cam_approve(session_id: str, request: Request):
         "room_cam_status": "approved",
         "room_cam_approved_at": now_ist().isoformat(),
     }).eq("session_key", session_id).execute()
-    logger.info("[audit] teacher=%s action=approve_room_cam session=%s", tid, session_id)
     return {"ok": True, "status": "approved"}
 
 

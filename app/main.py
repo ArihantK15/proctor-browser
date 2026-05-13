@@ -403,6 +403,32 @@ async def _on_startup():
         )
         print("[startup] reminders loop started", flush=True)
 
+    # Room frame daily cleanup (privacy: no room-cam frames persist >24h)
+    import asyncio as _asyncio
+    _room_frame_cleanup_task = _asyncio.create_task(_room_frame_cleanup_loop())
+    _room_frame_cleanup_task.add_done_callback(
+        lambda t: print(f"[startup] room-frame cleanup loop ended: {t.exception()}", flush=True)
+        if not t.cancelled() and t.exception()
+        else None
+    )
+
+
+async def _room_frame_cleanup_loop():
+    """Daily cleanup of any stale roomframe:* Redis keys.
+
+    Redis TTL already expires frames after 10s. This loop is
+    belt-and-suspenders to guarantee no room camera frame persists
+    longer than 24h (FERPA / DPDP Act compliance).
+    """
+    import asyncio as _asyncio
+    from . import cache as _cache
+    while True:
+        try:
+            _cache.cleanup_room_frames()
+        except Exception:
+            pass
+        await _asyncio.sleep(86400)  # 24 hours
+
 
 @app.on_event("shutdown")
 async def _on_shutdown():

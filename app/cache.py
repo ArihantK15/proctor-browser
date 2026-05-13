@@ -177,3 +177,16 @@ def delete_pattern(pattern: str) -> None:
         _r_healthy = False
     except Exception:
         _log.debug("Cache pattern delete failed for pattern=%s", pattern, exc_info=True)
+
+
+def cleanup_room_frames() -> None:
+    """Delete all roomframe:* keys (belt-and-suspenders — Redis TTL handles daily expiry).
+    
+    Intended to be called as a daily cron or on startup to ensure no
+    room camera frames persist beyond their intended lifetime.
+    """
+    try:
+        delete_pattern("roomframe:*")
+        _log.info("Room frame cache cleaned")
+    except Exception:
+        _log.warning("Room frame cleanup failed", exc_info=True)

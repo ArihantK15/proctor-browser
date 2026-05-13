@@ -105,6 +105,7 @@ async def room_cam_start(session_id: str, request: Request):
     await _assert_session_owned(session_id, tid)
     if _cache:
         _cache.set(f"roomcam:{session_id}", {"tid": tid, "started_at": now_ist().isoformat()}, ttl=60)
+    logger.info("[audit] teacher=%s action=view_room_cam session=%s", tid, session_id)
     return {"ok": True, "session_id": session_id, "ttl_sec": 60}
 
 
@@ -161,6 +162,7 @@ async def room_cam_approve(session_id: str, request: Request):
         "room_cam_status": "approved",
         "room_cam_approved_at": now_ist().isoformat(),
     }).eq("session_key", session_id).execute()
+    logger.info("[audit] teacher=%s action=approve_room_cam session=%s", tid, session_id)
     return {"ok": True, "status": "approved"}
 
 

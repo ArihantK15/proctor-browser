@@ -38,8 +38,7 @@ export default function Signup() {
         throw new Error(data.detail || 'Something went wrong. Please try again.')
       }
       const data = await res.json()
-      localStorage.setItem('admin_token', data.access_token)
-      window.location.href = `${APP_URL}/dashboard`
+      setSubmitted(true)  // Show "Check your inbox" instead of redirecting
     } catch (err) {
       setError(err.message || 'Failed to sign up. Please try again.')
     } finally {
@@ -79,10 +78,12 @@ export default function Signup() {
             <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10 border border-accent/20 accent-glow">
               <Check size={28} className="text-accent" />
             </div>
-            <h1 className="text-2xl font-bold text-white font-display">Account Created</h1>
+            <h1 className="text-2xl font-bold text-white font-display">Check Your Inbox</h1>
             <p className="mt-3 text-sm text-slate-400">
-              Welcome to Procta! Redirecting you to the dashboard...
+              We sent a verification link to <strong className="text-white">{form.email}</strong>.
+              Click the link to activate your account, then log in.
             </p>
+            <p className="mt-4 text-xs text-slate-500">The link expires in 24 hours. Check your spam folder if you don't see it.</p>
           </div>
         </div>
       </div>

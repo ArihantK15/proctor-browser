@@ -135,10 +135,11 @@ async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_ro
                 break
             sks = [s["session_key"] for s in batch]
             vcounts = await violation_counts_by_session(sks)
+            if not header_written:
+                header_written = True
+                yield "Timestamp,SessionID,RollNumber,FullName,Email,Score,Total,Percentage,TimeTaken,Violations,RiskScore,RiskLabel\n"
+            buf: list[str] = []
             for s in batch:
-                if total_yielded == 0 and not header_written:
-                    header_written = True
-                    yield "Timestamp,SessionID,RollNumber,FullName,Email,Score,Total,Percentage,TimeTaken,Violations,RiskScore,RiskLabel\n"
                 row = [
                     fmt_ist(s.get("submitted_at", "")),
                     s["session_key"],
@@ -153,10 +154,15 @@ async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_ro
                     s.get("risk_score", ""),
                     _risk_label(s["risk_score"]) if s.get("risk_score") is not None else "",
                 ]
-                yield ",".join(str(v).replace('"', '""') if isinstance(v, str) else str(v) for v in row) + "\n"
+                buf.append(",".join(str(v).replace('"', '""') if isinstance(v, str) else str(v) for v in row) + "\n")
                 total_yielded += 1
+                if total_yielded >= max_rows or len(buf) >= 100:
+                    yield "".join(buf)
+                    buf = []
                 if total_yielded >= max_rows:
                     return
+            if buf:
+                yield "".join(buf)
             offset += batch_size
     except Exception as e:
         logger.error("[csv] stream failed: %s", e)

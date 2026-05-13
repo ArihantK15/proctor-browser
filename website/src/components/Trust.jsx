@@ -1,9 +1,10 @@
-import { motion } from 'framer-motion'
+import useInView from '../hooks/useInView'
 
 export default function Trust() {
-  // Numbers from the Claude design's hero proof line, plus latency
-  // (kept from the original because it's a real product property
-  // worth advertising and the design didn't have an equivalent).
+  const [headRef, headInView] = useInView({ margin: '-60px' })
+  const [statsRef, statsInView] = useInView({ margin: '-40px' })
+  const [quoteRef, quoteInView] = useInView({ margin: '-40px' })
+
   const stats = [
     { value: '180+',  label: 'Institutions across India' },
     { value: '2.4M',  label: 'Exams proctored' },
@@ -15,12 +16,11 @@ export default function Trust() {
     <section className="relative py-24 md:py-32 bg-navy-900/30">
       <div className="pointer-events-none absolute inset-0 grain-overlay" />
       <div className="mx-auto max-w-7xl px-6 relative">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5 }}
-          className="mx-auto max-w-2xl text-center"
+        <div
+          ref={headRef}
+          className={`mx-auto max-w-2xl text-center transition-all duration-500 ${
+            headInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
+          }`}
         >
           <span className="label-mono text-accent">Trust & Results</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
@@ -29,31 +29,29 @@ export default function Trust() {
           <p className="mt-4 text-lg text-slate-400">
             Built with rigor, tested in production, trusted by educators.
           </p>
-        </motion.div>
+        </div>
 
-        <div className="mt-16 grid grid-cols-2 gap-6 md:grid-cols-4">
+        <div ref={statsRef} className="mt-16 grid grid-cols-2 gap-6 md:grid-cols-4">
           {stats.map((s, i) => (
-            <motion.div
+            <div
               key={s.label}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.4, delay: i * 0.08 }}
-              className="relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center card-topline grain-overlay"
+              style={{ transitionDelay: `${i * 80}ms` }}
+              className={`relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center card-topline grain-overlay transition-all duration-400 ${
+                statsInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
+              }`}
             >
               <div className="font-display text-3xl font-bold text-white md:text-4xl">{s.value}</div>
               <div className="mt-2 label-mono text-slate-500">{s.label}</div>
-            </motion.div>
+            </div>
           ))}
         </div>
 
-        {/* Testimonial */}
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-40px' }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-          className="mx-auto mt-16 max-w-3xl"
+        <div
+          ref={quoteRef}
+          className={`mx-auto mt-16 max-w-3xl transition-all duration-500 ${
+            quoteInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
+          }`}
+          style={{ transitionDelay: '200ms' }}
         >
           <blockquote className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 md:p-10 grain-overlay overflow-hidden">
             {/* Accent left border */}
@@ -73,7 +71,7 @@ export default function Trust() {
               </div>
             </footer>
           </blockquote>
-        </motion.div>
+        </div>
       </div>
     </section>
   )

@@ -73,14 +73,8 @@
     }
     </script>
 
-    <!-- Preconnect to Google Fonts so the IBM Plex CSS request inside
-         src/index.css resolves a TLS handshake faster. The actual font
-         <link> lives in the CSS bundle (kept there to keep the
-         design system self-contained), so we don't duplicate it here.
-         The previous Inter + Plus Jakarta Sans <link> was loaded but
-         never rendered — the design system uses IBM Plex throughout. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Fonts are served from the static bundle via @fontsource packages.
+         No Google Fonts round-trip needed. -->
   </head>
   <body>
     <div id="root"></div>

@@ -1,18 +1,18 @@
-import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { APP_URL } from '../config'
+import useInView from '../hooks/useInView'
 
 export default function CTA() {
+  const [ref, inView] = useInView({ margin: '-60px' })
   return (
     <section className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5 }}
-          className="relative overflow-hidden rounded-3xl border border-accent/20 bg-gradient-to-br from-accent/10 via-navy-800 to-navy-900 px-8 py-16 text-center md:px-16 md:py-24 grain-overlay"
+        <div
+          ref={ref}
+          className={`relative overflow-hidden rounded-3xl border border-accent/20 bg-gradient-to-br from-accent/10 via-navy-800 to-navy-900 px-8 py-16 text-center md:px-16 md:py-24 grain-overlay transition-all duration-500 ${
+            inView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
+          }`}
         >
           {/* Background glow */}
           <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 h-64 w-[500px] rounded-full bg-accent/10 blur-[100px]" />
@@ -45,7 +45,7 @@ export default function CTA() {
               </a>
             </div>
           </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   )

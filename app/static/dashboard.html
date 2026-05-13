@@ -231,6 +231,7 @@
       <span id="last-refresh">--</span>
     </div>
     <span id="teacher-name" class="topbar-teacher"></span>
+    <span id="topbar-trial-badge" style="display:none;font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer" onclick="trialBannerClick()"></span>
     <button class="btn btn-secondary btn-sm" onclick="refreshAll()">Refresh</button>
     <button class="btn btn-ghost topbar-logout btn-sm" onclick="doLogout()">Logout</button>
   </div>
@@ -394,6 +395,9 @@
         </tr></thead>
         <tbody id="results-body"></tbody>
       </table>
+    </div>
+    <div id="post-exam-cta" style="display:none;margin-top:14px;padding:14px 18px;background:var(--accent-bg);border:1px solid var(--accent);border-radius:var(--radius-md);font-size:13px;color:var(--accent-fg);text-align:center">
+      🎉 First exam results ready! <a href="#" onclick="showUpgradeModal('You\u2019ve outgrown the Starter plan. Unlock more students and features.');return false" style="color:var(--accent-light);font-weight:600">Upgrade your plan</a> to register more students and unlock higher limits.
     </div>
    </div>
 
@@ -1209,6 +1213,45 @@
     </div>
     <div id="grade-list" style="overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
       <div style="text-align:center;padding:30px;color:var(--muted)">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── UPGRADE MODAL (shown on student limit / trial expiry) ──── -->
+<div class="modal-bg hidden" id="upgrade-modal" onclick="if(event.target===this)closeUpgradeModal()">
+  <div class="modal" style="max-width:500px">
+    <button class="close" onclick="closeUpgradeModal()">&times;</button>
+    <h3 id="upgrade-title" style="margin-bottom:4px">Upgrade your plan</h3>
+    <p id="upgrade-desc" style="color:var(--text-muted);font-size:13px;margin-bottom:16px;line-height:1.5">
+      You've reached the student limit for your current plan.
+    </p>
+    <div id="upgrade-plan-cards" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center" onclick="upgradePlan('starter')">
+        <div class="tool-card-body">
+          <h3 style="font-size:13px">Starter</h3>
+          <p style="font-size:20px;font-weight:700;color:var(--text-high);margin:4px 0">₹149</p>
+          <p style="font-size:11px;color:var(--text-muted)">30 students</p>
+        </div>
+      </div>
+      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center;border-color:var(--accent)" onclick="upgradePlan('growth')">
+        <div class="tool-card-body">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--accent);margin-bottom:2px">Popular</div>
+          <h3 style="font-size:13px">Growth</h3>
+          <p style="font-size:20px;font-weight:700;color:var(--text-high);margin:4px 0">₹999</p>
+          <p style="font-size:11px;color:var(--text-muted)">150 students</p>
+        </div>
+      </div>
+      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center" onclick="upgradePlan('pro')">
+        <div class="tool-card-body">
+          <h3 style="font-size:13px">Pro</h3>
+          <p style="font-size:20px;font-weight:700;color:var(--text-high);margin:4px 0">₹2,499</p>
+          <p style="font-size:11px;color:var(--text-muted)">500 students</p>
+        </div>
+      </div>
+    </div>
+    <div id="upgrade-modal-status" style="font-size:12px;text-align:center;color:var(--text-muted)"></div>
+    <div style="margin-top:12px;text-align:center">
+      <button class="btn btn-secondary btn-sm" onclick="closeUpgradeModal()" style="margin-right:8px">Later</button>
     </div>
   </div>
 </div>
@@ -2214,8 +2257,32 @@ async function loadOrgOverview(){
       const remaining = Math.max(0, Math.ceil((new Date(b.trial_end) - new Date()) / 86400000));
       document.getElementById('org-trial-days').textContent = remaining;
       banner.style.display = '';
+      // Urgency styling
+      banner.style.background = remaining <= 1 ? 'var(--red-bg,rgba(239,68,68,0.1))' : remaining <= 3 ? 'var(--amber-bg,rgba(245,158,11,0.1))' : 'var(--accent-bg)';
+      banner.style.borderColor = remaining <= 1 ? 'var(--red)' : remaining <= 3 ? 'var(--amber)' : 'var(--accent)';
+      banner.style.color = remaining <= 1 ? 'var(--red)' : remaining <= 3 ? 'var(--amber)' : 'var(--accent-fg)';
+      // Show upgrade button if <= 3 days
+      if(remaining <= 3 && !document.getElementById('org-upgrade-btn')){
+        const btn = document.createElement('a');
+        btn.id = 'org-upgrade-btn';
+        btn.href = '#';
+        btn.onclick = (e) => { e.preventDefault(); showUpgradeModal('Your trial ends in ' + remaining + ' day' + (remaining === 1 ? '' : 's') + '. Choose a plan to continue.'); };
+        btn.textContent = 'Upgrade now →';
+        btn.style.cssText = 'margin-left:12px;font-weight:700;text-decoration:underline';
+        banner.appendChild(btn);
+      }
+      // Update topbar trial badge
+      const badge = document.getElementById('topbar-trial-badge');
+      if(badge){
+        badge.style.display = '';
+        badge.textContent = '🔥 ' + remaining + ' day' + (remaining === 1 ? '' : 's') + ' left';
+        badge.style.background = remaining <= 1 ? 'rgba(239,68,68,0.15)' : remaining <= 3 ? 'rgba(245,158,11,0.15)' : 'rgba(91,138,240,0.12)';
+        badge.style.color = remaining <= 1 ? 'var(--red)' : remaining <= 3 ? 'var(--amber)' : 'var(--accent-light)';
+      }
     } else {
       banner.style.display = 'none';
+      const badge = document.getElementById('topbar-trial-badge');
+      if(badge) badge.style.display = 'none';
     }
   }catch(_){}
   try{
@@ -2242,6 +2309,36 @@ async function loadMembers(){
       </tr>
     `).join('');
   }catch(_){}
+}
+
+// ── UPGRADE MODAL ────────────────────────────────────────────────
+function showUpgradeModal(msg){
+  const title = document.getElementById('upgrade-title');
+  const desc = document.getElementById('upgrade-desc');
+  document.getElementById('upgrade-modal-status').textContent = '';
+  if(msg) desc.textContent = msg;
+  document.getElementById('upgrade-modal').classList.remove('hidden');
+}
+
+function closeUpgradeModal(){
+  document.getElementById('upgrade-modal').classList.add('hidden');
+}
+
+function trialBannerClick(){
+  const badge = document.getElementById('topbar-trial-badge');
+  const days = parseInt(badge.textContent.match(/\d+/)?.[0] || '0');
+  showUpgradeModal('Your trial ends in ' + days + ' day' + (days === 1 ? '' : 's') + '. Upgrade to keep using Procta.');
+}
+
+// ── POST-EXAM UPGRADE CTA ──────────────────────────────────────
+let _shownPostExamCta = false;
+
+function showPostExamCta(){
+  if(_shownPostExamCta) return;
+  _shownPostExamCta = true;
+  const el = document.getElementById('post-exam-cta');
+  if(!el) return;
+  el.style.display = '';
 }
 
 async function loadBilling(){
@@ -2356,7 +2453,10 @@ async function removeMember(teacherId){
 
 async function upgradePlan(planId){
   const resultEl = document.getElementById('upgrade-result');
-  resultEl.textContent = 'Redirecting to payment...'; resultEl.style.color = 'var(--text-secondary)';
+  const modalStatus = document.getElementById('upgrade-modal-status');
+  const isModal = !document.getElementById('upgrade-modal').classList.contains('hidden');
+  const statusEl = isModal ? modalStatus : resultEl;
+  statusEl.textContent = 'Redirecting to payment...'; statusEl.style.color = 'var(--text-secondary)';
   try{
     const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
       method:'POST',
@@ -2369,9 +2469,11 @@ async function upgradePlan(planId){
     }
     const d = await r.json();
     if(d.short_url){
+      closeUpgradeModal();
       window.location.href = d.short_url;  // Redirect to Razorpay
     } else {
-      resultEl.textContent = 'Subscription created!'; resultEl.style.color = 'var(--emerald)';
+      statusEl.textContent = 'Subscription created!'; statusEl.style.color = 'var(--emerald)';
+      if(isModal){ setTimeout(closeUpgradeModal, 1500); }
       loadBilling();
     }
   }catch(e){
@@ -3012,6 +3114,7 @@ async function refreshResults(){
 function renderResultsStats(){
   const el = document.getElementById('results-stats');
   const total = resultsData.length;
+  if(total > 0) showPostExamCta();
   const avgScore = total?Math.round(resultsData.reduce((s,r)=>s+(r.percentage||0),0)/total):0;
   const scored = resultsData.filter(r=>r.risk_score!=null);
   const avgRisk = scored.length?Math.round(scored.reduce((s,r)=>s+r.risk_score,0)/scored.length):0;

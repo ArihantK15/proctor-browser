@@ -300,6 +300,15 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 
 ## Notes (operational)
 
+- Redis with Append-Only File persistence is the only stateful service. RQ workers process email + report jobs.
+- Caddy reverse-proxies HTTPS with auto-renewing Let's Encrypt certificates.
+- Screenshots auto-delete after 90 days (`SCREENSHOT_RETENTION_DAYS`).
+- Room-camera frames auto-delete after 24 hours (FERPA / DPDP shorter retention).
+- All HTML surfaces load the design token system; 16 of 16 panels on Phase 2 layout.
+- Razorpay test credentials in `.env` — rotate to live keys before any real payment.
+- Strategic snapshot lives in memory: `~/.claude/.../memory/strategic_audit_2026_05.md`.
+- Test suite: 482 passed, 21 skipped, 0 failures. Runs in ~11s. **0 deprecation warnings.**
+
 ---
 
 ## CTO Audit Addendum (2026-05-13)
@@ -341,12 +350,3 @@ Allen, Aakash, Vedantu, Physics Wallah run **more proctored exams per month than
 ### Verdict
 
 Would fund at pre-seed (₹1.5-3Cr) contingent on: (a) pricing page live within 1 week, (b) co-founder search started within 30 days, (c) mobile PWA started within 60 days. The product risk is already retired — the remaining risk is distribution, not code.
-
-- Redis with Append-Only File persistence is the only stateful service. RQ workers process email + report jobs.
-- Caddy reverse-proxies HTTPS with auto-renewing Let's Encrypt certificates.
-- Screenshots auto-delete after 90 days (`SCREENSHOT_RETENTION_DAYS`).
-- Room-camera frames auto-delete after 24 hours (FERPA / DPDP shorter retention).
-- All HTML surfaces load the design token system; 16 of 16 panels on Phase 2 layout.
-- Razorpay test credentials in `.env` — rotate to live keys before any real payment.
-- Strategic snapshot lives in memory: `~/.claude/.../memory/strategic_audit_2026_05.md`.
-- Test suite: 482 passed, 21 skipped, 0 failures. Runs in ~11s. **0 deprecation warnings.**

@@ -1283,6 +1283,19 @@
         <div id="upgrade-result" style="font-size:13px;flex:1"></div>
         <button class="btn btn-secondary btn-sm" id="billing-portal-btn" onclick="openBillingPortal()" style="display:none">Manage billing</button>
       </div>
+      <div id="billing-invoices" style="margin-top:24px;display:none">
+        <h3 style="font-size:var(--text-sm,13px);font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin:0 0 12px">Invoice History</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">
+          <thead><tr style="background:var(--surface-1);border-bottom:1px solid var(--border-subtle)">
+            <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.04em">Date</th>
+            <th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.04em">Description</th>
+            <th style="padding:8px 12px;text-align:right;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.04em">Amount</th>
+            <th style="padding:8px 12px;text-align:center;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.04em">Status</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="billing-invoices-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -2199,7 +2212,37 @@ async function loadBilling(){
     } else {
       portalBtn.style.display = 'none';
     }
+    loadInvoices();
   }catch(_){}
+}
+
+async function loadInvoices(){
+  const container = document.getElementById('billing-invoices');
+  const tbody = document.getElementById('billing-invoices-body');
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/invoices`);
+    if(!r.ok) return;
+    const d = await r.json();
+    const invs = d.invoices||[];
+    if(!invs.length){ container.style.display='none'; return; }
+    container.style.display='';
+    tbody.innerHTML = invs.map(inv => {
+      const amt = (inv.amount/100).toFixed(inv.amount<100?0:0);
+      const currency = inv.currency||'inr';
+      const date = new Date((inv.created||0)*1000).toLocaleDateString();
+      const statusCls = inv.status==='paid'?'color:var(--sev-success-fg,var(--emerald))':'color:var(--sev-warn-fg,var(--amber))';
+      const pdfBtn = inv.pdf_url
+        ? `<a href="${_escHtml(inv.pdf_url)}" target="_blank" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px">PDF</a>`
+        : '';
+      return `<tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:8px 12px">${date}</td>
+        <td style="padding:8px 12px">${_escHtml(inv.description||'—')}</td>
+        <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${_escHtml(currency.toUpperCase())} ${_escHtml(amt)}</td>
+        <td style="padding:8px 12px;text-align:center"><span style="${statusCls}">${_escHtml(inv.status)}</span></td>
+        <td style="padding:8px 12px;text-align:right">${pdfBtn}</td>
+      </tr>`;
+    }).join('');
+  }catch(_){ container.style.display='none'; }
 }
 
 async function openBillingPortal(){

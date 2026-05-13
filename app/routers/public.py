@@ -200,6 +200,12 @@ async def register_student(request: Request, body: RegisterIn):
             status_code=409,
             detail="This roll number is already registered. If this is a mistake, contact your examiner.")
 
+    # Enforce org student limit
+    org_id = teacher.get("org_id")
+    if org_id:
+        from ..services.sessions import check_org_limits
+        await check_org_limits({"org_id": org_id, "org_role": teacher.get("org_role", "teacher")}, delta=1)
+
     row = {
         "roll_number": roll,
         "full_name":   name,

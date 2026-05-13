@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from fastapi import APIRouter, Request, HTTPException
 from ..auth import require_admin
 from ..database import async_table as _atable
@@ -12,11 +13,50 @@ from ..services.billing import (
     create_checkout_session as billing_create_checkout_session,
     create_portal_session,
     verify_webhook,
+    _is_live,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
+
+
+@router.get("/api/v1/billing/invoices")
+@limiter.limit("10/minute")
+async def list_invoices(request: Request):
+    """Return invoice history for the org's Stripe customer.
+    
+    In sandbox mode, returns sample invoices.
+    """
+    teacher = await require_admin(request)
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+
+    sub = await _atable("subscriptions").select("stripe_customer_id,stripe_subscription_id").eq("org_id", str(org_id)).limit(1).execute()
+    customer_id = (sub.data or [{}])[0].get("stripe_customer_id")
+
+    if not customer_id or not _is_live():
+        return {"invoices": [
+            {"id": "mock_inv_01", "amount": 999, "currency": "inr",
+             "status": "paid", "created": 1700000000,
+             "pdf_url": None, "description": "Growth plan — mocked (sandbox mode)"},
+        ]}
+
+    try:
+        import stripe
+        stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+        raw = stripe.Invoice.list(customer=customer_id, limit=12)
+        invoices = [
+            {"id": inv.id, "amount": inv.amount_paid, "currency": inv.currency,
+             "status": inv.status, "created": inv.created,
+             "pdf_url": inv.invoice_pdf, "description": inv.description or inv.lines.data[0].description if inv.lines.data else ""}
+            for inv in raw.data
+        ]
+        return {"invoices": invoices}
+    except Exception as e:
+        logger.warning("Failed to fetch Stripe invoices: %s", e)
+        return {"invoices": [], "error": "Failed to fetch invoices. Try again later."}
 
 
 @router.get("/api/v1/billing/plans")

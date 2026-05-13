@@ -17,7 +17,7 @@ from ..database import supabase, async_table as _atable
 from ..event_bus import async_publish as _bus_async_publish, _HAS_REDIS
 from .. import cache as _cache
 from ..models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, FrameIn, IdVerifyIn
-from ..auth import require_auth, create_token, _check_session_ownership
+from ..auth import require_auth, create_token, _check_session_ownership, _get_teacher_by_id
 from ..utils import fmt_ist, now_ist
 from ..services.practice import is_practice, _practice_validate_response, PRACTICE_QUESTIONS
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config, get_access_code as _get_access_code
@@ -147,6 +147,11 @@ async def validate_student(request: Request, body: ValidateIn):
                         detail="This invite has expired. Contact your teacher.")
 
             # Auto-enroll: create students row from invite data
+            # First check org student limit
+            inv_teacher = await _get_teacher_by_id(str(inv["teacher_id"]))
+            if inv_teacher and inv_teacher.get("org_id"):
+                from ..services.sessions import check_org_limits
+                await check_org_limits({"org_id": inv_teacher["org_id"], "org_role": inv_teacher.get("org_role", "teacher")}, delta=1)
             student_row = {
                 "roll_number": inv["roll_number"],
                 "full_name":   inv.get("full_name", ""),

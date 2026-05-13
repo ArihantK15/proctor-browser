@@ -329,6 +329,7 @@ async def get_questions(request: Request):
         "exam_title": config.get("exam_title", "Exam"),
         "duration_minutes": config.get("duration_minutes"),
         "questions": safe_questions,
+        "phone_camera_enabled": config.get("phone_camera_enabled", False),
     }
 
 
@@ -1059,3 +1060,54 @@ async def room_cam_token(request: Request, body: dict = Body(...)):
         "exp": datetime.now(timezone.utc) + timedelta(hours=2),
     }, SECRET_KEY, algorithm="HS256")
     return {"token": token, "session_id": session_id, "expires_in_hours": 2}
+
+
+@router.get("/api/v1/room-cam-qr")
+async def room_cam_qr(request: Request):
+    """Generate a QR code SVG for phone camera pairing."""
+    session_id = (request.query_params.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    student = await require_auth(request)
+    roll = student.get("roll", "")
+    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
+        raise HTTPException(status_code=403, detail="Access denied")
+    # Issue a fresh token for the QR
+    import jwt as _jwt
+    from ..constants import SECRET_KEY
+    from ..invites import _get_invite_base_url
+    token = _jwt.encode({
+        "scope": "room-cam", "sid": session_id, "roll": roll,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=2),
+    }, SECRET_KEY, algorithm="HS256")
+    base = _get_invite_base_url()
+    url = f"{base}/phone-cam?token={token}&session_id={session_id}"
+    import qrcode
+    qr = qrcode.QRCode(border=2, box_size=10)
+    qr.add_data(url)
+    svg = qr.make_image()
+    from fastapi.responses import Response as _Resp
+    return _Resp(content=svg.to_string().encode(), media_type="image/svg+xml",
+                 headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/api/v1/room-cam-approval-status")
+async def room_cam_approval_status(request: Request):
+    """Return the room camera approval status for the current session.
+    
+    The renderer polls this to know when the teacher has approved.
+    """
+    session_id = (request.query_params.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    student = await require_auth(request)
+    roll = student.get("roll", "")
+    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
+        raise HTTPException(status_code=403, detail="Access denied")
+    row = await _atable("exam_sessions").select("room_cam_status,room_cam_approved_at")\
+        .eq("session_key", session_id).limit(1).execute()
+    data = row.data[0] if row.data else {}
+    return {
+        "status": data.get("room_cam_status", "disabled"),
+        "approved_at": data.get("room_cam_approved_at"),
+    }

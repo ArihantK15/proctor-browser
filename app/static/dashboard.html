@@ -3035,7 +3035,7 @@ function renderResultsStats(){
 function riskBadge(score, label){
   if(score==null) return '<span class="risk-badge risk-na">N/A</span>';
   const cls = score<=15?'risk-low':score<=40?'risk-moderate':score<=70?'risk-high':'risk-critical';
-  return `<span class="risk-badge ${cls}">${score} — ${label||''}</span>`;
+  return `<span class="risk-badge ${cls}">${score} — ${esc(label||'')}</span>`;
 }
 
 function renderResults(){

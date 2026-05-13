@@ -3,6 +3,8 @@ import { lazy, Suspense } from 'react'
 
 import Landing from './pages/Landing'
 
+const Pricing = lazy(() => import('./pages/Pricing'))
+
 const Signup = lazy(() => import('./pages/Signup'))
 const Privacy = lazy(() => import('./pages/Privacy'))
 const Terms = lazy(() => import('./pages/Terms'))
@@ -38,6 +40,7 @@ export default function App() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
+      <Route path="/pricing"><LazyRoute Component={Pricing} /></Route>
       <Route path="/signup"><LazyRoute Component={Signup} /></Route>
       <Route path="/privacy"><LazyRoute Component={Privacy} /></Route>
       <Route path="/terms"><LazyRoute Component={Terms} /></Route>

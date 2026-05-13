@@ -277,6 +277,10 @@
     <input type="text" id="new-exam-title" placeholder="e.g. Midterm Mathematics" maxlength="200">
     <label>Duration (minutes)</label>
     <input type="number" id="new-exam-duration" value="60" min="5" max="600">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
+      <input type="checkbox" id="new-exam-phone-cam">
+      <span style="font-size:13px">Require room camera (student scans QR with phone)</span>
+    </label>
     <div id="create-exam-err" style="color:var(--red);font-size:12px;min-height:18px;margin-bottom:8px"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary btn-sm" onclick="hideCreateExamModal()">Cancel</button>
@@ -882,6 +886,18 @@
           </label>
         </div>
         <div class="tool-card-result" id="shuffle-status" style="font-size:12px"></div>
+      </div>
+
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Room Camera</h3>
+          <p>Require students to connect a phone camera for room monitoring during the exam.</p>
+          <label class="shuffle-toggle" style="margin-top:8px">
+            <input type="checkbox" id="phone-cam-toggle" onchange="savePhoneCamConfig()">
+            <span>Require phone camera (student scans QR)</span>
+          </label>
+        </div>
+        <div class="tool-card-result" id="phone-cam-status" style="font-size:12px"></div>
       </div>
 
       <div class="tool-card">
@@ -1620,12 +1636,13 @@ function hideCreateExamModal(){
 async function createExam(){
   const title = document.getElementById('new-exam-title').value.trim();
   const dur = parseInt(document.getElementById('new-exam-duration').value) || 60;
+  const phoneCam = document.getElementById('new-exam-phone-cam').checked;
   if(!title){ document.getElementById('create-exam-err').textContent='Title is required'; return; }
   const btn = document.getElementById('create-exam-btn');
   btn.disabled = true; btn.textContent = 'Creating...';
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/exams`,{
-      method:'POST', body:JSON.stringify({exam_title:title, duration_minutes:dur})
+      method:'POST', body:JSON.stringify({exam_title:title, duration_minutes:dur, phone_camera:phoneCam})
     });
     if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
     const d = await r.json();
@@ -3742,6 +3759,9 @@ async function loadShuffleConfig(){
     if(qEl) qEl.checked = !!d.shuffle_questions;
     if(oEl) oEl.checked = !!d.shuffle_options;
     updateShuffleStatus(d);
+    // Phone camera config piggybacks on the same endpoint
+    const pcEl = document.getElementById('phone-cam-toggle');
+    if(pcEl) pcEl.checked = !!d.phone_camera_enabled;
   }catch(e){ /* silent */ }
 }
 
@@ -3780,6 +3800,24 @@ async function saveShuffleConfig(){
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     updateShuffleStatus(body);
+  }catch(e){
+    st.style.color = 'var(--red)';
+    st.textContent = 'Failed to save: '+e.message;
+  }
+}
+
+async function savePhoneCamConfig(){
+  const el = document.getElementById('phone-cam-toggle');
+  const st = document.getElementById('phone-cam-status');
+  if(!el || !currentExamId) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/phone-camera-config`,{
+      method:'POST',
+      body: JSON.stringify({exam_id: currentExamId, enabled: el.checked}),
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    st.style.color = 'var(--emerald)';
+    st.textContent = el.checked ? 'Room camera required for this exam.' : 'Room camera disabled.';
   }catch(e){
     st.style.color = 'var(--red)';
     st.textContent = 'Failed to save: '+e.message;

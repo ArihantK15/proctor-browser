@@ -56,7 +56,7 @@ async def admin_get_shuffle(request: Request):
     exam_id = request.query_params.get("exam_id")
     config = await _load_exam_config(teacher["id"], exam_id=exam_id)
     sq, so = config.get("shuffle_questions", True), config.get("shuffle_options", True)
-    return {"shuffle_questions": sq, "shuffle_options": so}
+    return {"shuffle_questions": sq, "shuffle_options": so, "phone_camera_enabled": config.get("phone_camera_enabled", False)}
 
 
 @router.post("/api/v1/admin/shuffle-config")

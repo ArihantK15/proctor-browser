@@ -98,6 +98,7 @@ class CreateExamIn(BaseModel):
     model_config = ConfigDict(strict=True)
     exam_title: str = "Exam"
     duration_minutes: int = 60
+    phone_camera: bool = False
 
 
 class UploadQuestionImageIn(BaseModel):

@@ -73,12 +73,27 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
             "teacher_id":       tid,
             "exam_title":       title,
             "duration_minutes": duration,
+            "phone_camera_enabled": body.phone_camera,
         }).execute()
     except Exception as e:
         _admin_log.error("[CreateExam] DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create exam. Please try again.")
     row = result.data[0] if result.data else {}
-    return {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration}
+    return {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration, "phone_camera": body.phone_camera}
+
+
+@router.post("/api/v1/admin/phone-camera-config")
+@limiter.limit("30/minute")
+async def set_phone_camera_config(body: dict, request: Request):
+    """Enable/disable phone camera requirement for an exam."""
+    teacher = await require_admin(request)
+    exam_id = (body.get("exam_id") or "").strip()
+    enabled = bool(body.get("enabled", False))
+    if not exam_id:
+        raise HTTPException(status_code=400, detail="exam_id is required")
+    await _atable("exam_config").update({"phone_camera_enabled": enabled})\
+        .eq("exam_id", exam_id).eq("teacher_id", str(teacher["id"])).execute()
+    return {"exam_id": exam_id, "phone_camera": enabled}
 
 
 @router.delete("/api/v1/admin/exams/{exam_id}")

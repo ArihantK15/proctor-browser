@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'wouter'
 import { Menu, X } from 'lucide-react'
 import { APP_URL } from '../config'
 

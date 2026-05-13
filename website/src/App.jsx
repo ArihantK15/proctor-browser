@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Route, Switch } from 'wouter'
 import { lazy, Suspense } from 'react'
 
 import Landing from './pages/Landing'
@@ -26,19 +26,27 @@ function RouteFallback() {
   )
 }
 
+function LazyRoute({ Component }) {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <Component />
+    </Suspense>
+  )
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/signup" element={<Suspense fallback={<RouteFallback />}><Signup /></Suspense>} />
-      <Route path="/privacy" element={<Suspense fallback={<RouteFallback />}><Privacy /></Suspense>} />
-      <Route path="/terms" element={<Suspense fallback={<RouteFallback />}><Terms /></Suspense>} />
-      <Route path="/features" element={<Suspense fallback={<RouteFallback />}><Features /></Suspense>} />
-      <Route path="/how-it-works" element={<Suspense fallback={<RouteFallback />}><HowItWorks /></Suspense>} />
-      <Route path="/blog" element={<Suspense fallback={<RouteFallback />}><Blog /></Suspense>} />
-      <Route path="/blog/ai-proctoring-vs-traditional-proctoring" element={<Suspense fallback={<RouteFallback />}><BlogAiVsTraditional /></Suspense>} />
-      <Route path="/blog/online-exam-cheating-prevention-ai-proctoring" element={<Suspense fallback={<RouteFallback />}><BlogCheatingPrevention /></Suspense>} />
-      <Route path="/blog/dpdp-act-compliance-online-proctoring-indian-universities" element={<Suspense fallback={<RouteFallback />}><BlogDPDPCompliance /></Suspense>} />
-    </Routes>
+    <Switch>
+      <Route path="/" component={Landing} />
+      <Route path="/signup"><LazyRoute Component={Signup} /></Route>
+      <Route path="/privacy"><LazyRoute Component={Privacy} /></Route>
+      <Route path="/terms"><LazyRoute Component={Terms} /></Route>
+      <Route path="/features"><LazyRoute Component={Features} /></Route>
+      <Route path="/how-it-works"><LazyRoute Component={HowItWorks} /></Route>
+      <Route path="/blog"><LazyRoute Component={Blog} /></Route>
+      <Route path="/blog/ai-proctoring-vs-traditional-proctoring"><LazyRoute Component={BlogAiVsTraditional} /></Route>
+      <Route path="/blog/online-exam-cheating-prevention-ai-proctoring"><LazyRoute Component={BlogCheatingPrevention} /></Route>
+      <Route path="/blog/dpdp-act-compliance-online-proctoring-indian-universities"><LazyRoute Component={BlogDPDPCompliance} /></Route>
+    </Switch>
   )
 }

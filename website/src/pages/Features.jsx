@@ -1,6 +1,6 @@
 import { Helmet } from 'react-helmet-async'
 import useInView from '../hooks/useInView'
-import { Link } from 'react-router-dom'
+import { Link } from 'wouter'
 import { CheckCircle } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import CTA from '../components/CTA'

@@ -1,6 +1,6 @@
 import useInView from '../hooks/useInView'
 import { Play, Maximize2, X } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'wouter'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 

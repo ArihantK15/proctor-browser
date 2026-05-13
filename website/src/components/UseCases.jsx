@@ -1,6 +1,6 @@
 import { GraduationCap, BookOpen, Briefcase, ArrowRight } from 'lucide-react'
 import useInView from '../hooks/useInView'
-import { Link } from 'react-router-dom'
+import { Link } from 'wouter'
 
 export default function UseCases() {
   const cases = [

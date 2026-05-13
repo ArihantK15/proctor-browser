@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'wouter'
 import { APP_URL } from '../config'
 
 export default function Footer() {

@@ -14,7 +14,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-helmet-async": "^3.0.0",
-    "react-router-dom": "^7.14.0",
+    "wouter": "^3.9.0",
     "@fontsource/ibm-plex-sans": "^5.2.0",
     "@fontsource/ibm-plex-mono": "^5.2.0"
   },

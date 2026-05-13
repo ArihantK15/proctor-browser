@@ -1,5 +1,5 @@
 import { ArrowRight } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'wouter'
 import { APP_URL } from '../config'
 import useInView from '../hooks/useInView'
 

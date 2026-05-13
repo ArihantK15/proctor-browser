@@ -1768,6 +1768,15 @@ function hdr(){
   return {'Content-Type':'application/json','Authorization':'Bearer '+authToken};
 }
 
+function _getCsrfToken(){
+  if(!authToken) return '';
+  try{
+    const b64 = authToken.split('.')[1];
+    const payload = JSON.parse(atob(b64.replace(/-/g,'+').replace(/_/g,'/')));
+    return payload.csrf || '';
+  }catch(_){ return ''; }
+}
+
 // Single-flight guard so concurrent 401s only trigger one /refresh call —
 // without this, parallel admin requests can each refresh independently and
 // the slower responses overwrite the newer rotated refresh_token, causing
@@ -1794,6 +1803,10 @@ async function _refreshTokens(){
 // that pass {'Content-Type':'application/json'} still get authenticated.
 async function authFetch(url, opts={}){
   opts.headers = {...hdr(), ...(opts.headers||{})};
+  if(!opts.method || opts.method==='POST' || opts.method==='PUT' || opts.method==='DELETE'){
+    const csrf = _getCsrfToken();
+    if(csrf) opts.headers['X-CSRF-Token'] = csrf;
+  }
   let r = await fetch(url, opts);
   if(r.status===401 && refreshToken){
     try{

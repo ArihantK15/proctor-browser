@@ -2215,7 +2215,7 @@ function chatInit(){
 function chatWsUrl(){
   const proto = (new URL(SERVER)).protocol==='https:' ? 'wss:' : 'ws:';
   const host  = (new URL(SERVER)).host;
-  return `${proto}//${host}/ws/chat/student?token=${encodeURIComponent(studentToken)}&session_id=${encodeURIComponent(sessionId)}`;
+  return `${proto}//${host}/ws/chat/student?session_id=${encodeURIComponent(sessionId)}`;
 }
 
 function chatConnect(){
@@ -2223,7 +2223,7 @@ function chatConnect(){
   if(chatWs && (chatWs.readyState===0||chatWs.readyState===1)) return;
   chatIntentionalClose = false;
   try{
-    chatWs = new WebSocket(chatWsUrl());
+    chatWs = new WebSocket(chatWsUrl(), [studentToken]);
   }catch(e){ console.warn('[chat] ws ctor failed', e); chatScheduleReconnect(); return; }
 
   chatWs.onopen = ()=>{

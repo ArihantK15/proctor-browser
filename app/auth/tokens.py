@@ -1,6 +1,8 @@
 """JWT issue and verify helpers."""
 from __future__ import annotations
+import hashlib
 import re
+import secrets
 from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime, timezone, timedelta
@@ -46,9 +48,32 @@ async def extract_auth(request: Request) -> AuthCtx:
     return AuthCtx.from_claims(claims)
 
 
+# ─── CSRF protection ─────────────────────────────────────────────
+
+def _gen_csrf() -> str:
+    """Generate a random CSRF value to embed in the JWT payload."""
+    return secrets.token_hex(16)
+
+
+def verify_csrf(claims: dict, header_value: str) -> bool:
+    """Check whether ``header_value`` matches the ``csrf`` claim in the JWT.
+    
+    Returns True if the header is absent (for backward compatibility) or
+    if it matches the claim. Returns False only when the header is present
+    and DOES NOT match.
+    """
+    if not header_value:
+        return True  # Header absent — backward compat
+    expected = claims.get("csrf", "")
+    if not expected:
+        return True  # Old token without csrf claim — backward compat
+    return secrets.compare_digest(header_value, expected)
+
+
 def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None) -> str:
     now = datetime.now(timezone.utc)
-    payload = {"roll": roll_number, "exp": now + timedelta(hours=TOKEN_TTL_HOURS), "iat": now}
+    csrf = _gen_csrf()
+    payload = {"roll": roll_number, "csrf": csrf, "exp": now + timedelta(hours=TOKEN_TTL_HOURS), "iat": now}
     if teacher_id:
         payload["tid"] = teacher_id
     if exam_id:
@@ -83,9 +108,11 @@ def verify_student_token(token: str) -> dict:
 
 def issue_admin_token(teacher: dict) -> str:
     now = datetime.now(timezone.utc)
+    csrf = _gen_csrf()
     payload = {
         "tid": str(teacher["id"]), "email": teacher.get("email", ""),
-        "role": "teacher", "iat": now, "exp": now + timedelta(hours=ADMIN_TOKEN_TTL_HOURS),
+        "role": "teacher", "csrf": csrf,
+        "iat": now, "exp": now + timedelta(hours=ADMIN_TOKEN_TTL_HOURS),
     }
     org_id = teacher.get("org_id")
     if org_id:

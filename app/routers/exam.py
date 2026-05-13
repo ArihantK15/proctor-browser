@@ -141,7 +141,10 @@ async def validate_student(request: Request, body: ValidateIn):
                 except HTTPException:
                     raise
                 except Exception:
-                    _exam_log.warning("validate_student: bad expires_at date on invite %s", inv.get("id"))
+                    _exam_log.warning("validate_student: bad expires_at date on invite %s — treating as expired", inv.get("id"))
+                    raise HTTPException(
+                        status_code=403,
+                        detail="This invite has expired. Contact your teacher.")
 
             # Auto-enroll: create students row from invite data
             student_row = {

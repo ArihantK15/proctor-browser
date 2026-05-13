@@ -1,16 +1,32 @@
 import os
+import sys
 from supabase import create_client, Client
 
+
+def _required_env(name: str) -> str:
+    v = os.environ.get(name)
+    if not v:
+        print(
+            f"[boot] FATAL: env var {name} is required.\n"
+            "  Local dev: add to .env at repo root.\n"
+            "  Docker: set in docker-compose.yml `env_file:` or `environment:`.\n"
+            "  Prod: set in DigitalOcean droplet's /etc/procta/secrets.env.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return v
+
+
 supabase: Client = create_client(
-    os.environ["SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    _required_env("SUPABASE_URL"),
+    _required_env("SUPABASE_SERVICE_ROLE_KEY"),
 )
 
 # ─── Async Supabase client (httpx) for hot-path endpoints ────────
 import httpx
 
-_SUPABASE_URL = os.environ["SUPABASE_URL"]
-_SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+_SUPABASE_URL = _required_env("SUPABASE_URL")
+_SUPABASE_KEY = _required_env("SUPABASE_SERVICE_ROLE_KEY")
 _REST_BASE = f"{_SUPABASE_URL}/rest/v1"
 _HEADERS = {
     "apikey": _SUPABASE_KEY,

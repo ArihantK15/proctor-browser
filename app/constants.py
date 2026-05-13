@@ -1,8 +1,23 @@
 """Constants used across the application."""
 
 import os
+import sys
 from pathlib import Path
 from datetime import timezone, timedelta
+
+
+def _required_env(name: str) -> str:
+    v = os.environ.get(name)
+    if not v:
+        print(
+            f"[boot] FATAL: env var {name} is required.\n"
+            "  Local dev: add to .env at repo root.\n"
+            "  Prod: set in docker-compose.yml or /etc/procta/secrets.env.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return v
+
 
 # ─── Timezone ─────────────────────────────────────────────────────
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -13,7 +28,7 @@ QUESTION_IMG_DIR = os.getenv("QUESTION_IMG_DIR", "/app/question_images")
 STATIC_DIR = Path(__file__).parent / "static"
 
 # ─── Secrets & Auth ───────────────────────────────────────────────
-SECRET_KEY = os.environ["SUPABASE_JWT_SECRET"]
+SECRET_KEY = _required_env("SUPABASE_JWT_SECRET")
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "").strip().lower()
 TOKEN_TTL_HOURS = 10
 ADMIN_TOKEN_TTL_HOURS = 12

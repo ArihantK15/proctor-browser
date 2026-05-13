@@ -8,8 +8,11 @@ import os
 import base64
 import pickle
 import time
+import logging
 
 import redis
+
+_log = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 _LIVEFRAME_MAX = int(os.environ.get("LIVEFRAME_MAX_SESSIONS", "50"))
@@ -30,6 +33,7 @@ def _client() -> redis.Redis | None:
         _r.ping()
         _r_healthy = True
     except Exception:
+        _log.warning("Redis connection failed", exc_info=True)
         _r = None
         _r_healthy = False
     return _r
@@ -54,6 +58,7 @@ def get(key: str) -> dict | list | None:
         _r_healthy = False
         return None
     except Exception:
+        _log.warning("Cache get failed for key=%s", key, exc_info=True)
         return None
 
 

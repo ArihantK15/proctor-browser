@@ -1,10 +1,10 @@
 """
-DEPRECATED — do not import from this module.
+Re-export hub for backward compatibility (mainly for test patches).
 
-All routers, services, and other modules now import directly from their
-source modules. This file is kept temporarily as a re-export hub for
-backward compatibility (mainly for test patches). It will be removed
-once all external references are migrated.
+All production code imports directly from its source module. This file
+is a convenience hub that re-exports every name the app used to import
+from the old single-module layout. New code should NOT add imports here;
+instead import directly from the specific module.
 
 Migration guide:
   supabase, _atable         → from .database import supabase, async_table as _atable
@@ -22,11 +22,6 @@ Migration guide:
   _cache                    → from . import cache
   _bus_publish, etc.        → from .event_bus import ...
 """
-import warnings as _warnings
-_warnings.warn(
-    "app.dependencies is deprecated; import from the specific source module instead.",
-    DeprecationWarning, stacklevel=2,
-)
 
 # ─── Auth ──────────────────────────────────────────────────────────
 from .auth import (

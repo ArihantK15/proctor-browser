@@ -42,10 +42,13 @@ async def _chat_verify_session_owned(session_id: str, teacher_id: str, roll: str
 
 @router.websocket("/ws/chat/student")
 async def ws_chat_student(ws: WebSocket):
-    """Student end of the chat.  Query params: token, session_id."""
-    await ws.accept()
+    """Student end of the chat. Token via Sec-WebSocket-Protocol (subprotocol header)."""
+    # Extract subprotocol from handshake headers
+    sp = ws.headers.get("sec-websocket-protocol", "")
+    token = sp.split(",")[0].strip() if sp else ""
+
+    await ws.accept(subprotocol=token or None)
     try:
-        token = ws.query_params.get("token") or ""
         session_id = (ws.query_params.get("session_id") or "").strip()
         if not session_id:
             await ws.close(code=4400); return

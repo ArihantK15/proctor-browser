@@ -77,6 +77,7 @@ async def upload_live_frame_http(body: LiveFrameIn):
     try:
         jpeg_bytes = base64.b64decode(body.jpeg_b64)
     except Exception:
+        logger.warning("[sse] live-frame b64 decode failed", exc_info=True)
         return Response(status_code=400, content="Invalid base64")
 
     _store_live_frame(body.session_id, jpeg_bytes)

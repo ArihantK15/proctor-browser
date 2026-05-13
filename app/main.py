@@ -1,16 +1,16 @@
-"""Thin orchestrator — wires routers, middleware, startup tasks.
-
-All business logic, auth helpers, and utility functions live in
-``dependencies.py``.  Domain endpoints are split across the
-``routers/`` package.
-"""
+"""Thin orchestrator — wires routers, middleware, startup tasks."""
 import gc
 import hashlib
 import json
 import time
 import uuid
 import logging
+import warnings
 import threading
+
+# Suppress python-jose's datetime.utcnow() deprecation warning
+# (library unmaintained since 2022; migrate to PyJWT if Python 3.13+ required)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="jose")
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -261,13 +261,39 @@ class ETagMiddleware(BaseHTTPMiddleware):
                         headers=new_headers, media_type=ct)
 
 
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """Protect state-changing endpoints from cross-site request forgery.
+    
+    Checks ``X-CSRF-Token`` header against the JWT's ``csrf`` claim
+    on POST/PUT/DELETE requests to API routes.  If the header is absent
+    or the token lacks a ``csrf`` claim the request is allowed through
+    (backward compatibility).  Only rejects when the header is present
+    AND doesn't match.
+    """
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/"):
+            csrf_header = request.headers.get("x-csrf-token", "")
+            if csrf_header:
+                auth = request.headers.get("Authorization", "")
+                if auth.startswith("Bearer "):
+                    try:
+                        from .auth.tokens import verify_csrf
+                        from jose import jwt as _jwt
+                        from .constants import SECRET_KEY
+                        claims = _jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+                        if not verify_csrf(claims, csrf_header):
+                            return Response(status_code=403, content="CSRF validation failed")
+                    except Exception:
+                        pass  # Invalid/expired JWT — allow through to normal auth
+        return await call_next(request)
+
+
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(StructuredLogMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(InputValidationMiddleware)
 app.add_middleware(ETagMiddleware)
-
-# Global exception handler
 import traceback as _tb
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import JSONResponse

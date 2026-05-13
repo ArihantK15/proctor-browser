@@ -1279,7 +1279,10 @@
           <div class="tool-card-body"><h3>Pro</h3><p style="font-size:13px;color:var(--text-secondary);margin:4px 0">₹2,499/mo · 500 students</p></div>
         </div>
       </div>
-      <div id="upgrade-result" style="font-size:13px"></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div id="upgrade-result" style="font-size:13px;flex:1"></div>
+        <button class="btn btn-secondary btn-sm" id="billing-portal-btn" onclick="openBillingPortal()" style="display:none">Manage billing</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2190,7 +2193,24 @@ async function loadBilling(){
     document.getElementById('billing-plan').textContent = b.plan || '--';
     document.getElementById('billing-status').textContent = b.status || '--';
     document.getElementById('billing-usage').textContent = (b.student_count||0) + ' / ' + (b.max_students||30) + ' students';
+    const portalBtn = document.getElementById('billing-portal-btn');
+    if(b.status && b.status!=='free'){
+      portalBtn.style.display = '';
+    } else {
+      portalBtn.style.display = 'none';
+    }
   }catch(_){}
+}
+
+async function openBillingPortal(){
+  const resultEl = document.getElementById('upgrade-result');
+  resultEl.textContent = 'Opening billing portal...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/portal`, {method:'POST'});
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Failed to open portal'); }
+    const d = await r.json();
+    if(d.url) window.location.href = d.url;
+  }catch(e){ resultEl.textContent = e.message; resultEl.style.color = 'var(--red)'; }
 }
 
 async function loadAllOrgs(){
@@ -2266,7 +2286,7 @@ async function upgradePlan(planId){
   const resultEl = document.getElementById('upgrade-result');
   resultEl.textContent = 'Redirecting to payment...'; resultEl.style.color = 'var(--text-secondary)';
   try{
-    const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
+    const r = await authFetch(`${BASE}/api/v1/billing/create-checkout`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({plan_id:planId})
@@ -2276,8 +2296,8 @@ async function upgradePlan(planId){
       throw new Error(d.detail||'Upgrade failed');
     }
     const d = await r.json();
-    if(d.short_url){
-      resultEl.innerHTML = '<a href="'+d.short_url+'" target="_blank" style="color:var(--accent)">Complete payment on Razorpay</a>';
+    if(d.url){
+      window.location.href = d.url;  // Redirect to Stripe Checkout
     } else {
       resultEl.textContent = 'Subscription created!'; resultEl.style.color = 'var(--emerald)';
       loadBilling();

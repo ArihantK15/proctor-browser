@@ -1,12 +1,12 @@
-"""
-Tests for org management and billing endpoints.
+"""Tests for org management and billing endpoints.
 
 Covers:
   1. Org CRUD — GET /api/v1/org, PATCH /api/v1/org
   2. Member management — GET /api/v1/org/members, POST /api/v1/org/invite,
      DELETE /api/v1/org/members/{teacher_id}
-  3. Billing — GET /api/v1/billing/plans, POST /api/v1/billing/create-subscription
-  4. Razorpay webhooks — activated, completed, paused, cancelled, payment.failed
+  3. Billing — GET /api/v1/billing/plans, POST /api/v1/billing/create-checkout
+  4. Stripe webhooks — checkout.session.completed, customer.subscription.updated,
+     customer.subscription.deleted, invoice.payment_failed
   5. Superadmin — GET /api/v1/admin/all-orgs
 """
 import contextlib
@@ -362,165 +362,155 @@ class TestListPlans:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  POST /api/v1/billing/create-subscription
+#  POST /api/v1/billing/create-checkout
 # ═══════════════════════════════════════════════════════════════════
-class TestCreateSubscription:
+class TestCreateCheckout:
     MOCK_RESULT = {
-        "subscription_id": "mock_sub_org-1",
-        "short_url": "https://razorpay.com/payments/mock_org-1",
+        "session_id": "mock_ses_org-1",
+        "url": "https://checkout.stripe.com/mock/org-1",
         "status": "created",
         "_sandbox": True,
-        "_note": "Sandbox: would charge ₹999/mo for 150 students (Growth)",
+        "_note": "Sandbox: ...",
     }
 
     def test_non_admin_403(self, client):
         with _admin_patch(NON_ADMIN):
-            resp = client.post("/api/v1/billing/create-subscription",
+            resp = client.post("/api/v1/billing/create-checkout",
                                json={"plan_id": "growth"}, headers=admin_headers())
         assert resp.status_code == 403
 
     def test_invalid_plan_400(self, client):
         with _admin_patch():
-            resp = client.post("/api/v1/billing/create-subscription",
+            resp = client.post("/api/v1/billing/create-checkout",
                                json={"plan_id": "nonexistent"}, headers=admin_headers())
         assert resp.status_code == 400
 
     def test_happy_path_sandbox(self, client):
         data_map = {"subscriptions": [], "organizations": []}
         with _admin_patch(), \
-             patch("app.routers.billing.billing_create_subscription",
+             patch("app.routers.billing.billing_create_checkout_session",
                    return_value=self.MOCK_RESULT), \
              contextlib.ExitStack() as es:
             for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
-            resp = client.post("/api/v1/billing/create-subscription",
+            resp = client.post("/api/v1/billing/create-checkout",
                                json={"plan_id": "growth"}, headers=admin_headers())
         assert resp.status_code == 200
         d = resp.json()
-        assert d["subscription_id"] == "mock_sub_org-1"
+        assert d["session_id"] == "mock_ses_org-1"
 
     def test_updates_existing_subscription(self, client):
         data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1"}], "organizations": []}
         with _admin_patch(), \
-             patch("app.routers.billing.billing_create_subscription",
+             patch("app.routers.billing.billing_create_checkout_session",
                    return_value=self.MOCK_RESULT), \
              contextlib.ExitStack() as es:
             for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
-            resp = client.post("/api/v1/billing/create-subscription",
+            resp = client.post("/api/v1/billing/create-checkout",
                                json={"plan_id": "growth"}, headers=admin_headers())
         assert resp.status_code == 200
 
     def test_value_error_400(self, client):
         with _admin_patch(), \
-             patch("app.routers.billing.billing_create_subscription",
+             patch("app.routers.billing.billing_create_checkout_session",
                    side_effect=ValueError("bad")):
-            resp = client.post("/api/v1/billing/create-subscription",
+            resp = client.post("/api/v1/billing/create-checkout",
                                json={"plan_id": "growth"}, headers=admin_headers())
         assert resp.status_code == 400
 
     def test_unexpected_error_500(self, client):
         with _admin_patch(), \
-             patch("app.routers.billing.billing_create_subscription",
+             patch("app.routers.billing.billing_create_checkout_session",
                    side_effect=Exception("boom")):
-            resp = client.post("/api/v1/billing/create-subscription",
+            resp = client.post("/api/v1/billing/create-checkout",
                                json={"plan_id": "growth"}, headers=admin_headers())
         assert resp.status_code == 500
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  POST /api/v1/webhooks/razorpay
+#  POST /api/v1/webhooks/stripe
 # ═══════════════════════════════════════════════════════════════════
-class TestRazorpayWebhook:
-    SUB_PAYLOAD = {
-        "subscription": {"entity": {
-            "id": "sub_abc123",
-            "current_start": 1700000000,
-            "current_end": 1700086400,
-        }}
-    }
+class TestStripeWebhook:
+    SUB_PAYLOAD = {"object": {
+        "id": "sub_abc123",
+        "current_period_end": 1700086400,
+    }}
 
-    def _post(self, client, event_type, payload=None, sig="test-sig", **kw):
+    def _post(self, client, event_type, data=None, sig="test-sig"):
         body = json.dumps({
-            "event": event_type,
-            "payload": payload or self.SUB_PAYLOAD,
-            **kw,
+            "type": event_type,
+            "data": {"object": data or self.SUB_PAYLOAD["object"]},
         }).encode()
         return client.post(
-            "/api/v1/webhooks/razorpay", content=body,
-            headers={"X-Razorpay-Signature": sig, "content-type": "application/json"},
+            "/api/v1/webhooks/stripe", content=body,
+            headers={"Stripe-Signature": sig, "content-type": "application/json"},
         )
 
     def test_invalid_signature_400(self, client):
         with patch("app.routers.billing.verify_webhook", return_value=False):
-            resp = self._post(client, "subscription.activated")
+            resp = self._post(client, "checkout.session.completed")
         assert resp.status_code == 400
 
     def test_invalid_json_400(self, client):
         with patch("app.routers.billing.verify_webhook", return_value=True):
-            resp = client.post("/api/v1/webhooks/razorpay",
+            resp = client.post("/api/v1/webhooks/stripe",
                                content=b"not-json",
-                               headers={"X-Razorpay-Signature": "x"})
+                               headers={"Stripe-Signature": "x"})
         assert resp.status_code == 400
 
-    def test_no_subscription_id_ignored(self, client):
-        with patch("app.routers.billing.verify_webhook", return_value=True):
-            resp = self._post(client, "test",
-                              payload={"subscription": {"entity": {}}})
+    def test_checkout_completed_creates_subscription(self, client):
+        data_map = {"subscriptions": [], "organizations": []}
+        with patch("app.routers.billing.verify_webhook", return_value=True), \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = self._post(client, "checkout.session.completed", {
+                "id": "cs_test_123",
+                "metadata": {"org_id": "org-1", "plan": "growth"},
+                "subscription": "sub_abc123",
+                "customer": "cus_test_123",
+            })
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ignored"
 
     def test_unknown_subscription_ignored(self, client):
         with patch("app.routers.billing.verify_webhook", return_value=True), \
              contextlib.ExitStack() as es:
             for p in _apply_atable_patches({"subscriptions": []}):
                 es.enter_context(p)
-            resp = self._post(client, "subscription.activated")
+            resp = self._post(client, "customer.subscription.updated")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ignored"
 
-    def test_activated(self, client):
+    def test_subscription_updated_active(self, client):
         data_map = {"subscriptions": [{"id": "db_sub_1", "org_id": "org-1"}]}
         with patch("app.routers.billing.verify_webhook", return_value=True), \
              contextlib.ExitStack() as es:
             for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
-            resp = self._post(client, "subscription.activated")
+            resp = self._post(client, "customer.subscription.updated", {
+                "id": "sub_abc123", "status": "active",
+            })
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
 
-    def test_completed_downgrades_to_starter(self, client):
+    def test_subscription_deleted_downgrades_to_starter(self, client):
         data_map = {"subscriptions": [{"id": "db_sub_1", "org_id": "org-1"}], "organizations": []}
         with patch("app.routers.billing.verify_webhook", return_value=True), \
              contextlib.ExitStack() as es:
             for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
-            resp = self._post(client, "subscription.completed")
+            resp = self._post(client, "customer.subscription.deleted", {
+                "id": "sub_abc123", "status": "canceled",
+            })
         assert resp.status_code == 200
 
-    def test_paused_downgrades_to_starter(self, client):
-        data_map = {"subscriptions": [{"id": "db_sub_1", "org_id": "org-1"}], "organizations": []}
-        with patch("app.routers.billing.verify_webhook", return_value=True), \
-             contextlib.ExitStack() as es:
-            for p in _apply_atable_patches(data_map):
-                es.enter_context(p)
-            resp = self._post(client, "subscription.paused")
-        assert resp.status_code == 200
-
-    def test_cancelled(self, client):
-        data_map = {"subscriptions": [{"id": "db_sub_1", "org_id": "org-1"}], "organizations": []}
-        with patch("app.routers.billing.verify_webhook", return_value=True), \
-             contextlib.ExitStack() as es:
-            for p in _apply_atable_patches(data_map):
-                es.enter_context(p)
-            resp = self._post(client, "subscription.cancelled")
-        assert resp.status_code == 200
-
-    def test_payment_failed_sets_expired(self, client):
+    def test_payment_failed_logs_warning(self, client):
         data_map = {"subscriptions": [{"id": "db_sub_1", "org_id": "org-1"}]}
         with patch("app.routers.billing.verify_webhook", return_value=True), \
              contextlib.ExitStack() as es:
             for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
-            resp = self._post(client, "payment.failed")
+            resp = self._post(client, "invoice.payment_failed", {
+                "id": "in_test", "subscription": "sub_abc123",
+            })
         assert resp.status_code == 200

@@ -252,6 +252,7 @@
   <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" onclick="switchTab('tools')">Tools</button>
   <!-- Admin tabs (role-gated) -->
   <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" onclick="switchTab('org')"       data-roles="admin superadmin" style="display:none">Org Overview</button>
+  <button type="button" class="tab"        data-tab="security"  role="tab" aria-selected="false" onclick="switchTab('security')"  data-roles="admin superadmin" style="display:none">Security</button>
   <button type="button" class="tab"        data-tab="members"   role="tab" aria-selected="false" onclick="switchTab('members')"   data-roles="admin superadmin" style="display:none">Members</button>
   <button type="button" class="tab"        data-tab="billing"   role="tab" aria-selected="false" onclick="switchTab('billing')"   data-roles="admin superadmin" style="display:none">Billing</button>
   <button type="button" class="tab"        data-tab="org-settings" role="tab" aria-selected="false" onclick="switchTab('org-settings')" data-roles="admin superadmin" style="display:none">Org Settings</button>
@@ -1426,6 +1427,57 @@
   </div>
 </div>
 
+<!-- SECURITY PANEL (2FA + sessions) -->
+<div class="panel" id="panel-security">
+  <div style="max-width:800px;margin:0 auto;padding:20px 0">
+    <div style="display:flex;align-items:center;gap:12px;margin:0 0 24px">
+      <h2 style="color:var(--text-primary);margin:0;font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-0.02em">Security</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <!-- 2FA card -->
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Two-Factor Authentication</h3>
+          <p>Add an extra layer of security to your account using an authenticator app.</p>
+          <div id="security-2fa-status" style="font-size:13px;color:var(--text-muted);margin:8px 0"></div>
+          <div id="security-2fa-qr" style="display:none;text-align:center;margin:12px 0">
+            <div id="security-2fa-qr-img" style="background:#fff;border-radius:8px;display:inline-block;padding:8px"></div>
+            <p id="security-2fa-secret" style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:monospace"></p>
+          </div>
+          <div id="security-2fa-verify" style="display:none;margin:8px 0">
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Enter the 6-digit code from your authenticator app:</label>
+            <input type="text" id="security-2fa-code" maxlength="6" style="width:140px;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text);font-size:16px;letter-spacing:4px;text-align:center;font-family:monospace">
+            <button class="btn btn-primary btn-sm" onclick="confirm2FA()" style="margin-top:8px">Confirm &amp; Enable</button>
+            <span id="security-2fa-verify-status" style="font-size:12px;margin-left:8px;color:var(--text-muted)"></span>
+          </div>
+          <div id="security-2fa-backup" style="display:none;margin:8px 0">
+            <p style="font-size:12px;color:var(--text-muted)">Save these backup codes. Each can be used once if you lose access to your authenticator app.</p>
+            <div id="security-2fa-backup-codes" style="font-family:monospace;font-size:13px;background:var(--surface-0);padding:10px;border-radius:6px;margin:6px 0;line-height:1.8"></div>
+            <button class="btn btn-primary btn-sm" onclick="close2FABackup()">Done — I've saved these</button>
+          </div>
+          <p id="security-2fa-grace" style="display:none;font-size:12px;color:var(--amber);margin-top:8px"></p>
+        </div>
+        <div class="tool-card-actions" id="security-2fa-actions">
+          <button class="btn btn-primary btn-sm" id="security-2fa-enable-btn" onclick="enable2FA()" style="display:none">Enable Two-Factor Auth</button>
+          <span id="security-2fa-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+        </div>
+      </div>
+      <!-- Active sessions card -->
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Active Sessions</h3>
+          <p>Devices and browsers that are currently logged into your account.</p>
+          <div id="security-sessions" style="margin-top:10px;max-height:300px;overflow-y:auto"></div>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn btn-secondary btn-sm" onclick="revokeOtherSessions()">Sign out other devices</button>
+          <span id="security-sessions-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ALL ORGS PANEL (Phase 2 design) -->
 <div class="panel" id="panel-all-orgs">
   <div style="max-width:1000px;margin:0 auto;padding:20px 0">
@@ -2197,6 +2249,7 @@ function switchTab(tab){
      try{ if(typeof loadGoogleClassroom==='function') loadGoogleClassroom(); }catch(_){}
    }
   if(tab==='org') loadOrgOverview();
+  if(tab==='security') loadSecurity();
   if(tab==='members') loadMembers();
   if(tab==='billing') loadBilling();
   if(tab==='all-orgs') loadAllOrgs();
@@ -2351,1369 +2404,118 @@ function trialBannerClick(){
   showUpgradeModal('Your trial ends in ' + days + ' day' + (days === 1 ? '' : 's') + '. Upgrade to keep using Procta.');
 }
 
-// ── POST-EXAM UPGRADE CTA ──────────────────────────────────────
-let _shownPostExamCta = false;
-
-function showPostExamCta(){
-  if(_shownPostExamCta) return;
-  _shownPostExamCta = true;
-  const el = document.getElementById('post-exam-cta');
-  if(!el) return;
-  el.style.display = '';
+// ── SECURITY (2FA + SESSIONS) ──────────────────────────────────
+function loadSecurity(){
+  load2FAStatus();
+  loadSessions();
 }
 
-async function loadBilling(){
+async function load2FAStatus(){
   try{
-    const r = await authFetch(`${BASE}/api/v1/org/billing`);
-    if(!r.ok) return;
-    const b = await r.json();
-    document.getElementById('billing-plan').textContent = b.plan || '--';
-    document.getElementById('billing-status').textContent = b.status || '--';
-    document.getElementById('billing-usage').textContent = (b.student_count||0) + ' / ' + (b.max_students||30) + ' students';
-    loadInvoices();
-  }catch(_){}
-}
-
-async function loadInvoices(){
-  const container = document.getElementById('billing-invoices');
-  const tbody = document.getElementById('billing-invoices-body');
-  try{
-    const r = await authFetch(`${BASE}/api/v1/billing/invoices`);
+    const r = await authFetch(`${BASE}/api/v1/auth/2fa/status`);
     if(!r.ok) return;
     const d = await r.json();
-    const invs = d.invoices||[];
-    if(!invs.length){ container.style.display='none'; return; }
-    container.style.display='';
-    tbody.innerHTML = invs.map(inv => {
-      const amt = (inv.amount/100).toFixed(0);
-      const currency = inv.currency||'INR';
-      const date = inv.created_at ? new Date(inv.created_at*1000||inv.created_at).toLocaleDateString() : '—';
-      const statusCls = inv.status==='paid'?'color:var(--sev-success-fg,var(--emerald))':'color:var(--sev-warn-fg,var(--amber))';
-      const pdfBtn = inv.invoice_url||inv.pdf_url
-        ? `<a href="${_escHtml(inv.invoice_url||inv.pdf_url)}" target="_blank" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px">PDF</a>`
-        : '';
-      return `<tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:8px 12px">${date}</td>
-        <td style="padding:8px 12px">${_escHtml(inv.description||'—')}</td>
-        <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${_escHtml(currency.toUpperCase())} ${_escHtml(amt)}</td>
-        <td style="padding:8px 12px;text-align:center"><span style="${statusCls}">${_escHtml(inv.status)}</span></td>
-        <td style="padding:8px 12px;text-align:right">${pdfBtn}</td>
-      </tr>`;
-    }).join('');
-  }catch(_){ container.style.display='none'; }
-}
-
-async function loadAllOrgs(){
-  const tbody = document.getElementById('all-orgs-tbody');
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:20px">Loading...</td></tr>';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/all-orgs`);
-    if(!r.ok){ tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:20px">Access denied</td></tr>'; return; }
-    const d = await r.json();
-    tbody.innerHTML = (d.orgs||[]).map(o => `
-      <tr>
-        <td>${escHtml(o.name)}</td>
-        <td>${o.teacher_count||0}</td>
-        <td>${(o.student_count||0)+' / '+(o.max_students||30)}</td>
-        <td>${escHtml(o.plan)}</td>
-        <td>${escHtml(o.status)}</td>
-        <td style="font-size:11px;color:var(--text-secondary)">${o.created_at||''}</td>
-      </tr>
-    `).join('');
-  }catch(_){
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:20px">Failed to load</td></tr>';
-  }
-}
-
-function escHtml(s){
-  if(!s) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function showInviteTeacherModal(){
-  document.getElementById('invite-modal').style.display = 'flex';
-  document.getElementById('invite-email').value = '';
-  document.getElementById('invite-name').value = '';
-  document.getElementById('invite-result').textContent = '';
-}
-
-function hideInviteTeacherModal(){
-  document.getElementById('invite-modal').style.display = 'none';
-}
-
-async function doInviteTeacher(){
-  const email = document.getElementById('invite-email').value.trim();
-  const name = document.getElementById('invite-name').value.trim();
-  const resultEl = document.getElementById('invite-result');
-  if(!email){ resultEl.textContent = 'Email is required'; resultEl.style.color = 'var(--red)'; return; }
-  resultEl.textContent = 'Sending...'; resultEl.style.color = 'var(--text-secondary)';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/org/invite`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email, full_name:name})
-    });
-    if(!r.ok){
-      const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail||'Failed to send invite');
-    }
-    resultEl.textContent = 'Invitation sent!'; resultEl.style.color = 'var(--emerald)';
-    setTimeout(hideInviteTeacherModal, 1500);
-  }catch(e){
-    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
-  }
-}
-
-async function removeMember(teacherId){
-  if(!confirm('Remove this teacher from the organization?')) return;
-  try{
-    const r = await authFetch(`${BASE}/api/v1/org/members/${teacherId}`, {method:'DELETE'});
-    if(r.ok) loadMembers();
-  }catch(_){}
-}
-
-async function upgradePlan(planId){
-  const resultEl = document.getElementById('upgrade-result');
-  const modalStatus = document.getElementById('upgrade-modal-status');
-  const isModal = !document.getElementById('upgrade-modal').classList.contains('hidden');
-  const statusEl = isModal ? modalStatus : resultEl;
-  statusEl.textContent = 'Redirecting to payment...'; statusEl.style.color = 'var(--text-secondary)';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({plan_id:planId})
-    });
-    if(!r.ok){
-      const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail||'Upgrade failed');
-    }
-    const d = await r.json();
-    if(d.short_url){
-      closeUpgradeModal();
-      window.location.href = d.short_url;  // Redirect to Razorpay
+    const statusEl = document.getElementById('security-2fa-status');
+    const enableBtn = document.getElementById('security-2fa-enable-btn');
+    if(d.enabled){
+      statusEl.innerHTML = '✅ Two-factor authentication is <strong style="color:var(--emerald)">enabled</strong>.';
+      enableBtn.style.display = 'none';
     } else {
-      statusEl.textContent = 'Subscription created!'; statusEl.style.color = 'var(--emerald)';
-      if(isModal){ setTimeout(closeUpgradeModal, 1500); }
-      loadBilling();
+      statusEl.innerHTML = '❌ Two-factor authentication is <strong style="color:var(--amber)">not enabled</strong>.';
+      enableBtn.style.display = '';
     }
-  }catch(e){
-    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
-  }
+    const graceEl = document.getElementById('security-2fa-grace');
+    if(d.grace_expired){
+      graceEl.style.display = '';
+      graceEl.textContent = '⚠️ Two-factor authentication is required. Enable it now to continue using Procta.';
+    } else {
+      graceEl.style.display = 'none';
+    }
+  }catch(_){}
 }
 
-async function saveOrgName(){
-  const name = document.getElementById('settings-org-name').value.trim();
-  const resultEl = document.getElementById('settings-result');
-  if(!name){ resultEl.textContent = 'Name is required'; resultEl.style.color = 'var(--red)'; return; }
-  resultEl.textContent = 'Saving...'; resultEl.style.color = 'var(--text-secondary)';
+async function enable2FA(){
+  const resultEl = document.getElementById('security-2fa-result');
+  resultEl.textContent = 'Generating...';
   try{
-    const r = await authFetch(`${BASE}/api/v1/org`, {
-      method:'PATCH',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name})
+    const r = await authFetch(`${BASE}/api/v1/auth/2fa/enroll`, {method:'POST'});
+    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    const d = await r.json();
+    document.getElementById('security-2fa-qr').style.display = '';
+    document.getElementById('security-2fa-qr-img').innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(d.otpauth_url)}" alt="QR code" width="180" height="180">`;
+    document.getElementById('security-2fa-secret').textContent = 'Manual key: ' + d.secret;
+    document.getElementById('security-2fa-verify').style.display = '';
+    document.getElementById('security-2fa-enable-btn').style.display = 'none';
+    resultEl.textContent = '';
+  }catch(e){ resultEl.textContent = e.message; }
+}
+
+async function confirm2FA(){
+  const code = document.getElementById('security-2fa-code').value.trim();
+  if(!code || code.length !== 6){ alert('Enter a 6-digit code.'); return; }
+  const statusEl = document.getElementById('security-2fa-verify-status');
+  statusEl.textContent = 'Verifying...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/auth/2fa/confirm`, {
+      method:'POST', body: JSON.stringify({code})
     });
-    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Failed to save'); }
-    resultEl.textContent = 'Organization name updated!'; resultEl.style.color = 'var(--emerald)';
-    loadOrgOverview();
-  }catch(e){
-    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
-  }
+    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Invalid code'); }
+    const d = await r.json();
+    statusEl.textContent = '✅ Two-factor authentication enabled!';
+    document.getElementById('security-2fa-verify').style.display = 'none';
+    // Show backup codes
+    if(d.backup_codes && d.backup_codes.length){
+      document.getElementById('security-2fa-qr').style.display = 'none';
+      document.getElementById('security-2fa-backup').style.display = '';
+      document.getElementById('security-2fa-backup-codes').innerHTML = d.backup_codes.map(c => '<div>🔑 ' + c + '</div>').join('');
+    }
+    load2FAStatus();
+  }catch(e){ statusEl.textContent = e.message; }
 }
 
-// ── REFRESH ─────────────────────────────────────────────────────
-async function refreshAll(){
-  const gen = ++_refreshGen;
-  document.getElementById('refresh-spin').style.display='inline-block';
-  await Promise.all([refreshLive(), refreshIdReviews(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig(), loadInvites()]);
-  if(gen !== _refreshGen) return; // stale — user switched exam during load
-  document.getElementById('refresh-spin').style.display='none';
-  document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+function close2FABackup(){
+  document.getElementById('security-2fa-backup').style.display = 'none';
 }
 
-// ── PENDING ID REVIEWS ──────────────────────────────────────────
-let _prevIdReviewCount = 0;
-async function refreshIdReviews(){
+async function loadSessions(){
   try{
-    const r = await authFetch(`${BASE}/api/v1/admin/pending-verifications${_examQuery('?')}`);
+    const r = await authFetch(`${BASE}/api/v1/auth/sessions`);
     if(!r.ok) return;
     const d = await r.json();
-    const list = d.pending || [];
-    const section = document.getElementById('id-reviews-section');
-    const container = document.getElementById('id-reviews-list');
-    document.getElementById('id-reviews-count').textContent = list.length;
-    // Notify teacher when new ID reviews arrive
-    if(list.length > _prevIdReviewCount && _prevIdReviewCount >= 0){
-      try{ new Audio('data:audio/wav;base64,UklGRl9vT19teleVBQCAAIABAAEAIlYAAESsAAACABAAEA'+
-        'AAEAAAAADAAAAA//8AAP//AAAAAP//AAD//wAAAAD//wAA//8A').play().catch(()=>{}); }catch(_){}
-      section.classList.add('id-review-pulse');
-      setTimeout(()=> section.classList.remove('id-review-pulse'), 3000);
-    }
-    _prevIdReviewCount = list.length;
-    if(list.length === 0){
-      section.style.display = 'none';
+    const el = document.getElementById('security-sessions');
+    if(!(d.sessions||[]).length){
+      el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px">No active sessions</div>';
       return;
     }
-    section.style.display = '';
-    // Revoke old blob URLs before replacing
-    container.querySelectorAll('img[data-blob]').forEach(img=>{
-      try{ URL.revokeObjectURL(img.src); }catch(_){}
-    });
-    container.innerHTML = list.map(v => {
-      const vid = parseInt(v.id,10)||0;
-      const selfieUrl = esc(BASE+(v.selfie_url||''));
-      const idUrl     = esc(BASE+(v.id_url||''));
-      const label     = esc(v.full_name||v.roll_number||'');
-      const sk        = esc(v.session_key||'');
-      return `
-      <div class="id-review-card" data-vid="${vid}" data-sk="${sk}"
-           data-selfie-url="${selfieUrl}" data-id-url="${idUrl}" data-label="${label}">
-        <div class="id-review-photos">
-          <img class="id-review-photo" data-auth-src="${selfieUrl}" data-role="selfie" alt="Selfie">
-          <img class="id-review-photo" data-auth-src="${idUrl}" data-role="id" alt="ID Card">
-        </div>
-        <div class="id-review-info">
-          <div class="id-review-name">${esc(v.full_name||'Unknown')}</div>
-          <div class="id-review-roll">${esc(v.roll_number)}</div>
-          <div class="id-review-time">${esc(v.created_at)}</div>
-        </div>
-        <div class="id-review-actions">
-          <button class="id-btn-approve" data-decision="approved">Approve</button>
-          <button class="id-btn-retake" data-decision="retake">Retake</button>
-          <button class="id-btn-reject" data-decision="rejected">Different Person</button>
-        </div>
-      </div>`;
-    }).join('');
-    // Wire click handlers safely (no inline onclick)
-    container.querySelectorAll('.id-review-photo').forEach(img=>{
-      img.addEventListener('click', ()=>{
-        const card = img.closest('.id-review-card');
-        const role = img.dataset.role;
-        const url  = role==='selfie' ? card.dataset.selfieUrl : card.dataset.idUrl;
-        const cap  = card.dataset.label + (role==='selfie' ? ' — Selfie' : ' — ID Card');
-        showLightbox(url, cap);
-      });
-    });
-    container.querySelectorAll('.id-review-actions button').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const card = btn.closest('.id-review-card');
-        idDecision(parseInt(card.dataset.vid,10), card.dataset.sk, btn.dataset.decision, btn);
-      });
-    });
-    // Load images with auth headers
-    container.querySelectorAll('img[data-auth-src]').forEach(img=>{
-      authFetch(img.dataset.authSrc).then(r=>r.blob()).then(b=>{
-        img.src=URL.createObjectURL(b);
-        img.dataset.blob='1';
-      }).catch(()=>{ img.alt='Failed to load'; });
-    });
-  }catch(e){ console.error('refreshIdReviews',e); }
-}
-
-async function idDecision(violationId, sessionKey, decision, btn){
-  const card = btn.closest('.id-review-card');
-  card.querySelectorAll('button').forEach(b => b.disabled = true);
-  btn.textContent = decision === 'approved' ? 'Approving...'
-                  : decision === 'retake' ? 'Requesting...' : 'Rejecting...';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/id-decision`,{
-      method:'POST',
-      body:JSON.stringify({violation_id:violationId, session_key:sessionKey, decision})
-    });
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    // Animate card removal
-    card.style.opacity='0';card.style.transform='translateX(20px)';
-    card.style.transition='all .3s ease';
-    setTimeout(()=>{card.remove(); refreshIdReviews();}, 350);
-  }catch(e){
-    btn.textContent = 'Error — retry';
-    card.querySelectorAll('button').forEach(b => b.disabled = false);
-    console.error('idDecision',e);
-  }
-}
-
-// ── LIVE SESSIONS ───────────────────────────────────────────────
-async function refreshLive(){
-  try{
-    const r = await authFetch(`${BASE}/sessions${_examQuery('?')}`);
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await r.json();
-    liveData = d.all_sessions || [];
-    renderLiveStats(d.sessions||[], liveData);
-    renderLive();
-  }catch(e){ console.error('refreshLive',e); }
-}
-
-function renderLiveStats(active, all){
-  const el = document.getElementById('live-stats');
-  // Prefer server-side classification. Old servers won't send live_state —
-  // fall back to the legacy `submitted` boolean so the page still works
-  // during a rolling deploy.
-  const hasState = all.some(s=>s.live_state);
-  const liveCount = hasState
-    ? all.filter(s=>s.live_state==='live').length
-    : active.length;
-  const staleCount = hasState
-    ? all.filter(s=>s.live_state==='stale').length
-    : 0;
-  const submitted = hasState
-    ? all.filter(s=>s.live_state==='submitted').length
-    : all.filter(s=>s.submitted).length;
-  // Severity rollup so the strip shows what's actually demanding the
-  // teacher's attention right now. Only counts non-submitted rows —
-  // a session that finished an hour ago shouldn't inflate the
-  // "Critical" tile.
-  const liveOnly = hasState ? all.filter(s=>s.live_state!=='submitted')
-                            : all.filter(s=>!s.submitted);
-  const sev = (lvl) => liveOnly.filter(s=>(s.last_severity||'').toLowerCase()===lvl).length;
-  const high = sev('high'), medium = sev('medium'), critical = sev('critical');
-
-  // New design's `.stat-tile` shape — replaces legacy `.stat > .label
-  // + .value`. Tile order is intentional: positive (Active) first,
-  // then anything demanding attention, then context (Submitted, Total).
-  // Stale pill is conditionally rendered to keep the strip clean
-  // on a quiet exam.
-  const tile = (label, value, cls='') =>
-    `<div class="stat-tile"><div class="stat-tile-label">${label}</div><div class="stat-tile-value${cls?' '+cls:''}">${value}</div></div>`;
-  const staleTile = staleCount>0 ? tile('Stale', staleCount, 'muted') : '';
-  const sevTile = (critical>0 || high>0 || medium>0)
-    ? `<div class="stat-tile"><div class="stat-tile-label">Severity</div>
-        <div class="stat-tile-value">
-          ${critical>0 ? `<span style="color:var(--sev-critical-fg)">${critical}</span>` : ''}
-          ${high>0 ? `<span style="color:var(--sev-error-fg);${critical>0?'margin-left:8px':''}">${high}</span>` : ''}
-          ${medium>0 ? `<span style="color:var(--sev-warn-fg);${(critical||high)>0?'margin-left:8px':''}">${medium}</span>` : ''}
-        </div>
-        <div class="stat-tile-sub">crit · high · med</div></div>`
-    : '';
-
-  el.innerHTML =
-    tile('Active Now', liveCount, 'success') +
-    staleTile +
-    sevTile +
-    tile('Submitted', submitted, 'accent') +
-    tile('Total Sessions', all.length);
-}
-
-function _liveStateFor(s){
-  // Centralised so the table row, detail view, and any future pill all
-  // agree. Keep backwards-compat with servers that only send `submitted`.
-  if(s.live_state) return s.live_state;
-  return s.submitted ? 'submitted' : 'live';
-}
-
-function _liveBadge(s){
-  const state = _liveStateFor(s);
-  if(state==='submitted') return {cls:'status-submitted', txt:'Submitted', title:''};
-  if(state==='stale'){
-    const age = s.heartbeat_age_sec;
-    const ago = age==null ? 'no heartbeat received'
-              : age>3600   ? `last heartbeat ${Math.floor(age/3600)}h ago`
-              : age>60     ? `last heartbeat ${Math.floor(age/60)}m ago`
-              : `last heartbeat ${age}s ago`;
-    return {cls:'status-stale', txt:'Stale', title:ago};
-  }
-  return {cls:'status-live', txt:'Live', title:''};
-}
-
-function renderLive(){
-  const q = document.getElementById('live-search').value.toLowerCase();
-  // New severity dropdown — added in Phase 2 design integration.
-  // Defaults to "all"; missing element on legacy markup falls through
-  // to the same default so the function works on any page revision.
-  const sevFilterEl = document.getElementById('live-sev-filter');
-  const sevFilter = sevFilterEl ? sevFilterEl.value : 'all';
-  let rows = liveData.filter(s=>!q||s.session_id.toLowerCase().includes(q)
-    ||s.last_event.toLowerCase().includes(q));
-  if(sevFilter !== 'all'){
-    rows = rows.filter(s => (s.last_severity||'').toLowerCase() === sevFilter);
-  }
-  rows.sort((a,b)=>{
-    let va=a[liveSortKey]||'', vb=b[liveSortKey]||'';
-    if(typeof va==='boolean'){va=va?1:0;vb=vb?1:0;}
-    return liveSortAsc?(va>vb?1:-1):(va<vb?1:-1);
-  });
-  const tb = document.getElementById('live-body');
-  tb.innerHTML = rows.map(s=>{
-    const badge = _liveBadge(s);
-    const statusCls = badge.cls;
-    const statusTxt = badge.txt;
-    const statusTitle = badge.title ? ` title="${esc(badge.title)}"` : '';
-    const sevColor = s.last_severity==='high'?'var(--red)':s.last_severity==='medium'?'var(--amber)':'var(--muted)';
-    const roll = s.session_id.split('_')[0];
-    const sid = esc(s.session_id);
-    // Risk cell — colour-coded so the live tab agrees with the detail view.
-    const rs = (s.risk_score!=null)?s.risk_score:null;
-    const riskColor = rs==null?'var(--muted)'
-      :rs>70?'var(--red)':rs>40?'var(--amber)':rs>15?'#58a6ff':'var(--emerald)';
-    const riskTxt = rs==null?'—':`${rs}/100`;
-    // Left-border severity accent — Phase 2 design class. Applied
-    // only to live (non-submitted) rows so the table doesn't look
-    // "alarmed" for sessions that finished hours ago.
-    const sevLevel = (s.last_severity||'').toLowerCase();
-    const isLive = s.live_state === 'live';
-    const rowCls = isLive && (sevLevel==='critical' ? 'row-critical'
-                            : sevLevel==='high'     ? 'row-error'
-                            : sevLevel==='medium'   ? 'row-warn' : '') || '';
-    // Calibration abort alert — identity swap during calibration
-    const hasCalAbort = s.last_event === 'calibration_abort';
-    const calAbortBadge = hasCalAbort
-      ? '<span class="cal-abort-pulse" title="Identity swap detected — calibration aborted">&#9888;&#65039;</span> '
-      : '';
-    return `<tr${rowCls?` class="${rowCls}"`:''}>
-      <td><strong>${esc(roll)}</strong><br><span style="font-size:11px;color:var(--muted)">${esc(s.session_id.substring(0,30))}...</span></td>
-      <td>${calAbortBadge}${esc(s.last_event.replace(/_/g,' '))}</td>
-      <td style="color:${sevColor};font-weight:600">${esc(s.last_severity.toUpperCase())}</td>
-      <td style="color:${riskColor};font-weight:600">${riskTxt}</td>
-      <td>${_calBadge(s.calibration)}</td>
-      <td style="font-size:12px">${esc(s.last_seen)}</td>
-      <td><span class="status-badge ${statusCls}"${statusTitle}>${statusTxt}</span></td>
-      <td>
-        ${s.live_state==='live'
-          ? `<button class="btn btn-secondary btn-sm" onclick="openTriage('${escJs(sid)}')" style="padding:4px 10px;font-size:11px;color:var(--accent)" title="AI one-line summary of recent violations">✨ Insight</button>`
-          : ''}
-        <button class="btn btn-secondary btn-sm" onclick="viewRisk('${escJs(sid)}')" style="padding:4px 10px;font-size:11px">Risk</button>
-        <button class="btn btn-secondary btn-sm" onclick="currentSessionId='${escJs(sid)}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
-        ${s.live_state==='live'
-          ? `<button class="btn btn-secondary btn-sm" onclick="openLiveView('${escJs(sid)}')" style="padding:4px 10px;font-size:11px" title="Peek at the student's webcam">Camera</button>`
-          : ''}
-        ${s.room_cam_status && s.room_cam_status!=='disabled'
-          ? `<button class="btn btn-secondary btn-sm" onclick="openRoomCamView('${escJs(sid)}')" style="padding:4px 10px;font-size:11px" title="View room camera (phone)">Room Cam <span class="status-badge ${s.room_cam_status==='approved'?'status-paid':s.room_cam_status==='rejected'?'status-failed':'status-pending'}" style="font-size:9px;margin-left:3px">${s.room_cam_status}</span></button>`
-          : ''}
-        ${(s.live_state==='live' && (s.calibration||{}).tier==='tight')
-          ? `<button class="btn btn-secondary btn-sm" onclick="requestRecalibration('${escJs(sid)}')" style="padding:4px 10px;font-size:11px;color:var(--amber)" title="End session and ask student to re-calibrate">Recal</button>`
-          : ''}
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-// ── Live camera view ────────────────────────────────────────────
-// Three intervals run while the panel is open:
-//   _liveViewFrameTimer    — fetches the latest JPEG every 1s
-//   _liveViewKeepaliveTimer — refreshes the server-side TTL every 30s
-//   _liveViewStaleTimer    — flips status to "Connection stale" if no
-//                            frame arrives for 5+ seconds (proctor
-//                            quit, network blip, student closed the
-//                            laptop, etc.)
-// All three are torn down by closeLiveView(); we also cleanup on
-// window unload so the server-side flag isn't kept alive by a
-// browser-tab-closing race.
-let _liveViewSid = null;
-let _liveViewFrameTimer = null;
-let _liveViewKeepaliveTimer = null;
-let _liveViewLastFrameAt = 0;
-let _liveViewStaleTimer = null;
-
-// ── AI Insight (live risk triage) ────────────────────────────────
-// Opens a modal, fetches a one-sentence LLM summary of the session's
-// recent violations, displays it. The endpoint caches 60s in Redis,
-// so reopening for the same session within a minute is essentially
-// free (no Groq round trip). UX failure modes:
-//   • LLM unconfigured (no GROQ key) → endpoint returns "" summary,
-//     we show "AI features not configured — set GROQ_API_KEY".
-//   • LLM down / errored → endpoint returns "" summary, we show
-//     "Couldn't generate summary — try again in a moment."
-//   • No notable violations → server returns the canonical
-//     "No concerning patterns." string verbatim.
-let _triageSid = null;
-
-async function openTriage(sid){
-  _triageSid = sid;
-  // Reset modal to loading state every open — even if reopening
-  // the same session, the user expects to see the spinner briefly
-  // before the cached result snaps in.
-  document.getElementById('triage-meta').textContent = sid;
-  document.getElementById('triage-body').innerHTML =
-    '<div class="spinner" style="margin-right:10px"></div>' +
-    '<span style="color:var(--muted)">Analysing recent activity…</span>';
-  document.getElementById('triage-stats').textContent = '';
-  document.getElementById('triage-modal').classList.remove('hidden');
-
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/triage`);
-    if(!r.ok){
-      const d = await r.json().catch(()=>({}));
-      _triageShowError(d.detail || `Server error (${r.status})`);
-      return;
-    }
-    const data = await r.json();
-    const summary = (data.summary || '').trim();
-    const body = document.getElementById('triage-body');
-    if(!summary){
-      _triageShowError('AI features not configured (set LLM_API_KEY) or temporarily unavailable.');
-      return;
-    }
-    // Render the summary. If it's the canonical "no concerns" string
-    // we add a green check; otherwise neutral accent dot.
-    const isClean = /no concerning patterns/i.test(summary);
-    const dot = isClean
-      ? '<span style="color:var(--emerald);font-size:18px;margin-right:10px;flex-shrink:0">●</span>'
-      : '<span style="color:var(--accent);font-size:18px;margin-right:10px;flex-shrink:0">●</span>';
-    body.innerHTML = dot + '<span>' + esc(summary) + '</span>';
-    body.style.borderColor = isClean ? 'rgba(63,185,80,.35)' : 'var(--accent-border)';
-    document.getElementById('triage-stats').innerHTML =
-      `<span>${data.violation_count || 0} events analysed</span>` +
-      `<span>${data.cached ? 'cached' : 'fresh'}</span>` +
-      `<span>${data.generated_at ? new Date(data.generated_at).toLocaleTimeString() : ''}</span>`;
-  }catch(e){
-    _triageShowError('Network error — try again.');
-  }
-}
-
-function _triageShowError(msg){
-  const body = document.getElementById('triage-body');
-  body.innerHTML = '<span style="color:var(--amber);margin-right:10px">⚠</span><span>' + esc(msg) + '</span>';
-  body.style.borderColor = 'rgba(245,158,11,.4)';
-}
-
-function closeTriage(){
-  document.getElementById('triage-modal').classList.add('hidden');
-  _triageSid = null;
-}
-
-function _triageOpenTimeline(){
-  const sid = _triageSid;
-  closeTriage();
-  if(sid){ currentSessionId = sid; openTimeline(); }
-}
-
-async function openLiveView(sid){
-  _liveViewSid = sid;
-  document.getElementById('liveview-meta').textContent = sid;
-  document.getElementById('liveview-img').style.display = 'none';
-  document.getElementById('liveview-placeholder').style.display = '';
-  document.getElementById('liveview-placeholder').innerHTML =
-    'Connecting to student’s camera…<br>' +
-    '<span style="font-size:11px">First frame typically arrives within 3 seconds.</span>';
-  document.getElementById('liveview-status').textContent = '● Connecting';
-  document.getElementById('liveview-status').style.color = 'var(--muted)';
-  document.getElementById('liveview-ts').textContent = '';
-  document.getElementById('liveview-modal').classList.remove('hidden');
-
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/live-view/start`, {method:'POST'});
-    if(!r.ok){
-      const d = await r.json();
-      document.getElementById('liveview-placeholder').innerHTML =
-        `Couldn’t start live view.<br><span style="font-size:11px;color:var(--red)">${esc(d.detail || 'Server error')}</span>`;
-      return;
-    }
-  }catch(e){
-    document.getElementById('liveview-placeholder').innerHTML =
-      'Network error — couldn’t reach the server to request live view.';
-    return;
-  }
-
-  _liveViewFrameTimer = setInterval(_liveViewPollFrame, 1000);
-  // Refresh the server-side 60s TTL every 30s so the panel stays
-  // alive as long as a teacher is actually watching. Pure idle
-  // (browser tab in background) is intentionally not respected —
-  // teachers often background-tab to switch students; we only
-  // care that they explicitly close.
-  _liveViewKeepaliveTimer = setInterval(() => {
-    if(!_liveViewSid) return;
-    authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/keepalive`,
-      {method:'POST'}).catch(()=>{});
-  }, 30000);
-  // Stale detector — if no frame in 5s, surface that state instead
-  // of leaving the teacher staring at a stale image with no signal.
-  _liveViewStaleTimer = setInterval(() => {
-    if(!_liveViewSid) return;
-    const since = Date.now() - _liveViewLastFrameAt;
-    if(_liveViewLastFrameAt === 0 && since > 8000){
-      document.getElementById('liveview-status').textContent = '● Waiting for first frame…';
-      document.getElementById('liveview-status').style.color = 'var(--amber)';
-    } else if(_liveViewLastFrameAt > 0 && since > 5000){
-      document.getElementById('liveview-status').textContent = `● Stale — last frame ${Math.round(since/1000)}s ago`;
-      document.getElementById('liveview-status').style.color = 'var(--amber)';
-    }
-  }, 1000);
-}
-
-async function _liveViewPollFrame(){
-  if(!_liveViewSid) return;
-  try{
-    // Cache-bust query param — defensive: we already send Cache-Control
-    // no-store from the server, but some intermediaries cache anyway.
-    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-frame?t=${Date.now()}`,
-      {method:'GET'});
-    if(r.status === 204) return;        // no frame yet — keep placeholder
-    if(!r.ok) return;                   // transient — try again next tick
-    const blob = await r.blob();
-    if(blob.size === 0) return;
-    const url = URL.createObjectURL(blob);
-    const img = document.getElementById('liveview-img');
-    const old = img.src;
-    img.onload = () => { if(old.startsWith('blob:')) URL.revokeObjectURL(old); };
-    img.src = url;
-    img.style.display = '';
-    document.getElementById('liveview-placeholder').style.display = 'none';
-    _liveViewLastFrameAt = Date.now();
-    document.getElementById('liveview-status').textContent = '● Live';
-    document.getElementById('liveview-status').style.color = 'var(--emerald)';
-    document.getElementById('liveview-ts').textContent =
-      'Updated ' + new Date().toLocaleTimeString();
-  }catch(e){ /* transient; next tick */ }
-}
-
-async function closeLiveView(){
-  const sid = _liveViewSid;
-  _liveViewSid = null;
-  _liveViewLastFrameAt = 0;
-  if(_liveViewFrameTimer){ clearInterval(_liveViewFrameTimer); _liveViewFrameTimer = null; }
-  if(_liveViewKeepaliveTimer){ clearInterval(_liveViewKeepaliveTimer); _liveViewKeepaliveTimer = null; }
-  if(_liveViewStaleTimer){ clearInterval(_liveViewStaleTimer); _liveViewStaleTimer = null; }
-  // Release the current blob URL so the browser doesn't hold the
-  // last-frame bytes in memory after the panel closes.
-  const img = document.getElementById('liveview-img');
-  if(img && img.src && img.src.startsWith('blob:')){
-    URL.revokeObjectURL(img.src);
-    img.removeAttribute('src');
-  }
-  document.getElementById('liveview-modal').classList.add('hidden');
-  if(sid){
-    try{
-      await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/live-view/stop`, {method:'POST'});
-    }catch(e){/* server-side TTL will clean up within 60s anyway */}
-  }
-}
-
-// Tear down cleanly if the teacher closes the browser tab — without
-// this, the server-side flag would linger for up to 60s.
-window.addEventListener('beforeunload', () => {
-  if(_liveViewSid){
-    // sendBeacon is fire-and-forget but reliable on tab close.
-    try{
-      const url = `${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/stop`;
-      navigator.sendBeacon && navigator.sendBeacon(url);
-    }catch(_){}
-  }
-});
-
-// ── ROOM CAMERA VIEW ─────────────────────────────────────────────
-let _roomCamSid = null;
-let _roomCamFrameTimer = null;
-let _roomCamKeepaliveTimer = null;
-let _roomCamOpened = false;
-
-async function openRoomCamView(sid){
-  _roomCamSid = sid;
-  _roomCamOpened = true;
-  const img = document.getElementById('roomcam-img');
-  const ph = document.getElementById('roomcam-placeholder');
-  const meta = document.getElementById('roomcam-meta');
-  const statusEl = document.getElementById('roomcam-status');
-  document.getElementById('roomcam-approve-btn').style.display = '';
-  img.style.display = 'none'; ph.style.display = '';
-  meta.textContent = sid;
-  statusEl.innerHTML = '● Connecting';
-  document.getElementById('roomcam-modal').classList.remove('hidden');
-
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/room-cam/start`, {method:'POST'});
-    if(!r.ok) throw new Error();
-  }catch(e){ statusEl.innerHTML = '● Failed'; return; }
-
-  _roomCamFrameTimer = setInterval(_pollRoomCamFrame, 1500);
-  _roomCamKeepaliveTimer = setInterval(_roomCamKeepalive, 30000);
-}
-
-function _pollRoomCamFrame(){
-  if(!_roomCamSid) return;
-  const img = document.getElementById('roomcam-img');
-  const ph = document.getElementById('roomcam-placeholder');
-  const statusEl = document.getElementById('roomcam-status');
-  const tsEl = document.getElementById('roomcam-ts');
-  const t = Date.now();
-  fetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/frame?t=${t}`, {
-    headers: { 'Authorization': `Bearer ${authToken}` },
-  }).then(r => {
-    if(!r.ok) throw new Error();
-    return r.blob();
-  }).then(blob => {
-    if(_roomCamOpened){
-      img.src = URL.createObjectURL(blob); img.style.display = ''; ph.style.display = 'none';
-      tsEl.textContent = new Date().toLocaleTimeString();
-      statusEl.innerHTML = '● Live';
-    }
-  }).catch(() => {
-    statusEl.innerHTML = '●&#160;Offline';
-  });
-}
-
-async function _roomCamKeepalive(){
-  if(_roomCamSid){
-    try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/keepalive`, {method:'POST'}); }catch(_){}
-  }
-}
-
-async function closeRoomCamView(){
-  _roomCamOpened = false;
-  if(_roomCamFrameTimer){ clearInterval(_roomCamFrameTimer); _roomCamFrameTimer = null; }
-  if(_roomCamKeepaliveTimer){ clearInterval(_roomCamKeepaliveTimer); _roomCamKeepaliveTimer = null; }
-  const img = document.getElementById('roomcam-img');
-  if(img && img.src && img.src.startsWith('blob:')){ URL.revokeObjectURL(img.src); img.removeAttribute('src'); }
-  document.getElementById('roomcam-modal').classList.add('hidden');
-  if(_roomCamSid){
-    try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/stop`, {method:'POST'}); }catch(_){}
-    _roomCamSid = null;
-  }
-}
-
-async function roomCamApprove(){
-  if(!_roomCamSid) return;
-  const resultEl = document.getElementById('roomcam-result');
-  resultEl.textContent = 'Approving...'; resultEl.style.color = 'var(--muted)';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/approve`, {method:'POST'});
-    if(!r.ok) throw new Error();
-    resultEl.textContent = '✅ Approved'; resultEl.style.color = 'var(--emerald)';
-    document.getElementById('roomcam-approve-btn').style.display = 'none';
-  }catch(e){ resultEl.textContent = 'Failed'; resultEl.style.color = 'var(--red)'; }
-}
-
-async function roomCamReject(){
-  if(!_roomCamSid) return;
-  const resultEl = document.getElementById('roomcam-result');
-  resultEl.textContent = 'Rejecting...'; resultEl.style.color = 'var(--muted)';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/reject`, {method:'POST'});
-    if(!r.ok) throw new Error();
-    resultEl.textContent = '❌ Rejected — student must reposition phone'; resultEl.style.color = 'var(--amber)';
-  }catch(e){ resultEl.textContent = 'Failed'; resultEl.style.color = 'var(--red)'; }
-}
-
-// ── RECALIBRATION ────────────────────────────────────────────────
-  if(!confirm('End this session and ask the student to restart for re-calibration?\n\nThe student will see a chat message asking them to relaunch the exam. Their answers so far are saved but the session will be marked abandoned.')) return;
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/request-recalibration`, {method:'POST'});
-    const d = await r.json();
-    if(!r.ok){ alert(d.detail || 'Failed to request re-calibration.'); return; }
-    alert('Re-calibration requested. The student has been messaged via chat.');
-    refreshLive();
-  }catch(e){ alert('Network error.'); }
-}
-
-// Calibration tier badge — small inline pill that doubles as a
-// hoverable explainer. Click opens the session detail modal so the
-// teacher can drill into raw ranges. Compact so it fits an existing
-// table column without wrapping.
-function _calBadge(cal){
-  cal = cal || {tier: 'missing', reason: 'No calibration recorded.', ranges: null};
-  const palette = {
-    normal:  ['rgba(16,185,129,.12)','#10b981','#10b981','OK'],
-    tight:   ['rgba(239,68,68,.12)','var(--red)','#ef4444','TIGHT'],
-    loose:   ['rgba(245,158,11,.14)','#f59e0b','#f59e0b','LOOSE'],
-    missing: ['rgba(148,163,184,.12)','var(--muted)','#94a3b8','—'],
-  };
-  const [bg, fg, brd, label] = palette[cal.tier] || palette.missing;
-  const reason = esc(cal.reason || '');
-  return `<span class="cal-badge" title="${reason}"
-    style="display:inline-block;background:${bg};color:${fg};border:1px solid ${brd};
-    border-radius:10px;padding:2px 8px;font-size:10px;font-weight:600;letter-spacing:.04em">${label}</span>`;
-}
-
-function sortLive(key){
-  if(liveSortKey===key) liveSortAsc=!liveSortAsc;
-  else{liveSortKey=key;liveSortAsc=true;}
-  renderLive();
-}
-function filterLive(){renderLive();}
-
-// ── RESULTS ─────────────────────────────────────────────────────
-async function refreshResults(){
-  try{
-    const r = await authFetch(`${BASE}/api/v1/results${_examQuery('?')}`);
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await r.json();
-    resultsData = d.results || [];
-    renderResultsStats();
-    renderResults();
-  }catch(e){ console.error('refreshResults',e); }
-}
-
-function renderResultsStats(){
-  const el = document.getElementById('results-stats');
-  const total = resultsData.length;
-  if(total > 0) showPostExamCta();
-  const avgScore = total?Math.round(resultsData.reduce((s,r)=>s+(r.percentage||0),0)/total):0;
-  const scored = resultsData.filter(r=>r.risk_score!=null);
-  const avgRisk = scored.length?Math.round(scored.reduce((s,r)=>s+r.risk_score,0)/scored.length):0;
-  const highRisk = scored.filter(r=>r.risk_score>=41).length;
-  // Phase 2: emit the new .stat-tile shape so the Results tab strip
-  // matches Live + Analytics. Risk tile gets a semantic color
-  // modifier based on the average so the strip surfaces concern at
-  // a glance — green if class is mostly clean, error-fg if a fair
-  // chunk sat in the high-risk bucket on average.
-  const riskCls = avgRisk>=41 ? 'style="color:var(--sev-error-fg)"'
-                : avgRisk>=16 ? 'style="color:var(--sev-warn-fg)"'
-                : 'class="stat-tile-value success"';
-  el.innerHTML = `
-    <div class="stat-tile"><div class="stat-tile-label">Total Results</div><div class="stat-tile-value accent">${total}</div></div>
-    <div class="stat-tile"><div class="stat-tile-label">Avg Score</div><div class="stat-tile-value success">${avgScore}%</div></div>
-    <div class="stat-tile"><div class="stat-tile-label">Avg Risk</div><div ${riskCls.includes('class') ? riskCls : 'class="stat-tile-value" '+riskCls}>${avgRisk}/100</div></div>
-    <div class="stat-tile"><div class="stat-tile-label">High/Critical Risk</div><div class="stat-tile-value" style="color:var(--sev-error-fg)">${highRisk}</div></div>
-  `;
-}
-
-function riskBadge(score, label){
-  if(score==null) return '<span class="risk-badge risk-na">N/A</span>';
-  const cls = score<=15?'risk-low':score<=40?'risk-moderate':score<=70?'risk-high':'risk-critical';
-  return `<span class="risk-badge ${cls}">${score} — ${esc(label||'')}</span>`;
-}
-
-function renderResults(){
-  const q = document.getElementById('results-search').value.toLowerCase();
-  const riskFilterEl = document.getElementById('results-risk-filter');
-  const riskFilter = riskFilterEl ? riskFilterEl.value : 'all';
-  let rows = resultsData.filter(r=>!q
-    ||r.roll_number.toLowerCase().includes(q)
-    ||r.full_name.toLowerCase().includes(q)
-    ||(r.email||'').toLowerCase().includes(q));
-  if(riskFilter !== 'all'){
-    rows = rows.filter(r => {
-      const s = r.risk_score;
-      if(s == null) return riskFilter === 'low';
-      if(riskFilter === 'critical') return s > 70;
-      if(riskFilter === 'high')     return s >= 41 && s <= 70;
-      if(riskFilter === 'moderate') return s >= 16 && s <= 40;
-      if(riskFilter === 'low')      return s <= 15;
-      return true;
-    });
-  }
-  rows.sort((a,b)=>{
-    let va=a[resSortKey]??'', vb=b[resSortKey]??'';
-    if(typeof va==='number'&&typeof vb==='number') return resSortAsc?va-vb:vb-va;
-    va=String(va);vb=String(vb);
-    return resSortAsc?va.localeCompare(vb):vb.localeCompare(va);
-  });
-
-  // Progressive rendering — store filtered data, render first batch
-  _resFiltered = rows;
-  _resBatchSize = 50;
-  _resRenderBatch();
-}
-
-let _resFiltered = [];
-let _resBatchSize = 50;
-let _resObserver = null;
-
-function _resRenderBatch(){
-  const tb = document.getElementById('results-body');
-  if(!tb) return;
-  const end = Math.min(_resBatchSize, _resFiltered.length);
-  tb.innerHTML = _resFiltered.slice(0, end).map(r=>{
-    const mins = Math.floor((r.time_taken_secs||0)/60);
-    const secs = (r.time_taken_secs||0)%60;
-    const sid = esc(r.session_id);
-    return `<tr>
-      <td><strong>${esc(r.roll_number)}</strong></td>
-      <td>${esc(r.full_name)}</td>
-      <td>${r.score}/${r.total}</td>
-      <td>${r.percentage}%</td>
-      <td style="color:${r.violation_count>5?'var(--red)':r.violation_count>0?'var(--amber)':'var(--emerald)'}">${r.violation_count}</td>
-      <td>${riskBadge(r.risk_score, r.risk_label)}</td>
-      <td>${_calBadge(r.calibration)}</td>
-      <td>${mins}m ${secs}s</td>
-      <td style="font-size:11px;color:var(--muted)">${esc(r.submitted_at||'—')}</td>
-      <td>
-        <button class="btn btn-secondary btn-sm" onclick="openDetail('${sid}')" style="padding:4px 10px;font-size:11px">Detail</button>
-        <button class="btn btn-secondary btn-sm" onclick="currentSessionId='${sid}';openTimeline()" style="padding:4px 10px;font-size:11px">Timeline</button>
-        <button class="btn btn-secondary btn-sm" onclick="dlPDF('${sid}')" style="padding:4px 10px;font-size:11px">PDF</button>
-        <button class="btn btn-secondary btn-sm" onclick="dlScorecard('${sid}')" style="padding:4px 10px;font-size:11px">Scorecard</button>
-      </td>
-    </tr>`;
-  }).join('');
-
-  // Sentinel for progressive loading
-  if(end >= _resFiltered.length){
-    _resDisconnectObserver();
-    return;
-  }
-  const sentinel = document.createElement('tr');
-  sentinel.id = 'results-sentinel';
-  sentinel.innerHTML = '<td colspan="10" style="text-align:center;padding:10px;color:var(--text-muted);font-size:11px">Scrolling loads more…</td>';
-  tb.appendChild(sentinel);
-
-  if(!_resObserver){
-    _resObserver = new IntersectionObserver(entries => {
-      if(entries[0].isIntersecting){
-        _resBatchSize += 50;
-        _resRenderBatch();
-      }
-    }, {rootMargin: '200px'});
-  }
-  _resObserver.disconnect();
-  _resObserver.observe(sentinel);
-}
-
-function _resDisconnectObserver(){
-  if(_resObserver){
-    _resObserver.disconnect();
-    _resObserver = null;
-  }
-}
-
-function sortResults(key){
-  if(resSortKey===key) resSortAsc=!resSortAsc;
-  else{resSortKey=key;resSortAsc=key==='roll_number'||key==='full_name';}
-  renderResults();
-}
-function filterResults(){renderResults();}
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
-function escJs(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');}
-
-// ── DETAIL MODAL ────────────────────────────────────────────────
-async function openDetail(sid){
-  currentSessionId = sid;
-  const r = resultsData.find(r=>r.session_id===sid);
-  if(!r) return;
-  document.getElementById('modal-title').textContent=`${r.full_name} — ${r.roll_number}`;
-  const mins=Math.floor((r.time_taken_secs||0)/60), secs=(r.time_taken_secs||0)%60;
-  document.getElementById('modal-info').innerHTML=`
-    <div class="detail-item"><div class="dlbl">Score</div><div class="dval" style="color:var(--emerald)">${r.score}/${r.total} (${r.percentage}%)</div></div>
-    <div class="detail-item"><div class="dlbl">Risk Score</div><div class="dval">${riskBadge(r.risk_score,r.risk_label)}</div></div>
-    <div class="detail-item"><div class="dlbl">Time Taken</div><div class="dval">${mins}m ${secs}s</div></div>
-    <div class="detail-item"><div class="dlbl">Violations</div><div class="dval" style="color:${r.violation_count>5?'var(--red)':'var(--amber)'}">${r.violation_count}</div></div>
-    <div class="detail-item"><div class="dlbl">Session</div><div class="dval" style="font-size:12px;word-break:break-all">${esc(sid)}</div></div>
-    <div class="detail-item"><div class="dlbl">Submitted</div><div class="dval" style="font-size:13px">${r.submitted_at||'—'}</div></div>
-  `;
-  // Load risk breakdown
-  const bd = document.getElementById('modal-breakdown');
-  bd.innerHTML='<div class="loading-msg"><span class="spinner"></span> Loading breakdown...</div>';
-  document.getElementById('detail-modal').classList.add('open');
-  try{
-    const resp = await authFetch(`${BASE}/api/v1/risk-score/${encodeURIComponent(sid)}`);
-    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const risk = await resp.json();
-    renderBreakdown(risk);
-  }catch(e){
-    bd.innerHTML='<p style="color:var(--muted)">Could not load breakdown.</p>';
-  }
-  // Load answer breakdown
-  try{
-    const ansResp = await authFetch(`${BASE}/api/v1/admin/answers/${encodeURIComponent(sid)}`);
-    if(!ansResp.ok) throw new Error(`HTTP ${ansResp.status}`);
-    const ansData = await ansResp.json();
-    renderAnswerReview(ansData);
-  }catch(e){
-    document.getElementById('modal-answers').innerHTML='';
-  }
-}
-
-function renderBreakdown(risk){
-  const bd = document.getElementById('modal-breakdown');
-  const entries = Object.entries(risk.breakdown||{}).sort((a,b)=>b[1].contribution-a[1].contribution);
-  if(!entries.length){
-    bd.innerHTML='<h4>Risk Breakdown</h4><p style="color:var(--muted);font-size:13px">No violations recorded.</p>';
-    return;
-  }
-  const maxContrib = Math.max(...entries.map(e=>e[1].contribution));
-  const colors = {
-    wrong_person:'var(--red)',multiple_faces:'var(--red)',face_missing:'var(--orange)',
-    calibration_abort:'var(--red)',
-    cheat_object_detected:'var(--red)',window_focus_lost:'var(--amber)',tab_hidden:'var(--amber)',
-    shortcut_blocked:'var(--amber)',gaze_away:'var(--accent)',head_turned:'var(--accent)',
-    eyes_closed:'var(--muted)',voice_detected:'var(--orange)',time_exceeded:'var(--red)',
-    vm_detected:'var(--red)',remote_desktop_detected:'var(--red)',
-    screen_share_detected:'var(--orange)',multiple_monitors:'var(--amber)',
-    phone_consulting:'var(--red)',collaboration:'var(--red)',
-    answer_memo:'var(--red)',note_reading:'var(--orange)',
-    sustained_offtask:'var(--amber)',nervous_evasion:'var(--amber)',
-  };
-  bd.innerHTML=`
-    <h4>Risk Breakdown (${risk.risk_score}/100 — ${risk.label})</h4>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Duration: ${risk.duration_minutes} min</p>
-    ${entries.map(([type,data])=>{
-      const pct = maxContrib>0?Math.round(data.contribution/maxContrib*100):0;
-      const color = colors[type]||'var(--accent)';
-      return `<div class="bd-row">
-        <div class="bd-label">${type.replace(/_/g,' ')}</div>
-        <div class="bd-bar-bg"><div class="bd-bar" style="width:${pct}%;background:${color}"></div></div>
-        <div class="bd-count">${data.count}x (+${data.contribution})</div>
-      </div>`;
-    }).join('')}
-  `;
-}
-
-function renderAnswerReview(data){
-  const el = document.getElementById('modal-answers');
-  if(!data.answers||!data.answers.length){
-    el.innerHTML='';
-    return;
-  }
-  el.innerHTML=`
-    <div class="ans-review">
-      <h4 style="font-size:13px;color:var(--muted);text-transform:uppercase;font-weight:600;margin-bottom:10px">
-        Answer Review (${data.correct_count}/${data.total} correct)
-      </h4>
-      <div class="table-wrap" style="max-height:300px">
-        <table>
-          <thead><tr>
-            <th style="width:40px">#</th>
-            <th>Question</th>
-            <th style="width:70px">Student</th>
-            <th style="width:70px">Correct</th>
-            <th style="width:40px"></th>
-          </tr></thead>
-          <tbody>
-            ${data.answers.map((a,i)=>{
-              const cls = a.is_correct ? 'ans-correct' : 'ans-wrong';
-              const mark = a.is_correct ? '&#10003;' : '&#10007;';
-              const stuAns = a.student_answer || '—';
-              return `<tr class="${cls}">
-                <td>Q${a.question_id}</td>
-                <td style="color:var(--text)">${esc(a.question)}</td>
-                <td><strong>${esc(stuAns)}</strong></td>
-                <td><strong>${esc(a.correct_answer)}</strong></td>
-                <td class="ans-mark">${mark}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
+    el.innerHTML = (d.sessions||[]).map(s => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
+        <div style="font-size:12px;color:var(--text)">${escHtml(s.user_agent||'Unknown browser')}</div>
+        <div style="font-size:11px;color:var(--muted);font-family:monospace">${s.ip||''}</div>
+        <button class="btn btn-ghost btn-sm" onclick="revokeSession('${escAttr(s.jti)}')" style="font-size:10px;color:var(--red);padding:2px 6px">Revoke</button>
       </div>
-    </div>
-  `;
+    `).join('');
+  }catch(_){}
 }
 
-function closeModal(){
-  document.getElementById('detail-modal').classList.remove('open');
-  currentSessionId=null;
-}
-
-async function viewRisk(sid){
-  // Open detail for a live session (may not be in resultsData)
-  currentSessionId = sid;
-  const roll = sid.split('_')[0];
-  document.getElementById('modal-title').textContent=`Live Session — ${roll}`;
-  document.getElementById('modal-info').innerHTML=`
-    <div class="detail-item"><div class="dlbl">Session</div><div class="dval" style="font-size:12px;word-break:break-all">${esc(sid)}</div></div>
-    <div class="detail-item"><div class="dlbl">Status</div><div class="dval"><span class="status-badge status-live">Live</span></div></div>
-  `;
-  const bd = document.getElementById('modal-breakdown');
-  bd.innerHTML='<div class="loading-msg"><span class="spinner"></span> Computing live risk...</div>';
-  document.getElementById('detail-modal').classList.add('open');
+async function revokeSession(jti){
+  if(!confirm('Revoke this session? The device will be signed out immediately.')) return;
   try{
-    const resp = await authFetch(`${BASE}/api/v1/risk-score/${encodeURIComponent(sid)}`);
-    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const risk = await resp.json();
-    // Update info with live risk
-    document.getElementById('modal-info').innerHTML=`
-      <div class="detail-item"><div class="dlbl">Live Risk Score</div><div class="dval">${riskBadge(risk.risk_score,risk.label)}</div></div>
-      <div class="detail-item"><div class="dlbl">Duration</div><div class="dval">${risk.duration_minutes} min</div></div>
-      <div class="detail-item"><div class="dlbl">Session</div><div class="dval" style="font-size:12px;word-break:break-all">${esc(sid)}</div></div>
-      <div class="detail-item"><div class="dlbl">Status</div><div class="dval"><span class="status-badge status-live">Live</span></div></div>
-    `;
-    renderBreakdown(risk);
-  }catch(e){
-    bd.innerHTML='<p style="color:var(--red)">Failed to compute risk.</p>';
-  }
+    const r = await authFetch(`${BASE}/api/v1/auth/sessions/${encodeURIComponent(jti)}/revoke`, {method:'POST'});
+    if(!r.ok) throw new Error();
+    loadSessions();
+  }catch(_){}
 }
 
-function viewRiskDetail(){
-  if(currentSessionId) viewRisk(currentSessionId);
-}
-
-// ── EXPORTS ─────────────────────────────────────────────────────
-let _exporting = {};
-
-function _setExporting(btnId, exporting){
-  const btn = document.getElementById(btnId);
-  if(!btn) return;
-  if(exporting){
-    btn.disabled = true;
-    btn.dataset.origText = btn.textContent;
-    btn.textContent = 'Downloading…';
-    btn.style.opacity = '0.6';
-  } else {
-    btn.disabled = false;
-    btn.textContent = btn.dataset.origText || btn.textContent;
-    btn.style.opacity = '';
-  }
-}
-
-function exportExcel(){
-  const eid = currentExamId || 'all';
-  fetchBlob(`${BASE}/api/v1/export-excel${_examQuery('?')}`, `results_${eid}.xlsx`, 'btn-export-excel');
-}
-function exportCSV(){
-  fetchBlob(`${BASE}/api/v1/export-csv${_examQuery('?')}`, 'results.csv', 'btn-export-csv');
-}
-async function fetchBlob(url, filename, btnId){
-  if(btnId) _setExporting(btnId, true);
-  try {
-    const r = await authFetch(url);
-    if(!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
-    const blob = await r.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  } finally {
-    if(btnId) _setExporting(btnId, false);
-  }
-}
-
-function dlPDF(sid){
-  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`, `report_${sid.split('_')[0]}.pdf`);
-}
-function exportCSV(){
-  fetchBlob(`${BASE}/api/v1/export-csv${_examQuery('?')}`,'results.csv');
-}
-async function fetchBlob(url,filename){
-  const r = await authFetch(url);
-  if(!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
-  const blob = await r.blob();
-  const a = document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function dlPDF(sid){
-  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`,`report_${sid.split('_')[0]}.pdf`);
-}
-function downloadPDF(){
-  if(currentSessionId) dlPDF(currentSessionId);
-}
-function dlScorecard(sid){
-  fetchBlob(`${BASE}/api/v1/admin/scorecard-pdf/${encodeURIComponent(sid)}`,`scorecard_${sid.split('_')[0]}.pdf`);
-}
-// ── GRADE REVIEW (short-answer AI grading) ───────────────────────
-// Backed by /api/admin/pending-grades, /api/admin/grade-suggest,
-// /api/admin/grade-confirm. The AI provides a score + rationale; the
-// teacher confirms or overrides before it counts. We never write
-// teacher_score automatically — that's the trust boundary.
-let _pendingGrades = [];
-
-async function refreshPendingGradeBadge(){
-  // Fetch the count once on tab switch + post-confirm so the toolbar
-  // chip nudges the teacher when there's review work waiting.
-  const eid = currentExamId;
-  if(!eid){ return; }
+async function revokeOtherSessions(){
+  if(!confirm('Sign out all other devices? You will stay signed in on this device.')) return;
+  const resultEl = document.getElementById('security-sessions-result');
+  resultEl.textContent = 'Revoking...';
   try{
-    const r = await authFetch(`${BASE}/api/v1/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
-    if(!r.ok) return;
-    const d = await r.json();
-    const n = (d.answers||[]).filter(a => a.teacher_score==null).length;
-    const chip = document.getElementById('pending-grade-count');
-    if(!chip) return;
-    if(n>0){ chip.textContent = String(n); chip.style.display='inline-block'; }
-    else { chip.style.display='none'; }
-  }catch(e){ /* silent — modal still works on demand */ }
-}
-
-function openGradeReview(){
-  const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
-  document.getElementById('grade-modal').classList.remove('hidden');
-  loadPendingGrades();
-}
-
-function closeGradeReview(){
-  document.getElementById('grade-modal').classList.add('hidden');
-}
-
-async function loadPendingGrades(){
-  const eid = currentExamId;
-  const list = document.getElementById('grade-list');
-  list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)"><span class="spinner"></span> Loading…</div>';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const d = await r.json();
-    _pendingGrades = d.answers || [];
-    const meta = document.getElementById('grade-meta');
-    const summary = document.getElementById('grade-summary');
-    const total = _pendingGrades.length;
-    const confirmed = _pendingGrades.filter(a => a.teacher_score != null).length;
-    const high = _pendingGrades.filter(a => a.ai_confidence === 'high' && a.teacher_score == null).length;
-    const medium = _pendingGrades.filter(a => a.ai_confidence === 'medium' && a.teacher_score == null).length;
-    const low = _pendingGrades.filter(a => a.ai_confidence === 'low' && a.teacher_score == null).length;
-    if(meta) meta.textContent = `${total} total · ${confirmed} confirmed`;
-    if(summary) summary.innerHTML = `${total - confirmed} pending · <span style="color:var(--emerald)">${high} high</span> · <span style="color:var(--amber)">${medium} med</span> · <span style="color:var(--red)">${low} low</span>`;
-    renderPendingGrades();
-  }catch(e){
-    list.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escAttr(String(e))}</div>`;
-  }
-}
-
-function renderPendingGrades(){
-  const list = document.getElementById('grade-list');
-  if(!_pendingGrades.length){
-    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">No short-answer responses to review for this exam.</div>';
-    return;
-  }
-  list.innerHTML = _pendingGrades.map((a,i)=>{
-    const ai = a.ai_score!=null ? `${a.ai_score}/${a.max_score}` : '—';
-    const conf = a.ai_confidence || '';
-    const confColor = conf==='high' ? 'var(--emerald)' : conf==='medium' ? 'var(--amber)' : 'var(--muted)';
-    const isGraded = a.teacher_score!=null;
-    return `<div class="grade-row" data-aid="${escAttr(a.id)}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--card,#161a22);${isGraded?'opacity:0.55':''}">
-      <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px;font-size:11px;color:var(--muted);font-family:var(--font-mono)">
-        <span>${escAttr(a.roll_number||'?')} · ${escAttr(a.full_name||'')}</span>
-        <span>${isGraded?'✓ confirmed':'pending'}</span>
-      </div>
-      <div style="font-size:13px;font-weight:600;margin-bottom:4px">${escAttr(a.question||'')}</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px"><strong>Reference:</strong> ${escAttr(a.reference||'')}${a.rubric?`<br><strong>Rubric:</strong> ${escAttr(a.rubric)}`:''}</div>
-      <div style="background:var(--surface-1,#0d1117);border-left:3px solid var(--accent);padding:8px 10px;border-radius:0 6px 6px 0;font-size:13px;line-height:1.5;white-space:pre-wrap;margin-bottom:8px">${escAttr(a.student_answer||'(blank)')}</div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">
-        <span style="color:var(--muted)">AI suggests:</span>
-        <strong>${ai}</strong>
-        ${conf?`<span style="color:${confColor};font-size:10px;text-transform:uppercase;font-weight:600">${escAttr(conf)} conf</span>`:''}
-        ${a.ai_feedback?`<span style="color:var(--muted);font-style:italic;flex:1;min-width:200px">"${escAttr(a.ai_feedback)}"</span>`:''}
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-        <label style="font-size:11px;color:var(--muted)">Final score</label>
-        <input type="number" id="grade-input-${i}" min="0" max="${escAttr(String(a.max_score||1))}" step="0.5"
-               value="${escAttr(String(a.teacher_score!=null?a.teacher_score:(a.ai_score!=null?a.ai_score:'')))}"
-               style="width:80px;padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface-1);color:inherit">
-        <span style="color:var(--muted);font-size:11px">/ ${escAttr(String(a.max_score||1))}</span>
-        <button class="btn btn-primary btn-sm" onclick="confirmGrade(${i})" ${isGraded?'disabled':''} style="margin-left:auto">${isGraded?'Confirmed':'Confirm'}</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-async function runGradeSuggest(){
-  const btn = document.getElementById('grade-suggest-btn');
-  const status = document.getElementById('grade-summary');
-  // Only ask the AI for answers that don't already have a suggestion —
-  // saves Groq calls and keeps the rate-limit headroom for retries.
-  const ids = _pendingGrades.filter(a => a.ai_score==null && a.teacher_score==null).map(a => a.id);
-  if(!ids.length){ status.textContent = 'All pending answers already have AI suggestions.'; return; }
-  btn.disabled = true;
-  status.textContent = `Asking AI to grade ${ids.length}…`;
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/grade-suggest`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({answer_ids: ids})
-    });
-    if(!r.ok){
-      const txt = await r.text();
-      throw new Error(`HTTP ${r.status}: ${txt}`);
-    }
-    const d = await r.json();
-    status.textContent = `AI graded ${d.graded||0} answer(s).`;
-    await loadPendingGrades();
-  }catch(e){
-    status.textContent = 'Suggest failed: '+String(e);
-  }finally{
-    btn.disabled = false;
-  }
-}
-
-async function confirmGrade(i){
-  const a = _pendingGrades[i];
-  if(!a) return;
-  const inp = document.getElementById(`grade-input-${i}`);
-  const score = parseFloat(inp.value);
-  if(isNaN(score) || score<0 || score>parseFloat(a.max_score||1)){
-    alert(`Score must be between 0 and ${a.max_score||1}.`);
-    return;
-  }
-  const status = document.getElementById('grade-summary');
-  status.textContent = 'Confirming…';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({answer_id: a.id, score})
-    });
-    if(!r.ok){
-      const txt = await r.text();
-      throw new Error(`HTTP ${r.status}: ${txt}`);
-    }
-    a.teacher_score = score;
-    renderPendingGrades();
-    refreshPendingGradeBadge();
-    status.textContent = `Saved ${score}/${a.max_score} for ${a.roll_number}.`;
-  }catch(e){
-    status.textContent = 'Confirm failed: '+String(e);
-  }
-}
-
-async function gradeBulkAccept(confidence){
-  const status = document.getElementById('grade-summary');
-  const eid = currentExamId;
-  if(!eid){ status.textContent = 'Select an exam first.'; return; }
-  const body = {exam_id: eid, action: 'accept'};
-  let label = 'all';
-  if(confidence === 'high'){
-    body.confidence_filter = 'high';
-    label = 'high-confidence';
-  }
-  status.textContent = `Accepting ${label} suggestions...`;
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm-bulk`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body)
-    });
-    if(!r.ok){ const t=await r.text(); throw new Error(`HTTP ${r.status}: ${t}`); }
-    const d = await r.json();
-    status.textContent = `✅ Accepted ${d.confirmed} (${d.skipped} skipped, ${d.sessions_recompiled} sessions recompiled).`;
-    await loadPendingGrades();
-  }catch(e){ status.textContent = 'Failed: '+String(e); }
-}
-
-async function gradeBulkReject(){
-  const status = document.getElementById('grade-summary');
-  const eid = currentExamId;
-  if(!eid){ status.textContent = 'Select an exam first.'; return; }
-  if(!confirm('Set ALL unconfirmed short-answer scores to 0? This can be reverted by re-grading.')) return;
-  status.textContent = 'Rejecting all...';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm-bulk`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({exam_id: eid, action: 'reject'})
-    });
-    if(!r.ok){ const t=await r.text(); throw new Error(`HTTP ${r.status}: ${t}`); }
-    const d = await r.json();
-    status.textContent = `❌ Rejected ${d.confirmed} (${d.skipped} skipped).`;
-    await loadPendingGrades();
-  }catch(e){ status.textContent = 'Failed: '+String(e); }
-}
-
-function dlAllScorecards(){
-  const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
-  fetchBlob(`${BASE}/api/v1/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}`, `scorecards_${eid}.zip`, 'btn-scorecard-zip');
-}
-
-// Email each student their scorecard PDF. Server is idempotent by
-// default (scorecard_emailed_at column) — safe to click twice.
-async function emailAllScorecards(){
-  const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
-  const msg = prompt(
-    "Email scorecards to all completed students?\n\n" +
-    "Students who have already been emailed will be skipped.\n" +
-    "Optionally add a short note (shown in every email), or leave blank:",
-    ""
-  );
-  if (msg === null) return;  // user cancelled
-  const body = { custom_message: (msg || "").trim() };
-  try {
-    const r = await authFetch(
-      `${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/email-scorecards`,
-      { method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body) }
-    );
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
-    const parts = [
-      `Sent: ${d.sent || 0}`,
-      `Already emailed: ${d.already_sent || 0}`,
-      `No email on file: ${d.skipped_no_email || 0}`,
-      `Failed: ${d.failed || 0}`,
-      `Total sessions: ${d.total || 0}`,
-    ];
-    alert("Scorecard email batch complete.\n\n" + parts.join("\n"));
-  } catch (e) {
-    alert("Failed to email scorecards: " + e.message);
-  }
+    const r = await authFetch(`${BASE}/api/v1/auth/sessions/revoke-others`, {method:'POST'});
+    if(!r.ok) throw new Error();
+    resultEl.textContent = '✅ Other sessions revoked.';
+    loadSessions();
+  }catch(e){ resultEl.textContent = 'Failed: '+e.message; }
 }
 
 // ── GOOGLE CLASSROOM ─────────────────────────────────────────────

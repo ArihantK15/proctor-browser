@@ -194,8 +194,25 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
 
     await record_auth_event("login_success", request, "teacher", teacher["id"], email)
 
+    access_token = issue_admin_token(teacher)
+    # Record session
+    try:
+        import jwt as _jwt
+        from ..constants import SECRET_KEY
+        claims = _jwt.decode(access_token, SECRET_KEY, algorithms=["HS256"])
+        jti = claims.get("jti", "")
+        if jti:
+            ip = request.client.host if request.client else ""
+            ua = request.headers.get("user-agent", "") if request else ""
+            await _atable("auth_sessions").insert({
+                "jti": jti, "user_kind": "teacher", "user_id": teacher["id"],
+                "ip": ip, "user_agent": ua,
+            }).execute()
+    except Exception:
+        pass
+
     return {
-        "access_token": issue_admin_token(teacher),
+        "access_token": access_token,
         "refresh_token": auth_resp.session.refresh_token,
         "teacher": {
             "id": teacher["id"],
@@ -1013,6 +1030,66 @@ async def totp_status(request: Request):
         "enabled": row.data[0].get("totp_enabled_at") is not None,
         "grace_expired": grace_expired,
     }
+
+
+# ─── SESSION REVOCATION ──────────────────────────────────────────
+
+@router.get("/api/v1/auth/sessions")
+@limiter.limit("30/minute")
+async def list_sessions(request: Request):
+    """List active sessions for the current user."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    rows = await _atable("auth_sessions").select("jti,ip,user_agent,issued_at,last_seen_at")\
+        .eq("user_kind", "teacher").eq("user_id", tid).is_("revoked_at", "null")\
+        .order("last_seen_at", desc=True).limit(20).execute()
+    return {"sessions": rows.data or []}
+
+
+@router.post("/api/v1/auth/sessions/{jti}/revoke")
+@limiter.limit("20/minute")
+async def revoke_session(jti: str, request: Request):
+    """Revoke a specific session by JTI."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    await _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
+        .eq("jti", jti).eq("user_kind", "teacher").eq("user_id", tid).execute()
+    # Invalidate Redis cache
+    try:
+        from .. import cache as _cache
+        if _cache:
+            _cache.set(f"session:{jti}", {"revoked": True}, ttl=60)
+    except Exception:
+        pass
+    await record_auth_event("session_revoked", request, "teacher", tid)
+    return {"ok": True}
+
+
+@router.post("/api/v1/auth/sessions/revoke-others")
+@limiter.limit("10/minute")
+async def revoke_other_sessions(request: Request):
+    """Revoke all sessions except the current one."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    # Decode current token to get its JTI
+    import jwt as _jwt
+    from ..constants import SECRET_KEY
+    auth = request.headers.get("Authorization", "")
+    current_jti = ""
+    if auth.startswith("Bearer "):
+        try:
+            claims = _jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+            current_jti = claims.get("jti", "")
+        except Exception:
+            pass
+    q = _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
+        .eq("user_kind", "teacher").eq("user_id", tid).is_("revoked_at", "null")
+    if current_jti:
+        q = q.neq("jti", current_jti)
+    await q.execute()
+    await record_auth_event("session_revoked", request, "teacher", tid, meta={"scope": "others"})
+    return {"ok": True}
+
 
 @router.post("/api/v1/student-auth/password-reset")
 @limiter.limit("3/minute")

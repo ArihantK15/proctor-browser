@@ -74,6 +74,20 @@ async def verify_admin_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
     if payload.get("role") != "teacher":
         raise HTTPException(status_code=403, detail="Not a teacher token")
+
+    # Session revocation check (via Redis cache)
+    jti = payload.get("jti", "")
+    if jti:
+        try:
+            from .. import cache as _cache
+            cached = _cache.get(f"session:{jti}") if _cache else None
+            if cached and isinstance(cached, dict) and cached.get("revoked"):
+                raise HTTPException(status_code=401, detail="Session has been revoked")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
     tid = payload.get("tid")
     teacher = await _get_teacher_by_id(tid)
     if not teacher:

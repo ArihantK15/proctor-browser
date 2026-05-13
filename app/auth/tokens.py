@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
+import uuid
 from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime, timezone, timedelta
@@ -110,9 +111,10 @@ def verify_student_token(token: str) -> dict:
 def issue_admin_token(teacher: dict) -> str:
     now = datetime.now(timezone.utc)
     csrf = _gen_csrf()
+    jti = str(uuid.uuid4())
     payload = {
         "tid": str(teacher["id"]), "email": teacher.get("email", ""),
-        "role": "teacher", "csrf": csrf,
+        "role": "teacher", "csrf": csrf, "jti": jti,
         "iat": now, "exp": now + timedelta(hours=ADMIN_TOKEN_TTL_HOURS),
     }
     org_id = teacher.get("org_id")

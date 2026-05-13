@@ -611,6 +611,7 @@ html,body{overflow-x:hidden;max-width:100vw}
 #panel-live .table-wrap tbody tr.row-warn    {box-shadow:inset 3px 0 0 var(--sev-warn-fg)}
 #panel-live .table-wrap tbody tr:hover       {background:var(--table-row-hover)}
 #panel-live .table-wrap thead th{position:sticky;top:0;z-index:5;background:var(--table-header-bg)}
+#panel-results .table-wrap{overflow-y:auto;max-height:calc(100vh - 280px)}
 #panel-results .table-wrap thead th{position:sticky;top:0;z-index:5;background:var(--table-header-bg)}
 #panel-results .table-wrap tbody tr:hover{background:var(--table-row-hover)}
 

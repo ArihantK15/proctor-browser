@@ -32,3 +32,7 @@ loadtest/reports/
 # PDF reports — generated locally
 Procta_Development_Report.pdf
 generate_report.py
+
+# Stale generated files (should not be tracked)
+app/routers/checkout.py
+website/src/components/RazorpayCheckoutButton.jsx

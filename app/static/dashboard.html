@@ -2115,6 +2115,7 @@ function switchTab(tab){
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
+  if(tab!=='results') _resDisconnectObserver();
   if(tab==='results' && resultsData.length===0) refreshResults();
   if(tab==='results' && typeof refreshPendingGradeBadge==='function') refreshPendingGradeBadge();
   if(tab==='questions' && qData.length===0) loadQuestions();
@@ -3039,8 +3040,6 @@ function riskBadge(score, label){
 
 function renderResults(){
   const q = document.getElementById('results-search').value.toLowerCase();
-  // New risk-level filter (Phase 2.10). Defaults to 'all'; falls
-  // through gracefully on legacy markup that doesn't have the select.
   const riskFilterEl = document.getElementById('results-risk-filter');
   const riskFilter = riskFilterEl ? riskFilterEl.value : 'all';
   let rows = resultsData.filter(r=>!q
@@ -3064,8 +3063,22 @@ function renderResults(){
     va=String(va);vb=String(vb);
     return resSortAsc?va.localeCompare(vb):vb.localeCompare(va);
   });
+
+  // Progressive rendering — store filtered data, render first batch
+  _resFiltered = rows;
+  _resBatchSize = 50;
+  _resRenderBatch();
+}
+
+let _resFiltered = [];
+let _resBatchSize = 50;
+let _resObserver = null;
+
+function _resRenderBatch(){
   const tb = document.getElementById('results-body');
-  tb.innerHTML = rows.map(r=>{
+  if(!tb) return;
+  const end = Math.min(_resBatchSize, _resFiltered.length);
+  tb.innerHTML = _resFiltered.slice(0, end).map(r=>{
     const mins = Math.floor((r.time_taken_secs||0)/60);
     const secs = (r.time_taken_secs||0)%60;
     const sid = esc(r.session_id);
@@ -3087,6 +3100,34 @@ function renderResults(){
       </td>
     </tr>`;
   }).join('');
+
+  // Sentinel for progressive loading
+  if(end >= _resFiltered.length){
+    _resDisconnectObserver();
+    return;
+  }
+  const sentinel = document.createElement('tr');
+  sentinel.id = 'results-sentinel';
+  sentinel.innerHTML = '<td colspan="10" style="text-align:center;padding:10px;color:var(--text-muted);font-size:11px">Scrolling loads more…</td>';
+  tb.appendChild(sentinel);
+
+  if(!_resObserver){
+    _resObserver = new IntersectionObserver(entries => {
+      if(entries[0].isIntersecting){
+        _resBatchSize += 50;
+        _resRenderBatch();
+      }
+    }, {rootMargin: '200px'});
+  }
+  _resObserver.disconnect();
+  _resObserver.observe(sentinel);
+}
+
+function _resDisconnectObserver(){
+  if(_resObserver){
+    _resObserver.disconnect();
+    _resObserver = null;
+  }
 }
 
 function sortResults(key){

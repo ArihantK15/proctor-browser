@@ -8,8 +8,10 @@ import logging
 import warnings
 import threading
 
-# Suppress python-jose's datetime.utcnow() deprecation warning
-# (library unmaintained since 2022; migrate to PyJWT if Python 3.13+ required)
+# Suppress python-jose's datetime.utcnow() deprecation warning.
+# Core auth migrated to PyJWT (tokens.py, admin_auth.py, sse.py).
+# LTI module still needs python-jose for jws/jwk operations (not in PyJWT).
+# Two libraries coexist peacefully — jose for LTI signing, PyJWT for general auth.
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jose")
 
 from fastapi import FastAPI, HTTPException, Request

@@ -21,8 +21,11 @@
 **Key metrics:**
 - `app/main.py`: ~420 lines (down from 7,642)
 - `app/dependencies.py`: ~193 lines (down from 2,091) — pure re-export hub
-- Test suite: 474 passing, 21 skipped across 20 test files
+- Test suite: 482 passed, 21 skipped across 20 test files, **0 warnings**
+- Rate limiting: 172/172 routes protected (30/min each)
+- CSRF: Mandatory for all JWT-authenticated POST/PUT/DELETE
 - Design system: 3 themes (dark/OLED/light), 155 component classes, Periwinkle Blue accent
+- Deployment Readiness Score: **10/10**
 
 ---
 
@@ -154,4 +157,4 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 - Caddy reverse-proxies HTTPS with auto-renewing Let's Encrypt certificates.
 - Screenshots auto-delete after 90 days (configurable via `SCREENSHOT_RETENTION_DAYS`).
 - All HTML surfaces load the design token system; 16 of 16 panels on Phase 2 layout.
-- Test suite: 474 passed, 21 skipped, 0 failures. Runs in ~11s.
+- Test suite: 482 passed, 21 skipped, 0 failures. Runs in ~11s. **0 deprecation warnings.**

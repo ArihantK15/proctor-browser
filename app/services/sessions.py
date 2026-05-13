@@ -223,7 +223,7 @@ async def build_sessions_payload(tid: str, exam_id: str = None) -> dict:
     evts_result = await evts_query.order("created_at", desc=True).execute()
     events = evts_result.data or []
 
-    sess_query = _atable("exam_sessions").select("session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at")
+    sess_query = _atable("exam_sessions").select("session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at,room_cam_status")
     if tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
     if exam_id:
@@ -258,6 +258,7 @@ async def build_sessions_payload(tid: str, exam_id: str = None) -> dict:
                 "session_id": sk,
                 "last_event": e["violation_type"],
                 "last_severity": e["severity"],
+                "room_cam_status": meta.get("room_cam_status", "disabled"),
                 "last_seen": fmt_ist(e.get("created_at", "")),
                 "details": e.get("details"),
                 "submitted": sk in submitted,

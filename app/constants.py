@@ -29,6 +29,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # ─── Secrets & Auth ───────────────────────────────────────────────
 SECRET_KEY = _required_env("SUPABASE_JWT_SECRET")
+if len(SECRET_KEY) < 32:
+    import logging as _logging
+    _logging.warning("[boot] SUPABASE_JWT_SECRET is %d chars (recommended >= 32). HMAC keys shorter than 32 bytes for HS256 weaken signing.", len(SECRET_KEY))
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "").strip().lower()
 TOKEN_TTL_HOURS = 10
 ADMIN_TOKEN_TTL_HOURS = 12

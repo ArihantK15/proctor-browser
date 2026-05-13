@@ -5,13 +5,7 @@ import json
 import time
 import uuid
 import logging
-import warnings
 import threading
-
-# Suppress python-jose's datetime.utcnow() deprecation warning.
-# python-jose was fully replaced by PyJWT + jwk_utils.py in all modules.
-# Kept in requirements for now in case a reversion is needed.
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="jose")
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles

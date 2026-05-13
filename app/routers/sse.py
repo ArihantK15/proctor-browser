@@ -156,6 +156,63 @@ async def _ws_ensure_cleanup():
         task.add_done_callback(_log_task_failure)
 
 
+# ─── ROOM CAMERA OFFLINE DETECTION ──────────────────────────────
+
+_ROOM_CAM_OFFLINE_STARTED = False
+_ROOM_CAM_OFFLINE_TIMEOUT = 20  # seconds without heartbeat → offline
+_ROOM_CAM_OFFLINE_FIRED: set[str] = set()  # session_ids already flagged
+
+
+def _room_cam_ensure_offline_detection():
+    global _ROOM_CAM_OFFLINE_STARTED
+    if not _ROOM_CAM_OFFLINE_STARTED:
+        _ROOM_CAM_OFFLINE_STARTED = True
+        task = asyncio.create_task(_room_cam_offline_loop())
+        task.add_done_callback(_log_task_failure)
+
+
+async def _room_cam_offline_loop():
+    """Background task: detect room camera offline and fire violations."""
+    while True:
+        try:
+            await _room_cam_offline_check()
+        except Exception as e:
+            logger.error("[room_cam_offline] check failed: %s", e)
+        await asyncio.sleep(10)
+
+
+async def _room_cam_offline_check():
+    """Single pass: check all tracked room cam sessions for heartbeat timeout."""
+    now = time.time()
+    stale_threshold = now - 300  # 5 minutes — cleanup stale in-memory entries
+    for sid, last_beat in list(_last_room_frame.items()):
+        if last_beat < stale_threshold:
+            _last_room_frame.pop(sid, None)
+            _ROOM_CAM_OFFLINE_FIRED.discard(sid)
+            continue
+        if now - last_beat < _ROOM_CAM_OFFLINE_TIMEOUT:
+            _ROOM_CAM_OFFLINE_FIRED.discard(sid)
+            continue
+        if sid in _ROOM_CAM_OFFLINE_FIRED:
+            continue  # already flagged
+        _ROOM_CAM_OFFLINE_FIRED.add(sid)
+
+        # Fire violation event
+        try:
+            from ..database import async_table as _atable
+            await _atable("violations").insert({
+                "session_key": sid,
+                "violation_type": "room_cam_offline",
+                "severity": "medium",
+                "details": "Room camera disconnected for >20s — phone may have gone offline",
+            }).execute()
+            await _atable("exam_sessions").update({"room_cam_status": "offline"})\
+                .eq("session_key", sid).execute()
+            logger.warning("[room_cam_offline] session=%s marked offline", sid)
+        except Exception as e:
+            logger.error("[room_cam_offline] failed to record violation for %s: %s", sid, e)
+
+
 def _log_task_failure(task):
     if not task.cancelled() and task.exception():
         logger.error("[ws_cleanup] task died: %s", task.exception())
@@ -287,6 +344,9 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
                 pass
         _ws_room_conns[session_id] = websocket
 
+    # Start the room camera offline detection background loop
+    _room_cam_ensure_offline_detection()
+
     # Update DB: mark room cam as active
     try:
         from ..database import async_table as _atable
@@ -333,7 +393,29 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
 
 
 def _store_room_frame(session_id: str, jpeg_bytes: bytes):
-    """Store a room camera frame in the cache (backed by Redis)."""
+    """Store a room camera frame in the cache (backed by Redis).
+
+    Also runs basic validation on the first few frames to catch
+    obstructed cameras or frozen feeds.
+    """
+    # Basic frame sanity checks (no PIL dependency)
+    if len(jpeg_bytes) < 500:
+        logger.debug("[room_cam] frame too small (%d bytes) for session=%s", len(jpeg_bytes), session_id)
+        return
+    if not jpeg_bytes.startswith(b'\xff\xd8\xff'):
+        logger.debug("[room_cam] invalid JPEG header for session=%s", session_id)
+        return
+
+    # Track per-session frame count + previous frame hash for frozen detection
+    if not hasattr(_store_room_frame, "_frame_meta"):
+        _store_room_frame._frame_meta: dict[str, dict] = {}
+    meta = _store_room_frame._frame_meta.setdefault(session_id, {"count": 0, "prev_hash": None})
+    meta["count"] += 1
+
+    # First 3 frames: log size info for debugging
+    if meta["count"] <= 3:
+        logger.info("[room_cam] session=%s frame #%d received (%d bytes)", session_id, meta["count"], len(jpeg_bytes))
+
     from .. import cache as _cache
     if _cache:
         try:

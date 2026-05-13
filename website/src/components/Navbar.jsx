@@ -15,6 +15,7 @@ export default function Navbar() {
   const links = [
     { label: 'Features',     href: '/features' },
     { label: 'Pricing',      href: '/pricing' },
+    { label: 'LTI Setup',    href: '/lti-setup' },
     { label: 'How It Works', href: '/how-it-works' },
     { label: 'Why Procta',   href: '/#differentiators' },
     { label: 'Privacy',      href: '/privacy' },

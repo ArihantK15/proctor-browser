@@ -185,8 +185,8 @@ async def validate_id_token(id_token: str, state: str) -> dict:
     target_link_uri = state_data.get("target_link_uri", "")
 
     # 2. Decode JWT header (without verification)
-    from jose import jws, jwk, jwt
-    from jose.constants import Algorithms
+    from .jwk_utils import jwk_to_public_key
+    import jwt as _jwt
     import base64 as b64
     import json as _json
 
@@ -241,8 +241,8 @@ async def validate_id_token(id_token: str, state: str) -> dict:
 
     # 5. Verify signature
     try:
-        public_key = jwk.construct(matching_key)
-        claims = jwt.decode(
+        public_key = jwk_to_public_key(matching_key)
+        claims = _jwt.decode(
             id_token,
             public_key,
             audience=client_id,

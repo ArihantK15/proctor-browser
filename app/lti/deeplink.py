@@ -27,7 +27,8 @@ async def validate_deep_linking_request(id_token: str) -> dict:
     Returns the validated claims dict on success.
     Raises ValueError with a description on failure.
     """
-    from jose import jws, jwk, jwt
+    from .jwk_utils import jwk_to_public_key
+    import jwt as _jwt
     import base64 as b64
     import json as _json
 
@@ -86,8 +87,8 @@ async def validate_deep_linking_request(id_token: str) -> dict:
         raise ValueError(f"No matching key found for kid={kid}")
 
     try:
-        public_key = jwk.construct(matching_key)
-        verified = jwt.decode(
+        public_key = jwk_to_public_key(matching_key)
+        verified = _jwt.decode(
             id_token,
             public_key,
             audience=client_id,

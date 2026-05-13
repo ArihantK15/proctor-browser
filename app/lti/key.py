@@ -132,11 +132,11 @@ def sign_jwt_payload(payload: dict) -> str:
     Used for AGS grade passback and other tool-initiated requests.
     """
     import time
-    from jose import jwt as jose_jwt
+    import jwt as _jwt
 
     key_pem, _ = get_key_pair()
     headers = {"kid": _kid, "typ": "JWT"}
-    return jose_jwt.encode(
+    return _jwt.encode(
         payload,
         key_pem,
         algorithm="RS256",

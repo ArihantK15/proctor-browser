@@ -1201,8 +1201,11 @@
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="loadPendingGrades()">Refresh</button>
-      <button class="btn btn-primary btn-sm" id="grade-suggest-btn" onclick="runGradeSuggest()" title="Send all un-suggested answers to the AI grader">Suggest grades for all</button>
-      <span id="grade-status" style="margin-left:auto;align-self:center;font-size:11px;color:var(--muted)"></span>
+      <button class="btn btn-primary btn-sm" id="grade-suggest-btn" onclick="runGradeSuggest()" title="Send all un-suggested answers to the AI grader">Suggest grades</button>
+      <button class="btn btn-success btn-sm" onclick="gradeBulkAccept('all')" id="grade-accept-all-btn" title="Accept all suggested AI grades" style="background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Accept all</button>
+      <button class="btn btn-danger btn-sm" onclick="gradeBulkAccept('high')" id="grade-accept-high-btn" title="Only accept high-confidence suggestions" style="color:var(--amber);border-color:var(--amber)">Accept high conf</button>
+      <button class="btn btn-danger btn-sm" onclick="gradeBulkReject()" id="grade-reject-all-btn" title="Reject all pending and set to 0" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Reject all</button>
+      <span id="grade-summary" style="margin-left:auto;align-self:center;font-size:11px;color:var(--muted)"></span>
     </div>
     <div id="grade-list" style="overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
       <div style="text-align:center;padding:30px;color:var(--muted)">Loading…</div>
@@ -3357,8 +3360,15 @@ async function loadPendingGrades(){
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d = await r.json();
     _pendingGrades = d.answers || [];
-    document.getElementById('grade-meta').textContent =
-      `${d.total_pending||0} pending · ${(d.questions||[]).length} short-answer question(s)`;
+    const meta = document.getElementById('grade-meta');
+    const summary = document.getElementById('grade-summary');
+    const total = _pendingGrades.length;
+    const confirmed = _pendingGrades.filter(a => a.teacher_score != null).length;
+    const high = _pendingGrades.filter(a => a.ai_confidence === 'high' && a.teacher_score == null).length;
+    const medium = _pendingGrades.filter(a => a.ai_confidence === 'medium' && a.teacher_score == null).length;
+    const low = _pendingGrades.filter(a => a.ai_confidence === 'low' && a.teacher_score == null).length;
+    if(meta) meta.textContent = `${total} total · ${confirmed} confirmed`;
+    if(summary) summary.innerHTML = `${total - confirmed} pending · <span style="color:var(--emerald)">${high} high</span> · <span style="color:var(--amber)">${medium} med</span> · <span style="color:var(--red)">${low} low</span>`;
     renderPendingGrades();
   }catch(e){
     list.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escAttr(String(e))}</div>`;
@@ -3404,7 +3414,7 @@ function renderPendingGrades(){
 
 async function runGradeSuggest(){
   const btn = document.getElementById('grade-suggest-btn');
-  const status = document.getElementById('grade-status');
+  const status = document.getElementById('grade-summary');
   // Only ask the AI for answers that don't already have a suggestion —
   // saves Groq calls and keeps the rate-limit headroom for retries.
   const ids = _pendingGrades.filter(a => a.ai_score==null && a.teacher_score==null).map(a => a.id);
@@ -3439,7 +3449,7 @@ async function confirmGrade(i){
     alert(`Score must be between 0 and ${a.max_score||1}.`);
     return;
   }
-  const status = document.getElementById('grade-status');
+  const status = document.getElementById('grade-summary');
   status.textContent = 'Confirming…';
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm`,{
@@ -3457,6 +3467,47 @@ async function confirmGrade(i){
   }catch(e){
     status.textContent = 'Confirm failed: '+String(e);
   }
+}
+
+async function gradeBulkAccept(confidence){
+  const status = document.getElementById('grade-summary');
+  const eid = currentExamId;
+  if(!eid){ status.textContent = 'Select an exam first.'; return; }
+  const body = {exam_id: eid, action: 'accept'};
+  let label = 'all';
+  if(confidence === 'high'){
+    body.confidence_filter = 'high';
+    label = 'high-confidence';
+  }
+  status.textContent = `Accepting ${label} suggestions...`;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm-bulk`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if(!r.ok){ const t=await r.text(); throw new Error(`HTTP ${r.status}: ${t}`); }
+    const d = await r.json();
+    status.textContent = `✅ Accepted ${d.confirmed} (${d.skipped} skipped, ${d.sessions_recompiled} sessions recompiled).`;
+    await loadPendingGrades();
+  }catch(e){ status.textContent = 'Failed: '+String(e); }
+}
+
+async function gradeBulkReject(){
+  const status = document.getElementById('grade-summary');
+  const eid = currentExamId;
+  if(!eid){ status.textContent = 'Select an exam first.'; return; }
+  if(!confirm('Set ALL unconfirmed short-answer scores to 0? This can be reverted by re-grading.')) return;
+  status.textContent = 'Rejecting all...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm-bulk`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({exam_id: eid, action: 'reject'})
+    });
+    if(!r.ok){ const t=await r.text(); throw new Error(`HTTP ${r.status}: ${t}`); }
+    const d = await r.json();
+    status.textContent = `❌ Rejected ${d.confirmed} (${d.skipped} skipped).`;
+    await loadPendingGrades();
+  }catch(e){ status.textContent = 'Failed: '+String(e); }
 }
 
 function dlAllScorecards(){

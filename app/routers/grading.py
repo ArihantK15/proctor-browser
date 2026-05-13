@@ -273,3 +273,84 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
     return {"ok": True, "answer_id": answer_id,
             "teacher_score": score,
             "session_totals": new_totals}
+
+
+@router.post("/api/v1/admin/grade-confirm-bulk")
+@limiter.limit("10/minute")
+async def grade_confirm_bulk(body: dict, request: Request):
+    """Bulk confirm (accept) all pending grades for an exam, or reject all.
+
+    Body::
+        {"exam_id": "uuid", "action": "accept", "confidence_filter": "high"}
+        {"exam_id": "uuid", "action": "reject"}
+
+    - ``accept``: set teacher_score = ai_score for all pending answers
+    - ``reject``: set teacher_score = 0 for all pending answers
+    - ``confidence_filter``: optional, limits to answers with matching ai_confidence
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    exam_id = (body.get("exam_id") or "").strip()
+    action = (body.get("action") or "").strip().lower()
+    confidence_filter = (body.get("confidence_filter") or "").strip().lower()
+
+    if not exam_id:
+        raise HTTPException(status_code=400, detail="exam_id required")
+    if action not in ("accept", "reject"):
+        raise HTTPException(status_code=400, detail="action must be 'accept' or 'reject'")
+
+    score_val = 0 if action == "reject" else None  # None means use ai_score
+
+    # Fetch pending answers
+    a_query = _atable("answers").select(
+        "id,session_key,question_id,ai_score"
+    ).eq("teacher_id", tid).eq("exam_id", exam_id).is_("teacher_score", "null")
+    if confidence_filter:
+        a_query = a_query.eq("ai_confidence", confidence_filter)
+    pending = (await a_query.execute()).data or []
+
+    if not pending:
+        return {"action": action, "confirmed": 0, "skipped": 0}
+
+    session_keys = set()
+    confirmed = 0
+    skipped = 0
+    for a in pending:
+        a_id = a.get("id")
+        s_key = a.get("session_key")
+        ai_score = a.get("ai_score")
+        final_score = score_val if score_val is not None else ai_score
+        if final_score is None:
+            skipped += 1
+            continue  # No AI score to accept
+        try:
+            await _atable("answers").update({
+                "teacher_score": final_score,
+                "graded_at": now_ist().isoformat(),
+            }).eq("id", a_id).eq("teacher_id", tid).execute()
+            confirmed += 1
+            if s_key:
+                session_keys.add(s_key)
+        except Exception as e:
+            _grading_log.warning("[grade-confirm-bulk] failed for %s: %s", a_id, e)
+            skipped += 1
+
+    # Recompute session scores for affected sessions
+    recompiled = 0
+    for sk in session_keys:
+        try:
+            await _apply_short_answer_to_session(sk, tid)
+            recompiled += 1
+        except Exception as e:
+            _grading_log.warning("[grade-confirm-bulk] rollup failed for %s: %s", sk, e)
+
+    _grading_log.info("[audit] teacher=%s bulk %s exam=%s confirmed=%d skipped=%d sessions=%d",
+                      tid, action, exam_id, confirmed, skipped, recompiled)
+
+    return {
+        "action": action,
+        "confirmed": confirmed,
+        "skipped": skipped,
+        "sessions_recompiled": recompiled,
+        "total_pending": len(pending),
+    }

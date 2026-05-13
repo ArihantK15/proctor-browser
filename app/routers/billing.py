@@ -1,8 +1,7 @@
-"""Billing router — Stripe subscription management."""
+"""Billing router — Razorpay subscription management."""
 
 import json
 import logging
-import os
 from fastapi import APIRouter, Request, HTTPException
 from ..auth import require_admin
 from ..database import async_table as _atable
@@ -10,8 +9,7 @@ from ..limiter import limiter
 from ..services.sessions import PLAN_LIMITS
 from ..constants import PLANS
 from ..services.billing import (
-    create_checkout_session as billing_create_checkout_session,
-    create_portal_session,
+    create_subscription as billing_create_subscription,
     verify_webhook,
     _is_live,
 )
@@ -19,44 +17,6 @@ from ..services.billing import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
-
-
-@router.get("/api/v1/billing/invoices")
-@limiter.limit("10/minute")
-async def list_invoices(request: Request):
-    """Return invoice history for the org's Stripe customer.
-    
-    In sandbox mode, returns sample invoices.
-    """
-    teacher = await require_admin(request)
-    org_id = teacher.get("org_id")
-    if not org_id:
-        raise HTTPException(status_code=403, detail="No organization associated")
-
-    sub = await _atable("subscriptions").select("stripe_customer_id,stripe_subscription_id").eq("org_id", str(org_id)).limit(1).execute()
-    customer_id = (sub.data or [{}])[0].get("stripe_customer_id")
-
-    if not customer_id or not _is_live():
-        return {"invoices": [
-            {"id": "mock_inv_01", "amount": 999, "currency": "inr",
-             "status": "paid", "created": 1700000000,
-             "pdf_url": None, "description": "Growth plan — mocked (sandbox mode)"},
-        ]}
-
-    try:
-        import stripe
-        stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
-        raw = stripe.Invoice.list(customer=customer_id, limit=12)
-        invoices = [
-            {"id": inv.id, "amount": inv.amount_paid, "currency": inv.currency,
-             "status": inv.status, "created": inv.created,
-             "pdf_url": inv.invoice_pdf, "description": inv.description or inv.lines.data[0].description if inv.lines.data else ""}
-            for inv in raw.data
-        ]
-        return {"invoices": invoices}
-    except Exception as e:
-        logger.warning("Failed to fetch Stripe invoices: %s", e)
-        return {"invoices": [], "error": "Failed to fetch invoices. Try again later."}
 
 
 @router.get("/api/v1/billing/plans")
@@ -77,13 +37,13 @@ async def list_plans(request: Request):
     }
 
 
-@router.post("/api/v1/billing/create-checkout")
+@router.post("/api/v1/billing/create-subscription")
 @limiter.limit("5/minute")
-async def create_checkout(body: dict, request: Request):
-    """Create a Stripe Checkout Session for the org.
-    
+async def create_subscription(body: dict, request: Request):
+    """Create a Razorpay subscription for the org.
+
     Body: { "plan_id": "growth" }
-    Returns Stripe Checkout URL for redirect.
+    Returns Razorpay checkout URL.
     """
     teacher = await require_admin(request)
     if teacher.get("org_role") not in ("admin", "superadmin"):
@@ -97,54 +57,51 @@ async def create_checkout(body: dict, request: Request):
         raise HTTPException(status_code=400, detail=f"Invalid plan: {plan_id}")
 
     try:
-        result = billing_create_checkout_session(str(org_id), plan_id)
+        result = billing_create_subscription(str(org_id), plan_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create checkout session")
-        raise HTTPException(status_code=500, detail="Failed to create checkout session")
+        logger.exception("Failed to create subscription")
+        raise HTTPException(status_code=500, detail="Failed to create subscription")
 
     if result.get("_sandbox"):
-        logger.info("Sandbox checkout: %s", result["_note"])
+        logger.info("Sandbox subscription: %s", result["_note"])
 
-    return result
-
-
-@router.post("/api/v1/billing/portal")
-@limiter.limit("5/minute")
-async def billing_portal(body: dict, request: Request):
-    """Create a Stripe Billing Portal session for the org's customer."""
-    teacher = await require_admin(request)
-    if teacher.get("org_role") not in ("admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Only admins can manage billing")
-    org_id = teacher.get("org_id")
-    if not org_id:
-        raise HTTPException(status_code=403, detail="No organization associated")
-
-    # Look up Stripe customer ID from subscription record
-    sub = await _atable("subscriptions").select("stripe_customer_id").eq("org_id", str(org_id)).limit(1).execute()
-    customer_id = (sub.data or [{}])[0].get("stripe_customer_id")
-    if not customer_id:
-        raise HTTPException(status_code=400, detail="No customer record found. Create a subscription first.")
-
+    # Update subscription record in DB
     try:
-        result = create_portal_session(customer_id)
+        existing = await _atable("subscriptions").select("id").eq("org_id", str(org_id)).limit(1).execute()
+        sub_data = {
+            "plan": plan_id,
+            "status": "active",
+            "razorpay_subscription_id": result["subscription_id"],
+        }
+        sub = (existing.data or [None])[0]
+        if sub:
+            await _atable("subscriptions").update(sub_data).eq("org_id", str(org_id)).execute()
+        else:
+            await _atable("subscriptions").insert({
+                "org_id": str(org_id),
+                **sub_data,
+            }).execute()
+        # Update org max_students
+        await _atable("organizations").update({
+            "max_students": PLAN_LIMITS.get(plan_id, 30)
+        }).eq("id", str(org_id)).execute()
     except Exception as e:
-        logger.exception("Failed to create portal session")
-        raise HTTPException(status_code=500, detail="Failed to create portal session")
+        logger.warning("Failed to update subscription in DB: %s", e)
 
     return result
 
 
-@router.post("/api/v1/webhooks/stripe")
-async def stripe_webhook(request: Request):
-    """Handle Stripe webhook events.
-    
-    Expected events: checkout.session.completed, customer.subscription.updated,
-    customer.subscription.deleted, invoice.payment_failed.
+@router.post("/api/v1/webhooks/razorpay")
+async def razorpay_webhook(request: Request):
+    """Handle Razorpay webhook events.
+
+    Expected events: subscription.activated, subscription.completed,
+    subscription.paused, payment.failed
     """
     raw_body = await request.body()
-    signature = request.headers.get("Stripe-Signature", "")
+    signature = request.headers.get("X-Razorpay-Signature", "")
 
     if not verify_webhook(raw_body, signature):
         raise HTTPException(status_code=400, detail="Invalid signature")
@@ -154,85 +111,85 @@ async def stripe_webhook(request: Request):
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    event_type = event.get("type", "")
-    data = event.get("data", {}).get("object", {})
+    event_type = event.get("event", "")
+    payload = event.get("payload", {})
+    sub_data = payload.get("subscription", {}).get("entity", {})
 
-    # ── Checkout completed → create/update subscription locally ──
-    if event_type == "checkout.session.completed":
-        metadata = data.get("metadata", {}) or {}
-        org_id = metadata.get("org_id")
-        plan_id = metadata.get("plan")
-        sub_data = data.get("subscription", "")
-        customer_id = data.get("customer", "")
-        if not org_id or not plan_id:
-            logger.warning("Missing org_id or plan in checkout.session.completed metadata")
-            return {"status": "ignored"}
+    sub_id = sub_data.get("id")
+    if not sub_id:
+        return {"status": "ignored"}
 
-        existing = await _atable("subscriptions").select("id").eq("org_id", str(org_id)).limit(1).execute()
-        row = {
-            "plan": plan_id,
-            "status": "active",
-            "stripe_subscription_id": sub_data,
-            "stripe_customer_id": customer_id,
-        }
-        if existing.data:
-            await _atable("subscriptions").update(row).eq("org_id", str(org_id)).execute()
-        else:
-            await _atable("subscriptions").insert({"org_id": str(org_id), **row}).execute()
+    # Find the subscription in our DB
+    db_sub = await _atable("subscriptions").select("id,org_id").eq("razorpay_subscription_id", sub_id).limit(1).execute()
+    if not db_sub.data:
+        logger.warning("Unknown Razorpay subscription: %s", sub_id)
+        return {"status": "ignored"}
+    org_id = db_sub.data[0]["org_id"]
 
-        await _atable("organizations").update({
-            "max_students": PLAN_LIMITS.get(plan_id, 30)
-        }).eq("id", str(org_id)).execute()
-        logger.info("Checkout completed for org=%s plan=%s", org_id, plan_id)
-
-    # ── Subscription updated → reflect in DB ──
-    elif event_type in ("customer.subscription.updated",):
-        sub_id = data.get("id", "")
-        status = data.get("status", "")
-        period_end = data.get("current_period_end")
-
-        db_sub = await _atable("subscriptions").select("id,org_id").eq("stripe_subscription_id", sub_id).limit(1).execute()
-        if not db_sub.data:
-            logger.warning("Unknown Stripe subscription: %s", sub_id)
-            return {"status": "ignored"}
-
-        status_map = {
-            "active": "active",
-            "past_due": "active",
-            "trialing": "trialing",
-            "paused": "paused",
-            "canceled": "cancelled",
-            "incomplete": "active",
-            "incomplete_expired": "expired",
-        }
-        local_status = status_map.get(status, "expired")
+    if event_type == "subscription.activated":
         await _atable("subscriptions").update({
-            "status": local_status,
-            "current_period_end": str(period_end) if period_end else None,
+            "status": "active",
+            "current_period_start": sub_data.get("current_start"),
+            "current_period_end": sub_data.get("current_end"),
         }).eq("id", db_sub.data[0]["id"]).execute()
+        logger.info("Subscription activated for org=%s", org_id)
 
-        if local_status in ("cancelled", "expired"):
-            await _atable("organizations").update({
-                "max_students": PLAN_LIMITS.get("starter", 30)
-            }).eq("id", str(db_sub.data[0]["org_id"])).execute()
-        logger.info("Subscription %s for org=%s → %s", sub_id, db_sub.data[0]["org_id"], local_status)
+    elif event_type == "subscription.completed":
+        await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
+        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+        logger.info("Subscription completed for org=%s", org_id)
 
-    # ── Subscription deleted → expiry ──
-    elif event_type == "customer.subscription.deleted":
-        sub_id = data.get("id", "")
-        db_sub = await _atable("subscriptions").select("id,org_id").eq("stripe_subscription_id", sub_id).limit(1).execute()
-        if db_sub.data:
-            await _atable("subscriptions").update({"status": "cancelled"}).eq("id", db_sub.data[0]["id"]).execute()
-            await _atable("organizations").update({
-                "max_students": PLAN_LIMITS.get("starter", 30)
-            }).eq("id", str(db_sub.data[0]["org_id"])).execute()
-            logger.info("Subscription deleted for org=%s", db_sub.data[0]["org_id"])
+    elif event_type == "subscription.paused":
+        await _atable("subscriptions").update({"status": "paused"}).eq("id", db_sub.data[0]["id"]).execute()
+        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+        logger.info("Subscription paused for org=%s", org_id)
 
-    # ── Payment failed ──
-    elif event_type == "invoice.payment_failed":
-        sub_id = data.get("subscription", "")
-        db_sub = await _atable("subscriptions").select("id,org_id").eq("stripe_subscription_id", sub_id).limit(1).execute()
-        if db_sub.data:
-            logger.warning("Payment failed for org=%s sub=%s", db_sub.data[0]["org_id"], sub_id)
+    elif event_type == "subscription.cancelled":
+        await _atable("subscriptions").update({"status": "cancelled"}).eq("id", db_sub.data[0]["id"]).execute()
+        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+        logger.info("Subscription cancelled for org=%s", org_id)
+
+    elif event_type == "payment.failed":
+        logger.warning("Payment failed for org=%s sub=%s", org_id, sub_id)
+        await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
 
     return {"status": "ok"}
+
+
+@router.get("/api/v1/billing/invoices")
+@limiter.limit("10/minute")
+async def list_invoices(request: Request):
+    """Return invoice history for the org's Razorpay subscription.
+    
+    In sandbox mode, returns sample invoices.
+    """
+    teacher = await require_admin(request)
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+
+    sub = await _atable("subscriptions").select("razorpay_subscription_id").eq("org_id", str(org_id)).limit(1).execute()
+    sub_id = (sub.data or [{}])[0].get("razorpay_subscription_id")
+
+    if not sub_id or not _is_live():
+        return {"invoices": [
+            {"id": "mock_inv_01", "amount": 999, "currency": "INR",
+             "status": "paid", "created_at": "2026-04-01T00:00:00Z",
+             "pdf_url": None, "description": "Growth plan — mocked (sandbox mode)"},
+        ]}
+
+    try:
+        import razorpay
+        client = _get_client()
+        raw = client.invoice.all({"subscription_id": sub_id})
+        invoices = [
+            {"id": inv["id"], "amount": inv["amount"], "currency": inv["currency"],
+             "status": inv["status"], "created_at": inv.get("created_at"),
+             "pdf_url": inv.get("invoice_url") or None,
+             "description": inv.get("description", "")}
+            for inv in (raw.get("items", []) if isinstance(raw, dict) else raw.get("items", []))
+        ]
+        return {"invoices": invoices}
+    except Exception as e:
+        logger.warning("Failed to fetch Razorpay invoices: %s", e)
+        return {"invoices": [], "error": "Failed to fetch invoices. Try again later."}

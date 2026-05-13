@@ -1281,7 +1281,6 @@
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div id="upgrade-result" style="font-size:13px;flex:1"></div>
-        <button class="btn btn-secondary btn-sm" id="billing-portal-btn" onclick="openBillingPortal()" style="display:none">Manage billing</button>
       </div>
       <div id="billing-invoices" style="margin-top:24px;display:none">
         <h3 style="font-size:var(--text-sm,13px);font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin:0 0 12px">Invoice History</h3>
@@ -2206,12 +2205,6 @@ async function loadBilling(){
     document.getElementById('billing-plan').textContent = b.plan || '--';
     document.getElementById('billing-status').textContent = b.status || '--';
     document.getElementById('billing-usage').textContent = (b.student_count||0) + ' / ' + (b.max_students||30) + ' students';
-    const portalBtn = document.getElementById('billing-portal-btn');
-    if(b.status && b.status!=='free'){
-      portalBtn.style.display = '';
-    } else {
-      portalBtn.style.display = 'none';
-    }
     loadInvoices();
   }catch(_){}
 }
@@ -2227,12 +2220,12 @@ async function loadInvoices(){
     if(!invs.length){ container.style.display='none'; return; }
     container.style.display='';
     tbody.innerHTML = invs.map(inv => {
-      const amt = (inv.amount/100).toFixed(inv.amount<100?0:0);
-      const currency = inv.currency||'inr';
-      const date = new Date((inv.created||0)*1000).toLocaleDateString();
+      const amt = (inv.amount/100).toFixed(0);
+      const currency = inv.currency||'INR';
+      const date = inv.created_at ? new Date(inv.created_at*1000||inv.created_at).toLocaleDateString() : '—';
       const statusCls = inv.status==='paid'?'color:var(--sev-success-fg,var(--emerald))':'color:var(--sev-warn-fg,var(--amber))';
-      const pdfBtn = inv.pdf_url
-        ? `<a href="${_escHtml(inv.pdf_url)}" target="_blank" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px">PDF</a>`
+      const pdfBtn = inv.invoice_url||inv.pdf_url
+        ? `<a href="${_escHtml(inv.invoice_url||inv.pdf_url)}" target="_blank" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px">PDF</a>`
         : '';
       return `<tr style="border-bottom:1px solid var(--border-subtle)">
         <td style="padding:8px 12px">${date}</td>
@@ -2243,17 +2236,6 @@ async function loadInvoices(){
       </tr>`;
     }).join('');
   }catch(_){ container.style.display='none'; }
-}
-
-async function openBillingPortal(){
-  const resultEl = document.getElementById('upgrade-result');
-  resultEl.textContent = 'Opening billing portal...';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/billing/portal`, {method:'POST'});
-    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Failed to open portal'); }
-    const d = await r.json();
-    if(d.url) window.location.href = d.url;
-  }catch(e){ resultEl.textContent = e.message; resultEl.style.color = 'var(--red)'; }
 }
 
 async function loadAllOrgs(){
@@ -2329,7 +2311,7 @@ async function upgradePlan(planId){
   const resultEl = document.getElementById('upgrade-result');
   resultEl.textContent = 'Redirecting to payment...'; resultEl.style.color = 'var(--text-secondary)';
   try{
-    const r = await authFetch(`${BASE}/api/v1/billing/create-checkout`, {
+    const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({plan_id:planId})
@@ -2339,8 +2321,8 @@ async function upgradePlan(planId){
       throw new Error(d.detail||'Upgrade failed');
     }
     const d = await r.json();
-    if(d.url){
-      window.location.href = d.url;  // Redirect to Stripe Checkout
+    if(d.short_url){
+      window.location.href = d.short_url;  // Redirect to Razorpay
     } else {
       resultEl.textContent = 'Subscription created!'; resultEl.style.color = 'var(--emerald)';
       loadBilling();

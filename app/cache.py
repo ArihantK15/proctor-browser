@@ -75,7 +75,7 @@ def set(key: str, value, ttl: int = 300) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
-        pass
+        _log.debug("Cache set failed for key=%s", key, exc_info=True)
 
 
 def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
@@ -117,7 +117,7 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
-        pass
+        _log.debug("Liveframe LRU eviction failed", exc_info=True)
 
 
 def delete(key: str) -> None:
@@ -131,7 +131,7 @@ def delete(key: str) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
-        pass
+        _log.debug("Cache delete failed for key=%s", key, exc_info=True)
 
 
 def delete_pattern(pattern: str) -> None:
@@ -151,4 +151,4 @@ def delete_pattern(pattern: str) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
-        pass
+        _log.debug("Cache pattern delete failed for pattern=%s", pattern, exc_info=True)

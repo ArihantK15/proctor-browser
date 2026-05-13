@@ -57,6 +57,10 @@ jobs:
           print('All Python files parse cleanly.')
           "
 
+      - name: Build marketing site
+        run: |
+          cd website && npm ci && npm run build
+
       - name: Run pytest
         env:
           # Stub values — tests/conftest.py replaces the real client

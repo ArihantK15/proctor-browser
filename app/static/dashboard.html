@@ -2715,6 +2715,96 @@ function closeGradeReview(){
   document.getElementById('grade-modal').classList.add('hidden');
 }
 
+async function openRoomCamView(sid){
+  _roomCamSid = sid;
+  _roomCamOpened = true;
+  const img = document.getElementById('roomcam-img');
+  const ph = document.getElementById('roomcam-placeholder');
+  const meta = document.getElementById('roomcam-meta');
+  const statusEl = document.getElementById('roomcam-status');
+  document.getElementById('roomcam-approve-btn').style.display = '';
+  img.style.display = 'none'; ph.style.display = '';
+  meta.textContent = sid;
+  statusEl.innerHTML = '● Connecting';
+  document.getElementById('roomcam-modal').classList.remove('hidden');
+
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/room-cam/start`, {method:'POST'});
+    if(!r.ok) throw new Error();
+  }catch(e){ statusEl.innerHTML = '● Failed'; return; }
+
+  _roomCamFrameTimer = setInterval(_pollRoomCamFrame, 1500);
+  _roomCamKeepaliveTimer = setInterval(_roomCamKeepalive, 30000);
+}
+
+function _pollRoomCamFrame(){
+  if(!_roomCamSid) return;
+  const img = document.getElementById('roomcam-img');
+  const ph = document.getElementById('roomcam-placeholder');
+  const statusEl = document.getElementById('roomcam-status');
+  const tsEl = document.getElementById('roomcam-ts');
+  const t = Date.now();
+  fetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/frame?t=${t}`, {
+    headers: { 'Authorization': `Bearer ${authToken}` },
+  }).then(r => {
+    if(!r.ok) throw new Error();
+    return r.blob();
+  }).then(blob => {
+    if(_roomCamOpened){
+      img.src = URL.createObjectURL(blob); img.style.display = ''; ph.style.display = 'none';
+      tsEl.textContent = new Date().toLocaleTimeString();
+      statusEl.innerHTML = '● Live';
+    }
+  }).catch(() => {
+    statusEl.innerHTML = '●&#160;Offline';
+  });
+}
+
+async function _roomCamKeepalive(){
+  if(_roomCamSid){
+    try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/keepalive`, {method:'POST'}); }catch(_){}
+  }
+}
+
+async function closeRoomCamView(){
+  _roomCamOpened = false;
+  if(_roomCamFrameTimer){ clearInterval(_roomCamFrameTimer); _roomCamFrameTimer = null; }
+  if(_roomCamKeepaliveTimer){ clearInterval(_roomCamKeepaliveTimer); _roomCamKeepaliveTimer = null; }
+  const img = document.getElementById('roomcam-img');
+  if(img && img.src && img.src.startsWith('blob:')){ URL.revokeObjectURL(img.src); img.removeAttribute('src'); }
+  document.getElementById('roomcam-modal').classList.add('hidden');
+  if(_roomCamSid){
+    try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/stop`, {method:'POST'}); }catch(_){}
+    _roomCamSid = null;
+  }
+}
+
+async function roomCamApprove(){
+  if(!_roomCamSid) return;
+  const resultEl = document.getElementById('roomcam-result');
+  resultEl.textContent = 'Approving...'; resultEl.style.color = 'var(--muted)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/approve`, {method:'POST'});
+    if(!r.ok) throw new Error();
+    resultEl.textContent = '✅ Approved'; resultEl.style.color = 'var(--emerald)';
+    document.getElementById('roomcam-approve-btn').style.display = 'none';
+  }catch(e){ resultEl.textContent = 'Failed'; resultEl.style.color = 'var(--red)'; }
+}
+
+async function roomCamReject(){
+  if(!_roomCamSid) return;
+  const resultEl = document.getElementById('roomcam-result');
+  resultEl.textContent = 'Rejecting...'; resultEl.style.color = 'var(--muted)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/reject`, {method:'POST'});
+    if(!r.ok) throw new Error();
+    resultEl.textContent = '❌ Rejected — student must reposition phone'; resultEl.style.color = 'var(--amber)';
+  }catch(e){ resultEl.textContent = 'Failed'; resultEl.style.color = 'var(--red)'; }
+}
+
+
+
+
 let _showingAudit = false;
 
 function toggleGradeAudit(){
@@ -2761,6 +2851,304 @@ async function loadGradeAudit(){
     eventsEl.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escAttr(String(e))}</div>`;
   }
 }
+async function saveOrgName(){
+  const name = document.getElementById('settings-org-name').value.trim();
+  const resultEl = document.getElementById('settings-result');
+  if(!name){ resultEl.textContent = 'Name is required'; resultEl.style.color = 'var(--red)'; return; }
+  resultEl.textContent = 'Saving...'; resultEl.style.color = 'var(--text-secondary)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org`, {
+      method:'PATCH',
+
+function sortLive(key){
+  if(liveSortKey===key) liveSortAsc=!liveSortAsc;
+  else{liveSortKey=key;liveSortAsc=true;}
+  renderLive();
+}
+function filterLive(){renderLive();}
+
+
+function exportExcel(){
+  const eid = currentExamId || 'all';
+  fetchBlob(`${BASE}/api/v1/export-excel${_examQuery('?')}`, `results_${eid}.xlsx`, 'btn-export-excel');
+}
+function exportCSV(){
+  fetchBlob(`${BASE}/api/v1/export-csv${_examQuery('?')}`, 'results.csv', 'btn-export-csv');
+}
+async function fetchBlob(url, filename, btnId){
+  if(btnId) _setExporting(btnId, true);
+  try {
+    const r = await authFetch(url);
+    if(!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } finally {
+    if(btnId) _setExporting(btnId, false);
+  }
+}
+
+function dlPDF(sid){
+  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`, `report_${sid.split('_')[0]}.pdf`);
+}
+function exportCSV(){
+  fetchBlob(`${BASE}/api/v1/export-csv${_examQuery('?')}`,'results.csv');
+}
+async function fetchBlob(url,filename){
+
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function dlPDF(sid){
+  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`,`report_${sid.split('_')[0]}.pdf`);
+}
+function downloadPDF(){
+  if(currentSessionId) dlPDF(currentSessionId);
+}
+function dlScorecard(sid){
+
+function dlAllScorecards(){
+  const eid = currentExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  fetchBlob("${BASE}/api/v1/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}", `scorecards_${eid}.zip`, 'btn-scorecard-zip');
+}
+
+  fetchBlob(`${BASE}/api/v1/admin/scorecard-pdf/${encodeURIComponent(sid)}`,`scorecard_${sid.split('_')[0]}.pdf`);
+}
+// ── GRADE REVIEW (short-answer AI grading) ───────────────────────
+// Backed by /api/admin/pending-grades, /api/admin/grade-suggest,
+// /api/admin/grade-confirm. The AI provides a score + rationale; the
+// teacher confirms or overrides before it counts. We never write
+// teacher_score automatically — that's the trust boundary.
+
+
+
+async function closeLiveView(){
+  const sid = _liveViewSid;
+  _liveViewSid = null;
+  _liveViewLastFrameAt = 0;
+  if(_liveViewFrameTimer){ clearInterval(_liveViewFrameTimer); _liveViewFrameTimer = null; }
+  if(_liveViewKeepaliveTimer){ clearInterval(_liveViewKeepaliveTimer); _liveViewKeepaliveTimer = null; }
+  if(_liveViewStaleTimer){ clearInterval(_liveViewStaleTimer); _liveViewStaleTimer = null; }
+  // Release the current blob URL so the browser doesn't hold the
+  // last-frame bytes in memory after the panel closes.
+  const img = document.getElementById('liveview-img');
+  if(img && img.src && img.src.startsWith('blob:')){
+    URL.revokeObjectURL(img.src);
+    img.removeAttribute('src');
+  }
+  document.getElementById('liveview-modal').classList.add('hidden');
+  if(sid){
+    try{
+      await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/live-view/stop`, {method:'POST'});
+    }catch(e){/* server-side TTL will clean up within 60s anyway */}
+  }
+}
+
+// Tear down cleanly if the teacher closes the browser tab — without
+// this, the server-side flag would linger for up to 60s.
+window.addEventListener('beforeunload', () => {
+  if(_liveViewSid){
+    // sendBeacon is fire-and-forget but reliable on tab close.
+    try{
+      const url = `${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/stop`;
+      navigator.sendBeacon && navigator.sendBeacon(url);
+    }catch(_){}
+  }
+});
+
+// ── ROOM CAMERA VIEW ─────────────────────────────────────────────
+let _roomCamSid = null;
+let _roomCamFrameTimer = null;
+let _roomCamKeepaliveTimer = null;
+let _roomCamOpened = false;
+
+
+
+function closeModal(){
+  document.getElementById('detail-modal').classList.remove('open');
+  currentSessionId=null;
+}
+
+
+
+function closeTriage(){
+  document.getElementById('triage-modal').classList.add('hidden');
+  _triageSid = null;
+}
+
+
+
+async function doInviteTeacher(){
+  const email = document.getElementById('invite-email').value.trim();
+  const name = document.getElementById('invite-name').value.trim();
+  const resultEl = document.getElementById('invite-result');
+  if(!email){ resultEl.textContent = 'Email is required'; resultEl.style.color = 'var(--red)'; return; }
+  resultEl.textContent = 'Sending...'; resultEl.style.color = 'var(--text-secondary)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org/invite`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email, full_name:name})
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail||'Failed to send invite');
+    }
+    resultEl.textContent = 'Invitation sent!'; resultEl.style.color = 'var(--emerald)';
+    setTimeout(hideInviteTeacherModal, 1500);
+  }catch(e){
+    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
+  }
+}
+
+
+
+async function emailAllScorecards(){
+  const eid = currentExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  const msg = prompt(
+    "Email scorecards to all completed students?\n\n" +
+    "Students who have already been emailed will be skipped.\n" +
+    "Optionally add a short note (shown in every email), or leave blank:",
+    ""
+  );
+  if (msg === null) return;  // user cancelled
+  const body = { custom_message: (msg || "").trim() };
+  try {
+    const r = await authFetch(
+      `${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/email-scorecards`,
+      { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body) }
+    );
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    const parts = [
+      `Sent: ${d.sent || 0}`,
+      `Already emailed: ${d.already_sent || 0}`,
+      `No email on file: ${d.skipped_no_email || 0}`,
+      `Failed: ${d.failed || 0}`,
+      `Total sessions: ${d.total || 0}`,
+    ];
+    alert("Scorecard email batch complete.\n\n" + parts.join("\n"));
+  } catch (e) {
+    alert("Failed to email scorecards: " + e.message);
+  }
+}
+
+// ── TOOLS ───────────────────────────────────────────────────────
+
+
+function hideInviteTeacherModal(){
+  document.getElementById('invite-modal').style.display = 'none';
+}
+
+
+
+async function refreshAll(){
+  const gen = ++_refreshGen;
+  document.getElementById('refresh-spin').style.display='inline-block';
+  await Promise.all([refreshLive(), refreshIdReviews(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig(), loadInvites()]);
+  if(gen !== _refreshGen) return; // stale — user switched exam during load
+  document.getElementById('refresh-spin').style.display='none';
+  document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+}
+
+// ── PENDING ID REVIEWS ──────────────────────────────────────────
+let _prevIdReviewCount = 0;
+
+
+async function refreshLive(){
+  try{
+    const r = await authFetch(`${BASE}/sessions${_examQuery('?')}`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    liveData = d.all_sessions || [];
+    renderLiveStats(d.sessions||[], liveData);
+    renderLive();
+  }catch(e){ console.error('refreshLive',e); }
+}
+
+
+
+async function refreshResults(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/results${_examQuery('?')}`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    resultsData = d.results || [];
+    renderResultsStats();
+    renderResults();
+  }catch(e){ console.error('refreshResults',e); }
+}
+
+
+
+function showInviteTeacherModal(){
+  document.getElementById('invite-modal').style.display = 'flex';
+  document.getElementById('invite-email').value = '';
+  document.getElementById('invite-name').value = '';
+  document.getElementById('invite-result').textContent = '';
+}
+
+
+
+function sortResults(key){
+  if(resSortKey===key) resSortAsc=!resSortAsc;
+  else{resSortKey=key;resSortAsc=key==='roll_number'||key==='full_name';}
+  renderResults();
+}
+
+
+async function upgradePlan(planId){
+  const resultEl = document.getElementById('upgrade-result');
+  resultEl.textContent = 'Redirecting to payment...'; resultEl.style.color = 'var(--text-secondary)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({plan_id:planId})
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail||'Upgrade failed');
+    }
+    const d = await r.json();
+    if(d.short_url){
+      window.location.href = d.short_url;  // Redirect to Razorpay
+    } else {
+      resultEl.textContent = 'Subscription created!'; resultEl.style.color = 'var(--emerald)';
+      loadBilling();
+    }
+  }catch(e){
+    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
+  }
+}
+
+
+
+function viewRiskDetail(){
+function _triageOpenTimeline(){
+  const sid = _triageSid;
+  closeTriage();
+  if(sid){ currentSessionId = sid; openTimeline(); }
+
+  if(currentSessionId) viewRisk(currentSessionId);
+}
+
+// ── EXPORTS ─────────────────────────────────────────────────────
+let _exporting = {};
+
+
 async function loadGoogleClassroom(){
   const card = document.getElementById('google-classroom-card');
   const statusEl = document.getElementById('google-status');
@@ -5959,6 +6347,11 @@ function closeHistoryDetail(){
 }
 
 function viewSessionTimeline(sessionId){
+
+function viewSession(sid){
+  window.open('/dashboard?session='+sid, '_blank');
+}
+
   // Navigate to the forensics timeline view (already exists in dashboard)
   window.location.hash = '#timeline-'+sessionId;
   if(typeof viewSession==='function') viewSession(sessionId);

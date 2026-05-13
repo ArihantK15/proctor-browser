@@ -56,9 +56,9 @@ body{background:#000;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFont,
 <div id="target-overlay" style="display:none;position:absolute;inset:0;pointer-events:none;border:2px dashed rgba(91,138,240,0.5);border-radius:12px;margin:30px;z-index:10"></div>
 
 <script>
-const params = new URLSearchParams(location.search);
+const params = new URLSearchParams(location.hash.slice(1));
 const token = params.get('token');
-const sessionId = params.get('session_id');
+const sessionId = params.get('sid');
 
 const preview = document.getElementById('preview');
 const video = document.getElementById('cam');
@@ -125,7 +125,7 @@ function connectWs(){
   }
   const proto = (location.protocol==='https:')?'wss:':'ws:';
   const host = location.host;
-  ws = new WebSocket(`${proto}//${host}/ws/v1/room-frame/${encodeURIComponent(sessionId)}`, [token]);
+  ws = new WebSocket(`${proto}//${host}/ws/v1/room-frame/${encodeURIComponent(sessionId)}`, [`bearer.${token}`]);
 
   ws.onopen = () => {
     setStatus('connected', 'Room camera connected — capturing 1 frame/second');

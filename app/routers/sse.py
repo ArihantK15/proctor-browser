@@ -101,7 +101,8 @@ _ws_conn_count: dict[str, int] = {}
 _ws_room_conns: dict[str, WebSocket] = {}
 _last_room_frame: dict[str, float] = {}
 MAX_WS_PER_SESSION = 3
-MAX_WS_MSG_BYTES = 200 * 1024  # 200 KB — enough for HD JPEG
+MAX_WS_MSG_BYTES = 200 * 1024  # 200 KB — laptop cam JPEG
+MAX_ROOM_FRAME_BYTES = 400 * 1024  # 400 KB — phone cam (higher res)
 
 
 async def _ws_subscribe(session_id: str, ws: WebSocket):
@@ -318,6 +319,8 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
     """
     sp = websocket.headers.get("sec-websocket-protocol", "")
     token = sp.split(",")[0].strip() if sp else ""
+    if token.startswith("bearer."):
+        token = token[7:]
 
     await websocket.accept(subprotocol=token or None)
 
@@ -330,7 +333,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
         if claims.get("sid") != session_id:
             await websocket.close(code=4003, reason="access_denied")
             return
-    except (JWTError, Exception):
+    except Exception:
         await websocket.close(code=4001, reason="auth_failed")
         return
 
@@ -355,7 +358,6 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
     except Exception:
         pass
 
-    _last_room_frame: dict[str, float] = {}
 
     try:
         while True:
@@ -363,7 +365,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
             if msg.get("type") == "websocket.receive":
                 if "bytes" in msg:
                     data = msg["bytes"]
-                    if len(data) > MAX_WS_MSG_BYTES:
+                    if len(data) > MAX_ROOM_FRAME_BYTES:
                         continue
                     _store_room_frame(session_id, data)
                     _last_room_frame[session_id] = time.time()
@@ -383,10 +385,15 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
             if _ws_room_conns.get(session_id) is websocket:
                 _ws_room_conns.pop(session_id, None)
         _last_room_frame.pop(session_id, None)
+        # Clean up per-session frame meta from function attribute
+        if hasattr(_store_room_frame, "_frame_meta"):
+            _store_room_frame._frame_meta.pop(session_id, None)
+        if hasattr(_store_room_frame, "_last_ts"):
+            _store_room_frame._last_ts.pop(session_id, None)
         # Mark room cam as offline in DB
         try:
             from ..database import async_table as _atable
-            await _atable("exam_sessions").update({"room_cam_status": "disabled"})\
+            await _atable("exam_sessions").update({"room_cam_status": "offline"})\
                 .eq("session_key", session_id).execute()
         except Exception:
             pass
@@ -395,26 +402,26 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
 def _store_room_frame(session_id: str, jpeg_bytes: bytes):
     """Store a room camera frame in the cache (backed by Redis).
 
-    Also runs basic validation on the first few frames to catch
-    obstructed cameras or frozen feeds.
+    Also runs basic validation on the first few frames.
     """
-    # Basic frame sanity checks (no PIL dependency)
     if len(jpeg_bytes) < 500:
-        logger.debug("[room_cam] frame too small (%d bytes) for session=%s", len(jpeg_bytes), session_id)
         return
     if not jpeg_bytes.startswith(b'\xff\xd8\xff'):
-        logger.debug("[room_cam] invalid JPEG header for session=%s", session_id)
         return
 
-    # Track per-session frame count + previous frame hash for frozen detection
+    # Track per-session frame count for debugging (cleaned up on disconnect)
     if not hasattr(_store_room_frame, "_frame_meta"):
         _store_room_frame._frame_meta: dict[str, dict] = {}
-    meta = _store_room_frame._frame_meta.setdefault(session_id, {"count": 0, "prev_hash": None})
+    meta = _store_room_frame._frame_meta.setdefault(session_id, {"count": 0})
     meta["count"] += 1
 
-    # First 3 frames: log size info for debugging
-    if meta["count"] <= 3:
-        logger.info("[room_cam] session=%s frame #%d received (%d bytes)", session_id, meta["count"], len(jpeg_bytes))
+    # Rate limit: max 2 FPS per session
+    if not hasattr(_store_room_frame, "_last_ts"):
+        _store_room_frame._last_ts: dict[str, float] = {}
+    now = time.time()
+    if now - _store_room_frame._last_ts.get(session_id, 0) < 0.5:
+        return
+    _store_room_frame._last_ts[session_id] = now
 
     from .. import cache as _cache
     if _cache:

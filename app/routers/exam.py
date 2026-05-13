@@ -1044,7 +1044,7 @@ async def room_cam_token(request: Request, body: dict = Body(...)):
     Returns a 2-hour token with scope='room-cam'.
     The phone uses this token to authenticate its WebSocket connection.
     """
-    student = await require_auth(request)
+    student = require_auth(request)
     session_id = (body.get("session_id") or "").strip()
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
@@ -1068,20 +1068,28 @@ async def room_cam_qr(request: Request):
     session_id = (request.query_params.get("session_id") or "").strip()
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
-    student = await require_auth(request)
+    student = require_auth(request)
     roll = student.get("roll", "")
     if session_id.rsplit("_", 1)[0].upper() != roll.upper():
         raise HTTPException(status_code=403, detail="Access denied")
-    # Issue a fresh token for the QR
-    import jwt as _jwt
-    from ..constants import SECRET_KEY
+    # Cache QR token for 60s to avoid re-minting on refresh
+    if not hasattr(room_cam_qr, "_token_cache"):
+        room_cam_qr._token_cache: dict[str, dict] = {}
+    cache_key = f"{session_id}:{roll}"
+    cached = room_cam_qr._token_cache.get(cache_key)
+    if cached and cached["expires"] > time.time():
+        token = cached["token"]
+    else:
+        import jwt as _jwt
+        from ..constants import SECRET_KEY
+        token = _jwt.encode({
+            "scope": "room-cam", "sid": session_id, "roll": roll,
+            "exp": datetime.now(timezone.utc) + timedelta(hours=2),
+        }, SECRET_KEY, algorithm="HS256")
+        room_cam_qr._token_cache[cache_key] = {"token": token, "expires": time.time() + 60}
     from ..invites import _get_invite_base_url
-    token = _jwt.encode({
-        "scope": "room-cam", "sid": session_id, "roll": roll,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-    }, SECRET_KEY, algorithm="HS256")
     base = _get_invite_base_url()
-    url = f"{base}/phone-cam?token={token}&session_id={session_id}"
+    url = f"{base}/phone-cam#token={token}&sid={session_id}"
     import qrcode
     qr = qrcode.QRCode(border=2, box_size=10)
     qr.add_data(url)
@@ -1100,7 +1108,7 @@ async def room_cam_approval_status(request: Request):
     session_id = (request.query_params.get("session_id") or "").strip()
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
-    student = await require_auth(request)
+    student = require_auth(request)
     roll = student.get("roll", "")
     if session_id.rsplit("_", 1)[0].upper() != roll.upper():
         raise HTTPException(status_code=403, detail="Access denied")

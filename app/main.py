@@ -1,4 +1,5 @@
 """Thin orchestrator — wires routers, middleware, startup tasks."""
+import asyncio
 import gc
 import hashlib
 import json
@@ -6,6 +7,8 @@ import time
 import uuid
 import logging
 import threading
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +37,7 @@ from .routers.public import router as public_router
 from .routers.sse import router as sse_router
 from .routers.chat import router as chat_router
 from .routers.billing import router as billing_router
+from .routers.checkout import router as checkout_router
 from .routers.lti import router as lti_router
 from .routers.api import router as api_router
 
@@ -63,7 +67,86 @@ if SENTRY_DSN:
 # ── app bootstrap ─────────────────────────────────────────────────
 limiter = Limiter(key_func=_rate_limit_key)
 
-app = FastAPI(title="AI Proctor Server")
+
+@asynccontextmanager
+async def lifespan(_app) -> AsyncIterator[None]:
+    """Startup + shutdown lifecycle handler (replaces deprecated on_event)."""
+    # ── STARTUP ───────────────────────────────────────────────────
+    from .database import supabase
+    try:
+        supabase.table("exam_config").select("id").limit(1).execute()
+        print("[startup] Supabase connected", flush=True)
+    except Exception as e:
+        allow_unhealthy = os.environ.get("SUPABASE_SKIP_STARTUP_CHECK", "") == "1"
+        if allow_unhealthy:
+            print(f"[startup] WARNING: Supabase unreachable: {e}", flush=True)
+        else:
+            raise RuntimeError(f"Supabase unreachable: {e}. Set SUPABASE_SKIP_STARTUP_CHECK=1 to override.") from e
+
+    gc.set_threshold(300, 5, 50)
+    gc.freeze()
+    threading.Thread(target=_cleanup_screenshots, daemon=True).start()
+
+    if os.environ.get("REMINDER_LOOP_DISABLED", "") != "1":
+        _reminder_task = asyncio.create_task(_reminder_loop())
+        _reminder_task.add_done_callback(
+            lambda t: print(f"[startup] reminders loop ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
+        print("[startup] reminders loop started", flush=True)
+
+    _room_frame_cleanup_task = asyncio.create_task(_room_frame_cleanup_loop())
+    _room_frame_cleanup_task.add_done_callback(
+        lambda t: print(f"[startup] room-frame cleanup loop ended: {t.exception()}", flush=True)
+        if not t.cancelled() and t.exception()
+        else None
+    )
+
+    yield  # ── APP RUNNING ────────────────────────────────────────
+
+    # ── SHUTDOWN ──────────────────────────────────────────────────
+    log = logging.getLogger("shutdown")
+    log.info("[shutdown] Starting graceful shutdown...")
+
+    for task in asyncio.all_tasks():
+        coro_name = task.get_coro().__name__ if hasattr(task, 'get_coro') else str(task)
+        if "reminder" in coro_name.lower():
+            task.cancel()
+            log.info("[shutdown] Cancelled reminder task")
+
+    from .auth.admin_auth import _teacher_cache, _student_acct_cache
+    _teacher_cache.clear()
+    _student_acct_cache.clear()
+    log.info("[shutdown] Cleared in-memory caches")
+
+    try:
+        from .cache import _r
+        if _r:
+            _r.close()
+            log.info("[shutdown] Closed Redis connection")
+    except Exception:
+        log.warning("[shutdown] Failed to close Redis connection")
+
+    log.info("[shutdown] Graceful shutdown complete")
+
+
+async def _room_frame_cleanup_loop():
+    """Daily cleanup of any stale roomframe:* Redis keys.
+    Redis TTL already expires frames after 10s. This loop is
+    belt-and-suspenders to guarantee no room camera frame persists
+    longer than 24h (FERPA / DPDP Act compliance).
+    """
+    from . import cache as _cache
+    while True:
+        try:
+            _cache.cleanup_room_frames()
+        except Exception:
+            pass
+        await asyncio.sleep(86400)  # 24 hours
+
+
+app = FastAPI(title="AI Proctor Server", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _custom_rate_limit_handler)
 app.add_middleware(
@@ -360,103 +443,6 @@ app.include_router(public_router)
 app.include_router(sse_router)
 app.include_router(chat_router)
 app.include_router(billing_router)
+app.include_router(checkout_router)
 app.include_router(lti_router)
 app.include_router(api_router)
-
-# ── startup tasks ─────────────────────────────────────────────────
-@app.on_event("startup")
-async def _on_startup():
-    # Supabase connectivity check — fail fast instead of serving 502s
-    from .database import supabase
-    try:
-        supabase.table("exam_config").select("id").limit(1).execute()
-        print("[startup] Supabase connected", flush=True)
-    except Exception as e:
-        allow_unhealthy = os.environ.get("SUPABASE_SKIP_STARTUP_CHECK", "") == "1"
-        if allow_unhealthy:
-            print(f"[startup] WARNING: Supabase unreachable: {e}", flush=True)
-        else:
-            raise RuntimeError(f"Supabase unreachable: {e}. Set SUPABASE_SKIP_STARTUP_CHECK=1 to override.") from e
-
-    # Memory tuning for 2GB RAM droplets:
-    # Reduce GC thresholds to collect short-lived objects more aggressively
-    # and limit gen-2 pauses. Default is (700, 10, 10); on a server that
-    # runs indefinitely this causes periodic memory spikes. We tighten gen-0
-    # so request/response cycles get collected faster, and raise the gen-1
-    # threshold so mid-lived objects survive one extra collection pass.
-    gc.set_threshold(300, 5, 50)
-    gc.freeze()  # Ignore objects alive at startup (stdlib + imports)
-
-    # Screenshot cleanup background thread
-    threading.Thread(target=_cleanup_screenshots, daemon=True).start()
-
-    # Reminder loop (can be disabled via env var)
-    if os.environ.get("REMINDER_LOOP_DISABLED", "") == "1":
-        print("[startup] reminders loop disabled via REMINDER_LOOP_DISABLED=1", flush=True)
-    else:
-        import asyncio
-        reminder_task = asyncio.create_task(_reminder_loop())
-        reminder_task.add_done_callback(
-            lambda t: print(f"[startup] reminders loop ended: {t.exception()}", flush=True)
-            if not t.cancelled() and t.exception()
-            else None
-        )
-        print("[startup] reminders loop started", flush=True)
-
-    # Room frame daily cleanup (privacy: no room-cam frames persist >24h)
-    import asyncio as _asyncio
-    _room_frame_cleanup_task = _asyncio.create_task(_room_frame_cleanup_loop())
-    _room_frame_cleanup_task.add_done_callback(
-        lambda t: print(f"[startup] room-frame cleanup loop ended: {t.exception()}", flush=True)
-        if not t.cancelled() and t.exception()
-        else None
-    )
-
-
-async def _room_frame_cleanup_loop():
-    """Daily cleanup of any stale roomframe:* Redis keys.
-
-    Redis TTL already expires frames after 10s. This loop is
-    belt-and-suspenders to guarantee no room camera frame persists
-    longer than 24h (FERPA / DPDP Act compliance).
-    """
-    import asyncio as _asyncio
-    from . import cache as _cache
-    while True:
-        try:
-            _cache.cleanup_room_frames()
-        except Exception:
-            pass
-        await _asyncio.sleep(86400)  # 24 hours
-
-
-@app.on_event("shutdown")
-async def _on_shutdown():
-    """Graceful shutdown: cancel background tasks, flush caches, close connections."""
-    import logging
-    log = logging.getLogger("shutdown")
-    log.info("[shutdown] Starting graceful shutdown...")
-
-    # Cancel reminder loop
-    for task in asyncio.all_tasks():
-        coro_name = task.get_coro().__name__ if hasattr(task, 'get_coro') else str(task)
-        if "reminder" in coro_name.lower():
-            task.cancel()
-            log.info("[shutdown] Cancelled reminder task")
-
-    # Clear in-memory caches
-    from .auth.admin_auth import _teacher_cache, _student_acct_cache
-    _teacher_cache.clear()
-    _student_acct_cache.clear()
-    log.info("[shutdown] Cleared in-memory caches")
-
-    # Close Redis connections (if available)
-    try:
-        from .cache import _r
-        if _r:
-            _r.close()
-            log.info("[shutdown] Closed Redis connection")
-    except Exception:
-        log.warning("[shutdown] Failed to close Redis connection")
-
-    log.info("[shutdown] Graceful shutdown complete")

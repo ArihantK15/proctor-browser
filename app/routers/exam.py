@@ -302,6 +302,7 @@ async def validate_student(request: Request, body: ValidateIn):
 
 
 @router.get("/api/v1/questions")
+@limiter.limit("30/minute")
 async def get_questions(request: Request):
     # Practice mode: serve the canned mock question set
     sid = (request.query_params.get("session_id") or "").strip()
@@ -860,6 +861,7 @@ def _save_frame(student_dir: str, data: FrameIn) -> str:
 
 
 @router.post("/api/v1/analyze-frame")
+@limiter.limit("30/minute")
 async def analyze_frame(data: FrameIn, request: Request):
     # Practice sandbox: don't run face detection or save screenshots
     if is_practice(data.session_id):
@@ -913,6 +915,7 @@ def _save_id_verification_images(student_dir: str, selfie_b64: str, id_b64: str)
 
 
 @router.post("/api/v1/id-verification")
+@limiter.limit("30/minute")
 async def id_verification(data: IdVerifyIn, request: Request):
     """Store selfie + ID photos and create a pending verification for teacher review."""
     # Practice sandbox: pretend the verification was filed

@@ -75,6 +75,8 @@ PLANS = {
     "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "desc": "Custom pricing — contact sales"},
 }
 TRIAL_DAYS = 7
+TOTP_ENCRYPTION_KEY = os.environ.get("TOTP_ENCRYPTION_KEY", "")
+TOTP_GRACE_DAYS = 30
 
 # ─── Risk scoring ─────────────────────────────────────────────────
 _SATURATION_K = 5

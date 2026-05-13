@@ -940,7 +940,79 @@ async def reauth(request: Request):
     return {"reauth_token": reauth_token, "expires_in_seconds": 300}
 
 
-# ─── STUDENT PASSWORD RESET ─────────────────────────────────────
+# ─── TOTP 2FA ────────────────────────────────────────────────────
+
+@router.post("/api/v1/auth/2fa/enroll")
+@limiter.limit("10/minute")
+async def totp_enroll(request: Request):
+    """Generate TOTP secret and provisioning URI."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    from ..services.totp import generate_secret
+    result = await generate_secret("teacher", tid, teacher.get("email", ""))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/api/v1/auth/2fa/confirm")
+@limiter.limit("10/minute")
+async def totp_confirm(body: dict, request: Request):
+    """Confirm TOTP enrollment with 6-digit code."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    code = (body.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Code required")
+    from ..services.totp import confirm_enrollment
+    result = await confirm_enrollment("teacher", tid, code)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    await record_auth_event("2fa_enabled", request, "teacher", tid, teacher.get("email", ""))
+    return result
+
+
+@router.post("/api/v1/auth/2fa/disable")
+@limiter.limit("5/minute")
+async def totp_disable(body: dict, request: Request):
+    """Disable TOTP 2FA (requires re-auth token)."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    reauth_token = (body.get("reauth_token") or "").strip()
+    if not reauth_token:
+        raise HTTPException(status_code=400, detail="reauth_token required")
+    from ..auth.tokens import jwt as _jwt
+    from ..constants import SECRET_KEY
+    try:
+        claims = _jwt.decode(reauth_token, SECRET_KEY, algorithms=["HS256"])
+        if claims.get("scope") != "reauth" or claims.get("uid") != tid:
+            raise HTTPException(status_code=403, detail="Invalid reauth token")
+    except Exception:
+        raise HTTPException(status_code=403, detail="Invalid or expired reauth token")
+
+    await _atable("teachers").update({
+        "totp_secret": None,
+        "totp_enabled_at": None,
+        "backup_codes_hash": "[]",
+    }).eq("id", tid).execute()
+    return {"ok": True}
+
+
+@router.get("/api/v1/auth/2fa/status")
+@limiter.limit("30/minute")
+async def totp_status(request: Request):
+    """Return 2FA enrollment status for the current user."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    row = await _atable("teachers").select("totp_enabled_at,totp_grace_started_at").eq("id", tid).limit(1).execute()
+    if not row.data:
+        return {"enabled": False}
+    from ..services.totp import check_grace_expired
+    grace_expired = await check_grace_expired("teacher", tid)
+    return {
+        "enabled": row.data[0].get("totp_enabled_at") is not None,
+        "grace_expired": grace_expired,
+    }
 
 @router.post("/api/v1/student-auth/password-reset")
 @limiter.limit("3/minute")

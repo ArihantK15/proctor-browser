@@ -18,3 +18,8 @@ sentry-sdk[fastapi]>=2.0.0   # optional — only used when SENTRY_DSN is set
 qrcode>=8.0
 
 google-auth-oauthlib>=1.2.0
+
+# 2FA
+pyotp>=2.9.0
+bcrypt>=4.0.0
+cryptography>=42.0.0

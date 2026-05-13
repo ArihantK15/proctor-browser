@@ -1,5 +1,5 @@
 import { Helmet } from 'react-helmet-async'
-import { motion } from 'framer-motion'
+import useInView from '../hooks/useInView'
 import { Link } from 'react-router-dom'
 import { CheckCircle } from 'lucide-react'
 import Navbar from '../components/Navbar'
@@ -100,7 +100,7 @@ export default function FeaturesPage() {
       <Navbar />
       <section className="pt-32 pb-20 md:pt-44 md:pb-32">
         <div className="mx-auto max-w-7xl px-6">
-          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-3xl text-center">
+          <div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-3xl text-center">
             <h1 className="font-display text-4xl font-bold text-white md:text-5xl lg:text-6xl">
               Everything You Need for{' '}
               <span className="bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent">Secure Online Exams</span>
@@ -109,16 +109,12 @@ export default function FeaturesPage() {
               A complete exam integrity platform — not just a webcam plugin. From AI proctoring
               to automated scorecards, Procta covers every phase of the exam lifecycle.
             </p>
-          </motion.div>
+          </div>
 
           <div className="mt-20 space-y-24">
             {featureGroups.map((group, gi) => (
-              <motion.div
+              <div
                 key={group.title}
-                initial={{ opacity: 0, y: 24 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-60px' }}
-                transition={{ duration: 0.5, delay: gi * 0.05 }}
                 className="border-b border-white/[0.06] pb-16 last:border-0 last:pb-0"
               >
                 <h2 className="font-display text-2xl font-bold text-white md:text-3xl">{group.title}</h2>
@@ -131,7 +127,7 @@ export default function FeaturesPage() {
                     </li>
                   ))}
                 </ul>
-              </motion.div>
+              </div>
             ))}
           </div>
 

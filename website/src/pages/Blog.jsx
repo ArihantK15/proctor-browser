@@ -1,5 +1,5 @@
 import { Helmet } from 'react-helmet-async'
-import { motion } from 'framer-motion'
+
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import Navbar from '../components/Navbar'
@@ -43,18 +43,18 @@ export default function Blog() {
       <Navbar />
       <section className="pt-32 pb-20 md:pt-44 md:pb-32">
         <div className="mx-auto max-w-4xl px-6">
-          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+          <div className="animate-fadeIn">
             <h1 className="font-display text-4xl font-bold text-white md:text-5xl">
               Procta Blog
             </h1>
             <p className="mt-4 text-lg text-slate-400">
               Insights on AI proctoring, academic integrity, and best practices for online exams.
             </p>
-          </motion.div>
+          </div>
 
           <div className="mt-12 space-y-6">
             {posts.map((post, i) => (
-              <motion.div
+              <div
                 key={post.slug}
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -74,7 +74,7 @@ export default function Blog() {
                     Read more <ArrowRight size={14} />
                   </div>
                 </Link>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>

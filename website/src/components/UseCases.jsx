@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
 import { GraduationCap, BookOpen, Briefcase, ArrowRight } from 'lucide-react'
+import useInView from '../hooks/useInView'
 import { Link } from 'react-router-dom'
 
 export default function UseCases() {
@@ -27,11 +27,7 @@ export default function UseCases() {
   return (
     <section id="use-cases" className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5 }}
+        <div
           className="mx-auto max-w-2xl text-center"
         >
           <span className="label-mono text-accent">Use Cases</span>
@@ -41,16 +37,12 @@ export default function UseCases() {
           <p className="mt-4 text-lg text-slate-400">
             Different audiences, same guarantee: exam integrity you can trust.
           </p>
-        </motion.div>
+        </div>
 
         <div className="mt-16 grid gap-6 md:grid-cols-3">
           {cases.map((item, i) => (
-            <motion.div
+            <div
               key={item.title}
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.5, delay: i * 0.1 }}
               className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-accent/15 hover:bg-accent/[0.02] card-topline grain-overlay"
             >
               <div className="mb-6 inline-flex self-start rounded-xl border border-accent/20 bg-accent/5 p-3 accent-glow">
@@ -72,7 +64,7 @@ export default function UseCases() {
               >
                 Learn more <ArrowRight size={14} />
               </Link>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>

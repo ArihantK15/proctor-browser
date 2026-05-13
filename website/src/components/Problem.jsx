@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
 import { AlertTriangle, Users, IndianRupee } from 'lucide-react'
+import useInView from '../hooks/useInView'
 
 const fadeUp = {
   initial: { opacity: 0, y: 24 },
@@ -12,7 +12,7 @@ export default function Problem() {
   return (
     <section className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
-        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
+        <div {...fadeUp} className="mx-auto max-w-2xl text-center">
           <h2 className="font-display text-3xl font-bold text-white md:text-4xl">
             The Problem with Remote Exams
           </h2>
@@ -20,7 +20,7 @@ export default function Problem() {
             Institutions lose credibility when exam integrity cannot be guaranteed.
             Manual proctoring is expensive, inconsistent, and doesn't scale.
           </p>
-        </motion.div>
+        </div>
 
         <div className="mt-16 grid gap-6 md:grid-cols-3">
           {[
@@ -46,12 +46,8 @@ export default function Problem() {
               statLabel: 'cost of manual vs. AI proctoring'
             }
           ].map((item, i) => (
-            <motion.div
+            <div
               key={item.title}
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-60px' }}
-              transition={{ duration: 0.5, delay: i * 0.1 }}
               className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-red-500/20 hover:bg-white/[0.04] card-topline grain-overlay"
             >
               <div className="mb-6 inline-flex rounded-lg border border-red-500/20 bg-red-500/5 p-2.5">
@@ -63,7 +59,7 @@ export default function Problem() {
                 <span className="font-display text-2xl font-bold text-red-400">{item.stat}</span>
                 <span className="ml-2 label-mono text-slate-500">{item.statLabel}</span>
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>

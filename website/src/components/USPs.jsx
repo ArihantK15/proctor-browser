@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
 import { ShieldCheck, FileCheck2, Server, Users, Languages, Lock } from 'lucide-react'
+import useInView from '../hooks/useInView'
 
 /**
  * "Why Procta" outcomes section — 6 cards from the Claude design's
@@ -53,11 +53,7 @@ export default function USPs() {
   return (
     <section id="differentiators" className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5 }}
+        <div
           className="mx-auto max-w-2xl text-center"
         >
           <span className="label-mono text-accent">Why Procta</span>
@@ -69,16 +65,12 @@ export default function USPs() {
             No 3-day IT project. No PhD in proctoring software. Set up an exam, send a link,
             watch a live dashboard. That's it.
           </p>
-        </motion.div>
+        </div>
 
         <div className="mt-16 grid gap-4 md:grid-cols-3">
           {usps.map((item, i) => (
-            <motion.div
+            <div
               key={item.title}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.4, delay: i * 0.08 }}
               className="relative flex flex-col gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 transition-colors hover:border-accent/20"
             >
               <div className="inline-flex w-fit rounded-lg border border-accent/20 bg-accent/5 p-2.5 accent-glow">
@@ -87,7 +79,7 @@ export default function USPs() {
               <h3 className="text-lg font-semibold leading-tight text-white">{item.title}</h3>
               <p className="flex-1 text-sm leading-relaxed text-slate-400">{item.desc}</p>
               <div className="font-mono text-xs text-accent">{item.proof}</div>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>

@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import {
   Lock, MonitorOff, Save, Eye, ScanFace, Box, Volume2,
   BarChart3, FileText, Activity, Sliders, Download, Users
@@ -44,11 +43,7 @@ export default function Features() {
   return (
     <section id="features" className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5 }}
+        <div
           className="mx-auto max-w-2xl text-center"
         >
           <span className="label-mono text-accent">Features</span>
@@ -58,16 +53,12 @@ export default function Features() {
           <p className="mt-4 text-lg text-slate-400">
             A complete exam integrity platform, not just a webcam plugin.
           </p>
-        </motion.div>
+        </div>
 
         <div className="mt-16 space-y-12">
           {groups.map((group, gi) => (
-            <motion.div
+            <div
               key={group.label}
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.5, delay: gi * 0.1 }}
             >
               <h3 className="mb-4 label-mono text-slate-500">
                 {group.label}
@@ -84,7 +75,7 @@ export default function Features() {
                   </div>
                 ))}
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>

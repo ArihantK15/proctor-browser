@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
 import { Upload, Monitor, Scan, FileText } from 'lucide-react'
+import useInView from '../hooks/useInView'
 
 export default function HowItWorks() {
   const steps = [
@@ -33,18 +33,14 @@ export default function HowItWorks() {
     <section id="how-it-works" className="relative py-24 md:py-32 bg-navy-900/30">
       <div className="pointer-events-none absolute inset-0 grain-overlay" />
       <div className="mx-auto max-w-7xl px-6 relative">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5 }}
+        <div
           className="mx-auto max-w-2xl text-center"
         >
           <span className="label-mono text-accent">How It Works</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Four Steps to Secure Exams
           </h2>
-        </motion.div>
+        </div>
 
         <div className="relative mt-16">
           {/* Connection line */}
@@ -52,12 +48,8 @@ export default function HowItWorks() {
 
           <div className="grid gap-8 md:grid-cols-4">
             {steps.map((item, i) => (
-              <motion.div
+              <div
                 key={item.step}
-                initial={{ opacity: 0, y: 24 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-40px' }}
-                transition={{ duration: 0.5, delay: i * 0.12 }}
                 className="relative text-center"
               >
                 <div className="relative mx-auto mb-6 flex h-24 w-24 items-center justify-center">
@@ -69,7 +61,7 @@ export default function HowItWorks() {
                 </div>
                 <h3 className="mb-2 text-base font-semibold text-white">{item.title}</h3>
                 <p className="text-sm leading-relaxed text-slate-400">{item.desc}</p>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>

@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
 import { ArrowRight, Play } from 'lucide-react'
+import useInView from '../hooks/useInView'
 import { Link } from 'react-router-dom'
 
 export default function Hero() {
@@ -11,10 +11,7 @@ export default function Hero() {
       <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 h-[600px] w-[800px] rounded-full bg-accent/8 blur-[150px]" />
 
       <div className="relative mx-auto max-w-7xl px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+        <div
           className="mx-auto max-w-4xl text-center"
         >
           {/* Eyebrow — Phase 2 design swap from "AI-Powered Proctoring"
@@ -70,13 +67,10 @@ export default function Hero() {
             <span className="hidden h-4 w-px bg-white/10 sm:block" />
             <span className="hidden sm:block">No credit card required</span>
           </div>
-        </motion.div>
+        </div>
 
         {/* Dashboard mockup */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.3 }}
+        <div
           className="relative mx-auto mt-16 max-w-5xl"
         >
           <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-navy-900 shadow-2xl shadow-black/40 card-topline grain-overlay" style={{ overflow: 'hidden' }}>
@@ -145,7 +139,7 @@ export default function Hero() {
               </div>
             </div>
           </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   )

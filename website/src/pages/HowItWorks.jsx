@@ -1,5 +1,5 @@
 import { Helmet } from 'react-helmet-async'
-import { motion } from 'framer-motion'
+import useInView from '../hooks/useInView'
 import { Link } from 'react-router-dom'
 import { UserPlus, Monitor, ShieldCheck, FileText } from 'lucide-react'
 import Navbar from '../components/Navbar'
@@ -42,7 +42,7 @@ export default function HowItWorksPage() {
       <Navbar />
       <section className="pt-32 pb-20 md:pt-44 md:pb-32">
         <div className="mx-auto max-w-7xl px-6">
-          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-3xl text-center">
+          <div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-3xl text-center">
             <h1 className="font-display text-4xl font-bold text-white md:text-5xl lg:text-6xl">
               How{' '}
               <span className="bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent">AI Proctoring</span>{' '}
@@ -51,16 +51,12 @@ export default function HowItWorksPage() {
             <p className="mt-6 text-lg leading-relaxed text-slate-400 md:text-xl">
               From exam creation to automated scorecards — four steps that take the stress out of online exams.
             </p>
-          </motion.div>
+          </div>
 
           <div className="mt-20 space-y-16">
             {steps.map((step, i) => (
-              <motion.div
+              <div
                 key={step.title}
-                initial={{ opacity: 0, y: 24 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-60px' }}
-                transition={{ duration: 0.5, delay: i * 0.1 }}
                 className="flex flex-col gap-6 md:flex-row md:items-start md:gap-10"
               >
                 <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-accent/10 border border-accent/20">
@@ -70,7 +66,7 @@ export default function HowItWorksPage() {
                   <h2 className="font-display text-xl font-bold text-white md:text-2xl">{step.title}</h2>
                   <p className="mt-3 text-base leading-relaxed text-slate-400 max-w-3xl">{step.body}</p>
                 </div>
-              </motion.div>
+              </div>
             ))}
           </div>
 

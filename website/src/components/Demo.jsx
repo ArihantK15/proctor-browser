@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion'
+import useInView from '../hooks/useInView'
 import { Play, Maximize2, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useState, useRef, useEffect, useCallback } from 'react'
@@ -120,11 +120,7 @@ export default function Demo() {
 
       {/* Heading column — narrow for readable line length */}
       <div className="mx-auto max-w-7xl px-6 relative">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5 }}
+        <div
           className="mx-auto max-w-2xl text-center"
         >
           <span className="label-mono text-accent">Request a Demo</span>
@@ -136,15 +132,11 @@ export default function Demo() {
             30 minutes, no sales pitch. Bring your IT manager; there's nothing
             to install on the server.
           </p>
-        </motion.div>
+        </div>
       </div>
 
       {/* Demo card — escapes the heading column for more real estate. */}
-      <motion.div
-        initial={{ opacity: 0, y: 32 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-40px' }}
-        transition={{ duration: 0.6, delay: 0.1 }}
+      <div
         className="relative mx-auto mt-12 w-full px-4 sm:px-6 md:px-8"
         style={{ maxWidth: '1600px' }}
       >
@@ -221,7 +213,7 @@ export default function Demo() {
             )}
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {/* CTAs */}
       <div className="mx-auto max-w-7xl px-6 relative">
@@ -244,24 +236,14 @@ export default function Demo() {
       {/* Fullscreen modal in a portal to escape any ancestor transform
           context that would break position:fixed. */}
       {typeof document !== 'undefined' && createPortal(
-        <AnimatePresence>
-          {fullscreen && (
-            <motion.div
-              key="demo-fs"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
+        fullscreen ? <>
+            <div
               onClick={closeFullscreen}
               className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-sm flex items-center justify-center p-2 sm:p-6 md:p-10"
               style={{ touchAction: 'none' }}
             >
-              <motion.div
+              <div
                 ref={modalRef}
-                initial={{ scale: 0.96, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.96, opacity: 0 }}
-                transition={{ duration: 0.25, ease: 'easeOut' }}
                 onClick={(e) => e.stopPropagation()}
                 className="relative w-full max-h-full aspect-video bg-navy-900 rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.08] shadow-2xl"
                 style={{ maxWidth: 'min(100%, calc((100vh - 6rem) * 16 / 9))' }}
@@ -285,10 +267,9 @@ export default function Demo() {
                 >
                   <X size={18} />
                 </button>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>,
+              </div>
+            </div>
+          </> : null,
         document.body
       )}
     </section>

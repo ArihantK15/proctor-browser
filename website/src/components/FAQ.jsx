@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import useInView from '../hooks/useInView'
 import { ChevronDown } from 'lucide-react'
 
 const faqs = [
@@ -52,19 +52,19 @@ function FAQItem({ item }) {
           className={`shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-180 text-accent-light' : ''}`}
         />
       </button>
-      <AnimatePresence initial={false}>
+      
         {open && (
-          <motion.div
+          <div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden"
+            className={`overflow-hidden transition-all duration-200 ${open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}
           >
             <p className="px-6 pb-5 text-sm leading-relaxed text-slate-400 border-l-2 border-accent/30 ml-6 pl-4">{item.a}</p>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      
     </div>
   )
 }
@@ -73,7 +73,7 @@ export default function FAQ() {
   return (
     <section id="faq" className="relative py-24 md:py-32">
       <div className="mx-auto max-w-3xl px-6">
-        <motion.div
+        <div
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
@@ -84,9 +84,9 @@ export default function FAQ() {
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Common Questions
           </h2>
-        </motion.div>
+        </div>
 
-        <motion.div
+        <div
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-40px' }}
@@ -96,7 +96,7 @@ export default function FAQ() {
           {faqs.map(item => (
             <FAQItem key={item.q} item={item} />
           ))}
-        </motion.div>
+        </div>
       </div>
     </section>
   )

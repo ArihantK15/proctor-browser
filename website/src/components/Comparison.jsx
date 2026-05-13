@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
 import { Check, X } from 'lucide-react'
+import useInView from '../hooks/useInView'
 
 export default function Comparison() {
   const rows = [
@@ -17,24 +17,16 @@ export default function Comparison() {
     <section className="relative py-24 md:py-32 bg-navy-900/30">
       <div className="pointer-events-none absolute inset-0 grain-overlay" />
       <div className="mx-auto max-w-4xl px-6 relative">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5 }}
+        <div
           className="mx-auto max-w-2xl text-center"
         >
           <span className="label-mono text-accent">Comparison</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             How Procta Stacks Up
           </h2>
-        </motion.div>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-40px' }}
-          transition={{ duration: 0.5, delay: 0.1 }}
+        <div
           className="mt-12 relative overflow-hidden rounded-2xl border border-white/[0.06]"
         >
           {/* Accent top line */}
@@ -67,7 +59,7 @@ export default function Comparison() {
               ))}
             </tbody>
           </table>
-        </motion.div>
+        </div>
       </div>
     </section>
   )

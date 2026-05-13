@@ -1,5 +1,5 @@
 import { Helmet } from 'react-helmet-async'
-import { motion } from 'framer-motion'
+
 import { Link } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import Navbar from '../components/Navbar'
@@ -20,7 +20,7 @@ export default function BlogAiVsTraditional() {
       <Navbar />
       <article className="pt-32 pb-20 md:pt-44 md:pb-32">
         <div className="mx-auto max-w-3xl px-6">
-          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+          <div className="animate-fadeIn">
             <Link to="/blog" className="inline-flex items-center gap-1.5 text-sm text-accent-light hover:text-accent no-underline mb-8">
               <ArrowLeft size={14} /> Back to Blog
             </Link>
@@ -32,7 +32,7 @@ export default function BlogAiVsTraditional() {
               <span className="h-1 w-1 rounded-full bg-slate-600" />
               <span>8 min read</span>
             </div>
-          </motion.div>
+          </div>
 
           <div className="mt-12 prose prose-invert max-w-none text-slate-300 text-base leading-relaxed space-y-5">
             <p className="text-lg text-slate-400 leading-relaxed">

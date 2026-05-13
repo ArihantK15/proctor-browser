@@ -171,13 +171,15 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request.state.request_id = request_id
+        from .logger import set_trace_context
+        set_trace_context(request_id, request.method, request.url.path)
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
 
 
 class StructuredLogMiddleware(BaseHTTPMiddleware):
-    """Log each request as structured JSON with method, path, status, duration."""
+    """Log each request's method, path, status, and duration."""
 
     async def dispatch(self, request: Request, call_next):
         start = time.monotonic()
@@ -189,22 +191,13 @@ class StructuredLogMiddleware(BaseHTTPMiddleware):
             raise
         finally:
             duration_ms = round((time.monotonic() - start) * 1000, 1)
-            request_id = getattr(request.state, "request_id", "unknown")
-            log_entry = {
-                "ts": time.time(),
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "status": status,
-                "duration_ms": duration_ms,
-                "client_ip": request.client.host if request.client else "-",
-            }
+            msg = f"{request.method} {request.url.path} → {status} ({duration_ms}ms)"
             if status >= 500:
-                logger.error(json.dumps(log_entry))
+                logger.error(msg)
             elif status >= 400:
-                logger.warning(json.dumps(log_entry))
+                logger.warning(msg)
             else:
-                logger.info(json.dumps(log_entry))
+                logger.info(msg)
         return response
 
 

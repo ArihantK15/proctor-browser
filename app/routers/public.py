@@ -576,3 +576,16 @@ async def list_demo_requests(request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
     result = await _atable("demo_requests").select("*").order("created_at", desc=True).execute()
     return {"requests": result.data, "count": len(result.data)}
+
+
+_PHONE_CAM_PATH = Path(__file__).parent.parent.parent / "renderer" / "phone-cam.html"
+
+
+@router.get("/phone-cam")
+async def phone_cam_page(request: Request):
+    """Serve the phone camera capture page (room monitoring)."""
+    from fastapi.responses import FileResponse
+    if not _PHONE_CAM_PATH.exists():
+        return HTMLResponse("Phone camera page not found", status_code=404)
+    return FileResponse(str(_PHONE_CAM_PATH), media_type="text/html",
+                        headers={"Cache-Control": "no-cache"})

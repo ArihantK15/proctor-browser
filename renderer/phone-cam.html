@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Room Camera — Procta</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden;height:100dvh;display:flex;flex-direction:column}
+#preview{flex:1;background:#111;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+#preview video{width:100%;height:100%;object-fit:contain}
+#preview .placeholder{color:#555;font-size:14px;text-align:center;padding:20px}
+#status-bar{background:#1a1a1a;border-top:1px solid #333;padding:10px 16px;display:flex;align-items:center;gap:10px;font-size:12px;flex-shrink:0}
+#status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#status-dot.connecting{background:#f59e0b;animation:pulse 1s infinite}
+#status-dot.connected{background:#3fb950}
+#status-dot.error{background:#ef4444}
+#status-dot.inactive{background:#555}
+#status-msg{flex:1;color:#999}
+#warning-banner{background:#7c2d12;color:#fbbf24;padding:8px 12px;font-size:11px;text-align:center;line-height:1.4;flex-shrink:0}
+#consent-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:100;padding:24px}
+#consent-box{background:#1a1a2e;border:1px solid #333;border-radius:12px;padding:24px;max-width:360px;text-align:center}
+#consent-box h2{font-size:16px;margin-bottom:8px;color:#e0e0e0}
+#consent-box p{font-size:12px;color:#999;margin-bottom:16px;line-height:1.5}
+#consent-box .btn{display:block;width:100%;padding:12px;border-radius:8px;border:1px solid #5b8af0;background:#4a78dc;color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+#consent-box .btn:hover{background:#5b8af0}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+</style>
+</head>
+<body>
+
+<div id="consent-overlay">
+  <div id="consent-box">
+    <h2>Room Camera Consent</h2>
+    <p>This camera will record your surroundings during the exam, including anyone who enters the room. By continuing, you consent to this recording.</p>
+    <p style="font-size:11px;color:#888;margin-bottom:16px">You must keep this phone screen on and the camera unobstructed for the entire exam.</p>
+    <button class="btn" onclick="startCamera()">I Consent — Start Camera</button>
+  </div>
+</div>
+
+<div id="preview">
+  <video id="cam" autoplay playsinline muted style="display:none"></video>
+  <div class="placeholder" id="placeholder">
+    <div style="font-size:32px;margin-bottom:8px">&#x1F4F1;</div>
+    <div>Open this page on your phone</div>
+    <div style="font-size:11px;color:#555;margin-top:4px">Place phone 1m behind you showing your workspace</div>
+  </div>
+</div>
+<div id="warning-banner">⚠️ Do not lock this phone or close this tab during the exam</div>
+<div id="status-bar">
+  <div id="status-dot" class="inactive"></div>
+  <span id="status-msg">Waiting — scan QR from exam screen</span>
+</div>
+
+<div id="target-overlay" style="display:none;position:absolute;inset:0;pointer-events:none;border:2px dashed rgba(91,138,240,0.5);border-radius:12px;margin:30px;z-index:10"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const token = params.get('token');
+const sessionId = params.get('session_id');
+
+const preview = document.getElementById('preview');
+const video = document.getElementById('cam');
+const placeholder = document.getElementById('placeholder');
+const statusDot = document.getElementById('status-dot');
+const statusMsg = document.getElementById('status-msg');
+const warningBanner = document.getElementById('warning-banner');
+const targetOverlay = document.getElementById('target-overlay');
+
+let ws = null;
+let sendTimer = null;
+let heartbeatTimer = null;
+let wakeLock = null;
+let stream = null;
+let consentGiven = false;
+
+function setStatus(state, msg){
+  statusDot.className = state;
+  statusMsg.textContent = msg;
+}
+
+async function startCamera(){
+  document.getElementById('consent-overlay').style.display = 'none';
+  consentGiven = true;
+
+  // Acquire WakeLock to prevent screen sleep
+  try{
+    if('wakeLock' in navigator){
+      wakeLock = await navigator.wakeLock.request('screen');
+    }
+  }catch(e){
+    warningBanner.textContent = '⚠️ Your device may lock during the exam. Disable auto-lock in Settings.';
+    warningBanner.style.display = '';
+  }
+
+  setStatus('connecting', 'Starting camera...');
+
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {facingMode: 'environment', width: {ideal: 640}, height: {ideal: 480}},
+      audio: false,
+    });
+  }catch(e){
+    setStatus('error', 'Camera access denied. Allow camera permission and try again.');
+    return;
+  }
+
+  video.srcObject = stream;
+  video.style.display = '';
+  placeholder.style.display = 'none';
+  targetOverlay.style.display = '';
+
+  // Wait for video to start
+  await video.play();
+  setStatus('connecting', 'Connecting to server...');
+
+  connectWs();
+}
+
+function connectWs(){
+  if(!token || !sessionId){
+    setStatus('error', 'Invalid QR code — please scan again from the exam screen.');
+    return;
+  }
+  const proto = (location.protocol==='https:')?'wss:':'ws:';
+  const host = location.host;
+  ws = new WebSocket(`${proto}//${host}/ws/v1/room-frame/${encodeURIComponent(sessionId)}`, [token]);
+
+  ws.onopen = () => {
+    setStatus('connected', 'Room camera connected — capturing 1 frame/second');
+    warningBanner.style.display = 'none';
+    targetOverlay.style.display = '';
+
+    // Start sending frames
+    sendTimer = setInterval(sendFrame, 1000);
+    heartbeatTimer = setInterval(sendHeartbeat, 8000);
+  };
+
+  ws.onclose = (e) => {
+    setStatus('connecting', 'Disconnected — reconnecting...');
+    if(sendTimer){ clearInterval(sendTimer); sendTimer = null; }
+    if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    // Auto-reconnect after 3 seconds
+    setTimeout(() => {
+      if(consentGiven) connectWs();
+    }, 3000);
+  };
+
+  ws.onerror = () => {
+    setStatus('error', 'Connection error. Check your network.');
+  };
+}
+
+function sendFrame(){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 240;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, 320, 240);
+  canvas.toBlob(blob => {
+    if(blob && ws.readyState === WebSocket.OPEN){
+      ws.send(blob);
+    }
+  }, 'image/jpeg', 0.4);
+}
+
+function sendHeartbeat(){
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({type: 'heartbeat'}));
+  }
+}
+
+// Handle WakeLock release
+document.addEventListener('visibilitychange', async () => {
+  if(document.visibilityState === 'visible' && consentGiven && !wakeLock){
+    try{
+      if('wakeLock' in navigator){
+        wakeLock = await navigator.wakeLock.request('screen');
+      }
+    }catch(e){}
+  }
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  if(sendTimer) clearInterval(sendTimer);
+  if(heartbeatTimer) clearInterval(heartbeatTimer);
+  if(ws) ws.close();
+  if(stream) stream.getTracks().forEach(t => t.stop());
+});
+
+// If token and sessionId are in URL, auto-start (after consent)
+if(token && sessionId && !consentGiven){
+  // Consent overlay is shown — user clicks button to proceed
+}
+</script>
+</body>
+</html>

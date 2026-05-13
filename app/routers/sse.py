@@ -98,6 +98,8 @@ async def upload_live_frame_http(body: LiveFrameIn):
 _ws_clients: dict[str, list[WebSocket]] = {}
 _ws_lock = asyncio.Lock()
 _ws_conn_count: dict[str, int] = {}
+_ws_room_conns: dict[str, WebSocket] = {}
+_last_room_frame: dict[str, float] = {}
 MAX_WS_PER_SESSION = 3
 MAX_WS_MSG_BYTES = 200 * 1024  # 200 KB — enough for HD JPEG
 
@@ -240,6 +242,104 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
         logger.debug("WebSocket live-frame error: %s", e)
     finally:
         await _ws_unsubscribe(session_id, websocket)
+
+
+# ─── ROOM CAMERA WEBSOCKET (student phone) ──────────────────────
+
+
+@router.websocket("/ws/v1/room-frame/{session_id}")
+async def ws_room_frame(websocket: WebSocket, session_id: str):
+    """WebSocket binary room-camera feed from the student's phone.
+
+    Auth: token via Sec-WebSocket-Protocol subprotocol (time-bound
+    room-cam JWT, scope='room-cam').  Only ONE phone WS per session
+    is allowed — a new connection kills the old one.
+
+    The phone sends:
+      - Binary frames → raw JPEG bytes (stored in Redis)
+      - JSON text frames → {"type": "heartbeat"}
+    """
+    sp = websocket.headers.get("sec-websocket-protocol", "")
+    token = sp.split(",")[0].strip() if sp else ""
+
+    await websocket.accept(subprotocol=token or None)
+
+    # Validate room-cam token
+    try:
+        claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        if claims.get("scope") != "room-cam":
+            await websocket.close(code=4001, reason="invalid_scope")
+            return
+        if claims.get("sid") != session_id:
+            await websocket.close(code=4003, reason="access_denied")
+            return
+    except (JWTError, Exception):
+        await websocket.close(code=4001, reason="auth_failed")
+        return
+
+    # Connection singleton — close any existing phone WS for this session
+    async with _ws_lock:
+        old = _ws_room_conns.get(session_id)
+        if old:
+            try:
+                await old.close(code=4000, reason="replaced")
+            except Exception:
+                pass
+        _ws_room_conns[session_id] = websocket
+
+    # Update DB: mark room cam as active
+    try:
+        from ..database import async_table as _atable
+        await _atable("exam_sessions").update({"room_cam_status": "pending"})\
+            .eq("session_key", session_id).execute()
+    except Exception:
+        pass
+
+    _last_room_frame: dict[str, float] = {}
+
+    try:
+        while True:
+            msg = await websocket.receive()
+            if msg.get("type") == "websocket.receive":
+                if "bytes" in msg:
+                    data = msg["bytes"]
+                    if len(data) > MAX_WS_MSG_BYTES:
+                        continue
+                    _store_room_frame(session_id, data)
+                    _last_room_frame[session_id] = time.time()
+                elif "text" in msg:
+                    try:
+                        payload = json.loads(msg["text"])
+                        if payload.get("type") == "heartbeat":
+                            _last_room_frame[session_id] = time.time()
+                    except Exception:
+                        pass
+            elif msg.get("type") in ("websocket.disconnect",):
+                break
+    except Exception:
+        pass
+    finally:
+        async with _ws_lock:
+            if _ws_room_conns.get(session_id) is websocket:
+                _ws_room_conns.pop(session_id, None)
+        _last_room_frame.pop(session_id, None)
+        # Mark room cam as offline in DB
+        try:
+            from ..database import async_table as _atable
+            await _atable("exam_sessions").update({"room_cam_status": "disabled"})\
+                .eq("session_key", session_id).execute()
+        except Exception:
+            pass
+
+
+def _store_room_frame(session_id: str, jpeg_bytes: bytes):
+    """Store a room camera frame in the cache (backed by Redis)."""
+    from .. import cache as _cache
+    if _cache:
+        try:
+            _cache.set_room_frame(session_id, jpeg_bytes, ttl=10)
+        except Exception:
+            pass
 
 
 @router.get("/api/v1/proctor/control/{session_id}")

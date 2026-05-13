@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import Request, HTTPException, Body
@@ -679,7 +679,6 @@ async def _try_ags_grade_passback(
             _exam_log.warning("[AGS] Failed to get access token for %s", iss)
             return
 
-        from datetime import datetime, timezone
         ok = await post_score(
             lineitem_url=ags_ctx["ags_lineitems"],
             access_token=access_token,
@@ -1033,3 +1032,30 @@ async def get_events(session_id: str, request: Request):
             for e in events
         ],
     }
+
+
+@router.post("/api/v1/room-cam-token")
+@limiter.limit("10/minute")
+async def room_cam_token(request: Request, body: dict = Body(...)):
+    """Issue a time-bound room-cam JWT for phone pairing.
+
+    Body: {"session_id": "ALICE001_abc-123"}
+    Returns a 2-hour token with scope='room-cam'.
+    The phone uses this token to authenticate its WebSocket connection.
+    """
+    student = await require_auth(request)
+    session_id = (body.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    roll = student.get("roll", "")
+    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
+        raise HTTPException(status_code=403, detail="Session does not belong to this student")
+    import jwt as _jwt
+    from ..constants import SECRET_KEY
+    token = _jwt.encode({
+        "scope": "room-cam",
+        "sid": session_id,
+        "roll": roll,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=2),
+    }, SECRET_KEY, algorithm="HS256")
+    return {"token": token, "session_id": session_id, "expires_in_hours": 2}

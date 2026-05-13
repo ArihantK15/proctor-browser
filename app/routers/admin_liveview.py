@@ -90,3 +90,97 @@ async def live_view_force_stop(session_id: str, request: Request):
         _cache.delete(f"liveview:{session_id}")
         _cache.delete(f"liveframe:{session_id}")
     return {"ok": True}
+
+
+# ─── ROOM CAMERA (phone) ────────────────────────────────────────
+
+
+@router.post("/api/v1/admin/sessions/{session_id:path}/room-cam/start")
+@limiter.limit("30/minute")
+async def room_cam_start(session_id: str, request: Request):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    await _assert_session_owned(session_id, tid)
+    if _cache:
+        _cache.set(f"roomcam:{session_id}", {"tid": tid, "started_at": now_ist().isoformat()}, ttl=60)
+    return {"ok": True, "session_id": session_id, "ttl_sec": 60}
+
+
+@router.post("/api/v1/admin/sessions/{session_id:path}/room-cam/keepalive")
+@limiter.limit("60/minute")
+async def room_cam_keepalive(session_id: str, request: Request):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    await _assert_session_owned(session_id, tid)
+    if _cache:
+        _cache.set(f"roomcam:{session_id}", {"tid": tid, "renewed_at": now_ist().isoformat()}, ttl=60)
+    return {"ok": True}
+
+
+@router.post("/api/v1/admin/sessions/{session_id:path}/room-cam/stop")
+@limiter.limit("30/minute")
+async def room_cam_stop(session_id: str, request: Request):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    await _assert_session_owned(session_id, tid)
+    if _cache:
+        _cache.delete(f"roomcam:{session_id}")
+        _cache.delete(f"roomframe:{session_id}")
+    return {"ok": True}
+
+
+@router.get("/api/v1/admin/sessions/{session_id:path}/room-cam/frame")
+@limiter.limit("30/minute")
+async def room_cam_frame(session_id: str, request: Request):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    await _assert_session_owned(session_id, tid)
+    if not _cache:
+        return Response(status_code=204)
+    payload = _cache.get(f"roomframe:{session_id}")
+    if not payload or not isinstance(payload, dict):
+        return Response(status_code=204)
+    jpeg = payload.get("jpeg_bytes")
+    if jpeg:
+        return Response(content=jpeg, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store, max-age=0"})
+    return Response(status_code=204)
+
+
+@router.post("/api/v1/admin/sessions/{session_id:path}/room-cam/approve")
+@limiter.limit("30/minute")
+async def room_cam_approve(session_id: str, request: Request):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    await _assert_session_owned(session_id, tid)
+    from ..database import async_table as _atable
+    await _atable("exam_sessions").update({
+        "room_cam_status": "approved",
+        "room_cam_approved_at": now_ist().isoformat(),
+    }).eq("session_key", session_id).execute()
+    return {"ok": True, "status": "approved"}
+
+
+@router.post("/api/v1/admin/sessions/{session_id:path}/room-cam/reject")
+@limiter.limit("30/minute")
+async def room_cam_reject(session_id: str, request: Request):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    await _assert_session_owned(session_id, tid)
+    from ..database import async_table as _atable
+    await _atable("exam_sessions").update({
+        "room_cam_status": "rejected",
+    }).eq("session_key", session_id).execute()
+    return {"ok": True, "status": "rejected"}
+
+
+@router.get("/api/v1/admin/sessions/{session_id:path}/room-cam/status")
+@limiter.limit("30/minute")
+async def room_cam_status(session_id: str, request: Request):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    await _assert_session_owned(session_id, tid)
+    from ..database import async_table as _atable
+    row = await _atable("exam_sessions").select("room_cam_status,room_cam_approved_at").eq("session_key", session_id).limit(1).execute()
+    data = row.data[0] if row.data else {}
+    return {"status": data.get("room_cam_status", "disabled"), "approved_at": data.get("room_cam_approved_at")}

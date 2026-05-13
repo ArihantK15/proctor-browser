@@ -120,6 +120,31 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
         _log.debug("Liveframe LRU eviction failed", exc_info=True)
 
 
+def set_room_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
+    """Store a room camera frame (from student's phone) in Redis.
+
+    Same pickle+base64 format as live frames but stored under
+    ``roomframe:{session_id}`` and NOT LRU-capped (room frames
+    are per-session, not aggregated per-teacher).
+    """
+    global _r_healthy
+    if ttl <= 0:
+        return
+    try:
+        r = _client()
+        if r is None:
+            return
+        now = time.time()
+        payload = base64.b64encode(
+            pickle.dumps({"jpeg_bytes": jpeg_bytes, "at": now})
+        ).decode("ascii")
+        r.setex(f"roomframe:{session_id}", ttl, payload)
+    except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
+        _r_healthy = False
+    except Exception:
+        _log.debug("Cache set_room_frame failed for session=%s", session_id, exc_info=True)
+
+
 def delete(key: str) -> None:
     """Remove a single cache key."""
     global _r_healthy

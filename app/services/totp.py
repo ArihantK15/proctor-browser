@@ -15,9 +15,20 @@ logger = logging.getLogger(__name__)
 BACKUP_CODE_COUNT = 10
 ISSUER_NAME = "Procta"
 
+# Cache Fernet key at module level so enc/dec are consistent within a process
+_FERNET_KEY = (TOTP_ENCRYPTION_KEY.encode()
+               if TOTP_ENCRYPTION_KEY
+               else Fernet.generate_key())
+if not TOTP_ENCRYPTION_KEY:
+    logger.warning(
+        "[totp] TOTP_ENCRYPTION_KEY not set — using ephemeral key. "
+        "TOTP secrets will be lost on server restart. "
+        "Set TOTP_ENCRYPTION_KEY in .env for production."
+    )
+
 
 def _get_fernet() -> Fernet:
-    key = TOTP_ENCRYPTION_KEY.encode() if TOTP_ENCRYPTION_KEY else Fernet.generate_key()
+    return Fernet(_FERNET_KEY)
     return Fernet(key)
 
 

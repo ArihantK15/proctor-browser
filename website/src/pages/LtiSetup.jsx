@@ -220,7 +220,7 @@ export default function LtiSetup() {
               },
               {
                 q: 'Is Google Classroom supported?',
-                a: 'Google Classroom uses a different integration model than standard LTI 1.3. Procta supports Canvas, Moodle, and Blackboard natively via LTI 1.3 Advantage. Google Classroom integration requires a separate API-based setup — contact us for details.',
+                a: 'Yes — Procta now has a native Google Classroom integration via the Google Classroom API. Teachers can connect their Google account, sync course rosters, link exams to courses, and push grades back to Classroom. It uses a different integration model than LTI 1.3 (since Google Classroom does not fully support LTI 1.3). Go to Tools → Google Classroom in your Procta dashboard to set it up.',
               },
               {
                 q: 'Can I use Procta without LTI?',

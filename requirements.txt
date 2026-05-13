@@ -16,3 +16,5 @@ uvloop>=0.19.0
 openpyxl>=3.1.0
 sentry-sdk[fastapi]>=2.0.0   # optional — only used when SENTRY_DSN is set
 qrcode>=8.0
+
+google-auth-oauthlib>=1.2.0

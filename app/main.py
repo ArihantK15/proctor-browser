@@ -40,6 +40,7 @@ from .routers.billing import router as billing_router
 from .routers.checkout import router as checkout_router
 from .routers.lti import router as lti_router
 from .routers.api import router as api_router
+from .routers.google_classroom import router as google_classroom_router
 
 # ── structured logger ─────────────────────────────────────────────
 logger = logging.getLogger("proctor.api")
@@ -449,3 +450,4 @@ app.include_router(billing_router)
 app.include_router(checkout_router)
 app.include_router(lti_router)
 app.include_router(api_router)
+app.include_router(google_classroom_router)

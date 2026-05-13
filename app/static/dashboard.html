@@ -904,6 +904,26 @@
         <div class="tool-card-result" id="phone-cam-status" style="font-size:12px"></div>
       </div>
 
+      <div class="tool-card" id="google-classroom-card">
+        <div class="tool-card-body">
+          <h3>Google Classroom</h3>
+          <p>Sync courses, rosters, and push grades directly to Google Classroom.</p>
+          <div id="google-status" style="font-size:12px;color:var(--text-muted);margin-bottom:8px"></div>
+          <div id="google-courses" style="display:none;margin-bottom:8px">
+            <div style="margin-bottom:6px;max-height:200px;overflow-y:auto" id="google-course-list"></div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Link to exam:</label>
+            <select id="google-exam-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text);font-size:12px;margin-bottom:8px"></select>
+            <button class="btn btn-primary btn-sm" onclick="syncGoogleRoster()" style="margin-right:6px">Sync roster</button>
+            <button class="btn btn-secondary btn-sm" onclick="disconnectGoogle()">Disconnect</button>
+          </div>
+        </div>
+        <div class="tool-card-actions" id="google-actions">
+          <button class="btn btn-primary btn-sm" id="google-connect-btn" onclick="connectGoogle()" style="display:none">Connect Google Classroom</button>
+          <div id="google-spinner" class="spinner" style="display:none"></div>
+        </div>
+        <div class="tool-card-result" id="google-result" style="font-size:12px"></div>
+      </div>
+
       <div class="tool-card">
         <div class="tool-card-body">
           <h3>Backfill Risk Scores</h3>
@@ -2168,13 +2188,14 @@ function switchTab(tab){
   }
   if(tab==='analytics') loadAnalytics();
   if(tab==='history') refreshStudentList();
-  if(tab==='tools'){
-    try{ if(typeof loadRegisteredCount==='function') loadRegisteredCount(); }catch(_){}
-    try{ if(typeof loadAccessCode==='function') loadAccessCode(); }catch(_){}
-    try{ if(typeof loadSchedule==='function') loadSchedule(); }catch(_){}
-    try{ if(typeof loadShuffleConfig==='function') loadShuffleConfig(); }catch(_){}
-    try{ if(typeof loadTemplates==='function') loadTemplates(); }catch(_){}
-  }
+   if(tab==='tools'){
+     try{ if(typeof loadRegisteredCount==='function') loadRegisteredCount(); }catch(_){}
+     try{ if(typeof loadAccessCode==='function') loadAccessCode(); }catch(_){}
+     try{ if(typeof loadSchedule==='function') loadSchedule(); }catch(_){}
+     try{ if(typeof loadShuffleConfig==='function') loadShuffleConfig(); }catch(_){}
+     try{ if(typeof loadTemplates==='function') loadTemplates(); }catch(_){}
+     try{ if(typeof loadGoogleClassroom==='function') loadGoogleClassroom(); }catch(_){}
+   }
   if(tab==='org') loadOrgOverview();
   if(tab==='members') loadMembers();
   if(tab==='billing') loadBilling();
@@ -3693,6 +3714,131 @@ async function emailAllScorecards(){
   } catch (e) {
     alert("Failed to email scorecards: " + e.message);
   }
+}
+
+// ── GOOGLE CLASSROOM ─────────────────────────────────────────────
+async function loadGoogleClassroom(){
+  const card = document.getElementById('google-classroom-card');
+  const statusEl = document.getElementById('google-status');
+  const resultEl = document.getElementById('google-result');
+  const connectBtn = document.getElementById('google-connect-btn');
+  const coursesDiv = document.getElementById('google-courses');
+  if(!card) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/google/courses`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if(!d.connected){
+      connectBtn.style.display = '';
+      coursesDiv.style.display = 'none';
+      statusEl.textContent = 'Not connected. Link your Google account to sync courses and rosters.';
+      resultEl.textContent = '';
+      return;
+    }
+    connectBtn.style.display = 'none';
+    statusEl.textContent = `Connected as ${escHtml(d.email)}`;
+    if(d.error){
+      statusEl.textContent += ' (' + d.error + ')';
+      connectBtn.style.display = '';
+      return;
+    }
+    // Show course list
+    coursesDiv.style.display = '';
+    const listEl = document.getElementById('google-course-list');
+    listEl.innerHTML = (d.courses||[]).map(c => `
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-subtle);cursor:pointer" data-cid="${escAttr(c.id)}">
+        <input type="checkbox" ${c.linked?'checked':''} onchange="toggleGoogleCourse('${escAttr(c.id)}', this.checked)">
+        <span style="font-size:12px;color:${c.linked?'var(--accent-light)':'var(--text-secondary)'}">${escHtml(c.name)} ${c.section?'('+escHtml(c.section)+')':''}</span>
+      </label>
+    `).join('');
+    // Populate exam select
+    const sel = document.getElementById('google-exam-select');
+    const exams = document.querySelectorAll('#exam-select option');
+    if(sel){
+      const curr = sel.value;
+      sel.innerHTML = '<option value="">Select exam…</option>';
+      document.querySelectorAll('#exam-select option').forEach(o => {
+        if(o.value) sel.innerHTML += `<option value="${escAttr(o.value)}">${escHtml(o.text)}</option>`;
+      });
+      if(curr) sel.value = curr;
+    }
+    resultEl.textContent = `Found ${d.courses.length} course(s)`;
+  }catch(e){
+    connectBtn.style.display = '';
+    coursesDiv.style.display = 'none';
+    statusEl.textContent = 'Failed to load Google Classroom data.';
+  }
+}
+
+async function connectGoogle(){
+  const resultEl = document.getElementById('google-result');
+  resultEl.textContent = 'Redirecting to Google...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/google/auth`);
+    if(!r.ok) throw new Error('Failed to start Google auth');
+    const d = await r.json();
+    if(d.auth_url){
+      window.open(d.auth_url, 'google-auth', 'width=600,height=700');
+      // Poll for connection
+      const poll = setInterval(async () => {
+        const cr = await authFetch(`${BASE}/api/v1/google/courses`);
+        if(!cr.ok) return;
+        const cd = await cr.json();
+        if(cd.connected){
+          clearInterval(poll);
+          loadGoogleClassroom();
+        }
+      }, 2000);
+      setTimeout(() => clearInterval(poll), 120000);
+    }
+  }catch(e){ resultEl.textContent = 'Failed: '+e.message; }
+}
+
+async function disconnectGoogle(){
+  if(!confirm('Disconnect Google Classroom? Linked courses will be unlinked.')) return;
+  const resultEl = document.getElementById('google-result');
+  resultEl.textContent = 'Disconnecting...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/google/disconnect`, {method:'POST'});
+    if(!r.ok) throw new Error();
+    resultEl.textContent = 'Disconnected.';
+    loadGoogleClassroom();
+  }catch(e){ resultEl.textContent = 'Failed to disconnect.'; }
+}
+
+async function toggleGoogleCourse(courseId, linked){
+  const resultEl = document.getElementById('google-result');
+  const examId = document.getElementById('google-exam-select').value;
+  if(linked && !examId){
+    resultEl.textContent = 'Select an exam first before linking a course.';
+    return;
+  }
+  try{
+    const ep = linked ? 'link-exam' : 'unlink-exam';
+    const r = await authFetch(`${BASE}/api/v1/google/${ep}`, {
+      method:'POST',
+      body: JSON.stringify({course_id: courseId, exam_id: examId}),
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    resultEl.textContent = linked ? 'Course linked to exam.' : 'Course unlinked.';
+  }catch(e){ resultEl.textContent = 'Failed: '+e.message; }
+}
+
+async function syncGoogleRoster(){
+  const courseId = document.querySelector('#google-course-list input:checked');
+  const examId = document.getElementById('google-exam-select').value;
+  if(!courseId){ alert('Select a course first.'); return; }
+  const resultEl = document.getElementById('google-result');
+  resultEl.textContent = 'Syncing roster...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/google/sync-roster`, {
+      method:'POST',
+      body: JSON.stringify({course_id: courseId.dataset.cid, exam_id: examId}),
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    resultEl.textContent = `Imported ${d.imported} students (${d.total} total in course).`;
+  }catch(e){ resultEl.textContent = 'Failed: '+e.message; }
 }
 
 // ── TOOLS ───────────────────────────────────────────────────────
@@ -6211,7 +6357,7 @@ async function unassignGroup(gid){
 const _origSwitchTab = switchTab;
 switchTab = function(tab){
   _origSwitchTab(tab);
-  if(tab==='tools'){ loadGroups(); loadInvites(); _populateInviteGroupSelect(); }
+  if(tab==='tools'){ loadGroups(); loadInvites(); _populateInviteGroupSelect(); try{ if(typeof loadGoogleClassroom==='function') loadGoogleClassroom(); }catch(_){}}
 };
 
 // ── EMAIL INVITES ──────────────────────────────────────────────

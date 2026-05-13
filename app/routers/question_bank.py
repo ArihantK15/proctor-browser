@@ -83,6 +83,7 @@ class UpdateQuestionsIn(BaseModel):
 # ─── QUESTION BANK ─────────────────────────────────────────────────
 
 @router.get("/api/v1/admin/question-bank")
+@limiter.limit("30/minute")
 async def list_bank_questions(request: Request):
     """List all question bank entries for the teacher, optionally filtered by tag."""
     teacher = await require_admin(request)
@@ -99,6 +100,7 @@ async def list_bank_questions(request: Request):
 
 
 @router.post("/api/v1/admin/question-bank")
+@limiter.limit("30/minute")
 async def add_bank_questions(request: Request, body: BankQuestionIn = Body(...)):
     """Add one or more questions to the bank."""
     teacher = await require_admin(request)
@@ -122,6 +124,7 @@ async def add_bank_questions(request: Request, body: BankQuestionIn = Body(...))
 
 
 @router.put("/api/v1/admin/question-bank/{qid}")
+@limiter.limit("30/minute")
 async def update_bank_question(qid: str, request: Request, body: UpdateQuestionIn = Body(...)):
     """Update a question in the bank."""
     teacher = await require_admin(request)
@@ -142,6 +145,7 @@ async def update_bank_question(qid: str, request: Request, body: UpdateQuestionI
 
 
 @router.delete("/api/v1/admin/question-bank/{qid}")
+@limiter.limit("30/minute")
 async def delete_bank_question(qid: str, request: Request):
     """Delete a question from the bank."""
     teacher = await require_admin(request)
@@ -151,6 +155,7 @@ async def delete_bank_question(qid: str, request: Request):
 
 
 @router.post("/api/v1/admin/question-bank/import")
+@limiter.limit("30/minute")
 async def import_bank_questions(request: Request, body: ImportQuestionsIn = Body(...)):
     """Bulk import questions from CSV-style JSON array.
 
@@ -191,6 +196,7 @@ async def import_bank_questions(request: Request, body: ImportQuestionsIn = Body
 
 
 @router.get("/api/v1/admin/question-bank/export")
+@limiter.limit("30/minute")
 async def export_bank_questions(request: Request):
     """Export all bank questions as JSON."""
     teacher = await require_admin(request)
@@ -333,6 +339,7 @@ async def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body
 
 
 @router.post("/api/v1/admin/question-bank/to-exam")
+@limiter.limit("30/minute")
 async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
     """Copy bank questions into an exam's question list."""
     teacher = await require_admin(request)
@@ -441,6 +448,7 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
 
 
 @router.get("/api/v1/admin/questions")
+@limiter.limit("30/minute")
 async def get_admin_questions(request: Request):
     """Return all questions including correct answers (admin only)."""
     teacher = await require_admin(request)
@@ -460,6 +468,7 @@ async def get_admin_questions(request: Request):
 
 
 @router.get("/api/v1/admin/answers/{session_id:path}")
+@limiter.limit("30/minute")
 async def get_admin_answers(session_id: str, request: Request):
     """Return student answers merged with correct answers for the detail modal."""
     teacher = await require_admin(request)
@@ -526,6 +535,7 @@ async def get_admin_answers(session_id: str, request: Request):
 
 
 @router.post("/api/v1/admin/questions")
+@limiter.limit("30/minute")
 async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)):
     """Update questions in Supabase."""
     teacher = await require_admin(request)

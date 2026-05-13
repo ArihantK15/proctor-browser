@@ -5,6 +5,7 @@ Public API      — X-API-Key auth, programmatic access to exam data.
 """
 
 from fastapi import APIRouter, Request, HTTPException, Depends
+from ..limiter import limiter
 
 from ..auth.api_auth import generate_api_key, revoke_api_key, list_api_keys, authenticate_api_key
 from ..auth.admin_auth import require_admin
@@ -47,6 +48,7 @@ async def _require_api(request: Request) -> str:
 
 
 @router.get("/exams")
+@limiter.limit("30/minute")
 async def api_list_exams(request: Request, tid: str = Depends(_require_api)):
     result = await _atable("exam_configs").select(
         "id,exam_title,starts_at,ends_at,duration_minutes,access_code,created_at"
@@ -55,6 +57,7 @@ async def api_list_exams(request: Request, tid: str = Depends(_require_api)):
 
 
 @router.get("/exams/{exam_id}")
+@limiter.limit("30/minute")
 async def api_get_exam(exam_id: str, request: Request, tid: str = Depends(_require_api)):
     result = await _atable("exam_configs").select("*")\
         .eq("id", exam_id).eq("teacher_id", tid).limit(1).execute()
@@ -64,6 +67,7 @@ async def api_get_exam(exam_id: str, request: Request, tid: str = Depends(_requi
 
 
 @router.get("/exams/{exam_id}/students")
+@limiter.limit("30/minute")
 async def api_exam_students(exam_id: str, request: Request, tid: str = Depends(_require_api)):
     result = await _atable("students").select("*")\
         .eq("teacher_id", tid).execute()
@@ -71,6 +75,7 @@ async def api_exam_students(exam_id: str, request: Request, tid: str = Depends(_
 
 
 @router.get("/exams/{exam_id}/sessions")
+@limiter.limit("30/minute")
 async def api_exam_sessions(exam_id: str, request: Request, tid: str = Depends(_require_api)):
     result = await _atable("exam_sessions").select("*")\
         .eq("exam_id", exam_id).eq("teacher_id", tid)\
@@ -79,6 +84,7 @@ async def api_exam_sessions(exam_id: str, request: Request, tid: str = Depends(_
 
 
 @router.get("/exams/{exam_id}/sessions/{session_key}")
+@limiter.limit("30/minute")
 async def api_session_detail(exam_id: str, session_key: str, request: Request, tid: str = Depends(_require_api)):
     result = await _atable("exam_sessions").select("*")\
         .eq("session_key", session_key).eq("teacher_id", tid).limit(1).execute()
@@ -88,6 +94,7 @@ async def api_session_detail(exam_id: str, session_key: str, request: Request, t
 
 
 @router.get("/students/{roll_number}")
+@limiter.limit("30/minute")
 async def api_get_student(roll_number: str, request: Request, tid: str = Depends(_require_api)):
     result = await _atable("students").select("*")\
         .eq("roll_number", roll_number.strip().upper()).eq("teacher_id", tid).limit(1).execute()

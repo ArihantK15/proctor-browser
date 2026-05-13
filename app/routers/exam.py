@@ -335,6 +335,7 @@ async def get_questions(request: Request):
 
 
 @router.get("/api/v1/check-session/{roll_number}")
+@limiter.limit("30/minute")
 async def check_session(roll_number: str, request: Request):
     """Check if student has an in-progress session to resume."""
     # Practice mode never has a resumable session
@@ -517,6 +518,7 @@ async def log_event(event: EventIn, request: Request):
 
 
 @router.post("/api/v1/heartbeat")
+@limiter.limit("30/minute")
 async def heartbeat(event: EventIn, request: Request):
     # Practice sandbox: don't track heartbeats
     if is_practice(event.session_id):
@@ -980,6 +982,7 @@ async def id_verification(data: IdVerifyIn, request: Request):
 
 
 @router.get("/api/v1/id-verification/status")
+@limiter.limit("30/minute")
 async def id_verification_status(request: Request, session_id: str = ""):
     """Student polls this to check if teacher has approved/retake/rejected."""
     if not session_id:
@@ -1009,6 +1012,7 @@ async def id_verification_status(request: Request, session_id: str = ""):
 
 
 @router.get("/api/v1/events/{session_id}")
+@limiter.limit("30/minute")
 async def get_events(session_id: str, request: Request):
     claims = require_auth(request)
     # Ownership check
@@ -1066,6 +1070,7 @@ async def room_cam_token(request: Request, body: dict = Body(...)):
 
 
 @router.get("/api/v1/room-cam-qr")
+@limiter.limit("30/minute")
 async def room_cam_qr(request: Request):
     """Generate a QR code SVG for phone camera pairing."""
     session_id = (request.query_params.get("session_id") or "").strip()
@@ -1103,6 +1108,7 @@ async def room_cam_qr(request: Request):
 
 
 @router.get("/api/v1/room-cam-approval-status")
+@limiter.limit("30/minute")
 async def room_cam_approval_status(request: Request):
     """Return the room camera approval status for the current session.
     

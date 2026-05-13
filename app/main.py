@@ -334,28 +334,31 @@ class ETagMiddleware(BaseHTTPMiddleware):
 
 class CSRFMiddleware(BaseHTTPMiddleware):
     """Protect state-changing endpoints from cross-site request forgery.
-    
+
     Checks ``X-CSRF-Token`` header against the JWT's ``csrf`` claim
-    on POST/PUT/DELETE requests to API routes.  If the header is absent
-    or the token lacks a ``csrf`` claim the request is allowed through
-    (backward compatibility).  Only rejects when the header is present
-    AND doesn't match.
+    on POST/PUT/DELETE requests to API routes.  If the JWT has a
+    ``csrf`` claim, the header is **required** and must match.
+    Tokens issued before the CSRF feature was added (no claim) are
+    allowed through for backward compatibility.
     """
     async def dispatch(self, request: Request, call_next):
         if request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/"):
-            csrf_header = request.headers.get("x-csrf-token", "")
-            if csrf_header:
-                auth = request.headers.get("Authorization", "")
-                if auth.startswith("Bearer "):
-                    try:
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                try:
+                    import jwt
+                    from .constants import SECRET_KEY
+                    claims = jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+                    csrf_claim = claims.get("csrf")
+                    if csrf_claim:
                         from .auth.tokens import verify_csrf
-                        import jwt
-                        from .constants import SECRET_KEY
-                        claims = jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+                        csrf_header = request.headers.get("x-csrf-token", "")
+                        if not csrf_header:
+                            return Response(status_code=403, content="CSRF token required. Include X-CSRF-Token header.")
                         if not verify_csrf(claims, csrf_header):
                             return Response(status_code=403, content="CSRF validation failed")
-                    except Exception:
-                        pass  # Invalid/expired JWT — allow through to normal auth
+                except Exception:
+                    pass  # Invalid/expired JWT — let normal auth handle it
         return await call_next(request)
 
 

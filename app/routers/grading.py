@@ -92,6 +92,7 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
 
 
 @router.get("/api/v1/admin/pending-grades")
+@limiter.limit("30/minute")
 async def pending_grades(request: Request):
     """List answers to short-answer questions that haven't been
     teacher-confirmed yet. Optionally filtered by exam_id."""
@@ -226,6 +227,7 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
 
 
 @router.post("/api/v1/admin/grade-confirm")
+@limiter.limit("30/minute")
 async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
     """Teacher commits a final score for a short-answer response.
     Sets teacher_score (the value used in the gradebook) and

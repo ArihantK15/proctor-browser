@@ -113,12 +113,19 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 
 ---
 
-## Phase 4 — Scale & Polish
+## Phase 4 — Scale & Polish ✅
 
-*Not started*
+*Shipped 2026-05-13 (`f8bcf37`, `22f4ca5`)*
 
-10. **Observability** — structured logging, distributed tracing, dashboards.
-11. **Live proctoring** — multi-camera, screen mirror, audio monitoring.
+10. **Observability** — Structured JSON logging via `python-json-logger`. Every `logger.info/warning/error` across the entire codebase emits JSON automatically with `request_id`, `method`, `path` via `contextvars` propagation. `trace_span()` async context manager for timing DB/API calls. RequestIDMiddleware sets trace context on every request.
+
+11. **Live proctoring** — Phone camera room monitoring:
+   - Exam toggle (`phone_camera_enabled`) per exam
+   - `renderer/phone-cam.html`: mobile capture page with `getUserMedia` (rear camera), `WakeLock` API, WebSocket JPEG streaming at 1fps, heartbeat every 8s
+   - `sse.py`: `/ws/v1/room-frame/{session_id}` — connection singleton, auto-reconnect, offline detection (>20s no beat → `room_cam_offline` violation)
+   - Teacher dashboard: Room Cam button in Live Sessions table, live frame polling, Approve/Reject flow
+   - QR code on exam screen — student scans with phone to pair
+   - Privacy consent screen, basic frame validation (JPEG header, minimum size)
 
 ---
 
@@ -135,9 +142,9 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 
 | Priority | Item | Effort |
 |----------|------|--------|
-| **Medium** | macOS/Windows code signing (EV cert) | 1 week |
-| **Backlog** | Mobile app (Phase 5) | 2-3 months |
-| **Backlog** | Observability (Phase 4) | 1 month |
+| **Low** | macOS/Windows code signing (EV cert) | 1 week |
+| **Backlog** | Mobile app (Phase 5) — BYOD phone exam-taking | 2-3 months |
+| **Backlog** | AI audit trail — bulk review UI for AI-suggested grades | 2-4 weeks |
 
 ---
 

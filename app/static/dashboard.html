@@ -1230,10 +1230,15 @@
       <button class="btn btn-success btn-sm" onclick="gradeBulkAccept('all')" id="grade-accept-all-btn" title="Accept all suggested AI grades" style="background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Accept all</button>
       <button class="btn btn-danger btn-sm" onclick="gradeBulkAccept('high')" id="grade-accept-high-btn" title="Only accept high-confidence suggestions" style="color:var(--amber);border-color:var(--amber)">Accept high conf</button>
       <button class="btn btn-danger btn-sm" onclick="gradeBulkReject()" id="grade-reject-all-btn" title="Reject all pending and set to 0" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Reject all</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleGradeAudit()" id="grade-audit-btn" title="View past AI grading decisions">Audit trail</button>
       <span id="grade-summary" style="margin-left:auto;align-self:center;font-size:11px;color:var(--muted)"></span>
     </div>
     <div id="grade-list" style="overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
       <div style="text-align:center;padding:30px;color:var(--muted)">Loading…</div>
+    </div>
+    <div id="grade-audit" style="display:none;overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
+      <div id="grade-audit-stats" style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap"></div>
+      <div id="grade-audit-events" style="font-size:12px"></div>
     </div>
   </div>
 </div>
@@ -2518,7 +2523,244 @@ async function revokeOtherSessions(){
   }catch(e){ resultEl.textContent = 'Failed: '+e.message; }
 }
 
-// ── GOOGLE CLASSROOM ─────────────────────────────────────────────
+
+
+async function loadPendingGrades(){
+  const eid = currentExamId;
+  const list = document.getElementById('grade-list');
+  list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)"><span class="spinner"></span> Loading…</div>';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    _pendingGrades = d.answers || [];
+    const meta = document.getElementById('grade-meta');
+    const summary = document.getElementById('grade-summary');
+    const total = _pendingGrades.length;
+    const confirmed = _pendingGrades.filter(a => a.teacher_score != null).length;
+    const high = _pendingGrades.filter(a => a.ai_confidence === 'high' && a.teacher_score == null).length;
+    const medium = _pendingGrades.filter(a => a.ai_confidence === 'medium' && a.teacher_score == null).length;
+    const low = _pendingGrades.filter(a => a.ai_confidence === 'low' && a.teacher_score == null).length;
+    if(meta) meta.textContent = `${total} total · ${confirmed} confirmed`;
+    if(summary) summary.innerHTML = `${total - confirmed} pending · <span style="color:var(--emerald)">${high} high</span> · <span style="color:var(--amber)">${medium} med</span> · <span style="color:var(--red)">${low} low</span>`;
+    renderPendingGrades();
+  }catch(e){
+    list.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escAttr(String(e))}</div>`;
+  }
+}
+
+function renderPendingGrades(){
+  const list = document.getElementById('grade-list');
+  if(!_pendingGrades.length){
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">No short-answer responses to review for this exam.</div>';
+    return;
+  }
+  list.innerHTML = _pendingGrades.map((a,i)=>{
+    const ai = a.ai_score!=null ? `${a.ai_score}/${a.max_score}` : '—';
+    const conf = a.ai_confidence || '';
+    const confColor = conf==='high' ? 'var(--emerald)' : conf==='medium' ? 'var(--amber)' : 'var(--muted)';
+    const isGraded = a.teacher_score!=null;
+    return `<div class="grade-row" data-aid="${escAttr(a.id)}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--card,#161a22);${isGraded?'opacity:0.55':''}">
+      <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px;font-size:11px;color:var(--muted);font-family:var(--font-mono)">
+        <span>${escAttr(a.roll_number||'?')} · ${escAttr(a.full_name||'')}</span>
+        <span>${isGraded?'✓ confirmed':'pending'}</span>
+      </div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">${escAttr(a.question||'')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px"><strong>Reference:</strong> ${escAttr(a.reference||'')}${a.rubric?`<br><strong>Rubric:</strong> ${escAttr(a.rubric)}`:''}</div>
+      <div style="background:var(--surface-1,#0d1117);border-left:3px solid var(--accent);padding:8px 10px;border-radius:0 6px 6px 0;font-size:13px;line-height:1.5;white-space:pre-wrap;margin-bottom:8px">${escAttr(a.student_answer||'(blank)')}</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">
+        <span style="color:var(--muted)">AI suggests:</span>
+        <strong>${ai}</strong>
+        ${conf?`<span style="color:${confColor};font-size:10px;text-transform:uppercase;font-weight:600">${escAttr(conf)} conf</span>`:''}
+        ${a.ai_feedback?`<span style="color:var(--muted);font-style:italic;flex:1;min-width:200px">"${escAttr(a.ai_feedback)}"</span>`:''}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <label style="font-size:11px;color:var(--muted)">Final score</label>
+        <input type="number" id="grade-input-${i}" min="0" max="${escAttr(String(a.max_score||1))}" step="0.5"
+               value="${escAttr(String(a.teacher_score!=null?a.teacher_score:(a.ai_score!=null?a.ai_score:'')))}"
+               style="width:80px;padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface-1);color:inherit">
+        <span style="color:var(--muted);font-size:11px">/ ${escAttr(String(a.max_score||1))}</span>
+        <button class="btn btn-primary btn-sm" onclick="confirmGrade(${i})" ${isGraded?'disabled':''} style="margin-left:auto">${isGraded?'Confirmed':'Confirm'}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function runGradeSuggest(){
+  const btn = document.getElementById('grade-suggest-btn');
+  const status = document.getElementById('grade-summary');
+  // Only ask the AI for answers that don't already have a suggestion —
+  // saves Groq calls and keeps the rate-limit headroom for retries.
+  const ids = _pendingGrades.filter(a => a.ai_score==null && a.teacher_score==null).map(a => a.id);
+  if(!ids.length){ status.textContent = 'All pending answers already have AI suggestions.'; return; }
+  btn.disabled = true;
+  status.textContent = `Asking AI to grade ${ids.length}…`;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/grade-suggest`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({answer_ids: ids})
+    });
+    if(!r.ok){
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt}`);
+    }
+    const d = await r.json();
+    status.textContent = `AI graded ${d.graded||0} answer(s).`;
+    await loadPendingGrades();
+  }catch(e){
+    status.textContent = 'Suggest failed: '+String(e);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function confirmGrade(i){
+  const a = _pendingGrades[i];
+  if(!a) return;
+  const inp = document.getElementById(`grade-input-${i}`);
+  const score = parseFloat(inp.value);
+  if(isNaN(score) || score<0 || score>parseFloat(a.max_score||1)){
+    alert(`Score must be between 0 and ${a.max_score||1}.`);
+    return;
+  }
+  const status = document.getElementById('grade-summary');
+  status.textContent = 'Confirming…';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({answer_id: a.id, score})
+    });
+    if(!r.ok){
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt}`);
+    }
+    a.teacher_score = score;
+    renderPendingGrades();
+    refreshPendingGradeBadge();
+    status.textContent = `Saved ${score}/${a.max_score} for ${a.roll_number}.`;
+  }catch(e){
+    status.textContent = 'Confirm failed: '+String(e);
+  }
+}
+
+async function gradeBulkAccept(confidence){
+  const status = document.getElementById('grade-summary');
+  const eid = currentExamId;
+  if(!eid){ status.textContent = 'Select an exam first.'; return; }
+  const body = {exam_id: eid, action: 'accept'};
+  let label = 'all';
+  if(confidence === 'high'){
+    body.confidence_filter = 'high';
+    label = 'high-confidence';
+  }
+  status.textContent = `Accepting ${label} suggestions...`;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm-bulk`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if(!r.ok){ const t=await r.text(); throw new Error(`HTTP ${r.status}: ${t}`); }
+    const d = await r.json();
+    status.textContent = `✅ Accepted ${d.confirmed} (${d.skipped} skipped, ${d.sessions_recompiled} sessions recompiled).`;
+    await loadPendingGrades();
+  }catch(e){ status.textContent = 'Failed: '+String(e); }
+}
+
+async function gradeBulkReject(){
+  const status = document.getElementById('grade-summary');
+  const eid = currentExamId;
+  if(!eid){ status.textContent = 'Select an exam first.'; return; }
+  if(!confirm('Set ALL unconfirmed short-answer scores to 0? This can be reverted by re-grading.')) return;
+  status.textContent = 'Rejecting all...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm-bulk`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({exam_id: eid, action: 'reject'})
+    });
+    if(!r.ok){ const t=await r.text(); throw new Error(`HTTP ${r.status}: ${t}`); }
+    const d = await r.json();
+    status.textContent = `❌ Rejected ${d.confirmed} (${d.skipped} skipped).`;
+    await loadPendingGrades();
+  }catch(e){ status.textContent = 'Failed: '+String(e); }
+}
+
+let _pendingGrades = [];
+async function refreshPendingGradeBadge(){
+  // Fetch the count once on tab switch + post-confirm so the toolbar
+  // chip nudges the teacher when there's review work waiting.
+  const eid = currentExamId;
+  if(!eid){ return; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/pending-grades?exam_id=${encodeURIComponent(eid)}`);
+    if(!r.ok) return;
+    const d = await r.json();
+    const n = (d.answers||[]).filter(a => a.teacher_score==null).length;
+    const chip = document.getElementById('pending-grade-count');
+    if(!chip) return;
+    if(n>0){ chip.textContent = String(n); chip.style.display='inline-block'; }
+    else { chip.style.display='none'; }
+  }catch(e){ /* silent — modal still works on demand */ }
+}
+
+
+function openGradeReview(){
+  const eid = currentExamId;
+  if(!eid){ alert('Select an exam first.'); return; }
+  document.getElementById('grade-modal').classList.remove('hidden');
+  loadPendingGrades();
+}
+
+
+function closeGradeReview(){
+  document.getElementById('grade-modal').classList.add('hidden');
+}
+
+let _showingAudit = false;
+
+function toggleGradeAudit(){
+  _showingAudit = !_showingAudit;
+  document.getElementById('grade-list').style.display = _showingAudit ? 'none' : '';
+  document.getElementById('grade-audit').style.display = _showingAudit ? '' : 'none';
+  document.getElementById('grade-audit-btn').textContent = _showingAudit ? '← Back to pending' : 'Audit trail';
+  if(_showingAudit) loadGradeAudit();
+}
+
+async function loadGradeAudit(){
+  const eid = currentExamId;
+  if(!eid) return;
+  const eventsEl = document.getElementById('grade-audit-events');
+  const statsEl = document.getElementById('grade-audit-stats');
+  eventsEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Loading…</div>';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/grading-audit?exam_id=${encodeURIComponent(eid)}&limit=200`);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    const s = d.stats || {};
+    statsEl.innerHTML = `
+      <div class="stat-tile" style="padding:0"><div class="stat-tile-label">Total graded</div><div class="stat-tile-value accent">${s.total||0}</div></div>
+      <div class="stat-tile" style="padding:0"><div class="stat-tile-label">AI accept rate</div><div class="stat-tile-value" style="color:var(--emerald)">${s.ai_accept_rate||0}%</div></div>
+      <div class="stat-tile" style="padding:0"><div class="stat-tile-label">Accepted</div><div class="stat-tile-value" style="color:var(--emerald)">${s.accepted||0}</div></div>
+      <div class="stat-tile" style="padding:0"><div class="stat-tile-label">Overridden</div><div class="stat-tile-value" style="color:var(--amber)">${s.overridden||0}</div></div>
+      <div class="stat-tile" style="padding:0"><div class="stat-tile-label">Rejected</div><div class="stat-tile-value" style="color:var(--red)">${s.rejected||0}</div></div>
+    `;
+    const events = d.events || [];
+    if(!events.length){
+      eventsEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">No grading history yet.</div>';
+      return;
+    }
+    eventsEl.innerHTML = events.map(e => {
+      const actionLabel = {'confirmed':'Confirmed','bulk_accept':'Bulk accepted','bulk_reject':'Bulk rejected','overridden':'Overridden'}[e.action]||e.action;
+      const actionColor = e.action==='overridden'?'var(--amber)':e.action==='bulk_reject'?'var(--red)':'var(--emerald)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
+        <div><span style="color:${actionColor};font-weight:600;font-size:11px;text-transform:uppercase">${actionLabel}</span>
+        <span style="color:var(--text);font-size:12px;margin-left:8px">AI: ${e.ai_score!=null?e.ai_score+'/':'—/'}${e.max_score} → ${e.teacher_score}</span></div>
+        <div style="font-size:10px;color:var(--muted);font-family:monospace">${e.created_at?(new Date(e.created_at).toLocaleDateString()):''}</div>
+      </div>`;
+    }).join('');
+  }catch(e){
+    eventsEl.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escAttr(String(e))}</div>`;
+  }
+}
 async function loadGoogleClassroom(){
   const card = document.getElementById('google-classroom-card');
   const statusEl = document.getElementById('google-status');

@@ -244,15 +244,16 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="score must be a number")
 
-    own = (await _atable("answers").select("id,question_id,session_key")
+    own = (await _atable("answers").select("id,question_id,session_key,ai_score,ai_confidence")
         .eq("id", answer_id).eq("teacher_id", tid).limit(1).execute()).data
     if not own:
         raise HTTPException(status_code=404, detail="Answer not found")
 
-    qrow = (await _atable("questions").select("max_score")
+    qrow = (await _atable("questions").select("max_score,exam_id,question_id")
         .eq("teacher_id", tid).eq("question_id", own[0]["question_id"])
         .limit(1).execute()).data
     max_score = float((qrow[0] or {}).get("max_score") or 1.0) if qrow else 1.0
+    exam_id = (qrow[0] or {}).get("exam_id") if qrow else None
     if score < 0 or score > max_score:
         raise HTTPException(status_code=400,
             detail=f"score must be between 0 and {max_score}")
@@ -261,6 +262,23 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
         "teacher_score": score,
         "graded_at": now_ist().isoformat(),
     }).eq("id", answer_id).eq("teacher_id", tid).execute()
+
+    # Record audit trail
+    a = own[0]
+    ai_s = a.get("ai_score")
+    action = "overridden" if (ai_s is not None and float(ai_s) != score) else "confirmed"
+    try:
+        tname = teacher.get("full_name") or teacher.get("email") or tid
+        await _atable("grading_audit").insert({
+            "teacher_id": tid, "teacher_name": tname,
+            "exam_id": exam_id, "session_key": a.get("session_key"),
+            "answer_id": answer_id, "question_id": a.get("question_id"),
+            "ai_score": ai_s, "ai_confidence": a.get("ai_confidence"),
+            "teacher_score": score, "max_score": max_score,
+            "action": action,
+        }).execute()
+    except Exception as e:
+        _grading_log.warning("[grade-confirm] audit insert failed: %s", e)
 
     session_key = (own[0] or {}).get("session_key")
     new_totals = None
@@ -301,9 +319,9 @@ async def grade_confirm_bulk(body: dict, request: Request):
 
     score_val = 0 if action == "reject" else None  # None means use ai_score
 
-    # Fetch pending answers
+    # Fetch pending answers with ai_confidence
     a_query = _atable("answers").select(
-        "id,session_key,question_id,ai_score"
+        "id,session_key,question_id,ai_score,ai_confidence"
     ).eq("teacher_id", tid).eq("exam_id", exam_id).is_("teacher_score", "null")
     if confidence_filter:
         a_query = a_query.eq("ai_confidence", confidence_filter)
@@ -312,9 +330,20 @@ async def grade_confirm_bulk(body: dict, request: Request):
     if not pending:
         return {"action": action, "confirmed": 0, "skipped": 0}
 
+    # Fetch question metadata for audit
+    qids = list({a.get("question_id") for a in pending if a.get("question_id")})
+    qmap = {}
+    if qids:
+        qrows = (await _atable("questions").select("question_id,max_score,exam_id")
+                 .eq("teacher_id", tid).in_("question_id", qids).execute()).data or []
+        qmap = {str(q["question_id"]): q for q in qrows}
+
+    audit_rows = []
     session_keys = set()
     confirmed = 0
     skipped = 0
+    tname = teacher.get("full_name") or teacher.get("email") or tid
+    bulk_action = "bulk_accept" if action == "accept" else "bulk_reject"
     for a in pending:
         a_id = a.get("id")
         s_key = a.get("session_key")
@@ -322,7 +351,7 @@ async def grade_confirm_bulk(body: dict, request: Request):
         final_score = score_val if score_val is not None else ai_score
         if final_score is None:
             skipped += 1
-            continue  # No AI score to accept
+            continue
         try:
             await _atable("answers").update({
                 "teacher_score": final_score,
@@ -331,9 +360,28 @@ async def grade_confirm_bulk(body: dict, request: Request):
             confirmed += 1
             if s_key:
                 session_keys.add(s_key)
+            # Record audit
+            qm = qmap.get(str(a.get("question_id")), {})
+            audit_rows.append({
+                "teacher_id": tid, "teacher_name": tname,
+                "exam_id": exam_id, "session_key": s_key,
+                "answer_id": a_id, "question_id": a.get("question_id"),
+                "ai_score": ai_score, "ai_confidence": a.get("ai_confidence"),
+                "teacher_score": final_score,
+                "max_score": float(qm.get("max_score") or 1.0),
+                "action": bulk_action,
+            })
         except Exception as e:
             _grading_log.warning("[grade-confirm-bulk] failed for %s: %s", a_id, e)
             skipped += 1
+
+    # Insert audit rows
+    if audit_rows:
+        try:
+            for r in audit_rows:
+                await _atable("grading_audit").insert(r).execute()
+        except Exception as e:
+            _grading_log.warning("[grade-confirm-bulk] audit insert failed: %s", e)
 
     # Recompute session scores for affected sessions
     recompiled = 0
@@ -353,4 +401,40 @@ async def grade_confirm_bulk(body: dict, request: Request):
         "skipped": skipped,
         "sessions_recompiled": recompiled,
         "total_pending": len(pending),
+    }
+
+
+@router.get("/api/v1/admin/grading-audit")
+@limiter.limit("30/minute")
+async def grading_audit(request: Request):
+    """Return the grading audit trail for this teacher, most recent first."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    exam_id = request.query_params.get("exam_id")
+    limit = min(int(request.query_params.get("limit", "100")), 500)
+
+    q = _atable("grading_audit").select("*").eq("teacher_id", tid)
+    if exam_id:
+        q = q.eq("exam_id", exam_id)
+    rows = await q.order("created_at", desc=True).limit(limit).execute()
+
+    # Summary stats
+    stats_q = _atable("grading_audit").select("*").eq("teacher_id", tid)
+    if exam_id:
+        stats_q = stats_q.eq("exam_id", exam_id)
+    all_rows = (await stats_q.execute()).data or []
+    total = len(all_rows)
+    accepted = sum(1 for r in all_rows if r.get("action") in ("confirmed", "bulk_accept"))
+    overridden = sum(1 for r in all_rows if r.get("action") == "overridden")
+    rejected = sum(1 for r in all_rows if r.get("action") == "bulk_reject")
+
+    return {
+        "events": rows.data or [],
+        "stats": {
+            "total": total,
+            "accepted": accepted,
+            "overridden": overridden,
+            "rejected": rejected,
+            "ai_accept_rate": round((accepted / max(total, 1)) * 100, 1),
+        },
     }

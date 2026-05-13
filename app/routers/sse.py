@@ -5,7 +5,8 @@ import logging
 import time
 from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
-from jose import jwt, JWTError
+import jwt
+from jwt.exceptions import InvalidTokenError as JWTError
 from pydantic import BaseModel, ConfigDict
 
 from ..auth import (

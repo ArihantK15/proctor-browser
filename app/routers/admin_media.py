@@ -74,7 +74,8 @@ async def upload_question_image(request: Request, body: UploadQuestionImageIn = 
 @router.get("/api/v1/question-image/{tid}/{filename}")
 @limiter.limit("60/minute")
 async def get_question_image(tid: str, filename: str, request: Request):
-    from jose import jwt, JWTError
+    import jwt
+    from jwt.exceptions import InvalidTokenError as JWTError
     auth = request.headers.get("Authorization", "")
     allowed = False
     if auth.startswith("Bearer "):
@@ -89,7 +90,7 @@ async def get_question_image(tid: str, filename: str, request: Request):
             try:
                 payload = jwt.decode(
                     tok, SECRET_KEY, algorithms=["HS256"],
-                    options={"verify_aud": False, "require": ["exp"]},
+                    options={"require": ["exp"]},
                 )
                 if str(payload.get("tid") or "") == str(tid):
                     allowed = True

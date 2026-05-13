@@ -278,9 +278,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 if auth.startswith("Bearer "):
                     try:
                         from .auth.tokens import verify_csrf
-                        from jose import jwt as _jwt
+                        import jwt
                         from .constants import SECRET_KEY
-                        claims = _jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+                        claims = jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
                         if not verify_csrf(claims, csrf_header):
                             return Response(status_code=403, content="CSRF validation failed")
                     except Exception:

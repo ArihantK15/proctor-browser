@@ -8,7 +8,8 @@ from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 from fastapi import Request, HTTPException
-from jose import jwt, JWTError
+import jwt
+from jwt.exceptions import InvalidTokenError as JWTError
 
 from ..constants import SECRET_KEY, TOKEN_TTL_HOURS, ADMIN_TOKEN_TTL_HOURS, STUDENT_AUTH_TTL_HOURS
 

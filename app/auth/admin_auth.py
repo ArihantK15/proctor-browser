@@ -4,7 +4,8 @@ import time
 from collections import OrderedDict
 
 from fastapi import Request, HTTPException
-from jose import jwt, JWTError
+import jwt
+from jwt.exceptions import InvalidTokenError as JWTError
 
 from ..constants import SECRET_KEY, SUPER_ADMIN_EMAIL, _TEACHER_CACHE_MAX, _STUDENT_ACCT_CACHE_MAX
 from ..database import async_table as _atable
@@ -65,7 +66,7 @@ async def verify_admin_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"],
-                             options={"verify_aud": False, "require": ["exp", "tid"]})
+                             options={"require": ["exp", "tid"]})
     except JWTError as e:
         msg = str(e).lower()
         if "expired" in msg:

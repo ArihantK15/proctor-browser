@@ -195,9 +195,11 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     # Email verification check
     if not teacher.get("email_verified_at"):
         await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "email_unverified"})
-        raise HTTPException(
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
             status_code=403,
-            detail={"error": "EMAIL_UNVERIFIED", "message": "Please verify your email before logging in. Check your inbox for the verification link."}
+            content={"error": "EMAIL_UNVERIFIED", "message": "Please verify your email before logging in. Check your inbox for the verification link."},
+            headers={"X-Reason": "EMAIL_UNVERIFIED"},
         )
 
     await record_auth_event("login_success", request, "teacher", teacher["id"], email)

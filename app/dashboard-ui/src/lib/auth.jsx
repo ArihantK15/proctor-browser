@@ -54,7 +54,11 @@ export function AuthProvider({ children }) {
     })
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
-      throw new Error(d.detail || 'Login failed')
+      // Handle EMAIL_UNVERIFIED specifically
+      if (d.error === 'EMAIL_UNVERIFIED') {
+        throw { code: 'EMAIL_UNVERIFIED', message: d.message || 'Please verify your email.', email }
+      }
+      throw new Error(d.detail || d.message || 'Login failed')
     }
     const d = await r.json()
     localStorage.setItem('procta_token', d.access_token)

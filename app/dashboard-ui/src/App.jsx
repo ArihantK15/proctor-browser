@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { AuthProvider, useAuth } from './lib/auth'
+import { API_BASE } from './config'
 import OrgPanel from './panels/OrgPanel'
 import BillingPanel from './panels/BillingPanel'
 import SecurityPanel from './panels/SecurityPanel'
@@ -36,17 +37,45 @@ function LoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [unverifiedEmail, setUnverifiedEmail] = useState(null)
+  const [resending, setResending] = useState(false)
+  const [resendMsg, setResendMsg] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setUnverifiedEmail(null)
+    setResendMsg('')
     setLoading(true)
     try {
       await login(email, password)
     } catch (err) {
-      setError(err.message)
+      if (err.code === 'EMAIL_UNVERIFIED') {
+        setUnverifiedEmail(err.email || email)
+        setError(err.message || 'Please verify your email.')
+      } else {
+        setError(err.message || 'Login failed')
+      }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const resendVerification = async () => {
+    setResending(true)
+    setResendMsg('Sending...')
+    try {
+      const r = await fetch(`${API_BASE}/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: unverifiedEmail || email }),
+      })
+      if (!r.ok) throw new Error('Failed')
+      setResendMsg('✅ Verification email sent! Check your inbox.')
+    } catch (e) {
+      setResendMsg('Failed to resend. Try again later.')
+    } finally {
+      setResending(false)
     }
   }
 
@@ -55,6 +84,14 @@ function LoginForm() {
       <h2>Procta Dashboard</h2>
       <p>Sign in to your account</p>
       {error && <div className="auth-err">{error}</div>}
+      {unverifiedEmail && (
+        <div style={{ marginBottom: 12, textAlign: 'center' }}>
+          <button className="btn btn-primary btn-sm" onClick={resendVerification} disabled={resending}>
+            {resending ? 'Sending...' : 'Resend verification email'}
+          </button>
+          {resendMsg && <div style={{ fontSize: 11, marginTop: 6, color: resendMsg.includes('✅') ? 'var(--emerald)' : 'var(--text-muted)' }}>{resendMsg}</div>}
+        </div>
+      )}
       <form onSubmit={handleSubmit}>
         <input
           type="email" placeholder="Email" value={email}

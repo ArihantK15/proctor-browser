@@ -25,3 +25,4 @@ class SendInvitesBody(BaseModel):
     recipients: list[InviteRecipient]
     exam_id: str
     custom_message: Optional[str] = None
+    idempotency_key: Optional[str] = None

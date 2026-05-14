@@ -4,6 +4,7 @@ import logging
 import time
 import asyncio
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Request, Body, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -29,6 +30,7 @@ class GradeConfirmIn(BaseModel):
     model_config = ConfigDict(strict=True)
     answer_id: str
     score: float
+    idempotency_key: Optional[str] = None
 
 
 async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> dict | None:
@@ -235,6 +237,15 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
     or be overridden — both flow through the same endpoint."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
+
+    # Idempotency check
+    if body.idempotency_key:
+        from ..services.idempotency import check_idempotency, mark_idempotent, idempotency_key as _idk
+        k = _idk("grade-confirm", tid, body.idempotency_key)
+        cached = await check_idempotency(k)
+        if cached:
+            return cached
+
     answer_id = body.answer_id
     score = body.score
     if not answer_id or score is None:
@@ -288,9 +299,17 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
         except Exception as e:
             _grading_log.warning("[grade-confirm] rollup failed for %s: %s", session_key, e)
 
-    return {"ok": True, "answer_id": answer_id,
+    resp = {"ok": True, "answer_id": answer_id,
             "teacher_score": score,
             "session_totals": new_totals}
+
+    if body.idempotency_key and tid:
+        try:
+            await mark_idempotent(k, resp)
+        except Exception:
+            pass
+
+    return resp
 
 
 @router.post("/api/v1/admin/grade-confirm-bulk")
@@ -308,6 +327,16 @@ async def grade_confirm_bulk(body: dict, request: Request):
     """
     teacher = await require_admin(request)
     tid = str(teacher["id"])
+
+    # Idempotency check
+    idem_key_raw = (body.get("idempotency_key") or "").strip()
+    if idem_key_raw:
+        from ..services.idempotency import check_idempotency, mark_idempotent, idempotency_key as _idk
+        _bulk_k = _idk("grade-confirm-bulk", tid, idem_key_raw)
+        cached = await check_idempotency(_bulk_k)
+        if cached:
+            return cached
+
     exam_id = (body.get("exam_id") or "").strip()
     action = (body.get("action") or "").strip().lower()
     confidence_filter = (body.get("confidence_filter") or "").strip().lower()
@@ -395,13 +424,21 @@ async def grade_confirm_bulk(body: dict, request: Request):
     _grading_log.info("[audit] teacher=%s bulk %s exam=%s confirmed=%d skipped=%d sessions=%d",
                       tid, action, exam_id, confirmed, skipped, recompiled)
 
-    return {
+    resp = {
         "action": action,
         "confirmed": confirmed,
         "skipped": skipped,
         "sessions_recompiled": recompiled,
         "total_pending": len(pending),
     }
+
+    if idem_key_raw and tid:
+        try:
+            await mark_idempotent(_bulk_k, resp)
+        except Exception:
+            pass
+
+    return resp
 
 
 @router.get("/api/v1/admin/grading-audit")

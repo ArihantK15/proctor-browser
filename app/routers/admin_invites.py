@@ -25,6 +25,15 @@ router = APIRouter(prefix="")
 async def send_invites(body: SendInvitesBody, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
+
+    # Idempotency check
+    if body.idempotency_key:
+        from ..services.idempotency import check_idempotency, mark_idempotent, idempotency_key as _idk
+        _k = _idk("invite-send", tid, body.idempotency_key)
+        cached = await check_idempotency(_k)
+        if cached:
+            return cached
+
     base_url = _get_invite_base_url()
 
     ok, remaining = await _claim_and_bump_cap(tid, len(body.recipients))
@@ -83,6 +92,13 @@ async def send_invites(body: SendInvitesBody, request: Request):
             results["sent"] += 1
         else:
             results["failed"] += 1
+
+    if body.idempotency_key and tid:
+        try:
+            from ..services.idempotency import mark_idempotent
+            await mark_idempotent(_k, results)
+        except Exception:
+            pass
 
     return results
 

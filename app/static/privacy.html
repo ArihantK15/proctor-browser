@@ -96,7 +96,15 @@ pre{font-size:12px;background:#f1f5f9;padding:12px;border-radius:8px;overflow:au
 <script>
 const TOKEN = localStorage.getItem('procta_token') || localStorage.getItem('procta_student_token') || '';
 const BASE = '';
-const headers = {'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'};
+
+function _getCsrf() {
+  if (!TOKEN) return '';
+  try {
+    const payload = JSON.parse(atob(TOKEN.split('.')[1]));
+    return payload.csrf || '';
+  } catch(e) { return ''; }
+}
+const headers = {'Authorization':'Bearer '+TOKEN, 'Content-Type':'application/json', 'X-CSRF-Token': _getCsrf()};
 
 async function authFetch(url, opts){
   return fetch(BASE+url, {...opts, headers:{...headers,...(opts?.headers||{})}});

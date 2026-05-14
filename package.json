@@ -7,7 +7,9 @@
     "start": "electron .",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
-    "bundle-python": "node bundle-python.js"
+    "bundle-python": "node bundle-python.js",
+    "lint": "eslint main.js preload.js lobby_preload.js setup-preload.js lib/ renderer/",
+    "lint:fix": "eslint --fix main.js preload.js lobby_preload.js setup-preload.js lib/ renderer/"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"

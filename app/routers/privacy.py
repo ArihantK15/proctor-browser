@@ -85,18 +85,18 @@ async def export_data(request: Request):
 
     if user_type == "teacher":
         # Profile
-        rows = await _atable("teachers").select("*").eq("id", user_id).execute()
+        rows = await _atable("teachers").select("id,email,full_name,org_id,org_role,supabase_uid,created_at").eq("id", user_id).execute()
         data["profile"] = rows.data[0] if rows.data else None
 
         # Org
         if data.get("profile"):
             oid = data["profile"].get("org_id")
             if oid:
-                rows = await _atable("organizations").select("*").eq("id", oid).execute()
+                rows = await _atable("organizations").select("id,name,slug,max_students,created_at").eq("id", oid).execute()
                 data["organization"] = rows.data[0] if rows.data else None
 
         # Exams
-        rows = await _atable("exam_config").select("*").eq("teacher_id", user_id).execute()
+        rows = await _atable("exam_config").select("exam_id,exam_title,exam_status,starts_at,ends_at,duration_minutes,created_at").eq("teacher_id", user_id).execute()
         data["exams"] = rows.data or []
 
         # Students
@@ -119,7 +119,7 @@ async def export_data(request: Request):
 
         # Enrolled students (matching student_account_id)
         if data.get("profile"):
-            rows = await _atable("students").select("*").eq("student_account_id", user_id).execute()
+            rows = await _atable("students").select("*").eq("account_id", user_id).execute()
             data["enrollments"] = rows.data or []
 
     # Consent records
@@ -200,7 +200,7 @@ async def delete_account(request: Request):
             await _atable("students").update({
                 "full_name": "Deleted User",
                 "email": anon + "@deleted.procta.net",
-            }).eq("student_account_id", user_id).execute()
+            }).eq("account_id", user_id).execute()
         except Exception as e:
             errors.append(f"students update: {e}")
 

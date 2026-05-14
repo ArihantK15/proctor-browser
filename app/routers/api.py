@@ -59,7 +59,7 @@ async def api_list_exams(request: Request, tid: str = Depends(_require_api)):
 @router.get("/exams/{exam_id}")
 @limiter.limit("30/minute")
 async def api_get_exam(exam_id: str, request: Request, tid: str = Depends(_require_api)):
-    result = await _atable("exam_config").select("*")\
+    result = await _atable("exam_config").select("exam_id,exam_title,starts_at,ends_at,duration_minutes,access_code,created_at,phone_camera_enabled")\
         .eq("id", exam_id).eq("teacher_id", tid).limit(1).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Exam not found")

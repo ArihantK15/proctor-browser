@@ -37,9 +37,9 @@ class AppealResolveIn(BaseModel):
 @limiter.limit("5/hour")
 async def submit_appeal(body: AppealIn, request: Request):
     """Submit a dispute for a violation or grade."""
-    claims = await require_student_account(request)
-    student_id = claims.get("sid", "")
-    roll = claims.get("roll", "")
+    account = await require_student_account(request)
+    student_id = str(account.get("id", ""))
+    student_email = account.get("email", "")
 
     # Verify the session belongs to this student
     session = await _atable("exam_sessions").select("*").eq("session_key", body.session_key).limit(1).execute()
@@ -47,7 +47,7 @@ async def submit_appeal(body: AppealIn, request: Request):
         raise HTTPException(status_code=404, detail="Session not found")
     s = session.data[0]
     if str(s.get("student_id", "")).upper() != student_id.upper() and \
-       str(s.get("roll_number", "")).upper() != roll.upper():
+       str(s.get("email", "")).lower() != student_email.lower():
         raise HTTPException(status_code=403, detail="Session does not belong to you")
 
     teacher_id = s.get("teacher_id", "")
@@ -56,7 +56,7 @@ async def submit_appeal(body: AppealIn, request: Request):
     await _atable("appeals").insert({
         "session_key":  body.session_key,
         "student_id":   student_id,
-        "roll_number":  roll,
+        "email":        student_email,
         "exam_id":      exam_id,
         "teacher_id":   teacher_id,
         "appeal_type":  body.appeal_type,

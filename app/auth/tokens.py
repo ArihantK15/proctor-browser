@@ -129,7 +129,7 @@ def issue_student_auth_token(account: dict) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sid": str(account["id"]), "email": account.get("email", ""),
-        "role": "student_account", "iat": now,
+        "role": "student_account", "csrf": _gen_csrf(), "iat": now,
         "exp": now + timedelta(hours=STUDENT_AUTH_TTL_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")

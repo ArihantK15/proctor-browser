@@ -7,11 +7,15 @@ import MembersPanel from './panels/MembersPanel'
 import ResultsPanel from './panels/ResultsPanel'
 import AllOrgsPanel from './panels/AllOrgsPanel'
 import HistoryPanel from './panels/HistoryPanel'
+import OrgSettingsPanel from './panels/OrgSettingsPanel'
+import AnalyticsPanel from './panels/AnalyticsPanel'
 
 const TABS = [
   { id: 'results', label: 'Results', roles: ['admin', 'superadmin'] },
   { id: 'history', label: 'History', roles: ['admin', 'superadmin'] },
+  { id: 'analytics', label: 'Analytics', roles: ['admin', 'superadmin'] },
   { id: 'org', label: 'Org Overview', roles: ['admin', 'superadmin'] },
+  { id: 'org-settings', label: 'Org Settings', roles: ['admin', 'superadmin'] },
   { id: 'members', label: 'Members', roles: ['admin', 'superadmin'] },
   { id: 'billing', label: 'Billing', roles: ['admin', 'superadmin'] },
   { id: 'security', label: 'Security', roles: ['admin', 'superadmin'] },
@@ -70,11 +74,13 @@ function DashboardShell() {
   const PANELS = {
     results: ResultsPanel,
     history: HistoryPanel,
+    analytics: AnalyticsPanel,
     org: OrgPanel,
     members: MembersPanel,
     billing: BillingPanel,
     security: SecurityPanel,
     'all-orgs': AllOrgsPanel,
+    'org-settings': OrgSettingsPanel,
   }
   const Panel = PANELS[activeTab]
 

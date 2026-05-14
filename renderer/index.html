@@ -998,9 +998,10 @@ function clearLoginErr(){
 let _lastLoginAttempt = 0;
 
 async function doLogin(){
-  // Rate limit: max 5 attempts/second
+  // Rate limit with random jitter (150-350ms) to scatter thundering-herd
   const now = Date.now();
-  if (now - _lastLoginAttempt < 200) {
+  const minGap = 150 + Math.random() * 200;
+  if (now - _lastLoginAttempt < minGap) {
     document.getElementById('login-err').textContent = 'Please wait...';
     return;
   }

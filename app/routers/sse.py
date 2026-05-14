@@ -53,10 +53,19 @@ def _connect_tokens_lock_sync():
     pass
 
 
-def _store_live_frame(session_id: str, jpeg_bytes: bytes):
-    """Store live frame using Redis LRU-capped cache if available."""
+def _store_live_frame(session_id: str, jpeg_bytes: bytes) -> bool:
+    """Store live frame using Redis LRU-capped cache if available.
+    Returns True if frame was accepted, False if rate-limited.
+    Rate-limited to 5 FPS per session to cap bandwidth.
+    """
+    now = time.time()
+    last = _last_live_frame_ts.get(session_id, 0)
+    if now - last < _LIVE_FRAME_INTERVAL:
+        return False
+    _last_live_frame_ts[session_id] = now
     if _cache and hasattr(_cache, 'set_live_frame'):
         _cache.set_live_frame(session_id, jpeg_bytes, ttl=10)
+    return True
 
 
 # ─── LEGACY HTTP LIVE-FRAME (v2.2.0 backward compat) ──────────────
@@ -100,9 +109,12 @@ _ws_lock = asyncio.Lock()
 _ws_conn_count: dict[str, int] = {}
 _ws_room_conns: dict[str, WebSocket] = {}
 _last_room_frame: dict[str, float] = {}
+_last_live_frame_ts: dict[str, float] = {}
 MAX_WS_PER_SESSION = 3
 MAX_WS_MSG_BYTES = 200 * 1024  # 200 KB — laptop cam JPEG
 MAX_ROOM_FRAME_BYTES = 400 * 1024  # 400 KB — phone cam (higher res)
+
+_LIVE_FRAME_INTERVAL = 0.2  # 200ms → 5 FPS max per-session
 
 
 async def _ws_subscribe(session_id: str, ws: WebSocket):
@@ -306,8 +318,8 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
             data = await websocket.receive_bytes()
             if len(data) > MAX_WS_MSG_BYTES:
                 continue  # silently drop oversized frames
-            _store_live_frame(session_id, data)
-            await _ws_broadcast(session_id, data)
+            if _store_live_frame(session_id, data):
+                await _ws_broadcast(session_id, data)
     except WebSocketDisconnect:
         pass
     except Exception as e:

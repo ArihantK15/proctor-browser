@@ -1,19 +1,17 @@
 """Tests for privacy center and student appeals."""
 
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.database import async_table as _atable
 
 client = TestClient(app)
 
 
 @pytest.fixture
 def mock_teacher():
-    """Patch _get_teacher_by_id to return a teacher record."""
     with patch("app.auth.admin_auth._get_teacher_by_id", new_callable=AsyncMock) as m:
         m.return_value = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof Test", "org_id": "org-1"}
         yield m
@@ -21,10 +19,21 @@ def mock_teacher():
 
 @pytest.fixture
 def mock_student_account():
-    """Patch verify_student_auth_token to return a student account record."""
     with patch("app.auth.admin_auth.verify_student_auth_token", new_callable=AsyncMock) as m:
         m.return_value = {"id": "student-1", "email": "alice@test.com", "full_name": "Alice Test"}
         yield m
+
+
+def _make_session_row(session_key="test_session", student_id="student-1", roll_number="ALICE001",
+                      teacher_id="teacher-1", email="alice@test.com"):
+    return MagicMock(data=[{
+        "session_key": session_key,
+        "student_id": student_id,
+        "roll_number": roll_number,
+        "teacher_id": teacher_id,
+        "email": email,
+        "exam_id": "exam-1",
+    }])
 
 
 class TestPrivacyExport:
@@ -89,29 +98,57 @@ class TestPrivacyConsent:
 class TestStudentAppeals:
     def test_appeal_requires_auth(self):
         r = client.post("/api/v1/student/appeal", json={
-            "session_key": "test_session",
+            "session_key": "owned_session",
             "appeal_type": "violation",
-            "description": "Test appeal",
+            "description": "I want to dispute this",
         })
         assert r.status_code == 401
 
-    def test_appeal_invalid_session(self, student_headers, mock_student_account):
-        r = client.post("/api/v1/student/appeal", json={
-            "session_key": "nonexistent_session",
-            "appeal_type": "violation",
-            "description": "Test appeal",
-        }, headers=student_headers)
-        # In test env with mocked Supabase, session query returns truthy mock
-        # data, so the ownership check fires first → 403 instead of 404
-        assert r.status_code in (403, 404)
+    def test_appeal_owned_session_succeeds(self, student_headers, mock_student_account):
+        """Appeal succeeds when student owns the session (matches by email)."""
+        mock_exec_result = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com"}])
 
-    def test_appeal_submit_valid(self, student_headers, mock_student_account):
-        r = client.post("/api/v1/student/appeal", json={
-            "session_key": "test_session",
-            "appeal_type": "grade",
-            "description": "I think my score is wrong",
-        }, headers=student_headers)
-        assert r.status_code in (403, 404, 200)
+        def mock_atable(table_name):
+            m = MagicMock()
+            m.select.return_value = m
+            m.eq.return_value = m
+            m.limit.return_value = m
+            m.insert.return_value = m
+            # Make execute always return the same awaitable data
+            m.execute = AsyncMock(return_value=mock_exec_result)
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable):
+            r = client.post("/api/v1/student/appeal", json={
+                "session_key": "owned_session",
+                "appeal_type": "violation",
+                "description": "I want to dispute this violation",
+            }, headers=student_headers)
+            assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
+            d = r.json()
+            assert d.get("status") == "submitted"
+
+    def test_appeal_wrong_student_rejected(self, student_headers, mock_student_account):
+        """Appeal 403s when session belongs to a different student."""
+        mock_exec_other = MagicMock(data=[{"student_id": "student-999", "email": "other@test.com"}])
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            m.select.return_value = m
+            m.eq.return_value = m
+            m.limit.return_value = m
+            m.execute = AsyncMock(return_value=mock_exec_other)
+            m.insert.return_value = m
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable):
+
+            r = client.post("/api/v1/student/appeal", json={
+                "session_key": "other_session",
+                "appeal_type": "grade",
+                "description": "This is not my session",
+            }, headers=student_headers)
+            assert r.status_code == 403
 
 
 class TestTeacherAppeals:
@@ -128,17 +165,57 @@ class TestTeacherAppeals:
 
 class TestExamSessionsStudentId:
     def test_submit_sets_student_id(self, student_headers, mock_student_account):
+        """Submit-exam with a student token should set student_id on the session."""
         import uuid
-        sid = f"TEST_{uuid.uuid4().hex[:8]}"
-        r = client.post("/api/v1/submit-exam", json={
-            "session_id": sid,
-            "roll_number": "ALICE001",
-            "full_name": "Alice Test",
-            "email": "alice@test.com",
-            "time_taken_secs": 600,
-            "answers": {},
-            "score": 0,
-            "total": 0,
-            "violations": [],
-        }, headers=student_headers)
-        assert r.status_code != 500
+        from tests.conftest import make_student_token
+        # Use a token that includes sid claim
+        import jwt as _pyjwt
+        import os
+        _sid = "student-1"
+        _token = _pyjwt.encode({
+            "sid": _sid, "roll": "ALICE001", "role": "student_account",
+            "exp": 9999999999, "iat": 1700000000,
+        }, os.environ["SUPABASE_JWT_SECRET"], algorithm="HS256")
+        _headers = {"Authorization": f"Bearer {_token}"}
+
+        sid = f"ALICE001_{uuid.uuid4().hex[:8]}"
+
+        with patch("app.routers.exam._recalculate_score", new_callable=AsyncMock) as mock_score:
+            mock_score.return_value = (5, 10)
+            with patch("app.routers.exam._load_exam_config", new_callable=AsyncMock) as mock_cfg:
+                mock_cfg.return_value = {"duration_minutes": 60, "teacher_id": "teacher-1"}
+
+                _upserted_session = {}
+
+                def _mock_atable(table_name):
+                    m = MagicMock()
+                    m.select.return_value = m
+                    m.eq.return_value = m
+                    m.limit.return_value = m
+                    m.order.return_value = m
+                    m.execute = AsyncMock()
+                    m.execute.return_value = MagicMock()
+                    m.execute.return_value.data = []
+                    m.insert.return_value = m
+                    def _upsert(row):
+                        _upserted_session.clear()
+                        _upserted_session.update(row)
+                        return m
+                    m.upsert = _upsert
+                    return m
+
+                with patch("app.routers.exam._atable", side_effect=_mock_atable):
+                    r = client.post("/api/v1/submit-exam", json={
+                        "session_id": sid,
+                        "roll_number": "ALICE001",
+                        "full_name": "Alice Test",
+                        "email": "alice@test.com",
+                        "time_taken_secs": 600,
+                        "answers": {},
+                        "score": 0,
+                        "total": 0,
+                        "violations": [],
+                    }, headers=_headers)
+                    assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
+                    assert _upserted_session.get("student_id") == "student-1", \
+                        f"Expected student_id='student-1' in upsert, got {_upserted_session.get('student_id')!r}"

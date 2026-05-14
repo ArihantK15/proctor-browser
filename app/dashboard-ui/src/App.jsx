@@ -15,7 +15,7 @@ import QuestionsPanel from './panels/QuestionsPanel'
 import LiveSessionsPanel from './panels/LiveSessionsPanel'
 import ToolsPanel from './panels/ToolsPanel'
 import ReviewPanel from './panels/ReviewPanel'
-import OpsPanel from './panels/OpsPanel'
+import OnboardingWizard from './components/OnboardingWizard'
 
 const TABS = [
   { id: 'live', label: 'Live Sessions', roles: ['admin', 'superadmin'] },
@@ -116,9 +116,11 @@ function LoginForm() {
 }
 
 function DashboardShell() {
-  const { user, logout } = useAuth()
+  const { user, logout, authFetch } = useAuth()
   const [activeTab, setActiveTab] = useState('org')
   const [currentExamId, setCurrentExamId] = useState(null)
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true)
 
   const PANELS = {
     live: LiveSessionsPanel,
@@ -140,9 +142,28 @@ function DashboardShell() {
   const Panel = PANELS[activeTab]
 
   useEffect(() => {
-    // Load exam list on mount
     document.title = 'Procta Dashboard'
-  }, [])
+    // Check if onboarding should be shown (new user with 0-1 exams)
+    const checkOnboarding = async () => {
+      try {
+        const key = 'procta_onboarding_done'
+        if (localStorage.getItem(key)) { setCheckingOnboarding(false); return }
+        const r = await authFetch('/api/v1/admin/exams')
+        if (r.ok) {
+          const exams = await r.json()
+          if (Array.isArray(exams) && exams.length <= 1) {
+            setShowOnboarding(true)
+          }
+        }
+      } catch (_) {} finally { setCheckingOnboarding(false) }
+    }
+    checkOnboarding()
+  }, [authFetch, user])
+
+  if (checkingOnboarding) return null
+  if (showOnboarding) {
+    return <OnboardingWizard onComplete={() => { setShowOnboarding(false); localStorage.setItem('procta_onboarding_done', '1') }} />
+  }
 
   return (
     <div className="app-shell">

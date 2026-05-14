@@ -20,6 +20,7 @@ COPY --from=builder /install /usr/local
 
 # Copy application code + entrypoint
 COPY app/ ./app/
+COPY worker.py .
 COPY scripts/ ./scripts/
 COPY migrations/ ./migrations/
 COPY entrypoint.sh ./entrypoint.sh

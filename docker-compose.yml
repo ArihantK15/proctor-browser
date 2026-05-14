@@ -61,9 +61,9 @@ services:
         condition: service_healthy
   worker:
     build: .
+    entrypoint: python worker.py
     container_name: proctor-worker
     restart: unless-stopped
-    command: python worker.py
     env_file:
       - .env
     environment:

@@ -995,7 +995,16 @@ function clearLoginErr(){
 }
 
 // ── LOGIN ──────────────────────────────────────────────────────────
+let _lastLoginAttempt = 0;
+
 async function doLogin(){
+  // Rate limit: max 5 attempts/second
+  const now = Date.now();
+  if (now - _lastLoginAttempt < 200) {
+    document.getElementById('login-err').textContent = 'Please wait...';
+    return;
+  }
+  _lastLoginAttempt = now;
   const roll=document.getElementById('roll-input').value.trim().toUpperCase();
   if(!roll){
     document.getElementById('login-err').textContent='Enter your Roll Number';

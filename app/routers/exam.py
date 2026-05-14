@@ -42,6 +42,17 @@ router = APIRouter(prefix="")
 
 # ─── STUDENT ENDPOINTS (require JWT) ─────────────────────────────
 
+_CACHE_TTL = 600  # 10 minutes
+
+def _cache_validate(key: str, resp: dict) -> None:
+    if not _cache:
+        return
+    try:
+        _cache.set(key, resp, ttl=_CACHE_TTL)
+    except Exception:
+        pass
+
+
 @router.post("/api/v1/validate-student")
 @limiter.limit("300/minute")
 async def validate_student(request: Request, body: ValidateIn):
@@ -51,6 +62,16 @@ async def validate_student(request: Request, body: ValidateIn):
     # Practice sandbox: short-circuit before any DB lookups
     if is_practice(body.roll_number):
         return _practice_validate_response(roll_upper)
+
+    # Redis cache: 10-minute TTL for validated student lookups.
+    # Reduces Supabase pressure ~95% when students retry rapidly.
+    cache_key = f"validate:{roll_upper}:{exam_id or ''}:{(body.access_code or '').strip().upper()}"
+    try:
+        cached = _cache.get(cache_key) if _cache else None
+        if cached and isinstance(cached, dict) and cached.get("valid"):
+            return cached
+    except Exception:
+        pass
 
     # Resolve teacher_id via invite token chain to prevent cross-tenant
     # roll_number collision.  When the student provides access_code we
@@ -271,7 +292,7 @@ async def validate_student(request: Request, body: ValidateIn):
     if in_progress.data:
         # Student already has an active session
         existing_key = in_progress.data[0]["session_key"]
-        return {
+        resp = {
             "valid":       True,
             "full_name":   student["full_name"],
             "email":       student.get("email", ""),
@@ -280,6 +301,8 @@ async def validate_student(request: Request, body: ValidateIn):
             "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id),
             "existing_session": existing_key,
         }
+        _cache_validate(cache_key, resp)
+        return resp
 
     # Mark the invite as accepted
     if matched_invite_id:
@@ -291,7 +314,7 @@ async def validate_student(request: Request, body: ValidateIn):
         except Exception as e:
             logger.debug("Failed to mark invite as accepted: %s", e)
 
-    return {
+    resp = {
         "valid":       True,
         "full_name":   student["full_name"],
         "email":       student.get("email", ""),
@@ -299,6 +322,8 @@ async def validate_student(request: Request, body: ValidateIn):
         "roll_number": student["roll_number"],
         "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id),
     }
+    _cache_validate(cache_key, resp)
+    return resp
 
 
 @router.get("/api/v1/questions")

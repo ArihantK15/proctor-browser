@@ -100,13 +100,13 @@ class ChatHub:
                         try:
                             await old_ws.close(code=4002, reason="global_cap")
                         except Exception:
-                            pass
+                            logger.debug("[chat] ws exception")
             old = self.student_conns.get(session_id)
             if old is not None and old is not ws:
                 try:
                     await old.close(code=4000)
                 except Exception:
-                    pass
+                    logger.debug("[chat] ws exception")
             self.student_conns[session_id] = ws
             self.student_meta[session_id] = {
                 "roll": roll,
@@ -156,7 +156,7 @@ class ChatHub:
                 try:
                     await oldest.close(code=4000, reason="too_many_tabs")
                 except Exception:
-                    pass
+                    logger.debug("[chat] ws exception")
             if self._global_connection_count() >= self.GLOBAL_MAX_CONNECTIONS:
                 oldest_tid = None
                 oldest_ws = None
@@ -179,7 +179,7 @@ class ChatHub:
                     try:
                         await oldest_ws.close(code=4002, reason="global_cap")
                     except Exception:
-                        pass
+                        logger.debug("[chat] ws exception")
             conns.add(ws)
             self.teacher_last_seen.setdefault(teacher_id, {})[ws] = time.monotonic()
             self._evict_stale_meta()
@@ -324,7 +324,7 @@ class ChatHub:
                     try:
                         await ws.close(code=4001, reason="heartbeat_timeout")
                     except Exception:
-                        pass
+                        logger.debug("[chat] ws exception")
                     self.student_conns.pop(sid, None)
                     self.student_meta.pop(sid, None)
                     self._last_pong.pop(ws, None)
@@ -347,7 +347,7 @@ class ChatHub:
                     try:
                         await ws.close(code=4001, reason="heartbeat_timeout")
                     except Exception:
-                        pass
+                        logger.debug("[chat] ws exception")
                     conns.discard(ws)
                     self._last_pong.pop(ws, None)
                     by_sock = self.teacher_last_seen.get(tid)
@@ -377,7 +377,7 @@ class ChatHub:
                 try:
                     await ws.close(code=4001, reason="idle_timeout")
                 except Exception:
-                    pass
+                    logger.debug("[chat] ws exception")
                 self.student_conns.pop(sid, None)
                 self.student_meta.pop(sid, None)
 
@@ -390,7 +390,7 @@ class ChatHub:
                 try:
                     await ws.close(code=4001, reason="idle_timeout")
                 except Exception:
-                    pass
+                    logger.debug("[chat] ws exception")
                 conns = self.teacher_conns.get(tid)
                 if conns:
                     conns.discard(ws)
@@ -425,7 +425,7 @@ class ChatHub:
                 try:
                     await ws.close(code=4002, reason="global_cap")
                 except Exception:
-                    pass
+                    logger.debug("[chat] ws exception")
                 if kind == "student":
                     self.student_conns.pop(kid, None)
                     self.student_meta.pop(kid, None)

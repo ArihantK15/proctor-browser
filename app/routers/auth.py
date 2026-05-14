@@ -1104,3 +1104,127 @@ async def student_password_reset(body: dict, request: Request):
     except Exception as e:
         _auth_log.warning("[StudentPasswordReset] Supabase error: %s", e)
         return {"status": "sent"}  # Don't reveal whether account exists
+
+
+# ─── OAUTH SIGN-IN (Google + Microsoft) ──────────────────────────
+#
+# Two endpoints:
+#   GET /api/v1/auth/oauth/start  — kick off the flow, redirect to
+#                                   Supabase → Google/Microsoft
+#   GET /api/v1/auth/oauth/callback — Supabase brings the user back,
+#                                     we exchange the code, bind to a
+#                                     teacher/student row, issue our JWT
+#
+# State is a signed JWT that carries (intent, return_to) round-trip.
+# The user never sees `?intent=teacher` so they can't tamper with
+# which kind of account gets created — it's locked at /start time.
+
+from fastapi.responses import RedirectResponse
+from ..services import auth_oauth
+
+
+@router.get("/api/v1/auth/oauth/start")
+@limiter.limit("20/minute")
+async def oauth_start(request: Request, provider: str = "google",
+                      intent: str = "teacher", return_to: str = ""):
+    """Begin an OAuth sign-in. Redirects the browser to Supabase.
+
+    Query params:
+      provider   — "google" or "azure" (azure = Microsoft Entra ID)
+      intent     — "teacher" or "student" (determines which row we
+                   create/bind on callback)
+      return_to  — where to send the user after we issue their JWT
+                   (defaults to "/" — your frontend can override per
+                   surface, e.g. "/student" for student login)
+    """
+    if provider not in auth_oauth.ALLOWED_PROVIDERS:
+        raise HTTPException(status_code=400, detail="Unsupported provider")
+    if intent not in auth_oauth.ALLOWED_INTENTS:
+        raise HTTPException(status_code=400, detail="Invalid intent")
+    # Default return_to → the marketing site home; the issued JWT
+    # is delivered via URL fragment so the SPA can pick it up.
+    if not return_to:
+        return_to = "/"
+
+    state = auth_oauth.issue_state_token(intent=intent, return_to=return_to)
+    url = auth_oauth.build_authorize_url(provider=provider, state=state)
+    return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/api/v1/auth/oauth/callback")
+async def oauth_callback(request: Request, code: str = "", state: str = "",
+                         error: str = "", error_description: str = ""):
+    """OAuth callback. Supabase redirects here with `?code=...&state=...`.
+
+    On success we issue a Procta JWT and redirect the browser to
+    return_to with the JWT in the URL fragment:
+        {return_to}#access_token=<jwt>&token_type=Bearer&expires_in=43200
+
+    Fragments don't go to servers or referrer headers, so the JWT
+    survives the SPA hop without leaking.
+    """
+    # Provider-side error (user denied consent, etc.)
+    if error:
+        _auth_log.warning("[oauth] provider error: %s — %s", error, error_description)
+        return RedirectResponse(url=f"/?oauth_error={error}", status_code=302)
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state")
+
+    # Verify our signed state (intent + return_to)
+    try:
+        state_claims = auth_oauth.verify_state_token(state)
+    except Exception as e:
+        _auth_log.warning("[oauth] bad state: %s", e)
+        raise HTTPException(status_code=400, detail="Invalid or expired state")
+    intent = state_claims["intent"]
+    return_to = state_claims.get("return_to") or "/"
+
+    # Exchange code → Supabase user
+    try:
+        sb_user = await auth_oauth.exchange_code_for_user(code)
+    except Exception as e:
+        _auth_log.warning("[oauth] exchange failed: %s", e)
+        raise HTTPException(status_code=400, detail="OAuth exchange failed")
+
+    ip = request.client.host if request.client else ""
+
+    # Bind to the right table (teacher vs student) and issue our JWT
+    if intent == "teacher":
+        teacher = await auth_oauth.bind_or_create_teacher(sb_user, ip=ip)
+        access_token = issue_admin_token(teacher)
+        await record_auth_event("login_success", request, "teacher",
+                                teacher["id"], teacher["email"],
+                                {"via": "oauth"})
+        user_payload = teacher
+    else:
+        from ..auth import issue_student_auth_token
+        account = await auth_oauth.bind_or_create_student(sb_user)
+        access_token = issue_student_auth_token(account)
+        await record_auth_event("login_success", request, "student_account",
+                                account["id"], account["email"],
+                                {"via": "oauth"})
+        user_payload = account
+
+    # Record the auth_sessions row so revocation works
+    try:
+        import jwt as _jwt
+        from ..constants import SECRET_KEY
+        claims = _jwt.decode(access_token, SECRET_KEY, algorithms=["HS256"])
+        jti = claims.get("jti", "")
+        if jti:
+            ua = request.headers.get("user-agent", "")
+            await _atable("auth_sessions").insert({
+                "jti":        jti,
+                "user_kind":  "teacher" if intent == "teacher" else "student_account",
+                "user_id":    user_payload["id"],
+                "ip":         ip,
+                "user_agent": ua,
+            }).execute()
+    except Exception:
+        pass
+
+    # Hand the JWT to the frontend via URL fragment (not query, not
+    # referrer). The SPA reads window.location.hash on /auth/callback.
+    fragment = f"access_token={access_token}&token_type=Bearer"
+    sep = "&" if "#" in return_to else "#"
+    return RedirectResponse(url=f"{return_to}{sep}{fragment}", status_code=302)

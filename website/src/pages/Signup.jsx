@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'wouter'
 import { ArrowLeft, Check } from 'lucide-react'
 import { APP_URL } from '../config'
+import OAuthButtons from '../components/auth/OAuthButtons'
 
 export default function Signup() {
   const [form, setForm] = useState({ name: '', email: '', password: '', org_name: '' })
@@ -118,6 +119,20 @@ export default function Signup() {
             <p className="mt-2 text-sm text-slate-400">
               7 days free on Starter plan. No credit card required. Full access, no limits.
             </p>
+          </div>
+
+          {/* OAuth: most teachers have Google or Microsoft 365 accounts;
+              clicking these skips email verification, password creation,
+              and password remembering entirely. */}
+          <OAuthButtons
+            intent="teacher"
+            returnTo={`${APP_URL}/dashboard`}
+          />
+
+          <div className="my-5 flex items-center gap-3 text-xs text-slate-500">
+            <div className="h-px flex-1 bg-white/[0.08]" />
+            <span className="label-mono">or use email</span>
+            <div className="h-px flex-1 bg-white/[0.08]" />
           </div>
 
           <form onSubmit={handleSignup} className="space-y-4">

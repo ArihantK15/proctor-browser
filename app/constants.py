@@ -46,6 +46,13 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in _CORS_RAW.split(",") if o.strip()] if
     "https://app.procta.net",
 ]
 
+# ─── App URL (used for absolute URLs in emails, OAuth callbacks, etc) ───
+APP_URL = os.getenv("APP_URL", "https://procta.net").rstrip("/")
+# Where the marketing site (procta.net) lives — used as the post-OAuth
+# default `return_to`. Same as APP_URL today, but kept separate so the
+# split deploy (procta.net + app.procta.net) can diverge later.
+MARKETING_URL = os.getenv("MARKETING_URL", APP_URL).rstrip("/")
+
 # ─── Releases ─────────────────────────────────────────────────────
 RELEASE_REPO = os.getenv("RELEASE_REPO", "ArihantK15/proctor-browser")
 RELEASE_TTL_SEC = int(os.getenv("RELEASE_TTL_SEC", "600"))

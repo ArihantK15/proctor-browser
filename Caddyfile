@@ -1,15 +1,24 @@
 app.procta.net {
     encode gzip
 
-    # ── Rate limiting for auth endpoints ──────────────────────────────
-    @auth_routes path /api/v1/auth/* /api/v1/validate-student
-    rate_limit @auth_routes {
-        zone auth_zone {
-            key {remote_host}
-            events 10
-            window 1m
-        }
-    }
+    # ── Rate limiting ─────────────────────────────────────────────────
+    # Caddy-level rate limiting REMOVED 2026-05-14 because the
+    # `rate_limit` directive comes from the third-party caddy-ratelimit
+    # plugin (mholt/caddy-ratelimit) which the stock caddy:2-alpine
+    # image doesn't include. The Caddyfile referenced it without a
+    # matching custom image, which crash-looped Caddy.
+    #
+    # The application layer already enforces per-endpoint rate limits
+    # via slowapi — 51 `@limiter.limit(...)` decorators in auth.py
+    # alone (signup: 5/hour, login: 10/minute, password-reset:
+    # 3/minute, OTP request: 3/10min, etc). That's defence at the
+    # right layer.
+    #
+    # To re-enable Caddy-level rate limiting (useful for edge IP-ban
+    # before requests hit the app), switch docker-compose.yml to:
+    #     image: ghcr.io/mholt/caddy-ratelimit:latest
+    # or build a custom Caddy image with `caddy build` + the plugin.
+    # Until then, do NOT add `rate_limit` directives here.
 
     # ── Global security headers ──────────────────────────────────────
     header {

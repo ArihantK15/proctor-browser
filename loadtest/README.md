@@ -148,6 +148,38 @@ because raw bandwidth (200 KB/s per student) is the binding
 constraint there, not request handling — and bandwidth is best
 tested by running a real Electron client at scale, not synthetic WS.
 
+## What practice mode actually bypasses
+
+Important nuance — the `PRACTICE_*` session-ID short-circuit only
+applies to these endpoints:
+
+| Endpoint | Practice-mode bypass? |
+|---|---|
+| `POST /api/v1/save-answer` | ✅ Yes (`services/practice.py:is_practice`) |
+| `POST /api/v1/save-answers-bulk` | ✅ Yes |
+| `POST /api/v1/submit-exam` | ✅ Yes |
+| `POST /api/v1/validate-student` | ❌ **NO** — always hits Supabase |
+| `GET /api/v1/questions/{exam}` | ❌ NO |
+| `POST /api/v1/auth/*` | ❌ NO |
+
+**`exam_flow.js` deliberately skips `validate-student`** for this
+reason. At 500 VUs hammering validate-student in parallel, Supabase's
+free-tier rate limit kicks in immediately (1500-2500 RPS spike of
+student-table SELECTs) and every request waits 60s for a connection.
+That's not a Procta problem — it's the Supabase free tier doing what
+it says on the tin.
+
+In real life, students hit `/validate-student` once per exam-join,
+spread over a 2-5 min window before the exam starts. The high-volume
+calls are `save-answer` (every keystroke change) and `submit-exam`
+(at the deadline). Those are what k6 tests, and what practice mode
+correctly bypasses.
+
+If you want to test the validate-student path under realistic load,
+use the Locust setup with pre-created students (its `setup_test_data.py`
+provisions real DB rows so the lookups are warm). Or upgrade Supabase
+to Pro (~$25/mo, removes the rate-limit ceiling) before testing.
+
 ## What this DOESN'T test
 
 - WebSocket live-frame upload (use `iperf3` or run real Electron

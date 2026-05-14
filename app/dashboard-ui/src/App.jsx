@@ -12,9 +12,11 @@ import AnalyticsPanel from './panels/AnalyticsPanel'
 import ChatPanel from './panels/ChatPanel'
 import QuestionsPanel from './panels/QuestionsPanel'
 import LiveSessionsPanel from './panels/LiveSessionsPanel'
+import ToolsPanel from './panels/ToolsPanel'
 
 const TABS = [
   { id: 'live', label: 'Live Sessions', roles: ['admin', 'superadmin'] },
+  { id: 'tools', label: 'Tools', roles: ['admin', 'superadmin'] },
   { id: 'results', label: 'Results', roles: ['admin', 'superadmin'] },
   { id: 'history', label: 'History', roles: ['admin', 'superadmin'] },
   { id: 'analytics', label: 'Analytics', roles: ['admin', 'superadmin'] },
@@ -79,6 +81,7 @@ function DashboardShell() {
 
   const PANELS = {
     live: LiveSessionsPanel,
+    tools: ToolsPanel,
     results: ResultsPanel,
     history: HistoryPanel,
     analytics: AnalyticsPanel,

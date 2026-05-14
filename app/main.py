@@ -47,6 +47,8 @@ from .routers.billing import router as billing_router
 from .routers.lti import router as lti_router
 from .routers.api import router as api_router
 from .routers.google_classroom import router as google_classroom_router
+from .routers.admin_status import router as admin_status_router
+from .routers.privacy import router as privacy_router
 
 # ── structured logger ─────────────────────────────────────────────
 logger = logging.getLogger("proctor.api")
@@ -484,3 +486,5 @@ app.include_router(billing_router)
 app.include_router(lti_router)
 app.include_router(api_router)
 app.include_router(google_classroom_router)
+app.include_router(privacy_router)
+app.include_router(admin_status_router)

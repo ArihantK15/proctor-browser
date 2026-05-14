@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Center — Procta</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fafc;color:#1e293b;padding:40px;max-width:720px;margin:0 auto}
+h1{font-size:24px;margin-bottom:4px}
+.sub{color:#64748b;font-size:14px;margin-bottom:24px}
+.section{margin-bottom:32px}
+.section h2{font-size:16px;margin-bottom:8px;color:#0f172a}
+.section p,.section li{font-size:14px;line-height:1.6;color:#475569}
+.section ul{padding-left:20px}
+.card{border-radius:12px;padding:20px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:8px;border:none;font-size:14px;cursor:pointer;font-weight:500}
+.btn-primary{background:#6366f1;color:#fff}
+.btn-primary:hover{background:#4f46e5}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-danger:hover{background:#dc2626}
+.btn-secondary{background:#e2e8f0;color:#475569}
+.btn-secondary:hover{background:#cbd5e1}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+#export-status,#delete-status{font-size:13px;margin-top:8px;min-height:20px}
+.ok{color:#16a34a}
+.err{color:#dc2626}
+pre{font-size:12px;background:#f1f5f9;padding:12px;border-radius:8px;overflow:auto;max-height:400px;margin-top:12px}
+.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center;z-index:100}
+.modal-backdrop.active{display:flex}
+.modal-card{background:#fff;border-radius:16px;padding:24px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal-card h3{margin-bottom:8px}
+.modal-card p{font-size:14px;color:#64748b;margin-bottom:16px}
+.modal-actions{display:flex;gap:10px}
+</style>
+</head>
+<body>
+
+<h1>Privacy Center</h1>
+<p class="sub">Manage your data, consent, and account.</p>
+
+<div class="section">
+  <h2>Data retention</h2>
+  <div class="card">
+    <ul>
+      <li><strong>Screenshots</strong> captured during exams are retained for <strong>90 days</strong>, then automatically deleted.</li>
+      <li><strong>Phone camera frames</strong> are stored in memory only during the live-view window and deleted within <strong>24 hours</strong>.</li>
+      <li><strong>Exam answers and scores</strong> are kept for the duration of your account.</li>
+      <li><strong>Violation logs</strong> and <strong>audit trails</strong> are retained for 1 year.</li>
+      <li>You can request <strong>immediate deletion</strong> of your account at any time.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Your consent</h2>
+  <div class="card">
+    <p>We record the following consent events:</p>
+    <ul id="consent-list" style="margin-top:8px">
+      <li>Loading...</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Export your data</h2>
+  <div class="card">
+    <p>Download all personal data we hold about you as a JSON file.</p>
+    <button class="btn btn-primary" id="export-btn" onclick="doExport()">Export my data</button>
+    <div id="export-status"></div>
+  </div>
+</div>
+
+<div class="section" style="border-top:1px solid #e2e8f0;padding-top:24px">
+  <h2 style="color:#dc2626">Delete your account</h2>
+  <div class="card" style="border:1px solid #fecaca">
+    <p>This will anonymize all personal data and revoke access. This action cannot be undone.</p>
+    <button class="btn btn-danger" id="delete-btn" onclick="showDeleteConfirm()">Delete my account</button>
+    <div id="delete-status"></div>
+  </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="modal-backdrop" id="delete-modal">
+  <div class="modal-card">
+    <h3>Confirm account deletion</h3>
+    <p>This will anonymize all your personal data. You will not be able to log in again. Are you sure?</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeDeleteConfirm()">Cancel</button>
+      <button class="btn btn-danger" style="flex:1" onclick="confirmDelete()">Yes, delete</button>
+    </div>
+    <div id="delete-modal-err" style="color:#dc2626;font-size:13px;margin-top:8px"></div>
+  </div>
+</div>
+
+<script>
+const TOKEN = localStorage.getItem('procta_token') || localStorage.getItem('procta_student_token') || '';
+const BASE = '';
+const headers = {'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'};
+
+async function authFetch(url, opts){
+  return fetch(BASE+url, {...opts, headers:{...headers,...(opts?.headers||{})}});
+}
+
+// Consent list
+async function loadConsent(){
+  try{
+    const r = await authFetch('/api/v1/privacy/export');
+    if(!r.ok) return;
+    const d = await r.json();
+    const list = document.getElementById('consent-list');
+    const recs = d.consent_records || [];
+    if(recs.length){
+      list.innerHTML = recs.map(c =>
+        '<li>' + c.consent_type + ' &mdash; ' + new Date(c.created_at).toLocaleDateString() + '</li>'
+      ).join('');
+    }else{
+      list.innerHTML = '<li>No consent records yet.</li>';
+    }
+  }catch(e){}
+}
+loadConsent();
+
+// Export
+async function doExport(){
+  const btn = document.getElementById('export-btn');
+  const status = document.getElementById('export-status');
+  btn.disabled = true;
+  status.innerHTML = 'Exporting...';
+  try{
+    const r = await authFetch('/api/v1/privacy/export');
+    if(!r.ok){ status.innerHTML = '<span class="err">Failed: HTTP ' + r.status + '</span>'; btn.disabled = false; return; }
+    const d = await r.json();
+    const blob = new Blob([JSON.stringify(d, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'procta-data-export.json'; a.click();
+    URL.revokeObjectURL(url);
+    status.innerHTML = '<span class="ok">Downloaded successfully.</span>';
+  }catch(e){
+    status.innerHTML = '<span class="err">Error: ' + e.message + '</span>';
+  }
+  btn.disabled = false;
+}
+
+// Delete
+function showDeleteConfirm(){
+  document.getElementById('delete-modal').classList.add('active');
+}
+function closeDeleteConfirm(){
+  document.getElementById('delete-modal').classList.remove('active');
+  document.getElementById('delete-modal-err').textContent = '';
+}
+async function confirmDelete(){
+  const btn = document.querySelector('#delete-modal .btn-danger');
+  const err = document.getElementById('delete-modal-err');
+  btn.disabled = true;
+  err.textContent = '';
+  try{
+    const r = await authFetch('/api/v1/privacy/delete', {method:'POST'});
+    const d = await r.json();
+    if(r.ok){
+      err.innerHTML = '<span style="color:#16a34a">Account deletion initiated. You will be redirected.</span>';
+      setTimeout(() => { localStorage.clear(); window.location.href = '/'; }, 2000);
+    }else{
+      err.textContent = d.detail || 'Deletion failed.';
+    }
+  }catch(e){
+    err.textContent = 'Error: ' + e.message;
+  }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

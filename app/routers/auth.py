@@ -123,6 +123,13 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "exam_title": "Exam",
             "duration_minutes": 60,
         }).execute()
+
+        # Seed demo exam with sample questions
+        try:
+            from ..services.demo_exam import seed_demo_exam
+            await seed_demo_exam(str(teacher["id"]), _atable=_atable)
+        except Exception as demo_err:
+            _auth_log.warning("[TeacherSignup] demo seed failed (non-fatal): %s", demo_err)
     except Exception as e:
         _auth_log.error("[TeacherSignup] DB error: %s", e)
         try:

@@ -256,6 +256,11 @@
   .modal-card p.sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
   .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
   .modal-err { color: var(--red); font-size: 12px; min-height: 16px; margin-top: 8px; }
+  .pf-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid #f1f5f9 }
+  .pf-row:last-child { border-bottom:none }
+  .pf-icon { width:24px; text-align:center; font-size:16px }
+  .pf-label { flex:1; font-size:14px }
+  .pf-status { font-size:13px; font-weight:500 }
 
   .footer-links {
     text-align: center;
@@ -488,6 +493,36 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" style="flex:1" onclick="closeCodeModal()">Cancel</button>
         <button class="btn btn-primary" style="flex:1" id="modal-start-btn" onclick="confirmStartExam()">Start exam</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preflight check modal, shown before exam launch. -->
+  <div class="modal-backdrop" id="preflight-modal">
+    <div class="modal-card" style="max-width:480px">
+      <h3>Device check</h3>
+      <p class="sub">We'll test your camera, browser, and network before you start.</p>
+      <div id="preflight-results" style="margin:16px 0">
+        <div class="pf-row" data-check="camera">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">Camera</span>
+          <span class="pf-status">Checking...</span>
+        </div>
+        <div class="pf-row" data-check="browser">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">Browser compatibility</span>
+          <span class="pf-status">Checking...</span>
+        </div>
+        <div class="pf-row" data-check="bandwidth">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">Network latency</span>
+          <span class="pf-status">Checking...</span>
+        </div>
+      </div>
+      <div id="preflight-err" class="modal-err"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" style="flex:1" onclick="closePreflight()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" id="preflight-start-btn" onclick="launchAfterPreflight()" disabled>Start exam</button>
       </div>
     </div>
   </div>
@@ -802,6 +837,7 @@ const INSIDE_PROCTA_APP = !!(window.procta_native && window.procta_native.isLobb
 // when the access-code modal fires.
 let _examsCache = [];
 let _pendingExam = null;
+let _pendingAccessCode = '';
 
 function renderExams(exams) {
   _examsCache = exams;
@@ -944,6 +980,104 @@ function _fmtDuration(secs){
   return m>0?`${m}m ${s}s`:`${s}s`;
 }
 
+// ─── Preflight device check ─────────────────────────────────────
+let _pendingAccessCode = '';
+let _preflightResults = {};
+
+function showPreflight() {
+  document.getElementById('preflight-modal').classList.add('active');
+  document.getElementById('preflight-start-btn').disabled = true;
+  document.getElementById('preflight-err').textContent = '';
+  _preflightResults = {};
+  // Reset all rows
+  document.querySelectorAll('.pf-row').forEach(r => {
+    r.querySelector('.pf-icon').textContent = '\u231B';
+    r.querySelector('.pf-status').textContent = 'Checking...';
+    r.querySelector('.pf-status').style.color = '';
+  });
+  // Run all checks in parallel
+  Promise.all([
+    _pfCheckCamera(),
+    _pfCheckBrowser(),
+    _pfCheckBandwidth(),
+  ]).then(() => {
+    const ok = Object.values(_preflightResults).every(v => v === 'ok');
+    document.getElementById('preflight-start-btn').disabled = !ok;
+    if (!ok) {
+      document.getElementById('preflight-err').textContent =
+        'Some checks failed. You can fix and recheck, or try starting anyway.';
+    }
+  });
+}
+
+function closePreflight() {
+  document.getElementById('preflight-modal').classList.remove('active');
+  _pendingExam = null;
+  _pendingAccessCode = '';
+}
+
+function launchAfterPreflight() {
+  closePreflight();
+  launchExam(_pendingExam, _pendingAccessCode);
+}
+
+function _setPfStatus(check, icon, status, color) {
+  const row = document.querySelector(`[data-check="${check}"]`);
+  if (!row) return;
+  row.querySelector('.pf-icon').textContent = icon;
+  row.querySelector('.pf-status').textContent = status;
+  row.querySelector('.pf-status').style.color = color || '';
+}
+
+async function _pfCheckCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    stream.getTracks().forEach(t => t.stop());
+    _setPfStatus('camera', '\u2705', 'Working', 'var(--emerald)');
+    _preflightResults.camera = 'ok';
+  } catch (e) {
+    _setPfStatus('camera', '\u274C', 'Not accessible', 'var(--red)');
+    _preflightResults.camera = 'fail';
+  }
+}
+
+function _pfCheckBrowser() {
+  const issues = [];
+  if (typeof WebSocket === 'undefined') issues.push('No WebSocket');
+  if (!navigator.onLine) issues.push('Offline');
+  const ua = navigator.userAgent || '';
+  if (!ua) issues.push('Unknown browser');
+  if (issues.length) {
+    _setPfStatus('browser', '\u26A0\uFE0F', issues.join(', '), 'var(--amber)');
+    _preflightResults.browser = 'warn';
+  } else {
+    _setPfStatus('browser', '\u2705', 'Compatible', 'var(--emerald)');
+    _preflightResults.browser = 'ok';
+  }
+}
+
+async function _pfCheckBandwidth() {
+  const start = performance.now();
+  try {
+    const r = await fetch('/health?t=' + Date.now(), { cache: 'no-store' });
+    const ms = Math.round(performance.now() - start);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (ms < 300) {
+      _setPfStatus('bandwidth', '\u2705', ms + 'ms', 'var(--emerald)');
+      _preflightResults.bandwidth = 'ok';
+    } else if (ms < 1000) {
+      _setPfStatus('bandwidth', '\u26A0\uFE0F', ms + 'ms (slow)', 'var(--amber)');
+      _preflightResults.bandwidth = 'warn';
+    } else {
+      _setPfStatus('bandwidth', '\u274C', ms + 'ms (too slow)', 'var(--red)');
+      _preflightResults.bandwidth = 'fail';
+    }
+  } catch (e) {
+    _setPfStatus('bandwidth', '\u274C', 'Unreachable', 'var(--red)');
+    _preflightResults.bandwidth = 'fail';
+  }
+}
+
 // ─── Practice mode launch ─────────────────────────────────────
 // Generates a one-shot PRACTICE_<8 hex> roll number and routes
 // through the existing launchExam IPC. The server detects the
@@ -983,7 +1117,7 @@ function startExamFromCard(idx) {
   if (exam.access_code_required) {
     openCodeModal();
   } else {
-    launchExam(exam, '');
+    showPreflight();
   }
 }
 
@@ -1007,7 +1141,9 @@ async function confirmStartExam() {
     return;
   }
   document.getElementById('modal-err').textContent = '';
-  await launchExam(_pendingExam, code);
+  _pendingAccessCode = code;
+  closeCodeModal();
+  showPreflight();
 }
 
 async function launchExam(exam, accessCode) {

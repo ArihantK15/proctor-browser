@@ -78,6 +78,22 @@ def _job_failure(job: Job, connection, typ, value, traceback):
 
 conn = Redis.from_url(redis_url)
 
+# ── health heartbeat ────────────────────────────────────────────────
+import threading
+
+def _heartbeat_loop():
+    """Write worker:last_heartbeat to Redis every 30 seconds."""
+    while True:
+        try:
+            conn.set("worker:last_heartbeat", str(time.time()), ex=90)
+        except Exception:
+            pass
+        threading.Event().wait(30)
+
+_t = threading.Thread(target=_heartbeat_loop, daemon=True)
+_t.start()
+log.info("worker heartbeat loop started")
+
 if __name__ == "__main__":
     log.info("worker starting — redis=%s queue=%s", redis_url, queue_name)
     with Connection(conn):

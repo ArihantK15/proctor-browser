@@ -151,9 +151,47 @@ async def health():
             checks["disk"] = "warning"
         else:
             checks["disk"] = "ok"
+
+        # Storage write test — create + delete a temp file
+        os.makedirs(target, exist_ok=True)
+        test_path = os.path.join(target, ".health_write_test")
+        with open(test_path, "wb") as f:
+            f.write(b"ok")
+        os.remove(test_path)
+        checks["storage_write"] = "ok"
     except Exception as e:
         checks["disk"] = "error: suppressed"
+        checks["storage_write"] = "error"
         ok = False
+
+    # Worker — check last heartbeat via Redis
+    try:
+        import redis as _redis
+        r = _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
+        hb = r.get("worker:last_heartbeat")
+        if hb:
+            age = time.time() - float(hb)
+            checks["worker"] = "ok" if age < 60 else "stale"
+            if age >= 60:
+                ok = False
+        else:
+            checks["worker"] = "no_heartbeat"
+    except Exception:
+        checks["worker"] = "unavailable"
+
+    # Email — check provider is configured
+    try:
+        provider = os.environ.get("EMAIL_PROVIDER", "resend")
+        email_from = os.environ.get("EMAIL_FROM", "")
+        if provider != "noop" and email_from:
+            checks["email"] = "ok"
+        elif provider == "noop":
+            checks["email"] = "noop"
+        else:
+            checks["email"] = "misconfigured"
+            ok = False
+    except Exception:
+        checks["email"] = "error"
 
     uptime_sec = time.time() - _health_start
     status = 200 if ok else 503

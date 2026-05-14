@@ -124,6 +124,15 @@ if not _log.handlers:
     _handler.setFormatter(_formatter)
     _log.addHandler(_handler)
 
+# ─── Quiet down chatty third-party loggers ──────────────────────
+# `httpx` (used by supabase-py to call REST) logs every single HTTP
+# request at INFO. At 5 RPS per active student × 500 students that's
+# 2,500 log lines per second of pure "made a Supabase call" noise.
+# Bump it to WARNING — we still see errors, we lose the firehose.
+# Same for `urllib3` and `httpcore` which httpx wraps.
+for _noisy in ("httpx", "httpcore", "urllib3"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 
 # ─── Async timing helper ─────────────────────────────────────────
 import asyncio

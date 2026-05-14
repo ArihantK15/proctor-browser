@@ -34,16 +34,34 @@ export default function () {
   group('health', () => {
     const res = http.get(`${TARGET}/health`, { tags: { name: 'health' } })
     check(res, {
-      'health 200':  (r) => r.status === 200,
-      'health fast': (r) => r.timings.duration < 100,
+      'health reachable': (r) => r.status !== 0,    // 0 = connection refused / DNS fail
+      'health 200':       (r) => r.status === 200,
+      'health not 502':   (r) => r.status !== 502,  // backend reachable behind Caddy
+      'health not 503':   (r) => r.status !== 503,  // backend not in startup
+      'health fast':      (r) => r.timings.duration < 100,
     })
+    // Distinct error messages so common failure modes don't look like
+    // script bugs. k6 sets status = 0 when the socket can't be opened.
+    if (res.status === 0) {
+      console.warn(`[smoke] ${TARGET}/health → connection refused. Caddy is not listening on :443. Check 'docker compose ps caddy' on the droplet.`)
+    } else if (res.status === 502) {
+      console.warn(`[smoke] ${TARGET}/health → 502. Caddy is up, FastAPI container is down. Check 'docker compose logs api --tail 30' on the droplet.`)
+    } else if (res.status === 503) {
+      console.warn(`[smoke] ${TARGET}/health → 503. FastAPI is in startup or Supabase health check failing.`)
+    }
   })
 
   group('plans', () => {
     const res = http.get(`${TARGET}/api/v1/billing/plans`, { tags: { name: 'plans' } })
     check(res, {
-      'plans 200':            (r) => r.status === 200,
-      'plans has starter':    (r) => r.json('plans.0.id') !== undefined,
+      'plans reachable': (r) => r.status !== 0,
+      'plans 200':       (r) => r.status === 200,
+      // Guard the JSON parse with a status check first; r.json() on a
+      // null body (failed request) throws a Go error and creates a
+      // 30-line stack-trace per VU iteration that drowns out the
+      // actually-useful warnings above.
+      'plans has starter': (r) =>
+        r.status === 200 && r.json('plans.0.id') !== undefined,
     })
   })
 

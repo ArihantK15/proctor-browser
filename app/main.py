@@ -94,21 +94,48 @@ async def lifespan(_app) -> AsyncIterator[None]:
     gc.freeze()
     threading.Thread(target=_cleanup_screenshots, daemon=True).start()
 
-    if os.environ.get("REMINDER_LOOP_DISABLED", "") != "1":
+    # ── Per-worker singleton tasks (the leader-worker pattern) ──
+    # With uvicorn --workers N>1, the lifespan runs in EVERY worker.
+    # Tasks like the reminder loop must only run in ONE worker or they
+    # double-fire (students get duplicate emails, etc).
+    #
+    # Cheapest correct check: `multiprocessing.current_process().name`
+    # is "SpawnProcess-1" for the first worker, "SpawnProcess-2" for
+    # the second, and so on. We pick worker -1 to own the duties.
+    # The room-frame cleanup is idempotent (sweep stale Redis keys),
+    # so running it twice is harmless — but we gate it for consistency.
+    #
+    # If uvicorn ever changes worker naming, both workers will skip
+    # the loop (silent failure) — set REMINDER_LEADER_OVERRIDE=1 on
+    # the surviving worker to override.
+    import multiprocessing
+    worker_name = multiprocessing.current_process().name
+    is_leader = (
+        worker_name.endswith("-1")
+        or worker_name == "MainProcess"  # single-worker / dev mode
+        or os.environ.get("REMINDER_LEADER_OVERRIDE", "") == "1"
+    )
+
+    if os.environ.get("REMINDER_LOOP_DISABLED", "") == "1":
+        print(f"[startup] reminders loop disabled by env ({worker_name})", flush=True)
+    elif is_leader:
         _reminder_task = asyncio.create_task(_reminder_loop())
         _reminder_task.add_done_callback(
             lambda t: print(f"[startup] reminders loop ended: {t.exception()}", flush=True)
             if not t.cancelled() and t.exception()
             else None
         )
-        print("[startup] reminders loop started", flush=True)
+        print(f"[startup] reminders loop started ({worker_name})", flush=True)
+    else:
+        print(f"[startup] reminders loop skipped — non-leader worker ({worker_name})", flush=True)
 
-    _room_frame_cleanup_task = asyncio.create_task(_room_frame_cleanup_loop())
-    _room_frame_cleanup_task.add_done_callback(
-        lambda t: print(f"[startup] room-frame cleanup loop ended: {t.exception()}", flush=True)
-        if not t.cancelled() and t.exception()
-        else None
-    )
+    if is_leader:
+        _room_frame_cleanup_task = asyncio.create_task(_room_frame_cleanup_loop())
+        _room_frame_cleanup_task.add_done_callback(
+            lambda t: print(f"[startup] room-frame cleanup loop ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
 
     yield  # ── APP RUNNING ────────────────────────────────────────
 

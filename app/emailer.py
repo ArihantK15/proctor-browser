@@ -326,6 +326,84 @@ This link expires in 24 hours. If you did not sign up for Procta, you can ignore
     return _send(to_email, subject, html, text)
 
 
+def send_suspicious_login_email(
+    *,
+    to_email: str,
+    to_name: str,
+    ip: str,
+    user_agent: str,
+    when,
+) -> SendResult:
+    """Heads-up email: someone logged in from a new device/location.
+
+    Not a block — informational. If it was the user, they ignore it.
+    If it wasn't, they reset their password + check active sessions.
+    """
+    # Format the timestamp in a human-readable way; the email client
+    # will localise it again via the timestamp itself for screen readers
+    # but we provide both for plain-text fallbacks.
+    when_str = when.strftime("%d %b %Y, %I:%M %p UTC") if hasattr(when, "strftime") else str(when)
+    # Truncate UA — full strings are 200+ chars and unreadable.
+    ua_short = (user_agent or "Unknown browser")[:120]
+    subject = "New sign-in to your Procta account"
+    text = f"""Hello {to_name},
+
+We noticed a new sign-in to your Procta account from a device or
+location we haven't seen before.
+
+  When:    {when_str}
+  IP:      {ip or 'unknown'}
+  Browser: {ua_short}
+
+If this was you, no action is needed.
+
+If it was NOT you:
+  1. Sign in to Procta and change your password immediately.
+  2. Review active sessions at app.procta.net/account/security
+     and revoke any you don't recognise.
+  3. Enable two-factor authentication if you haven't already.
+
+— The Procta Security Team
+"""
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>New sign-in — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="480"
+             style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:480px;">
+        <tr><td style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:24px 28px;text-align:center;">
+          <div style="color:#ffffff;font-size:18px;font-weight:700;">New sign-in detected</div>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0f172a;">
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{to_name}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">We noticed a new sign-in to your Procta account from a device or location we haven't seen before:</p>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                 style="background:#f8fafc;border-radius:8px;margin:0 0 20px;font-size:13px;">
+            <tr><td style="padding:8px 12px;color:#64748b;width:80px;">When</td>
+                <td style="padding:8px 12px;color:#0f172a;"><strong>{when_str}</strong></td></tr>
+            <tr><td style="padding:8px 12px;color:#64748b;">IP address</td>
+                <td style="padding:8px 12px;color:#0f172a;font-family:monospace;font-size:12px;">{ip or 'unknown'}</td></tr>
+            <tr><td style="padding:8px 12px;color:#64748b;">Browser</td>
+                <td style="padding:8px 12px;color:#0f172a;font-size:12px;">{ua_short}</td></tr>
+          </table>
+          <p style="margin:0 0 12px;font-size:14px;line-height:1.5;"><strong>If this was you</strong>, no action is needed.</p>
+          <p style="margin:0 0 8px;font-size:14px;line-height:1.5;"><strong>If it was NOT you:</strong></p>
+          <ol style="margin:0 0 20px 20px;padding:0;font-size:13px;line-height:1.6;color:#334155;">
+            <li>Sign in to Procta and change your password immediately.</li>
+            <li>Review and revoke unfamiliar sessions in account settings.</li>
+            <li>Enable two-factor authentication.</li>
+          </ol>
+          <p style="margin:0;font-size:12px;color:#999;line-height:1.4;">If you have any questions, reply to this email and we'll help.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    return _send(to_email, subject, html, text)
+
+
 def _render_reminder(**ctx) -> tuple[str, str]:
     """Return (html, text) for a "your exam starts in N hours" reminder.
 

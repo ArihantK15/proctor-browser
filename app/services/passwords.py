@@ -14,29 +14,61 @@ REQUIRE_SYMBOL = True
 
 # Path to bundled top-1000 breached passwords list
 _BREACHED_FILE = Path(__file__).parent.parent.parent / "data" / "breached_top1000.txt"
+# Path to bundled disposable-email-domain blocklist
+_DISPOSABLE_FILE = Path(__file__).parent.parent.parent / "data" / "disposable_email_domains.txt"
 
 
-def _load_breached_set() -> set[str]:
-    """Load the top-1000 breached passwords into a set."""
-    if not _BREACHED_FILE.exists():
-        logger.warning("[passwords] breached_top1000.txt not found at %s", _BREACHED_FILE)
+def _load_text_set(path: Path, label: str) -> set[str]:
+    """Load a newline-delimited file into a lowercased set.
+
+    Shared loader for both the breached-passwords list and the
+    disposable-email-domain list. Both files have the same format:
+    one entry per line, # comments, blank lines ignored.
+    """
+    if not path.exists():
+        logger.warning("[passwords] %s not found at %s", label, path)
         return set()
     try:
-        with open(_BREACHED_FILE) as f:
-            return {line.strip().lower() for line in f if line.strip()}
+        with open(path) as f:
+            return {
+                line.strip().lower()
+                for line in f
+                if line.strip() and not line.startswith("#")
+            }
     except Exception as e:
-        logger.warning("[passwords] failed to load breached list: %s", e)
+        logger.warning("[passwords] failed to load %s: %s", label, e)
         return set()
 
 
 _BREACHED: set[str] | None = None
+_DISPOSABLE: set[str] | None = None
 
 
 def _get_breached() -> set[str]:
     global _BREACHED
     if _BREACHED is None:
-        _BREACHED = _load_breached_set()
+        _BREACHED = _load_text_set(_BREACHED_FILE, "breached_top1000.txt")
     return _BREACHED
+
+
+def _get_disposable() -> set[str]:
+    global _DISPOSABLE
+    if _DISPOSABLE is None:
+        _DISPOSABLE = _load_text_set(_DISPOSABLE_FILE, "disposable_email_domains.txt")
+    return _DISPOSABLE
+
+
+def is_disposable_email(email: str) -> bool:
+    """True if the email domain matches a known disposable provider.
+
+    Domain is normalised (lowercase, trimmed) before lookup. Returns
+    False on malformed input — let the upstream email regex catch
+    bad addresses, not us.
+    """
+    if "@" not in email:
+        return False
+    domain = email.rsplit("@", 1)[1].strip().lower()
+    return domain in _get_disposable()
 
 
 class PasswordError(ValueError):
@@ -73,4 +105,9 @@ def validate_signup(email: str, password: str, full_name: str) -> None:
         raise PasswordError("A valid email address is required.")
     if not full_name or not full_name.strip():
         raise PasswordError("Full name is required.")
+    if is_disposable_email(email):
+        raise PasswordError(
+            "Please use a permanent email address. Disposable-email "
+            "domains are not allowed."
+        )
     validate_password(password)

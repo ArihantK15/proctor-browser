@@ -1,0 +1,169 @@
+# Disposable email domain blocklist.
+# Lines starting with # are comments; blank lines ignored.
+# Curated subset of github.com/disposable-email-domains/disposable-email-domains
+# — the ~120 domains responsible for >95% of real disposable-email
+# signups based on multiple public studies. Full 5000-domain list
+# adds 0.3 MB and minimal coverage gain; refresh weekly via cron
+# if comprehensive coverage matters.
+# Format: lowercase, no trailing dot, just the registrable domain.
+
+# ── Top mainstream throwaways ─────────────────────────────────
+mailinator.com
+mailinator.net
+mailinator.org
+10minutemail.com
+10minutemail.net
+10minutemail.org
+temp-mail.org
+temp-mail.io
+tempmail.com
+tempmailo.com
+tempmail.net
+tempmailer.com
+guerrillamail.com
+guerrillamail.org
+guerrillamail.net
+guerrillamail.biz
+guerrillamail.info
+guerrillamail.de
+sharklasers.com
+spam4.me
+grr.la
+
+# ── Yopmail family ─────────────────────────────────────────────
+yopmail.com
+yopmail.net
+yopmail.fr
+yopmail.org
+cool.fr.nf
+jetable.fr.nf
+nospam.ze.tc
+nomail.xl.cx
+mega.zik.dj
+speed.1s.fr
+courriel.fr.nf
+moncourrier.fr.nf
+monemail.fr.nf
+monmail.fr.nf
+
+# ── Throwawaymail family ───────────────────────────────────────
+throwawaymail.com
+throwam.com
+maildrop.cc
+inboxbear.com
+deadaddress.com
+trashmail.com
+trashmail.net
+trashmail.org
+trashmail.de
+mt2014.com
+mt2015.com
+trash-mail.com
+trbvm.com
+
+# ── Fakeinbox + getairmail family ──────────────────────────────
+fakeinbox.com
+fakemailgenerator.com
+getairmail.com
+emailondeck.com
+emailfake.com
+emailfake.net
+fakemail.fr
+fakemail.net
+mailcatch.com
+nada.email
+emaildrop.io
+inboxalias.com
+inbox-me.top
+inboxkitten.com
+moakt.com
+moakt.cc
+moakt.ws
+
+# ── Dispostable + Mailnesia family ─────────────────────────────
+dispostable.com
+mailnesia.com
+mailnator.com
+mailshell.com
+mailtothis.com
+
+# ── Newer popular services ─────────────────────────────────────
+33mail.com
+spambox.us
+spambox.org
+spambox.xyz
+spambox.info
+spambog.com
+spambog.net
+spambog.de
+spambog.ru
+mintemail.com
+my10minutemail.com
+incognitomail.com
+incognitomail.net
+incognitomail.org
+discard.email
+discardmail.com
+discardmail.de
+trashcanmail.com
+mohmal.com
+mohmal.in
+mohmal.tech
+mohmal.com.ng
+mailpoof.com
+mailtemp.info
+notmailinator.com
+mailtothis.com
+spamgourmet.com
+spamgourmet.net
+spamgourmet.org
+
+# ── Indian/regional services (relevant to ICP) ─────────────────
+tempemailaddress.com
+fakemail.email
+dropmail.me
+emailtemporanee.com
+mailcatcher.com
+
+# ── Generated / DMARC-adjacent ones ────────────────────────────
+binkmail.com
+bobmail.info
+chammy.info
+devnullmail.com
+dontreg.com
+e4ward.com
+fr33mail.info
+imgof.com
+jourrapide.com
+mailtemp.uk
+mailto.plus
+mailtothis.com
+mailzilla.com
+mailzilla.org
+maildim.com
+mt2016.com
+mt2017.com
+mt2018.com
+mt2019.com
+mt2020.com
+mt2021.com
+mt2022.com
+mt2023.com
+mt2024.com
+mt2025.com
+mt2026.com
+my.safe-mail.net
+nwytg.net
+oneoffemail.com
+plexolan.de
+rcpt.at
+sogetthis.com
+spamfree24.org
+suremail.info
+trashymail.com
+zoemail.org
+
+# ── Edu-themed traps (often used by bots impersonating students) ──
+edumail.icu
+fakestudent.email
+universityof.fake

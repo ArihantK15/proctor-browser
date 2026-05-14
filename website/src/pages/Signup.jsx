@@ -3,6 +3,8 @@ import { Link } from 'wouter'
 import { ArrowLeft, Check } from 'lucide-react'
 import { APP_URL } from '../config'
 import OAuthButtons from '../components/auth/OAuthButtons'
+import useTurnstile from '../hooks/useTurnstile'
+import { isPasswordPwned } from '../lib/hibp'
 
 export default function Signup() {
   const [form, setForm] = useState({ name: '', email: '', password: '', org_name: '' })
@@ -19,11 +21,23 @@ export default function Signup() {
   const updateForm = update(setForm)
   const updateDemo = update(setDemoForm)
 
+  const turnstile = useTurnstile()
+
   const handleSignup = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
+      // Client-side HIBP check — refuse passwords known to be in
+      // public breach corpora. Fails open if HIBP is unreachable;
+      // server-side validate_password still catches weak passwords.
+      if (await isPasswordPwned(form.password)) {
+        throw new Error(
+          "This password has appeared in a known data breach. " +
+          "Please choose a different password."
+        )
+      }
+
       const res = await fetch(`${APP_URL}/api/v1/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -32,10 +46,14 @@ export default function Signup() {
           email: form.email,
           password: form.password,
           org_name: form.org_name,
+          captcha_token: turnstile.token,
         }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
+        // Refresh the Turnstile widget on any failure — the token is
+        // single-use, so a retry needs a fresh one.
+        turnstile.refresh()
         throw new Error(data.detail || 'Something went wrong. Please try again.')
       }
       const data = await res.json()
@@ -190,6 +208,11 @@ export default function Signup() {
                 {error}
               </div>
             )}
+
+            {/* Cloudflare Turnstile — invisible Managed mode. Renders
+                nothing visible 99% of the time; shows a challenge only
+                when bot signal is high. */}
+            <div ref={turnstile.ref} />
 
             <button
               type="submit"

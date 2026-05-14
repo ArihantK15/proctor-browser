@@ -21,6 +21,7 @@ from ..constants import PLANS, TRIAL_DAYS
 from ..services.passwords import validate_password, PasswordError
 from ..services.auth_lockout import check_lockout, record_failure, clear_failures
 from ..services.auth_events import record as record_auth_event
+from ..services.turnstile import verify_or_403
 from ..auth.tokens import issue_email_verify_token, issue_reauth_token, verify_email_token
 from ..utils import _html_escape as _esc
 from ..jobs import enqueue_job, send_new_account_notification_job
@@ -39,6 +40,10 @@ def _slugify(text: str) -> str:
 @limiter.limit("5/hour")
 async def teacher_signup(body: TeacherSignupIn, request: Request):
     """Create a new teacher account with org and trial subscription."""
+    # Turnstile CAPTCHA — runs first so bots never reach the
+    # Supabase Auth admin API (which has its own per-project quota).
+    await verify_or_403(request, body.captcha_token)
+
     email = body.email.strip().lower()
     name = body.full_name.strip()
     org_name = (body.org_name or "").strip()
@@ -155,6 +160,9 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
 @limiter.limit("10/minute")
 async def teacher_login(body: TeacherLoginIn, request: Request):
     """Log in a teacher via Supabase Auth, return JWT tokens."""
+    # CAPTCHA before any expensive auth work
+    await verify_or_403(request, body.captcha_token)
+
     email = body.email.strip().lower()
 
     # Lockout check
@@ -193,6 +201,23 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         )
 
     await record_auth_event("login_success", request, "teacher", teacher["id"], email)
+
+    # Suspicious-login email — non-blocking heads-up if this looks like
+    # a new device/location vs the user's last 30 days. Fire-and-forget
+    # so we never delay the login response on auth_events lookup + SMTP.
+    try:
+        import asyncio as _asyncio
+        from ..services.suspicious_login import check_and_notify as _sus_check
+        _asyncio.create_task(_sus_check(
+            user_kind="teacher",
+            user_id=teacher["id"],
+            user_email=email,
+            user_name=teacher.get("full_name", ""),
+            request_ip=(request.client.host if request.client else ""),
+            user_agent=request.headers.get("user-agent", ""),
+        ))
+    except Exception:
+        pass  # never block login on this
 
     access_token = issue_admin_token(teacher)
     # Record session
@@ -267,6 +292,9 @@ async def teacher_refresh(body: RefreshIn, request: Request):
 @limiter.limit("3/minute")
 async def teacher_password_reset(body: PasswordResetIn, request: Request):
     """Send a password reset email via Supabase Auth."""
+    # CAPTCHA — password-reset is a common email-bombing vector
+    await verify_or_403(request, body.captcha_token)
+
     email = body.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
@@ -900,6 +928,9 @@ async def verify_email(request: Request, token: str = ""):
 @limiter.limit("1/minute")
 async def resend_verification(body: dict, request: Request):
     """Resend the email verification link."""
+    # CAPTCHA — resend is the second email-bombing vector
+    await verify_or_403(request, (body or {}).get("captcha_token"))
+
     email = (body.get("email") or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")

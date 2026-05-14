@@ -9,12 +9,18 @@ class TeacherSignupIn(BaseModel):
     password:  str
     full_name: str
     org_name:  str = ""
+    # Turnstile CAPTCHA token. Optional in the schema so existing
+    # callers (tests, scripted clients) keep working; the handler
+    # falls back to sandbox-allow when the server-side secret isn't
+    # configured. In production both halves must be present.
+    captcha_token: Optional[str] = None
 
 
 class TeacherLoginIn(BaseModel):
     model_config = ConfigDict(strict=True)
     email:    str
     password: str
+    captcha_token: Optional[str] = None
 
 
 class RefreshIn(BaseModel):
@@ -25,3 +31,4 @@ class RefreshIn(BaseModel):
 class PasswordResetIn(BaseModel):
     model_config = ConfigDict(strict=True)
     email: str
+    captcha_token: Optional[str] = None

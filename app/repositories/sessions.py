@@ -21,10 +21,10 @@ async def assert_session_owned(session_id: str, teacher_id: str) -> dict:
     if not teacher_id:
         raise HTTPException(status_code=403, detail="Teacher context missing")
     tid_str = str(teacher_id)
-    result = (await _atable("exam_sessions").select("*").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()).data
+    result = (await _atable("exam_sessions").select("session_key,teacher_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()).data
     if result:
         return result[0]
-    bare = (await _atable("exam_sessions").select("*").eq("session_key", session_id).limit(1).execute()).data
+    bare = (await _atable("exam_sessions").select("session_key,teacher_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score").eq("session_key", session_id).limit(1).execute()).data
     if bare:
         row = bare[0]
         row_tid = row.get("teacher_id")
@@ -87,7 +87,7 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
     from ..services.risk import _risk_label, compute_risk_score
     from ..utils import fmt_ist
 
-    query = _atable("exam_sessions").select("*").eq("status", SessionStatus.COMPLETED)
+    query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score").eq("status", SessionStatus.COMPLETED)
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
     if exam_id:
@@ -124,7 +124,7 @@ async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_ro
         header_written = False
         total_yielded = 0
         while total_yielded < max_rows:
-            query = _atable("exam_sessions").select("*").eq("status", SessionStatus.COMPLETED)
+            query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score").eq("status", SessionStatus.COMPLETED)
             if teacher_id:
                 query = query.eq("teacher_id", teacher_id)
             if exam_id:

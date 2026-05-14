@@ -33,7 +33,7 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
             if teacher_id in _teacher_cache and _teacher_cache_ttl.get(teacher_id, 0) > now:
                 _teacher_cache.move_to_end(teacher_id)
                 return _teacher_cache[teacher_id]
-    result = (await _atable("teachers").select("*").eq("id", str(teacher_id)).execute()).data
+    result = (await _atable("teachers").select("id,email,full_name,org_id,org_role,supabase_uid").eq("id", str(teacher_id)).execute()).data
     if not result:
         return None
     teacher = result[0]
@@ -55,7 +55,7 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
 async def _get_teacher_by_uid(uid: str) -> dict | None:
     if not uid:
         return None
-    result = (await _atable("teachers").select("*").eq("supabase_uid", str(uid)).execute()).data
+    result = (await _atable("teachers").select("id,email,full_name,org_id,org_role").eq("supabase_uid", str(uid)).execute()).data
     if not result:
         return None
     return result[0]
@@ -119,7 +119,7 @@ async def _get_student_account_by_id(account_id: str) -> dict | None:
         if account_id in _student_acct_cache and _student_acct_cache_ttl.get(account_id, 0) > now:
             _student_acct_cache.move_to_end(account_id)
             return _student_acct_cache[account_id]
-    result = (await _atable("student_accounts").select("*").eq("id", str(account_id)).execute()).data
+    result = (await _atable("student_accounts").select("id,email,full_name").eq("id", str(account_id)).execute()).data
     if not result:
         return None
     acct = result[0]
@@ -137,7 +137,7 @@ async def _get_student_account_by_id(account_id: str) -> dict | None:
 async def _get_student_account_by_uid(uid: str) -> dict | None:
     if not uid:
         return None
-    result = (await _atable("student_accounts").select("*").eq("supabase_uid", str(uid)).execute()).data
+    result = (await _atable("student_accounts").select("id,email,full_name").eq("supabase_uid", str(uid)).execute()).data
     if not result:
         return None
     return result[0]

@@ -129,7 +129,7 @@ async def validate_student(request: Request, body: ValidateIn):
                 detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
 
     # Look up student scoped by teacher_id to prevent cross-tenant collision
-    result_q = _atable("students").select("*").eq("roll_number", roll_upper)
+    result_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
     if pre_tid:
         result_q = result_q.eq("teacher_id", str(pre_tid))
     result = await result_q.execute()
@@ -138,7 +138,7 @@ async def validate_student(request: Request, body: ValidateIn):
         # Teachers often send invites without pre-registering students —
         # the invite IS the enrollment. Auto-create the students row on
         # first validation so the exam flow continues seamlessly.
-        inv_q = _atable("student_invites").select("*").eq("roll_number", roll_upper)
+        inv_q = _atable("student_invites").select("id,teacher_id,exam_id,roll_number,full_name,email,phone,status,expires_at,access_code").eq("roll_number", roll_upper)
         if pre_tid:
             inv_q = inv_q.eq("teacher_id", str(pre_tid))
         if pre_exam_id:
@@ -192,7 +192,7 @@ async def validate_student(request: Request, body: ValidateIn):
                         }).eq("id", inv["id"]).execute()
                 else:
                     # Insert succeeded but returned no data — re-query
-                    recheck_q = _atable("students").select("*").eq("roll_number", roll_upper)
+                    recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
                     if "teacher_id" in student_row:
                         recheck_q = recheck_q.eq("teacher_id", str(student_row["teacher_id"]))
                     recheck = await recheck_q.execute()
@@ -208,7 +208,7 @@ async def validate_student(request: Request, body: ValidateIn):
                 err = str(e).lower()
                 if "duplicate" in err or "unique" in err:
                     # Race condition — another validation created it
-                    recheck_q = _atable("students").select("*").eq("roll_number", roll_upper)
+                    recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
                     if "teacher_id" in inv:
                         recheck_q = recheck_q.eq("teacher_id", str(inv["teacher_id"]))
                     recheck = await recheck_q.execute()
@@ -374,7 +374,7 @@ async def check_session(roll_number: str, request: Request):
         raise HTTPException(status_code=403, detail="Access denied")
     tid = claims.get("tid")
     eid = claims.get("eid")
-    sess_query = _atable("exam_sessions").select("*")\
+    sess_query = _atable("exam_sessions").select("session_key,roll_number,status,started_at,submitted_at,score,total,percentage,time_taken_secs,full_name,email,teacher_id,student_id")\
         .eq("roll_number", roll_number)\
         .eq("status", SessionStatus.IN_PROGRESS)
     if tid:
@@ -385,7 +385,7 @@ async def check_session(roll_number: str, request: Request):
     if not result.data:
         return {"exists": False}
     session = result.data[0]
-    ans_query = _atable("answers").select("*")\
+    ans_query = _atable("answers").select("session_key,question_id,answer,teacher_id,exam_id")\
         .eq("session_key", session["session_key"])
     if tid:
         ans_query = ans_query.eq("teacher_id", str(tid))
@@ -1058,7 +1058,7 @@ async def get_events(session_id: str, request: Request):
     if claims.get("roll", "").upper() != session_roll:
         raise HTTPException(status_code=403, detail="Access denied")
     tid = claims.get("tid")
-    q = _atable("violations").select("*").eq("session_key", session_id)
+    q = _atable("violations").select("session_key,violation_type,severity,details,created_at,teacher_id,detection_confidence").eq("session_key", session_id)
     if tid:
         q.eq("teacher_id", str(tid))
     q.order("created_at")

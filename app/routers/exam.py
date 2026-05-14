@@ -453,6 +453,9 @@ async def integrity_report(request: Request):
             "severity":       sev,
             "details":        f"[Integrity] {details}",
         }
+        conf = f.get("confidence")
+        if conf is not None:
+            viol_row["detection_confidence"] = float(conf)
         if tid:
             viol_row["teacher_id"] = tid
         await _atable("violations").insert(viol_row).execute()
@@ -518,6 +521,8 @@ async def log_event(event: EventIn, request: Request):
         "severity":       event.severity,
         "details":        event.details,
     }
+    if event.detection_confidence is not None:
+        viol_row["detection_confidence"] = event.detection_confidence
     if tid:
         viol_row["teacher_id"] = tid
     await _atable("violations").insert(viol_row).execute()

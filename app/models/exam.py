@@ -25,6 +25,7 @@ class EventIn(BaseModel):
     event_type: str
     severity:   str
     details:    Optional[str] = None
+    detection_confidence: Optional[float] = None
 
 
 class FrameIn(BaseModel):

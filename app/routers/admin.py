@@ -100,6 +100,7 @@ async def get_timeline(session_id: str, request: Request):
             "raw_ts":    e.get("created_at", ""),
             "details":   e.get("details"),
             "is_violation": _is_violation(e["violation_type"]),
+            "detection_confidence": e.get("detection_confidence"),
         }
         match = _match_screenshot_for_violation(e, screenshot_paths)
         if match is not None:

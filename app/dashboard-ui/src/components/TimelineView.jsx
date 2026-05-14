@@ -146,6 +146,11 @@ export default function TimelineView({ sessionId, onClose }) {
                               {SEV_LABELS[ev.severity] || ev.severity}
                             </span>
                           )}
+                          {ev.detection_confidence != null && (
+                            <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--muted)', verticalAlign: 'middle' }}>
+                              {(ev.detection_confidence * 100).toFixed(0)}% confidence
+                            </span>
+                          )}
                         </div>
                         <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                           {ev.timestamp || ev.raw_ts ? new Date(ev.timestamp || ev.raw_ts).toLocaleTimeString() : ''}

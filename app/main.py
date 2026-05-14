@@ -37,7 +37,13 @@ from .routers.public import router as public_router
 from .routers.sse import router as sse_router
 from .routers.chat import router as chat_router
 from .routers.billing import router as billing_router
-from .routers.checkout import router as checkout_router
+# NOTE: `routers.checkout` is the Razorpay one-shot Standard Checkout
+# router. The module was deliberately untracked (see .gitignore) on
+# 2026-05-13 because the corresponding frontend button was never
+# wired into any page and subscription billing in billing.py is the
+# actual live path. The import + include below stay commented out
+# until a real use case (credit top-ups, per-exam fees) ships.
+# from .routers.checkout import router as checkout_router
 from .routers.lti import router as lti_router
 from .routers.api import router as api_router
 from .routers.google_classroom import router as google_classroom_router
@@ -447,7 +453,7 @@ app.include_router(public_router)
 app.include_router(sse_router)
 app.include_router(chat_router)
 app.include_router(billing_router)
-app.include_router(checkout_router)
+# app.include_router(checkout_router)  # see import block — disabled until use case ships
 app.include_router(lti_router)
 app.include_router(api_router)
 app.include_router(google_classroom_router)

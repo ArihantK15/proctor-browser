@@ -6,9 +6,11 @@ import SecurityPanel from './panels/SecurityPanel'
 import MembersPanel from './panels/MembersPanel'
 import ResultsPanel from './panels/ResultsPanel'
 import AllOrgsPanel from './panels/AllOrgsPanel'
+import HistoryPanel from './panels/HistoryPanel'
 
 const TABS = [
   { id: 'results', label: 'Results', roles: ['admin', 'superadmin'] },
+  { id: 'history', label: 'History', roles: ['admin', 'superadmin'] },
   { id: 'org', label: 'Org Overview', roles: ['admin', 'superadmin'] },
   { id: 'members', label: 'Members', roles: ['admin', 'superadmin'] },
   { id: 'billing', label: 'Billing', roles: ['admin', 'superadmin'] },
@@ -67,6 +69,7 @@ function DashboardShell() {
 
   const PANELS = {
     results: ResultsPanel,
+    history: HistoryPanel,
     org: OrgPanel,
     members: MembersPanel,
     billing: BillingPanel,

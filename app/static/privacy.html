@@ -105,6 +105,7 @@ function _getCsrf() {
     return JSON.parse(atob(b64)).csrf || '';
   } catch(e) { return ''; }
 }
+function _esc(s){ var d=document.createElement('div'); d.appendChild(document.createTextNode(s||'')); return d.innerHTML; }
 const headers = {'Authorization':'Bearer '+TOKEN, 'Content-Type':'application/json', 'X-CSRF-Token': _getCsrf()};
 
 async function authFetch(url, opts){
@@ -147,7 +148,7 @@ async function doExport(){
     URL.revokeObjectURL(url);
     status.innerHTML = '<span class="ok">Downloaded successfully.</span>';
   }catch(e){
-    status.innerHTML = '<span class="err">Error: ' + e.message + '</span>';
+    status.innerHTML = '<span class="err">Error: ' + _esc(e.message) + '</span>';
   }
   btn.disabled = false;
 }

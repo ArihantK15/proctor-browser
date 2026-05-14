@@ -18,6 +18,7 @@ from ..auth import require_admin
 from .. import cache as _cache
 from ..models import SessionStatus
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
+from ..repositories.sessions import assert_session_owned as _assert_session_owned
 
 router = APIRouter(prefix="")
 
@@ -474,30 +475,6 @@ async def get_admin_answers(session_id: str, request: Request):
     teacher = await require_admin(request)
     tid = teacher["id"]
 
-    async def _assert_session_owned(session_id: str, teacher_id: str) -> dict:
-        if not teacher_id:
-            raise HTTPException(status_code=403, detail="Teacher context missing")
-        tid_str = str(teacher_id)
-        result = await _atable("exam_sessions").select("*").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()
-        if result.data:
-            return result.data[0]
-        bare = await _atable("exam_sessions").select("*").eq("session_key", session_id).limit(1).execute()
-        if bare.data:
-            row = bare.data[0]
-            row_tid = row.get("teacher_id")
-            if row_tid in (None, ""):
-                v_other = await _atable("violations").select("teacher_id").eq("session_key", session_id).neq("teacher_id", tid_str).limit(1).execute()
-                if not (v_other.data or []):
-                    return row
-            raise HTTPException(status_code=404, detail="Session not found")
-        v_mine = await _atable("violations").select("session_key,teacher_id").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()
-        if v_mine.data:
-            return {"session_key": session_id, "teacher_id": tid_str,
-                    "roll_number": (session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]),
-                    "full_name": "", "status": SessionStatus.IN_PROGRESS, "started_at": "", "submitted_at": "",
-                    "score": None, "total": None, "risk_score": None}
-        raise HTTPException(status_code=404, detail="Session not found")
-
     await _assert_session_owned(session_id, tid)
 
     questions = await _load_questions(tid)
@@ -650,7 +627,7 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
             update_fields["duration_minutes"] = body.duration_minutes
         if update_fields:
             await _atable("exam_config").update(update_fields)\
-                .eq("teacher_id", tid).eq("exam_id", exam_idawait ).execute()
+                .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
 
     q_query = _atable("questions").select("*")
     if tid:

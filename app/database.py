@@ -199,8 +199,8 @@ class AsyncTable:
             if self._count_mode and "content-range" in resp.headers:
                 try:
                     count = int(resp.headers["content-range"].split("/")[-1])
-                except (ValueError, IndexError):
-                    pass
+                except (ValueError, IndexError) as _pe:
+                    _log.warning("Failed to parse content-range '%s': %s", resp.headers.get("content-range"), _pe)
             if self._single:
                 data = resp.json() if resp.content else None
             else:

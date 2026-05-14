@@ -51,10 +51,6 @@ async def sse_connect_token(request: Request):
     asyncio.create_task(_cleanup())
     return {"connect_token": token}
 
-def _connect_tokens_lock_sync():
-    """Sync version for use in sync contexts if needed."""
-    pass
-
 
 def _store_live_frame(session_id: str, jpeg_bytes: bytes) -> bool:
     """Store live frame using Redis LRU-capped cache if available.
@@ -275,15 +271,16 @@ async def _ws_cleanup():
     """Single-pass cleanup: send a small text ping to detect dead clients."""
     async with _ws_lock:
         for sid in list(_ws_clients.keys()):
+            clients = _ws_clients.get(sid, [])
             dead = []
-            for c in _ws_clients[sid]:
+            for c in list(clients):
                 try:
                     await c.send_text('{"_":"ping"}')
                 except Exception:
                     dead.append(c)  # Client disconnected
             for c in dead:
-                _ws_clients[sid].remove(c)
-            if not _ws_clients[sid]:
+                clients.remove(c)
+            if not clients:
                 _ws_clients.pop(sid, None)
 
 
@@ -383,8 +380,8 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
         if old:
             try:
                 await old.close(code=4000, reason="replaced")
-            except Exception:
-                pass
+            except Exception as _re:
+                logger.warning("[room_cam] cleanup close failed: %s", _re)
         _ws_room_conns[session_id] = websocket
 
     # Start the room camera offline detection background loop

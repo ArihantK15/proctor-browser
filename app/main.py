@@ -2,7 +2,6 @@
 import asyncio
 import gc
 import hashlib
-import json
 import time
 import uuid
 import logging
@@ -197,7 +196,6 @@ app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
 
 
 import re
-from starlette.datastructures import UploadFile
 
 # ── Input sanitization ─────────────────────────────────────────────
 _XSS_PATTERNS = [

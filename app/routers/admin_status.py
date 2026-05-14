@@ -94,6 +94,8 @@ load();
 """
 
 
+_REQ_TS = time.time()
+
 @router.get("/status")
 @limiter.limit("30/minute")
 async def get_status(request: Request):
@@ -262,7 +264,7 @@ async def get_status(request: Request):
     except Exception:
         metrics["submit_failures_24h"] = None
 
-    uptime_sec = round(time.time() - _REQ_TS, 1) if "_REQ_TS" in dir() else 0
+    uptime_sec = round(time.time() - _REQ_TS, 1)
 
     return {
         "status": "ok" if ok else "degraded",
@@ -272,9 +274,6 @@ async def get_status(request: Request):
         "metrics": metrics,
         "release": release,
     }
-
-
-_REQ_TS = time.time()
 
 
 @router.get("/status-page")

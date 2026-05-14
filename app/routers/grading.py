@@ -215,16 +215,36 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
             _grading_log.warning("[grade-suggest] LLM call failed for %s: %s", a['id'], e)
             results.append({"answer_id": a["id"], "error": f"LLM error: {str(e)[:120]}"})
             continue
-        try:
-            await _atable("answers").update({
-                "ai_score":      suggestion.get("score"),
-                "ai_feedback":   suggestion.get("feedback"),
-                "ai_confidence": suggestion.get("confidence"),
-            }).eq("id", a["id"]).eq("teacher_id", tid).execute()
-            results.append({"answer_id": a["id"], **suggestion})
-        except Exception as e:
-            _grading_log.warning("[grade-suggest] DB write failed for %s: %s", a['id'], e)
-            results.append({"answer_id": a["id"], "error": str(e)[:120]})
+        results.append({"answer_id": a["id"], **suggestion})
+
+    # Bulk update all AI scores in one round-trip
+    if results:
+        updates = []
+        for r in results:
+            if "error" in r:
+                continue
+            updates.append({
+                "id": r["answer_id"],
+                "ai_score": r.get("score"),
+                "ai_feedback": r.get("feedback", ""),
+                "ai_confidence": r.get("confidence", "medium"),
+            })
+        if updates:
+            try:
+                await _atable("answers").upsert(updates).execute()
+            except Exception as e:
+                _grading_log.warning("[grade-suggest] bulk upsert failed: %s", e)
+                # Fall back to individual updates
+                for r in (r for r in results if "error" not in r):
+                    try:
+                        await _atable("answers").update({
+                            "ai_score": r.get("score"),
+                            "ai_feedback": r.get("feedback", ""),
+                            "ai_confidence": r.get("confidence", "medium"),
+                        }).eq("id", r["answer_id"]).eq("teacher_id", tid).execute()
+                    except Exception as e2:
+                        _grading_log.warning("[grade-suggest] fallback update failed for %s: %s", r["answer_id"], e2)
+
     return {"graded": len(results), "results": results}
 
 

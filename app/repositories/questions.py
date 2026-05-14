@@ -70,7 +70,7 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
     result = await query.execute()
     if result.data:
         if _cache:
-            _cache.set(cache_key, result.data[0], ttl=300)
+            _cache.set(cache_key, result.data[0], ttl=86400)  # 24h — invalidation keeps it fresh
         return result.data[0]
     return {
         "exam_title": "Exam", "duration_minutes": 60, "access_code": "",

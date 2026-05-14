@@ -36,6 +36,7 @@ that into a 502. We never crash a request because the LLM is flaky.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import logging
@@ -610,6 +611,18 @@ Student's answer:
 
 Now grade it."""
 
+    # SHA256 cache: same inputs → same LLM output, cache for 24h
+    try:
+        from . import cache as _cache
+        cache_key = f"grade_cache:{hashlib.sha256(
+            (question + '\x00' + reference + '\x00' + rubric + '\x00' + student_answer + '\x00' + str(max_score)).encode()
+        ).hexdigest()}"
+        cached = _cache.get(cache_key) if _cache else None
+        if cached and isinstance(cached, dict) and cached.get("score") is not None:
+            return cached
+    except Exception:
+        pass
+
     try:
         parsed = _chat_json(_GRADE_SYSTEM, user, max_tokens=300, temperature=0.2)
     except Exception as e:
@@ -630,4 +643,14 @@ Now grade it."""
     confidence = str(parsed.get("confidence") or "medium").lower()
     if confidence not in ("high", "medium", "low"):
         confidence = "medium"
-    return {"score": score, "feedback": feedback, "confidence": confidence}
+    result = {"score": score, "feedback": feedback, "confidence": confidence}
+
+    # Cache the LLM result for 24h
+    try:
+        from . import cache as _cache
+        if _cache:
+            _cache.set(cache_key, result, ttl=86400)
+    except Exception:
+        pass
+
+    return result

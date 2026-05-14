@@ -318,7 +318,7 @@ class ETagMiddleware(BaseHTTPMiddleware):
     """
 
     _SKIP_PREFIXES = ("/api/v1/sse/", "/ws/", "/static/", "/api/v1/metrics")
-    _MAX_BODY = 1024 * 1024  # 1 MB
+    _MAX_BODY = 10 * 1024 * 1024  # 10 MB
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path

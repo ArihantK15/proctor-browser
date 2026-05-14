@@ -1,0 +1,4 @@
+question,question_type,option_A,option_B,option_C,option_D,correct,reference_answer,rubric,max_score,tags
+"What is the capital of France?",mcq_single,London,Paris,Berlin,Madrid,B,,,1,geography|easy
+"Explain the concept of recursion.",short_answer,,,,,,,"Recursion is a method where a function calls itself to solve smaller instances of the same problem. It requires a base case to terminate.",Award full marks if the answer mentions self-reference, a base case, and provides a correct example.,5,computer-science|medium
+"Which are prime numbers?",mcq_multi,"2","4","7","9","A,C",,,2,math|medium

@@ -78,6 +78,36 @@ app.procta.net {
         file_server
         header Cache-Control "no-cache, no-store, must-revalidate"
     }
+    handle /privacy {
+        root * /srv/static
+        rewrite * /privacy.html
+        file_server
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+    handle /privacy-policy {
+        root * /srv/static
+        rewrite * /privacy-policy.html
+        file_server
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+    handle /dpa {
+        root * /srv/static
+        rewrite * /dpa.html
+        file_server
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+    handle /security-questionnaire {
+        root * /srv/static
+        rewrite * /security-questionnaire.html
+        file_server
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+    handle /api-docs {
+        root * /srv/static
+        rewrite * /api-docs.html
+        file_server
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
 
     # ── Everything else: API ──
     handle {

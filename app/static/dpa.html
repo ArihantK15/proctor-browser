@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Processing Addendum — Procta</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fafc;color:#1e293b;padding:40px;max-width:800px;margin:0 auto;line-height:1.7}
+h1{font-size:26px;margin-bottom:4px}
+h2{font-size:18px;margin:28px 0 8px;color:#0f172a}
+h3{font-size:15px;margin:20px 0 6px;color:#334155}
+p,li{font-size:14px;color:#475569}
+ul{padding-left:24px;margin:8px 0}
+hr{border:none;border-top:1px solid #e2e8f0;margin:28px 0}
+.sub{color:#64748b;font-size:14px;margin-bottom:24px}
+.section{background:#fff;border-radius:12px;padding:24px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.date{color:#94a3b8;font-size:13px}
+</style>
+</head>
+<body>
+<h1>Data Processing Addendum (DPA)</h1>
+<p class="sub">Effective date: June 1, 2026</p>
+
+<div class="section">
+<p>This Data Processing Addendum ("DPA") forms part of the agreement between Procta ("Processor") and the customer ("Controller") for the use of Procta's exam proctoring services.</p>
+</div>
+
+<div class="section">
+<h2>1. Definitions</h2>
+<p>"Personal Data" means any information relating to an identified or identifiable natural person processed under the Agreement. "Processing" means any operation performed on Personal Data, including collection, storage, use, and deletion.</p>
+</div>
+
+<div class="section">
+<h2>2. Scope of Processing</h2>
+<p>The Processor will process Personal Data on behalf of the Controller for the following purposes:</p>
+<ul>
+<li>Student identity verification (name, email, photograph, roll number)</li>
+<li>Exam proctoring (video/audio recordings, screen captures, keystroke patterns)</li>
+<li>Academic integrity analysis (violation detection, risk scoring)</li>
+<li>Results management (exam scores, grade records, performance analytics)</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>3. Processor Obligations</h2>
+<p>The Processor shall:</p>
+<ul>
+<li>Process Personal Data only on documented instructions from the Controller</li>
+<li>Ensure personnel authorized to process Personal Data are bound by confidentiality</li>
+<li>Implement appropriate technical and organizational measures (see Security Questionnaire)</li>
+<li>Notify the Controller of any personal data breach without undue delay</li>
+<li>Assist the Controller in fulfilling data subject rights requests</li>
+<li>Delete or return all Personal Data at the end of the Agreement</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>4. Sub-processors</h2>
+<p>The Controller authorizes the following sub-processors:</p>
+<ul>
+<li><strong>Supabase</strong> (PostgreSQL database, US) — student records, exam data</li>
+<li><strong>Redis</strong> (in-memory cache) — session state, frame buffer (no persistent storage)</li>
+<li><strong>Groq / OpenAI-compatible LLM</strong> — AI grading suggestions (no training on customer data)</li>
+<li><strong>Razorpay</strong> (payment processing, India) — billing data only</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>5. Data Subject Rights</h2>
+<p>The Controller may exercise data subject rights through the Privacy Center at <a href="/privacy">/privacy</a>, which provides:</p>
+<ul>
+<li>Data export (JSON download of all Personal Data)</li>
+<li>Account deletion (anonymization of all Personal Data)</li>
+<li>Consent records (audit trail of consent events)</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>6. Data Retention</h2>
+<ul>
+<li>Screenshots: 90 days</li>
+<li>Phone camera frames: 24 hours</li>
+<li>Violation logs: 1 year</li>
+<li>Exam answers and scores: Duration of account</li>
+<li>Audit trails: 1 year</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>7. Security Measures</h2>
+<p>Refer to our <a href="/security-questionnaire">Security Questionnaire</a> for a detailed description of technical and organizational security measures.</p>
+</div>
+
+<hr>
+<p class="date">This DPA is provided as a template. A fully executed version can be requested from <a href="mailto:legal@procta.net">legal@procta.net</a>.</p>
+</body>
+</html>

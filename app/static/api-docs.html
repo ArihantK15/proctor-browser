@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Documentation — Procta</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fafc;color:#1e293b;padding:40px;max-width:720px;margin:0 auto;line-height:1.7}
+h1{font-size:26px;margin-bottom:4px}
+h2{font-size:18px;margin:28px 0 8px}
+p,li{font-size:14px;color:#475569}
+ul{padding-left:24px;margin:8px 0}
+.card{background:#fff;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sub{color:#64748b;font-size:14px;margin-bottom:24px}
+.btn{display:inline-block;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:500;font-size:14px;margin:4px}
+.btn-primary{background:#6366f1;color:#fff}
+.btn-primary:hover{background:#4f46e5}
+.btn-secondary{background:#e2e8f0;color:#475569}
+.btn-secondary:hover{background:#cbd5e1}
+code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:13px}
+pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:8px;overflow:auto;font-size:13px;margin:12px 0}
+</style>
+</head>
+<body>
+<h1>API Documentation</h1>
+<p class="sub">Procta exposes a REST API for programmatic access to exam data.</p>
+
+<div class="card">
+<h2>Interactive Docs (Swagger UI)</h2>
+<p>Browse and test all API endpoints interactively. Authentication required for most endpoints.</p>
+<p><a href="/docs" class="btn btn-primary">Open Swagger UI</a>
+<a href="/openapi.json" class="btn btn-secondary">Download openapi.json</a></p>
+</div>
+
+<div class="card">
+<h2>ReDoc</h2>
+<p>Alternative API documentation viewer with a clean three-panel layout.</p>
+<p><a href="/redoc" class="btn btn-secondary">Open ReDoc</a></p>
+</div>
+
+<div class="card">
+<h2>Getting Started</h2>
+<p>To use the API, you'll need an API key:</p>
+<ol>
+<li>Log in to the <a href="/dashboard">dashboard</a></li>
+<li>Go to <strong>Tools</strong> → <strong>API Keys</strong></li>
+<li>Generate a new API key</li>
+<li>Include it in requests as the <code>X-API-Key</code> header</li>
+</ol>
+
+<h3>Example request</h3>
+<pre>curl -H "X-API-Key: your_key_here" \
+  https://app.procta.net/api/v1/exams</pre>
+
+<h3>Available endpoints</h3>
+<ul>
+<li><code>GET /api/v1/exams</code> — List exams</li>
+<li><code>GET /api/v1/exams/{id}</code> — Get exam details</li>
+<li><code>GET /api/v1/exams/{id}/students</code> — List enrolled students</li>
+<li><code>GET /api/v1/exams/{id}/sessions</code> — List exam sessions</li>
+<li><code>GET /api/v1/exams/{id}/sessions/{key}</code> — Get session details</li>
+<li><code>GET /api/v1/students/{roll}</code> — Get student details</li>
+</ul>
+</div>
+
+<div class="card">
+<h2>Authentication</h2>
+<p>The public API uses X-API-Key authentication. Admin endpoints use Bearer JWT tokens. See the Swagger docs for per-endpoint requirements.</p>
+</div>
+</body>
+</html>

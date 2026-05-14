@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Security Questionnaire — Procta (CAIQ-Lite)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fafc;color:#1e293b;padding:40px;max-width:800px;margin:0 auto;line-height:1.7}
+h1{font-size:26px;margin-bottom:4px}
+h2{font-size:18px;margin:28px 0 8px;color:#0f172a}
+h3{font-size:15px;margin:20px 0 6px;color:#334155}
+p,li{font-size:14px;color:#475569}
+ul{padding-left:24px;margin:8px 0}
+hr{border:none;border-top:1px solid #e2e8f0;margin:28px 0}
+.sub{color:#64748b;font-size:14px;margin-bottom:24px;line-height:1.5}
+.section{background:#fff;border-radius:12px;padding:24px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.q{font-weight:600;color:#0f172a;margin-top:12px}
+.a{color:#475569;margin-left:0;margin-top:4px}
+.date{color:#94a3b8;font-size:13px}
+</style>
+</head>
+<body>
+<h1>Security Questionnaire</h1>
+<p class="sub">CAIQ-Lite (Consensus Assessments Initiative Questionnaire) — Pre-filled for Procta<br>Last updated: June 1, 2026</p>
+
+<div class="section">
+<h2>1. Data Security</h2>
+
+<div class="q">1.1 Do you encrypt data at rest?</div>
+<div class="a"><strong>Yes.</strong> All data at rest is encrypted using AES-256 via Supabase's encryption-at-rest. Database backups are encrypted with the same standard.</div>
+
+<div class="q">1.2 Do you encrypt data in transit?</div>
+<div class="a"><strong>Yes.</strong> All traffic uses TLS 1.3. HTTPS is enforced via HSTS. Internal service-to-service communication uses TLS where available.</div>
+
+<div class="q">1.3 What is your key management practice?</div>
+<div class="a">Encryption keys are managed by the cloud provider (Supabase/RDS). Application-level secrets (JWT signing keys, API keys) are stored as environment variables, never in code. TOTP secrets are encrypted using Fernet (symmetric encryption) before storage.</div>
+
+<div class="q">1.4 Do you have a data retention policy?</div>
+<div class="a"><strong>Yes.</strong> Screenshots: 90 days. Phone camera frames: 24 hours. Violation logs: 1 year. Exam answers: duration of account. See Privacy Policy for full details.</div>
+</div>
+
+<div class="section">
+<h2>2. Access Control</h2>
+
+<div class="q">2.1 How is access to production systems managed?</div>
+<div class="a">Production access requires SSH key authentication. Only the deployment pipeline (GitHub Actions) and designated admins have access. No passwords are accepted for SSH. Database access is restricted to the application service account.</div>
+
+<div class="q">2.2 Do you use multi-factor authentication?</div>
+<div class="a"><strong>Yes.</strong> TOTP-based 2FA is available for all teacher accounts. We strongly recommend enabling it via the Security tab in the dashboard.</div>
+
+<div class="q">2.3 How are API keys managed?</div>
+<div class="a">API keys are hashed (SHA-256) before storage. The raw key is shown once at creation. Keys can be revoked individually via the dashboard. Rate limiting is applied per key.</div>
+</div>
+
+<div class="section">
+<h2>3. Application Security</h2>
+
+<div class="q">3.1 Do you perform code reviews?</div>
+<div class="a"><strong>Yes.</strong> All code changes go through pull request review with required approvals before merging to main.</div>
+
+<div class="q">3.2 Do you run automated security testing?</div>
+<div class="a"><strong>Yes.</strong> Each push runs the full test suite (482+ tests), AST-based syntax checks, and dependency scanning (npm audit, pip check).</div>
+
+<div class="q">3.3 How are dependencies managed?</div>
+<div class="a">Python dependencies are pinned in <code>requirements.lock</code> (generated via pip-compile). Node dependencies are pinned in <code>package-lock.json</code>. Both are audited on every build.</div>
+
+<div class="q">3.4 Do you have rate limiting?</div>
+<div class="a"><strong>Yes.</strong> All API endpoints have rate limits (typically 5-60 requests/minute depending on sensitivity).</div>
+</div>
+
+<div class="section">
+<h2>4. Infrastructure Security</h2>
+
+<div class="q">4.1 Where is your infrastructure hosted?</div>
+<div class="a">Application: DigitalOcean (Mumbai, India — BLR1 region). Database: Supabase (AWS, ap-south-1). Redis: co-located with the application on the same droplet.</div>
+
+<div class="q">4.2 Do you have a disaster recovery plan?</div>
+<div class="a"><strong>Yes.</strong> Daily encrypted backups to Backblaze B2. Container images are stored in GitHub Container Registry. Deployment is fully automated via GitHub Actions — a new droplet can be provisioned in under 30 minutes.</div>
+
+<div class="q">4.3 How do you handle security incidents?</div>
+<div class="a">Incidents are logged and escalated via Sentry (error tracking) and PagerDuty-style on-call rotation. Critical alerts (sustained error rate >5%, authentication anomalies) trigger immediate notification.</div>
+</div>
+
+<div class="section">
+<h2>5. Compliance</h2>
+
+<div class="q">5.1 Is the product SOC 2 audited?</div>
+<div class="a">Not currently. We follow SOC 2 control framework but have not undergone a formal audit. A SOC 2 report is planned for Q3 2026.</div>
+
+<div class="q">5.2 Do you comply with DPDP (India)?</div>
+<div class="a"><strong>Yes.</strong> We provide: data subject rights (access, correction, deletion, portability), consent recording, data retention schedules, breach notification, and a DPA template.</div>
+
+<div class="q">5.3 Do you comply with GDPR?</div>
+<div class="a"><strong>Yes.</strong> As a data processor, we support our customers' GDPR compliance through DPAs, data deletion, data export, and sub-processor disclosure.</div>
+
+<div class="q">5.4 Do you sign DPAs with customers?</div>
+<div class="a"><strong>Yes.</strong> A standard DPA template is available at <a href="/dpa">/dpa</a>. Custom DPAs can be requested from <a href="mailto:legal@procta.net">legal@procta.net</a>.</div>
+</div>
+
+<div class="section">
+<h2>6. AI &amp; Machine Learning</h2>
+
+<div class="q">6.1 Are AI grading models trained on customer data?</div>
+<div class="a"><strong>No.</strong> AI grading uses a zero-shot prompt approach — the model never stores or trains on student answers. Prompts include the question, reference answer, and student answer only for that request, and are discarded after the response.</div>
+
+<div class="q">6.2 Are proctoring flags reviewed by humans?</div>
+<div class="a"><strong>Yes.</strong> All AI-generated flags and grade suggestions are recommendations, not verdicts. Teachers must review and confirm before they become part of the gradebook.</div>
+
+<div class="q">6.3 What AI providers do you use?</div>
+<div class="a">Groq (Llama 3.3 70B) for grading. Providers are configurable via environment variables — customers can point to their own OpenAI-compatible endpoint.</div>
+</div>
+
+<hr>
+<p class="date">This questionnaire is pre-filled for quick reference. For a fully completed version tailored to your institution, contact <a href="mailto:sales@procta.net">sales@procta.net</a>.</p>
+</body>
+</html>

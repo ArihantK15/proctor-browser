@@ -195,6 +195,58 @@ Full step-by-step in `docs/OAUTH_SETUP.md`.
 
 ---
 
+## Phase 6 — React Dashboard + AI Audit Trail ✅
+
+*Shipped across 7 commits 2026-05-14 (`2c885d1` → `331e1b8`) and
+`7bf2bf8` for the audit trail.*
+
+The two biggest "Backlog" items from prior plans both shipped in a
+single push.
+
+### 6.1 — Dashboard React migration (the XSS class is gone)
+
+The 6,500-line vanilla-JS `app/static/dashboard.html` has been
+migrated to a real React SPA in `app/dashboard-ui/`. 13 panels
+ported, all behind the same auth + design system:
+
+| Panel | File | LOC |
+|---|---|---|
+| Live Sessions (with SSE + camera view) | `LiveSessionsPanel.jsx` | 217 |
+| Tools | `ToolsPanel.jsx` | 217 |
+| Questions (3-column editor) | `QuestionsPanel.jsx` | 200 |
+| Results | `ResultsPanel.jsx` | 161 |
+| Security (2FA + sessions) | `SecurityPanel.jsx` | 140 |
+| History (student drill-down) | `HistoryPanel.jsx` | 134 |
+| Org Overview | `OrgPanel.jsx` | 109 |
+| Members | `MembersPanel.jsx` | 105 |
+| Org Settings | `OrgSettingsPanel.jsx` | 53 |
+| + Billing, Chat, Analytics, All Orgs | — | — |
+
+**Why this matters strategically:**
+- Permanently closes the entire `innerHTML = ${template}` XSS class
+- Reuses the design system from `website/` (no more code drift)
+- 3× feature velocity on dashboard work going forward
+- Looks professional to school IT (vanilla-JS dashboard was a
+  procurement red flag)
+
+This was ranked **#6 in Top 10 highest-ROI improvements**. Shipped.
+
+### 6.2 — AI grading audit trail
+
+`7bf2bf8` — every grade confirmation logged to `grading_audit`
+table (`migrations/phase40_grading_audit.sql`, applied
+2026-05-14). Schema captures: `teacher_id`, `exam_id`,
+`session_key`, `answer_id`, `question_id`, `ai_score`,
+`ai_confidence`, `teacher_score`, `max_score`, `action`
+(`confirmed | bulk_accept | bulk_reject | overridden`),
+`created_at`.
+
+Bulk-review UI ships in the new React dashboard's Results /
+Grading panel. Was ranked Backlog "AI audit trail — bulk review
+UI for AI-suggested grades". Shipped.
+
+---
+
 ## Strategic Roadmap
 
 > The engineering phases are done. From here the bottleneck shifts to
@@ -242,15 +294,19 @@ Full step-by-step in `docs/OAUTH_SETUP.md`.
 | # | Improvement | Effort | Why this rank |
 |---|---|---|---|
 | 1 | Hire / find a co-founder (sales OR engineering) | high | Solves bus factor. Halves cycle. Tier-1 VC filter. |
-| 2 | Pricing page + 3 plans + Razorpay-wired checkout | 1 week | Zero deals close without prices |
+| ~~2~~ | ~~Pricing page + 3 plans + Razorpay-wired checkout~~ | ✅ Done | Live on `/pricing` (₹149 / ₹999 / ₹2,499) |
 | 3 | Windows code signing (Azure Trusted Signing $10/mo) | 2-3 days | Unblocks 70% of TAM (school IT) |
 | 4 | Rewrite hero + demo around phone-cam + AI grading | 0 (copy) | Generic AI proctoring positioning is fatal |
 | 5 | 3 case-study pages with named schools | 2 weeks (need school) | Schools buy from schools |
-| 6 | Migrate dashboard to React (kill vanilla JS) | 3-4 weeks | Removes XSS class, enables 3× feature velocity |
+| ~~6~~ | ~~Migrate dashboard to React (kill vanilla JS)~~ | ✅ Done (Phase 6.1) | 13 panels migrated, XSS class eliminated |
 | 7 | k6 / locust load test, 500 concurrent students | 2 days | "300 concurrent" is unmeasured |
 | 8 | DPA template + privacy policy + DPDP one-pager | 1 week (legal) | Procurement blocker for any ₹2L+ contract |
-| 9 | LMS integrations (Canvas + Moodle + Google Classroom) | 3-4 weeks | LTI scaffolding already half-built |
+| 9 | LMS integrations (Canvas + Moodle + Google Classroom) | 3-4 weeks | Classroom roster sync done; grade passback B1+B2 pending (see `docs/OAUTH_SETUP.md`) |
 | 10 | Backup restoration drill + hot-standby droplet | 1 week | Untested backups are hope, not a strategy |
+
+**3 of 10 shipped.** Remaining critical path: co-founder, Windows
+signing, hero rewrite. Then case studies + load test + DPA pack
+unblock procurement.
 
 ---
 
@@ -295,6 +351,7 @@ Full step-by-step in `docs/OAUTH_SETUP.md`.
 
 - ✅ ~~**JWT-in-URL** in `renderer/index.html` chat WS~~ — fixed; uses `new WebSocket(url, [token])` subprotocol header pattern
 - ✅ ~~**CSRF tokens** absent on state-changing dashboard endpoints~~ — shipped in Phase 2; mandatory for all JWT-authed POST/PUT/DELETE
+- ✅ ~~**Vanilla JS dashboard XSS class**~~ — eliminated by Phase 6 React migration (13 panels, all JSX-escaped)
 - ⚠️ **Test credentials** in `.env` (Razorpay test_*, TOTP encryption key, test SUPABASE_JWT_SECRET) — rotate before any production traffic
 - ⚠️ **Rate-limit coverage audit** — `@limiter.limit` count: 51 in auth.py, 13 in admin.py, 31 in exam.py. Spot-check the remaining 19 routers for any state-changers without limits
 - **Retries with backoff** on Razorpay + Supabase calls (`tenacity`)
@@ -355,7 +412,7 @@ Full step-by-step in `docs/OAUTH_SETUP.md`.
 | **Test Razorpay + TOTP keys in `.env`** | High | Rotate to live keys + production-grade `TOTP_ENCRYPTION_KEY` before any real payment / 2FA enrollment |
 | **DPDP non-compliance** | High | DPA template + privacy policy hosted + `auth_events` audit log ✅ shipped, 90-day retention cron still TODO |
 | **Single droplet ops failure** | High | Hot-standby droplet + DNS failover; backup restoration drill done in daylight |
-| **Vanilla JS dashboard XSS** | Medium | React migration closes the class permanently. Mitigated meanwhile by mandatory CSRF + Turnstile on auth surfaces |
+| ~~**Vanilla JS dashboard XSS**~~ | ✅ Resolved | React migration shipped in Phase 6; 13 panels in `app/dashboard-ui/` |
 | **Generic "AI proctoring" positioning** | Medium | Lead with phone-cam + AI grading + DPDP; not features in general |
 | **Procurement cycle stalls without case studies** | Medium | Sign 1 named pilot, publish case study, even if free |
 | ~~**Pricing undefined**~~ | ✅ Resolved | `/pricing` live with 3 tiers (₹149 / ₹999 / ₹2,499) |
@@ -438,5 +495,5 @@ Would fund at pre-seed (₹1.5-3Cr) contingent on: (a) pricing page live within 
 | **Low** | Google Classroom API — wire grade passback + auto-create CourseWork (B1+B2 in `docs/OAUTH_SETUP.md`) | 2 days | Manual setup done |
 | **Low** | Rotate test Razorpay + TOTP keys to live values before any real payment | 15 min | — |
 | **Backlog** | Mobile PWA / app — BYOD phone exam-taking | 2-3 months | — |
-| **Backlog** | AI audit trail — bulk review UI for AI-suggested grades | 2-4 weeks | — |
-| **Backlog** | React dashboard rewrite | 3-4 weeks | — |
+| ~~AI audit trail — bulk review UI~~ | ✅ Shipped (Phase 6.2) | — | — |
+| ~~React dashboard rewrite~~ | ✅ Shipped (Phase 6.1) | — | — |

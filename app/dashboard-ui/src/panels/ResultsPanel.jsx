@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
+import TimelineView from '../components/TimelineView'
 
 export default function ResultsPanel({ currentExamId }) {
   const { authFetch } = useAuth()
@@ -11,6 +12,7 @@ export default function ResultsPanel({ currentExamId }) {
   const [loading, setLoading] = useState(true)
   const [batchSize, setBatchSize] = useState(50)
   const [stats, setStats] = useState({ total: 0, avgScore: 0, avgRisk: 0, highRisk: 0 })
+  const [timelineSession, setTimelineSession] = useState(null)
 
   const loadResults = useCallback(async () => {
     if (!currentExamId) return
@@ -138,7 +140,8 @@ export default function ResultsPanel({ currentExamId }) {
                       <td style={{ padding: '10px 12px' }}>{mins}m {secs}s</td>
                       <td style={{ padding: '10px 12px', fontSize: 11, color: 'var(--muted)' }}>{r.submitted_at || '—'}</td>
                       <td style={{ padding: '10px 12px' }}>
-                        <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => window.open(`/dashboard-react?session=${r.session_id}`, '_blank')}>Detail</button>
+                        <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => setTimelineSession(r.session_id)}>Timeline</button>
+                        <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11, marginLeft: 4 }} onClick={() => window.open(`/dashboard-react?session=${r.session_id}`, '_blank')}>Detail</button>
                         <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11, marginLeft: 4 }} onClick={() => window.open(`/api/v1/export-pdf/${encodeURIComponent(r.session_id)}`, '_blank')}>PDF</button>
                       </td>
                     </tr>
@@ -156,6 +159,7 @@ export default function ResultsPanel({ currentExamId }) {
           </div>
         </>
       )}
+      {timelineSession && <TimelineView sessionId={timelineSession} onClose={() => setTimelineSession(null)} />}
     </div>
   )
 }

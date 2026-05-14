@@ -472,6 +472,31 @@
     </div>
   </div>
 
+  <!-- Appeal modal -->
+  <div class="modal-backdrop" id="appeal-modal">
+    <div class="modal-card" style="max-width:440px">
+      <h3>Submit an appeal</h3>
+      <p class="sub">If you believe there was an error with a violation or your grade, describe it below.</p>
+      <div class="fg">
+        <label>Type</label>
+        <select id="appeal-type" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:14px">
+          <option value="violation">Dispute a violation</option>
+          <option value="grade">Dispute a grade</option>
+          <option value="other">Other concern</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Describe your concern</label>
+        <textarea id="appeal-desc" rows="4" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:14px;resize:vertical"></textarea>
+      </div>
+      <div class="modal-err" id="appeal-err"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" style="flex:1" onclick="closeAppeal()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" id="appeal-submit-btn" onclick="submitAppeal()">Submit</button>
+      </div>
+    </div>
+  </div>
+
   <h2 class="section-title">Upcoming exams</h2>
   <p class="section-subtitle">Exams you've been enrolled in by your teachers. Launch the Procta app to sit them.</p>
 
@@ -957,8 +982,55 @@ function renderHistory(items){
           ${riskStr?'<div>Risk<strong style="color:'+_riskColor(h.risk_score)+'">'+_escHtml(riskStr)+'</strong></div>':''}
           <div>Submitted<strong>${_escHtml(h.submitted_at)}</strong></div>
         </div>
+        <div style="margin-top:8px">
+          <button class="btn btn-sm btn-secondary" onclick="openAppeal('${_escHtml(h.session_key)}')">Appeal</button>
+        </div>
       </div>`;
   }).join('');
+}
+
+// ─── Appeal ──────────────────────────────────────────────────────
+let _appealSessionKey = '';
+
+function openAppeal(sessionKey) {
+  _appealSessionKey = sessionKey;
+  document.getElementById('appeal-type').value = 'violation';
+  document.getElementById('appeal-desc').value = '';
+  document.getElementById('appeal-err').textContent = '';
+  document.getElementById('appeal-modal').classList.add('active');
+}
+
+function closeAppeal() {
+  document.getElementById('appeal-modal').classList.remove('active');
+  _appealSessionKey = '';
+}
+
+async function submitAppeal() {
+  const btn = document.getElementById('appeal-submit-btn');
+  const err = document.getElementById('appeal-err');
+  const type = document.getElementById('appeal-type').value;
+  const desc = document.getElementById('appeal-desc').value.trim();
+  if (!desc) { err.textContent = 'Describe your concern.'; return; }
+  btn.disabled = true;
+  err.textContent = '';
+  try {
+    const r = await fetch('/api/v1/student/appeal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken },
+      body: JSON.stringify({ session_key: _appealSessionKey, appeal_type: type, description: desc }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      err.style.color = 'var(--emerald)';
+      err.textContent = d.message || 'Appeal submitted.';
+      setTimeout(closeAppeal, 2000);
+    } else {
+      err.textContent = d.detail || 'Failed to submit.';
+    }
+  } catch (e) {
+    err.textContent = 'Network error.';
+  }
+  btn.disabled = false;
 }
 
 function _riskLabel(score){

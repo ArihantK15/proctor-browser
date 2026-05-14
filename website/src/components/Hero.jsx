@@ -14,13 +14,12 @@ export default function Hero() {
         <div
           className="mx-auto max-w-4xl text-center"
         >
-          {/* Eyebrow — Phase 2 design swap from "AI-Powered Proctoring"
-              to a concrete trust line that matches the Claude design's
-              "Trusted by 180+ institutions" framing. */}
+          {/* Eyebrow — concrete trust signal: proven results over
+              an unverifiable institution count. */}
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/5 px-4 py-1.5 accent-glow">
             <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
             <span className="label-mono text-accent-light" style={{ fontSize: '11px' }}>
-              Trusted by 180+ institutions across India
+              Used by institutions across India
             </span>
           </div>
 

@@ -1,7 +1,7 @@
 # Procta — Engineering & Business Roadmap
 
-> Updated 2026-05-13. Covers Phases 0–4 (shipped) and the post-product
-> strategic roadmap. Phases 0–4 are kept as history; strategy starts
+> Updated 2026-05-14. Covers Phases 0–5 (shipped) and the post-product
+> strategic roadmap. Phases 0–5 are kept as history; strategy starts
 > at "Strategic Roadmap" below.
 
 ---
@@ -134,6 +134,67 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 
 ---
 
+## Phase 5 — Identity & Verification Hardening ✅
+
+*Shipped across multiple commits 2026-05-13 → 2026-05-14*
+
+A two-week push to close the auth gaps that would have blocked any
+school IT security review. All items below have ship code + tests +
+docs.
+
+### 5.1 — Auth baseline (P0)
+
+| # | Item | Where |
+|---|------|-------|
+| 1 | Mandatory email verification before login | `services/email_verification` + migration `phase31_email_verification.sql` |
+| 2 | Account lockout after failed logins (Redis-backed, 5 in 15min → 15min lock) | `services/auth_lockout.py` |
+| 3 | Password complexity rules + offline HIBP top-1000 check | `services/passwords.py` + `data/breached_top1000.txt` |
+| 4 | Persistent auth audit log | `services/auth_events.py` + migration `phase32_auth_events.sql` |
+| 5 | Student-side password reset (parity with teachers) | `routers/auth.py:1094` |
+
+### 5.2 — Auth advanced (P1)
+
+| # | Item | Where |
+|---|------|-------|
+| 6 | TOTP 2FA — mandatory after 30-day grace, backup codes, Fernet-encrypted secrets | `services/totp.py` + migration `phase33_totp_2fa.sql` |
+| 7 | Email OTP service (2FA fallback, step-up auth, recovery) | `services/email_otp.py` + migration `phase34_email_otp.sql` |
+| 8 | Capture phone from Razorpay payments (informational, free signal) | `routers/checkout.py` |
+| 9 | Session revocation ("sign out other devices") with `jti` claim + DB-backed allowlist | migration `phase35_sessions.sql` + `cache.py` |
+| 10 | Re-auth for sensitive actions (delete account, change email, view audit log, change 2FA) | `auth/tokens.py:issue_reauth_token` |
+
+### 5.3 — Auth UX + bot protection (zero-cost Pro-tier alternatives)
+
+| # | Item | Where |
+|---|------|-------|
+| 11 | **Google Sign-In** (teachers + students) — server-side PKCE via Supabase Auth | `services/auth_oauth.py` + `routers/auth.py:/oauth/start,/oauth/callback` |
+| 12 | **Microsoft Sign-In** (Azure provider via Supabase Auth — same handler as Google) | Same files; just second provider |
+| 13 | **Cloudflare Turnstile** (invisible Managed mode) on signup + login + password-reset + resend-verification | `services/turnstile.py` + `hooks/useTurnstile.js` |
+| 14 | **HIBP k-anonymity client-side check** (replaces Supabase Pro's leaked-password protection) | `website/src/lib/hibp.js` |
+| 15 | **Disposable-email blocklist** (120 curated domains, ~95% of real abuse) | `data/disposable_email_domains.txt` + `services/passwords.py:is_disposable_email` |
+| 16 | **Suspicious-login email** — new-device detection vs last 30 days of `auth_events` | `services/suspicious_login.py` + `emailer.py:send_suspicious_login_email` |
+
+**Documentation:** `docs/OAUTH_SETUP.md` walks through Supabase Sign-In setup (Google Cloud + Microsoft Entra + Supabase dashboard, ~25 min) and Google Classroom API integration (separate OAuth client, honest state audit — wired vs skeleton vs not-started, build plan with effort estimates).
+
+**Decisions taken:**
+- Existing users force-re-verify email on next login (cleaner posture; accept the support burden)
+- Email OTP replaces SMS OTP everywhere — zero marginal cost via Resend
+- TOTP 2FA mandatory for everyone after 30-day grace period (warning banner from day 1)
+- Separate Google OAuth consumer client (not reused from Classroom — clean consent screen → better signup conversion)
+- Turnstile in invisible Managed mode (silent unless bot signal is high)
+- Microsoft ships alongside Google (+0.5 day marginal effort; pre-positions university segment)
+
+**Migrations applied (production DB):** phase31-35 + phase41-42 (RLS hardening on the new tables). All confirmed via `mcp__supabase__list_migrations` on 2026-05-14.
+
+**Manual setup outstanding** (~30 min of dashboard work, no code changes):
+1. Google Cloud Console → new consumer OAuth client → paste into Supabase Auth dashboard
+2. Microsoft Entra → app registration → paste into Supabase Auth dashboard
+3. Cloudflare Turnstile → register site → set `TURNSTILE_SITE_KEY`/`SECRET_KEY` env vars + `VITE_TURNSTILE_SITE_KEY` for frontend
+4. Supabase Auth → URL Configuration → whitelist `https://app.procta.net/api/v1/auth/oauth/callback`
+
+Full step-by-step in `docs/OAUTH_SETUP.md`.
+
+---
+
 ## Strategic Roadmap
 
 > The engineering phases are done. From here the bottleneck shifts to
@@ -193,18 +254,21 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 
 ---
 
-## Quick wins (<1 day each, ship this week)
+## Quick wins (<1 day each)
 
-- Publish `/pricing` route — Razorpay subscription buttons already exist (2 hr)
-- Hero rewrite: lead with phone-cam, AI grading, or DPDP compliance (3 hr)
-- Fix 4 audit hygiene items: drop dead jose suppress, drop python-jose from `requirements.txt`, migrate 4 test files off jose, warn on short SECRET_KEY (45 min)
-- Add CI step: `cd website && npm ci && npm run build` (15 min)
-- Wire `/checkout` button into a real page — `/buy-credits` or "Top up credits" (2 hr)
-- Status page at status.procta.net via Uptime Robot (3 hr)
-- Pre-fill a CAIQ-lite security questionnaire (half day)
-- Verify Sentry alert routing actually reaches your phone (1 hr)
-- Cap dashboard tables at 200 rows + paginate (2 hr)
-- Tighten demo video callouts — last review showed alignment issues (3 hr)
+- ✅ ~~Publish `/pricing` route~~ — live at `website/src/pages/Pricing.jsx`, plans ₹149/₹999/₹2,499
+- ✅ ~~Add CI step: `cd website && npm ci && npm run build`~~ — `.github/workflows/test.yml`
+- ✅ ~~Demo video callouts~~ — re-tuned for all 6 scenes
+- ✅ ~~Drop `python-jose` from `requirements.txt`~~ — gone; app fully on PyJWT
+- ✅ ~~Warn on short SECRET_KEY~~ — boot warning fires in dev (`[boot] SUPABASE_JWT_SECRET is N chars …`)
+- ⚠️ **Hero rewrite** — partial; could lean harder on phone-cam + AI grading + DPDP (3 hr)
+- ⚠️ **Drop dead jose suppress filter** in `main.py` — function check shows no `from jose` in app code, suppress filter probably no longer needed (15 min)
+- ⚠️ **Migrate 6 test files off jose** — `tests/conftest.py`, `test_auth_and_sessions.py`, `test_lti_edge_cases.py`, `test_pending_verifications_filter.py`, and 2 others still import `from jose import jwt as jose_jwt` (30 min sed swap to `import jwt as jose_jwt`)
+- ⚠️ **Wire one-shot Razorpay checkout button into a real page** — `RazorpayCheckoutButton.jsx` exists, never imported anywhere. Wire to a credit-top-up or pay-per-exam page when use case crystallises (2 hr)
+- ⚠️ **Status page at status.procta.net via Uptime Robot** (3 hr) — operational, no code
+- ⚠️ **Pre-fill a CAIQ-lite security questionnaire** (half day) — needed before first enterprise sale
+- ⚠️ **Verify Sentry alert routing actually reaches your phone** (1 hr) — operational
+- ⚠️ **Cap dashboard tables at 200 rows + paginate** (2 hr) — needed for cohorts >500 students
 
 ---
 
@@ -229,10 +293,10 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 
 ### Security & reliability
 
-- **JWT-in-URL** still present in `renderer/index.html` chat WS — needs subprotocol header
-- **CSRF tokens** absent on state-changing dashboard endpoints
-- **Test credentials** in `.env` — rotate before any production traffic
-- **Rate-limit coverage audit** — verify every state-changing endpoint has `@limiter.limit`
+- ✅ ~~**JWT-in-URL** in `renderer/index.html` chat WS~~ — fixed; uses `new WebSocket(url, [token])` subprotocol header pattern
+- ✅ ~~**CSRF tokens** absent on state-changing dashboard endpoints~~ — shipped in Phase 2; mandatory for all JWT-authed POST/PUT/DELETE
+- ⚠️ **Test credentials** in `.env` (Razorpay test_*, TOTP encryption key, test SUPABASE_JWT_SECRET) — rotate before any production traffic
+- ⚠️ **Rate-limit coverage audit** — `@limiter.limit` count: 51 in auth.py, 13 in admin.py, 31 in exam.py. Spot-check the remaining 19 routers for any state-changers without limits
 - **Retries with backoff** on Razorpay + Supabase calls (`tenacity`)
 - **Circuit breaker** around LLM provider — Groq outage shouldn't hang grading API
 - **Separate `/health/liveness` vs `/health/readiness`** — Kubernetes-compatible if you ever migrate
@@ -288,13 +352,15 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 | Risk | Severity | Mitigation |
 |---|---|---|
 | **Bus factor 1** | Critical | Find co-founder OR first engineering hire within 6 months |
-| **Test Razorpay creds in `.env`** | High | Rotate before prod traffic; move to secret manager (DO secrets / 1Password CLI) |
-| **DPDP non-compliance** | High | DPA template + privacy policy hosted + audit log table by month 2 |
+| **Test Razorpay + TOTP keys in `.env`** | High | Rotate to live keys + production-grade `TOTP_ENCRYPTION_KEY` before any real payment / 2FA enrollment |
+| **DPDP non-compliance** | High | DPA template + privacy policy hosted + `auth_events` audit log ✅ shipped, 90-day retention cron still TODO |
 | **Single droplet ops failure** | High | Hot-standby droplet + DNS failover; backup restoration drill done in daylight |
-| **Vanilla JS dashboard XSS** | Medium | React migration (Phase 5) closes the class permanently |
+| **Vanilla JS dashboard XSS** | Medium | React migration closes the class permanently. Mitigated meanwhile by mandatory CSRF + Turnstile on auth surfaces |
 | **Generic "AI proctoring" positioning** | Medium | Lead with phone-cam + AI grading + DPDP; not features in general |
 | **Procurement cycle stalls without case studies** | Medium | Sign 1 named pilot, publish case study, even if free |
-| **Pricing undefined** | Medium | Publish 3 plans this week, iterate on real signups |
+| ~~**Pricing undefined**~~ | ✅ Resolved | `/pricing` live with 3 tiers (₹149 / ₹999 / ₹2,499) |
+| **Email verification migration-day blast** | Medium (one-time) | Existing users force re-verify on next login; ~1-2 weeks of support tickets expected. Email blast must warm Resend domain first |
+| **30-day TOTP grace expires for users on Mon morning before board exam** | Medium | Nightly cron should shift `totp_grace_started_at` so expiry never falls within 48h of a scheduled exam |
 
 ---
 
@@ -306,8 +372,12 @@ The new Periwinkle Blue design system (OKLCH space, IBM Plex fonts, 3 themes) is
 - Room-camera frames auto-delete after 24 hours (FERPA / DPDP shorter retention).
 - All HTML surfaces load the design token system; 16 of 16 panels on Phase 2 layout.
 - Razorpay test credentials in `.env` — rotate to live keys before any real payment.
-- Strategic snapshot lives in memory: `~/.claude/.../memory/strategic_audit_2026_05.md`.
-- Test suite: 482 passed, 21 skipped, 0 failures. Runs in ~11s. **0 deprecation warnings.**
+- `TOTP_ENCRYPTION_KEY` in `.env` — rotate before production 2FA rollout.
+- Strategic snapshot in memory: `~/.claude/.../memory/strategic_audit_2026_05.md`
+- Auth-baseline residuals in memory: `~/.claude/.../memory/audit_residuals_2026_05.md`
+- OAuth + Classroom setup walkthroughs: `docs/OAUTH_SETUP.md`
+- Test suite: 406 passed, 17 skipped, 0 failures. Runs in ~6s.
+- DB migrations applied to prod (2026-05-14): phase31-35 (auth baseline) + phase41-42 (RLS on new tables) + phase24 (scorecard claim TTL) + phase40 (grading audit). All confirmed via Supabase MCP list_migrations.
 
 ---
 
@@ -357,8 +427,16 @@ Would fund at pre-seed (₹1.5-3Cr) contingent on: (a) pricing page live within 
 
 | Priority | Item | Effort | Depends on |
 |----------|------|--------|------------|
+| **High** | OAuth + Turnstile manual setup (Supabase dashboard + Cloudflare) | 30 min | Walkthrough in `docs/OAUTH_SETUP.md` |
+| **High** | Wire OAuth buttons + Turnstile widget on `dashboard.html` teacher login | 1 hr | OAuth backend already deployed |
+| **High** | Run email-verification migration-day blast (warm Resend domain first) | half day | DKIM/SPF/DMARC verified |
+| **Medium** | Migrate 6 test files off `jose` (sed swap) + drop dead suppress filter in main.py | 30 min | — |
+| **Medium** | Hero copy rewrite — lead with phone-cam + AI grading + DPDP | 3 hr | — |
+| **Medium** | `auth_events` 90-day retention cron | 2 hr | — |
+| **Medium** | TOTP-grace-expiry shift cron (never within 48h of a scheduled exam) | 3 hr | — |
 | **Low** | macOS/Windows code signing (EV cert) | 1 week | Apple Developer acct + cert |
-| **Low** | Google Classroom API — set up OAuth credentials in Google Cloud Console | 30 min | Google account + project |
-| **Low** | TOTP encryption key — generate `TOTP_ENCRYPTION_KEY` via `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and add to production `.env` | 5 min | Production server access |
-| **Backlog** | Mobile app (Phase 5) — BYOD phone exam-taking (React Native / Flutter) | 2-3 months | — |
+| **Low** | Google Classroom API — wire grade passback + auto-create CourseWork (B1+B2 in `docs/OAUTH_SETUP.md`) | 2 days | Manual setup done |
+| **Low** | Rotate test Razorpay + TOTP keys to live values before any real payment | 15 min | — |
+| **Backlog** | Mobile PWA / app — BYOD phone exam-taking | 2-3 months | — |
 | **Backlog** | AI audit trail — bulk review UI for AI-suggested grades | 2-4 weeks | — |
+| **Backlog** | React dashboard rewrite | 3-4 weeks | — |

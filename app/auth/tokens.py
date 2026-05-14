@@ -72,7 +72,8 @@ def verify_csrf(claims: dict, header_value: str) -> bool:
     return secrets.compare_digest(header_value, expected)
 
 
-def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None) -> str:
+def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None,
+                 student_id: str = None) -> str:
     now = datetime.now(timezone.utc)
     csrf = _gen_csrf()
     payload = {"roll": roll_number, "csrf": csrf, "exp": now + timedelta(hours=TOKEN_TTL_HOURS), "iat": now}
@@ -80,6 +81,8 @@ def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None) 
         payload["tid"] = teacher_id
     if exam_id:
         payload["eid"] = exam_id
+    if student_id:
+        payload["sid"] = student_id
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 

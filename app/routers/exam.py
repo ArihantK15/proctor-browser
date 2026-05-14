@@ -298,7 +298,8 @@ async def validate_student(request: Request, body: ValidateIn):
             "email":       student.get("email", ""),
             "phone":       student.get("phone", ""),
             "roll_number": student["roll_number"],
-            "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id),
+            "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id,
+                                         student_id=student.get("account_id")),
             "existing_session": existing_key,
         }
         _cache_validate(cache_key, resp)
@@ -320,7 +321,8 @@ async def validate_student(request: Request, body: ValidateIn):
         "email":       student.get("email", ""),
         "phone":       student.get("phone", ""),
         "roll_number": student["roll_number"],
-        "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id),
+        "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id,
+                                     student_id=student.get("account_id")),
     }
     _cache_validate(cache_key, resp)
     return resp

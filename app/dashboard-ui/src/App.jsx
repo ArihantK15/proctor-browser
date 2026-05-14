@@ -9,11 +9,13 @@ import AllOrgsPanel from './panels/AllOrgsPanel'
 import HistoryPanel from './panels/HistoryPanel'
 import OrgSettingsPanel from './panels/OrgSettingsPanel'
 import AnalyticsPanel from './panels/AnalyticsPanel'
+import ChatPanel from './panels/ChatPanel'
 
 const TABS = [
   { id: 'results', label: 'Results', roles: ['admin', 'superadmin'] },
   { id: 'history', label: 'History', roles: ['admin', 'superadmin'] },
   { id: 'analytics', label: 'Analytics', roles: ['admin', 'superadmin'] },
+  { id: 'chat', label: 'Chat', roles: ['admin', 'superadmin'] },
   { id: 'org', label: 'Org Overview', roles: ['admin', 'superadmin'] },
   { id: 'org-settings', label: 'Org Settings', roles: ['admin', 'superadmin'] },
   { id: 'members', label: 'Members', roles: ['admin', 'superadmin'] },
@@ -75,6 +77,7 @@ function DashboardShell() {
     results: ResultsPanel,
     history: HistoryPanel,
     analytics: AnalyticsPanel,
+    chat: ChatPanel,
     org: OrgPanel,
     members: MembersPanel,
     billing: BillingPanel,

@@ -331,6 +331,14 @@ def admin_dashboard():
     return HTMLResponse(html_path.read_text())
 
 
+@router.get("/dashboard-react")
+def admin_dashboard_react():
+    html_path = STATIC_DIR / "dashboard-react" / "index.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="React dashboard not found")
+    return HTMLResponse(html_path.read_text())
+
+
 @router.get("/download/mac")
 async def download_mac():
     return await _download_redirect(DOWNLOAD_MAC_ARM, "mac_arm",

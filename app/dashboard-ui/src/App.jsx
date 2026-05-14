@@ -3,11 +3,17 @@ import { AuthProvider, useAuth } from './lib/auth'
 import OrgPanel from './panels/OrgPanel'
 import BillingPanel from './panels/BillingPanel'
 import SecurityPanel from './panels/SecurityPanel'
+import MembersPanel from './panels/MembersPanel'
+import ResultsPanel from './panels/ResultsPanel'
+import AllOrgsPanel from './panels/AllOrgsPanel'
 
 const TABS = [
+  { id: 'results', label: 'Results', roles: ['admin', 'superadmin'] },
   { id: 'org', label: 'Org Overview', roles: ['admin', 'superadmin'] },
+  { id: 'members', label: 'Members', roles: ['admin', 'superadmin'] },
   { id: 'billing', label: 'Billing', roles: ['admin', 'superadmin'] },
   { id: 'security', label: 'Security', roles: ['admin', 'superadmin'] },
+  { id: 'all-orgs', label: 'All Orgs', roles: ['admin', 'superadmin'] },
 ]
 
 function LoginForm() {
@@ -60,9 +66,12 @@ function DashboardShell() {
   const [currentExamId, setCurrentExamId] = useState(null)
 
   const PANELS = {
+    results: ResultsPanel,
     org: OrgPanel,
+    members: MembersPanel,
     billing: BillingPanel,
     security: SecurityPanel,
+    'all-orgs': AllOrgsPanel,
   }
   const Panel = PANELS[activeTab]
 

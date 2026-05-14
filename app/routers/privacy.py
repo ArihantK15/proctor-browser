@@ -204,6 +204,15 @@ async def delete_account(request: Request):
         except Exception as e:
             errors.append(f"students update: {e}")
 
+        # Anonymize exam sessions
+        try:
+            await _atable("exam_sessions").update({
+                "full_name": "Deleted User",
+                "email": anon + "@deleted.procta.net",
+            }).eq("student_id", user_id).execute()
+        except Exception as e:
+            errors.append(f"exam_sessions update: {e}")
+
     # Delete Supabase auth user (revokes all tokens, prevents login)
     if supabase_uid:
         try:

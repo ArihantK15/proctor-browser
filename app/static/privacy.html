@@ -100,8 +100,9 @@ const BASE = '';
 function _getCsrf() {
   if (!TOKEN) return '';
   try {
-    const payload = JSON.parse(atob(TOKEN.split('.')[1]));
-    return payload.csrf || '';
+    var b64 = TOKEN.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    return JSON.parse(atob(b64)).csrf || '';
   } catch(e) { return ''; }
 }
 const headers = {'Authorization':'Bearer '+TOKEN, 'Content-Type':'application/json', 'X-CSRF-Token': _getCsrf()};

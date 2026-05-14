@@ -491,12 +491,15 @@ async def log_event(event: EventIn, request: Request):
 
     # When exam starts, create in-progress session record
     if event.event_type == "exam_started":
+        sid = claims.get("sid")
         row = {
             "session_key": event.session_id,
             "roll_number": event.session_id.rsplit("_", 1)[0],
             "status":      SessionStatus.IN_PROGRESS,
             "started_at":  now_ist().isoformat(),
         }
+        if sid:
+            row["student_id"] = sid
         if tid:
             row["teacher_id"] = tid
         if eid:
@@ -749,6 +752,7 @@ async def submit_exam(result: ResultIn, request: Request):
     _check_session_ownership(claims, result.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
+    sid = claims.get("sid")
     now = now_ist()
 
     # SECURITY: Use JWT roll, not client-supplied fields (IDOR prevention)
@@ -793,6 +797,8 @@ async def submit_exam(result: ResultIn, request: Request):
         session_row["teacher_id"] = tid
     if eid:
         session_row["exam_id"] = eid
+    if sid:
+        session_row["student_id"] = sid
 
     submit_viol = {
         "session_key":    result.session_id,

@@ -9,7 +9,7 @@ const plans = [
   {
     id: 'starter',
     name: 'Starter',
-    price: '₹149',
+    price: '₹2,400',
     period: '/mo',
     students: 30,
     desc: 'For small classes & tutorials',
@@ -30,7 +30,7 @@ const plans = [
   {
     id: 'growth',
     name: 'Growth',
-    price: '₹999',
+    price: '₹12,000',
     period: '/mo',
     students: 150,
     desc: 'For departments & mid-size programs',
@@ -51,7 +51,7 @@ const plans = [
   {
     id: 'pro',
     name: 'Pro',
-    price: '₹2,499',
+    price: '₹30,000',
     period: '/mo',
     students: 500,
     desc: 'For large universities & institutions',
@@ -103,10 +103,10 @@ export default function Pricing() {
     <div className="min-h-screen bg-navy-950">
       <Helmet>
         <title>Pricing — Procta AI Exam Proctoring</title>
-        <meta name="description" content="Simple, transparent pricing for AI-powered exam proctoring. Starter ₹149/mo, Growth ₹999/mo, Pro ₹2,499/mo. Free 14-day trial, no credit card required." />
+        <meta name="description" content="Simple, transparent pricing for AI-powered exam proctoring. Starter ₹2,400/mo, Growth ₹12,000/mo, Pro ₹30,000/mo. Free 14-day trial, no credit card required." />
         <link rel="canonical" href="https://procta.net/pricing" />
         <meta property="og:title" content="Pricing — Procta AI Exam Proctoring" />
-        <meta property="og:description" content="Affordable AI proctoring for Indian higher education. Plans start at ₹149/month. Free 14-day trial." />
+        <meta property="og:description" content="Affordable AI proctoring for Indian higher education. Plans start at ₹2,400/month. Free 14-day trial." />
         <meta property="og:url" content="https://procta.net/pricing" />
       </Helmet>
 

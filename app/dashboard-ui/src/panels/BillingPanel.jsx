@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../lib/auth'
 
 const PLANS = [
-  { id: 'starter', name: 'Starter', price: '₹149', students: 30, desc: 'For small classes & tutorials' },
-  { id: 'growth', name: 'Growth', price: '₹999', students: 150, desc: 'For departments & mid-size programs' },
-  { id: 'pro', name: 'Pro', price: '₹2,499', students: 500, desc: 'For large universities & institutions' },
+  { id: 'starter', name: 'Starter', price: '₹2,400', students: 30, desc: 'For small classes & tutorials (₹80/student)' },
+  { id: 'growth', name: 'Growth', price: '₹12,000', students: 150, desc: 'For departments & mid-size programs (₹80/student)' },
+  { id: 'pro', name: 'Pro', price: '₹30,000', students: 500, desc: 'For large universities & institutions (₹80/student)' },
 ]
 
 export default function BillingPanel() {

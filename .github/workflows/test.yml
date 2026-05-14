@@ -31,6 +31,15 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/dashboard-ui/package-lock.json
+            website/package-lock.json
+
       - name: Install runtime + test deps
         run: |
           python -m pip install --upgrade pip
@@ -57,9 +66,22 @@ jobs:
           print('All Python files parse cleanly.')
           "
 
+      - name: Audit Electron dependencies
+        run: npm audit --audit-level=low
+
+      - name: Build dashboard
+        run: |
+          cd app/dashboard-ui
+          npm ci
+          npm audit --audit-level=low
+          npm run build
+
       - name: Build marketing site
         run: |
-          cd website && npm ci && npm run build
+          cd website
+          npm ci
+          npm audit --audit-level=low
+          npm run build
 
       - name: Run pytest
         env:
@@ -131,3 +153,44 @@ jobs:
       - name: Clean up
         if: always()
         run: docker rm -f api redis || true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Python dependency audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          pip-audit -r requirements.txt
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Semgrep SAST
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: auto
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"

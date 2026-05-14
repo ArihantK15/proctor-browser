@@ -41,6 +41,7 @@ export default function Footer() {
               <li><Link to="/blog/ai-proctoring-vs-traditional-proctoring" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">AI vs Traditional Proctoring</Link></li>
               <li><Link to="/blog/online-exam-cheating-prevention-ai-proctoring" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Online Exam Cheating Prevention</Link></li>
               <li><Link to="/blog/dpdp-act-compliance-online-proctoring-indian-universities" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">DPDP Act & Proctoring</Link></li>
+              <li><Link to="/trust" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Trust Center</Link></li>
               <li><Link to="/privacy" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Privacy Policy</Link></li>
               <li><Link to="/terms" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Terms of Service</Link></li>
             </ul>
@@ -63,6 +64,7 @@ export default function Footer() {
           </p>
           <div className="flex items-center gap-6">
             <Link to="/privacy" className="text-xs text-slate-600 transition-colors hover:text-accent-light no-underline">Privacy</Link>
+            <Link to="/trust" className="text-xs text-slate-600 transition-colors hover:text-accent-light no-underline">Trust</Link>
             <Link to="/terms" className="text-xs text-slate-600 transition-colors hover:text-accent-light no-underline">Terms</Link>
           </div>
         </div>

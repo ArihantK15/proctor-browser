@@ -18,7 +18,7 @@ export default function Navbar() {
     { label: 'LTI Setup',    href: '/lti-setup' },
     { label: 'How It Works', href: '/how-it-works' },
     { label: 'Why Procta',   href: '/#differentiators' },
-    { label: 'Privacy',      href: '/privacy' },
+    { label: 'Trust',        href: '/trust' },
     { label: 'FAQ',          href: '/#faq' },
     { label: 'Blog',         href: '/blog' },
   ]

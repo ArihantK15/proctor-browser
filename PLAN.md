@@ -6,6 +6,45 @@
 
 ---
 
+## Post-Audit Execution Queue
+
+Source plan: `.opencode/plans/08-comprehensive-roadmap.md`.
+
+### In Progress
+
+- CI release gate now includes dashboard build/audit, website audit/build,
+  root npm audit, Python tests, Docker smoke, and a dedicated security scan
+  job for `pip-audit`, Gitleaks, Semgrep, and Trivy.
+- LTI learner privacy boundary is documented in code: LMS-managed learners
+  intentionally do not create Procta `student_accounts`.
+- Deploy checklist now calls out migration/rollback/health/smoke checks and
+  the phase52 student-session backfill verification query.
+- Reliability dashboard first slice is live: `/api/v1/admin/status` now
+  returns service checks plus queue/session/submit-failure metrics, and the
+  React dashboard has an Ops tab.
+
+### Next Build Targets
+
+1. Reliability dashboard next slice: Sentry error rate, worker retry details,
+   deploy version, and clearer production health thresholds.
+2. Trust center: DPA, subprocessors, retention policy, encryption posture,
+   incident response, DPDP/FERPA summary, and sample scorecard.
+3. Onboarding wizard: create first exam, import students, configure access
+   code, send invites, run demo exam, and download browser.
+4. Evidence-grade review: violation timeline, reason codes, reviewer
+   decisions, appeal trail, and exportable audit packet.
+5. False-positive controls: calibration quality, confidence, sensitivity
+   profile, and explainable flagging.
+
+### Manual / Environment-Gated
+
+- Run Docker build and production smoke test on the droplet after pull.
+- Apply pending migrations in Supabase and verify
+  `exam_sessions.student_id` backfill state.
+- Capture real product screenshots/video from a production-like exam flow.
+
+---
+
 ## Current Architecture
 
 | Layer | Modules | Notes |

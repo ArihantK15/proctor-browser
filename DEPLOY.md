@@ -13,6 +13,32 @@ This file tracks *operations*: what to run, when, and what to watch.
 
 After pushing a code change to `main`:
 
+### 1.0 Pre-deploy checklist
+
+Before touching the running containers, confirm:
+
+- [ ] Latest CI run is green for tests, Docker smoke, dependency audits,
+      and security scans.
+- [ ] You have a rollback commit or tag identified.
+- [ ] Database backup/export is available for the current production state.
+- [ ] Pending migrations were reviewed for destructive operations.
+- [ ] `migrations/phase52_backfill_student_id.sql` has been applied after
+      the student-account privacy linkage fix.
+- [ ] If the release touches exam startup/submission, run one practice exam
+      locally before deploying.
+
+For privacy/session linkage specifically, verify the backfill state:
+
+```sql
+SELECT COUNT(*) AS sessions_without_student_id
+FROM exam_sessions
+WHERE student_id IS NULL
+  AND roll_number NOT LIKE 'LTI_%';
+```
+
+Expected value after backfill: `0` for linked Procta student-account
+sessions. LTI learner records are LMS-managed by design.
+
 ```bash
 ssh root@<your-droplet>
 cd ~/proctor-browser

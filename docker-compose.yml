@@ -13,6 +13,9 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - LOADTEST_SECRET=${LOADTEST_SECRET:-}
+      - GIT_SHA=${GIT_SHA:-local}
+      - IMAGE_TAG=${IMAGE_TAG:-local}
+      - APP_VERSION=${APP_VERSION:-dev}
     depends_on:
       - redis
     volumes:
@@ -69,6 +72,9 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - RQ_ENABLED=1
+      - GIT_SHA=${GIT_SHA:-local}
+      - IMAGE_TAG=${IMAGE_TAG:-local}
+      - APP_VERSION=${APP_VERSION:-dev}
     depends_on:
       - redis
     deploy:

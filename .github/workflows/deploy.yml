@@ -94,6 +94,9 @@ jobs:
             docker compose pull api || exit 1
 
             # Graceful restart — only recreate the API container
+            export GIT_SHA="${{ github.sha }}"
+            export IMAGE_TAG="main"
+            export APP_VERSION="${{ github.ref_name }}"
             docker compose up -d --no-deps api || exit 1
 
             # Wait for healthcheck to pass (max 90 seconds)

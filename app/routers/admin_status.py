@@ -4,6 +4,7 @@ import json
 import os
 import time
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -101,6 +102,14 @@ async def get_status(request: Request):
     _ = teacher  # used for auth only
 
     checks = {}
+    metrics = {}
+    release = {
+        "environment": os.environ.get("SENTRY_ENVIRONMENT", os.environ.get("APP_ENV", "production")),
+        "version": os.environ.get("APP_VERSION", ""),
+        "commit": os.environ.get("GIT_SHA", os.environ.get("SOURCE_COMMIT", "")),
+        "image": os.environ.get("IMAGE_TAG", ""),
+        "sentry_configured": bool(os.environ.get("SENTRY_DSN")),
+    }
     ok = True
 
     # Supabase
@@ -120,6 +129,10 @@ async def get_status(request: Request):
             if r:
                 r.ping()
                 checks["redis"] = "ok"
+                try:
+                    metrics["redis_connected_clients"] = int(r.info().get("connected_clients", 0))
+                except Exception:
+                    pass
             else:
                 checks["redis"] = "unavailable"
         else:
@@ -138,6 +151,7 @@ async def get_status(request: Request):
                 if hb:
                     age = time.time() - float(hb)
                     checks["worker"] = "ok" if age < 60 else "stale"
+                    metrics["worker_heartbeat_age_sec"] = round(age, 1)
                     if age >= 60:
                         ok = False
                 else:
@@ -148,6 +162,30 @@ async def get_status(request: Request):
             checks["worker"] = "unavailable"
     except Exception:
         checks["worker"] = "error"
+
+    # RQ queue depth / failures
+    try:
+        from rq import Queue
+        from rq.registry import FailedJobRegistry, StartedJobRegistry
+        from redis import Redis
+        from ..jobs import _redis_url
+        queue_name = os.environ.get("RQ_QUEUE", "default")
+        conn = Redis.from_url(_redis_url())
+        q = Queue(queue_name, connection=conn)
+        metrics["queue_name"] = queue_name
+        metrics["queue_depth"] = int(q.count)
+        metrics["queue_started"] = len(StartedJobRegistry(queue=q).get_job_ids())
+        metrics["queue_failed"] = len(FailedJobRegistry(queue=q).get_job_ids())
+        if metrics["queue_failed"] > 0:
+            checks["queue"] = "warning"
+        elif metrics["queue_depth"] > int(os.environ.get("OPS_QUEUE_DEPTH_WARN", "100")):
+            checks["queue"] = "warning"
+        else:
+            checks["queue"] = "ok"
+    except Exception:
+        metrics["queue_depth"] = None
+        metrics["queue_failed"] = None
+        checks["queue"] = "unavailable"
 
     # Email
     try:
@@ -169,6 +207,11 @@ async def get_status(request: Request):
         mem = psutil.virtual_memory()
         pct = mem.percent
         checks["memory_pct"] = f"{pct}%"
+        metrics["memory_pct"] = pct
+        if pct >= float(os.environ.get("OPS_MEMORY_CRITICAL_PCT", "95")):
+            ok = False
+        elif pct >= float(os.environ.get("OPS_MEMORY_WARN_PCT", "85")):
+            checks["memory_pct"] = "warning"
     except ImportError:
         pass
 
@@ -196,13 +239,38 @@ async def get_status(request: Request):
     except Exception:
         checks["storage_write"] = "error"
 
+    # Product/operator metrics
+    try:
+        from ..database import async_table as _atable
+        active = await _atable("exam_sessions")\
+            .select("session_key", count="exact")\
+            .eq("status", "in_progress")\
+            .execute()
+        metrics["active_sessions"] = active.count or 0
+    except Exception:
+        metrics["active_sessions"] = None
+
+    try:
+        from ..database import async_table as _atable
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        failed = await _atable("violations")\
+            .select("session_key", count="exact")\
+            .eq("violation_type", "submit_failed")\
+            .gte("created_at", since)\
+            .execute()
+        metrics["submit_failures_24h"] = failed.count or 0
+    except Exception:
+        metrics["submit_failures_24h"] = None
+
     uptime_sec = round(time.time() - _REQ_TS, 1) if "_REQ_TS" in dir() else 0
 
     return {
         "status": "ok" if ok else "degraded",
         "uptime_sec": uptime_sec,
-        "health_checks": 0,
+        "health_checks": len(checks),
         "checks": checks,
+        "metrics": metrics,
+        "release": release,
     }
 
 

@@ -497,6 +497,9 @@ def issue_lti_session_token(user: dict, target_link_uri: str) -> str:
     if user.get("role") == "teacher":
         return issue_admin_token(user)
     else:
+        # LTI learners are identity-managed by the LMS, not Procta
+        # student_accounts. Keep this token roll-scoped; LMS privacy/export
+        # obligations stay with the LMS integration boundary.
         return create_token(
             roll_number=user.get("roll_number", ""),
             teacher_id=user.get("teacher_id", ""),

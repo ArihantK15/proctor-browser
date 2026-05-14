@@ -8,6 +8,7 @@ const LtiSetup = lazy(() => import('./pages/LtiSetup'))
 
 const Signup = lazy(() => import('./pages/Signup'))
 const Privacy = lazy(() => import('./pages/Privacy'))
+const Trust = lazy(() => import('./pages/Trust'))
 const Terms = lazy(() => import('./pages/Terms'))
 const Features = lazy(() => import('./pages/Features'))
 const HowItWorks = lazy(() => import('./pages/HowItWorks'))
@@ -45,6 +46,7 @@ export default function App() {
       <Route path="/lti-setup"><LazyRoute Component={LtiSetup} /></Route>
       <Route path="/signup"><LazyRoute Component={Signup} /></Route>
       <Route path="/privacy"><LazyRoute Component={Privacy} /></Route>
+      <Route path="/trust"><LazyRoute Component={Trust} /></Route>
       <Route path="/terms"><LazyRoute Component={Terms} /></Route>
       <Route path="/features"><LazyRoute Component={Features} /></Route>
       <Route path="/how-it-works"><LazyRoute Component={HowItWorks} /></Route>

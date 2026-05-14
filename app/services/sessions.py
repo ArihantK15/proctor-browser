@@ -220,7 +220,7 @@ async def build_sessions_payload(tid: str, exam_id: str = None) -> dict:
     evts_query = _atable("violations").select("session_key,violation_type,severity,created_at,details").gte("created_at", cutoff)
     if tid:
         evts_query = evts_query.eq("teacher_id", str(tid))
-    evts_result = await evts_query.order("created_at", desc=True).execute()
+    evts_result = await evts_query.order("created_at", desc=True).limit(2000).execute()
     events = evts_result.data or []
 
     sess_query = _atable("exam_sessions").select("session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at,room_cam_status")

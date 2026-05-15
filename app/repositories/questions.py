@@ -10,6 +10,12 @@ from ..database import async_table as _atable
 
 logger = logging.getLogger(__name__)
 
+_EXAM_CONFIG_COLUMNS = (
+    "id,exam_id,teacher_id,exam_title,duration_minutes,access_code,"
+    "starts_at,ends_at,shuffle_questions,shuffle_options,"
+    "phone_camera_enabled,proctoring_sensitivity,created_at"
+)
+
 try:
     from .. import cache as _cache
 except Exception:
@@ -62,12 +68,12 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
         cached = _cache.get(cache_key)
         if cached is not None:
             return cached
-    query = _atable("exam_config").select("*")
+    query = _atable("exam_config").select(_EXAM_CONFIG_COLUMNS)
     if exam_id:
         query = query.eq("exam_id", exam_id)
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
-    result = await query.execute()
+    result = await query.limit(1).execute()
     if result.data:
         if _cache:
             _cache.set(cache_key, result.data[0], ttl=86400)  # 24h — invalidation keeps it fresh
@@ -98,3 +104,5 @@ async def set_access_code(code: str, teacher_id: str = None, exam_id: str = None
         await _atable("exam_config").upsert({"teacher_id": teacher_id, "access_code": code}).execute()
     else:
         await _atable("exam_config").upsert({"id": 1, "access_code": code}).execute()
+    if _cache:
+        _cache.delete(f"exam_config:{teacher_id or '_'}:{exam_id or '_'}")

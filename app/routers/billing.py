@@ -15,10 +15,18 @@ from ..services.billing import (
     _get_client,
     _is_live,
 )
+from .. import cache as _cache
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
+
+
+def _invalidate_billing_cache(org_id: str):
+    if not _cache or not org_id:
+        return
+    _cache.delete(f"org_subscription:{org_id}")
+    _cache.delete(f"org_limits:{org_id}")
 
 
 @router.get("/api/v1/billing/plans")
@@ -89,6 +97,7 @@ async def create_subscription(body: dict, request: Request):
         await _atable("organizations").update({
             "max_students": PLAN_LIMITS.get(plan_id, 30)
         }).eq("id", str(org_id)).execute()
+        _invalidate_billing_cache(str(org_id))
     except Exception as e:
         logger.warning("Failed to update subscription in DB: %s", e)
 
@@ -134,26 +143,31 @@ async def razorpay_webhook(request: Request):
             "current_period_start": sub_data.get("current_start"),
             "current_period_end": sub_data.get("current_end"),
         }).eq("id", db_sub.data[0]["id"]).execute()
+        _invalidate_billing_cache(str(org_id))
         logger.info("Subscription activated for org=%s", org_id)
 
     elif event_type == "subscription.completed":
         await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
         await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+        _invalidate_billing_cache(str(org_id))
         logger.info("Subscription completed for org=%s", org_id)
 
     elif event_type == "subscription.paused":
         await _atable("subscriptions").update({"status": "paused"}).eq("id", db_sub.data[0]["id"]).execute()
         await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+        _invalidate_billing_cache(str(org_id))
         logger.info("Subscription paused for org=%s", org_id)
 
     elif event_type == "subscription.cancelled":
         await _atable("subscriptions").update({"status": "cancelled"}).eq("id", db_sub.data[0]["id"]).execute()
         await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+        _invalidate_billing_cache(str(org_id))
         logger.info("Subscription cancelled for org=%s", org_id)
 
     elif event_type == "payment.failed":
         logger.warning("Payment failed for org=%s sub=%s", org_id, sub_id)
         await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
+        _invalidate_billing_cache(str(org_id))
 
     return {"status": "ok"}
 

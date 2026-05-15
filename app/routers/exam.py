@@ -106,14 +106,22 @@ async def validate_student(request: Request, body: ValidateIn):
 def _check_exam_time_window(config: dict) -> None:
     """Raise 403 if the exam hasn't started or has already closed."""
     now_utc = datetime.now(timezone.utc)
-    if config.get("starts_at"):
-        starts = datetime.fromisoformat(str(config["starts_at"]).replace("Z", "+00:00"))
-        if now_utc < starts:
-            raise HTTPException(status_code=403, detail=f"The exam has not started yet. It begins at {fmt_ist(config['starts_at'])}.")
-    if config.get("ends_at"):
-        ends = datetime.fromisoformat(str(config["ends_at"]).replace("Z", "+00:00"))
-        if now_utc > ends:
-            raise HTTPException(status_code=403, detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
+    starts_raw = config.get("starts_at")
+    if starts_raw and isinstance(starts_raw, str):
+        try:
+            starts = datetime.fromisoformat(str(starts_raw).replace("Z", "+00:00"))
+            if now_utc < starts:
+                raise HTTPException(status_code=403, detail=f"The exam has not started yet. It begins at {fmt_ist(config['starts_at'])}.")
+        except (ValueError, TypeError):
+            pass
+    ends_raw = config.get("ends_at")
+    if ends_raw and isinstance(ends_raw, str):
+        try:
+            ends = datetime.fromisoformat(str(ends_raw).replace("Z", "+00:00"))
+            if now_utc > ends:
+                raise HTTPException(status_code=403, detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
+        except (ValueError, TypeError):
+            pass
 
 
 async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str) -> tuple:

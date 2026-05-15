@@ -27,25 +27,44 @@ router = APIRouter(prefix="")
 async def list_exams(request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
-    result = await _atable("exam_config").select("*").eq("teacher_id", tid).execute()
+    try:
+        limit = min(max(int(request.query_params.get("limit", "500")), 1), 500)
+        offset = max(int(request.query_params.get("offset", "0")), 0)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="limit and offset must be integers")
+
+    result = await _atable("exam_config").select(
+        "exam_id,exam_title,duration_minutes,starts_at,ends_at,access_code,"
+        "proctoring_sensitivity,created_at"
+    ).eq("teacher_id", tid).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     exams = result.data or []
+    exam_ids = [e.get("exam_id") for e in exams if e.get("exam_id")]
+    qcounts: dict[str, int] = {}
+    scounts: dict[str, int] = {}
+    if exam_ids:
+        try:
+            qrows = (await _atable("questions").select("exam_id")
+                     .eq("teacher_id", tid).in_("exam_id", exam_ids)
+                     .limit(50000).execute()).data or []
+            for r in qrows:
+                eid = r.get("exam_id")
+                if eid:
+                    qcounts[eid] = qcounts.get(eid, 0) + 1
+        except Exception as e:
+            logger.debug("Failed to batch-count questions for exams: %s", e)
+        try:
+            srows = (await _atable("exam_sessions").select("exam_id")
+                     .eq("teacher_id", tid).in_("exam_id", exam_ids)
+                     .limit(50000).execute()).data or []
+            for r in srows:
+                eid = r.get("exam_id")
+                if eid:
+                    scounts[eid] = scounts.get(eid, 0) + 1
+        except Exception as e:
+            logger.debug("Failed to batch-count sessions for exams: %s", e)
     out = []
     for ex in exams:
         eid = ex.get("exam_id")
-        qcount = 0
-        scount = 0
-        try:
-            qr = await _atable("questions").select("question_id", count="exact")\
-                .eq("teacher_id", tid).eq("exam_id", eid).execute()
-            qcount = qr.count if qr.count is not None else len(qr.data or [])
-        except Exception as e:
-            logger.debug("Failed to count questions for exam %s: %s", eid, e)
-        try:
-            sr = await _atable("exam_sessions").select("session_key", count="exact")\
-                .eq("teacher_id", tid).eq("exam_id", eid).execute()
-            scount = sr.count if sr.count is not None else len(sr.data or [])
-        except Exception as e:
-            logger.debug("Failed to count sessions for exam %s: %s", eid, e)
         out.append({
             "exam_id":          eid,
             "exam_title":       ex.get("exam_title", "Exam"),
@@ -54,11 +73,11 @@ async def list_exams(request: Request):
             "ends_at":          ex.get("ends_at"),
             "access_code":      ex.get("access_code", ""),
             "proctoring_sensitivity": normalize_sensitivity(ex.get("proctoring_sensitivity")),
-            "question_count":   qcount,
-            "session_count":    scount,
+            "question_count":   qcounts.get(eid, 0),
+            "session_count":    scounts.get(eid, 0),
             "created_at":       ex.get("created_at", ""),
         })
-    return {"exams": out}
+    return {"exams": out, "limit": limit, "offset": offset, "count": len(out)}
 
 
 @router.post("/api/v1/admin/exams")

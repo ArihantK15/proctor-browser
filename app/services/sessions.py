@@ -43,6 +43,20 @@ async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
     org_id = teacher.get("org_id")
     if not org_id:
         raise HTTPException(status_code=403, detail="No organization associated with this account")
+    cache_key = f"org_limits:{org_id}"
+    # Reads can use a short cache. Mutating capacity checks must hit
+    # the DB because stale student counts would allow oversubscription.
+    cached = _cache.get(cache_key) if _cache and delta == 0 else None
+    if isinstance(cached, dict):
+        org = cached.get("org") or {}
+        current_count = int(cached.get("student_count") or 0)
+        max_students = int(org.get("max_students", 30))
+        if current_count + delta > max_students:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Student limit reached ({current_count}/{max_students}). Upgrade your plan."
+            )
+        return org
     try:
         org_result = await _atable("organizations").select("id,name,slug,max_students").eq("id", str(org_id)).single().execute()
         org = org_result.data if hasattr(org_result, 'data') else org_result[0]
@@ -58,6 +72,8 @@ async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
     except Exception:
         current_count = 0
     max_students = int(org.get("max_students", 30))
+    if _cache:
+        _cache.set(cache_key, {"org": org, "student_count": current_count}, ttl=60)
     if current_count + delta > max_students:
         raise HTTPException(
             status_code=403,
@@ -67,9 +83,18 @@ async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
 
 
 async def get_org_subscription(org_id: str) -> dict | None:
+    cache_key = f"org_subscription:{org_id}"
+    cached = _cache.get(cache_key) if _cache else None
+    if cached is not None:
+        return cached or None
     try:
-        result = await _atable("subscriptions").select("*").eq("org_id", str(org_id)).limit(1).execute()
-        return (result.data or [None])[0]
+        result = await _atable("subscriptions").select(
+            "id,org_id,plan,status,max_students,current_period_start,current_period_end,razorpay_subscription_id"
+        ).eq("org_id", str(org_id)).limit(1).execute()
+        sub = (result.data or [None])[0]
+        if _cache:
+            _cache.set(cache_key, sub or {}, ttl=60)
+        return sub
     except Exception:
         return None
 

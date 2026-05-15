@@ -1,13 +1,61 @@
+<!--
+  Open Graph share card — 1200x630 (Facebook/LinkedIn/X/WhatsApp standard).
+
+  Layout: centered shield mark + Procta wordmark on top row, slogan on
+  middle row in display type with accent on "Real results.", feature
+  list + URL on bottom. Brand mark matches favicon.svg geometry so the
+  share preview reads as the same logo people see in their browser tab.
+
+  Regenerate the PNG via:
+    DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib python3 -c \
+      "import cairosvg; cairosvg.svg2png(url='website/public/og-image.svg', \
+       write_to='website/public/og-image.png', output_width=1200, output_height=630)"
+-->
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="#0a0e14"/>
-  <rect y="0" width="1200" height="4" fill="#3b82f6"/>
-  <!-- Logo -->
-  <rect x="480" y="180" width="60" height="60" rx="14" fill="#3b82f6"/>
-  <text x="555" y="230" font-family="system-ui,-apple-system,sans-serif" font-size="48" font-weight="700" fill="#ffffff">Procta</text>
-  <!-- Tagline -->
-  <text x="600" y="310" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="24" fill="#93c5fd">AI-Powered Proctored Exam Platform</text>
-  <!-- Features -->
-  <text x="600" y="380" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="16" fill="#8b949e">Gaze Tracking  |  Face Detection  |  Object Recognition  |  Identity Verification</text>
+  <!-- Background: brand navy + subtle radial glow centered. -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%"   stop-color="#5B8AF0" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#0F1629" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#0F1629"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <!-- Persistent top accent stripe (matches the dashboard mockup look). -->
+  <rect y="0" width="1200" height="4" fill="#5B8AF0"/>
+
+  <!-- Brand chip + wordmark, centered horizontally. -->
+  <g transform="translate(488, 150)">
+    <!-- Accent chip with shield+eye mark, white-on-blue (same as nav/footer). -->
+    <rect width="80" height="80" rx="16" fill="#5B8AF0"/>
+    <g transform="translate(8, 8) scale(4)">
+      <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z"
+            fill="none" stroke="white" stroke-width="1.2" stroke-linejoin="round"/>
+      <circle cx="8" cy="8" r="1.5" fill="white"/>
+    </g>
+    <!-- Wordmark -->
+    <text x="100" y="58"
+          font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif"
+          font-size="56" font-weight="700" letter-spacing="-1.5" fill="#F0F4FF">Procta</text>
+  </g>
+
+  <!-- Slogan — primary headline of the share card. -->
+  <text x="600" y="350" text-anchor="middle"
+        font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif"
+        font-size="72" font-weight="700" letter-spacing="-2" fill="#F0F4FF">Remote exams. <tspan fill="#5B8AF0">Real results.</tspan></text>
+
+  <!-- Sub-line — concrete value prop. -->
+  <text x="600" y="410" text-anchor="middle"
+        font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif"
+        font-size="24" font-weight="400" fill="#93A4C7">AI-proctored exam platform for Indian higher education</text>
+
+  <!-- Feature row (smaller, label-mono feel). -->
+  <text x="600" y="500" text-anchor="middle"
+        font-family="'IBM Plex Mono', ui-monospace, monospace"
+        font-size="15" letter-spacing="2" fill="#5B7193">GAZE TRACKING  ·  FACE DETECTION  ·  OBJECT RECOGNITION  ·  ON-DEVICE</text>
+
   <!-- URL -->
-  <text x="600" y="540" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="18" fill="#6b7b8f">procta.net</text>
+  <text x="600" y="575" text-anchor="middle"
+        font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif"
+        font-size="18" font-weight="500" fill="#7B8DAB">procta.net</text>
 </svg>

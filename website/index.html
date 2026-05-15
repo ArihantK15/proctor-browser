@@ -45,15 +45,15 @@
     <meta name="twitter:image" content="https://procta.net/og-image.png" />
 
     <!-- Structured Data: SoftwareApplication
-         "slogan" is a recognised schema.org property — Google sometimes
-         surfaces it in knowledge-panel callouts. -->
+         Note: `slogan` is NOT a valid property on SoftwareApplication
+         (schema.org defines it only on Organization + Place). The brand
+         promise lives on the Organization block below — Google merges
+         the two when rendering the knowledge panel. -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "Procta",
-      "alternateName": "Procta — Remote exams. Real results.",
-      "slogan": "Remote exams. Real results.",
       "applicationCategory": "EducationalApplication",
       "operatingSystem": "Windows, macOS",
       "description": "AI-proctored exam platform that detects cheating in real time using on-device gaze tracking, face detection, and object recognition.",
@@ -78,8 +78,9 @@
     }
     </script>
 
-    <!-- Structured Data: Organization — gives Google the right logo + slogan
-         to use in the knowledge panel + SERP brand card. -->
+    <!-- Structured Data: Organization — the canonical home for `slogan` +
+         `logo`. Google uses these to populate the SERP brand card and
+         knowledge panel. -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -102,20 +103,10 @@
     }
     </script>
 
-    <!-- Structured Data: WebSite (lets Google show the sitelinks search box) -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "Procta",
-      "url": "https://procta.net",
-      "potentialAction": {
-        "@type": "SearchAction",
-        "target": "https://procta.net/?q={search_term_string}",
-        "query-input": "required name=search_term_string"
-      }
-    }
-    </script>
+    <!-- WebSite + SearchAction omitted: we do not yet have a site search
+         endpoint that responds to ?q=. Re-enable once /search is wired
+         up to filter blog/features content. -->
+
 
     <!-- Fonts are served from the static bundle via @fontsource packages.
          No Google Fonts round-trip needed. -->

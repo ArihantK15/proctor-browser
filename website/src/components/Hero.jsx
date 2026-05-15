@@ -29,7 +29,8 @@ export default function Hero() {
               webmanifest name + footer wordmark so it shows up wherever
               someone encounters the brand. */}
           <p className="mb-4 font-display text-sm font-semibold uppercase tracking-[0.18em] text-accent-light/90 md:text-base">
-            Remote exams.&nbsp;<span className="text-accent">Real results.</span>
+            <span className="whitespace-nowrap">Remote exams.</span>{' '}
+            <span className="whitespace-nowrap text-accent">Real results.</span>
           </p>
 
           {/* Headline — three-line outcome-first structure from the Claude

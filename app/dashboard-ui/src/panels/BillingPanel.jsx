@@ -11,12 +11,14 @@ export default function BillingPanel() {
   const { authFetch } = useAuth()
   const [billing, setBilling] = useState(null)
   const [invoices, setInvoices] = useState([])
+  const [usage, setUsage] = useState(null)
   const [loading, setLoading] = useState(true)
   const [upgradeStatus, setUpgradeStatus] = useState('')
 
   useEffect(() => {
     loadBilling()
     loadInvoices()
+    loadUsage()
   }, [])
 
   const loadBilling = async () => {
@@ -34,6 +36,13 @@ export default function BillingPanel() {
         const d = await r.json()
         setInvoices(d.invoices || [])
       }
+    } catch (_) {}
+  }
+
+  const loadUsage = async () => {
+    try {
+      const r = await authFetch('/api/v1/billing/usage')
+      if (r.ok) setUsage(await r.json())
     } catch (_) {}
   }
 
@@ -93,6 +102,33 @@ export default function BillingPanel() {
         ))}
       </div>
       {upgradeStatus && <div style={{ fontSize: 13, color: 'var(--emerald)', marginBottom: 12 }}>{upgradeStatus}</div>}
+
+      {/* Usage */}
+      {usage && (
+        <div className="card" style={{ padding: 20, marginTop: 20 }}>
+          <h3 style={{ margin: '0 0 12px', fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.04 }}>Current Period Usage</h3>
+          <div className="stats-row" style={{ marginBottom: 0 }}>
+            <div className="stat-card">
+              <span className="stat-value">{usage.students_used || 0}<span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}> / {usage.plan_limit}</span></span>
+              <span className="stat-label">Students</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-value">{usage.exam_attempts || 0}</span>
+              <span className="stat-label">Exam Attempts</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-value" style={usage.overage > 0 ? { color: 'var(--red)' } : { color: 'var(--emerald)' }}>
+                {usage.overage > 0 ? `₹${usage.overage_amount}` : '0'}
+              </span>
+              <span className="stat-label">Overage (this month)</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-value" style={{ fontSize: 12 }}>{usage.plan_name}</span>
+              <span className="stat-label">Plan</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invoices */}
       {invoices.length > 0 && (

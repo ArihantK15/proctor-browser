@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
 from ..auth import require_admin
 from ..database import async_table as _atable
@@ -194,3 +195,58 @@ async def list_invoices(request: Request):
     except Exception as e:
         logger.warning("Failed to fetch Razorpay invoices: %s", e)
         return {"invoices": [], "error": "Failed to fetch invoices. Try again later."}
+
+
+@router.get("/api/v1/billing/usage")
+@limiter.limit("30/minute")
+async def get_usage(request: Request):
+    """Return current billing period usage for the org."""
+    teacher = await require_admin(request)
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+
+    # Get current plan limits
+    sub = await _atable("subscriptions").select("plan,status").eq("org_id", str(org_id)).limit(1).execute()
+    plan_id = (sub.data or [{}])[0].get("plan", "starter") if sub.data else "starter"
+    sub_status = (sub.data or [{}])[0].get("status", "unknown") if sub.data else "unknown"
+    plan_limit = PLAN_LIMITS.get(plan_id, 30)
+    price_per_student = PLANS.get(plan_id, {}).get("price_inr", 0)
+    base_price = PLANS.get(plan_id, {}).get("price_inr", 0)
+
+    # Count current period usage
+    now_utc = datetime.now(timezone.utc)
+    from ..utils import now_ist as _now_ist
+    period_start = _now_ist().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Count distinct students who submitted this month
+    student_count_q = await _atable("exam_sessions")\
+        .select("student_id", count="exact", distinct="student_id")\
+        .eq("teacher_id", str(teacher["id"]))\
+        .gte("submitted_at", period_start.isoformat())\
+        .execute()
+    students_used = student_count_q.count or 0
+
+    # Count total exam attempts this month
+    attempts_q = await _atable("exam_sessions")\
+        .select("session_key", count="exact")\
+        .eq("teacher_id", str(teacher["id"]))\
+        .in_("status", ("completed", "submitted"))\
+        .gte("submitted_at", period_start.isoformat())\
+        .execute()
+    exam_attempts = attempts_q.count or 0
+
+    overage = max(0, students_used - plan_limit)
+    overage_amount = overage * price_per_student
+
+    return {
+        "plan_id": plan_id,
+        "plan_limit": plan_limit,
+        "plan_name": PLANS.get(plan_id, {}).get("name", "Unknown"),
+        "base_price": base_price,
+        "status": sub_status,
+        "period_start": period_start.isoformat(),
+        "students_used": students_used,
+        "exam_attempts": exam_attempts,
+        "overage": overage,
+        "overage_amount": overage_amount,
+    }

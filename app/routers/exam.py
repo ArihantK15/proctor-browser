@@ -781,11 +781,14 @@ async def submit_exam(result: ResultIn, request: Request):
     pct = round((server_score / max(server_total, 1)) * 100, 1)
 
     # Phase 2: Session upsert + submission log + time check in parallel
+    # Use existing session data (created at exam start) for name/email — never
+    # trust client-supplied result.full_name / result.email.
+    existing_session = existing.data[0] if existing.data else {}
     session_row = {
         "session_key":     result.session_id,
         "roll_number":     trusted_roll,
-        "full_name":       result.full_name[:100],
-        "email":           result.email[:120],
+        "full_name":       existing_session.get("full_name", result.full_name[:100]),
+        "email":           existing_session.get("email", result.email[:120]),
         "score":           server_score,
         "total":           server_total,
         "percentage":      pct,

@@ -27,6 +27,8 @@ Before touching the running containers, confirm:
 - [ ] Pending migrations were reviewed for destructive operations.
 - [ ] `migrations/phase52_backfill_student_id.sql` has been applied after
       the student-account privacy linkage fix.
+- [ ] `migrations/phase55_dashboard_reporting_indexes.sql` has been applied
+      during a quiet window; verify with `DB_INDEX_REVIEW.md`.
 - [ ] If the release touches exam startup/submission, run one practice exam
       locally before deploying.
 

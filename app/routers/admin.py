@@ -18,6 +18,8 @@ from ..repositories.sessions import assert_session_owned as _assert_session_owne
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..services.sessions import collect_session_screenshots as _collect_session_screenshots
 from ..services.risk import compute_risk_score, _is_violation, generate_session_summary
+from ..services.calibration import get_calibration_quality
+from ..services.false_positive import explain_flag, normalize_sensitivity, SENSITIVITY_PRESETS
 from ..services.sessions import match_screenshot_for_violation as _match_screenshot_for_violation
 from ..database import supabase, async_table as _atable
 from ..limiter import limiter
@@ -80,6 +82,15 @@ async def get_timeline(session_id: str, request: Request):
         .order("created_at")\
         .execute()
     events = viol_result.data or []
+    calibration_quality = await get_calibration_quality(session_id, teacher_id=tid)
+    config = {}
+    exam_id = session_info.get("exam_id")
+    if exam_id:
+        try:
+            config = await _load_exam_config(str(tid), exam_id=exam_id)
+        except Exception as e:
+            logger.debug("[timeline] exam config lookup failed for %s: %s", exam_id, e)
+    sensitivity = normalize_sensitivity(config.get("proctoring_sensitivity"))
 
     roll = session_info.get("roll_number") or (
         session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]
@@ -101,6 +112,11 @@ async def get_timeline(session_id: str, request: Request):
             "details":   e.get("details"),
             "is_violation": _is_violation(e["violation_type"]),
             "detection_confidence": e.get("detection_confidence"),
+            "false_positive_review": explain_flag(
+                e,
+                calibration=calibration_quality,
+                sensitivity=sensitivity,
+            ),
         }
         match = _match_screenshot_for_violation(e, screenshot_paths)
         if match is not None:
@@ -117,6 +133,11 @@ async def get_timeline(session_id: str, request: Request):
         "score":       session_info.get("score"),
         "total":       session_info.get("total"),
         "risk_score":  session_info.get("risk_score"),
+        "sensitivity_profile": {
+            "value": sensitivity,
+            **SENSITIVITY_PRESETS[sensitivity],
+        },
+        "calibration_quality": calibration_quality,
         "total_events": len(events),
         "timeline":    timeline,
         "screenshots": list(screenshot_urls.values()),

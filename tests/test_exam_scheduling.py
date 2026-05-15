@@ -5,8 +5,9 @@ Covers:
   2. POST /api/v1/admin/exam-schedule  — set schedule window (starts_at, ends_at)
   3. GET  /api/v1/admin/shuffle-config — read shuffle flags
   4. POST /api/v1/admin/shuffle-config — set shuffle flags
-  5. GET  /api/v1/exam-schedule        — public schedule endpoint
-  6. Window status logic via /api/student/exams (upcoming / open / closed)
+  5. GET/POST /api/v1/admin/proctoring-config — false-positive sensitivity
+  6. GET  /api/v1/exam-schedule        — public schedule endpoint
+  7. Window status logic via /api/student/exams (upcoming / open / closed)
 """
 
 import json
@@ -235,6 +236,50 @@ class TestAdminSetShuffle:
         })):
             resp = client.post("/api/v1/admin/shuffle-config",
                                json={"exam_id": "exam-1"},
+                               headers=_admin_headers())
+        assert resp.status_code == 400
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  GET/POST /api/v1/admin/proctoring-config
+# ═══════════════════════════════════════════════════════════════════
+
+class TestAdminProctoringConfig:
+
+    def test_get_proctoring_config_defaults_to_balanced(self, client):
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+            "teachers": [TEACHER],
+            "exam_config": [{**EXAM_CONFIG, "proctoring_sensitivity": None}],
+        })):
+            resp = client.get("/api/v1/admin/proctoring-config?exam_id=exam-1",
+                              headers=_admin_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["sensitivity"] == "balanced"
+        assert "strict" in data["presets"]
+        assert "lenient" in data["presets"]
+
+    def test_set_proctoring_config_accepts_lenient(self, client):
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+            "teachers": [TEACHER],
+            "exam_config": [{**EXAM_CONFIG, "proctoring_sensitivity": "lenient"}],
+        })):
+            resp = client.post("/api/v1/admin/proctoring-config",
+                               json={"exam_id": "exam-1", "sensitivity": "lenient"},
+                               headers=_admin_headers())
+        assert resp.status_code == 200
+        assert resp.json()["sensitivity"] == "lenient"
+
+    def test_set_proctoring_config_rejects_unknown_value(self, client):
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+            "teachers": [TEACHER],
+            "exam_config": [EXAM_CONFIG],
+        })):
+            resp = client.post("/api/v1/admin/proctoring-config",
+                               json={"exam_id": "exam-1", "sensitivity": "maximum"},
                                headers=_admin_headers())
         assert resp.status_code == 400
 

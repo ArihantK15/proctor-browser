@@ -21,10 +21,10 @@ async def assert_session_owned(session_id: str, teacher_id: str) -> dict:
     if not teacher_id:
         raise HTTPException(status_code=403, detail="Teacher context missing")
     tid_str = str(teacher_id)
-    result = (await _atable("exam_sessions").select("session_key,teacher_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()).data
+    result = (await _atable("exam_sessions").select("session_key,teacher_id,exam_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()).data
     if result:
         return result[0]
-    bare = (await _atable("exam_sessions").select("session_key,teacher_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score").eq("session_key", session_id).limit(1).execute()).data
+    bare = (await _atable("exam_sessions").select("session_key,teacher_id,exam_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score").eq("session_key", session_id).limit(1).execute()).data
     if bare:
         row = bare[0]
         row_tid = row.get("teacher_id")
@@ -40,7 +40,7 @@ async def assert_session_owned(session_id: str, teacher_id: str) -> dict:
             "teacher_id": tid_str,
             "roll_number": (session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]),
             "full_name": "",             "status": SessionStatus.IN_PROGRESS, "started_at": "", "submitted_at": "",
-            "score": None, "total": None, "risk_score": None,
+            "score": None, "total": None, "risk_score": None, "exam_id": None,
         }
     raise HTTPException(status_code=404, detail="Session not found")
 

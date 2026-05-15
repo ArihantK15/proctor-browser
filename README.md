@@ -166,6 +166,14 @@ Optional local LLM review is documented in `QUALITY_REVIEW.md`.
 
 ⸻
 
+Database Performance
+
+The production reporting index baseline is documented in
+`DB_INDEX_REVIEW.md`. Before a large deployment, apply pending migrations and
+verify the Phase 55 dashboard/reporting indexes in Supabase.
+
+⸻
+
 License
 
 This project is proprietary software. All rights reserved.

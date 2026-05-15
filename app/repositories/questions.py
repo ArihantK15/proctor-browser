@@ -76,6 +76,7 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
         "exam_title": "Exam", "duration_minutes": 60, "access_code": "",
         "starts_at": None, "ends_at": None,
         "shuffle_questions": True, "shuffle_options": True,
+        "proctoring_sensitivity": "balanced",
     }
 
 

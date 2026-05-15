@@ -41,6 +41,20 @@ function severityTone(severity) {
   return 'var(--text-secondary)'
 }
 
+function reliabilityTone(reliability) {
+  if (reliability === 'needs_review') return 'var(--amber)'
+  if (reliability === 'moderate') return '#58a6ff'
+  if (reliability === 'strong') return 'var(--emerald)'
+  return 'var(--text-secondary)'
+}
+
+function formatConfidence(value) {
+  if (value === null || value === undefined || value === '') return 'Unknown'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 'Unknown'
+  return `${Math.round(n * 100)}%`
+}
+
 function formatTime(value) {
   if (!value) return '-'
   const parsed = new Date(value)
@@ -474,6 +488,8 @@ function EvidenceView({ answer, timeline, loading, error, score, onScoreChange, 
               <EvidenceBlock label="Status" value={timeline?.status || '-'} compact />
               <EvidenceBlock label="Started" value={timeline?.started_at || '-'} compact />
               <EvidenceBlock label="Submitted" value={timeline?.submitted_at || '-'} compact />
+              <EvidenceBlock label="Sensitivity" value={timeline?.sensitivity_profile?.label || timeline?.sensitivity_profile?.value || 'Balanced'} compact />
+              <EvidenceBlock label="Calibration" value={timeline?.calibration_quality?.reason || 'No calibration signal available.'} compact />
               <EvidenceBlock label="Summary" value={timeline?.summary || 'No session summary available.'} />
             </div>
           </div>
@@ -492,6 +508,7 @@ function EvidenceView({ answer, timeline, loading, error, score, onScoreChange, 
                       <th>Time</th>
                       <th>Reason Code</th>
                       <th>Severity</th>
+                      <th>Reliability</th>
                       <th>Details</th>
                       <th>Evidence</th>
                     </tr>
@@ -507,7 +524,27 @@ function EvidenceView({ answer, timeline, loading, error, score, onScoreChange, 
                           {!event.is_violation && <span style={{ marginLeft: 6, color: 'var(--text-secondary)', fontSize: 11 }}>event</span>}
                         </td>
                         <td style={{ color: severityTone(event.severity), fontWeight: 700 }}>{event.severity || '-'}</td>
-                        <td style={{ maxWidth: 360, whiteSpace: 'normal' }}>{event.details || '-'}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <div style={{ color: reliabilityTone(event.false_positive_review?.reliability), fontWeight: 700 }}>
+                            {(event.false_positive_review?.reliability || 'unknown').replace(/_/g, ' ')}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                            {formatConfidence(event.false_positive_review?.confidence ?? event.detection_confidence)}
+                          </div>
+                        </td>
+                        <td style={{ maxWidth: 420, whiteSpace: 'normal' }}>
+                          <div>{event.details || '-'}</div>
+                          {event.false_positive_review?.explanation && (
+                            <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+                              {event.false_positive_review.explanation}
+                            </div>
+                          )}
+                          {event.false_positive_review?.human_review_recommended && (
+                            <div style={{ marginTop: 6, color: 'var(--amber)', fontSize: 12, fontWeight: 700 }}>
+                              Human review recommended
+                            </div>
+                          )}
+                        </td>
                         <td>
                           {event.screenshot ? (
                             <a href={event.screenshot} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

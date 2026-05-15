@@ -13,7 +13,9 @@ from ..limiter import limiter
 from ..models import (
     CreateExamIn, CreateGroupIn, RenameGroupIn,
     GroupMembersIn, ExamGroupAssignIn, DuplicateExamIn,
+    ProctoringConfigIn,
 )
+from ..services.false_positive import normalize_sensitivity, SENSITIVITY_PRESETS
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
@@ -52,6 +54,7 @@ async def list_exams(request: Request):
             "starts_at":        ex.get("starts_at"),
             "ends_at":          ex.get("ends_at"),
             "access_code":      ex.get("access_code", ""),
+            "proctoring_sensitivity": normalize_sensitivity(ex.get("proctoring_sensitivity")),
             "question_count":   qcount,
             "session_count":    scount,
             "created_at":       ex.get("created_at", ""),
@@ -74,12 +77,57 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
             "exam_title":       title,
             "duration_minutes": duration,
             "phone_camera_enabled": body.phone_camera,
+            "proctoring_sensitivity": "balanced",
         }).execute()
     except Exception as e:
         _admin_log.error("[CreateExam] DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create exam. Please try again.")
     row = result.data[0] if result.data else {}
     return {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration, "phone_camera": body.phone_camera}
+
+
+@router.get("/api/v1/admin/proctoring-config")
+@limiter.limit("60/minute")
+async def get_proctoring_config(request: Request, exam_id: str = ""):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    if not exam_id:
+        raise HTTPException(status_code=400, detail="exam_id is required")
+    cfg = await _load_exam_config(tid, exam_id=exam_id)
+    sensitivity = normalize_sensitivity(cfg.get("proctoring_sensitivity"))
+    return {
+        "exam_id": exam_id,
+        "sensitivity": sensitivity,
+        "presets": SENSITIVITY_PRESETS,
+    }
+
+
+@router.post("/api/v1/admin/proctoring-config")
+@limiter.limit("30/minute")
+async def set_proctoring_config(request: Request, body: ProctoringConfigIn = Body(...)):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    exam_id = body.exam_id.strip()
+    sensitivity = normalize_sensitivity(body.sensitivity)
+    if not exam_id:
+        raise HTTPException(status_code=400, detail="exam_id is required")
+    if body.sensitivity.strip().lower() not in SENSITIVITY_PRESETS:
+        raise HTTPException(status_code=400, detail="sensitivity must be strict, balanced, or lenient")
+    result = await _atable("exam_config").update({
+        "proctoring_sensitivity": sensitivity,
+    }).eq("exam_id", exam_id).eq("teacher_id", tid).execute()
+    if not (result.data or []):
+        exists = await _atable("exam_config").select("exam_id").eq("exam_id", exam_id).eq("teacher_id", tid).limit(1).execute()
+        if not (exists.data or []):
+            raise HTTPException(status_code=404, detail="Exam not found")
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
+    return {
+        "status": "updated",
+        "exam_id": exam_id,
+        "sensitivity": sensitivity,
+        "profile": SENSITIVITY_PRESETS[sensitivity],
+    }
 
 
 @router.post("/api/v1/admin/phone-camera-config")

@@ -118,3 +118,9 @@ class SaveTemplateIn(BaseModel):
 class DuplicateExamIn(BaseModel):
     model_config = ConfigDict(strict=True)
     new_title: str = ""
+
+
+class ProctoringConfigIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    sensitivity: str = "balanced"

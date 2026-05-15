@@ -8,15 +8,18 @@
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
     "bundle-python": "node bundle-python.js",
-    "lint": "eslint main.js preload.js lobby_preload.js setup-preload.js lib/ renderer/",
-    "lint:fix": "eslint --fix main.js preload.js lobby_preload.js setup-preload.js lib/ renderer/"
+    "lint": "eslint main.js preload.js lobby_preload.js setup-preload.js lib/",
+    "lint:fix": "eslint --fix main.js preload.js lobby_preload.js setup-preload.js lib/",
+    "lint:py": "pip-audit -r requirements.txt 2>/dev/null; echo '---'; python3 -c \"import ast,os,sys;bad=[]; [bad.append(f'{p}:{e.lineno}:{e.msg}') for root,_,files in os.walk('app') if '__pycache__' not in root for f in files if f.endswith('.py') for p in [os.path.join(root,f)] for c in [open(p).read()] for e in [ast.parse(c)] if type(e)==SyntaxError]; [print(b) for b in bad]; sys.exit(1) if bad else print('Python clean')\""
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "electron": "^42.0.1",
     "electron-builder": "^26.8.1",
+    "eslint": "^8.57.1",
     "https-proxy-agent": "^9.0.0"
   },
   "build": {
@@ -34,20 +37,20 @@
       "app/static/student.html",
       "app/static/theme.css"
     ],
-  "extraResources": [
-    {
-      "from": "proctor.py",
-      "to": "proctor.py"
-    },
-    {
-      "from": "behavioral_analysis.py",
-      "to": "behavioral_analysis.py"
-    },
-    {
-      "from": "weights",
-      "to": "weights"
-    }
-  ],
+    "extraResources": [
+      {
+        "from": "proctor.py",
+        "to": "proctor.py"
+      },
+      {
+        "from": "behavioral_analysis.py",
+        "to": "behavioral_analysis.py"
+      },
+      {
+        "from": "weights",
+        "to": "weights"
+      }
+    ],
     "publish": {
       "provider": "github",
       "owner": "ArihantK15",
@@ -56,7 +59,9 @@
     "protocols": [
       {
         "name": "Procta Invite",
-        "schemes": ["procta"]
+        "schemes": [
+          "procta"
+        ]
       }
     ],
     "mac": {

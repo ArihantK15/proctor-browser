@@ -11,9 +11,34 @@ This file tracks *operations*: what to run, when, and what to watch.
 
 ## 1. Standard deploy
 
-After pushing a code change to `main`:
+### 1.0 Deploy day checklist
 
-### 1.0 Pre-deploy checklist
+```markdown
+□ CI is green (tests, build, audit, security scan)
+□ Local release gate passed: MODE=full scripts/quality_check.sh
+□ Migrations reviewed for destructive operations
+□ Rollback commit identified (git log --oneline -5)
+□ Database backup verified (Supabase dashboard or pg_dump)
+
+── Deploy ──
+
+□ ssh root@<droplet>
+□ cd ~/proctor-browser && git pull
+□ Run new migrations: for f in migrations/*.sql; do psql "$DB_URL" -f "$f" 2>&1 | tail -3; done
+□ docker compose build api
+□ docker compose up -d --force-recreate api caddy
+□ Verify health: curl -sf https://app.procta.net/health
+□ Verify smoke: E2E_API_KEY=<key> cd tests/browser && pytest test_e2e_happy_path.py -q
+
+── Post-deploy ──
+
+□ Verify backfill: SELECT COUNT(*) FROM exam_sessions WHERE student_id IS NULL AND roll_number NOT LIKE 'LTI_%';
+□ Verify page loads: curl -sf https://app.procta.net/dashboard
+□ Deploy version shown on /api/v1/admin/status (release.version / release.commit)
+□ docker compose logs api 2>&1 | grep -E "ERROR|WARN"
+```
+
+### 1.1 Pre-deploy checklist
 
 Before touching the running containers, confirm:
 

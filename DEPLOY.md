@@ -19,6 +19,9 @@ Before touching the running containers, confirm:
 
 - [ ] Latest CI run is green for tests, Docker smoke, dependency audits,
       and security scans.
+- [ ] Local release gate passed: `MODE=full scripts/quality_check.sh`.
+- [ ] Local LLM review was read, or explicitly skipped for an emergency
+      hotfix: `RUN_LLM=1 MODE=full scripts/quality_check.sh`.
 - [ ] You have a rollback commit or tag identified.
 - [ ] Database backup/export is available for the current production state.
 - [ ] Pending migrations were reviewed for destructive operations.

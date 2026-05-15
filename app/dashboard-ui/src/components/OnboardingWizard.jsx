@@ -21,7 +21,6 @@ export default function OnboardingWizard({ onComplete }) {
   const [csvText, setCsvText] = useState('')
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
-  const [students, setStudents] = useState([])
   const [inviting, setInviting] = useState(false)
   const [inviteResult, setInviteResult] = useState(null)
 
@@ -120,14 +119,26 @@ export default function OnboardingWizard({ onComplete }) {
   const skipInvites = () => setStep(4)
 
   return (
-    <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="card" style={{ maxWidth: 560, width: '90%', padding: 32 }}>
-        {/* Progress */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 24 }}>
-          {STEPS.map((s, i) => (
-            <div key={s.id} title={s.label} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= step ? 'var(--accent)' : 'var(--border-subtle)', transition: 'background 0.3s' }} />
-          ))}
+    <div className="app-shell">
+      <div className="topbar">
+        <div className="topbar-brand">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--accent)' }}>
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>Get Started</span>
         </div>
+        <div className="topbar-actions">
+          <button className="btn btn-ghost btn-sm" onClick={() => onComplete()}>Skip — go to dashboard</button>
+        </div>
+      </div>
+      <div className="container" style={{ padding: '40px 24px', display: 'flex', justifyContent: 'center' }}>
+        <div className="card" style={{ maxWidth: 560, width: '100%', padding: 32 }}>
+          {/* Progress */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 24 }}>
+            {STEPS.map((s, i) => (
+              <div key={s.id} title={s.label} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= step ? 'var(--accent)' : 'var(--border-subtle)', transition: 'background 0.3s' }} />
+            ))}
+          </div>
 
         {/* Step 0: Welcome */}
         {step === 0 && (
@@ -215,16 +226,19 @@ export default function OnboardingWizard({ onComplete }) {
               Before the real exam, run a practice test to make sure everything works.
               The demo exam uses sample questions so you can verify the full flow.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {createdExamId && (
-                <a href={`/dashboard-react?exam=${createdExamId}`} className="btn btn-primary" style={{ textAlign: 'center', textDecoration: 'none' }}>
-                  Try your new exam
-                </a>
-              )}
-              <a href={`/dashboard-react#practice`} className="btn btn-secondary" style={{ textAlign: 'center', textDecoration: 'none' }}>
-                Take the demo exam
-              </a>
-            </div>
+	            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+	              {createdExamId && (
+	                <a href={`/dashboard-react?exam=${createdExamId}`} className="btn btn-primary" style={{ textAlign: 'center', textDecoration: 'none' }}>
+	                  Add questions to your new exam
+	                </a>
+	              )}
+	              <a href="/download" target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ textAlign: 'center', textDecoration: 'none' }}>
+	                Download student app
+	              </a>
+	              <a href="/student#practice" target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ textAlign: 'center', textDecoration: 'none' }}>
+	                Run practice exam
+	              </a>
+	            </div>
             <button className="btn btn-primary" style={{ marginTop: 16, width: '100%' }} onClick={() => setStep(5)}>I'm done — go to dashboard</button>
           </div>
         )}
@@ -243,6 +257,7 @@ export default function OnboardingWizard({ onComplete }) {
           </div>
         )}
       </div>
+    </div>
     </div>
   )
 }

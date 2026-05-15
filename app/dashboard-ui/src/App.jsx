@@ -120,8 +120,14 @@ function DashboardShell() {
   const { user, logout, authFetch } = useAuth()
   const [activeTab, setActiveTab] = useState('org')
   const [currentExamId, setCurrentExamId] = useState(null)
-  const [showOnboarding, setShowOnboarding] = useState(false)
-  const [checkingOnboarding, setCheckingOnboarding] = useState(true)
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    // Show onboarding for new users (not yet completed or skipped)
+    const done = localStorage.getItem('procta_onboarding_done')
+    if (done) return false
+    // If we've never checked, show a loading state while we verify
+    return null // null = checking, false = don't show, true = show
+  })
+  const [showDemoCta, setShowDemoCta] = useState(() => !localStorage.getItem('procta_demo_cta_done'))
 
   const PANELS = {
     live: LiveSessionsPanel,
@@ -144,25 +150,25 @@ function DashboardShell() {
 
   useEffect(() => {
     document.title = 'Procta Dashboard'
-    // Check if onboarding should be shown (new user with 0-1 exams)
+    // If user has already completed onboarding, skip the check entirely
+    if (showOnboarding !== null) return
+    // Check exam count — new users (0-1 exams) get the wizard
     const checkOnboarding = async () => {
       try {
-        const key = 'procta_onboarding_done'
-        if (localStorage.getItem(key)) { setCheckingOnboarding(false); return }
         const r = await authFetch('/api/v1/admin/exams')
         if (r.ok) {
           const data = await r.json()
           const exams = Array.isArray(data) ? data : (data.exams || [])
-          if (Array.isArray(exams) && exams.length <= 1) {
-            setShowOnboarding(true)
-          }
+          setShowOnboarding(Array.isArray(exams) && exams.length <= 1)
+        } else {
+          setShowOnboarding(false)
         }
-      } catch (_) {} finally { setCheckingOnboarding(false) }
+      } catch (_) { setShowOnboarding(false) }
     }
     checkOnboarding()
-  }, [authFetch, user])
+  }, [authFetch, user, showOnboarding])
 
-  if (checkingOnboarding) return null
+  if (showOnboarding === null) return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Loading...</div>
   if (showOnboarding) {
     return <OnboardingWizard onComplete={(examId) => {
       if (examId) setCurrentExamId(examId)
@@ -199,7 +205,42 @@ function DashboardShell() {
         ))}
       </div>
       <div className="container" style={{ padding: '20px 24px' }}>
+        {showDemoCta && (
+          <ActivationBanner
+            onDismiss={() => {
+              localStorage.setItem('procta_demo_cta_done', '1')
+              setShowDemoCta(false)
+            }}
+            onQuestions={() => setActiveTab('questions')}
+          />
+        )}
         {Panel && <Panel currentExamId={currentExamId} setCurrentExamId={setCurrentExamId} />}
+      </div>
+    </div>
+  )
+}
+
+function ActivationBanner({ onDismiss, onQuestions }) {
+  const openPractice = () => {
+    window.open('/student#practice', '_blank', 'noopener,noreferrer')
+  }
+
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 18, borderColor: 'rgba(217,119,6,.45)', background: 'linear-gradient(180deg, rgba(217,119,6,.08), rgba(15,23,42,.02))' }}>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: 'var(--amber)', textTransform: 'uppercase', fontWeight: 800, marginBottom: 4 }}>Practice Exam</div>
+          <h3 style={{ margin: '0 0 4px', fontSize: 18 }}>Run a setup test before your first live exam</h3>
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.45 }}>
+            Validate the student app, camera checks, lockdown flow, and submit path with the practice sandbox.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <a className="btn btn-secondary btn-sm" href="/download" target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>Download App</a>
+          <button className="btn btn-primary btn-sm" onClick={openPractice}>Run Practice</button>
+          <button className="btn btn-secondary btn-sm" onClick={onQuestions}>Add Questions</button>
+          <button className="btn btn-ghost btn-sm" onClick={onDismiss}>Dismiss</button>
+        </div>
       </div>
     </div>
   )

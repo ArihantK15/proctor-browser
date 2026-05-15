@@ -25,16 +25,16 @@
 | # | Item | Effort | Why |
 |---|------|--------|-----|
 | 4 | **Institution onboarding wizard** — create first exam, import students, configure access code, send invites, run demo exam, download browser | Done, first slice shipped | "First successful exam" is the core activation event. React wizard now uses live exam, access-code, bulk student import, and invite endpoints |
-| 5 | **"Run a demo exam" as primary CTA** after signup, not just dashboard entry | 4 hr | Drives trial-to-paid conversion immediately |
-| 6 | **Evidence-grade review workflow** — violation timeline, evidence thumbnails, reason codes, appeal trail, reviewer decisions, "export audit packet" | 1.5 days | Teachers need confidence in AI flags |
+| 5 | **"Run a demo exam" as primary CTA** after signup, not just dashboard entry | Done, first slice shipped | Dashboard now shows a first-run practice CTA with download, practice sandbox, and questions actions. Onboarding now points to the real student practice page instead of a dead dashboard hash |
+| 6 | **Evidence-grade review workflow** — violation timeline, evidence thumbnails, reason codes, appeal trail, reviewer decisions, "export audit packet" | Done, first slice shipped | Teachers can now open session evidence from pending grade review, inspect timeline/reason codes/screenshots/AI rationale, confirm score, add appeal resolution notes, and export JSON or PDF audit packets |
 
 ### P1-C: Quality & Security (Week 3-4, ~4 days)
 
 | # | Item | Effort | Why |
 |---|------|--------|-----|
-| 7 | **Full CI security scanning** — Gitleaks (secrets), Semgrep (SAST), Trivy (container), pip-audit (deps), npm audit (js deps) | 1 day | Enterprise security baseline |
+| 7 | **Full CI security scanning** — Gitleaks (secrets), Semgrep (SAST), Trivy (container), pip-audit (deps), npm audit (js deps) | Done | Enterprise security baseline is wired in CI |
 | 8 | **False-positive controls** — calibration quality score, detection confidence, configurable sensitivity by institution, "explain why flagged" | 1.5 days | Turns AI from scary to accountable |
-| 9 | **Dashboard build/audit in CI** + scripts/quality_check.sh documented as required release steps | 4 hr | Prevents build drift |
+| 9 | **Dashboard build/audit in CI** + scripts/quality_check.sh documented as required release steps | Done | `QUALITY_REVIEW.md`, `scripts/quality_check.sh`, and `scripts/continuous_review.sh` define the local release gate and optional local LLM review loop |
 | 10 | **Database index review** — exam_sessions(student_id), exams(student_id+exam_id), violations(session_key), answers(session_key+question_id) | 4 hr | At 100x data, reporting becomes bottleneck |
 
 ### P1-D: Sales & Compliance Assets (Week 4, ~2 days)

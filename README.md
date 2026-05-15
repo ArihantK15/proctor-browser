@@ -148,6 +148,24 @@ Procta is under active development with ongoing improvements in performance, det
 
 ⸻
 
+Quality Review
+
+Before deploy, run the local release gate:
+
+```bash
+MODE=full scripts/quality_check.sh
+```
+
+For continuous local review while developing:
+
+```bash
+INTERVAL=60 MODE=fast scripts/continuous_review.sh
+```
+
+Optional local LLM review is documented in `QUALITY_REVIEW.md`.
+
+⸻
+
 License
 
 This project is proprietary software. All rights reserved.

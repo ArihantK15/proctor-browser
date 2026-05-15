@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function MembersPanel() {
-  const { authFetch } = useAuth()
+  const { user, authFetch } = useAuth()
   const [members, setMembers] = useState([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteName, setInviteName] = useState('')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(true)
+  const isAdmin = user?.org_role === 'admin' || user?.org_role === 'superadmin'
 
   useEffect(() => { loadMembers() }, [])
 
@@ -44,6 +45,17 @@ export default function MembersPanel() {
     try {
       const r = await authFetch(`/api/v1/org/members/${memberId}`, { method: 'DELETE' })
       if (r.ok) loadMembers()
+    } catch (_) {}
+  }
+
+  const changeRole = async (memberId, newRole) => {
+    try {
+      await authFetch(`/api/v1/org/members/${memberId}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      })
+      loadMembers()
     } catch (_) {}
   }
 
@@ -90,9 +102,20 @@ export default function MembersPanel() {
             <tr key={m.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <td style={{ padding: '10px 14px' }}>{m.full_name}</td>
               <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{m.email}</td>
-              <td style={{ padding: '10px 14px' }}>{m.org_role}</td>
               <td style={{ padding: '10px 14px' }}>
-                {m.org_role === 'teacher' && (
+                {isAdmin && m.id !== user?.id ? (
+                  <select value={m.org_role} onChange={e => changeRole(m.id, e.target.value)}
+                    className="input" style={{ padding: '4px 6px', fontSize: 12, width: 'auto' }}>
+                    <option value="admin">admin</option>
+                    <option value="teacher">teacher</option>
+                    <option value="viewer">viewer</option>
+                  </select>
+                ) : (
+                  <span>{m.org_role}</span>
+                )}
+              </td>
+              <td style={{ padding: '10px 14px' }}>
+                {isAdmin && m.id !== user?.id && (
                   <button className="btn btn-ghost btn-sm" onClick={() => removeMember(m.id)} style={{ color: 'var(--red)', fontSize: 11, padding: '4px 8px' }}>Remove</button>
                 )}
               </td>

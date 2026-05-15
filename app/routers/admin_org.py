@@ -133,6 +133,33 @@ async def remove_member(teacher_id: str, request: Request):
     return {"ok": True}
 
 
+@router.patch("/api/v1/org/members/{teacher_id}/role")
+@limiter.limit("20/hour")
+async def set_member_role(teacher_id: str, body: dict, request: Request):
+    """Change a member's org role (admin only)."""
+    teacher = await require_admin(request)
+    if teacher.get("org_role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only org admins can change roles")
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+
+    role = (body.get("role") or "").strip().lower()
+    valid_roles = {"admin", "teacher", "viewer"}
+    if role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(sorted(valid_roles))}")
+
+    target = await _atable("teachers").select("id,org_role").eq("id", teacher_id).eq("org_id", str(org_id)).limit(1).execute()
+    if not target.data:
+        raise HTTPException(status_code=404, detail="Member not found in your org")
+
+    if str(teacher_id) == str(teacher["id"]):
+        raise HTTPException(status_code=400, detail="Cannot change your own role")
+
+    await _atable("teachers").update({"org_role": role}).eq("id", teacher_id).execute()
+    return {"ok": True, "role": role}
+
+
 @router.patch("/api/v1/org")
 @limiter.limit("10/hour")
 async def update_org(body: dict, request: Request):

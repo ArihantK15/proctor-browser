@@ -108,11 +108,21 @@ async def get_status(request: Request):
     release = {
         "environment": os.environ.get("SENTRY_ENVIRONMENT", os.environ.get("APP_ENV", "production")),
         "version": os.environ.get("APP_VERSION", ""),
-        "commit": os.environ.get("GIT_SHA", os.environ.get("SOURCE_COMMIT", "")),
+        "commit": os.environ.get("GIT_SHA", os.environ.get("SOURCE_COMMIT", os.environ.get("GIT_COMMIT", ""))),
         "image": os.environ.get("IMAGE_TAG", ""),
         "sentry_configured": bool(os.environ.get("SENTRY_DSN")),
     }
     ok = True
+
+    # Error rate from startup counters
+    try:
+        from ..main import _METRICS
+        metrics["total_requests"] = _METRICS.get("request_count", 0)
+        metrics["total_errors"] = _METRICS.get("error_count", 0)
+        total_req = max(metrics["total_requests"], 1)
+        metrics["error_rate_pct"] = round(metrics["total_errors"] / total_req * 100, 2)
+    except Exception:
+        pass
 
     # Supabase
     try:
@@ -168,7 +178,7 @@ async def get_status(request: Request):
     # RQ queue depth / failures
     try:
         from rq import Queue
-        from rq.registry import FailedJobRegistry, StartedJobRegistry
+        from rq.registry import FailedJobRegistry, ScheduledJobRegistry, StartedJobRegistry
         from redis import Redis
         from ..jobs import _redis_url
         queue_name = os.environ.get("RQ_QUEUE", "default")
@@ -178,6 +188,7 @@ async def get_status(request: Request):
         metrics["queue_depth"] = int(q.count)
         metrics["queue_started"] = len(StartedJobRegistry(queue=q).get_job_ids())
         metrics["queue_failed"] = len(FailedJobRegistry(queue=q).get_job_ids())
+        metrics["queue_scheduled"] = len(ScheduledJobRegistry(queue=q).get_job_ids())
         if metrics["queue_failed"] > 0:
             checks["queue"] = "warning"
         elif metrics["queue_depth"] > int(os.environ.get("OPS_QUEUE_DEPTH_WARN", "100")):

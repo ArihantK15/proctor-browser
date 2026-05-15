@@ -17,9 +17,13 @@ const METRIC_LABELS = {
   queue_depth: 'Queue Depth',
   queue_started: 'Jobs Running',
   queue_failed: 'Failed Jobs',
+  queue_scheduled: 'Scheduled Jobs',
   worker_heartbeat_age_sec: 'Worker Heartbeat Age',
   redis_connected_clients: 'Redis Clients',
   memory_pct: 'Memory Used',
+  total_requests: 'Total Requests',
+  total_errors: 'Total Errors',
+  error_rate_pct: 'Error Rate',
 }
 
 export default function OpsPanel() {
@@ -99,7 +103,7 @@ export default function OpsPanel() {
         </div>
         <div className="tools-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
           {Object.entries(metrics).map(([key, value]) => (
-            <MetricCard key={key} label={METRIC_LABELS[key] || titleize(key)} value={formatMetric(key, value)} />
+            <MetricCard key={key} label={METRIC_LABELS[key] || titleize(key)} value={formatMetric(key, value)} tone={metricTone(key, value, checks)} />
           ))}
         </div>
       </section>
@@ -118,7 +122,7 @@ function StatusTile({ label, value, tone = 'neutral' }) {
 }
 
 function StatusCard({ label, value }) {
-  const normalized = value.toLowerCase()
+  const normalized = String(value).toLowerCase()
   const color = normalized === 'ok' ? 'var(--emerald)' : normalized === 'warning' || normalized === 'noop' ? 'var(--amber)' : 'var(--red)'
   return (
     <div className="tool-card">
@@ -130,12 +134,34 @@ function StatusCard({ label, value }) {
   )
 }
 
-function MetricCard({ label, value }) {
+function metricTone(key, value, checks) {
+  if (value === null || value === undefined) return 'unavailable'
+  if (key === 'queue_failed' && value > 0) return 'bad'
+  if (key === 'error_rate_pct') {
+    if (value > 5) return 'bad'
+    if (value > 1) return 'warning'
+    return 'ok'
+  }
+  if (key === 'disk_free_mb') {
+    if (value < 500) return 'bad'
+    if (value < 2000) return 'warning'
+    return 'ok'
+  }
+  if (key === 'memory_pct') {
+    if (value > 95) return 'bad'
+    if (value > 85) return 'warning'
+    return 'ok'
+  }
+  return 'neutral'
+}
+
+function MetricCard({ label, value, tone = 'neutral' }) {
+  const color = tone === 'ok' ? 'var(--emerald)' : tone === 'warning' ? 'var(--amber)' : tone === 'bad' ? 'var(--red)' : 'var(--text-primary)'
   return (
     <div className="tool-card">
       <div className="tool-card-body">
         <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>{label}</div>
-        <div style={{ marginTop: 8, color: 'var(--text-primary)', fontWeight: 700, fontSize: 22 }}>{value}</div>
+        <div style={{ marginTop: 8, color, fontWeight: 700, fontSize: 22 }}>{value}</div>
       </div>
     </div>
   )
@@ -149,6 +175,8 @@ function formatMetric(key, value) {
   if (value === null || value === undefined) return 'Unavailable'
   if (key === 'worker_heartbeat_age_sec') return `${value}s`
   if (key === 'memory_pct') return `${value}%`
+  if (key === 'error_rate_pct') return `${value}%`
+  if (key === 'disk_free_mb') return `${value} MB`
   return String(value)
 }
 

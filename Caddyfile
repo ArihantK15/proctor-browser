@@ -114,6 +114,11 @@ app.procta.net {
         file_server
         header Cache-Control "no-cache, no-store, must-revalidate"
     }
+    handle /student-react* {
+        root * /srv/static/student-react
+        file_server
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
 
     # ── Everything else: API ──
     handle {

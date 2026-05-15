@@ -102,7 +102,7 @@ Result: 129 focused tests passed; `app/student-ui` and `app/dashboard-ui` produc
 |---|------|--------|
 | 26 | ~~**Domain module refactor** — identity, exams, sessions, proctoring, billing, lti, reporting, compliance~~ | Done, rechecked |
 | 27 | ~~**Data model identity documentation** — roll-number students, student accounts, LTI learners, invites, LMS-managed users~~ | Done, rechecked |
-| 28 | **Performance hardening** — batch queries, pagination, cache exam configs + org limits + risk summaries, move exports to workers, DB indexes for dashboard filters, load-test SSE | Partially shipped; keep open |
+| 28 | ~~**Performance hardening** — batch queries, pagination, cache exam configs + org limits + risk summaries, move exports to workers, DB indexes for dashboard filters, load-test SSE~~ | Done, repo-side rechecked; run staging/prod load tests externally |
 
 ## Phase 3: 1-Year Vision
 

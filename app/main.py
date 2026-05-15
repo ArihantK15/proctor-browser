@@ -172,8 +172,8 @@ async def _room_frame_cleanup_loop():
     while True:
         try:
             _cache.cleanup_room_frames()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[room_frame_cleanup] failed: %s", e)
         await asyncio.sleep(86400)  # 24 hours
 
 
@@ -253,6 +253,17 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
         for key, values in request.query_params.multi_items():
             if _looks_malicious(values):
                 return Response(status_code=400, content='Blocked: suspicious input')
+
+        # Reject SQLi in JSON request bodies (defense-in-depth)
+        if request.method in ('POST', 'PUT', 'PATCH') and 'application/json' in request.headers.get('content-type', ''):
+            try:
+                body = await request.json()
+                if isinstance(body, dict):
+                    for key, val in body.items():
+                        if isinstance(val, str) and _looks_malicious(val):
+                            return Response(status_code=400, content='Blocked: suspicious input')
+            except Exception:
+                pass
 
         return await call_next(request)
 
@@ -455,9 +466,9 @@ async def _count_requests(request: Request, call_next):
 
 @app.get("/api/v1/metrics")
 async def metrics(request: Request):
-    """Prometheus-style metrics for monitoring. Requires auth to prevent information leakage."""
-    from .auth import require_auth
-    require_auth(request)
+    """Prometheus-style metrics for monitoring. Requires admin auth to prevent information leakage."""
+    from .auth.admin_auth import require_admin
+    await require_admin(request)
     uptime = round(time.time() - _METRICS["start_time"], 1)
     return {
         "proctor_uptime_seconds": uptime,

@@ -8,8 +8,9 @@ RETENTION_DAYS="${SCREENSHOT_RETENTION_DAYS:-90}"
 # Run cleanup once on startup
 find "$SCREENSHOT_DIR" -type f -mtime +"$RETENTION_DAYS" -delete 2>/dev/null
 
-# Run pending Supabase migrations (safe no-op if already applied)
-python scripts/run_migrations.py || true
+# Run pending Supabase migrations (failures are fatal — schema mismatch
+# causes data corruption that is harder to debug than a startup crash).
+python scripts/run_migrations.py
 
 # Background cleanup: run every 6 hours
 (

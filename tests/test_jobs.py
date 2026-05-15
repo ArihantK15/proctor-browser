@@ -312,13 +312,16 @@ class TestWorkerHealth:
     """Verify the API provides a way to check if the worker is responsive."""
 
     def test_metrics_endpoint_available(self, client, admin_headers):
-        """The /api/v1/metrics endpoint (requires auth) can be used
+        """The /api/v1/metrics endpoint (requires admin auth) can be used
         to confirm the API is alive; the worker has no separate endpoint."""
-        resp = client.get("/api/v1/metrics", headers=admin_headers)
-        assert resp.status_code == 200
-        body = resp.json()
-        assert "proctor_uptime_seconds" in body
-        assert "proctor_requests_total" in body
+        from unittest.mock import patch, AsyncMock
+        with patch("app.auth.admin_auth._get_teacher_by_id", new_callable=AsyncMock) as m:
+            m.return_value = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof", "org_id": "org-1", "org_role": "admin"}
+            resp = client.get("/api/v1/metrics", headers=admin_headers)
+            assert resp.status_code == 200
+            body = resp.json()
+            assert "proctor_uptime_seconds" in body
+            assert "proctor_requests_total" in body
 
     def test_health_available(self, client):
         resp = client.get("/health")

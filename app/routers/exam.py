@@ -784,8 +784,8 @@ async def submit_exam(result: ResultIn, request: Request):
     session_row = {
         "session_key":     result.session_id,
         "roll_number":     trusted_roll,
-        "full_name":       result.full_name,
-        "email":           result.email,
+        "full_name":       result.full_name[:100],
+        "email":           result.email[:120],
         "score":           server_score,
         "total":           server_total,
         "percentage":      pct,

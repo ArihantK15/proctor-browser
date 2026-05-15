@@ -539,10 +539,15 @@ async def sse_sessions(request: Request):
             return Response(status_code=401, content="Invalid token")
 
     teacher_id = str(teacher["id"])
+    try:
+        max_seconds = min(max(int(request.query_params.get("max_seconds", "0")), 0), 300)
+    except ValueError:
+        max_seconds = 0
 
     async def event_stream():
         alert_channel = f"alerts:{teacher_id}"
         events_channel = f"sessions:{teacher_id}"
+        stream_started = time.time()
 
         # Send initial snapshot
         try:
@@ -572,8 +577,15 @@ async def sse_sessions(request: Request):
 
         try:
             while True:
+                elapsed = time.time() - stream_started
+                if max_seconds and elapsed >= max_seconds:
+                    yield f"event: close\ndata: {{\"reason\": \"max_seconds\", \"ts\": {time.time()}}}\n\n"
+                    return
                 try:
-                    evt_type, data = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    wait_timeout = 5.0
+                    if max_seconds:
+                        wait_timeout = min(wait_timeout, max(0.1, max_seconds - elapsed))
+                    evt_type, data = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
                     yield f"event: {evt_type}\ndata: {json.dumps(data)}\n\n"
                 except asyncio.TimeoutError:
                     yield f"event: refresh\ndata: {{\"ts\": {time.time()}}}\n\n"

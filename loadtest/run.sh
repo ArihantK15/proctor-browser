@@ -5,11 +5,14 @@
 #   ./run.sh smoke           # 30s, 10 VUs against /health + /plans
 #   ./run.sh exam            # 5 min, 500 VUs writing full exams
 #   ./run.sh burst           # 75s, 300 VUs all hitting submit
+#   ./run.sh sse             # streaming dashboard SSE connections
 #
 # Env vars:
 #   TARGET       — backend URL  (default: https://app.procta.net)
 #   VUS          — exam-test VU count override  (default: 500)
 #   BURST_VUS    — burst-test VU count override (default: 300)
+#   SSE_VUS      — SSE stream VU count override (default: 100)
+#   ADMIN_TOKEN  — teacher/admin JWT for SSE scenario
 #   DURATION_MIN — exam-test sustained duration in minutes (default: 3)
 
 set -euo pipefail
@@ -58,9 +61,22 @@ case "$SCENARIO" in
       --env BURST_VUS="${BURST_VUS:-300}" \
       submit_burst.js
     ;;
+  sse)
+    if [[ -z "${ADMIN_TOKEN:-}" ]]; then
+      echo "❌ ADMIN_TOKEN is required for the SSE scenario."
+      echo "   Example: ADMIN_TOKEN=... TARGET=https://staging.example.com ./run.sh sse"
+      exit 1
+    fi
+    k6 run \
+      --env TARGET="$TARGET" \
+      --env ADMIN_TOKEN="$ADMIN_TOKEN" \
+      --env SSE_VUS="${SSE_VUS:-100}" \
+      --env SSE_HOLD_SECONDS="${SSE_HOLD_SECONDS:-60}" \
+      sse_sessions.js
+    ;;
   *)
     echo "❌ Unknown scenario: $SCENARIO"
-    echo "   Use: smoke | exam | burst"
+    echo "   Use: smoke | exam | burst | sse"
     exit 1
     ;;
 esac

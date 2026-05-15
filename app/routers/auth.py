@@ -474,7 +474,7 @@ async def accept_org_invite(body: dict, request: Request):
         }).execute()
         teacher = teacher_result.data[0]
 
-    resolved_name = teacher.get("full_name") or body.full_name
+    resolved_name = teacher.get("full_name") or body.get("full_name", full_name)
     await _atable("org_invites").update({"status": "accepted", "accepted_at": datetime.now(timezone.utc).isoformat()}).eq("id", invite["id"]).execute()
 
     access_token = issue_admin_token(teacher)

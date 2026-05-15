@@ -4,7 +4,7 @@ Two tools in this directory, pick whichever you need:
 
 | Tool | When to use | Fidelity | Setup time |
 |---|---|---|---|
-| **k6** (this README) — `smoke.js`, `exam_flow.js`, `submit_burst.js` | Fast confidence checks, CI gates, "did I just break submit?" | Uses **practice mode** (no DB writes, no auth) → exercises FastAPI pipeline only | **30 seconds**: `brew install k6 && ./run.sh smoke` |
+| **k6** (this README) — `smoke.js`, `exam_flow.js`, `submit_burst.js`, `sse_sessions.js` | Fast confidence checks, CI gates, "did I just break submit or live dashboard streams?" | Practice-mode exam scripts skip DB writes; SSE uses a real admin JWT and opens streaming connections | **30 seconds**: `brew install k6 && ./run.sh smoke` |
 | **Locust** — `locustfile.py` + `setup_test_data.py` | Pre-launch capacity validation, the "can we actually do 500 board exam students?" question | Full auth, real DB writes, mirrors production exactly | **10–20 minutes**: pip install locust, pre-create test data, run |
 
 If you don't know which you need, **start with k6**. It's stupid-fast
@@ -23,6 +23,7 @@ Three scripts, one runner, no setup hell.
 | `smoke.js` | 10 VUs hit `/health` + `/api/v1/billing/plans` for 30 s | Every deploy — 1-minute confidence check |
 | `exam_flow.js` | 500 simulated students write a full exam: validate → save-answer × 8 → submit | Pre-sale to verify the "500 concurrent students" claim |
 | `submit_burst.js` | 300 students all submit within 60 s — the end-of-exam spike | Before any board-exam-scale deployment |
+| `sse_sessions.js` | 100 teacher dashboard SSE streams measure connect-token success, first-event latency, stream lifetime, and disconnects | Before live-monitor or dashboard stream changes |
 
 All three scripts use **practice mode** (`PRACTICE_*` session IDs)
 which is built into the Procta backend. Practice-mode requests
@@ -64,6 +65,9 @@ k6 is a single Go binary, ~30 MB. No Python, no node_modules, no Docker.
 
 # Submission spike — 300 VUs all hit submit in 60s
 ./run.sh burst
+
+# Teacher live dashboard SSE streams — requires a staging admin JWT
+ADMIN_TOKEN=... TARGET=https://staging.example.com ./run.sh sse
 
 # Override target — defaults to https://app.procta.net
 TARGET=http://localhost:8000 ./run.sh smoke

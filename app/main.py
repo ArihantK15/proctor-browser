@@ -27,28 +27,22 @@ from .reminders import _reminder_loop
 from .constants import SCREENSHOTS_DIR, QUESTION_IMG_DIR, STATIC_DIR, CORS_ALLOWED_ORIGINS
 
 # ── routers ───────────────────────────────────────────────────────
-from .routers.auth import router as auth_router
-from .routers.exam import router as exam_router
+from .domains.identity import auth_router
+from .domains.proctoring import exam_router
 from .routers.admin import router as admin_router
-from .routers.question_bank import router as question_bank_router
+from .domains.exams import question_bank_router
 from .routers.grading import router as grading_router
-from .routers.public import router as public_router
-from .routers.sse import router as sse_router
+from .domains.ops import public_router
+from .domains.sessions import sse_router
 from .routers.chat import router as chat_router
-from .routers.billing import router as billing_router
-# NOTE: `routers.checkout` is the Razorpay one-shot Standard Checkout
-# router. The module was deliberately untracked (see .gitignore) on
-# 2026-05-13 because the corresponding frontend button was never
-# wired into any page and subscription billing in billing.py is the
-# actual live path. The import + include below stay commented out
-# until a real use case (credit top-ups, per-exam fees) ships.
+from .domains.billing import billing_router
 # from .routers.checkout import router as checkout_router
-from .routers.lti import router as lti_router
+from .domains.lti import lti_router
 from .routers.api import router as api_router
-from .routers.google_classroom import router as google_classroom_router
-from .routers.admin_status import router as admin_status_router
-from .routers.privacy import router as privacy_router
-from .routers.appeals import router as appeals_router
+from .domains.lti import google_classroom_router
+from .domains.ops import admin_status_router
+from .domains.compliance import privacy_router
+from .domains.compliance import appeals_router
 
 # ── structured logger ─────────────────────────────────────────────
 logger = logging.getLogger("proctor.api")

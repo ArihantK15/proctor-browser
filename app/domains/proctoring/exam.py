@@ -1,0 +1,1168 @@
+"""Student exam flow endpoints."""
+
+import asyncio
+import base64
+import json
+import logging
+import os
+import time
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+from fastapi import Request, HTTPException, Body
+
+_exam_log = logging.getLogger("exam")
+
+from ...database import supabase, async_table as _atable
+from ...event_bus import async_publish as _bus_async_publish, _HAS_REDIS
+from ... import cache as _cache
+from ...models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, FrameIn, IdVerifyIn
+from ...auth import require_auth, create_token, _check_session_ownership, _get_teacher_by_id
+from ...utils import fmt_ist, now_ist
+from ...services.practice import is_practice, _practice_validate_response, PRACTICE_QUESTIONS
+from ...repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config, get_access_code as _get_access_code
+from ...repositories.sessions import check_group_access as _check_group_access, assert_session_owned as _assert_session_owned
+from ...services.scoring import build_shuffle_view as _build_shuffle_view, get_shuffle_flags as _get_shuffle_flags, recalculate_score as _recalculate_score, canonicalise_student_answer as _canonicalise_student_answer
+from ...services.risk import compute_risk_score, publish_critical_alert
+from ...constants import SCREENSHOTS_DIR
+from ...logger import get_logger
+from ...limiter import limiter
+from ...models import SessionStatus, InviteStatus
+
+from fastapi import APIRouter
+
+logger = logging.getLogger(__name__)
+
+_MAX_FRAME_BASE64_LEN = 500_000  # ~375KB decoded, enough for a JPEG frame
+
+BLOCKING_TYPES = {"vm_detected", "remote_desktop_detected", "vpn_detected",
+                  "proxy_detected", "debugger_detected"}
+
+router = APIRouter(prefix="")
+
+# ─── STUDENT ENDPOINTS (require JWT) ─────────────────────────────
+
+_CACHE_TTL = 600  # 10 minutes
+
+def _cache_validate(key: str, resp: dict) -> None:
+    if not _cache:
+        return
+    try:
+        _cache.set(key, resp, ttl=_CACHE_TTL)
+    except Exception:
+        pass
+
+
+@router.post("/api/v1/validate-student")
+@limiter.limit("300/minute")
+async def validate_student(request: Request, body: ValidateIn):
+    exam_id = body.exam_id
+    roll_upper = body.roll_number.strip().upper()
+
+    # Practice sandbox: short-circuit before any DB lookups
+    if is_practice(body.roll_number):
+        return _practice_validate_response(roll_upper)
+
+    # Redis cache: 10-minute TTL for validated student lookups.
+    # Reduces Supabase pressure ~95% when students retry rapidly.
+    cache_key = f"validate:{roll_upper}:{exam_id or ''}:{(body.access_code or '').strip().upper()}"
+    try:
+        cached = _cache.get(cache_key) if _cache else None
+        if cached and isinstance(cached, dict) and cached.get("valid"):
+            return cached
+    except Exception:
+        pass
+
+    # Resolve teacher_id via invite token chain to prevent cross-tenant
+    # roll_number collision.  When the student provides access_code we
+    # find the *exact* invite first — that gives us a trusted teacher+exam
+    # scope for every subsequent query.
+    pre_tid = None
+    pre_exam_id = exam_id
+
+    provided_code = (body.access_code or "").strip().upper()
+
+    # 1) Invite-token chain: access_code → invite → teacher_id + exam_id
+    if provided_code and not exam_id:
+        inv_by_code = await _atable("student_invites").select("teacher_id,exam_id").eq("access_code", provided_code).limit(1).execute()
+        if inv_by_code.data:
+            pre_tid = str(inv_by_code.data[0]["teacher_id"])
+            pre_exam_id = inv_by_code.data[0].get("exam_id")
+
+    # 2) exam_id-scoped: roll_number + exam_id → teacher_id
+    if pre_tid is None and pre_exam_id:
+        inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).eq("exam_id", pre_exam_id).limit(1).execute()
+        if inv_pre.data:
+            pre_tid = inv_pre.data[0].get("teacher_id")
+        else:
+            cfg = await _load_exam_config(None, exam_id=pre_exam_id)
+            if cfg and cfg.get("teacher_id"):
+                pre_tid = str(cfg["teacher_id"])
+
+    # 3) Legacy fallback (no access_code, no exam_id) — unscoped, kept
+    #    for backward compat with pre-invite deployments.
+    if pre_tid is None:
+        pre_check = await _atable("students").select("teacher_id").eq("roll_number", roll_upper).execute()
+        pre_tid = pre_check.data[0].get("teacher_id") if pre_check.data else None
+
+    if pre_tid is None:
+        inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).limit(1).execute()
+        if inv_pre.data:
+            pre_tid = inv_pre.data[0].get("teacher_id")
+            if not pre_exam_id:
+                pre_exam_id = inv_pre.data[0].get("exam_id")
+
+    # Check exam time window using the student's teacher config
+    config = await _load_exam_config(pre_tid, exam_id=exam_id)
+    now_utc = datetime.now(timezone.utc)
+    if config.get("starts_at"):
+        starts = datetime.fromisoformat(str(config["starts_at"]).replace("Z", "+00:00"))
+        if now_utc < starts:
+            raise HTTPException(
+                status_code=403,
+                detail=f"The exam has not started yet. It begins at {fmt_ist(config['starts_at'])}.")
+    if config.get("ends_at"):
+        ends = datetime.fromisoformat(str(config["ends_at"]).replace("Z", "+00:00"))
+        if now_utc > ends:
+            raise HTTPException(
+                status_code=403,
+                detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
+
+    # Look up student scoped by teacher_id to prevent cross-tenant collision
+    result_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
+    if pre_tid:
+        result_q = result_q.eq("teacher_id", str(pre_tid))
+    result = await result_q.execute()
+    if not result.data:
+        # Fallback: check if this roll number exists in student_invites.
+        # Teachers often send invites without pre-registering students —
+        # the invite IS the enrollment. Auto-create the students row on
+        # first validation so the exam flow continues seamlessly.
+        inv_q = _atable("student_invites").select("id,teacher_id,exam_id,roll_number,full_name,email,phone,status,expires_at,access_code").eq("roll_number", roll_upper)
+        if pre_tid:
+            inv_q = inv_q.eq("teacher_id", str(pre_tid))
+        if pre_exam_id:
+            inv_q = inv_q.eq("exam_id", pre_exam_id)
+        inv_result = await inv_q.execute()
+        if inv_result.data:
+            inv = inv_result.data[0]
+            inv_status = (inv.get("status") or "").lower()
+            if inv_status == InviteStatus.REVOKED:
+                raise HTTPException(
+                    status_code=403,
+                    detail="This invite has been revoked. Contact your teacher.")
+            exp = inv.get("expires_at")
+            if exp:
+                try:
+                    exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                    if datetime.now(timezone.utc) > exp_dt:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="This invite has expired. Contact your teacher.")
+                except HTTPException:
+                    raise
+                except Exception:
+                    _exam_log.warning("validate_student: bad expires_at date on invite %s — treating as expired", inv.get("id"))
+                    raise HTTPException(
+                        status_code=403,
+                        detail="This invite has expired. Contact your teacher.")
+
+            # Auto-enroll: create students row from invite data
+            # First check org student limit
+            inv_teacher = await _get_teacher_by_id(str(inv["teacher_id"]))
+            if inv_teacher and inv_teacher.get("org_id"):
+                from ..services.sessions import check_org_limits
+                await check_org_limits({"org_id": inv_teacher["org_id"], "org_role": inv_teacher.get("org_role", "teacher")}, delta=1)
+            student_row = {
+                "roll_number": inv["roll_number"],
+                "full_name":   inv.get("full_name", ""),
+                "email":       inv.get("email", ""),
+                "phone":       inv.get("phone") or None,
+                "teacher_id":  str(inv["teacher_id"]),
+            }
+            try:
+                enroll_result = await _atable("students").insert(student_row).execute()
+                if enroll_result.data:
+                    student = enroll_result.data[0]
+                    # Mark invite as accepted if not already
+                    if inv_status != InviteStatus.ACCEPTED:
+                        await _atable("student_invites").update({
+                            "status": InviteStatus.ACCEPTED,
+                            "accepted_at": datetime.now(timezone.utc).isoformat(),
+                        }).eq("id", inv["id"]).execute()
+                else:
+                    # Insert succeeded but returned no data — re-query
+                    recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
+                    if "teacher_id" in student_row:
+                        recheck_q = recheck_q.eq("teacher_id", str(student_row["teacher_id"]))
+                    recheck = await recheck_q.execute()
+                    if recheck.data:
+                        student = recheck.data[0]
+                    else:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to create student record. Please try again.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                err = str(e).lower()
+                if "duplicate" in err or "unique" in err:
+                    # Race condition — another validation created it
+                    recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
+                    if "teacher_id" in inv:
+                        recheck_q = recheck_q.eq("teacher_id", str(inv["teacher_id"]))
+                    recheck = await recheck_q.execute()
+                    if recheck.data:
+                        student = recheck.data[0]
+                    else:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to create student record. Please try again.")
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Registration failed. Please try again.")
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail="Roll number not found. Please complete registration first.")
+    else:
+        student = result.data[0]
+
+    # Look up teacher's config for this student
+    student_tid = student.get("teacher_id")
+
+    # Check exam access code if configured
+    current_code = await _get_access_code(student_tid, exam_id=exam_id)
+    matched_invite_id = None
+    if current_code:
+        shared_ok = bool(provided_code) and provided_code == current_code
+        invite_ok = False
+        if not shared_ok and provided_code and student_tid:
+            inv_q = _atable("student_invites").select("id,access_code,status,expires_at,exam_id").eq("teacher_id", str(student_tid)).eq("roll_number", student["roll_number"])
+            if exam_id:
+                inv_q.eq("exam_id", exam_id)
+            inv_result = await inv_q.execute()
+            for inv in (inv_result.data or []):
+                code = (inv.get("access_code") or "").upper()
+                if not code or code != provided_code:
+                    continue
+                if (inv.get("status") or "") == InviteStatus.REVOKED:
+                    continue
+                exp = inv.get("expires_at")
+                if exp:
+                    try:
+                        if datetime.now(timezone.utc) > datetime.fromisoformat(
+                                str(exp).replace("Z", "+00:00")):
+                            continue
+                    except Exception:
+                        _exam_log.warning("validate_student: bad expires_at on code-invite %s", inv.get("id"))
+                invite_ok = True
+                matched_invite_id = inv["id"]
+                break
+        if not (shared_ok or invite_ok):
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid exam access code. Ask your examiner for the correct code.")
+    # Check group-based access restrictions
+    if exam_id and student_tid:
+        if not await _check_group_access(student["roll_number"], str(student_tid), exam_id):
+            raise HTTPException(
+                status_code=403,
+                detail="You are not in a group assigned to this exam. Contact your teacher.")
+
+    q = _atable("exam_sessions").select("session_key").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.COMPLETED)
+    if student_tid:
+        q.eq("teacher_id", str(student_tid))
+    if exam_id:
+        q.eq("exam_id", exam_id)
+    completed = await q.execute()
+    if completed.data:
+        raise HTTPException(
+            status_code=403,
+            detail="You have already submitted this exam.")
+
+    # Also check for in-progress sessions to prevent duplicate tokens
+    q2 = _atable("exam_sessions").select("session_key,status").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.IN_PROGRESS)
+    if student_tid:
+        q2.eq("teacher_id", str(student_tid))
+    if exam_id:
+        q2.eq("exam_id", exam_id)
+    in_progress = await q2.execute()
+    if in_progress.data:
+        # Student already has an active session
+        existing_key = in_progress.data[0]["session_key"]
+        resp = {
+            "valid":       True,
+            "full_name":   student["full_name"],
+            "email":       student.get("email", ""),
+            "phone":       student.get("phone", ""),
+            "roll_number": student["roll_number"],
+            "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id,
+                                         student_id=student.get("account_id")),
+            "existing_session": existing_key,
+        }
+        _cache_validate(cache_key, resp)
+        return resp
+
+    # Mark the invite as accepted
+    if matched_invite_id:
+        try:
+            await _atable("student_invites").update({
+                "status": InviteStatus.ACCEPTED,
+                "accepted_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", matched_invite_id).execute()
+        except Exception as e:
+            logger.debug("Failed to mark invite as accepted: %s", e)
+
+    resp = {
+        "valid":       True,
+        "full_name":   student["full_name"],
+        "email":       student.get("email", ""),
+        "phone":       student.get("phone", ""),
+        "roll_number": student["roll_number"],
+        "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id,
+                                     student_id=student.get("account_id")),
+    }
+    _cache_validate(cache_key, resp)
+    return resp
+
+
+@router.get("/api/v1/questions")
+@limiter.limit("30/minute")
+async def get_questions(request: Request):
+    # Practice mode: serve the canned mock question set
+    sid = (request.query_params.get("session_id") or "").strip()
+    if is_practice(sid):
+        return {"questions": PRACTICE_QUESTIONS, "practice": True}
+
+    claims = require_auth(request)
+    tid = claims.get("tid")
+    eid = claims.get("eid")
+    questions = await _load_questions(tid, exam_id=eid)
+    if not questions:
+        raise HTTPException(status_code=404, detail="Questions not found")
+    config = await _load_exam_config(tid, exam_id=eid)
+
+    # Deterministic per-session shuffle
+    session_id = (request.query_params.get("session_id") or "").strip()
+    shuffle_q, shuffle_o = _get_shuffle_flags(config)
+    shuffled, _ = _build_shuffle_view(
+        questions, session_id, str(tid or ""),
+        shuffle_q=shuffle_q, shuffle_o=shuffle_o)
+
+    # Strip correct answers — students must never see them
+    safe_questions = [{k: v for k, v in q.items() if k != "correct"} for q in shuffled]
+    return {
+        "exam_title": config.get("exam_title", "Exam"),
+        "duration_minutes": config.get("duration_minutes"),
+        "questions": safe_questions,
+        "phone_camera_enabled": config.get("phone_camera_enabled", False),
+    }
+
+
+@router.get("/api/v1/check-session/{roll_number}")
+@limiter.limit("30/minute")
+async def check_session(roll_number: str, request: Request):
+    """Check if student has an in-progress session to resume."""
+    # Practice mode never has a resumable session
+    if is_practice(roll_number):
+        return {"exists": False}
+
+    claims = require_auth(request)
+    if claims.get("roll") != roll_number:
+        raise HTTPException(status_code=403, detail="Access denied")
+    tid = claims.get("tid")
+    eid = claims.get("eid")
+    sess_query = _atable("exam_sessions").select("session_key,roll_number,status,started_at,submitted_at,score,total,percentage,time_taken_secs,full_name,email,teacher_id,student_id")\
+        .eq("roll_number", roll_number)\
+        .eq("status", SessionStatus.IN_PROGRESS)
+    if tid:
+        sess_query = sess_query.eq("teacher_id", str(tid))
+    if eid:
+        sess_query = sess_query.eq("exam_id", eid)
+    result = await sess_query.order("started_at", desc=True).limit(1).execute()
+    if not result.data:
+        return {"exists": False}
+    session = result.data[0]
+    ans_query = _atable("answers").select("session_key,question_id,answer,teacher_id,exam_id")\
+        .eq("session_key", session["session_key"])
+    if tid:
+        ans_query = ans_query.eq("teacher_id", str(tid))
+
+    answers = await ans_query.execute()
+
+    # Build reverse map for shuffled options
+    session_key = session["session_key"]
+    config = await _load_exam_config(str(tid or ""), exam_id=eid)
+    shuffle_q, shuffle_o = _get_shuffle_flags(config)
+    reverse: dict[str, dict[str, str]] = {}
+    if shuffle_o:
+        try:
+            questions = await _load_questions(str(tid or ""), exam_id=eid)
+            _, label_maps = _build_shuffle_view(
+                questions, session_key, str(tid or ""),
+                shuffle_q=shuffle_q, shuffle_o=shuffle_o)
+            for qid, qmap in label_maps.items():
+                reverse[qid] = {orig: disp for disp, orig in qmap.items()}
+        except Exception as e:
+            _exam_log.warning("[Resume] reverse map failed: %s", e)
+
+    resumed = {}
+    for r in (answers.data or []):
+        qid = str(r["question_id"])
+        canonical = str(r["answer"])
+        disp = reverse.get(qid, {}).get(canonical, canonical)
+        resumed[qid] = disp
+
+    return {
+        "exists":      True,
+        "session_key": session_key,
+        "answer_count": len(resumed),
+        "answers":     resumed,
+        "started_at":  session.get("started_at"),
+    }
+
+
+# ── INTEGRITY REPORT (pre-exam security check) ──────────────────
+
+@router.post("/api/v1/integrity-report")
+@limiter.limit("10/minute")
+async def integrity_report(request: Request):
+    """Accept a batch of integrity flags from the Electron client."""
+    body = await request.json()
+    session_id = body.get("session_id", "")
+    # Practice sandbox: don't enforce integrity blocks
+    if is_practice(session_id):
+        return {"allowed": True, "blocked_reasons": []}
+
+    claims = require_auth(request)
+    flags = body.get("flags", [])
+    _check_session_ownership(claims, session_id)
+    tid = claims.get("tid")
+
+    blocked_reasons = []
+    for f in flags:
+        ftype = f.get("type", "")
+        sev = f.get("severity", "low")
+        details = f.get("details", "")
+        # Log each flag as a violation
+        viol_row = {
+            "session_key":    session_id,
+            "violation_type": ftype,
+            "severity":       sev,
+            "details":        f"[Integrity] {details}",
+        }
+        conf = f.get("confidence")
+        if conf is not None:
+            viol_row["detection_confidence"] = float(conf)
+        if tid:
+            viol_row["teacher_id"] = tid
+        await _atable("violations").insert(viol_row).execute()
+        # Check if this flag should block exam start
+        if ftype in BLOCKING_TYPES and sev == "high":
+            blocked_reasons.append(f"{ftype}: {details}")
+
+    # Publish summary to teacher dashboard
+    if tid and flags:
+        summary = {
+            "type": "integrity_report",
+            "severity": "high" if blocked_reasons else "medium",
+            "session_id": session_id,
+            "details": f"{len(flags)} integrity flag(s), {len(blocked_reasons)} blocking",
+            "flags": [{"type": f.get("type"), "severity": f.get("severity"),
+                       "details": f.get("details")} for f in flags],
+        }
+        await _bus_async_publish(f"sessions:{tid}", {**summary, "kind": "violation"})
+
+    allowed = len(blocked_reasons) == 0
+    return {"allowed": allowed, "blocked_reasons": blocked_reasons,
+            "flags_received": len(flags)}
+
+
+@router.post("/api/v1/event")
+@limiter.limit("120/minute")
+async def log_event(event: EventIn, request: Request):
+    # Practice sandbox: log to stdout only
+    if is_practice(event.session_id):
+        return {"status": "logged", "practice": True}
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, event.session_id)
+    tid = claims.get("tid")
+    eid = claims.get("eid")
+    get_logger(event.session_id).info(
+        f"[{event.severity.upper()}] {event.event_type} | {event.details}")
+
+    # When exam starts, create in-progress session record
+    if event.event_type == "exam_started":
+        sid = claims.get("sid")
+        row = {
+            "session_key": event.session_id,
+            "roll_number": event.session_id.rsplit("_", 1)[0],
+            "status":      SessionStatus.IN_PROGRESS,
+            "started_at":  now_ist().isoformat(),
+        }
+        if sid:
+            row["student_id"] = sid
+        if tid:
+            row["teacher_id"] = tid
+        if eid:
+            row["exam_id"] = eid
+        await _atable("exam_sessions").upsert(row).execute()
+
+    # Alert on submission failure
+    if event.event_type == "submit_failed":
+        _exam_log.error("[ALERT] SUBMIT FAILED for session %s — use /api/v1/admin-submit/%s to recover", event.session_id, event.session_id)
+
+    viol_row = {
+        "session_key":    event.session_id,
+        "violation_type": event.event_type,
+        "severity":       event.severity,
+        "details":        event.details,
+    }
+    if event.detection_confidence is not None:
+        viol_row["detection_confidence"] = event.detection_confidence
+    if tid:
+        viol_row["teacher_id"] = tid
+    await _atable("violations").insert(viol_row).execute()
+
+    # Invalidate cached risk score for this session
+    if _cache:
+        _cache.delete(f"risk_score:{event.session_id}")
+
+    # Publish to Redis for SSE subscribers
+    evt_payload = {"type": event.event_type, "severity": event.severity,
+                   "details": event.details, "session_id": event.session_id}
+    if tid:
+        await _bus_async_publish(f"events:{tid}:{event.session_id}", evt_payload)
+        await _bus_async_publish(f"sessions:{tid}", {**evt_payload, "kind": "violation"})
+
+        # Publish critical alert for immediate teacher notification
+        roll = event.session_id.rsplit("_", 1)[0] if "_" in event.session_id else ""
+        await publish_critical_alert(
+            teacher_id=str(tid),
+            session_id=event.session_id,
+            violation_type=event.event_type,
+            severity=event.severity,
+            details=event.details,
+            roll_number=roll,
+        )
+
+    return {"status": "logged"}
+
+
+@router.post("/api/v1/heartbeat")
+@limiter.limit("30/minute")
+async def heartbeat(event: EventIn, request: Request):
+    # Practice sandbox: don't track heartbeats
+    if is_practice(event.session_id):
+        return {"ok": True, "practice": True}
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, event.session_id)
+    tid = claims.get("tid")
+    eid = claims.get("eid")
+
+    # Check if session already exists and is completed
+    existing = await _atable("exam_sessions").select("status")\
+        .eq("session_key", event.session_id).execute()
+
+    if existing.data and existing.data[0].get("status") == SessionStatus.COMPLETED:
+        return {"ok": True}
+
+    if existing.data:
+        # Session exists — UPDATE only heartbeat + status
+        await _atable("exam_sessions").eq("session_key", event.session_id)\
+            .update({
+                "last_heartbeat": now_ist().isoformat(),
+                "status":         SessionStatus.IN_PROGRESS,
+            }).execute()
+    else:
+        # No session row yet — INSERT
+        row = {
+            "session_key":    event.session_id,
+            "roll_number":    event.session_id.rsplit("_", 1)[0],
+            "last_heartbeat": now_ist().isoformat(),
+            "status":         SessionStatus.IN_PROGRESS,
+        }
+        if tid:
+            row["teacher_id"] = tid
+        if eid:
+            row["exam_id"] = eid
+        await _atable("exam_sessions").upsert(row).execute()
+
+    # Publish heartbeat to dashboard SSE
+    if tid:
+        await _bus_async_publish(f"sessions:{tid}", {"kind": "heartbeat",
+                     "session_id": event.session_id})
+
+    return {"ok": True}
+
+
+@router.post("/api/v1/save-answer")
+@limiter.limit("30/minute")
+async def save_answer(body: AnswerIn, request: Request):
+    # Practice sandbox: pretend the save succeeded
+    if is_practice(body.session_id):
+        return {"status": "saved", "practice": True}
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, body.session_id)
+    tid = claims.get("tid")
+    eid = claims.get("eid")
+    canonical = await _canonicalise_student_answer(
+        body.session_id, str(tid or ""), str(body.question_id), str(body.answer),
+        eid)
+    row = {
+        "session_key":  body.session_id,
+        "question_id":  body.question_id,
+        "answer":       canonical,
+    }
+    if tid:
+        row["teacher_id"] = tid
+    if eid:
+        row["exam_id"] = eid
+    await _atable("answers").upsert(row).execute()
+    return {"status": "saved"}
+
+
+@router.post("/api/v1/save-answers-bulk")
+@limiter.limit("10/minute")
+async def save_answers_bulk(body: BulkAnswerIn, request: Request):
+    """Periodic bulk save of all answers — safety net for failed individual saves."""
+    if is_practice(body.session_id):
+        return {"status": "saved", "saved": len(body.answers or {}), "practice": True}
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, body.session_id)
+    if not body.answers:
+        return {"status": "empty", "saved": 0}
+    tid = claims.get("tid")
+    eid = claims.get("eid")
+    async def _build_records():
+        recs = []
+        for qid, ans in body.answers.items():
+            canonical = await _canonicalise_student_answer(
+                body.session_id, str(tid or ""), str(qid), str(ans),
+                eid)
+            rec = {"session_key": body.session_id,
+                   "question_id": str(qid),
+                   "answer":      canonical}
+            if tid:
+                rec["teacher_id"] = tid
+            if eid:
+                rec["exam_id"] = eid
+            recs.append(rec)
+        return recs
+    records = await _build_records()
+    await _atable("answers").upsert(records).execute()
+    return {"status": "saved", "saved": len(records)}
+
+
+async def _try_ags_grade_passback(
+    roll_number: str,
+    score: int,
+    total: int,
+    percentage: float,
+):
+    """Attempt to push this student's score to their LMS via AGS.
+
+    This is called fire-and-forget after exam submission.  If the
+    student was created via LTI, we have their lti_user_id which lets
+    us look up the AGS deployment context and push the grade.
+    """
+    try:
+        student = (await _atable("students")
+            .select("lti_user_id")
+            .eq("roll_number", roll_number)
+            .limit(1)
+            .execute()).data
+        if not student or not student[0].get("lti_user_id"):
+            return
+
+        lti_user_id = student[0]["lti_user_id"]
+        from ..lti.launch import get_lti_student_context, get_ags_context
+        from ..lti.registration import find_registration
+        from ..lti.ags import get_access_token, post_score
+
+        ctx = get_lti_student_context(lti_user_id)
+        if not ctx:
+            return
+
+        iss = ctx.get("iss", "")
+        sub = ctx.get("sub", "")
+        deployment_id = ctx.get("deployment_id", "")
+        if not iss or not sub:
+            return
+
+        ags_ctx = get_ags_context(iss, deployment_id)
+        if not ags_ctx or not ags_ctx.get("ags_lineitems"):
+            _exam_log.debug("[AGS] No AGS context for %s/%s", iss, deployment_id)
+            return
+
+        registration = find_registration(iss, "")
+        if not registration:
+            _exam_log.debug("[AGS] No registration for issuer=%s", iss)
+            return
+
+        access_token = await get_access_token(
+            issuer=iss,
+            client_id=registration.client_id,
+            auth_token_url=registration.auth_token_url,
+            scopes=ags_ctx.get("ags_scope") or [
+                "https://purl.imsglobal.org/spec/lti-ags/scope/score",
+            ],
+        )
+        if not access_token:
+            _exam_log.warning("[AGS] Failed to get access token for %s", iss)
+            return
+
+        ok = await post_score(
+            lineitem_url=ags_ctx["ags_lineitems"],
+            access_token=access_token,
+            user_id=sub,
+            score_given=float(score),
+            score_maximum=float(total),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            comment=f"Score: {score}/{total} ({percentage}%)",
+        )
+        if ok:
+            _exam_log.info("[AGS] Grade pushed for %s: %d/%d", roll_number, score, total)
+    except Exception as e:
+        _exam_log.warning("[AGS] Grade passback failed for %s: %s", roll_number, e)
+
+
+@router.post("/api/v1/submit-exam")
+@limiter.limit("5/minute")
+async def submit_exam(result: ResultIn, request: Request):
+    # Practice sandbox: grade against the in-memory PRACTICE_QUESTIONS
+    if is_practice(result.session_id):
+        correct = sum(
+            1 for q in PRACTICE_QUESTIONS
+            if str(result.answers.get(str(q["question_id"]),
+                                      result.answers.get(str(q["id"]), ""))).upper()
+               == str(q["correct"]).upper()
+        )
+        total = len(PRACTICE_QUESTIONS)
+        pct = round((correct / max(total, 1)) * 100, 1)
+        return {
+            "status": SessionStatus.SUBMITTED,
+            "score": correct,
+            "total": total,
+            "percentage": pct,
+            "passed": True,
+            "practice": True,
+        }
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, result.session_id)
+    tid = claims.get("tid")
+    eid = claims.get("eid")
+    sid = claims.get("sid")
+    now = now_ist()
+
+    # SECURITY: Use JWT roll, not client-supplied fields (IDOR prevention)
+    jwt_roll = claims.get("roll", "")
+    trusted_roll = jwt_roll.upper()
+
+    # Guard: Block re-submission of already-completed sessions
+    existing = await _atable("exam_sessions").select("status")\
+        .eq("session_key", result.session_id).execute()
+    if existing.data and existing.data[0].get("status") == SessionStatus.COMPLETED:
+        raise HTTPException(status_code=409, detail="Exam already submitted")
+
+    # Phase 1: Score + config in parallel
+    score_fut = _recalculate_score(result.session_id, result.answers, teacher_id=tid, exam_id=eid)
+    config_fut = _load_exam_config(teacher_id=tid, exam_id=eid)
+    try:
+        (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
+    except RuntimeError as e:
+        _exam_log.warning("[SUBMIT] Score calculation failed for %s: %s", result.session_id, e)
+        raise HTTPException(status_code=503,
+                            detail="Score calculation temporarily unavailable. Please retry.")
+
+    if server_score == 0 and server_total == 0:
+        _exam_log.warning("[SUBMIT] Score recalculation returned 0/0 for %s", result.session_id)
+
+    pct = round((server_score / max(server_total, 1)) * 100, 1)
+
+    # Phase 2: Session upsert + submission log + time check in parallel
+    session_row = {
+        "session_key":     result.session_id,
+        "roll_number":     trusted_roll,
+        "full_name":       result.full_name,
+        "email":           result.email,
+        "score":           server_score,
+        "total":           server_total,
+        "percentage":      pct,
+        "time_taken_secs": result.time_taken_secs,
+        "status":          SessionStatus.COMPLETED,
+        "submitted_at":    now.isoformat(),
+    }
+    if tid:
+        session_row["teacher_id"] = tid
+    if eid:
+        session_row["exam_id"] = eid
+    if sid:
+        session_row["student_id"] = sid
+
+    submit_viol = {
+        "session_key":    result.session_id,
+        "violation_type": "exam_submitted",
+        "severity":       "low",
+        "details":        f"Score:{server_score}/{server_total} ({pct}%)",
+    }
+    if tid:
+        submit_viol["teacher_id"] = tid
+
+    parallel_ops = [
+        _atable("exam_sessions").upsert(session_row).execute(),
+        _atable("violations").insert(submit_viol).execute(),
+    ]
+
+    # Time exceeded check
+    allowed_secs = config.get("duration_minutes", 60) * 60
+    if result.time_taken_secs > allowed_secs + 120:
+        time_viol = {
+            "session_key":    result.session_id,
+            "violation_type": "time_exceeded",
+            "severity":       "high",
+            "details":        f"Submitted {result.time_taken_secs - allowed_secs}s past time limit",
+        }
+        if tid:
+            time_viol["teacher_id"] = tid
+        parallel_ops.append(_atable("violations").insert(time_viol).execute())
+
+    # Execute parallel ops
+    results = await asyncio.gather(*parallel_ops, return_exceptions=True)
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            _exam_log.error("[SUBMIT] Phase 2 op %d failed for %s: %s", i, result.session_id, r)
+            if i == 0:
+                raise HTTPException(status_code=500,
+                                    detail="Failed to save exam submission. Please retry.")
+
+    # Phase 3: Risk score (non-fatal — submission already saved)
+    risk_score_val = 0
+    risk_label = "Unknown"
+    try:
+        risk = await compute_risk_score(result.session_id, teacher_id=tid)
+        risk_score_val = risk["risk_score"]
+        risk_label = risk["label"]
+        upd = _atable("exam_sessions").eq("session_key", result.session_id)
+        if tid:
+            upd = upd.eq("teacher_id", str(tid))
+        await upd.update({"risk_score": risk_score_val}).execute()
+    except Exception as e:
+        _exam_log.warning("[SUBMIT] risk score failed for %s: %s", result.session_id, e)
+
+    get_logger(result.session_id).info(
+        f"[SUBMIT] {trusted_roll} score:{server_score}/{server_total} "
+        f"risk:{risk_score_val}/100")
+
+    # Publish submission to dashboard SSE
+    if tid:
+        pub_task = asyncio.create_task(_bus_async_publish(f"sessions:{tid}", {"kind": "submitted",
+                     "session_id": result.session_id,
+                     "score": server_score, "total": server_total}))
+        pub_task.add_done_callback(
+            lambda t: _exam_log.warning("[submit] SSE publish failed: %s", t.exception())
+            if not t.cancelled() and t.exception() else None
+        )
+
+    # Fire-and-forget: push grade to LMS via AGS if this is an LTI student
+    if trusted_roll and server_total > 0:
+        asyncio.create_task(_try_ags_grade_passback(
+            trusted_roll, server_score, server_total, pct,
+        ))
+
+    return {"status": SessionStatus.SUBMITTED, "score": server_score,
+            "total": server_total, "percentage": pct,
+            "risk_score": risk_score_val, "risk_label": risk_label}
+
+
+def _save_frame(student_dir: str, data: FrameIn) -> str:
+    """Decode and save a frame to disk. Returns filename."""
+    os.makedirs(student_dir, exist_ok=True)
+    ts = now_ist().strftime("%Y%m%d_%H%M%S")
+    if data.event_type:
+        safe_label = "".join(
+            c if c.isalnum() or c in "_-" else "_"
+            for c in data.event_type
+        )[:32]
+        fname = f"evt_{safe_label}_{ts}.jpg"
+    else:
+        fname = f"frame_{ts}.jpg"
+    fpath = os.path.join(student_dir, fname)
+    with open(fpath, "wb") as f:
+        f.write(base64.b64decode(data.frame))
+    return fname
+
+
+@router.post("/api/v1/analyze-frame")
+@limiter.limit("30/minute")
+async def analyze_frame(data: FrameIn, request: Request):
+    # Practice sandbox: don't run face detection or save screenshots
+    if is_practice(data.session_id):
+        return {"status": "ok", "practice": True}
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, data.session_id)
+    tid = claims.get("tid")
+
+    # Size limit: reject oversized payloads
+    if len(data.frame) > _MAX_FRAME_BASE64_LEN:
+        raise HTTPException(status_code=413,
+                            detail=f"Frame too large ({len(data.frame)} chars). Max {_MAX_FRAME_BASE64_LEN}.")
+
+    # Sanitize roll/tid for path safety
+    raw_roll = data.session_id.rsplit("_", 1)[0] if "_" in data.session_id \
+               else data.session_id[:20]
+    roll = "".join(c if c.isalnum() or c in "_-" else "_" for c in raw_roll)[:40]
+    safe_teacher_id = "".join(c if c.isalnum() or c in "_-" else "_" for c in (tid or ""))[:40]
+
+    if safe_teacher_id:
+        student_dir = os.path.join(SCREENSHOTS_DIR, safe_teacher_id, roll)
+    else:
+        student_dir = os.path.join(SCREENSHOTS_DIR, roll)
+
+    # Verify resolved path is under SCREENSHOTS_DIR
+    real_dir = os.path.realpath(student_dir)
+    real_base = os.path.realpath(SCREENSHOTS_DIR)
+    if not real_dir.startswith(real_base + os.sep) and real_dir != real_base:
+        raise HTTPException(status_code=400, detail="Invalid session identifier")
+
+    try:
+        await asyncio.to_thread(_save_frame, student_dir, data)
+    except Exception as e:
+        _exam_log.error("[Frame] Error saving frame for %s: %s", data.session_id, e)
+        raise HTTPException(status_code=500, detail="Failed to save frame")
+    return {"status": "received"}
+
+
+def _save_id_verification_images(student_dir: str, selfie_b64: str, id_b64: str) -> tuple[str, str]:
+    """Save selfie and ID card images to disk. Returns (selfie_fname, id_fname)."""
+    os.makedirs(student_dir, exist_ok=True)
+    ts = now_ist().strftime("%Y%m%d_%H%M%S")
+    selfie_fname = f"id_selfie_{ts}.jpg"
+    id_fname     = f"id_card_{ts}.jpg"
+    with open(os.path.join(student_dir, selfie_fname), "wb") as f:
+        f.write(base64.b64decode(selfie_b64))
+    with open(os.path.join(student_dir, id_fname), "wb") as f:
+        f.write(base64.b64decode(id_b64))
+    return selfie_fname, id_fname
+
+
+@router.post("/api/v1/id-verification")
+@limiter.limit("30/minute")
+async def id_verification(data: IdVerifyIn, request: Request):
+    """Store selfie + ID photos and create a pending verification for teacher review."""
+    # Practice sandbox: pretend the verification was filed
+    if is_practice(data.session_id):
+        return {"status": SessionStatus.SUBMITTED, "verification_id": "practice", "practice": True}
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, data.session_id)
+    tid = claims.get("tid")
+
+    # Size guard
+    for field_name, field_val in [("selfie_frame", data.selfie_frame), ("id_frame", data.id_frame)]:
+        if len(field_val) > _MAX_FRAME_BASE64_LEN:
+            raise HTTPException(status_code=413, detail=f"{field_name} too large")
+
+    # Sanitize roll for filesystem safety
+    raw_roll = data.roll_number.strip().upper() or "UNKNOWN"
+    roll = "".join(c if c.isalnum() or c in "_-" else "_" for c in raw_roll)[:40]
+    safe_teacher_id = "".join(c if c.isalnum() or c in "_-" else "_" for c in (tid or ""))[:40]
+
+    if safe_teacher_id:
+        student_dir = os.path.join(SCREENSHOTS_DIR, safe_teacher_id, roll)
+    else:
+        student_dir = os.path.join(SCREENSHOTS_DIR, roll)
+
+    # Path traversal guard
+    real_dir = os.path.realpath(student_dir)
+    real_base = os.path.realpath(SCREENSHOTS_DIR)
+    if not real_dir.startswith(real_base + os.sep) and real_dir != real_base:
+        raise HTTPException(status_code=400, detail="Invalid roll number")
+
+    try:
+        selfie_fname, id_fname = await asyncio.to_thread(
+            _save_id_verification_images, student_dir, data.selfie_frame, data.id_frame)
+    except Exception as e:
+        _exam_log.error("[ID Verify] File save error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save verification images")
+
+    try:
+        detail_obj = {
+            "status":       "pending",
+            "selfie_file":  selfie_fname,
+            "id_file":      id_fname,
+            "roll_number":  roll,
+            "full_name":    data.full_name,
+            "exam_id":      claims.get("eid") or "",
+        }
+        viol_row = {
+            "session_key":    data.session_id,
+            "violation_type": "id_verification",
+            "severity":       "low",
+            "details":        json.dumps(detail_obj),
+        }
+        if tid:
+            viol_row["teacher_id"] = str(tid)
+        await _atable("violations").insert(viol_row).execute()
+    except Exception as e:
+        _exam_log.error("[ID Verify] DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to record verification. Please try again.")
+
+    return {"status": "received"}
+
+
+@router.get("/api/v1/id-verification/status")
+@limiter.limit("30/minute")
+async def id_verification_status(request: Request, session_id: str = ""):
+    """Student polls this to check if teacher has approved/retake/rejected."""
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    # Practice sandbox: auto-approve
+    if is_practice(session_id):
+        return {"status": "approved", "practice": True}
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, session_id)
+    result = await _atable("violations")\
+        .select("details")\
+        .eq("session_key", session_id)\
+        .eq("violation_type", "id_verification")\
+        .order("created_at", desc=True)\
+        .limit(1)\
+        .execute()
+    if not result.data:
+        return {"status": "not_found"}
+    raw = result.data[0].get("details", "")
+    try:
+        obj = json.loads(raw)
+        return {"status": obj.get("status", "pending")}
+    except Exception:
+        _exam_log.warning("id_verification_status: malformed JSON for session %s", session_id)
+        return {"status": "pending"}
+
+
+@router.get("/api/v1/events/{session_id}")
+@limiter.limit("30/minute")
+async def get_events(session_id: str, request: Request):
+    claims = require_auth(request)
+    # Ownership check
+    session_roll = session_id.rsplit("_", 1)[0].upper()
+    if claims.get("roll", "").upper() != session_roll:
+        raise HTTPException(status_code=403, detail="Access denied")
+    tid = claims.get("tid")
+    q = _atable("violations").select("session_key,violation_type,severity,details,created_at,teacher_id,detection_confidence").eq("session_key", session_id)
+    if tid:
+        q.eq("teacher_id", str(tid))
+    q.order("created_at")
+    result = await q.execute()
+    events = result.data or []
+    return {
+        "session_id": session_id,
+        "total":      len(events),
+        "events": [
+            {
+                "id":        e.get("id") or ts_to_id(e.get("created_at", "")),
+                "type":      e["violation_type"],
+                "severity":  e["severity"],
+                "timestamp": fmt_ist(e.get("created_at", "")),
+                "details":   e.get("details"),
+            }
+            for e in events
+        ],
+    }
+
+
+@router.post("/api/v1/room-cam-token")
+@limiter.limit("10/minute")
+async def room_cam_token(request: Request, body: dict = Body(...)):
+    """Issue a time-bound room-cam JWT for phone pairing.
+
+    Body: {"session_id": "ALICE001_abc-123"}
+    Returns a 2-hour token with scope='room-cam'.
+    The phone uses this token to authenticate its WebSocket connection.
+    """
+    student = require_auth(request)
+    session_id = (body.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    roll = student.get("roll", "")
+    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
+        raise HTTPException(status_code=403, detail="Session does not belong to this student")
+    import jwt as _jwt
+    from ..constants import SECRET_KEY
+    token = _jwt.encode({
+        "scope": "room-cam",
+        "sid": session_id,
+        "roll": roll,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=2),
+    }, SECRET_KEY, algorithm="HS256")
+    return {"token": token, "session_id": session_id, "expires_in_hours": 2}
+
+
+@router.get("/api/v1/room-cam-qr")
+@limiter.limit("30/minute")
+async def room_cam_qr(request: Request):
+    """Generate a QR code SVG for phone camera pairing."""
+    session_id = (request.query_params.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    student = require_auth(request)
+    roll = student.get("roll", "")
+    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
+        raise HTTPException(status_code=403, detail="Access denied")
+    # Cache QR token for 60s to avoid re-minting on refresh
+    if not hasattr(room_cam_qr, "_token_cache"):
+        room_cam_qr._token_cache: dict[str, dict] = {}
+    cache_key = f"{session_id}:{roll}"
+    cached = room_cam_qr._token_cache.get(cache_key)
+    if cached and cached["expires"] > time.time():
+        token = cached["token"]
+    else:
+        import jwt as _jwt
+        from ..constants import SECRET_KEY
+        token = _jwt.encode({
+            "scope": "room-cam", "sid": session_id, "roll": roll,
+            "exp": datetime.now(timezone.utc) + timedelta(hours=2),
+        }, SECRET_KEY, algorithm="HS256")
+        room_cam_qr._token_cache[cache_key] = {"token": token, "expires": time.time() + 60}
+    from ..invites import _get_invite_base_url
+    base = _get_invite_base_url()
+    url = f"{base}/phone-cam#token={token}&sid={session_id}"
+    import qrcode
+    qr = qrcode.QRCode(border=2, box_size=10)
+    qr.add_data(url)
+    svg = qr.make_image()
+    from fastapi.responses import Response as _Resp
+    return _Resp(content=svg.to_string().encode(), media_type="image/svg+xml",
+                 headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/api/v1/room-cam-approval-status")
+@limiter.limit("30/minute")
+async def room_cam_approval_status(request: Request):
+    """Return the room camera approval status for the current session.
+    
+    The renderer polls this to know when the teacher has approved.
+    """
+    session_id = (request.query_params.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    student = require_auth(request)
+    roll = student.get("roll", "")
+    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
+        raise HTTPException(status_code=403, detail="Access denied")
+    row = await _atable("exam_sessions").select("room_cam_status,room_cam_approved_at")\
+        .eq("session_key", session_id).limit(1).execute()
+    data = row.data[0] if row.data else {}
+    return {
+        "status": data.get("room_cam_status", "disabled"),
+        "approved_at": data.get("room_cam_approved_at"),
+    }

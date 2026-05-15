@@ -20,7 +20,7 @@ export default function AnalyticsPanel({ currentExamId }) {
   if (!currentExamId) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Select an exam to view analytics.</div>
   if (loading) return <div className="loading" style={{ textAlign: 'center', padding: 60 }}>Loading analytics...</div>
 
-  const { overview, score_dist, risk_dist, violations_by_type, per_question } = data || {}
+  const { exam_overview: overview, score_distribution: score_dist, risk_distribution: risk_dist, violation_summary: violations_by_type, question_analysis: per_question } = data || {}
   const maxScoreDist = Math.max(...(score_dist || []).map(b => b.count), 1)
   const maxRiskDist = Math.max(...(risk_dist || []).map(b => b.count), 1)
 
@@ -29,12 +29,12 @@ export default function AnalyticsPanel({ currentExamId }) {
       {/* Overview chips */}
       <div className="ax-stat-chips">
         {[
-          { label: 'Completed', value: overview?.completed || 0 },
-          { label: 'Avg Score', value: overview?.avg_score != null ? `${Math.round(overview.avg_score)}%` : '—' },
-          { label: 'Avg Risk', value: overview?.avg_risk != null ? Math.round(overview.avg_risk) : '—' },
-          { label: 'High Risk', value: overview?.high_risk || 0 },
-          { label: 'Total Violations', value: overview?.total_violations || 0 },
-          { label: 'Avg Time', value: overview?.avg_time_min != null ? `${Math.round(overview.avg_time_min)}m` : '—' },
+          { label: 'Completed', value: overview?.count || 0 },
+          { label: 'Avg Score', value: overview?.avg_percentage != null ? `${Math.round(overview.avg_percentage)}%` : '—' },
+          { label: 'Pass Rate', value: overview?.pass_rate != null ? `${overview.pass_rate}%` : '—' },
+          { label: 'High Risk', value: risk_dist?.high || 0 },
+          { label: 'Total Violations', value: violations_by_type?.total || 0 },
+          { label: 'Median Time', value: overview?.median_time_secs != null ? `${Math.round(overview.median_time_secs / 60)}m` : '—' },
         ].map(s => (
           <div className="ax-stat-chip" key={s.label}>
             <div className="ax-stat-chip-val">{s.value}</div>
@@ -94,26 +94,41 @@ export default function AnalyticsPanel({ currentExamId }) {
           </div>
         </div>
 
-        {/* Per-question breakdown */}
+        {/* Question difficulty analysis */}
         <div className="ax-card">
           <div className="ax-card-header">
-            <div className="ax-card-title">Per-Question Breakdown</div>
-            <div className="ax-card-sub">Average score per question</div>
+            <div className="ax-card-title">Question Difficulty</div>
+            <div className="ax-card-sub">Hardest questions by correct rate (lower = harder). Discrimination measures how well a question separates top vs bottom students.</div>
           </div>
-          <div className="ax-card-full" style={{ padding: 12 }}>
-            {(per_question || []).slice(0, 15).map(q => (
-              <div key={q.question_id} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
-                  <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{q.question || `Q${q.question_id}`}</span>
-                  <span style={{ color: q.avg_score != null ? 'var(--accent-light)' : 'var(--text-muted)' }}>{q.avg_score != null ? `${Math.round(q.avg_score * 100)}%` : '—'}</span>
-                </div>
-                {q.avg_score != null && (
-                  <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${Math.round(q.avg_score * 100)}%`, background: 'var(--accent)', borderRadius: 2, transition: 'width 0.3s' }} />
-                  </div>
-                )}
-              </div>
-            ))}
+          <div className="ax-card-full" style={{ padding: 0, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <th style={{ padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.04 }}>Question</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.04 }}>Correct %</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.04 }}>Discrimination</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.04 }}>Attempted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(per_question || []).sort((a, b) => (a.difficulty_pct || 0) - (b.difficulty_pct || 0)).slice(0, 20).map(q => (
+                  <tr key={q.question_id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '8px 10px', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.question || `Q${q.question_id}`}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                      <span style={{ color: (q.difficulty_pct || 0) < 40 ? 'var(--red)' : (q.difficulty_pct || 0) < 70 ? 'var(--amber)' : 'var(--emerald)' }}>
+                        {q.difficulty_pct != null ? `${q.difficulty_pct}%` : '—'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                      {q.discrimination != null ? (
+                        <span title=">0.3 = good discriminator">{q.discrimination > 0.3 ? '✓' : q.discrimination > 0.1 ? '~' : '—'}</span>
+                      ) : '—'}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{q.attempted || 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

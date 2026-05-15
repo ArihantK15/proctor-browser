@@ -14,6 +14,7 @@ from fastapi import APIRouter, Request, HTTPException
 
 from ..auth import require_admin
 from ..utils import fmt_ist, now_ist
+from ..constants import SUPER_ADMIN_EMAIL
 from ..repositories.sessions import assert_session_owned as _assert_session_owned, fetch_all_results as _fetch_all_results
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..services.sessions import collect_session_screenshots as _collect_session_screenshots
@@ -192,3 +193,75 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
              .execute()
         count += 1
     return {"backfilled": count}
+
+
+@router.get("/api/v1/admin/live-monitor")
+@limiter.limit("10/minute")
+async def live_monitor(request: Request):
+    """Return all active sessions across the org (superadmin: all orgs)."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    email = teacher.get("email", "").lower()
+    is_super = bool(SUPER_ADMIN_EMAIL) and email == SUPER_ADMIN_EMAIL.lower()
+
+    q = _atable("exam_sessions").select("session_key,roll_number,full_name,email,status,risk_score,started_at,exam_id,teacher_id")
+    if is_super:
+        # Superadmin: see ALL active sessions across all teachers
+        q = q.eq("status", SessionStatus.IN_PROGRESS)
+    else:
+        # Regular admin: see only their sessions
+        q = q.eq("status", SessionStatus.IN_PROGRESS).eq("teacher_id", tid)
+    sessions = (await q.order("started_at", desc=True).execute()).data or []
+
+    # Attach latest violation for each session
+    sks = [s["session_key"] for s in sessions]
+    if sks:
+        viols = (await _atable("violations")
+            .select("session_key,violation_type,severity,created_at,details,detection_confidence")
+            .in_("session_key", sks)
+            .order("created_at", desc=True)
+            .execute()).data or []
+        latest_viol = {}
+        for v in viols:
+            sk = v.get("session_key")
+            if sk and sk not in latest_viol:
+                latest_viol[sk] = v
+        for s in sessions:
+            v = latest_viol.get(s["session_key"])
+            s["latest_violation"] = v.get("violation_type") if v else None
+            s["latest_violation_at"] = v.get("created_at") if v else None
+
+    return {"sessions": sessions, "total": len(sessions)}
+
+
+@router.post("/api/v1/admin/sessions/{session_id}/terminate")
+@limiter.limit("10/minute")
+async def terminate_session(session_id: str, request: Request):
+    """Force-terminate a stuck session (superadmin or session owner)."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    email = teacher.get("email", "").lower()
+    is_super = bool(SUPER_ADMIN_EMAIL) and email == SUPER_ADMIN_EMAIL.lower()
+
+    session = await _atable("exam_sessions").select("*").eq("session_key", session_id).limit(1).execute()
+    if not session.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    sess = session.data[0]
+    if not is_super and str(sess.get("teacher_id", "")) != tid:
+        raise HTTPException(status_code=403, detail="You don't own this session")
+
+    now = now_ist().isoformat()
+    await _atable("exam_sessions").update({
+        "status": SessionStatus.COMPLETED,
+        "submitted_at": now,
+    }).eq("session_key", session_id).execute()
+
+    await _atable("violations").insert({
+        "session_key": session_id,
+        "violation_type": "session_terminated",
+        "severity": "high",
+        "details": f"Session force-terminated by {'superadmin' if is_super else 'teacher'}",
+    }).execute()
+
+    return {"status": "terminated", "session_id": session_id}

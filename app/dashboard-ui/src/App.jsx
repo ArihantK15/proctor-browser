@@ -16,12 +16,13 @@ import LiveSessionsPanel from './panels/LiveSessionsPanel'
 import ToolsPanel from './panels/ToolsPanel'
 import ReviewPanel from './panels/ReviewPanel'
 import OpsPanel from './panels/OpsPanel'
+import SupportConsole from './panels/SupportConsole'
 import OnboardingWizard from './components/OnboardingWizard'
 
 const TABS = [
   { id: 'live', label: 'Live Sessions', roles: ['admin', 'superadmin'] },
-  { id: 'ops', label: 'Ops', roles: ['admin', 'superadmin'] },
   { id: 'tools', label: 'Tools', roles: ['admin', 'superadmin'] },
+  { id: 'support', label: 'Support', roles: ['admin', 'superadmin'] },
   { id: 'review', label: 'Review', roles: ['admin', 'superadmin'] },
   { id: 'results', label: 'Results', roles: ['admin', 'superadmin'] },
   { id: 'history', label: 'History', roles: ['admin', 'superadmin'] },
@@ -132,6 +133,7 @@ function DashboardShell() {
   const PANELS = {
     live: LiveSessionsPanel,
     ops: OpsPanel,
+    support: SupportConsole,
     tools: ToolsPanel,
     review: ReviewPanel,
     results: ResultsPanel,

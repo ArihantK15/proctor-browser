@@ -58,14 +58,14 @@ def _cache_validate(key: str, resp: dict) -> None:
 async def validate_student(request: Request, body: ValidateIn):
     exam_id = body.exam_id
     roll_upper = body.roll_number.strip().upper()
+    provided_code = (body.access_code or "").strip().upper()
 
     # Practice sandbox: short-circuit before any DB lookups
     if is_practice(body.roll_number):
         return _practice_validate_response(roll_upper)
 
-    # Redis cache: 10-minute TTL for validated student lookups.
-    # Reduces Supabase pressure ~95% when students retry rapidly.
-    cache_key = f"validate:{roll_upper}:{exam_id or ''}:{(body.access_code or '').strip().upper()}"
+    # Redis cache: 10-minute TTL for validated student lookups
+    cache_key = f"validate:{roll_upper}:{exam_id or ''}:{provided_code}"
     try:
         cached = _cache.get(cache_key) if _cache else None
         if cached and isinstance(cached, dict) and cached.get("valid"):
@@ -73,16 +73,55 @@ async def validate_student(request: Request, body: ValidateIn):
     except Exception:
         pass
 
-    # Resolve teacher_id via invite token chain to prevent cross-tenant
-    # roll_number collision.  When the student provides access_code we
-    # find the *exact* invite first — that gives us a trusted teacher+exam
-    # scope for every subsequent query.
+    # Resolve teacher + student
+    pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code)
+    config = await _load_exam_config(pre_tid, exam_id=exam_id)
+    _check_exam_time_window(config)
+    student, student_tid, matched_invite_id = await _find_or_enroll_student(
+        roll_upper, pre_tid, pre_exam_id)
+    await _validate_access_code(provided_code, student_tid, student, exam_id)
+    await _check_group_restrictions(student, student_tid, exam_id)
+    existing_key = await _check_existing_session(student, student_tid, exam_id)
+    if existing_key:
+        resp = _build_validate_response(student, student_tid, exam_id, existing_key)
+        _cache_validate(cache_key, resp)
+        return resp
+
+    if matched_invite_id:
+        try:
+            await _atable("student_invites").update({
+                "status": InviteStatus.ACCEPTED,
+                "accepted_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", matched_invite_id).execute()
+        except Exception as e:
+            logger.debug("Failed to mark invite as accepted: %s", e)
+
+    resp = _build_validate_response(student, student_tid, exam_id)
+    _cache_validate(cache_key, resp)
+    return resp
+
+
+# ─── validate_student helpers ───────────────────────────────────────
+
+def _check_exam_time_window(config: dict) -> None:
+    """Raise 403 if the exam hasn't started or has already closed."""
+    now_utc = datetime.now(timezone.utc)
+    if config.get("starts_at"):
+        starts = datetime.fromisoformat(str(config["starts_at"]).replace("Z", "+00:00"))
+        if now_utc < starts:
+            raise HTTPException(status_code=403, detail=f"The exam has not started yet. It begins at {fmt_ist(config['starts_at'])}.")
+    if config.get("ends_at"):
+        ends = datetime.fromisoformat(str(config["ends_at"]).replace("Z", "+00:00"))
+        if now_utc > ends:
+            raise HTTPException(status_code=403, detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
+
+
+async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str) -> tuple:
+    """Resolve teacher_id and exam_id via access_code, exam, or fallback."""
     pre_tid = None
     pre_exam_id = exam_id
 
-    provided_code = (body.access_code or "").strip().upper()
-
-    # 1) Invite-token chain: access_code → invite → teacher_id + exam_id
+    # 1) access_code → invite → teacher_id + exam_id
     if provided_code and not exam_id:
         inv_by_code = await _atable("student_invites").select("teacher_id,exam_id").eq("access_code", provided_code).limit(1).execute()
         if inv_by_code.data:
@@ -99,232 +138,178 @@ async def validate_student(request: Request, body: ValidateIn):
             if cfg and cfg.get("teacher_id"):
                 pre_tid = str(cfg["teacher_id"])
 
-    # 3) Legacy fallback (no access_code, no exam_id) — unscoped, kept
-    #    for backward compat with pre-invite deployments.
+    # 3) Unscoped fallback — warn if ambiguous
     if pre_tid is None:
-        pre_check = await _atable("students").select("teacher_id").eq("roll_number", roll_upper).execute()
-        pre_tid = pre_check.data[0].get("teacher_id") if pre_check.data else None
+        pre_check = await _atable("students").select("teacher_id").eq("roll_number", roll_upper).limit(2).execute()
+        if pre_check.data:
+            if len(pre_check.data) > 1:
+                logger.warning("[validate_student] roll %s matched %d teachers — ambiguous, denying", roll_upper, len(pre_check.data))
+                raise HTTPException(status_code=403, detail="Roll number is ambiguous. Use the access code from your exam invite.")
+            pre_tid = pre_check.data[0].get("teacher_id")
 
     if pre_tid is None:
-        inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).limit(1).execute()
+        inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).limit(2).execute()
         if inv_pre.data:
+            if len(inv_pre.data) > 1:
+                logger.warning("[validate_student] roll %s matched %d invites across teachers — ambiguous", roll_upper, len(inv_pre.data))
+                raise HTTPException(status_code=403, detail="Roll number is ambiguous. Use the access code from your exam invite.")
             pre_tid = inv_pre.data[0].get("teacher_id")
-            if not pre_exam_id:
-                pre_exam_id = inv_pre.data[0].get("exam_id")
 
-    # Check exam time window using the student's teacher config
-    config = await _load_exam_config(pre_tid, exam_id=exam_id)
-    now_utc = datetime.now(timezone.utc)
-    if config.get("starts_at"):
-        starts = datetime.fromisoformat(str(config["starts_at"]).replace("Z", "+00:00"))
-        if now_utc < starts:
-            raise HTTPException(
-                status_code=403,
-                detail=f"The exam has not started yet. It begins at {fmt_ist(config['starts_at'])}.")
-    if config.get("ends_at"):
-        ends = datetime.fromisoformat(str(config["ends_at"]).replace("Z", "+00:00"))
-        if now_utc > ends:
-            raise HTTPException(
-                status_code=403,
-                detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
+    return pre_tid, pre_exam_id
 
-    # Look up student scoped by teacher_id to prevent cross-tenant collision
+
+async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: str) -> tuple:
+    """Look up student scoped by teacher_id; auto-enroll from invite if needed.
+    Returns (student_dict, teacher_id, matched_invite_id)."""
     result_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
     if pre_tid:
         result_q = result_q.eq("teacher_id", str(pre_tid))
     result = await result_q.execute()
-    if not result.data:
-        # Fallback: check if this roll number exists in student_invites.
-        # Teachers often send invites without pre-registering students —
-        # the invite IS the enrollment. Auto-create the students row on
-        # first validation so the exam flow continues seamlessly.
-        inv_q = _atable("student_invites").select("id,teacher_id,exam_id,roll_number,full_name,email,phone,status,expires_at,access_code").eq("roll_number", roll_upper)
-        if pre_tid:
-            inv_q = inv_q.eq("teacher_id", str(pre_tid))
-        if pre_exam_id:
-            inv_q = inv_q.eq("exam_id", pre_exam_id)
-        inv_result = await inv_q.execute()
-        if inv_result.data:
-            inv = inv_result.data[0]
-            inv_status = (inv.get("status") or "").lower()
-            if inv_status == InviteStatus.REVOKED:
-                raise HTTPException(
-                    status_code=403,
-                    detail="This invite has been revoked. Contact your teacher.")
-            exp = inv.get("expires_at")
-            if exp:
-                try:
-                    exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
-                    if datetime.now(timezone.utc) > exp_dt:
-                        raise HTTPException(
-                            status_code=403,
-                            detail="This invite has expired. Contact your teacher.")
-                except HTTPException:
-                    raise
-                except Exception:
-                    _exam_log.warning("validate_student: bad expires_at date on invite %s — treating as expired", inv.get("id"))
-                    raise HTTPException(
-                        status_code=403,
-                        detail="This invite has expired. Contact your teacher.")
-
-            # Auto-enroll: create students row from invite data
-            # First check org student limit
-            inv_teacher = await _get_teacher_by_id(str(inv["teacher_id"]))
-            if inv_teacher and inv_teacher.get("org_id"):
-                from ..services.sessions import check_org_limits
-                await check_org_limits({"org_id": inv_teacher["org_id"], "org_role": inv_teacher.get("org_role", "teacher")}, delta=1)
-            student_row = {
-                "roll_number": inv["roll_number"],
-                "full_name":   inv.get("full_name", ""),
-                "email":       inv.get("email", ""),
-                "phone":       inv.get("phone") or None,
-                "teacher_id":  str(inv["teacher_id"]),
-            }
-            try:
-                enroll_result = await _atable("students").insert(student_row).execute()
-                if enroll_result.data:
-                    student = enroll_result.data[0]
-                    # Mark invite as accepted if not already
-                    if inv_status != InviteStatus.ACCEPTED:
-                        await _atable("student_invites").update({
-                            "status": InviteStatus.ACCEPTED,
-                            "accepted_at": datetime.now(timezone.utc).isoformat(),
-                        }).eq("id", inv["id"]).execute()
-                else:
-                    # Insert succeeded but returned no data — re-query
-                    recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
-                    if "teacher_id" in student_row:
-                        recheck_q = recheck_q.eq("teacher_id", str(student_row["teacher_id"]))
-                    recheck = await recheck_q.execute()
-                    if recheck.data:
-                        student = recheck.data[0]
-                    else:
-                        raise HTTPException(
-                            status_code=500,
-                            detail="Failed to create student record. Please try again.")
-            except HTTPException:
-                raise
-            except Exception as e:
-                err = str(e).lower()
-                if "duplicate" in err or "unique" in err:
-                    # Race condition — another validation created it
-                    recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
-                    if "teacher_id" in inv:
-                        recheck_q = recheck_q.eq("teacher_id", str(inv["teacher_id"]))
-                    recheck = await recheck_q.execute()
-                    if recheck.data:
-                        student = recheck.data[0]
-                    else:
-                        raise HTTPException(
-                            status_code=500,
-                            detail="Failed to create student record. Please try again.")
-                else:
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Registration failed. Please try again.")
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail="Roll number not found. Please complete registration first.")
-    else:
+    if result.data:
         student = result.data[0]
+        return student, student.get("teacher_id"), None
 
-    # Look up teacher's config for this student
-    student_tid = student.get("teacher_id")
+    # Auto-enroll from invite
+    inv_q = _atable("student_invites").select("id,teacher_id,exam_id,roll_number,full_name,email,phone,status,expires_at,access_code").eq("roll_number", roll_upper)
+    if pre_tid:
+        inv_q = inv_q.eq("teacher_id", str(pre_tid))
+    if pre_exam_id:
+        inv_q = inv_q.eq("exam_id", pre_exam_id)
+    inv_result = await inv_q.execute()
+    if not inv_result.data:
+        raise HTTPException(status_code=404, detail="Roll number not found. Please complete registration first.")
 
-    # Check exam access code if configured
+    inv = inv_result.data[0]
+    inv_status = (inv.get("status") or "").lower()
+    if inv_status == InviteStatus.REVOKED:
+        raise HTTPException(status_code=403, detail="This invite has been revoked. Contact your teacher.")
+    exp = inv.get("expires_at")
+    if exp:
+        try:
+            exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > exp_dt:
+                raise HTTPException(status_code=403, detail="This invite has expired. Contact your teacher.")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.warning("validate_student: bad expires_at on invite %s — treating as expired", inv.get("id"))
+            raise HTTPException(status_code=403, detail="This invite has expired. Contact your teacher.")
+
+    inv_teacher = await _get_teacher_by_id(str(inv["teacher_id"]))
+    if inv_teacher and inv_teacher.get("org_id"):
+        from ..services.sessions import check_org_limits
+        await check_org_limits({"org_id": inv_teacher["org_id"], "org_role": inv_teacher.get("org_role", "teacher")}, delta=1)
+
+    student_row = {
+        "roll_number": inv["roll_number"],
+        "full_name": inv.get("full_name", ""),
+        "email": inv.get("email", ""),
+        "phone": inv.get("phone") or None,
+        "teacher_id": str(inv["teacher_id"]),
+    }
+    try:
+        enroll_result = await _atable("students").insert(student_row).execute()
+        if enroll_result.data:
+            student = enroll_result.data[0]
+            if inv_status != InviteStatus.ACCEPTED:
+                await _atable("student_invites").update({
+                    "status": InviteStatus.ACCEPTED,
+                    "accepted_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", inv["id"]).execute()
+            return student, student.get("teacher_id"), None
+        # Fallback re-query
+        recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
+        if "teacher_id" in student_row:
+            recheck_q = recheck_q.eq("teacher_id", str(student_row["teacher_id"]))
+        recheck = await recheck_q.execute()
+        if recheck.data:
+            return recheck.data[0], recheck.data[0].get("teacher_id"), None
+        raise HTTPException(status_code=500, detail="Failed to create student record.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e).lower()
+        if "duplicate" in err or "unique" in err:
+            recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
+            if "teacher_id" in inv:
+                recheck_q = recheck_q.eq("teacher_id", str(inv["teacher_id"]))
+            recheck = await recheck_q.execute()
+            if recheck.data:
+                return recheck.data[0], recheck.data[0].get("teacher_id"), None
+            raise HTTPException(status_code=500, detail="Failed to create student record.")
+        raise HTTPException(status_code=500, detail="Registration failed.")
+
+
+async def _validate_access_code(provided_code: str, student_tid: str, student: dict, exam_id: str) -> str:
+    """Check exam access code, returning matched_invite_id or None."""
     current_code = await _get_access_code(student_tid, exam_id=exam_id)
-    matched_invite_id = None
-    if current_code:
-        shared_ok = bool(provided_code) and provided_code == current_code
-        invite_ok = False
-        if not shared_ok and provided_code and student_tid:
-            inv_q = _atable("student_invites").select("id,access_code,status,expires_at,exam_id").eq("teacher_id", str(student_tid)).eq("roll_number", student["roll_number"])
-            if exam_id:
-                inv_q.eq("exam_id", exam_id)
-            inv_result = await inv_q.execute()
-            for inv in (inv_result.data or []):
-                code = (inv.get("access_code") or "").upper()
-                if not code or code != provided_code:
+    if not current_code:
+        return None
+    shared_ok = bool(provided_code) and provided_code == current_code
+    if shared_ok:
+        return None
+    if not provided_code or not student_tid:
+        raise HTTPException(status_code=403, detail="Invalid exam access code. Ask your examiner for the correct code.")
+    inv_q = _atable("student_invites").select("id,access_code,status,expires_at,exam_id").eq("teacher_id", str(student_tid)).eq("roll_number", student["roll_number"])
+    if exam_id:
+        inv_q.eq("exam_id", exam_id)
+    for inv in ((await inv_q.execute()).data or []):
+        code = (inv.get("access_code") or "").upper()
+        if not code or code != provided_code:
+            continue
+        if (inv.get("status") or "") == InviteStatus.REVOKED:
+            continue
+        exp = inv.get("expires_at")
+        if exp:
+            try:
+                if datetime.now(timezone.utc) > datetime.fromisoformat(str(exp).replace("Z", "+00:00")):
                     continue
-                if (inv.get("status") or "") == InviteStatus.REVOKED:
-                    continue
-                exp = inv.get("expires_at")
-                if exp:
-                    try:
-                        if datetime.now(timezone.utc) > datetime.fromisoformat(
-                                str(exp).replace("Z", "+00:00")):
-                            continue
-                    except Exception:
-                        _exam_log.warning("validate_student: bad expires_at on code-invite %s", inv.get("id"))
-                invite_ok = True
-                matched_invite_id = inv["id"]
-                break
-        if not (shared_ok or invite_ok):
-            raise HTTPException(
-                status_code=403,
-                detail="Invalid exam access code. Ask your examiner for the correct code.")
-    # Check group-based access restrictions
-    if exam_id and student_tid:
-        if not await _check_group_access(student["roll_number"], str(student_tid), exam_id):
-            raise HTTPException(
-                status_code=403,
-                detail="You are not in a group assigned to this exam. Contact your teacher.")
+            except Exception:
+                logger.warning("validate_student: bad expires_at on code-invite %s", inv.get("id"))
+        return inv["id"]
+    raise HTTPException(status_code=403, detail="Invalid exam access code. Ask your examiner for the correct code.")
 
+
+async def _check_group_restrictions(student: dict, student_tid: str, exam_id: str) -> None:
+    """Raise 403 if student is not in a group assigned to this exam."""
+    if exam_id and student_tid:
+        from ..repositories.sessions import check_group_access as _check_group_access
+        if not await _check_group_access(student["roll_number"], str(student_tid), exam_id):
+            raise HTTPException(status_code=403, detail="You are not in a group assigned to this exam.")
+
+
+async def _check_existing_session(student: dict, student_tid: str, exam_id: str) -> str | None:
+    """Return existing session_key if student has a completed or in-progress session, else None."""
     q = _atable("exam_sessions").select("session_key").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.COMPLETED)
     if student_tid:
         q.eq("teacher_id", str(student_tid))
     if exam_id:
         q.eq("exam_id", exam_id)
-    completed = await q.execute()
-    if completed.data:
-        raise HTTPException(
-            status_code=403,
-            detail="You have already submitted this exam.")
+    if (await q.execute()).data:
+        raise HTTPException(status_code=403, detail="You have already submitted this exam.")
 
-    # Also check for in-progress sessions to prevent duplicate tokens
     q2 = _atable("exam_sessions").select("session_key,status").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.IN_PROGRESS)
     if student_tid:
         q2.eq("teacher_id", str(student_tid))
     if exam_id:
         q2.eq("exam_id", exam_id)
-    in_progress = await q2.execute()
-    if in_progress.data:
-        # Student already has an active session
-        existing_key = in_progress.data[0]["session_key"]
-        resp = {
-            "valid":       True,
-            "full_name":   student["full_name"],
-            "email":       student.get("email", ""),
-            "phone":       student.get("phone", ""),
-            "roll_number": student["roll_number"],
-            "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id,
-                                         student_id=student.get("account_id")),
-            "existing_session": existing_key,
-        }
-        _cache_validate(cache_key, resp)
-        return resp
+    in_progress = (await q2.execute()).data
+    return in_progress[0]["session_key"] if in_progress else None
 
-    # Mark the invite as accepted
-    if matched_invite_id:
-        try:
-            await _atable("student_invites").update({
-                "status": InviteStatus.ACCEPTED,
-                "accepted_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", matched_invite_id).execute()
-        except Exception as e:
-            logger.debug("Failed to mark invite as accepted: %s", e)
 
+def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: str = None) -> dict:
+    """Build the standard validate-student response dict."""
     resp = {
-        "valid":       True,
-        "full_name":   student["full_name"],
-        "email":       student.get("email", ""),
-        "phone":       student.get("phone", ""),
+        "valid": True,
+        "full_name": student["full_name"],
+        "email": student.get("email", ""),
+        "phone": student.get("phone", ""),
         "roll_number": student["roll_number"],
-        "token":       create_token(student["roll_number"], student_tid, exam_id=exam_id,
-                                     student_id=student.get("account_id")),
+        "token": create_token(student["roll_number"], student_tid, exam_id=exam_id,
+                              student_id=student.get("account_id")),
     }
-    _cache_validate(cache_key, resp)
+    if existing_session:
+        resp["existing_session"] = existing_session
     return resp
 
 

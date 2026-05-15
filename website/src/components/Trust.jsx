@@ -6,10 +6,10 @@ export default function Trust() {
   const [quoteRef, quoteInView] = useInView({ margin: '-40px' })
 
   const stats = [
-    { value: '180+',  label: 'Institutions across India' },
-    { value: '2.4M',  label: 'Exams proctored' },
-    { value: '99.2%', label: 'Uptime (2025)' },
-    { value: '<200ms', label: 'Avg detection latency' },
+    { value: '2FA',  label: 'Teacher account protection' },
+    { value: 'CSRF',  label: 'Protected authenticated mutations' },
+    { value: 'CI', label: 'Security scans on every release' },
+    { value: 'PDF', label: 'Appeal-ready evidence exports' },
   ]
 
   return (
@@ -27,7 +27,7 @@ export default function Trust() {
             Numbers That Speak
           </h2>
           <p className="mt-4 text-lg text-slate-400">
-            Built with rigor, tested in production, trusted by educators.
+            Built with measurable controls, not unverifiable logo-wall claims.
           </p>
         </div>
 
@@ -57,17 +57,16 @@ export default function Trust() {
             {/* Accent left border */}
             <div className="absolute top-0 left-0 bottom-0 w-[3px] bg-gradient-to-b from-accent via-accent/50 to-transparent" />
             <p className="text-lg leading-relaxed text-slate-300 italic pl-4">
-              "We ran Procta alongside manual proctors for one semester. The AI caught 3x more violations
-              than our team, with zero false positives after manual review. We've since moved fully to Procta
-              for all remote assessments."
+              "Every proctoring signal in Procta is reviewable evidence: timeline events, detector confidence,
+              calibration quality, screenshots, teacher decisions, and exportable audit packets."
             </p>
             <footer className="mt-6 flex items-center gap-4 pl-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10 text-sm font-semibold text-accent-light border border-accent/20">
-                KS
+                QA
               </div>
               <div>
-                <div className="text-sm font-medium text-white">Dr. Kavita Sharma</div>
-                <div className="label-mono text-slate-500">Head of Examinations, Partner University</div>
+                <div className="text-sm font-medium text-white">Evidence-first review model</div>
+                <div className="label-mono text-slate-500">Product control, not customer testimonial</div>
               </div>
             </footer>
           </blockquote>

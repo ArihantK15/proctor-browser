@@ -4,7 +4,7 @@ import useInView from '../hooks/useInView'
 /**
  * "Why Procta" outcomes section — 6 cards from the Claude design's
  * marketing.html, reframing capability bullets ("we have AI gaze
- * tracking") into outcomes ("cheating cut 60–80% across 12 institutions").
+ * tracking") into operational outcomes that are visible in the product.
  *
  * Each card has a proof footer using monospaced text — the design's
  * pattern for surfacing measurement / specifics that build credibility
@@ -14,27 +14,27 @@ export default function USPs() {
   const usps = [
     {
       icon: ShieldCheck,
-      title: 'Cheating incidents cut by 60–80%',
+      title: 'Every suspicious signal is reviewable',
       desc: 'AI monitors gaze, head pose, face count, and audio in real time. False positives are flagged for human review — a machine never terminates a student session.',
-      proof: 'Avg. across 12 institutions, 2024–25',
+      proof: 'Timeline + confidence + reviewer decision',
     },
     {
       icon: FileCheck2,
       title: 'Scorecards ready before students leave',
       desc: 'Automated grading runs the moment a student submits. Export a complete PDF scorecard per student, or a bulk CSV for your SIS, in one click.',
-      proof: 'Avg. export time: 90 seconds for 300 students',
+      proof: 'PDF scorecard + streaming CSV exports',
     },
     {
       icon: Server,
       title: 'Zero IT involvement for students',
       desc: "Students download a 12 MB desktop app — no VPN, no browser extension, no custom firewall rules. Runs on a ₹30,000 Lenovo IdeaPad as well as a MacBook Pro.",
-      proof: 'Compatible with Windows 10+ and macOS 12+',
+      proof: 'Windows and macOS builds',
     },
     {
       icon: Users,
       title: 'Live monitoring from any device',
       desc: 'Teachers see every active session in a single real-time table. Severity, calibration, risk score, and camera feed — all without leaving one screen.',
-      proof: 'Designed for 50–300 concurrent students',
+      proof: 'Live sessions + queue/worker monitoring',
     },
     {
       icon: Languages,
@@ -46,7 +46,7 @@ export default function USPs() {
       icon: Lock,
       title: 'Privacy-first by design',
       desc: "Camera frames are processed locally on the student's machine. No raw video is stored on our servers. Violation snapshots are encrypted, institution-owned.",
-      proof: 'DPDP Act 2023 compliant',
+      proof: 'DPA, retention summary, privacy workflows',
     },
   ]
 

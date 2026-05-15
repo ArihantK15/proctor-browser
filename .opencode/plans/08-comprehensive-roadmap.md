@@ -42,7 +42,7 @@
 | # | Item | Effort | Why |
 |---|------|--------|-----|
 | 11 | **Public status/proof assets** — uptime badge, data retention summary, security controls overview, sample scorecard | Done, first slice shipped | `/proof-assets` exposes health/status proof, retention summary, security controls, and links to `/sample-scorecard`, trust center, DPA, privacy policy, and questionnaire |
-| 12 | **Replace "Trusted by 180+ institutions"** unless verifiable — trust claims must be airtight in education sales | 1 hr | Legal/compliance risk |
+| 12 | **Replace "Trusted by 180+ institutions"** unless verifiable — trust claims must be airtight in education sales | Done | Marketing now uses verifiable product/control claims instead of institution counts, volume claims, uptime claims, named testimonials, or unsupported cross-institution outcome metrics |
 | 13 | **Screenshots/video** of actual teacher workflows on pricing/landing pages | 4 hr | Converts 2x better than text |
 
 ## Phase 2: 90-Day Work

@@ -19,7 +19,7 @@ export default function Hero() {
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/5 px-4 py-1.5 accent-glow">
             <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
             <span className="label-mono text-accent-light" style={{ fontSize: '11px' }}>
-              Used by institutions across India
+              Built for institution-grade exam operations
             </span>
           </div>
 
@@ -71,7 +71,7 @@ export default function Hero() {
           </div>
 
           <div className="mt-14 flex items-center justify-center gap-8 text-sm text-slate-500">
-            <span>Trusted by institutions across India</span>
+            <span>Evidence-first reviews</span>
             <span className="hidden h-4 w-px bg-white/10 sm:block" />
             <span className="hidden sm:block">No credit card required</span>
           </div>

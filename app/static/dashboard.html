@@ -2866,6 +2866,26 @@ async function saveOrgName(){
   try{
     const r = await authFetch(`${BASE}/api/v1/org`, {
       method:'PATCH',
+      body: JSON.stringify({ name }),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || `Save failed (${r.status})`);
+    }
+    const d = await r.json();
+    resultEl.textContent = 'Saved';
+    resultEl.style.color = 'var(--green, #3dd9a8)';
+    // Reflect the canonical name returned by the server (in case it
+    // normalised whitespace etc).
+    if(d && d.name){
+      const el = document.getElementById('settings-org-name');
+      if(el) el.value = d.name;
+    }
+  }catch(e){
+    resultEl.textContent = e.message || 'Save failed';
+    resultEl.style.color = 'var(--red)';
+  }
+}
 
 function sortLive(key){
   if(liveSortKey===key) liveSortAsc=!liveSortAsc;
@@ -3143,13 +3163,21 @@ async function upgradePlan(planId){
 
 
 
+// "Full Risk Breakdown" button on the session-detail modal. The dedicated
+// risk-breakdown view was never built — the forensics timeline already
+// surfaces every risk event with severity + timestamps, so we route the
+// button there. Replace this with a real breakdown UI when one exists.
 function viewRiskDetail(){
+  if(currentSessionId) openTimeline();
+}
+
+// "Open full timeline" button on the triage modal — closes triage, swaps
+// the currentSessionId to whatever triage was viewing, then opens the
+// forensics timeline for it.
 function _triageOpenTimeline(){
   const sid = _triageSid;
   closeTriage();
   if(sid){ currentSessionId = sid; openTimeline(); }
-
-  if(currentSessionId) viewRisk(currentSessionId);
 }
 
 // ── EXPORTS ─────────────────────────────────────────────────────

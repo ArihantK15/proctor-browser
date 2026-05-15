@@ -23,6 +23,15 @@ export default function Hero() {
             </span>
           </div>
 
+          {/* Brand slogan kicker — sits just above the H1 in display type
+              so the brand promise is always paired with the headline.
+              Repeated in <title>, og:title, twitter:title, JSON-LD slogan,
+              webmanifest name + footer wordmark so it shows up wherever
+              someone encounters the brand. */}
+          <p className="mb-4 font-display text-sm font-semibold uppercase tracking-[0.18em] text-accent-light/90 md:text-base">
+            Remote exams.&nbsp;<span className="text-accent">Real results.</span>
+          </p>
+
           {/* Headline — three-line outcome-first structure from the Claude
               design (was "Secure Exams with Explainable AI"). The middle
               "automated." word picks up the accent gradient so the eye

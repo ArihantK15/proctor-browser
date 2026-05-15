@@ -2,48 +2,68 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0F1629" />
+
+    <!--
+      Favicon stack — Google's SERP crawler prefers a ≥48×48 PNG over an
+      SVG; without one it re-rasterises and the result looks smudged in
+      search results. We ship SVG for modern browsers AND PNGs at every
+      size Google + Apple + Windows ask for. Order matters: browsers pick
+      the first acceptable match.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
 
     <!-- Primary SEO -->
-    <title>Procta — AI Proctored Exam Software | Secure Online Proctoring</title>
-    <meta name="description" content="Procta is an AI-powered proctored exam platform that detects cheating in real time using gaze tracking, face detection, and object recognition. Secure online exams for education and hiring." />
-    <meta name="keywords" content="AI proctored exam, online proctoring software, AI exam proctoring, remote exam monitoring, anti-cheating software, online test proctoring, AI proctoring tool, secure online exams, proctored exam platform, gaze tracking proctoring" />
+    <title>Procta — Remote exams. Real results. | AI-Proctored Exam Platform</title>
+    <meta name="description" content="Procta — Remote exams. Real results. AI-proctored exam platform for Indian higher education and coaching institutes. On-device gaze tracking, face detection, and object recognition. Free 14-day trial." />
+    <meta name="keywords" content="AI proctored exam, online proctoring software, remote exam platform, AI exam proctoring, anti-cheating software, online test proctoring, secure online exams, proctored exam platform, gaze tracking proctoring, exam software India" />
     <meta name="author" content="Procta" />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <link rel="canonical" href="https://procta.net/" />
 
-    <!-- Open Graph / Facebook -->
+    <!-- Open Graph / Facebook / LinkedIn -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://procta.net/" />
-    <meta property="og:title" content="Procta — AI Proctored Exam Software | Secure Online Proctoring" />
-    <meta property="og:description" content="AI-powered proctored exam platform that detects cheating in real time. Gaze tracking, face detection, object recognition — all processed locally on-device for complete privacy." />
+    <meta property="og:title" content="Procta — Remote exams. Real results." />
+    <meta property="og:description" content="AI-proctored exam platform for Indian higher education. Gaze tracking, face detection, and object recognition — all on-device. Free 14-day trial." />
     <meta property="og:image" content="https://procta.net/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Procta — Remote exams. Real results." />
     <meta property="og:site_name" content="Procta" />
-    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale" content="en_IN" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Procta — AI Proctored Exam Software" />
-    <meta name="twitter:description" content="Detect cheating in real time with AI-powered gaze tracking, face detection, and object recognition. Secure online exams for education and hiring." />
+    <meta name="twitter:title" content="Procta — Remote exams. Real results." />
+    <meta name="twitter:description" content="AI-proctored exam platform for Indian higher education. Gaze tracking, face detection, object recognition — all on-device. Free 14-day trial." />
     <meta name="twitter:image" content="https://procta.net/og-image.png" />
 
-    <!-- Structured Data: SoftwareApplication -->
+    <!-- Structured Data: SoftwareApplication
+         "slogan" is a recognised schema.org property — Google sometimes
+         surfaces it in knowledge-panel callouts. -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "Procta",
+      "alternateName": "Procta — Remote exams. Real results.",
+      "slogan": "Remote exams. Real results.",
       "applicationCategory": "EducationalApplication",
       "operatingSystem": "Windows, macOS",
-      "description": "AI-powered proctored exam platform that detects cheating in real time using gaze tracking, face detection, and object recognition.",
+      "description": "AI-proctored exam platform that detects cheating in real time using on-device gaze tracking, face detection, and object recognition.",
       "url": "https://procta.net",
+      "image": "https://procta.net/og-image.png",
       "offers": {
         "@type": "Offer",
         "price": "0",
-        "priceCurrency": "USD"
+        "priceCurrency": "INR",
+        "description": "Free 14-day trial — no credit card required"
       },
       "featureList": [
         "AI gaze tracking and calibration",
@@ -51,24 +71,48 @@
         "Cheat object detection (phone, book, earphones)",
         "Identity verification with teacher approval",
         "Kiosk-mode exam lockdown",
+        "Phone-cam secondary view",
         "On-device processing for privacy",
         "Teacher dashboard with forensics timeline"
       ]
     }
     </script>
 
-    <!-- Structured Data: Organization -->
+    <!-- Structured Data: Organization — gives Google the right logo + slogan
+         to use in the knowledge panel + SERP brand card. -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "Organization",
       "name": "Procta",
+      "slogan": "Remote exams. Real results.",
       "url": "https://procta.net",
-      "logo": "https://procta.net/favicon.svg",
+      "logo": "https://procta.net/icon-512.png",
+      "image": "https://procta.net/og-image.png",
+      "sameAs": [
+        "https://procta.net"
+      ],
       "contactPoint": {
         "@type": "ContactPoint",
         "email": "contact@procta.net",
-        "contactType": "customer support"
+        "contactType": "customer support",
+        "areaServed": "IN",
+        "availableLanguage": ["en", "hi"]
+      }
+    }
+    </script>
+
+    <!-- Structured Data: WebSite (lets Google show the sitelinks search box) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Procta",
+      "url": "https://procta.net",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://procta.net/?q={search_term_string}",
+        "query-input": "required name=search_term_string"
       }
     }
     </script>

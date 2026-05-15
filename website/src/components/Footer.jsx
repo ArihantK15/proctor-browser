@@ -9,15 +9,21 @@ export default function Footer() {
           {/* Brand */}
           <div className="md:col-span-1">
             <Link to="/" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2.5 no-underline">
+              {/* Brand chip — same shield+eye mark as Navbar + favicon. */}
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent accent-glow">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M4 3h3v1H5v8h2v1H4V3zm5 0h3v10h-3v-1h2V4H9V3z" fill="white"/>
-                  <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8"/>
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z"
+                        fill="none" stroke="white" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <circle cx="8" cy="8" r="1.5" fill="white"/>
                 </svg>
               </div>
               <span className="font-display text-lg font-bold text-white tracking-tight">Procta</span>
             </Link>
-            <p className="mt-4 text-sm leading-relaxed text-slate-500">
+            {/* Brand slogan — paired with the wordmark on every page footer. */}
+            <p className="mt-3 font-display text-xs font-semibold uppercase tracking-[0.18em] text-accent-light/80">
+              Remote exams. Real results.
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-slate-500">
               AI-powered exam proctoring for institutions that value integrity and privacy.
             </p>
           </div>

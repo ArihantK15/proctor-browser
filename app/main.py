@@ -40,6 +40,7 @@ from .domains.billing import billing_router
 from .domains.lti import lti_router
 from .routers.api import router as api_router
 from .domains.lti import google_classroom_router
+from .routers.lti_config import router as lti_config_router
 from .domains.ops import admin_status_router
 from .domains.compliance import privacy_router
 from .domains.compliance import appeals_router
@@ -479,6 +480,7 @@ app.include_router(billing_router)
 app.include_router(lti_router)
 app.include_router(api_router)
 app.include_router(google_classroom_router)
+app.include_router(lti_config_router)
 app.include_router(privacy_router)
 app.include_router(appeals_router)
 app.include_router(admin_status_router)

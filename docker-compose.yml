@@ -16,6 +16,8 @@ services:
       - GIT_SHA=${GIT_SHA:-local}
       - IMAGE_TAG=${IMAGE_TAG:-local}
       - APP_VERSION=${APP_VERSION:-dev}
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-2}
+      - UVICORN_LIMIT_CONCURRENCY=${UVICORN_LIMIT_CONCURRENCY:-}
     depends_on:
       - redis
     volumes:

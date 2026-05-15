@@ -14,6 +14,8 @@
 #   SSE_VUS      — SSE stream VU count override (default: 100)
 #   ADMIN_TOKEN  — teacher/admin JWT for SSE scenario
 #   DURATION_MIN — exam-test sustained duration in minutes (default: 3)
+#   SAVE_MODE    — exam save behavior: bulk or individual (default: bulk)
+#   LOADTEST_SECRET — optional X-Loadtest-Key value; must match server env
 
 set -euo pipefail
 
@@ -41,6 +43,10 @@ if [[ "$TARGET" == *procta.net* ]]; then
   echo " ⚠️  Hitting production. Practice-mode session IDs are used,"
   echo "    so no real exam data is touched — but the API still"
   echo "    serves these requests. Run during off-hours if possible."
+  if [[ -z "${LOADTEST_SECRET:-}" ]]; then
+    echo "    LOADTEST_SECRET is not set locally; route rate limits will"
+    echo "    treat this as normal traffic from one client IP."
+  fi
 fi
 echo "──────────────────────────────────────────────"
 
@@ -53,12 +59,15 @@ case "$SCENARIO" in
       --env TARGET="$TARGET" \
       --env VUS="${VUS:-500}" \
       --env DURATION_MIN="${DURATION_MIN:-3}" \
+      --env SAVE_MODE="${SAVE_MODE:-bulk}" \
+      --env LOADTEST_SECRET="${LOADTEST_SECRET:-}" \
       exam_flow.js
     ;;
   burst)
     k6 run \
       --env TARGET="$TARGET" \
       --env BURST_VUS="${BURST_VUS:-300}" \
+      --env LOADTEST_SECRET="${LOADTEST_SECRET:-}" \
       submit_burst.js
     ;;
   sse)

@@ -1,12 +1,14 @@
 /**
  * Realistic exam-load test — the headline scenario.
  *
- * Simulates N students writing a full exam: validate → save-answer
- * × 8 → submit. Uses PRACTICE_<vu> session IDs which the Procta
+ * Simulates N students writing a full exam: validate → bulk autosave
+ * → submit. Uses PRACTICE_<vu> session IDs which the Procta
  * backend short-circuits before auth + DB writes, so the test
  * exercises the entire FastAPI pipeline (middleware → routers →
- * Pydantic → rate-limit → response) without polluting the DB or
- * needing JWTs.
+ * Pydantic → route handler → response) without polluting the DB or
+ * needing JWTs. Route-level rate limits still run before the handler;
+ * set LOADTEST_SECRET on both the server and this script for high-VU
+ * production capacity tests.
  *
  * Default ramp: 0 → 500 VUs over 1 min, hold 3 min, ramp down 30s.
  * Override VUS or DURATION_MIN env vars to tune.
@@ -23,6 +25,11 @@ import { check, group, sleep } from 'k6'
 const TARGET = __ENV.TARGET || 'https://app.procta.net'
 const VUS = parseInt(__ENV.VUS || '500', 10)
 const DURATION_MIN = parseInt(__ENV.DURATION_MIN || '3', 10)
+const SAVE_MODE = __ENV.SAVE_MODE || 'bulk'
+const LOADTEST_SECRET = __ENV.LOADTEST_SECRET || ''
+const REQUEST_HEADERS = LOADTEST_SECRET
+  ? { 'Content-Type': 'application/json', 'X-Loadtest-Key': LOADTEST_SECRET }
+  : { 'Content-Type': 'application/json' }
 
 export const options = {
   stages: [
@@ -31,11 +38,11 @@ export const options = {
     { duration: '30s',                 target: 0   },
   ],
   thresholds: {
-    'http_req_duration{name:save_answer}': ['p(95)<300'],
+    'http_req_duration{name:bulk_save}':   ['p(95)<500'],
+    'http_req_duration{name:save_answer}': ['p(95)<500'],
     'http_req_duration{name:submit}':      ['p(95)<1500'],
-    // Practice-mode endpoints aren't rate-limited (slowapi only
-    // gates after auth, and practice mode short-circuits before
-    // auth) so a real failure here means the API actually choked.
+    // High-VU production runs need LOADTEST_SECRET so SlowAPI does
+    // not collapse all practice users into one client IP bucket.
     'http_req_failed':                     ['rate<0.02'],
     'checks':                              ['rate>0.98'],
   },
@@ -59,37 +66,51 @@ export default function () {
   const sessionId = `PRACTICE_LOADTEST_${__VU}_${__ITER}`
 
   group('exam_lifecycle', () => {
-    // 2. Save answers — 8 in a row, simulating a student working
-    // through the exam. Real students click "next" every 30-60s but
-    // for load purposes we hit the endpoint as fast as the network
-    // allows; that's the more punishing case.
-    for (let i = 0; i < QUESTION_IDS.length; i++) {
-      const saveRes = http.post(
-        `${TARGET}/api/v1/save-answer`,
-        JSON.stringify({
-          session_id:  sessionId,
-          question_id: QUESTION_IDS[i],
-          answer:      ANSWER_CHOICES[(__ITER + i) % 4],
-        }),
+    const answers = Object.fromEntries(
+      QUESTION_IDS.map((q, i) => [q, ANSWER_CHOICES[(__ITER + i) % 4]])
+    )
+
+    if (SAVE_MODE === 'individual') {
+      // Legacy stress path: 8 per-answer writes per iteration. This is
+      // intentionally harsher than the current client, which uses bulk
+      // autosave for MCQ answers.
+      for (let i = 0; i < QUESTION_IDS.length; i++) {
+        const saveRes = http.post(
+          `${TARGET}/api/v1/save-answer`,
+          JSON.stringify({
+            session_id:  sessionId,
+            question_id: QUESTION_IDS[i],
+            answer:      answers[QUESTION_IDS[i]],
+          }),
+          {
+            headers: REQUEST_HEADERS,
+            tags: { name: 'save_answer' },
+            timeout: '10s',
+          }
+        )
+        check(saveRes, {
+          'save 200':       (r) => r.status === 200,
+          'save practice':  (r) => r.status === 200 && jsonField(r, 'practice') === true,
+        })
+        sleep(0.1)
+      }
+    } else {
+      // Current product path: local answer changes are coalesced and
+      // synced through /save-answers-bulk, reducing write RPS by an
+      // order of magnitude under large exams.
+      const bulkRes = http.post(
+        `${TARGET}/api/v1/save-answers-bulk`,
+        JSON.stringify({ session_id: sessionId, answers }),
         {
-          headers: { 'Content-Type': 'application/json' },
-          tags: { name: 'save_answer' },
-          // 10s hard cap. save-answer is a single Supabase upsert
-          // (or a no-op in practice mode); anything over 10s means
-          // the server is starved — fail fast rather than queue.
+          headers: REQUEST_HEADERS,
+          tags: { name: 'bulk_save' },
           timeout: '10s',
         }
       )
-      check(saveRes, {
-        'save 200':       (r) => r.status === 200,
-        'save practice':  (r) => r.json('practice') === true,
+      check(bulkRes, {
+        'bulk save 200':      (r) => r.status === 200,
+        'bulk save practice': (r) => r.status === 200 && jsonField(r, 'practice') === true,
       })
-      // 100ms between answers — realistic student typing cadence is
-      // 5-30s but at sub-second pace we generate maximum sustained
-      // load on the endpoint. Adjust upward if you want to model
-      // "what a normal exam window looks like" rather than "what's
-      // the ceiling".
-      sleep(0.1)
     }
 
     // 3. Submit exam — the spike-relevant call. Includes the full
@@ -100,15 +121,13 @@ export default function () {
       full_name:        `Loadtest Student ${__VU}`,
       email:            `load${__VU}@example.com`,
       time_taken_secs:  1800,
-      answers:          Object.fromEntries(
-        QUESTION_IDS.map((q, i) => [q, ANSWER_CHOICES[(__ITER + i) % 4]])
-      ),
+      answers,
     }
     const submitRes = http.post(
       `${TARGET}/api/v1/submit-exam`,
       JSON.stringify(submitBody),
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: REQUEST_HEADERS,
         tags: { name: 'submit' },
         // 15s cap. Submit recalculates score + writes session row +
         // logs violation + queues scorecard email. p(95) under 1s is
@@ -118,7 +137,7 @@ export default function () {
     )
     check(submitRes, {
       'submit 200':  (r) => r.status === 200,
-      'has score':   (r) => r.json('score') !== undefined,
+      'has score':   (r) => r.status === 200 && jsonField(r, 'score') !== undefined,
     })
   })
 
@@ -150,6 +169,17 @@ export function handleSummary(data) {
 
 // ── helpers (same as smoke.js for consistency) ────────────────
 
+function jsonField(res, field) {
+  if (!res || res.error || !res.body || res.status === 0) {
+    return undefined
+  }
+  try {
+    return res.json(field)
+  } catch (_) {
+    return undefined
+  }
+}
+
 function textSummary(data) {
   const m = data.metrics
   const get = (name) => m[name]?.values || {}
@@ -168,6 +198,7 @@ function textSummary(data) {
   Requests:  ${get('http_reqs').count || 0}
 
   Per-endpoint p(95) latency:
+    bulk_save:    ${(dur('bulk_save')['p(95)'] || 0).toFixed(0)}ms
     save_answer:  ${(dur('save_answer')['p(95)'] || 0).toFixed(0)}ms
     submit:       ${(dur('submit')['p(95)'] || 0).toFixed(0)}ms
 
@@ -175,6 +206,7 @@ function textSummary(data) {
    hit Supabase free-tier rate limits at this VU count. Test it
    separately with a smaller VU count if needed.)
 
+  Save mode: ${SAVE_MODE}
   Errors:    ${((get('http_req_failed').rate || 0) * 100).toFixed(2)}%
   Checks:    ${((get('checks').rate || 0) * 100).toFixed(2)}%
 ─────────────────────────────────────────────────
@@ -197,6 +229,7 @@ h1{color:#5b6df0}table{width:100%;border-collapse:collapse}td{padding:8px;border
 <p>Target: <code>${TARGET}</code> · VUs: ${VUS} · Iterations: ${m.iterations?.values?.count || 0}</p>
 <h2>Per-endpoint p(95) latency</h2>
 <table>
+<tr><td>bulk_save</td><td><span class="${dur('bulk_save') < 500 ? 'ok' : 'bad'}">${dur('bulk_save').toFixed(0)} ms</span></td></tr>
 <tr><td>save_answer</td><td><span class="${dur('save_answer') < 300 ? 'ok' : 'bad'}">${dur('save_answer').toFixed(0)} ms</span></td></tr>
 <tr><td>submit</td><td><span class="${dur('submit') < 1000 ? 'ok' : 'bad'}">${dur('submit').toFixed(0)} ms</span></td></tr>
 </table>

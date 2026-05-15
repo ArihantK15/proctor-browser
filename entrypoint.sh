@@ -27,11 +27,20 @@ if [ "${RQ_ENABLED:-0}" = "1" ]; then
   echo "[entrypoint] RQ worker started (PID=$_worker_pid)"
 fi
 
-# Replace shell with uvicorn (signal passthrough)
-exec uvicorn app.main:app \
+UVICORN_WORKERS="${UVICORN_WORKERS:-${WEB_CONCURRENCY:-2}}"
+UVICORN_KEEPALIVE="${UVICORN_KEEPALIVE:-15}"
+
+set -- uvicorn app.main:app \
   --host 0.0.0.0 \
   --port 8000 \
-  --workers 2 \
+  --workers "$UVICORN_WORKERS" \
   --loop uvloop \
-  --timeout-keep-alive 15 \
+  --timeout-keep-alive "$UVICORN_KEEPALIVE" \
   --log-level warning
+
+if [ -n "${UVICORN_LIMIT_CONCURRENCY:-}" ]; then
+  set -- "$@" --limit-concurrency "$UVICORN_LIMIT_CONCURRENCY"
+fi
+
+# Replace shell with uvicorn (signal passthrough)
+exec "$@"

@@ -21,15 +21,18 @@ Three scripts, one runner, no setup hell.
 | Script | What it does | When to run |
 |---|---|---|
 | `smoke.js` | 10 VUs hit `/health` + `/api/v1/billing/plans` for 30 s | Every deploy — 1-minute confidence check |
-| `exam_flow.js` | 500 simulated students write a full exam: validate → save-answer × 8 → submit | Pre-sale to verify the "500 concurrent students" claim |
+| `exam_flow.js` | 500 simulated students write a full exam: validate → bulk autosave → submit | Pre-sale to verify the "500 concurrent students" claim |
 | `submit_burst.js` | 300 students all submit within 60 s — the end-of-exam spike | Before any board-exam-scale deployment |
 | `sse_sessions.js` | 100 teacher dashboard SSE streams measure connect-token success, first-event latency, stream lifetime, and disconnects | Before live-monitor or dashboard stream changes |
 
 All three scripts use **practice mode** (`PRACTICE_*` session IDs)
 which is built into the Procta backend. Practice-mode requests
 exercise the full FastAPI middleware + router + Pydantic validation
-+ rate-limit pipeline but **skip DB writes and JWT auth**. You can
-hammer production safely as long as you use the practice prefix.
++ route-handler pipeline but **skip DB writes and JWT auth**. Route
+decorators still run before the practice-mode handler body, so high-VU
+production runs also need `LOADTEST_SECRET` configured on the server
+and passed to k6. Otherwise every virtual user looks like the same
+client IP to SlowAPI.
 
 Real-world load behaves slightly differently (DB write latency on
 real submits, etc.), so for the most accurate numbers run these
@@ -62,6 +65,12 @@ k6 is a single Go binary, ~30 MB. No Python, no node_modules, no Docker.
 
 # Realistic exam-load — 500 VUs, ~5 min
 ./run.sh exam
+
+# Safer production ramp. Requires the same LOADTEST_SECRET in the API env.
+LOADTEST_SECRET=... VUS=25 DURATION_MIN=1 ./run.sh exam
+
+# Legacy worst-case save-answer stress path.
+LOADTEST_SECRET=... SAVE_MODE=individual VUS=50 DURATION_MIN=1 ./run.sh exam
 
 # Submission spike — 300 VUs all hit submit in 60s
 ./run.sh burst
@@ -99,6 +108,12 @@ If `p(95)` is high but `p(99)` is much higher, you've got tail
 latency — typically Supabase rate-limiting or a cold cache. Re-run
 once and see if it stabilises.
 
+If k6 shows request timeouts around exactly 10s for `save-answer` or
+15s/30s for submit, the request hit the script timeout. That is a real
+capacity or routing symptom, but it is not a JSON/API-shape failure.
+First confirm whether the run included `LOADTEST_SECRET`; without it,
+route rate limits and reverse-proxy queues can dominate the result.
+
 ### What "500 concurrent" actually means
 
 k6's "VUs" (virtual users) is the number of parallel goroutines
@@ -106,10 +121,12 @@ hitting the API. Each VU runs the scenario start-to-finish in a
 loop. With `exam.js` at 500 VUs over 5 min, you'll get roughly:
 
 - 500 students all "in an exam" at any given moment
-- ~150,000 total requests
+- bulk autosave + submit traffic that matches the current client
 - Submission burst happens twice (once mid-test as some VUs cycle, once at end)
 
 This maps cleanly to "500 students writing an exam at the same time".
+Use `SAVE_MODE=individual` only when you deliberately want to stress
+the legacy `/save-answer` endpoint with one request per answer.
 
 ## Adapting for your scenario
 
@@ -173,11 +190,46 @@ student-table SELECTs) and every request waits 60s for a connection.
 That's not a Procta problem — it's the Supabase free tier doing what
 it says on the tin.
 
+Practice mode does **not** skip route decorators. For `save-answer` and
+`submit-exam`, SlowAPI evaluates the request before the function body
+can return the practice response. The backend has a controlled bypass:
+set `LOADTEST_SECRET` in the API process and pass the same value to
+k6, which sends it as `X-Loadtest-Key`. Use this only for deliberate
+capacity tests, not for normal traffic.
+
+Recommended production ramp:
+
+```bash
+# 1. Smoke the target first.
+./run.sh smoke
+
+# 2. Start below the droplet's likely ceiling and watch CPU, memory,
+#    worker logs, reverse-proxy logs, and health checks.
+LOADTEST_SECRET=... VUS=25 DURATION_MIN=1 ./run.sh exam
+LOADTEST_SECRET=... VUS=50 DURATION_MIN=1 ./run.sh exam
+LOADTEST_SECRET=... VUS=100 DURATION_MIN=2 ./run.sh exam
+
+# 3. Only continue if p95, failure rate, and server health stay stable.
+LOADTEST_SECRET=... VUS=250 DURATION_MIN=3 ./run.sh exam
+LOADTEST_SECRET=... VUS=500 DURATION_MIN=3 ./run.sh exam
+```
+
+On a constrained droplet, tune the API before declaring the app broken:
+
+```bash
+# More workers if CPU has headroom; keep this near 2 x vCPU for I/O-heavy API work.
+UVICORN_WORKERS=4 docker compose up -d --force-recreate api
+
+# Optional overload protection: return fast failures instead of 10s queues.
+UVICORN_LIMIT_CONCURRENCY=200 docker compose up -d --force-recreate api
+```
+
 In real life, students hit `/validate-student` once per exam-join,
 spread over a 2-5 min window before the exam starts. The high-volume
-calls are `save-answer` (every keystroke change) and `submit-exam`
-(at the deadline). Those are what k6 tests, and what practice mode
-correctly bypasses.
+calls are bulk autosave during the exam and `submit-exam` at the
+deadline. The default k6 exam scenario follows that current client
+behavior; set `SAVE_MODE=individual` to test the older per-answer
+write pattern.
 
 If you want to test the validate-student path under realistic load,
 use the Locust setup with pre-created students (its `setup_test_data.py`

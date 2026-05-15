@@ -1823,28 +1823,16 @@ function renderQ(){
     ta.style.cssText='width:100%;min-height:140px;padding:12px;border-radius:10px;border:1px solid var(--border, #2a2f3a);background:var(--card, #161a22);color:inherit;font:inherit;line-height:1.5;resize:vertical';
     ta.setAttribute('aria-label', `Answer for question ${curQ + 1}`);
     ta.setAttribute('aria-describedby', 'qhint');
-    let _saveTimer=null;
-    ta.addEventListener('input', ()=>{
-      const v=ta.value;
-      if(v.trim()) answers[q.id]=v; else delete answers[q.id];
-      _persistAnswers();
-      // debounce server save 800ms — short-answer text changes rapidly
-      if(_saveTimer) clearTimeout(_saveTimer);
-      _saveTimer=setTimeout(()=>{
-        if(!sessionId || isOffline) return;
-        const headers={'Content-Type':'application/json',...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
-        fetch(`${SERVER}/api/save-answer`,{method:'POST',headers,
-          body:JSON.stringify({session_id:sessionId,question_id:String(q.id),answer:v})})
-          .then(r=>{if(!r.ok) throw new Error(r.status);})
-          .catch(()=>{
-            isOffline=true;
-            const s=document.getElementById('save-status');
-            if(s){s.textContent='Offline — saved locally';s.style.color='#d29922';s.style.opacity='1';}
-          });
-      },800);
-      // Update sidebar dot answered-state without a full re-render
-      const d=document.getElementById(`qd-${curQ}`);
-      if(d) d.className='qdot cur'+(v.trim()?' ans':'');
+	    ta.addEventListener('input', ()=>{
+	      const v=ta.value;
+	      if(v.trim()) answers[q.id]=v; else delete answers[q.id];
+	      _persistAnswers();
+	      // Network sync is intentionally coalesced through the bulk
+	      // autosave timer and final submit. Per-keystroke server saves
+	      // turn short-answer exams into the hottest write path.
+	      // Update sidebar dot answered-state without a full re-render
+	      const d=document.getElementById(`qd-${curQ}`);
+	      if(d) d.className='qdot cur'+(v.trim()?' ans':'');
     });
     o.appendChild(ta);
     document.getElementById('btn-prev').disabled=curQ===0;

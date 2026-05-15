@@ -25,6 +25,10 @@ import { check } from 'k6'
 
 const TARGET = __ENV.TARGET || 'https://app.procta.net'
 const BURST_VUS = parseInt(__ENV.BURST_VUS || '300', 10)
+const LOADTEST_SECRET = __ENV.LOADTEST_SECRET || ''
+const REQUEST_HEADERS = LOADTEST_SECRET
+  ? { 'Content-Type': 'application/json', 'X-Loadtest-Key': LOADTEST_SECRET }
+  : { 'Content-Type': 'application/json' }
 
 export const options = {
   // The shape: ramp 0→300 in 5 seconds (not instantaneous, because
@@ -64,7 +68,7 @@ export default function () {
     `${TARGET}/api/v1/submit-exam`,
     JSON.stringify(submitBody),
     {
-      headers: { 'Content-Type': 'application/json' },
+      headers: REQUEST_HEADERS,
       tags: { name: 'submit_burst' },
       timeout: '30s',
     }
@@ -72,7 +76,7 @@ export default function () {
 
   check(res, {
     'submit completed': (r) => r.status === 200 || r.status === 429,
-    'submit not 5xx':   (r) => r.status < 500,
+    'submit not 5xx':   (r) => r.status > 0 && r.status < 500,
   })
 
   // No sleep — we want all 300 VUs hammering submit as fast as the

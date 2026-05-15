@@ -21,6 +21,9 @@ export default function OnboardingWizard({ onComplete }) {
   const [csvText, setCsvText] = useState('')
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
+  const [students, setStudents] = useState([])
+  const [inviting, setInviting] = useState(false)
+  const [inviteResult, setInviteResult] = useState(null)
 
   const createExam = async () => {
     setCreating(true)
@@ -37,12 +40,11 @@ export default function OnboardingWizard({ onComplete }) {
       if (r.ok) {
         const d = await r.json()
         setCreatedExamId(d.exam_id)
-        // Set access code
         if (accessCode) {
-          await authFetch(`/api/v1/admin/exams/${d.exam_id}/access-code`, {
+          await authFetch('/api/v1/admin/access-code', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_code: accessCode }),
+            body: JSON.stringify({ exam_id: d.exam_id, access_code: accessCode }),
           })
         }
         setStep(2)
@@ -66,7 +68,12 @@ export default function OnboardingWizard({ onComplete }) {
         const obj = {}
         headers.forEach((h, i) => { obj[h] = vals[i] || '' })
         return obj
-      })
+      }).filter(s => s.roll_number && s.full_name && s.email)
+      if (!students.length) {
+        setImportResult({ ok: false, msg: 'No valid rows found. Required columns: roll_number, full_name, email.' })
+        setImporting(false)
+        return
+      }
       const r = await authFetch('/api/v1/admin/register-students-bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -74,6 +81,7 @@ export default function OnboardingWizard({ onComplete }) {
       })
       if (r.ok) {
         const d = await r.json()
+        setStudents(students)
         setImportResult({ ok: true, msg: `${d.registered || 0} registered, ${d.skipped || 0} skipped` })
         setTimeout(() => setStep(3), 1500)
       } else {
@@ -86,9 +94,30 @@ export default function OnboardingWizard({ onComplete }) {
   }
 
   const sendInvites = async () => {
-    // Skip — teacher can do this manually from the dashboard
-    setStep(4)
+    if (!createdExamId || !students.length) {
+      setInviteResult({ ok: false, msg: 'Import students first.' })
+      return
+    }
+    setInviting(true)
+    setInviteResult(null)
+    try {
+      const r = await authFetch('/api/v1/admin/invites/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exam_id: createdExamId, recipients: students }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.detail || 'Failed to send invites')
+      setInviteResult({ ok: true, msg: `Sent ${d.sent || 0}, skipped ${d.skipped || 0}, failed ${d.failed || 0}` })
+      setTimeout(() => setStep(4), 1200)
+    } catch (e) {
+      setInviteResult({ ok: false, msg: e.message || 'Failed to send invites' })
+    } finally {
+      setInviting(false)
+    }
   }
+
+  const skipInvites = () => setStep(4)
 
   return (
     <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -96,7 +125,7 @@ export default function OnboardingWizard({ onComplete }) {
         {/* Progress */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 24 }}>
           {STEPS.map((s, i) => (
-            <div key={s.id} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= step ? 'var(--primary)' : 'var(--border)', transition: 'background 0.3s' }} />
+            <div key={s.id} title={s.label} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= step ? 'var(--accent)' : 'var(--border-subtle)', transition: 'background 0.3s' }} />
           ))}
         </div>
 
@@ -104,11 +133,11 @@ export default function OnboardingWizard({ onComplete }) {
         {step === 0 && (
           <div>
             <h2 style={{ marginBottom: 8 }}>Welcome to Procta!</h2>
-            <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
               Let's set up your first exam in under 5 minutes. You'll create an exam, add students,
               and send invites. We'll also show you how to test everything before the real thing.
             </p>
-            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 24 }}>
               Don't worry — you can always change settings later from the dashboard.
             </p>
             <button className="btn btn-primary" onClick={() => setStep(1)}>Get Started</button>
@@ -119,7 +148,7 @@ export default function OnboardingWizard({ onComplete }) {
         {step === 1 && (
           <div>
             <h2 style={{ marginBottom: 8 }}>Create your first exam</h2>
-            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 20 }}>Set the basics — you can always add questions and settings later.</p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>Set the basics — you can always add questions and settings later.</p>
             <div className="fg"><label>Exam title</label><input type="text" value={examTitle} onChange={e => setExamTitle(e.target.value)} style={{ width: '100%' }} /></div>
             <div className="fg"><label>Duration (minutes)</label><input type="number" value={duration} onChange={e => setDuration(Number(e.target.value))} style={{ width: '100%' }} min={5} max={300} /></div>
             <div className="fg"><label>Access code (optional)</label><input type="text" value={accessCode} onChange={e => setAccessCode(e.target.value.toUpperCase())} style={{ width: '100%', textTransform: 'uppercase', fontFamily: 'monospace' }} placeholder="e.g. EXAM2024" /></div>
@@ -136,12 +165,14 @@ export default function OnboardingWizard({ onComplete }) {
         {step === 2 && (
           <div>
             <h2 style={{ marginBottom: 8 }}>Add students</h2>
-            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 8 }}>Paste CSV with columns: <code>roll_number,full_name,email</code></p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>Paste CSV with columns: <code>roll_number,full_name,email</code></p>
             <textarea value={csvText} onChange={e => setCsvText(e.target.value)}
-              rows={6} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, fontFamily: 'monospace', resize: 'vertical' }}
+              rows={6} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: 13, fontFamily: 'monospace', resize: 'vertical' }}
               placeholder={`roll_number,full_name,email\nSTU001,Alice Johnson,alice@example.edu\nSTU002,Bob Smith,bob@example.edu`} />
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
-              <a href="/templates/students.csv" download style={{ color: 'var(--primary)' }}>Download sample CSV</a>
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setCsvText('roll_number,full_name,email\nSTU001,Alice Johnson,alice@example.edu\nSTU002,Bob Smith,bob@example.edu')} type="button">
+                Use sample rows
+              </button>
             </div>
             {importResult && (
               <div style={{ marginTop: 8, fontSize: 13, color: importResult.ok ? 'var(--emerald)' : 'var(--red)' }}>{importResult.msg}</div>
@@ -159,13 +190,19 @@ export default function OnboardingWizard({ onComplete }) {
         {step === 3 && (
           <div>
             <h2 style={{ marginBottom: 8 }}>Send invites</h2>
-            <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
-              Students need to download the Procta browser and use the invite link to access the exam.
-              You can send invites from the dashboard at any time.
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
+              Send email invites to the {students.length} student{students.length === 1 ? '' : 's'} you imported.
+              Each invite includes the exam link and desktop app download.
             </p>
+            {inviteResult && (
+              <div style={{ marginBottom: 12, fontSize: 13, color: inviteResult.ok ? 'var(--emerald)' : 'var(--red)' }}>{inviteResult.msg}</div>
+            )}
             <div className="modal-actions" style={{ marginTop: 20 }}>
               <button className="btn btn-secondary" onClick={() => setStep(2)}>Back</button>
-              <button className="btn btn-primary" onClick={sendInvites} style={{ flex: 1 }}>Continue</button>
+              <button className="btn btn-secondary" onClick={skipInvites}>Skip</button>
+              <button className="btn btn-primary" disabled={inviting || !students.length} onClick={sendInvites} style={{ flex: 1 }}>
+                {inviting ? 'Sending...' : 'Send Invites'}
+              </button>
             </div>
           </div>
         )}
@@ -174,7 +211,7 @@ export default function OnboardingWizard({ onComplete }) {
         {step === 4 && (
           <div>
             <h2 style={{ marginBottom: 8 }}>Try it yourself</h2>
-            <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
               Before the real exam, run a practice test to make sure everything works.
               The demo exam uses sample questions so you can verify the full flow.
             </p>
@@ -196,12 +233,12 @@ export default function OnboardingWizard({ onComplete }) {
         {step === 5 && (
           <div style={{ textAlign: 'center' }}>
             <h2 style={{ marginBottom: 8 }}>You're all set!</h2>
-            <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
               Your exam is ready. From the dashboard you can add questions, adjust settings,
               monitor live sessions, and review results.
             </p>
             <div className="modal-actions" style={{ justifyContent: 'center' }}>
-              <button className="btn btn-primary" onClick={onComplete}>Open Dashboard</button>
+              <button className="btn btn-primary" onClick={() => onComplete(createdExamId)}>Open Dashboard</button>
             </div>
           </div>
         )}

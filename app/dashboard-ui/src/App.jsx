@@ -15,6 +15,7 @@ import QuestionsPanel from './panels/QuestionsPanel'
 import LiveSessionsPanel from './panels/LiveSessionsPanel'
 import ToolsPanel from './panels/ToolsPanel'
 import ReviewPanel from './panels/ReviewPanel'
+import OpsPanel from './panels/OpsPanel'
 import OnboardingWizard from './components/OnboardingWizard'
 
 const TABS = [
@@ -150,7 +151,8 @@ function DashboardShell() {
         if (localStorage.getItem(key)) { setCheckingOnboarding(false); return }
         const r = await authFetch('/api/v1/admin/exams')
         if (r.ok) {
-          const exams = await r.json()
+          const data = await r.json()
+          const exams = Array.isArray(data) ? data : (data.exams || [])
           if (Array.isArray(exams) && exams.length <= 1) {
             setShowOnboarding(true)
           }
@@ -162,7 +164,12 @@ function DashboardShell() {
 
   if (checkingOnboarding) return null
   if (showOnboarding) {
-    return <OnboardingWizard onComplete={() => { setShowOnboarding(false); localStorage.setItem('procta_onboarding_done', '1') }} />
+    return <OnboardingWizard onComplete={(examId) => {
+      if (examId) setCurrentExamId(examId)
+      setActiveTab(examId ? 'questions' : 'org')
+      setShowOnboarding(false)
+      localStorage.setItem('procta_onboarding_done', '1')
+    }} />
   }
 
   return (

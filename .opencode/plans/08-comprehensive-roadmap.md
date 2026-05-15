@@ -24,7 +24,7 @@
 
 | # | Item | Effort | Why |
 |---|------|--------|-----|
-| 4 | **Institution onboarding wizard** — create first exam, import students, configure access code, send invites, run demo exam, download browser | 2 days | "First successful exam" is the core activation event |
+| 4 | **Institution onboarding wizard** — create first exam, import students, configure access code, send invites, run demo exam, download browser | Done, first slice shipped | "First successful exam" is the core activation event. React wizard now uses live exam, access-code, bulk student import, and invite endpoints |
 | 5 | **"Run a demo exam" as primary CTA** after signup, not just dashboard entry | 4 hr | Drives trial-to-paid conversion immediately |
 | 6 | **Evidence-grade review workflow** — violation timeline, evidence thumbnails, reason codes, appeal trail, reviewer decisions, "export audit packet" | 1.5 days | Teachers need confidence in AI flags |
 

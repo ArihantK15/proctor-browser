@@ -16,6 +16,8 @@ const Blog = lazy(() => import('./pages/Blog'))
 const BlogAiVsTraditional = lazy(() => import('./pages/BlogAiVsTraditional'))
 const BlogCheatingPrevention = lazy(() => import('./pages/BlogCheatingPrevention'))
 const BlogDPDPCompliance = lazy(() => import('./pages/BlogDPDPCompliance'))
+const Download = lazy(() => import('./pages/Download'))
+const Register = lazy(() => import('./pages/Register'))
 
 function RouteFallback() {
   return (
@@ -54,6 +56,8 @@ export default function App() {
       <Route path="/blog/ai-proctoring-vs-traditional-proctoring"><LazyRoute Component={BlogAiVsTraditional} /></Route>
       <Route path="/blog/online-exam-cheating-prevention-ai-proctoring"><LazyRoute Component={BlogCheatingPrevention} /></Route>
       <Route path="/blog/dpdp-act-compliance-online-proctoring-indian-universities"><LazyRoute Component={BlogDPDPCompliance} /></Route>
+      <Route path="/download"><LazyRoute Component={Download} /></Route>
+      <Route path="/register"><LazyRoute Component={Register} /></Route>
     </Switch>
   )
 }

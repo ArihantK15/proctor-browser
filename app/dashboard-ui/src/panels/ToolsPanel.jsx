@@ -13,6 +13,7 @@ export default function ToolsPanel({ currentExamId }) {
   const [accessResult, setAccessResult] = useState('')
   const [sensitivity, setSensitivity] = useState('balanced')
   const [sensitivityLoaded, setSensitivityLoaded] = useState(false)
+  const [sensitivityResult, setSensitivityResult] = useState('')
   const [scheduleResult, setScheduleResult] = useState('')
   const [shuffleResult, setShuffleResult] = useState('')
 
@@ -38,6 +39,8 @@ export default function ToolsPanel({ currentExamId }) {
   }
   const loadSensitivity = async () => {
     try {
+      setSensitivityLoaded(false)
+      setSensitivityResult('')
       const r = await authFetch(`/api/v1/admin/proctoring-sensitivity?exam_id=${encodeURIComponent(currentExamId)}`)
       if (r.ok) { const d = await r.json(); setSensitivity(d.proctoring_sensitivity || 'balanced'); setSensitivityLoaded(true) }
     } catch (_) {}
@@ -172,12 +175,13 @@ export default function ToolsPanel({ currentExamId }) {
               <option value="balanced">Balanced — recommended default</option>
               <option value="lenient">Lenient — fewer flags, more false negatives</option>
             </select>
+            {sensitivityResult && <div style={{ fontSize: 12, marginBottom: 6 }}>{sensitivityResult}</div>}
             <button className="btn btn-primary btn-sm" onClick={async () => {
               const r = await authFetch('/api/v1/admin/proctoring-sensitivity', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ exam_id: currentExamId, proctoring_sensitivity: sensitivity }),
               })
-              if (r.ok) setShuffleResult('✅ Sensitivity saved')
+              setSensitivityResult(r.ok ? '✅ Sensitivity saved' : 'Failed')
             }}>Save Sensitivity</button>
           </div>
         ) : <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</div>}

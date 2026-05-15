@@ -54,6 +54,8 @@ Before touching the running containers, confirm:
       the student-account privacy linkage fix.
 - [ ] `migrations/phase55_dashboard_reporting_indexes.sql` has been applied
       during a quiet window; verify with `DB_INDEX_REVIEW.md`.
+- [ ] `migrations/phase56_proctoring_sensitivity.sql` has been applied before
+      using the Detection Sensitivity control in Tools.
 - [ ] If the release touches exam startup/submission, run one practice exam
       locally before deploying.
 

@@ -5,7 +5,7 @@ Covers:
   2. POST /api/v1/admin/exam-schedule  — set schedule window (starts_at, ends_at)
   3. GET  /api/v1/admin/shuffle-config — read shuffle flags
   4. POST /api/v1/admin/shuffle-config — set shuffle flags
-  5. GET/POST /api/v1/admin/proctoring-config — false-positive sensitivity
+  5. GET/POST /api/v1/admin/proctoring-sensitivity — false-positive sensitivity
   6. GET  /api/v1/exam-schedule        — public schedule endpoint
   7. Window status logic via /api/student/exams (upcoming / open / closed)
 """
@@ -241,7 +241,7 @@ class TestAdminSetShuffle:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  GET/POST /api/v1/admin/proctoring-config
+#  GET/POST /api/v1/admin/proctoring-sensitivity
 # ═══════════════════════════════════════════════════════════════════
 
 class TestAdminProctoringConfig:
@@ -252,11 +252,11 @@ class TestAdminProctoringConfig:
             "teachers": [TEACHER],
             "exam_config": [{**EXAM_CONFIG, "proctoring_sensitivity": None}],
         })):
-            resp = client.get("/api/v1/admin/proctoring-config?exam_id=exam-1",
+            resp = client.get("/api/v1/admin/proctoring-sensitivity?exam_id=exam-1",
                               headers=_admin_headers())
         assert resp.status_code == 200
         data = resp.json()
-        assert data["sensitivity"] == "balanced"
+        assert data["proctoring_sensitivity"] == "balanced"
         assert "strict" in data["presets"]
         assert "lenient" in data["presets"]
 
@@ -266,11 +266,11 @@ class TestAdminProctoringConfig:
             "teachers": [TEACHER],
             "exam_config": [{**EXAM_CONFIG, "proctoring_sensitivity": "lenient"}],
         })):
-            resp = client.post("/api/v1/admin/proctoring-config",
-                               json={"exam_id": "exam-1", "sensitivity": "lenient"},
+            resp = client.post("/api/v1/admin/proctoring-sensitivity",
+                               json={"exam_id": "exam-1", "proctoring_sensitivity": "lenient"},
                                headers=_admin_headers())
         assert resp.status_code == 200
-        assert resp.json()["sensitivity"] == "lenient"
+        assert resp.json()["proctoring_sensitivity"] == "lenient"
 
     def test_set_proctoring_config_rejects_unknown_value(self, client):
         sm = shared_supabase_mock()
@@ -278,8 +278,8 @@ class TestAdminProctoringConfig:
             "teachers": [TEACHER],
             "exam_config": [EXAM_CONFIG],
         })):
-            resp = client.post("/api/v1/admin/proctoring-config",
-                               json={"exam_id": "exam-1", "sensitivity": "maximum"},
+            resp = client.post("/api/v1/admin/proctoring-sensitivity",
+                               json={"exam_id": "exam-1", "proctoring_sensitivity": "maximum"},
                                headers=_admin_headers())
         assert resp.status_code == 400
 

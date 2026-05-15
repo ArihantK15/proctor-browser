@@ -10,6 +10,7 @@ from ..database import async_table as _atable
 from .. import cache as _cache
 from ..limiter import limiter
 from ..models import ScheduleIn, ShuffleIn
+from ..services.false_positive import normalize_sensitivity, SENSITIVITY_PRESETS
 
 router = APIRouter(prefix="")
 
@@ -102,8 +103,11 @@ async def admin_get_sensitivity(request: Request):
     teacher = await require_admin(request)
     exam_id = request.query_params.get("exam_id")
     config = await _load_exam_config(teacher["id"], exam_id=exam_id)
+    sensitivity = normalize_sensitivity(config.get("proctoring_sensitivity"))
     return {
-        "proctoring_sensitivity": config.get("proctoring_sensitivity", "balanced"),
+        "proctoring_sensitivity": sensitivity,
+        "profile": SENSITIVITY_PRESETS[sensitivity],
+        "presets": SENSITIVITY_PRESETS,
     }
 
 
@@ -113,15 +117,20 @@ async def admin_set_sensitivity(request: Request, body: SensitivityIn = Body(...
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     exam_id = body.exam_id
-    value = body.proctoring_sensitivity or "balanced"
-    valid = {"strict", "balanced", "lenient"}
-    if value not in valid:
-        raise HTTPException(status_code=400, detail=f"Must be one of: {', '.join(sorted(valid))}")
+    raw_value = (body.proctoring_sensitivity or "balanced").strip().lower()
+    if raw_value not in SENSITIVITY_PRESETS:
+        valid = ", ".join(sorted(SENSITIVITY_PRESETS))
+        raise HTTPException(status_code=400, detail=f"Must be one of: {valid}")
+    value = normalize_sensitivity(raw_value)
     await _atable("exam_config").update({"proctoring_sensitivity": value})\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     if _cache:
         _cache.delete(f"exam_config:{tid}:{exam_id}")
-    return {"status": "updated", "proctoring_sensitivity": value}
+    return {
+        "status": "updated",
+        "proctoring_sensitivity": value,
+        "profile": SENSITIVITY_PRESETS[value],
+    }
 
 
 __all__ = ["router"]

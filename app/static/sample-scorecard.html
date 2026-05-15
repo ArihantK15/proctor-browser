@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>Sample Scorecard - Procta</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fafc;color:#1e293b;line-height:1.65;padding:40px;max-width:900px;margin:0 auto}
+.sheet{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:28px;box-shadow:0 1px 3px rgba(15,23,42,.08)}
+h1{font-size:28px;color:#0f172a} h2{font-size:17px;margin:26px 0 10px;color:#0f172a}
+.sub{color:#64748b;margin:4px 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:18px 0}
+.metric{border:1px solid #e2e8f0;border-radius:10px;padding:14px;background:#f8fafc}
+.k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;font-weight:700}.v{font-size:22px;font-weight:750;color:#0f172a}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 10px;text-align:left;border-bottom:1px solid #e2e8f0}th{background:#eef2ff;color:#0f172a}
+.badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700}.low{background:#dcfce7;color:#166534}.med{background:#fef3c7;color:#92400e}.high{background:#fee2e2;color:#991b1b}
+.note{background:#f8fafc;border-left:4px solid #4f46e5;padding:12px 14px;color:#475569}
+a{color:#4f46e5;text-decoration:none;font-weight:600}
+@media print{body{background:#fff}.sheet{box-shadow:none;border:none}}
+</style>
+</head>
+<body>
+<div class="sheet">
+<h1>Sample Exam Scorecard</h1>
+<p class="sub">Illustrative output for procurement review. This is sample data, not a real learner record.</p>
+
+<div class="grid">
+  <div class="metric"><div class="k">Student</div><div class="v">A. Sharma</div></div>
+  <div class="metric"><div class="k">Score</div><div class="v">82/100</div></div>
+  <div class="metric"><div class="k">Risk</div><div class="v">24/100</div></div>
+  <div class="metric"><div class="k">Review</div><div class="v">Teacher confirmed</div></div>
+</div>
+
+<h2>Exam Summary</h2>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Exam</td><td>Midterm Computer Science</td></tr>
+  <tr><td>Duration</td><td>60 minutes</td></tr>
+  <tr><td>Submission</td><td>Completed within allowed window</td></tr>
+  <tr><td>Identity</td><td>Approved by teacher review</td></tr>
+</table>
+
+<h2>Evidence Timeline</h2>
+<table>
+  <tr><th>Time</th><th>Signal</th><th>Severity</th><th>Confidence</th><th>Review Note</th></tr>
+  <tr><td>10:14</td><td>Window focus lost</td><td><span class="badge med">Medium</span></td><td>99%</td><td>Strong browser signal; teacher confirmed it was a short accidental switch.</td></tr>
+  <tr><td>10:32</td><td>Gaze away</td><td><span class="badge med">Medium</span></td><td>64%</td><td>Context-sensitive signal; calibration was normal. No score action taken.</td></tr>
+  <tr><td>10:58</td><td>Exam submitted</td><td><span class="badge low">Event</span></td><td>n/a</td><td>Audit event only.</td></tr>
+</table>
+
+<h2>AI And Human Review</h2>
+<p class="note">Procta scorecards separate detector confidence from teacher decisions. AI proctoring signals and AI grading suggestions are evidence for review, not automatic disciplinary verdicts.</p>
+
+<h2>Exports</h2>
+<p>Production scorecards are generated as authenticated PDFs from the dashboard and can include visual evidence screenshots, answer breakdowns, and appeal notes.</p>
+<p style="margin-top:18px"><a href="/proof-assets">Back to proof assets</a></p>
+</div>
+</body>
+</html>

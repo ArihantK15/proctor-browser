@@ -50,6 +50,13 @@ router = APIRouter(prefix="")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
+def _static_html_response(filename: str, missing_detail: str) -> HTMLResponse:
+    html_path = STATIC_DIR / filename
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail=missing_detail)
+    return HTMLResponse(html_path.read_text())
+
+
 @router.get("/")
 def root():
     """app.procta.net is the application host (dashboard + APIs).
@@ -83,6 +90,9 @@ def robots_txt():
         "User-agent: *\n"
         "Allow: /download\n"
         "Allow: /dashboard\n"
+        "Allow: /trust-center\n"
+        "Allow: /proof-assets\n"
+        "Allow: /sample-scorecard\n"
         "Disallow: /api/v1/\n"
         "Disallow: /register\n"
         "Disallow: /student\n"
@@ -337,36 +347,24 @@ async def resolve_access_code(request: Request, body: ResolveAccessCodeIn):
 @router.get("/download")
 def download_page():
     """Auto-detect OS and offer the right installer."""
-    html_path = STATIC_DIR / "download.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="Download page not found")
-    return HTMLResponse(html_path.read_text())
+    return _static_html_response("download.html", "Download page not found")
 
 
 @router.get("/register")
 def register_page():
     """Self-registration page for students before exam day."""
-    html_path = STATIC_DIR / "register.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="Registration page not found")
-    return HTMLResponse(html_path.read_text())
+    return _static_html_response("register.html", "Registration page not found")
 
 
 @router.get("/student")
 def student_page():
     """Student-facing dashboard: upcoming exams, practice, profile."""
-    html_path = STATIC_DIR / "student.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="Student dashboard not found")
-    return HTMLResponse(html_path.read_text())
+    return _static_html_response("student.html", "Student dashboard not found")
 
 
 @router.get("/dashboard")
 def admin_dashboard():
-    html_path = STATIC_DIR / "dashboard.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="Dashboard not found")
-    return HTMLResponse(html_path.read_text())
+    return _static_html_response("dashboard.html", "Dashboard not found")
 
 
 @router.get("/dashboard-react")
@@ -375,6 +373,36 @@ def admin_dashboard_react():
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="React dashboard not found")
     return HTMLResponse(html_path.read_text())
+
+
+@router.get("/trust-center")
+def trust_center_page():
+    return _static_html_response("trust-center.html", "Trust center not found")
+
+
+@router.get("/proof-assets")
+def proof_assets_page():
+    return _static_html_response("proof-assets.html", "Proof assets not found")
+
+
+@router.get("/sample-scorecard")
+def sample_scorecard_page():
+    return _static_html_response("sample-scorecard.html", "Sample scorecard not found")
+
+
+@router.get("/dpa")
+def dpa_page():
+    return _static_html_response("dpa.html", "DPA not found")
+
+
+@router.get("/privacy-policy")
+def privacy_policy_page():
+    return _static_html_response("privacy-policy.html", "Privacy policy not found")
+
+
+@router.get("/security-questionnaire")
+def security_questionnaire_page():
+    return _static_html_response("security-questionnaire.html", "Security questionnaire not found")
 
 
 @router.get("/download/mac")

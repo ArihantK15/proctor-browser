@@ -339,6 +339,29 @@ async def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body
     return {"results": all_results, "total_issues": total_issues}
 
 
+class GenerateRubricIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    question: str
+    reference_answer: str = ""
+    max_score: int = 5
+
+
+@router.post("/api/v1/admin/generate-rubric")
+@limiter.limit("10/minute")
+async def generate_rubric_endpoint(request: Request, body: GenerateRubricIn = Body(...)):
+    """Generate a grading rubric for a short-answer question."""
+    from ..llm import is_configured, generate_rubric
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="AI features unavailable. Set LLM_API_KEY on the server.")
+    teacher = await require_admin(request)
+    _ = teacher
+    try:
+        result = generate_rubric(body.question, body.reference_answer, body.max_score)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI provider error: {e}")
+
+
 @router.post("/api/v1/admin/question-bank/to-exam")
 @limiter.limit("30/minute")
 async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):

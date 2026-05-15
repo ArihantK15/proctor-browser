@@ -1,6 +1,15 @@
 from app.services.false_positive import explain_flag, normalize_sensitivity
 
 
+def test_proctoring_sensitivity_migration_adds_guarded_config():
+    sql = open("migrations/phase56_proctoring_sensitivity.sql", encoding="utf-8").read().lower()
+    assert "add column if not exists proctoring_sensitivity" in sql
+    assert "strict" in sql
+    assert "balanced" in sql
+    assert "lenient" in sql
+    assert "exam_config_proctoring_sensitivity_check" in sql
+
+
 def test_normalize_sensitivity_defaults_unknown_values():
     assert normalize_sensitivity("strict") == "strict"
     assert normalize_sensitivity("LENIENT") == "lenient"

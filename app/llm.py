@@ -547,6 +547,63 @@ def lint_questions(questions: list[dict]) -> list[dict]:
     ]
 
 
+# ── Rubric generation ────────────────────────────────────────────────
+
+_RUBRIC_SYSTEM = """You are an expert assessment designer. Create a detailed grading rubric \
+for a short-answer exam question. The rubric must define score bands with clear criteria.
+
+Return JSON:
+{
+  "rubric": "A detailed marking guide with score bands, criteria, and examples.",
+  "max_score": 5,
+  "criteria": [
+    {"score": 5, "label": "Excellent", "description": "Full understanding demonstrated..."},
+    {"score": 3, "label": "Adequate", "description": "Core concepts present but lacking detail..."},
+    {"score": 1, "label": "Minimal", "description": "Vague or partially incorrect..."},
+    {"score": 0, "label": "Incorrect", "description": "Wrong or off-topic answer..."}
+  ]
+}"""
+
+
+def generate_rubric(question: str, reference_answer: str, max_score: int = 5) -> dict:
+    """Generate a grading rubric for a short-answer question.
+
+    Returns ``{rubric, max_score, criteria}`` suitable for storing in
+    the question's ``rubric`` and ``max_score`` fields.
+    """
+    if not is_configured():
+        return {"rubric": "", "max_score": max_score, "criteria": []}
+    if not question.strip():
+        return {"rubric": "", "max_score": max_score, "criteria": []}
+
+    user = f"""Question: {question}
+
+Reference answer (model answer the teacher wrote):
+{reference_answer or '(not provided — use your subject expertise)'}
+
+Maximum score: {max_score}
+
+Create a detailed rubric with {min(max_score, 5)} score bands ranging from 0 to {max_score}.
+Each band should describe what the answer must include to achieve that score."""
+
+    try:
+        parsed = _chat_json(_RUBRIC_SYSTEM, user, max_tokens=1500, temperature=0.3)
+    except Exception as e:
+        log.warning("generate_rubric failed: %s", e)
+        return {"rubric": str(e), "max_score": max_score, "criteria": []}
+
+    rubric_text = str(parsed.get("rubric") or "")
+    criteria = parsed.get("criteria") or []
+    if not rubric_text and not criteria:
+        return {"rubric": "", "max_score": max_score, "criteria": []}
+
+    return {
+        "rubric": rubric_text[:2000],
+        "max_score": int(parsed.get("max_score", max_score)),
+        "criteria": criteria[:8],
+    }
+
+
 # ── Short-answer grading ────────────────────────────────────────────
 
 _GRADE_SYSTEM = """You are an exam grader. The teacher has provided a reference answer and \

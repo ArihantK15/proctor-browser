@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<title>Proof Assets - Procta</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fafc;color:#1e293b;line-height:1.65;padding:40px;max-width:960px;margin:0 auto}
+h1{font-size:30px;margin-bottom:6px;color:#0f172a}
+h2{font-size:18px;margin:28px 0 10px;color:#0f172a}
+p,li,td,th{font-size:14px;color:#475569}
+.sub{color:#64748b;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:18px;box-shadow:0 1px 3px rgba(15,23,42,.06)}
+.k{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;font-weight:700}
+.v{font-size:24px;color:#0f172a;font-weight:750;margin-top:4px}
+.ok{color:#16a34a}.warn{color:#d97706}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #e2e8f0}
+th{background:#eef2ff;color:#0f172a}
+a{color:#4f46e5;text-decoration:none;font-weight:600}
+.links{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 4px}
+.btn{display:inline-block;background:#4f46e5;color:#fff;padding:10px 14px;border-radius:8px}
+.btn.secondary{background:#e2e8f0;color:#334155}
+@media print{body{background:#fff}.card,table{box-shadow:none}.links{display:none}}
+</style>
+</head>
+<body>
+<h1>Procta Proof Assets</h1>
+<p class="sub">Short-form trust, security, retention, and reporting assets for procurement, sales decks, and institutional review. Updated May 2026.</p>
+
+<div class="links">
+  <a class="btn" href="/trust-center">Trust Center</a>
+  <a class="btn secondary" href="/security-questionnaire">Security Questionnaire</a>
+  <a class="btn secondary" href="/dpa">DPA Template</a>
+  <a class="btn secondary" href="/sample-scorecard">Sample Scorecard</a>
+</div>
+
+<h2>Operational Proof</h2>
+<div class="grid">
+  <div class="card"><div class="k">Health Endpoint</div><div class="v ok">/health</div><p>Checks API, Supabase, disk, storage write, Redis, worker heartbeat, and email configuration.</p></div>
+  <div class="card"><div class="k">Admin Ops</div><div class="v ok">Live</div><p>Authenticated operators see queue depth, failed jobs, active sessions, failed submits, release version, and service checks.</p></div>
+  <div class="card"><div class="k">Release Gate</div><div class="v ok">Automated</div><p>Local and CI gates run tests, dependency audits, dashboard build, Docker config validation, and security scans.</p></div>
+</div>
+
+<h2>Security Controls Overview</h2>
+<table>
+  <tr><th>Area</th><th>Control</th></tr>
+  <tr><td>Authentication</td><td>Email verification, OAuth sign-in, TOTP 2FA, suspicious-login alerts, lockout after failed attempts.</td></tr>
+  <tr><td>Application security</td><td>CSRF on JWT-authenticated mutations, per-route rate limits, strict Pydantic validation, CSP headers, dependency audits.</td></tr>
+  <tr><td>Data protection</td><td>TLS in transit, encrypted database/storage at rest, encrypted TOTP secrets, hashed API keys, least-privilege service keys.</td></tr>
+  <tr><td>AI governance</td><td>AI grades and proctoring flags are recommendations. Teachers review evidence before final decisions.</td></tr>
+  <tr><td>Operations</td><td>Sentry integration, structured JSON logs, RQ background workers, health checks, Docker Compose deployment, rollback runbook.</td></tr>
+</table>
+
+<h2>Retention Summary</h2>
+<table>
+  <tr><th>Data</th><th>Default Retention</th><th>Notes</th></tr>
+  <tr><td>Exam screenshots</td><td>90 days</td><td>Cleanup job documented in deploy runbook.</td></tr>
+  <tr><td>Phone camera frames</td><td>24 hours</td><td>Ephemeral live-review evidence.</td></tr>
+  <tr><td>Violation logs and audit trails</td><td>1 year</td><td>Used for appeals, institutional review, and incident reconstruction.</td></tr>
+  <tr><td>Exam answers and scores</td><td>Account duration</td><td>Exportable and deletable through privacy workflows.</td></tr>
+  <tr><td>LTI learner records</td><td>LMS-managed</td><td>LMS remains the source of truth for learner identity and roster data.</td></tr>
+</table>
+
+<h2>Sample Scorecard</h2>
+<p>The public <a href="/sample-scorecard">sample scorecard</a> shows the evidence format institutions receive: identity summary, score, timeline, detection confidence, human-review notes, and appeal-ready audit language.</p>
+
+<h2>Claims Policy</h2>
+<p>Public sales material should use verifiable operational claims only. Do not use institution-count claims unless the source list and permission status are documented.</p>
+</body>
+</html>

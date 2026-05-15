@@ -11,10 +11,12 @@ export default function ToolsPanel({ currentExamId }) {
   const [inviteText, setInviteText] = useState('')
   const [inviteResult, setInviteResult] = useState('')
   const [accessResult, setAccessResult] = useState('')
+  const [sensitivity, setSensitivity] = useState('balanced')
+  const [sensitivityLoaded, setSensitivityLoaded] = useState(false)
   const [scheduleResult, setScheduleResult] = useState('')
   const [shuffleResult, setShuffleResult] = useState('')
 
-  useEffect(() => { if (currentExamId) { loadConfig(); loadSchedule(); loadAccess() } }, [currentExamId])
+  useEffect(() => { if (currentExamId) { loadConfig(); loadSchedule(); loadAccess(); loadSensitivity() } }, [currentExamId])
 
   const loadConfig = async () => {
     try {
@@ -32,6 +34,12 @@ export default function ToolsPanel({ currentExamId }) {
     try {
       const r = await authFetch(`/api/v1/admin/exam-schedule?exam_id=${encodeURIComponent(currentExamId)}`)
       if (r.ok) { const d = await r.json(); setScheduleStart(d.starts_at || ''); setScheduleEnd(d.ends_at || '') }
+    } catch (_) {}
+  }
+  const loadSensitivity = async () => {
+    try {
+      const r = await authFetch(`/api/v1/admin/proctoring-sensitivity?exam_id=${encodeURIComponent(currentExamId)}`)
+      if (r.ok) { const d = await r.json(); setSensitivity(d.proctoring_sensitivity || 'balanced'); setSensitivityLoaded(true) }
     } catch (_) {}
   }
 
@@ -153,6 +161,26 @@ export default function ToolsPanel({ currentExamId }) {
         </div>
         {shuffleResult && <div style={{ fontSize: 12, marginTop: 6 }}>{shuffleResult}</div>}
         <button className="btn btn-primary btn-sm" onClick={saveShuffle} style={{ marginTop: 8 }}>Save</button>
+      </ToolCard>
+
+      {/* Proctoring sensitivity */}
+      <ToolCard title="Detection Sensitivity" desc="Controls how strictly the AI flags potential violations. Stricter = more flags, lenient = fewer false positives.">
+        {sensitivityLoaded ? (
+          <div>
+            <select className="input" style={{ width: '100%', marginBottom: 8 }} value={sensitivity} onChange={(e) => setSensitivity(e.target.value)}>
+              <option value="strict">Strict — flag every possible violation</option>
+              <option value="balanced">Balanced — recommended default</option>
+              <option value="lenient">Lenient — fewer flags, more false negatives</option>
+            </select>
+            <button className="btn btn-primary btn-sm" onClick={async () => {
+              const r = await authFetch('/api/v1/admin/proctoring-sensitivity', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ exam_id: currentExamId, proctoring_sensitivity: sensitivity }),
+              })
+              if (r.ok) setShuffleResult('✅ Sensitivity saved')
+            }}>Save Sensitivity</button>
+          </div>
+        ) : <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</div>}
       </ToolCard>
 
       {/* Access code */}

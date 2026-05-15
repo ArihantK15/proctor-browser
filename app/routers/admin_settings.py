@@ -1,6 +1,9 @@
-"""Settings router — schedule and shuffle config. Extracted from admin.py."""
+"""Settings router — schedule, shuffle, and proctoring sensitivity."""
+from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException, Body
+from pydantic import BaseModel, ConfigDict
+
 from ..auth import require_admin
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..database import async_table as _atable
@@ -85,6 +88,40 @@ async def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
         "shuffle_questions": fields.get("shuffle_questions"),
         "shuffle_options":   fields.get("shuffle_options"),
     }
+
+
+class SensitivityIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    proctoring_sensitivity: Optional[str] = None
+
+
+@router.get("/api/v1/admin/proctoring-sensitivity")
+@limiter.limit("60/minute")
+async def admin_get_sensitivity(request: Request):
+    teacher = await require_admin(request)
+    exam_id = request.query_params.get("exam_id")
+    config = await _load_exam_config(teacher["id"], exam_id=exam_id)
+    return {
+        "proctoring_sensitivity": config.get("proctoring_sensitivity", "balanced"),
+    }
+
+
+@router.post("/api/v1/admin/proctoring-sensitivity")
+@limiter.limit("20/minute")
+async def admin_set_sensitivity(request: Request, body: SensitivityIn = Body(...)):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    exam_id = body.exam_id
+    value = body.proctoring_sensitivity or "balanced"
+    valid = {"strict", "balanced", "lenient"}
+    if value not in valid:
+        raise HTTPException(status_code=400, detail=f"Must be one of: {', '.join(sorted(valid))}")
+    await _atable("exam_config").update({"proctoring_sensitivity": value})\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id}")
+    return {"status": "updated", "proctoring_sensitivity": value}
 
 
 __all__ = ["router"]

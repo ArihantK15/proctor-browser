@@ -156,6 +156,62 @@ trivy fs .
 trivy image procta-api-local
 ```
 
+### Tuning Noisy Secret Rules
+
+If a custom scanner reports hundreds of `HARDCODED_CREDENTIAL` findings
+for lines like these, treat the rule as misconfigured:
+
+```python
+LLM_API_KEY = os.environ.get("LLM_API_KEY")
+secret = os.environ["TURNSTILE_SECRET_KEY"]
+secret = pyotp.random_base32()
+password = body.get("password", "")
+```
+
+Those are not hardcoded credentials. They are environment reads, request
+fields, generated secrets, or encrypted secret handling. A deploy gate
+should fail only when the secret value itself is committed as a literal.
+
+Good examples to fail:
+
+```python
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOi..."
+RAZORPAY_KEY_SECRET = "rzp_live_actual_secret"
+ADMIN_PASSWORD = "ProdPassword123!"
+```
+
+Good examples to allow:
+
+```python
+SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+password = body.password
+secret = _decrypt_secret(row["totp_secret"])
+```
+
+Recommended custom-rule logic:
+
+- Match assignments where the variable name contains `secret`, `token`,
+  `password`, `api_key`, `private_key`, or `credential`.
+- Only flag the assignment when the right-hand side is a non-empty string
+  literal and not a documented test/example placeholder.
+- Do not flag `os.environ[...]`, `os.getenv(...)`, `body.get(...)`,
+  Pydantic model fields, DOM password input reads, `secrets.*`,
+  `pyotp.random_base32()`, decrypt/encrypt calls, or PEM loader arguments
+  like `password=None`.
+- Ignore generated bundles and test/docs examples unless the scanner has a
+  separate low-severity educational mode.
+- Use Gitleaks as the source of truth for actual committed secret material;
+  use custom rules only as a supplement.
+
+Suggested severity mapping:
+
+| Finding type | Severity |
+| --- | --- |
+| Real production-looking secret literal in application code | Critical |
+| Test fixture secret with obvious fake value | Low |
+| Environment variable read or request password field | Ignore |
+| Generated secret, encrypted secret, or decrypted runtime value | Ignore |
+
 ## Local LLM Review
 
 A local LLM is useful for continuous review, but treat it as a reviewer, not a compiler.

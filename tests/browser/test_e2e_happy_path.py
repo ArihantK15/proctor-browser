@@ -9,7 +9,7 @@ Usage:
     cd tests/browser && pip install -r requirements.txt && playwright install chromium
     PROCTA_URL=https://app.procta.net \\
         PROCTA_EMAIL=teacher@school.edu \\
-        PROCTA_PASSWORD=secret \\
+        PROCTA_PASSWORD='<teacher-password>' \\
         pytest test_e2e_happy_path.py -v --headed
 
 The teacher must not already have an exam named "E2E Test - <timestamp>".

@@ -23,7 +23,7 @@ Headless by default. Pass --headed to see the browser.
 
     cd tests/browser && pip install -r requirements.txt
     playwright install chromium
-    PROCTA_URL=... PROCTA_EMAIL=... PROCTA_PASSWORD=... \\
+    PROCTA_URL=https://staging.example.com PROCTA_EMAIL=qa@example.com PROCTA_PASSWORD='<teacher-password>' \\
         pytest test_dashboard_state.py -v
 """
 import os

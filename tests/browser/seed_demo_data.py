@@ -14,7 +14,7 @@ click."
 Usage:
     PROCTA_URL=https://staging.procta.net \\
     PROCTA_EMAIL=qa@procta.net \\
-    PROCTA_PASSWORD=secret \\
+    PROCTA_PASSWORD='<teacher-password>' \\
         python seed_demo_data.py
 """
 import os

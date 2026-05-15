@@ -96,6 +96,12 @@ app.procta.net {
         file_server
         header Cache-Control "no-cache, no-store, must-revalidate"
     }
+    handle /trust-center {
+        root * /srv/static
+        rewrite * /trust-center.html
+        file_server
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
     handle /security-questionnaire {
         root * /srv/static
         rewrite * /security-questionnaire.html

@@ -91,6 +91,34 @@ services:
         max-size: "20m"
         max-file: "3"
 
+  autosave-worker:
+    build: .
+    entrypoint: python worker.py
+    container_name: proctor-autosave-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RQ_ENABLED=1
+      - RQ_QUEUE=autosave
+      - GIT_SHA=${GIT_SHA:-local}
+      - IMAGE_TAG=${IMAGE_TAG:-local}
+      - APP_VERSION=${APP_VERSION:-dev}
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.25"
+    memswap_limit: 256m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
 
   redis:
     image: redis:7-alpine

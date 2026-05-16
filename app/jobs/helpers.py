@@ -34,8 +34,8 @@ def _rq_enabled() -> bool:
     return os.environ.get("RQ_ENABLED", "").lower() in ("1", "true", "yes")
 
 
-def enqueue_job(func: Callable, *args, **kwargs) -> Optional[dict]:
-    """Enqueue *func* to the default RQ queue, or call it synchronously.
+def enqueue_job(func: Callable, *args, queue_name: str = "default", **kwargs) -> Optional[dict]:
+    """Enqueue *func* to an RQ queue, or call it synchronously.
 
     Returns ``None`` when the job was enqueued (async), or the function's
     return dict when run synchronously.
@@ -47,7 +47,7 @@ def enqueue_job(func: Callable, *args, **kwargs) -> Optional[dict]:
         from rq import Queue
         from rq.job import Retry
         from redis import Redis
-        q = Queue("default", connection=Redis.from_url(_redis_url()))
+        q = Queue(queue_name, connection=Redis.from_url(_redis_url()))
         q.enqueue(
             func, *args, **kwargs,
             retry=Retry(max=_retry_max(), interval=_retry_intervals()),

@@ -329,6 +329,8 @@ class ETagMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+        if request.method not in ("GET", "HEAD"):
+            return await call_next(request)
         if any(path.startswith(p) for p in self._SKIP_PREFIXES):
             return await call_next(request)
 

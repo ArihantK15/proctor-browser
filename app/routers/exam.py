@@ -23,7 +23,15 @@ from ..services.practice import is_practice, _practice_validate_response, PRACTI
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config, get_access_code as _get_access_code
 from ..repositories.sessions import check_group_access as _check_group_access, assert_session_owned as _assert_session_owned
 from ..services.scoring import build_shuffle_view as _build_shuffle_view, get_shuffle_flags as _get_shuffle_flags, recalculate_score as _recalculate_score, canonicalise_student_answer as _canonicalise_student_answer
+from ..services.autosave import (
+    AUTOSAVE_QUEUE_NAME,
+    cache_autosave_snapshot,
+    flush_answers_to_db,
+    load_autosave_snapshot,
+    merge_answer_snapshot,
+)
 from ..services.risk import compute_risk_score, publish_critical_alert
+from ..jobs import enqueue_job, flush_autosave_job, _rq_enabled
 from ..constants import SCREENSHOTS_DIR
 from ..logger import get_logger
 from ..limiter import limiter
@@ -620,6 +628,35 @@ async def save_answer(body: AnswerIn, request: Request):
     return {"status": "saved"}
 
 
+async def _save_answers_bulk_to_db(
+    session_id: str,
+    answers: dict,
+    *,
+    teacher_id: str | None = None,
+    exam_id: str | None = None,
+) -> int:
+    return await flush_answers_to_db(
+        session_id,
+        answers,
+        teacher_id=teacher_id,
+        exam_id=exam_id,
+    )
+
+
+def _enqueue_autosave_flush(session_id: str, *, delete_after: bool = False) -> bool:
+    try:
+        enqueue_job(
+            flush_autosave_job,
+            session_id,
+            delete_after=delete_after,
+            queue_name=AUTOSAVE_QUEUE_NAME,
+        )
+        return True
+    except Exception as e:
+        _exam_log.warning("[autosave] queue failed for %s: %s", session_id, e)
+        return False
+
+
 @router.post("/api/v1/save-answers-bulk")
 @limiter.limit("10/minute")
 async def save_answers_bulk(body: BulkAnswerIn, request: Request):
@@ -633,24 +670,27 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
         return {"status": "empty", "saved": 0}
     tid = claims.get("tid")
     eid = claims.get("eid")
-    async def _build_records():
-        recs = []
-        for qid, ans in body.answers.items():
-            canonical = await _canonicalise_student_answer(
-                body.session_id, str(tid or ""), str(qid), str(ans),
-                eid)
-            rec = {"session_key": body.session_id,
-                   "question_id": str(qid),
-                   "answer":      canonical}
-            if tid:
-                rec["teacher_id"] = tid
-            if eid:
-                rec["exam_id"] = eid
-            recs.append(rec)
-        return recs
-    records = await _build_records()
-    await _atable("answers").upsert(records).execute()
-    return {"status": "saved", "saved": len(records)}
+    sid = claims.get("sid")
+
+    stored, should_flush = cache_autosave_snapshot(
+        body.session_id,
+        body.answers,
+        teacher_id=tid,
+        exam_id=eid,
+        student_id=sid,
+    )
+    if stored:
+        if should_flush and _rq_enabled():
+            _enqueue_autosave_flush(body.session_id)
+        return {"status": "queued", "saved": len(body.answers), "queued": True}
+
+    saved = await _save_answers_bulk_to_db(
+        body.session_id,
+        body.answers,
+        teacher_id=tid,
+        exam_id=eid,
+    )
+    return {"status": "saved", "saved": saved, "queued": False}
 
 
 async def _try_ags_grade_passback(
@@ -755,6 +795,9 @@ async def submit_exam(result: ResultIn, request: Request):
     sid = claims.get("sid")
     now = now_ist()
 
+    autosave_snapshot = load_autosave_snapshot(result.session_id)
+    final_answers = merge_answer_snapshot(result.answers, autosave_snapshot)
+
     # SECURITY: Use JWT roll, not client-supplied fields (IDOR prevention)
     jwt_roll = claims.get("roll", "")
     trusted_roll = jwt_roll.upper()
@@ -766,7 +809,7 @@ async def submit_exam(result: ResultIn, request: Request):
         raise HTTPException(status_code=409, detail="Exam already submitted")
 
     # Phase 1: Score + config in parallel
-    score_fut = _recalculate_score(result.session_id, result.answers, teacher_id=tid, exam_id=eid)
+    score_fut = _recalculate_score(result.session_id, final_answers, teacher_id=tid, exam_id=eid)
     config_fut = _load_exam_config(teacher_id=tid, exam_id=eid)
     try:
         (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
@@ -838,6 +881,33 @@ async def submit_exam(result: ResultIn, request: Request):
             if i == 0:
                 raise HTTPException(status_code=500,
                                     detail="Failed to save exam submission. Please retry.")
+
+    final_cached, final_should_flush = cache_autosave_snapshot(
+        result.session_id,
+        final_answers,
+        teacher_id=tid,
+        exam_id=eid,
+        student_id=sid,
+        final=True,
+    )
+    try:
+        queued = (
+            final_cached
+            and final_should_flush
+            and _rq_enabled()
+            and _enqueue_autosave_flush(result.session_id, delete_after=True)
+        )
+        if not queued:
+            await _save_answers_bulk_to_db(
+                result.session_id,
+                final_answers,
+                teacher_id=tid,
+                exam_id=eid,
+            )
+    except Exception as e:
+        _exam_log.error("[SUBMIT] final answer flush failed for %s: %s", result.session_id, e)
+        raise HTTPException(status_code=500,
+                            detail="Failed to save final answers. Please retry.")
 
     # Phase 3: Risk score (non-fatal — submission already saved)
     risk_score_val = 0

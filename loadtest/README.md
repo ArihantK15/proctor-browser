@@ -21,7 +21,8 @@ Three scripts, one runner, no setup hell.
 | Script | What it does | When to run |
 |---|---|---|
 | `smoke.js` | 10 VUs hit `/health` + `/api/v1/billing/plans` for 30 s | Every deploy — 1-minute confidence check |
-| `exam_flow.js` | 500 simulated students write a full exam: validate → bulk autosave → submit | Pre-sale to verify the "500 concurrent students" claim |
+| `exam_flow.js` | Stress loop: every VU repeatedly bulk-saves and submits | Finding the API ceiling |
+| `real_exam.js` | Real exam shape: staggered joins, periodic autosave, one final submit | Capacity planning and sales confidence |
 | `submit_burst.js` | 300 students all submit within 60 s — the end-of-exam spike | Before any board-exam-scale deployment |
 | `sse_sessions.js` | 100 teacher dashboard SSE streams measure connect-token success, first-event latency, stream lifetime, and disconnects | Before live-monitor or dashboard stream changes |
 
@@ -65,6 +66,10 @@ k6 is a single Go binary, ~30 MB. No Python, no node_modules, no Docker.
 
 # Realistic exam-load — 500 VUs, ~5 min
 ./run.sh exam
+
+# Real exam shape — 500 students join over 2 min, autosave every 60s,
+# then submit once over a 60s deadline window.
+LOADTEST_SECRET=... VUS=500 EXAM_SECONDS=300 ./run.sh real-exam
 
 # Safer production ramp. Requires the same LOADTEST_SECRET in the API env.
 LOADTEST_SECRET=... VUS=25 DURATION_MIN=1 ./run.sh exam
@@ -118,7 +123,7 @@ route rate limits and reverse-proxy queues can dominate the result.
 
 k6's "VUs" (virtual users) is the number of parallel goroutines
 hitting the API. Each VU runs the scenario start-to-finish in a
-loop. With `exam.js` at 500 VUs over 5 min, you'll get roughly:
+loop. With `exam_flow.js` at 500 VUs over 5 min, you'll get roughly:
 
 - 500 students all "in an exam" at any given moment
 - bulk autosave + submit traffic that matches the current client
@@ -127,6 +132,11 @@ loop. With `exam.js` at 500 VUs over 5 min, you'll get roughly:
 This maps cleanly to "500 students writing an exam at the same time".
 Use `SAVE_MODE=individual` only when you deliberately want to stress
 the legacy `/save-answer` endpoint with one request per answer.
+
+For production capacity claims, prefer `real_exam.js`: each VU is one
+student, autosave happens every `AUTOSAVE_INTERVAL_SECONDS`, and submit
+happens once. `exam_flow.js` is harsher because it loops through many
+complete exam attempts per VU.
 
 ## Adapting for your scenario
 
@@ -205,13 +215,13 @@ Recommended production ramp:
 
 # 2. Start below the droplet's likely ceiling and watch CPU, memory,
 #    worker logs, reverse-proxy logs, and health checks.
-LOADTEST_SECRET=... VUS=25 DURATION_MIN=1 ./run.sh exam
-LOADTEST_SECRET=... VUS=50 DURATION_MIN=1 ./run.sh exam
-LOADTEST_SECRET=... VUS=100 DURATION_MIN=2 ./run.sh exam
+LOADTEST_SECRET=... VUS=25 EXAM_SECONDS=180 ./run.sh real-exam
+LOADTEST_SECRET=... VUS=50 EXAM_SECONDS=180 ./run.sh real-exam
+LOADTEST_SECRET=... VUS=100 EXAM_SECONDS=240 ./run.sh real-exam
 
 # 3. Only continue if p95, failure rate, and server health stay stable.
-LOADTEST_SECRET=... VUS=250 DURATION_MIN=3 ./run.sh exam
-LOADTEST_SECRET=... VUS=500 DURATION_MIN=3 ./run.sh exam
+LOADTEST_SECRET=... VUS=250 EXAM_SECONDS=300 ./run.sh real-exam
+LOADTEST_SECRET=... VUS=500 EXAM_SECONDS=300 ./run.sh real-exam
 ```
 
 On a constrained droplet, tune the API before declaring the app broken:

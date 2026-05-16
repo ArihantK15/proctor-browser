@@ -1926,6 +1926,7 @@ function selAns(l){
 }
 // ── BULK AUTO-SAVE (safety net every 60s) ──────────────────────
 let bulkSaveTimer = null;
+let bulkSaveInFlight = false;
 
 function startBulkSave(){
   if(bulkSaveTimer) clearInterval(bulkSaveTimer);
@@ -1934,6 +1935,7 @@ function startBulkSave(){
 
 async function doBulkSave(){
   if(!sessionId || !examActive || Object.keys(answers).length === 0) return;
+  if(bulkSaveInFlight) return;
   _persistAnswersNow(); // bulk save MUST flush — bypass the debounce timer
   const statusEl = document.getElementById('save-status');
   if(isOffline){
@@ -1942,6 +1944,9 @@ async function doBulkSave(){
     statusEl.style.opacity = '1';
     return;
   }
+  bulkSaveInFlight = true;
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(()=>ctrl.abort(), 8000);
   try{
     statusEl.textContent = 'Saving...';
     statusEl.style.opacity = '1';
@@ -1953,7 +1958,8 @@ async function doBulkSave(){
     const r = await fetch(`${SERVER}/api/save-answers-bulk`, {
       method: 'POST',
       headers: authHdr(),
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: ctrl.signal
     });
     if(r.ok){
       isOffline = false;
@@ -1967,6 +1973,9 @@ async function doBulkSave(){
     isOffline = true;
     statusEl.textContent = 'Offline — saved locally';
     statusEl.style.color = '#d29922';
+  }finally{
+    clearTimeout(timeoutId);
+    bulkSaveInFlight = false;
   }
   setTimeout(()=>{
     statusEl.classList.remove('save-flash');

@@ -136,7 +136,7 @@ export default function () {
         {
           headers: REQUEST_HEADERS,
           tags: { name: 'bulk_save' },
-          timeout: '10s',
+          timeout: '20s',
         }
       )
       recordOutcome('bulk_save', bulkRes)

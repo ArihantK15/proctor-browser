@@ -4,6 +4,7 @@
 # Usage:
 #   ./run.sh smoke           # 30s, 10 VUs against /health + /plans
 #   ./run.sh exam            # 5 min, 500 VUs writing full exams
+#   ./run.sh real-exam       # real exam shape: autosave periodically, submit once
 #   ./run.sh burst           # 75s, 300 VUs all hitting submit
 #   ./run.sh sse             # streaming dashboard SSE connections
 #
@@ -14,6 +15,10 @@
 #   SSE_VUS      — SSE stream VU count override (default: 100)
 #   ADMIN_TOKEN  — teacher/admin JWT for SSE scenario
 #   DURATION_MIN — exam-test sustained duration in minutes (default: 3)
+#   EXAM_SECONDS — real-exam duration in seconds (default: 300)
+#   JOIN_SPREAD_SECONDS — real-exam staggered join window (default: 120)
+#   AUTOSAVE_INTERVAL_SECONDS — real-exam autosave cadence (default: 60)
+#   SUBMIT_SPREAD_SECONDS — real-exam submit spread window (default: 60)
 #   SAVE_MODE    — exam save behavior: bulk or individual (default: bulk)
 #   LOADTEST_SECRET — optional X-Loadtest-Key value; must match server env
 
@@ -63,6 +68,17 @@ case "$SCENARIO" in
       --env LOADTEST_SECRET="${LOADTEST_SECRET:-}" \
       exam_flow.js
     ;;
+  real-exam)
+    k6 run \
+      --env TARGET="$TARGET" \
+      --env VUS="${VUS:-500}" \
+      --env EXAM_SECONDS="${EXAM_SECONDS:-300}" \
+      --env JOIN_SPREAD_SECONDS="${JOIN_SPREAD_SECONDS:-120}" \
+      --env AUTOSAVE_INTERVAL_SECONDS="${AUTOSAVE_INTERVAL_SECONDS:-60}" \
+      --env SUBMIT_SPREAD_SECONDS="${SUBMIT_SPREAD_SECONDS:-60}" \
+      --env LOADTEST_SECRET="${LOADTEST_SECRET:-}" \
+      real_exam.js
+    ;;
   burst)
     k6 run \
       --env TARGET="$TARGET" \
@@ -85,7 +101,7 @@ case "$SCENARIO" in
     ;;
   *)
     echo "❌ Unknown scenario: $SCENARIO"
-    echo "   Use: smoke | exam | burst | sse"
+    echo "   Use: smoke | exam | real-exam | burst | sse"
     exit 1
     ;;
 esac

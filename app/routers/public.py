@@ -122,7 +122,8 @@ async def health():
     ok = True
 
     # Database — required
-    db_backend = os.environ.get("DATABASE_BACKEND", "supabase").strip().lower()
+    from ..database import database_backend
+    db_backend = database_backend()
     try:
         await _atable("exam_config").select("id").limit(1).execute()
         checks["database"] = "ok"

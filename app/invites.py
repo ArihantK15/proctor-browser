@@ -44,7 +44,8 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
     """
     if batch_size <= 0:
         return (True, INVITE_DAILY_CAP)
-    if os.environ.get("DATABASE_BACKEND", "supabase").strip().lower() == "postgres":
+    from .database import is_postgres_backend
+    if is_postgres_backend():
         return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
     try:
         from .database import supabase

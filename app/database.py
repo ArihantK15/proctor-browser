@@ -23,6 +23,23 @@ def _required_env(name: str) -> str:
 _DATABASE_BACKEND = os.environ.get("DATABASE_BACKEND", "supabase").strip().lower()
 
 
+def database_backend() -> str:
+    """Single source of truth for which DB backend is active.
+
+    Cached at module import time — callers (routers, services) should
+    import this function rather than re-reading os.environ each call.
+    Both for tidiness and so a future test can monkeypatch the module
+    constant without env juggling.
+    """
+    return _DATABASE_BACKEND
+
+
+def is_postgres_backend() -> bool:
+    """Sugar around `database_backend() == "postgres"` for the common
+    case of "should I take the postgres-only path?"."""
+    return _DATABASE_BACKEND == "postgres"
+
+
 class _UnavailableSupabase:
     def __getattr__(self, name):
         raise RuntimeError(

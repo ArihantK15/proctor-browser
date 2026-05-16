@@ -113,6 +113,11 @@ _mock_atable = _AtableDelegator()
 mock_database = MagicMock()
 mock_database.supabase = _mock_supabase
 mock_database.async_table = _mock_atable
+# `database_backend()` and `is_postgres_backend()` are the canonical
+# way for callers to ask "which backend is active?". Tests run as if
+# the supabase default is set — overriding to "postgres" is per-test.
+mock_database.database_backend = lambda: "supabase"
+mock_database.is_postgres_backend = lambda: False
 sys.modules["app.database"] = mock_database
 
 # Mock logger

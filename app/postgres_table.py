@@ -37,9 +37,14 @@ def _database_url() -> str:
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
+        # min_size=3 keeps three warm connections so the first burst of
+        # requests after a cold start doesn't pay TCP+TLS+auth handshake
+        # latency. Bumping above 3 is only worth it for very chatty
+        # workloads — the pool will grow up to max_size on demand
+        # regardless.
         _pool = await asyncpg.create_pool(
             dsn=_database_url(),
-            min_size=int(os.environ.get("POSTGRES_POOL_MIN", "1")),
+            min_size=int(os.environ.get("POSTGRES_POOL_MIN", "3")),
             max_size=int(os.environ.get("POSTGRES_POOL_MAX", "10")),
             command_timeout=float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "15")),
         )

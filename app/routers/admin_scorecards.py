@@ -628,7 +628,8 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             continue
 
         if not resend_all:
-            if os.environ.get("DATABASE_BACKEND", "supabase").strip().lower() == "postgres":
+            from ..database import is_postgres_backend
+            if is_postgres_backend():
                 claim = await _atable("exam_sessions").update({
                     "scorecard_emailed_at": now_ist().isoformat(),
                 }).eq("session_key", sid).eq("teacher_id", tid).is_("scorecard_emailed_at", "null").execute()

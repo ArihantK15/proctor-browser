@@ -214,7 +214,8 @@ async def delete_account(request: Request):
             errors.append(f"exam_sessions update: {e}")
 
     # Delete Supabase auth user (revokes all tokens, prevents login)
-    if supabase_uid and os.environ.get("DATABASE_BACKEND", "supabase").strip().lower() != "postgres":
+    from ..database import is_postgres_backend
+    if supabase_uid and not is_postgres_backend():
         try:
             from ..database import supabase
             supabase.auth.admin.delete_user(supabase_uid)

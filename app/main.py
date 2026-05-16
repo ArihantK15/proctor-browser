@@ -76,8 +76,8 @@ limiter = Limiter(key_func=_rate_limit_key)
 async def lifespan(_app) -> AsyncIterator[None]:
     """Startup + shutdown lifecycle handler (replaces deprecated on_event)."""
     # ── STARTUP ───────────────────────────────────────────────────
-    db_backend = os.environ.get("DATABASE_BACKEND", "supabase").strip().lower()
-    from .database import async_table as _atable
+    from .database import async_table as _atable, database_backend
+    db_backend = database_backend()
     try:
         await _atable("exam_config").select("id").limit(1).execute()
         print(f"[startup] database connected ({db_backend})", flush=True)

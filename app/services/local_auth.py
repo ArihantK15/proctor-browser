@@ -42,18 +42,36 @@ async def verify_password(password: str, password_hash: str | None) -> bool:
         return False
 
 
-def issue_refresh_token(user_id: str, kind: str) -> str:
+def issue_refresh_token(user_id: str, kind: str) -> tuple[str, str, datetime]:
+    """Mint a 30-day refresh JWT with a UUID jti embedded as a claim.
+
+    Returns (token, jti, expires_at). The caller MUST persist the
+    jti + expires_at into the `refresh_tokens` table so the token can
+    be revoked server-side. A token whose jti is missing from the table
+    or whose row has `revoked_at IS NOT NULL` is rejected at refresh
+    time — closes the stateless-JWT leak window.
+    """
+    jti = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
-    return jwt.encode({
+    exp = now + timedelta(days=30)
+    token = jwt.encode({
         "scope": "refresh",
         "uid": str(user_id),
         "kind": kind,
+        "jti": jti,
         "iat": now,
-        "exp": now + timedelta(days=30),
+        "exp": exp,
     }, SECRET_KEY, algorithm="HS256")
+    return token, jti, exp
 
 
-def verify_refresh_token(token: str, expected_kind: str) -> str | None:
+def verify_refresh_token(token: str, expected_kind: str) -> tuple[str, str] | None:
+    """Verify the JWT signature + claims.
+
+    Returns (user_id, jti) on success, None on failure. The caller MUST
+    then check the jti against `refresh_tokens` — JWT verification alone
+    is not enough since stateless verification cannot detect revocation.
+    """
     try:
         claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
     except JWTError:
@@ -61,7 +79,13 @@ def verify_refresh_token(token: str, expected_kind: str) -> str | None:
     if claims.get("scope") != "refresh" or claims.get("kind") != expected_kind:
         return None
     uid = claims.get("uid")
-    return str(uid) if uid else None
+    jti = claims.get("jti")
+    if not uid or not jti:
+        # Pre-revocation tokens (no jti) are rejected outright.
+        # There are none in the wild yet — local auth has not been
+        # flipped on in production — so this is safe to enforce strictly.
+        return None
+    return str(uid), str(jti)
 
 
 def issue_password_reset_token(

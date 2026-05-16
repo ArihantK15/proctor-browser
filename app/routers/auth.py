@@ -74,6 +74,109 @@ def _stringify_pwc(value) -> str | None:
     return str(value)
 
 
+async def _issue_and_persist_refresh_token(
+    user_id: str, kind: str, request: Request
+) -> str:
+    """Mint a refresh JWT AND record its jti in `refresh_tokens`.
+
+    Returns just the token string for use in the response body. The
+    server-side row is what lets us revoke later — without it the JWT
+    is valid for its full 30-day TTL with no kill switch.
+    """
+    token, jti, exp = issue_refresh_token(user_id, kind)
+    ip = request.client.host if request.client else None
+    ua = (request.headers.get("user-agent") or "")[:500]
+    await _atable("refresh_tokens").insert({
+        "jti": jti,
+        "user_id": str(user_id),
+        "kind": kind,
+        "issued_at": now_ist().isoformat(),
+        "expires_at": exp.isoformat(),
+        "ip": ip,
+        "user_agent": ua,
+    }).execute()
+    return token
+
+
+async def _verify_and_rotate_refresh_token(
+    refresh_token: str, expected_kind: str, request: Request
+) -> tuple[str, str]:
+    """Verify a refresh token, rotate it, return (user_id, new_token).
+
+    Rotation: the old jti is marked revoked + `replaced_by_jti = <new>`
+    and a fresh row is inserted. This catches replay (a stolen old
+    token still in flight is rejected on its next use), and lets a
+    user see the rotation chain in audit if needed.
+
+    Raises HTTPException(401) on any failure — caller doesn't need to
+    do its own error handling.
+    """
+    verified = verify_refresh_token(refresh_token, expected_kind)
+    if not verified:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    user_id, jti = verified
+
+    # Look up the server-side row. The JWT signature being valid is
+    # necessary but not sufficient — we ALSO need the jti to be present
+    # and not revoked. A token that's been rotated (replaced_by_jti
+    # set) is by definition revoked.
+    row = await _atable("refresh_tokens").select(
+        "jti,revoked_at,expires_at,user_id,kind"
+    ).eq("jti", jti).limit(1).execute()
+    if not row.data:
+        # Either never issued (forged jti) or pruned. Reject.
+        raise HTTPException(status_code=401, detail="Refresh token not recognised")
+    rec = row.data[0]
+    if rec.get("revoked_at"):
+        # Replay attempt — the token was previously used and rotated.
+        # Best-practice response is to ALSO revoke any descendant in
+        # this user's active set (stolen-token defence). For now we
+        # just reject and let the user log in fresh.
+        raise HTTPException(status_code=401, detail="Refresh token has been revoked")
+    if str(rec.get("user_id")) != str(user_id) or rec.get("kind") != expected_kind:
+        # Claim/DB mismatch — should not happen unless someone is
+        # tampering. Reject without leaking which check failed.
+        raise HTTPException(status_code=401, detail="Refresh token invalid")
+
+    # Mint the replacement before revoking the old — if persist fails
+    # we still hold the old token and can retry. (Idempotency is good
+    # here: client retries don't lock the user out.)
+    new_token, new_jti, new_exp = issue_refresh_token(user_id, expected_kind)
+    ip = request.client.host if request.client else None
+    ua = (request.headers.get("user-agent") or "")[:500]
+    now_iso = now_ist().isoformat()
+    await _atable("refresh_tokens").insert({
+        "jti": new_jti,
+        "user_id": str(user_id),
+        "kind": expected_kind,
+        "issued_at": now_iso,
+        "expires_at": new_exp.isoformat(),
+        "ip": ip,
+        "user_agent": ua,
+    }).execute()
+    await _atable("refresh_tokens").update({
+        "revoked_at": now_iso,
+        "replaced_by_jti": new_jti,
+    }).eq("jti", jti).execute()
+    return user_id, new_token
+
+
+async def _revoke_refresh_tokens_for_user(
+    user_id: str, kind: str, *, except_jti: str | None = None
+) -> None:
+    """Bulk-revoke active refresh tokens for a user.
+
+    Called from the existing access-token revocation endpoints so
+    "sign out other devices" actually kills the refresh path too,
+    not just the 12h access window.
+    """
+    q = _atable("refresh_tokens").update({"revoked_at": now_ist().isoformat()})\
+        .eq("user_id", str(user_id)).eq("kind", kind).is_("revoked_at", "null")
+    if except_jti:
+        q = q.neq("jti", except_jti)
+    await q.execute()
+
+
 @router.post("/api/v1/auth/signup")
 @limiter.limit("5/hour")
 async def teacher_signup(body: TeacherSignupIn, request: Request):
@@ -306,13 +409,14 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     except Exception:
         pass
 
+    refresh_tok = (
+        await _issue_and_persist_refresh_token(teacher["id"], "teacher", request)
+        if local_auth_enabled()
+        else auth_resp.session.refresh_token
+    )
     return {
         "access_token": access_token,
-        "refresh_token": (
-            issue_refresh_token(teacher["id"], "teacher")
-            if local_auth_enabled()
-            else auth_resp.session.refresh_token
-        ),
+        "refresh_token": refresh_tok,
         "teacher": {
             "id": teacher["id"],
             "email": teacher["email"],
@@ -343,15 +447,15 @@ async def teacher_refresh(body: RefreshIn, request: Request):
     issue a fresh HS256 admin token signed by us.
     """
     if local_auth_enabled():
-        teacher_id = verify_refresh_token(body.refresh_token, "teacher")
-        if not teacher_id:
-            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        teacher_id, new_refresh = await _verify_and_rotate_refresh_token(
+            body.refresh_token, "teacher", request
+        )
         teacher = await _get_teacher_by_id(teacher_id)
         if not teacher:
             raise HTTPException(status_code=403, detail="Teacher account not found")
         return {
             "access_token": issue_admin_token(teacher),
-            "refresh_token": issue_refresh_token(teacher["id"], "teacher"),
+            "refresh_token": new_refresh,
         }
 
     try:
@@ -739,13 +843,14 @@ async def student_login(body: StudentLoginIn, request: Request):
     except Exception as e:
         logger.debug("Auto-link enrollments failed: %s", e)  # Non-fatal
 
+    refresh_tok = (
+        await _issue_and_persist_refresh_token(account["id"], "student", request)
+        if local_auth_enabled()
+        else auth_resp.session.refresh_token
+    )
     return {
         "access_token":  issue_student_auth_token(account),
-        "refresh_token": (
-            issue_refresh_token(account["id"], "student")
-            if local_auth_enabled()
-            else auth_resp.session.refresh_token
-        ),
+        "refresh_token": refresh_tok,
         "account": {
             "id":        account["id"],
             "email":     account["email"],
@@ -769,15 +874,15 @@ async def student_me(request: Request):
 @limiter.limit("20/minute")
 async def student_refresh(body: RefreshIn, request: Request):
     if local_auth_enabled():
-        account_id = verify_refresh_token(body.refresh_token, "student")
-        if not account_id:
-            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        account_id, new_refresh = await _verify_and_rotate_refresh_token(
+            body.refresh_token, "student", request
+        )
         account = await _get_student_account_by_id(account_id)
         if not account:
             raise HTTPException(status_code=403, detail="Student account not found")
         return {
             "access_token": issue_student_auth_token(account),
-            "refresh_token": issue_refresh_token(account["id"], "student"),
+            "refresh_token": new_refresh,
         }
 
     try:
@@ -1257,7 +1362,16 @@ async def revoke_session(jti: str, request: Request):
 @router.post("/api/v1/auth/sessions/revoke-others")
 @limiter.limit("10/minute")
 async def revoke_other_sessions(request: Request):
-    """Revoke all sessions except the current one."""
+    """Revoke all sessions except the current one.
+
+    Kills both access-session jtis AND every active refresh token for
+    this user — without the refresh sweep, a leaked refresh token would
+    just mint a new access token a few seconds later and undo the
+    revoke. The current device's access token survives until its 12 h
+    expiry; the user will need to log in fresh on this device after
+    that. That's the security/UX tradeoff: "panic button" beats
+    "convenience".
+    """
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     # Decode current token to get its JTI
@@ -1276,6 +1390,11 @@ async def revoke_other_sessions(request: Request):
     if current_jti:
         q = q.neq("jti", current_jti)
     await q.execute()
+    if local_auth_enabled():
+        # No FK from auth_sessions.jti to refresh_tokens.jti, so we
+        # can't preserve the "current device's" refresh. Safer to nuke
+        # all — see docstring.
+        await _revoke_refresh_tokens_for_user(tid, "teacher")
     await record_auth_event("session_revoked", request, "teacher", tid, meta={"scope": "others"})
     return {"ok": True}
 

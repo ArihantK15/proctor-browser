@@ -36,7 +36,7 @@ if SENTRY_DSN:
 
 # RQ / Redis imports after Sentry (avoid import-order side effects)
 import logging
-from rq import Worker, Queue, Connection
+from rq import Worker, Queue
 from rq.job import Job
 from redis import Redis
 
@@ -97,9 +97,9 @@ log.info("worker heartbeat loop started")
 
 if __name__ == "__main__":
     log.info("worker starting — redis=%s queue=%s", redis_url, queue_name)
-    with Connection(conn):
-        w = Worker(
-            [Queue(queue_name)],
-            exception_handlers=[_job_failure],
-        )
-        w.work()
+    w = Worker(
+        [Queue(queue_name, connection=conn)],
+        connection=conn,
+        exception_handlers=[_job_failure],
+    )
+    w.work()

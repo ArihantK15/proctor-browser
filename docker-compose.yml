@@ -172,6 +172,42 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
+    # ofelia (the scheduler service below) reads these labels to know
+    # when to run a job inside this container. @daily = 00:00 UTC =
+    # 05:30 IST, before normal customer traffic. The job runs pg_dump
+    # to /backups (host-mounted) with custom-format compression, then
+    # prunes anything older than 14 days. Matches scripts/backup_postgres.sh
+    # so the manual + scheduled flows produce identical artefacts.
+    labels:
+      ofelia.enabled: "true"
+      ofelia.job-exec.daily-backup.schedule: "@daily"
+      ofelia.job-exec.daily-backup.command: >
+        sh -c 'pg_dump -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+        --format=custom --no-owner --no-privileges
+        > /backups/procta-$$(date -u +%Y%m%dT%H%M%SZ).dump
+        && find /backups -name "procta-*.dump" -type f -mtime +14 -delete'
+
+  ofelia:
+    # Lightweight cron-for-docker (~3 MB image). Reads schedule from the
+    # `ofelia.*` labels on the postgres service and exec's the configured
+    # command inside that container — no extra cron daemon to maintain
+    # on the host. Read-only docker.sock mount is the standard ofelia
+    # pattern; the daemon only needs `exec` capability into other
+    # containers, never `run` or `delete`.
+    image: mcuadros/ofelia:latest
+    container_name: proctor-ofelia
+    profiles: ["postgres"]
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    command: daemon --docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
 
 volumes:
   caddy_data:

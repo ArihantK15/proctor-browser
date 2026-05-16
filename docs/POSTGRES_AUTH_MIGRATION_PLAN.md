@@ -71,6 +71,43 @@ Required before import:
   - migration/admin role
   - read-only reporting role
 
+### Backups
+
+`docker-compose.yml` ships two services behind the `postgres` profile:
+
+- `postgres` — the database itself, exposed only on the docker network.
+- `ofelia` — a 3 MB cron-for-docker sidecar that reads `ofelia.*`
+  labels on the postgres container and runs the daily backup at
+  00:00 UTC (05:30 IST, before customer traffic). Output goes to
+  `./backups/postgres/procta-<TIMESTAMP>.dump` on the host.
+  14-day retention is built into the schedule.
+
+Start the whole stack:
+
+```bash
+docker compose --profile postgres up -d
+```
+
+Verify the first backup ran:
+
+```bash
+ls -la backups/postgres/
+```
+
+Manual backup (any time):
+
+```bash
+./scripts/backup_postgres.sh
+```
+
+Restore drill (do this once before going live so you know it works):
+
+```bash
+docker compose --profile postgres exec -T postgres \
+  pg_restore -U procta -d procta --clean --if-exists \
+  < backups/postgres/procta-<TIMESTAMP>.dump
+```
+
 ## Phase 3: Database Transport Layer
 
 Replace Supabase PostgREST calls with a Postgres-backed query adapter.

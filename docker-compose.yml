@@ -55,9 +55,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128m
-          cpus: "0.3"
-    memswap_limit: 128m
+          memory: 384m
+          cpus: "0.5"
+    memswap_limit: 384m
     depends_on:
       # Wait for the API healthcheck to pass before Caddy starts —
       # otherwise the proxy boots first and serves 502 to anyone

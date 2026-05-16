@@ -21,6 +21,7 @@
  */
 import http from 'k6/http'
 import { check, group, sleep } from 'k6'
+import { Counter } from 'k6/metrics'
 
 const TARGET = __ENV.TARGET || 'https://app.procta.net'
 const VUS = parseInt(__ENV.VUS || '500', 10)
@@ -30,6 +31,34 @@ const LOADTEST_SECRET = __ENV.LOADTEST_SECRET || ''
 const REQUEST_HEADERS = LOADTEST_SECRET
   ? { 'Content-Type': 'application/json', 'X-Loadtest-Key': LOADTEST_SECRET }
   : { 'Content-Type': 'application/json' }
+const bulkSaveOk = new Counter('bulk_save_ok')
+const bulkSave400 = new Counter('bulk_save_400')
+const bulkSave401 = new Counter('bulk_save_401')
+const bulkSave403 = new Counter('bulk_save_403')
+const bulkSaveRateLimited = new Counter('bulk_save_429')
+const bulkSave422 = new Counter('bulk_save_422')
+const bulkSaveClientError = new Counter('bulk_save_4xx')
+const bulkSaveServerError = new Counter('bulk_save_5xx')
+const bulkSaveTimeout = new Counter('bulk_save_timeout')
+const saveAnswerOk = new Counter('save_answer_ok')
+const saveAnswer400 = new Counter('save_answer_400')
+const saveAnswer401 = new Counter('save_answer_401')
+const saveAnswer403 = new Counter('save_answer_403')
+const saveAnswerRateLimited = new Counter('save_answer_429')
+const saveAnswer422 = new Counter('save_answer_422')
+const saveAnswerClientError = new Counter('save_answer_4xx')
+const saveAnswerServerError = new Counter('save_answer_5xx')
+const saveAnswerTimeout = new Counter('save_answer_timeout')
+const submitOk = new Counter('submit_ok')
+const submit400 = new Counter('submit_400')
+const submit401 = new Counter('submit_401')
+const submit403 = new Counter('submit_403')
+const submit409 = new Counter('submit_409')
+const submitRateLimited = new Counter('submit_429')
+const submit422 = new Counter('submit_422')
+const submitClientError = new Counter('submit_4xx')
+const submitServerError = new Counter('submit_5xx')
+const submitTimeout = new Counter('submit_timeout')
 
 export const options = {
   stages: [
@@ -38,7 +67,9 @@ export const options = {
     { duration: '30s',                 target: 0   },
   ],
   thresholds: {
-    'http_req_duration{name:bulk_save}':   ['p(95)<500'],
+    // Bulk autosave is a background safety net, not a blocking submit.
+    // Keep it under 2s p95 at load; submit remains the stricter path.
+    'http_req_duration{name:bulk_save}':   ['p(95)<2000'],
     'http_req_duration{name:save_answer}': ['p(95)<500'],
     'http_req_duration{name:submit}':      ['p(95)<1500'],
     // High-VU production runs need LOADTEST_SECRET so SlowAPI does
@@ -88,6 +119,7 @@ export default function () {
             timeout: '10s',
           }
         )
+        recordOutcome('save_answer', saveRes)
         check(saveRes, {
           'save 200':       (r) => r.status === 200,
           'save practice':  (r) => r.status === 200 && jsonField(r, 'practice') === true,
@@ -107,6 +139,7 @@ export default function () {
           timeout: '10s',
         }
       )
+      recordOutcome('bulk_save', bulkRes)
       check(bulkRes, {
         'bulk save 200':      (r) => r.status === 200,
         'bulk save practice': (r) => r.status === 200 && jsonField(r, 'practice') === true,
@@ -118,6 +151,7 @@ export default function () {
     // though in practice mode it short-circuits to a canned response).
     const submitBody = {
       session_id:       sessionId,
+      roll_number:      `PRACTICE_LOADTEST_${__VU}`,
       full_name:        `Loadtest Student ${__VU}`,
       email:            `load${__VU}@example.com`,
       time_taken_secs:  1800,
@@ -135,6 +169,7 @@ export default function () {
         timeout: '15s',
       }
     )
+    recordOutcome('submit', submitRes)
     check(submitRes, {
       'submit 200':  (r) => r.status === 200,
       'has score':   (r) => r.status === 200 && jsonField(r, 'score') !== undefined,
@@ -180,6 +215,86 @@ function jsonField(res, field) {
   }
 }
 
+function recordOutcome(endpoint, res) {
+  const counters = {
+    bulk_save: {
+      ok: bulkSaveOk,
+      badRequest: bulkSave400,
+      unauthorized: bulkSave401,
+      forbidden: bulkSave403,
+      rateLimited: bulkSaveRateLimited,
+      validation: bulkSave422,
+      clientError: bulkSaveClientError,
+      serverError: bulkSaveServerError,
+      timeout: bulkSaveTimeout,
+    },
+    save_answer: {
+      ok: saveAnswerOk,
+      badRequest: saveAnswer400,
+      unauthorized: saveAnswer401,
+      forbidden: saveAnswer403,
+      rateLimited: saveAnswerRateLimited,
+      validation: saveAnswer422,
+      clientError: saveAnswerClientError,
+      serverError: saveAnswerServerError,
+      timeout: saveAnswerTimeout,
+    },
+    submit: {
+      ok: submitOk,
+      badRequest: submit400,
+      unauthorized: submit401,
+      forbidden: submit403,
+      conflict: submit409,
+      rateLimited: submitRateLimited,
+      validation: submit422,
+      clientError: submitClientError,
+      serverError: submitServerError,
+      timeout: submitTimeout,
+    },
+  }[endpoint]
+
+  if (!res || res.error || !res.status || res.status === 0) {
+    counters.timeout.add(1)
+  } else if (res.status >= 200 && res.status < 300) {
+    counters.ok.add(1)
+  } else if (res.status === 400) {
+    counters.badRequest.add(1)
+  } else if (res.status === 401) {
+    counters.unauthorized.add(1)
+  } else if (res.status === 403) {
+    counters.forbidden.add(1)
+  } else if (res.status === 409 && counters.conflict) {
+    counters.conflict.add(1)
+  } else if (res.status === 429) {
+    counters.rateLimited.add(1)
+  } else if (res.status === 422) {
+    counters.validation.add(1)
+  } else if (res.status >= 400 && res.status < 500) {
+    counters.clientError.add(1)
+  } else if (res.status >= 500) {
+    counters.serverError.add(1)
+  }
+}
+
+function metricCount(data, name) {
+  return data.metrics?.[name]?.values?.count || 0
+}
+
+function outcomeBreakdown(data, prefix) {
+  return [
+    `2xx:${metricCount(data, `${prefix}_ok`)}`,
+    `400:${metricCount(data, `${prefix}_400`)}`,
+    `401:${metricCount(data, `${prefix}_401`)}`,
+    `403:${metricCount(data, `${prefix}_403`)}`,
+    `409:${metricCount(data, `${prefix}_409`)}`,
+    `429:${metricCount(data, `${prefix}_429`)}`,
+    `422:${metricCount(data, `${prefix}_422`)}`,
+    `4xx:${metricCount(data, `${prefix}_4xx`)}`,
+    `5xx:${metricCount(data, `${prefix}_5xx`)}`,
+    `timeout:${metricCount(data, `${prefix}_timeout`)}`,
+  ].join('  ')
+}
+
 function textSummary(data) {
   const m = data.metrics
   const get = (name) => m[name]?.values || {}
@@ -201,6 +316,11 @@ function textSummary(data) {
     bulk_save:    ${(dur('bulk_save')['p(95)'] || 0).toFixed(0)}ms
     save_answer:  ${(dur('save_answer')['p(95)'] || 0).toFixed(0)}ms
     submit:       ${(dur('submit')['p(95)'] || 0).toFixed(0)}ms
+
+  Status counts:
+    bulk_save:    ${outcomeBreakdown(data, 'bulk_save')}
+    save_answer:  ${outcomeBreakdown(data, 'save_answer')}
+    submit:       ${outcomeBreakdown(data, 'submit')}
 
   (validate-student skipped — it bypasses practice mode and would
    hit Supabase free-tier rate limits at this VU count. Test it

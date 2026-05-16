@@ -124,13 +124,13 @@ async def get_status(request: Request):
     except Exception:
         pass
 
-    # Supabase
+    # Database
     try:
         from ..database import async_table as _atable
         await _atable("exam_config").select("id").limit(1).execute()
-        checks["supabase"] = "ok"
+        checks["database"] = "ok"
     except Exception:
-        checks["supabase"] = "error"
+        checks["database"] = "error"
         ok = False
 
     # Redis

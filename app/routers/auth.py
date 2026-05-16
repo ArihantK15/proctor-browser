@@ -19,6 +19,16 @@ from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus
 from ..constants import PLANS, TRIAL_DAYS
 from ..services.passwords import validate_password, PasswordError
+from ..services.local_auth import (
+    hash_password,
+    issue_password_reset_token,
+    issue_refresh_token,
+    local_auth_enabled,
+    new_auth_uid,
+    verify_password,
+    verify_password_reset_token,
+    verify_refresh_token,
+)
 from ..services.auth_lockout import check_lockout, record_failure, clear_failures
 from ..services.auth_events import record as record_auth_event
 from ..services.turnstile import verify_or_403
@@ -34,6 +44,34 @@ router = APIRouter(prefix="")
 def _slugify(text: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower().strip())
     return s.strip("-") or "org"
+
+
+async def _get_teacher_by_email_for_auth(email: str) -> dict | None:
+    result = await _atable("teachers").select(
+        "id,email,full_name,org_id,org_role,password_hash,email_verified_at,password_changed_at"
+    ).eq("email", email).limit(1).execute()
+    return result.data[0] if result.data else None
+
+
+async def _get_student_by_email_for_auth(email: str) -> dict | None:
+    result = await _atable("student_accounts").select(
+        "id,email,full_name,password_hash,email_verified_at,password_changed_at"
+    ).eq("email", email).limit(1).execute()
+    return result.data[0] if result.data else None
+
+
+def _stringify_pwc(value) -> str | None:
+    """Normalise password_changed_at to a stable string for JWT embedding.
+
+    DB returns timezone-aware datetime under postgres, ISO string under
+    Supabase REST. We coerce both to ISO string so the token's `pwc`
+    claim is a stable comparable value across backends.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
 
 
 @router.post("/api/v1/auth/signup")
@@ -72,19 +110,27 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             detail=f"'{org_name}' is already registered. Ask your admin for an invite."
         )
 
-    try:
-        auth_resp = supabase.auth.admin.create_user({
-            "email": email,
-            "password": body.password,
-            "email_confirm": False,
-        })
-        supabase_uid = auth_resp.user.id
-    except Exception as e:
-        err_msg = str(e).lower()
-        if "already registered" in err_msg or "duplicate" in err_msg:
-            raise HTTPException(status_code=409, detail="An account with this email already exists")
-        _auth_log.error("[TeacherSignup] Supabase Auth error: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to create account")
+    auth_resp = None
+    password_hash = None
+    auth_provider = "supabase"
+    if local_auth_enabled():
+        supabase_uid = new_auth_uid()
+        password_hash = await hash_password(body.password)
+        auth_provider = "local"
+    else:
+        try:
+            auth_resp = supabase.auth.admin.create_user({
+                "email": email,
+                "password": body.password,
+                "email_confirm": False,
+            })
+            supabase_uid = auth_resp.user.id
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "already registered" in err_msg or "duplicate" in err_msg:
+                raise HTTPException(status_code=409, detail="An account with this email already exists")
+            _auth_log.error("[TeacherSignup] Supabase Auth error: %s", e)
+            raise HTTPException(status_code=500, detail="Failed to create account")
 
     # Create org, subscription, teacher — transactional rollback
     try:
@@ -107,13 +153,20 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         }).execute()
 
         # Create teacher with org context
-        teacher_result = await _atable("teachers").insert({
+        teacher_row = {
             "email": email,
             "full_name": name,
             "supabase_uid": str(supabase_uid),
             "org_id": str(org_id),
             "org_role": "admin",
-        }).execute()
+        }
+        if local_auth_enabled():
+            teacher_row.update({
+                "password_hash": password_hash,
+                "auth_provider": auth_provider,
+                "password_changed_at": now_ist().isoformat(),
+            })
+        teacher_result = await _atable("teachers").insert(teacher_row).execute()
         teacher = teacher_result.data[0]
 
         # Create default exam_config
@@ -132,10 +185,11 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.warning("[TeacherSignup] demo seed failed (non-fatal): %s", demo_err)
     except Exception as e:
         _auth_log.error("[TeacherSignup] DB error: %s", e)
-        try:
-            supabase.auth.admin.delete_user(str(supabase_uid))
-        except Exception as rollback_err:
-            _auth_log.critical("[TeacherSignup] Rollback failed: %s", rollback_err)
+        if auth_resp is not None:
+            try:
+                supabase.auth.admin.delete_user(str(supabase_uid))
+            except Exception as rollback_err:
+                _auth_log.critical("[TeacherSignup] Rollback failed: %s", rollback_err)
         raise HTTPException(status_code=500, detail="Failed to create account")
 
     _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", name, email, org_name)
@@ -181,23 +235,31 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             detail=f"Too many failed attempts. Try again in {retry_after // 60} minutes."
         )
 
-    try:
-        auth_resp = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": body.password,
-        })
-    except Exception as e:
-        await record_failure("teacher", email)
-        await record_auth_event("login_failed", request, "teacher", "", email)
-        _auth_log.warning("[TeacherLogin] Auth error: %s", e)
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+    auth_resp = None
+    if local_auth_enabled():
+        teacher = await _get_teacher_by_email_for_auth(email)
+        if not teacher or not await verify_password(body.password, teacher.get("password_hash")):
+            await record_failure("teacher", email)
+            await record_auth_event("login_failed", request, "teacher", "", email)
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+    else:
+        try:
+            auth_resp = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": body.password,
+            })
+        except Exception as e:
+            await record_failure("teacher", email)
+            await record_auth_event("login_failed", request, "teacher", "", email)
+            _auth_log.warning("[TeacherLogin] Auth error: %s", e)
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        supabase_uid = str(auth_resp.user.id)
+        teacher = await _get_teacher_by_uid(supabase_uid)
+        if not teacher:
+            raise HTTPException(status_code=403, detail="Teacher account not found. Please sign up first.")
 
     await clear_failures("teacher", email)
-
-    supabase_uid = str(auth_resp.user.id)
-    teacher = await _get_teacher_by_uid(supabase_uid)
-    if not teacher:
-        raise HTTPException(status_code=403, detail="Teacher account not found. Please sign up first.")
 
     # Email verification check — auto-verify existing accounts (pre-feature)
     # so old users aren't locked out. New signups must verify.
@@ -246,7 +308,11 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
 
     return {
         "access_token": access_token,
-        "refresh_token": auth_resp.session.refresh_token,
+        "refresh_token": (
+            issue_refresh_token(teacher["id"], "teacher")
+            if local_auth_enabled()
+            else auth_resp.session.refresh_token
+        ),
         "teacher": {
             "id": teacher["id"],
             "email": teacher["email"],
@@ -276,6 +342,18 @@ async def teacher_refresh(body: RefreshIn, request: Request):
     long-term; we re-validate it via Supabase, look up the teacher, and
     issue a fresh HS256 admin token signed by us.
     """
+    if local_auth_enabled():
+        teacher_id = verify_refresh_token(body.refresh_token, "teacher")
+        if not teacher_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        teacher = await _get_teacher_by_id(teacher_id)
+        if not teacher:
+            raise HTTPException(status_code=403, detail="Teacher account not found")
+        return {
+            "access_token": issue_admin_token(teacher),
+            "refresh_token": issue_refresh_token(teacher["id"], "teacher"),
+        }
+
     try:
         auth_resp = supabase.auth.refresh_session(body.refresh_token)
     except Exception as e:
@@ -284,7 +362,6 @@ async def teacher_refresh(body: RefreshIn, request: Request):
 
     if not auth_resp or not auth_resp.user or not auth_resp.session:
         raise HTTPException(status_code=401, detail="Invalid refresh response")
-
     supabase_uid = str(auth_resp.user.id)
     teacher = await _get_teacher_by_uid(supabase_uid)
     if not teacher:
@@ -299,18 +376,34 @@ async def teacher_refresh(body: RefreshIn, request: Request):
 @router.post("/api/v1/auth/password-reset")
 @limiter.limit("3/minute")
 async def teacher_password_reset(body: PasswordResetIn, request: Request):
-    """Send a password reset email via Supabase Auth."""
+    """Send a password reset email."""
     # CAPTCHA — password-reset is a common email-bombing vector
     await verify_or_403(request, body.captcha_token)
 
     email = body.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
-    try:
-        supabase.auth.reset_password_for_email(email)
-    except Exception as e:
-        _auth_log.warning("[PasswordReset] Error for %s: %s", email, e)
-        # Don't reveal whether the email exists or not
+    if local_auth_enabled():
+        user = await _get_teacher_by_email_for_auth(email)
+        if user:
+            from ..emailer import send_password_reset_email
+            from ..invites import _get_invite_base_url
+            token = issue_password_reset_token(
+                user["id"], email, "teacher",
+                password_changed_at=_stringify_pwc(user.get("password_changed_at")),
+            )
+            base = _get_invite_base_url()
+            send_password_reset_email(
+                email,
+                user.get("full_name", ""),
+                f"{base}/reset-password?token={token}",
+            )
+    else:
+        try:
+            supabase.auth.reset_password_for_email(email)
+        except Exception as e:
+            _auth_log.warning("[PasswordReset] Error for %s: %s", email, e)
+            # Don't reveal whether the email exists or not
     return {"status": "ok", "message": "If that email is registered, a reset link has been sent."}
 
 
@@ -451,27 +544,41 @@ async def accept_org_invite(body: dict, request: Request):
         teacher["org_id"] = org_id
         teacher["org_role"] = "teacher"
     else:
-        try:
-            auth_resp = supabase.auth.admin.create_user({
-                "email": email,
-                "password": password,
-                "email_confirm": False,
-            })
-            supabase_uid = auth_resp.user.id
-        except Exception as e:
-            err_msg = str(e).lower()
-            if "already registered" in err_msg or "duplicate" in err_msg:
-                raise HTTPException(status_code=409, detail="An account with this email already exists")
-            _auth_log.error("[AcceptInvite] Supabase Auth error: %s", e)
-            raise HTTPException(status_code=500, detail="Failed to create account")
+        password_hash = None
+        auth_provider = "supabase"
+        if local_auth_enabled():
+            supabase_uid = new_auth_uid()
+            password_hash = await hash_password(password)
+            auth_provider = "local"
+        else:
+            try:
+                auth_resp = supabase.auth.admin.create_user({
+                    "email": email,
+                    "password": password,
+                    "email_confirm": False,
+                })
+                supabase_uid = auth_resp.user.id
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "already registered" in err_msg or "duplicate" in err_msg:
+                    raise HTTPException(status_code=409, detail="An account with this email already exists")
+                _auth_log.error("[AcceptInvite] Supabase Auth error: %s", e)
+                raise HTTPException(status_code=500, detail="Failed to create account")
 
-        teacher_result = await _atable("teachers").insert({
+        teacher_row = {
             "email": email,
             "full_name": full_name,
             "supabase_uid": str(supabase_uid),
             "org_id": org_id,
             "org_role": "teacher",
-        }).execute()
+        }
+        if local_auth_enabled():
+            teacher_row.update({
+                "password_hash": password_hash,
+                "auth_provider": auth_provider,
+                "password_changed_at": now_ist().isoformat(),
+            })
+        teacher_result = await _atable("teachers").insert(teacher_row).execute()
         teacher = teacher_result.data[0]
 
     resolved_name = teacher.get("full_name") or body.get("full_name", full_name)
@@ -530,35 +637,51 @@ async def student_signup(body: StudentSignupIn, request: Request):
     if existing.data:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
-    try:
-        auth_resp = supabase.auth.admin.create_user({
-            "email": email,
-            "password": body.password,
-            "email_confirm": False,
-        })
-        supabase_uid = auth_resp.user.id
-    except Exception as e:
-        err_msg = str(e).lower()
-        if "already registered" in err_msg or "duplicate" in err_msg:
-            raise HTTPException(status_code=409, detail="An account with this email already exists")
-        _auth_log.error("[StudentSignup] Supabase Auth error: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to create account")
+    auth_resp = None
+    password_hash = None
+    auth_provider = "supabase"
+    if local_auth_enabled():
+        supabase_uid = new_auth_uid()
+        password_hash = await hash_password(body.password)
+        auth_provider = "local"
+    else:
+        try:
+            auth_resp = supabase.auth.admin.create_user({
+                "email": email,
+                "password": body.password,
+                "email_confirm": False,
+            })
+            supabase_uid = auth_resp.user.id
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "already registered" in err_msg or "duplicate" in err_msg:
+                raise HTTPException(status_code=409, detail="An account with this email already exists")
+            _auth_log.error("[StudentSignup] Supabase Auth error: %s", e)
+            raise HTTPException(status_code=500, detail="Failed to create account")
 
     try:
-        result = await _atable("student_accounts").insert({
+        account_row = {
             "email":        email,
             "full_name":    name,
             "supabase_uid": str(supabase_uid),
-        }).execute()
+        }
+        if local_auth_enabled():
+            account_row.update({
+                "password_hash": password_hash,
+                "auth_provider": auth_provider,
+                "password_changed_at": now_ist().isoformat(),
+            })
+        result = await _atable("student_accounts").insert(account_row).execute()
         account = result.data[0]
     except Exception as e:
         _auth_log.error("[StudentSignup] DB insert error: %s", e)
         # Roll back: delete the orphaned Supabase Auth user
-        try:
-            supabase.auth.admin.delete_user(str(supabase_uid))
-            _auth_log.info("[StudentSignup] Rolled back Auth user %s", supabase_uid)
-        except Exception as rollback_err:
-            _auth_log.critical("[StudentSignup] Failed to rollback Auth user %s: %s", supabase_uid, rollback_err)
+        if auth_resp is not None:
+            try:
+                supabase.auth.admin.delete_user(str(supabase_uid))
+                _auth_log.info("[StudentSignup] Rolled back Auth user %s", supabase_uid)
+            except Exception as rollback_err:
+                _auth_log.critical("[StudentSignup] Failed to rollback Auth user %s: %s", supabase_uid, rollback_err)
         raise HTTPException(status_code=500, detail="Failed to create student record")
 
     # Auto-link any existing enrollments by matching email (case-insensitive).
@@ -583,21 +706,27 @@ async def student_signup(body: StudentSignupIn, request: Request):
 @limiter.limit("120/minute")
 async def student_login(body: StudentLoginIn, request: Request):
     email = body.email.strip().lower()
-    try:
-        auth_resp = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": body.password,
-        })
-    except Exception as e:
-        _auth_log.warning("[StudentLogin] Auth error: %s", e)
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+    auth_resp = None
+    if local_auth_enabled():
+        account = await _get_student_by_email_for_auth(email)
+        if not account or not await verify_password(body.password, account.get("password_hash")):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+    else:
+        try:
+            auth_resp = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": body.password,
+            })
+        except Exception as e:
+            _auth_log.warning("[StudentLogin] Auth error: %s", e)
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    supabase_uid = str(auth_resp.user.id)
-    account = await _get_student_account_by_uid(supabase_uid)
-    if not account:
-        raise HTTPException(
-            status_code=403,
-            detail="No student account found for this login. Please sign up first.")
+        supabase_uid = str(auth_resp.user.id)
+        account = await _get_student_account_by_uid(supabase_uid)
+        if not account:
+            raise HTTPException(
+                status_code=403,
+                detail="No student account found for this login. Please sign up first.")
 
     # Opportunistic auto-link on every login in case the student was
     # registered by a teacher AFTER they created their account.
@@ -612,7 +741,11 @@ async def student_login(body: StudentLoginIn, request: Request):
 
     return {
         "access_token":  issue_student_auth_token(account),
-        "refresh_token": auth_resp.session.refresh_token,
+        "refresh_token": (
+            issue_refresh_token(account["id"], "student")
+            if local_auth_enabled()
+            else auth_resp.session.refresh_token
+        ),
         "account": {
             "id":        account["id"],
             "email":     account["email"],
@@ -635,6 +768,18 @@ async def student_me(request: Request):
 @router.post("/api/v1/student/auth/refresh")
 @limiter.limit("20/minute")
 async def student_refresh(body: RefreshIn, request: Request):
+    if local_auth_enabled():
+        account_id = verify_refresh_token(body.refresh_token, "student")
+        if not account_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        account = await _get_student_account_by_id(account_id)
+        if not account:
+            raise HTTPException(status_code=403, detail="Student account not found")
+        return {
+            "access_token": issue_student_auth_token(account),
+            "refresh_token": issue_refresh_token(account["id"], "student"),
+        }
+
     try:
         auth_resp = supabase.auth.refresh_session(body.refresh_token)
     except Exception as e:
@@ -987,10 +1132,15 @@ async def reauth(request: Request):
         raise HTTPException(status_code=400, detail="Password required")
 
     email = teacher.get("email", "")
-    try:
-        supabase.auth.sign_in_with_password({"email": email, "password": password})
-    except Exception:
-        raise HTTPException(status_code=403, detail="Invalid password")
+    if local_auth_enabled():
+        row = await _get_teacher_by_email_for_auth(email)
+        if not row or not await verify_password(password, row.get("password_hash")):
+            raise HTTPException(status_code=403, detail="Invalid password")
+    else:
+        try:
+            supabase.auth.sign_in_with_password({"email": email, "password": password})
+        except Exception:
+            raise HTTPException(status_code=403, detail="Invalid password")
 
     reauth_token = issue_reauth_token(tid)
     return {"reauth_token": reauth_token, "expires_in_seconds": 300}
@@ -1137,12 +1287,133 @@ async def student_password_reset(body: dict, request: Request):
     email = (body.get("email") or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
+    if local_auth_enabled():
+        user = await _get_student_by_email_for_auth(email)
+        if user:
+            from ..emailer import send_password_reset_email
+            from ..invites import _get_invite_base_url
+            token = issue_password_reset_token(
+                user["id"], email, "student",
+                password_changed_at=_stringify_pwc(user.get("password_changed_at")),
+            )
+            base = _get_invite_base_url()
+            send_password_reset_email(
+                email,
+                user.get("full_name", ""),
+                f"{base}/reset-password?token={token}",
+            )
+        return {"status": "sent"}
     try:
         supabase.auth.reset_password_for_email(email)
         return {"status": "sent"}
     except Exception as e:
         _auth_log.warning("[StudentPasswordReset] Supabase error: %s", e)
         return {"status": "sent"}  # Don't reveal whether account exists
+
+
+RESET_PASSWORD_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Reset password — Procta</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;padding:40px 20px;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.card{max-width:420px;margin:0 auto;background:#fff;border-radius:16px;padding:32px;color:#0f172a}
+h1{font-size:22px;margin:0 0 8px}p{color:#64748b;font-size:14px;line-height:1.5}
+label{display:block;font-size:13px;font-weight:600;margin:16px 0 6px}
+input{width:100%;box-sizing:border-box;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px}
+button{width:100%;margin-top:18px;padding:12px;border:0;border-radius:8px;background:#3b82f6;color:#fff;font-weight:700;cursor:pointer}
+.err{display:none;margin-top:12px;color:#991b1b;background:#fef2f2;padding:10px;border-radius:8px;font-size:13px}
+.ok{display:none;margin-top:12px;color:#065f46;background:#ecfdf5;padding:10px;border-radius:8px;font-size:13px}</style></head>
+<body><div class="card">
+<h1>Reset your password</h1>
+<p>Choose a new password for your Procta account.</p>
+<form id="f">
+<label>New password</label>
+<input id="password" type="password" minlength="10" autocomplete="new-password" required>
+<button id="btn" type="submit">Update password</button>
+</form>
+<div class="err" id="err"></div><div class="ok" id="ok">Password updated. You can close this page and log in.</div>
+</div>
+<script>
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = document.getElementById('err');
+  const ok = document.getElementById('ok');
+  const btn = document.getElementById('btn');
+  err.style.display = 'none'; ok.style.display = 'none'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/v1/auth/password-reset/confirm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: '%(token)s', password: document.getElementById('password').value})
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Could not update password');
+    ok.style.display = 'block';
+  } catch (e) {
+    err.textContent = e.message || 'Could not update password';
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script></body></html>"""
+
+
+@router.get("/reset-password")
+async def reset_password_page(token: str = ""):
+    if not local_auth_enabled():
+        return HTMLResponse("<h1>Password reset is handled by the auth provider.</h1>", status_code=404)
+    if not verify_password_reset_token(token):
+        return HTMLResponse("<h1>Reset link expired or invalid</h1>", status_code=400)
+    return HTMLResponse(RESET_PASSWORD_HTML % {"token": _esc(token)})
+
+
+@router.post("/api/v1/auth/password-reset/confirm")
+@limiter.limit("5/minute")
+async def confirm_password_reset(body: dict, request: Request):
+    if not local_auth_enabled():
+        raise HTTPException(status_code=404, detail="Password reset is handled by the auth provider")
+    token = (body.get("token") or "").strip()
+    password = body.get("password") or ""
+    claims = verify_password_reset_token(token)
+    if not claims:
+        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+    try:
+        validate_password(password)
+    except PasswordError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Explicit kind allow-list — defence in depth in case a future
+    # issuer accepts a bad kind. Without this, an unexpected value
+    # would silently default to student_accounts.
+    kind = claims.get("kind")
+    if kind not in ("teacher", "student"):
+        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+    table = "teachers" if kind == "teacher" else "student_accounts"
+    user_id = str(claims.get("uid") or "")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+
+    # Single-use enforcement: when the token was minted, it embedded the
+    # user's current `password_changed_at` (or None for legacy tokens
+    # minted before this column was wired). Fetch the live value; if it
+    # doesn't match, the token has already been used (the column moved
+    # forward) OR the user changed their password through another flow.
+    # Either way, reject.
+    pwc_claim = claims.get("pwc")
+    if pwc_claim is not None:
+        live = await _atable(table).select("password_changed_at").eq("id", user_id).limit(1).execute()
+        if not live.data:
+            raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+        live_pwc = _stringify_pwc(live.data[0].get("password_changed_at"))
+        if live_pwc != pwc_claim:
+            raise HTTPException(status_code=400, detail="Reset link has already been used")
+
+    await _atable(table).update({
+        "password_hash": await hash_password(password),
+        "auth_provider": "local",
+        "password_changed_at": now_ist().isoformat(),
+    }).eq("id", user_id).execute()
+    await record_auth_event("password_reset_completed", request, kind, user_id, claims.get("email"))
+    return {"ok": True}
 
 
 # ─── OAUTH SIGN-IN (Google + Microsoft) ──────────────────────────
@@ -1176,6 +1447,8 @@ async def oauth_start(request: Request, provider: str = "google",
                    (defaults to "/" — your frontend can override per
                    surface, e.g. "/student" for student login)
     """
+    if local_auth_enabled():
+        raise HTTPException(status_code=503, detail="OAuth is temporarily unavailable during local-auth migration")
     if provider not in auth_oauth.ALLOWED_PROVIDERS:
         raise HTTPException(status_code=400, detail="Unsupported provider")
     if intent not in auth_oauth.ALLOWED_INTENTS:
@@ -1202,6 +1475,8 @@ async def oauth_callback(request: Request, code: str = "", state: str = "",
     Fragments don't go to servers or referrer headers, so the JWT
     survives the SPA hop without leaking.
     """
+    if local_auth_enabled():
+        raise HTTPException(status_code=503, detail="OAuth is temporarily unavailable during local-auth migration")
     # Provider-side error (user denied consent, etc.)
     if error:
         _auth_log.warning("[oauth] provider error: %s — %s", error, error_description)

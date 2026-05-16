@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse
 
 from ..auth import require_admin
-from ..database import supabase, async_table as _atable
+from ..database import async_table as _atable
 from ..repositories.sessions import (
     assert_session_owned as _assert_session_owned,
     fetch_all_results as _fetch_all_results,
@@ -628,13 +628,20 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             continue
 
         if not resend_all:
-            claim = await asyncio.to_thread(
-                lambda: supabase.rpc("claim_scorecard_email",
-                    {"p_session_key": sid, "p_teacher_id": tid}).execute()
-            )
-            claimed = claim.data
-            if isinstance(claimed, list):
-                claimed = claimed[0] if claimed else False
+            if os.environ.get("DATABASE_BACKEND", "supabase").strip().lower() == "postgres":
+                claim = await _atable("exam_sessions").update({
+                    "scorecard_emailed_at": now_ist().isoformat(),
+                }).eq("session_key", sid).eq("teacher_id", tid).is_("scorecard_emailed_at", "null").execute()
+                claimed = bool(claim.data)
+            else:
+                from ..database import supabase
+                claim = await asyncio.to_thread(
+                    lambda: supabase.rpc("claim_scorecard_email",
+                        {"p_session_key": sid, "p_teacher_id": tid}).execute()
+                )
+                claimed = claim.data
+                if isinstance(claimed, list):
+                    claimed = claimed[0] if claimed else False
             if not claimed:
                 already_sent += 1
                 continue

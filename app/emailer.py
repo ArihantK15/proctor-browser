@@ -326,6 +326,47 @@ This link expires in 24 hours. If you did not sign up for Procta, you can ignore
     return _send(to_email, subject, html, text)
 
 
+def send_password_reset_email(to_email: str, to_name: str, reset_url: str) -> SendResult:
+    """Send a local-auth password reset link."""
+    subject = "Reset your Procta password"
+    display_name = to_name or "there"
+    text = f"""Hello {display_name},
+
+We received a request to reset your Procta password.
+
+{reset_url}
+
+This link expires in 30 minutes. If you did not request this, you can ignore this email.
+
+— The Procta Team
+"""
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Reset your password — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="480"
+             style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:480px;">
+        <tr><td style="background:#3b82f6;padding:24px 28px;text-align:center;">
+          <div style="color:#ffffff;font-size:18px;font-weight:700;">Reset your password</div>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0f172a;">
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{_esc(display_name)}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">We received a request to reset your Procta password. Click the button below to choose a new password.</p>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td align="center" style="padding:8px 0 20px;">
+            <a href="{reset_url}" target="_blank" style="display:inline-block;padding:12px 32px;border-radius:6px;background:#3b82f6;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Reset Password</a>
+          </td></tr></table>
+          <p style="margin:0 0 12px;font-size:13px;color:#555;line-height:1.4;">Or copy this link: <span style="font-size:12px;color:#3b82f6;word-break:break-all;font-family:monospace;">{reset_url}</span></p>
+          <p style="margin:0;font-size:12px;color:#999;line-height:1.4;">This link expires in 30 minutes. If you did not request this, please ignore this email.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    return _send(to_email, subject, html, text)
+
+
 def send_suspicious_login_email(
     *,
     to_email: str,
@@ -646,4 +687,3 @@ def _render_scorecard_email(**ctx) -> tuple[str, str]:
 </body></html>
 """
     return html, text
-

@@ -1,6 +1,9 @@
 import os
 import sys
+import logging
 from supabase import create_client, Client
+
+_log = logging.getLogger(__name__)
 
 
 def _required_env(name: str) -> str:
@@ -17,16 +20,30 @@ def _required_env(name: str) -> str:
     return v
 
 
-supabase: Client = create_client(
-    _required_env("SUPABASE_URL"),
-    _required_env("SUPABASE_SERVICE_ROLE_KEY"),
-)
+_DATABASE_BACKEND = os.environ.get("DATABASE_BACKEND", "supabase").strip().lower()
+
+
+class _UnavailableSupabase:
+    def __getattr__(self, name):
+        raise RuntimeError(
+            "Supabase client is unavailable when DATABASE_BACKEND=postgres. "
+            "Use local auth/Postgres adapters or keep DATABASE_BACKEND=supabase."
+        )
+
+
+if _DATABASE_BACKEND == "postgres":
+    supabase = _UnavailableSupabase()
+else:
+    supabase: Client = create_client(
+        _required_env("SUPABASE_URL"),
+        _required_env("SUPABASE_SERVICE_ROLE_KEY"),
+    )
 
 # ─── Async Supabase client (httpx) for hot-path endpoints ────────
 import httpx
 
-_SUPABASE_URL = _required_env("SUPABASE_URL")
-_SUPABASE_KEY = _required_env("SUPABASE_SERVICE_ROLE_KEY")
+_SUPABASE_URL = os.environ.get("SUPABASE_URL", "") if _DATABASE_BACKEND == "postgres" else _required_env("SUPABASE_URL")
+_SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "") if _DATABASE_BACKEND == "postgres" else _required_env("SUPABASE_SERVICE_ROLE_KEY")
 _REST_BASE = f"{_SUPABASE_URL}/rest/v1"
 _HEADERS = {
     "apikey": _SUPABASE_KEY,
@@ -254,4 +271,7 @@ class _AsyncResult:
 
 def async_table(name: str) -> AsyncTable:
     """Create an async query builder for the given table."""
+    if _DATABASE_BACKEND == "postgres":
+        from .postgres_table import postgres_table
+        return postgres_table(name)
     return AsyncTable(name)

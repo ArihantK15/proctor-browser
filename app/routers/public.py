@@ -121,13 +121,16 @@ async def health():
     checks = {}
     ok = True
 
-    # Supabase — required
+    # Database — required
+    db_backend = os.environ.get("DATABASE_BACKEND", "supabase").strip().lower()
     try:
         await _atable("exam_config").select("id").limit(1).execute()
-        checks["supabase"] = "ok"
+        checks["database"] = "ok"
+        checks["database_backend"] = db_backend
     except Exception as e:
-        _pub_log.warning("[health] supabase check failed: %s", e)
-        checks["supabase"] = "error: suppressed"
+        _pub_log.warning("[health] database check failed: %s", e)
+        checks["database"] = "error: suppressed"
+        checks["database_backend"] = db_backend
         ok = False
 
     # Redis — optional

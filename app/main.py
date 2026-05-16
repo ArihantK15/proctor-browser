@@ -76,16 +76,17 @@ limiter = Limiter(key_func=_rate_limit_key)
 async def lifespan(_app) -> AsyncIterator[None]:
     """Startup + shutdown lifecycle handler (replaces deprecated on_event)."""
     # ── STARTUP ───────────────────────────────────────────────────
-    from .database import supabase
+    db_backend = os.environ.get("DATABASE_BACKEND", "supabase").strip().lower()
+    from .database import async_table as _atable
     try:
-        supabase.table("exam_config").select("id").limit(1).execute()
-        print("[startup] Supabase connected", flush=True)
+        await _atable("exam_config").select("id").limit(1).execute()
+        print(f"[startup] database connected ({db_backend})", flush=True)
     except Exception as e:
         allow_unhealthy = os.environ.get("SUPABASE_SKIP_STARTUP_CHECK", "") == "1"
         if allow_unhealthy:
-            print(f"[startup] WARNING: Supabase unreachable: {e}", flush=True)
+            print(f"[startup] WARNING: database unreachable: {e}", flush=True)
         else:
-            raise RuntimeError(f"Supabase unreachable: {e}. Set SUPABASE_SKIP_STARTUP_CHECK=1 to override.") from e
+            raise RuntimeError(f"Database unreachable: {e}. Set SUPABASE_SKIP_STARTUP_CHECK=1 to override.") from e
 
     gc.set_threshold(300, 5, 50)
     gc.freeze()
@@ -158,6 +159,27 @@ async def lifespan(_app) -> AsyncIterator[None]:
             log.info("[shutdown] Closed Redis connection")
     except Exception:
         log.warning("[shutdown] Failed to close Redis connection")
+
+    # Close the asyncpg pool when DATABASE_BACKEND=postgres. Safe no-op
+    # otherwise — the supabase REST path doesn't open one. Without this,
+    # every uvicorn reload leaks up to POSTGRES_POOL_MAX connections.
+    try:
+        from .postgres_table import close_pool as _close_pg_pool
+        await _close_pg_pool()
+        log.info("[shutdown] Closed Postgres pool")
+    except Exception as e:
+        log.warning("[shutdown] Failed to close Postgres pool: %s", e)
+
+    # Close the shared httpx async client (Supabase REST hot-path).
+    # Pre-existing; gathered here so we have one shutdown sequence.
+    try:
+        from . import database as _db
+        if _db._async_client is not None:
+            await _db._async_client.aclose()
+            _db._async_client = None
+            log.info("[shutdown] Closed httpx async client")
+    except Exception as e:
+        log.warning("[shutdown] Failed to close httpx client: %s", e)
 
     log.info("[shutdown] Graceful shutdown complete")
 

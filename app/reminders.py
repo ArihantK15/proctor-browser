@@ -9,7 +9,7 @@ import asyncio
 import os
 from datetime import datetime, timezone, timedelta
 
-from .database import supabase, async_table as _atable
+from .database import async_table as _atable
 from .constants import REMINDER_1H_WINDOW_MIN, REMINDER_24H_WINDOW_MIN
 from .logger import get_logger
 
@@ -24,15 +24,6 @@ def _reminder_window(target_minutes: int, half_width_min: int):
 
 def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bool:
     from .emailer import send_exam_reminder
-    col = "reminder_1h_at" if hours_until < 24 else "reminder_24h_at"
-    now_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        claim = (supabase.table("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute())
-    except Exception as e:
-        _dep_log.warning("[reminders] claim failed token=%s err=%s", inv.get('token','?')[:8], e)
-        return False
-    if not claim.data:
-        return False
     base = os.environ.get("INVITE_BASE_URL", "https://app.procta.net").rstrip("/")
     invite_url = f"{base}/invite/{inv['token']}"
 
@@ -48,10 +39,6 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
         _dep_log.error("[reminders] send raised: %s", e)
         result = None
     if result is None or not getattr(result, "ok", False):
-        try:
-            supabase.table("student_invites").update({col: None}).eq("token", inv["token"]).execute()
-        except Exception:
-            _dep_log.warning("[reminders] cleanup rollback failed for %s", inv.get('token','?')[:8])
         _dep_log.warning("[reminders] FAILED %dh reminder to=%s err=%r", hours_until, inv.get('email'), getattr(result,'error',None))
         return False
     _dep_log.info("[reminders] SENT %dh reminder to=%s exam=%s", hours_until, inv.get('email'), exam_cfg.get('exam_id') or '?')
@@ -85,7 +72,13 @@ async def _reminder_tick():
                 if not inv.get("email"):
                     continue
                 try:
-                    await asyncio.to_thread(_send_reminder_for_invite, inv, exam_cfg, hours_until)
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    claim = await _atable("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute()
+                    if not claim.data:
+                        continue
+                    sent = await asyncio.to_thread(_send_reminder_for_invite, inv, exam_cfg, hours_until)
+                    if not sent:
+                        await _atable("student_invites").update({col: None}).eq("token", inv["token"]).execute()
                 except Exception as e:
                     _dep_log.warning("[reminders] per-invite error: %s", e)
 

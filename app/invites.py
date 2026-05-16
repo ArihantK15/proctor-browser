@@ -5,7 +5,7 @@ import os
 import secrets
 from datetime import date, datetime, timezone
 
-from .database import supabase, async_table as _atable
+from .database import async_table as _atable
 from .constants import INVITE_DAILY_CAP
 from .logger import get_logger
 
@@ -44,7 +44,10 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
     """
     if batch_size <= 0:
         return (True, INVITE_DAILY_CAP)
+    if os.environ.get("DATABASE_BACKEND", "supabase").strip().lower() == "postgres":
+        return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
     try:
+        from .database import supabase
         result = await asyncio.to_thread(
             lambda: supabase.rpc(
                 "claim_invite_cap",

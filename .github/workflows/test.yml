@@ -130,6 +130,7 @@ jobs:
             -e EMAIL_PROVIDER=noop \
             -e EMAIL_FROM=test@procta.net \
             -e SUPABASE_SKIP_STARTUP_CHECK=1 \
+            -e SCREENSHOTS_DIR=/tmp/proctor-screenshots \
             proctor-api:ci
 
       - name: Wait for health

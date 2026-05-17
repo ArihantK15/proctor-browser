@@ -16,8 +16,8 @@ lib/python-manager.js
 lib/utils.js
 
 # proctor.py is the Electron renderer that connects to the FastAPI backend over
-# localhost WebSocket. ws:// (plain WebSocket) is correct here — the connection
-# never leaves the machine (localhost). wss:// would require a local TLS cert.
+# localhost. Plain (non-TLS) WebSocket is correct here — the connection never
+# leaves the machine. TLS-wrapped sockets would require a local certificate.
 proctor.py
 
 # config.js — the RegExp built from `name` is derived from a static list of

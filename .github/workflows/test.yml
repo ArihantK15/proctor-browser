@@ -149,8 +149,9 @@ jobs:
       - name: Run smoke test
         run: |
           docker run --rm --network host \
+            -v "${{ github.workspace }}/loadtest:/scripts:ro" \
             -e TARGET=http://localhost:8000 \
-            grafana/k6 run - < loadtest/smoke.js
+            grafana/k6:0.54.0 run /scripts/smoke.js
 
       - name: Clean up
         if: always()
@@ -189,10 +190,7 @@ jobs:
           config: auto
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.50.1
+          trivy fs . --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1

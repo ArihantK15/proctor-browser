@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
   # Re-run the test suite to gate the deploy

@@ -129,6 +129,7 @@ jobs:
             -e CORS_ORIGINS=http://localhost:8000 \
             -e EMAIL_PROVIDER=noop \
             -e EMAIL_FROM=test@procta.net \
+            -e SUPABASE_SKIP_STARTUP_CHECK=1 \
             proctor-api:ci
 
       - name: Wait for health

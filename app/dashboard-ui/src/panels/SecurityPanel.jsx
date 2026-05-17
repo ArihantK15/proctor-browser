@@ -11,16 +11,14 @@ export default function SecurityPanel() {
   const [tfaMsg, setTfaMsg] = useState('')
   const [sessionsMsg, setSessionsMsg] = useState('')
 
-  useEffect(() => {
-    loadTfaStatus()
-    loadSessions()
-  }, [])
+
+  const [loadError, setLoadError] = useState('')
 
   const loadTfaStatus = async () => {
     try {
       const r = await authFetch('/api/v1/auth/2fa/status')
       if (r.ok) setTfaStatus(await r.json())
-    } catch (_) {}
+    } catch (err) { console.error('SecurityPanel: load TFA status failed', err) }
   }
 
   const loadSessions = async () => {
@@ -30,8 +28,19 @@ export default function SecurityPanel() {
         const d = await r.json()
         setSessions(d.sessions || [])
       }
-    } catch (_) {}
+    } catch (err) { console.error('SecurityPanel: load sessions failed', err) }
   }
+
+  const loadAll = async () => {
+    setLoadError('')
+    try {
+      await Promise.all([loadTfaStatus(), loadSessions()])
+    } catch (e) {
+      setLoadError(e.message || 'Failed to load security settings')
+    }
+  }
+
+  useEffect(() => { loadAll() }, [])
 
   const enable2FA = async () => {
     setEnrolling(true)
@@ -63,7 +72,7 @@ export default function SecurityPanel() {
     try {
       await authFetch(`/api/v1/auth/sessions/${jti}/revoke`, { method: 'POST' })
       loadSessions()
-    } catch (_) {}
+    } catch (err) { console.error('SecurityPanel: revoke session failed', err) }
   }
 
   const revokeOthers = async () => {
@@ -77,6 +86,7 @@ export default function SecurityPanel() {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      {loadError && <div className="auth-err" style={{ gridColumn: '1 / -1', marginBottom: 8 }}>{loadError} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>}
       {/* 2FA card */}
       <div className="tool-card">
         <div className="tool-card-body">

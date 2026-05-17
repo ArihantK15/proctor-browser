@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { AuthProvider, useAuth } from './lib/auth'
 import { API_BASE } from './config'
 import OrgPanel from './panels/OrgPanel'
@@ -20,22 +20,31 @@ import SupportConsole from './panels/SupportConsole'
 import OnboardingWizard from './components/OnboardingWizard'
 
 const TABS = [
-  { id: 'live', label: 'Live Sessions', roles: ['admin', 'superadmin'] },
-  { id: 'tools', label: 'Tools', roles: ['admin', 'superadmin'] },
+  { id: 'live', label: 'Live Sessions', roles: ['teacher', 'admin', 'superadmin'] },
+  { id: 'tools', label: 'Tools', roles: ['teacher', 'admin', 'superadmin'] },
   { id: 'support', label: 'Support', roles: ['admin', 'superadmin'] },
-  { id: 'review', label: 'Review', roles: ['admin', 'superadmin'] },
-  { id: 'results', label: 'Results', roles: ['admin', 'superadmin'] },
-  { id: 'history', label: 'History', roles: ['admin', 'superadmin'] },
-  { id: 'analytics', label: 'Analytics', roles: ['admin', 'superadmin'] },
-  { id: 'chat', label: 'Chat', roles: ['admin', 'superadmin'] },
-  { id: 'questions', label: 'Questions', roles: ['admin', 'superadmin'] },
+  { id: 'review', label: 'Review', roles: ['teacher', 'admin', 'superadmin'] },
+  { id: 'results', label: 'Results', roles: ['teacher', 'admin', 'superadmin'] },
+  { id: 'history', label: 'History', roles: ['teacher', 'admin', 'superadmin'] },
+  { id: 'analytics', label: 'Analytics', roles: ['teacher', 'admin', 'superadmin'] },
+  { id: 'chat', label: 'Chat', roles: ['teacher', 'admin', 'superadmin'] },
+  { id: 'questions', label: 'Questions', roles: ['teacher', 'admin', 'superadmin'] },
   { id: 'org', label: 'Org Overview', roles: ['admin', 'superadmin'] },
   { id: 'org-settings', label: 'Org Settings', roles: ['admin', 'superadmin'] },
   { id: 'members', label: 'Members', roles: ['admin', 'superadmin'] },
   { id: 'billing', label: 'Billing', roles: ['admin', 'superadmin'] },
   { id: 'security', label: 'Security', roles: ['admin', 'superadmin'] },
-  { id: 'all-orgs', label: 'All Orgs', roles: ['admin', 'superadmin'] },
+  { id: 'all-orgs', label: 'All Orgs', roles: ['superadmin'] },
 ]
+
+function getUserRole(user) {
+  return user?.org_role || user?.role || 'teacher'
+}
+
+function canSeeTab(tab, user) {
+  const role = getUserRole(user)
+  return !tab.roles || tab.roles.includes(role)
+}
 
 function LoginForm() {
   const { login } = useAuth()
@@ -113,14 +122,23 @@ function LoginForm() {
           {loading ? 'Signing in...' : 'Sign In'}
         </button>
       </form>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 14, fontSize: 12 }}>
+        <a href="/dashboard" style={{ color: 'var(--accent)' }}>Forgot password?</a>
+        <a href="https://procta.net/signup" style={{ color: 'var(--accent)' }}>Start free trial</a>
+      </div>
     </div>
   )
 }
 
 function DashboardShell() {
   const { user, logout, authFetch } = useAuth()
-  const [activeTab, setActiveTab] = useState('org')
-  const [currentExamId, setCurrentExamId] = useState(null)
+  const [activeTab, setActiveTab] = useState(() => window.location.hash.replace(/^#/, '') || 'org')
+  const [currentExamId, setCurrentExamId] = useState(() => {
+    // Restore the last-selected exam from sessionStorage so a refresh
+    // doesn't drop the user back to the first exam in the list.
+    const saved = sessionStorage.getItem('procta_current_exam_id')
+    return saved || null
+  })
   const [showOnboarding, setShowOnboarding] = useState(() => {
     // Show onboarding for new users (not yet completed or skipped)
     const done = localStorage.getItem('procta_onboarding_done')
@@ -129,6 +147,7 @@ function DashboardShell() {
     return null // null = checking, false = don't show, true = show
   })
   const [showDemoCta, setShowDemoCta] = useState(() => !localStorage.getItem('procta_demo_cta_done'))
+  const visibleTabs = useMemo(() => TABS.filter(tab => canSeeTab(tab, user)), [user])
 
   const PANELS = {
     live: LiveSessionsPanel,
@@ -149,6 +168,38 @@ function DashboardShell() {
     'org-settings': OrgSettingsPanel,
   }
   const Panel = PANELS[activeTab]
+
+  useEffect(() => {
+    if (visibleTabs.length && !visibleTabs.some(tab => tab.id === activeTab)) {
+      const fallback = visibleTabs[0].id
+      setActiveTab(fallback)
+      window.history.replaceState(null, '', `#${fallback}`)
+    }
+  }, [activeTab, visibleTabs])
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = window.location.hash.replace(/^#/, '')
+      if (next && visibleTabs.some(tab => tab.id === next)) setActiveTab(next)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [visibleTabs])
+
+  const selectTab = (tabId) => {
+    setActiveTab(tabId)
+    window.location.hash = tabId
+  }
+
+  // Keep sessionStorage in sync with currentExamId so a page refresh
+  // restores the user to the same exam they were working on.
+  useEffect(() => {
+    if (currentExamId) {
+      sessionStorage.setItem('procta_current_exam_id', currentExamId)
+    } else {
+      sessionStorage.removeItem('procta_current_exam_id')
+    }
+  }, [currentExamId])
 
   useEffect(() => {
     document.title = 'Procta Dashboard'
@@ -174,7 +225,7 @@ function DashboardShell() {
   if (showOnboarding) {
     return <OnboardingWizard onComplete={(examId) => {
       if (examId) setCurrentExamId(examId)
-      setActiveTab(examId ? 'questions' : 'org')
+      selectTab(examId ? 'questions' : 'org')
       setShowOnboarding(false)
       localStorage.setItem('procta_onboarding_done', '1')
     }} />
@@ -195,11 +246,11 @@ function DashboardShell() {
         </div>
       </div>
       <div className="tabs">
-        {TABS.map(tab => (
+        {visibleTabs.map(tab => (
           <button
             key={tab.id}
             className={`tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => selectTab(tab.id)}
             style={{ textTransform: 'uppercase', letterSpacing: 0.03 }}
           >
             {tab.label}
@@ -213,7 +264,7 @@ function DashboardShell() {
               localStorage.setItem('procta_demo_cta_done', '1')
               setShowDemoCta(false)
             }}
-            onQuestions={() => setActiveTab('questions')}
+            onQuestions={() => selectTab('questions')}
           />
         )}
         {Panel && <Panel currentExamId={currentExamId} setCurrentExamId={setCurrentExamId} />}

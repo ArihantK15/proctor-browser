@@ -82,8 +82,8 @@ def is_configured() -> bool:
     return bool(LLM_API_KEY)
 
 
-def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
-               temperature: float = 0.7) -> dict:
+async def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
+                     temperature: float = 0.7) -> dict:
     """Single-shot chat completion that returns parsed JSON.
 
     Raises a generic Exception on transport / JSON / API errors so the
@@ -94,6 +94,8 @@ def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
     response_format silently; we don't error on missing JSON mode and
     rely on the system prompt's "Return only JSON" instruction as the
     backstop.
+
+    Uses httpx.AsyncClient so it never blocks the event loop.
     """
     if not LLM_API_KEY:
         raise RuntimeError("LLM_API_KEY (or GROQ_API_KEY) not configured")
@@ -116,9 +118,9 @@ def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
     if "openrouter" in LLM_BASE_URL:
         headers["HTTP-Referer"] = "https://procta.net"
         headers["X-Title"] = "Procta"
-    with httpx.Client(timeout=LLM_TIMEOUT) as client:
-        r = client.post(f"{LLM_BASE_URL}/chat/completions",
-                        json=payload, headers=headers)
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+        r = await client.post(f"{LLM_BASE_URL}/chat/completions",
+                              json=payload, headers=headers)
         if r.status_code >= 400:
             # Don't echo the model's full error body to clients — some
             # providers' errors include the prompt back, which could
@@ -127,8 +129,8 @@ def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
             log.warning("llm %s %s: %s", LLM_BASE_URL, r.status_code,
                         r.text[:500])
             r.raise_for_status()
-        body = r.json()
-    content = body["choices"][0]["message"]["content"]
+        resp_body = r.json()
+    content = resp_body["choices"][0]["message"]["content"]
     return json.loads(content)
 
 
@@ -147,7 +149,7 @@ Rules:
 - Never copy questions verbatim from copyrighted textbooks. Paraphrase any source material."""
 
 
-def generate_questions(
+async def generate_questions(
     topic: str,
     count: int,
     *,
@@ -207,7 +209,7 @@ Return JSON in exactly this shape (no extra keys, no commentary):
   ]
 }}{src_hint}"""
 
-    parsed = _chat_json(_QGEN_SYSTEM, user, max_tokens=4000, temperature=0.7)
+    parsed = await _chat_json(_QGEN_SYSTEM, user, max_tokens=4000, temperature=0.7)
     qs = parsed.get("questions") or []
     if not isinstance(qs, list):
         raise RuntimeError("LLM returned non-list 'questions' field")
@@ -271,7 +273,7 @@ Rules:
 - No emojis. No exclamation marks. No "great job!"-style filler."""
 
 
-def scorecard_insight(summary: dict, per_question: list[dict]) -> str:
+async def scorecard_insight(summary: dict, per_question: list[dict]) -> str:
     """Generate a 2-4 sentence personalised note for a student's scorecard.
 
     ``summary`` is the dict from ``_build_scorecard_pdf`` — has score,
@@ -317,7 +319,7 @@ Questions they got WRONG (sample, truncated):
 Write the personalised note. Return JSON: {{"note": "..."}}."""
 
     try:
-        parsed = _chat_json(_INSIGHT_SYSTEM, user, max_tokens=300, temperature=0.6)
+        parsed = await _chat_json(_INSIGHT_SYSTEM, user, max_tokens=300, temperature=0.6)
         note = str(parsed.get("note") or "").strip()
         # Hard cap so a runaway model can't blow out the PDF layout.
         # 600 chars is roughly 4 sentences.
@@ -337,7 +339,7 @@ def _looks_like_multi(s: str) -> bool:
 
 # ── Auto-tag (one-shot) ──────────────────────────────────────────────
 
-def suggest_tags(question: str, options: dict, correct: str) -> list[str]:
+async def suggest_tags(question: str, options: dict, correct: str) -> list[str]:
     """Return 3-5 lowercase tags for a single question. Used by the
     'Generate tags' button on Save-to-Bank — turns a chore into a
     one-click action and produces consistent taxonomy across the
@@ -352,7 +354,7 @@ Use single words or hyphenated terms. Return JSON: {{"tags": ["...", "..."]}}.
 Question: {question}
 Options: {json.dumps(options)}
 Correct: {correct}"""
-    parsed = _chat_json(
+    parsed = await _chat_json(
         "You are a precise taxonomist. Return only the JSON object.",
         user, max_tokens=200, temperature=0.3,
     )
@@ -376,7 +378,7 @@ Banned phrases: "appears to", "may indicate", "suggests that", "could be", \
 Output JSON: {"summary": "..."}"""
 
 
-def live_risk_triage(session_meta: dict, violations: list[dict]) -> str:
+async def live_risk_triage(session_meta: dict, violations: list[dict]) -> str:
     """One-line TL;DR of a live exam session for the teacher's
     dashboard. The teacher needs to scan 50 students fast — this
     sentence is what they read instead of clicking each row open
@@ -439,7 +441,7 @@ Recent events (most recent first):
 Now write the one-sentence triage summary."""
 
     try:
-        parsed = _chat_json(_TRIAGE_SYSTEM, user, max_tokens=120, temperature=0.3)
+        parsed = await _chat_json(_TRIAGE_SYSTEM, user, max_tokens=120, temperature=0.3)
         summary = str(parsed.get("summary") or "").strip()
         # Cap length — runaway models can blow past the 22-word limit
         # by ignoring the system prompt. 220 chars ≈ 35-40 words.
@@ -476,7 +478,7 @@ do NOT speculate which option SHOULD be correct unless you're certain — false 
 corrections are worse than no review. Maximum 25 words per note."""
 
 
-def lint_questions(questions: list[dict]) -> list[dict]:
+async def lint_questions(questions: list[dict]) -> list[dict]:
     """Review a batch of questions for ambiguity / unbalanced options /
     wrong correct-answer keys. Returns per-question issue lists.
 
@@ -511,7 +513,7 @@ def lint_questions(questions: list[dict]) -> list[dict]:
     user = "Review these questions:\n\n" + "\n\n".join(digest)
 
     try:
-        parsed = _chat_json(_LINT_SYSTEM, user, max_tokens=2000, temperature=0.2)
+        parsed = await _chat_json(_LINT_SYSTEM, user, max_tokens=2000, temperature=0.2)
     except Exception as e:
         log.warning("lint_questions failed: %s", e)
         return []
@@ -565,7 +567,7 @@ Return JSON:
 }"""
 
 
-def generate_rubric(question: str, reference_answer: str, max_score: int = 5) -> dict:
+async def generate_rubric(question: str, reference_answer: str, max_score: int = 5) -> dict:
     """Generate a grading rubric for a short-answer question.
 
     Returns ``{rubric, max_score, criteria}`` suitable for storing in
@@ -587,7 +589,7 @@ Create a detailed rubric with {min(max_score, 5)} score bands ranging from 0 to 
 Each band should describe what the answer must include to achieve that score."""
 
     try:
-        parsed = _chat_json(_RUBRIC_SYSTEM, user, max_tokens=1500, temperature=0.3)
+        parsed = await _chat_json(_RUBRIC_SYSTEM, user, max_tokens=1500, temperature=0.3)
     except Exception as e:
         log.warning("generate_rubric failed: %s", e)
         return {"rubric": str(e), "max_score": max_score, "criteria": []}
@@ -629,7 +631,7 @@ Confidence:
 Output JSON: {"score": N, "feedback": "...", "confidence": "high|medium|low"}"""
 
 
-def grade_short_answer(question: str, reference: str, rubric: str,
+async def grade_short_answer(question: str, reference: str, rubric: str,
                        student_answer: str, max_score: float = 1.0) -> dict:
     """Grade one short-answer response against a teacher's reference.
 
@@ -680,7 +682,7 @@ Now grade it."""
         pass
 
     try:
-        parsed = _chat_json(_GRADE_SYSTEM, user, max_tokens=300, temperature=0.2)
+        parsed = await _chat_json(_GRADE_SYSTEM, user, max_tokens=300, temperature=0.2)
     except Exception as e:
         log.warning("grade_short_answer failed: %s", e)
         return {"score": None,

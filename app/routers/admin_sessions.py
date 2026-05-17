@@ -441,8 +441,8 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
         _admin_log.warning("[triage] violation lookup failed sid=%s: %s", session_id, e)
         viol_rows = []
 
-    from llm import live_risk_triage as _triage
-    summary = _triage(session_meta, viol_rows)
+    from ..llm import live_risk_triage as _triage
+    summary = await _triage(session_meta, viol_rows)
 
     payload = {
         "summary": summary,

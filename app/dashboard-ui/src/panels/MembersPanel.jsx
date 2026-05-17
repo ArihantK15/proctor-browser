@@ -8,19 +8,24 @@ export default function MembersPanel() {
   const [inviteName, setInviteName] = useState('')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const isAdmin = user?.org_role === 'admin' || user?.org_role === 'superadmin'
 
   useEffect(() => { loadMembers() }, [])
 
   const loadMembers = async () => {
+    setLoadError('')
     try {
       const r = await authFetch('/api/v1/org/members')
-      if (r.ok) {
-        const d = await r.json()
-        setMembers(d.members || [])
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load members (${r.status})`)
       }
-    } catch (_) {}
-    finally { setLoading(false) }
+      const d = await r.json()
+      setMembers(d.members || [])
+    } catch (e) {
+      setLoadError(e.message || 'Failed to load members')
+    } finally { setLoading(false) }
   }
 
   const inviteTeacher = async () => {
@@ -45,7 +50,7 @@ export default function MembersPanel() {
     try {
       const r = await authFetch(`/api/v1/org/members/${memberId}`, { method: 'DELETE' })
       if (r.ok) loadMembers()
-    } catch (_) {}
+    } catch (err) { console.error('MembersPanel: remove member failed', err) }
   }
 
   const changeRole = async (memberId, newRole) => {
@@ -56,10 +61,11 @@ export default function MembersPanel() {
         body: JSON.stringify({ role: newRole }),
       })
       loadMembers()
-    } catch (_) {}
+    } catch (err) { console.error('MembersPanel: change role failed', err) }
   }
 
   if (loading) return <div className="loading">Loading members...</div>
+  if (loadError) return <div className="auth-err" style={{ margin: 20 }}>{loadError} <button className="btn-link" onClick={loadMembers} style={{ marginLeft: 8 }}>Retry</button></div>
 
   return (
     <div>
@@ -98,7 +104,13 @@ export default function MembersPanel() {
           </tr>
         </thead>
         <tbody>
-          {members.map(m => (
+          {members.length === 0 ? (
+            <tr>
+              <td colSpan={4} style={{ padding: '32px 14px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                No team members yet — invite a colleague using the form above.
+              </td>
+            </tr>
+          ) : members.map(m => (
             <tr key={m.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <td style={{ padding: '10px 14px' }}>{m.full_name}</td>
               <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{m.email}</td>

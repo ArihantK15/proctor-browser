@@ -13,37 +13,25 @@ export default function BillingPanel() {
   const [invoices, setInvoices] = useState([])
   const [usage, setUsage] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [upgradeStatus, setUpgradeStatus] = useState('')
 
-  useEffect(() => {
-    loadBilling()
-    loadInvoices()
-    loadUsage()
-  }, [])
+  useEffect(() => { loadAll() }, [])
 
-  const loadBilling = async () => {
+  const loadAll = async () => {
+    setError('')
     try {
       const r = await authFetch('/api/v1/org/billing')
-      if (r.ok) setBilling(await r.json())
-    } catch (_) {}
-    finally { setLoading(false) }
-  }
-
-  const loadInvoices = async () => {
-    try {
-      const r = await authFetch('/api/v1/billing/invoices')
-      if (r.ok) {
-        const d = await r.json()
-        setInvoices(d.invoices || [])
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load billing (${r.status})`)
       }
-    } catch (_) {}
-  }
-
-  const loadUsage = async () => {
-    try {
-      const r = await authFetch('/api/v1/billing/usage')
-      if (r.ok) setUsage(await r.json())
-    } catch (_) {}
+      setBilling(await r.json())
+      authFetch('/api/v1/billing/invoices').then(r => r.ok && r.json().then(d => setInvoices(d.invoices || []))).catch(err => console.error('BillingPanel: load invoices failed', err))
+      authFetch('/api/v1/billing/usage').then(r => r.ok && r.json().then(d => setUsage(d))).catch(err => console.error('BillingPanel: load usage failed', err))
+    } catch (e) {
+      setError(e.message || 'Failed to load billing')
+    } finally { setLoading(false) }
   }
 
   const upgrade = async (planId) => {
@@ -64,6 +52,7 @@ export default function BillingPanel() {
   }
 
   if (loading) return <div className="loading">Loading billing...</div>
+  if (error) return <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>
 
   const currentPlan = billing?.plan || 'starter'
 

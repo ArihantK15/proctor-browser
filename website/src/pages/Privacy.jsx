@@ -1,3 +1,4 @@
+import { Helmet } from 'react-helmet-async'
 import { Link } from 'wouter'
 import { ArrowLeft } from 'lucide-react'
 import Footer from '../components/Footer'
@@ -5,6 +6,14 @@ import Footer from '../components/Footer'
 export default function Privacy() {
   return (
     <div className="min-h-screen bg-navy-950">
+      <Helmet>
+        <title>Privacy Policy — Procta</title>
+        <meta name="description" content="Procta's privacy policy — we collect minimal data, never record video, and never share student data with third parties." />
+        <meta property="og:title" content="Privacy Policy — Procta" />
+        <meta property="og:description" content="We collect minimal data, never record video, and never share student data with third parties." />
+        <meta property="og:type" content="website" />
+        <link rel="canonical" href="https://procta.net/privacy" />
+      </Helmet>
       <div className="mx-auto max-w-3xl px-6 pt-24 pb-16">
         <Link to="/" className="mb-8 inline-flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-white no-underline">
           <ArrowLeft size={16} />

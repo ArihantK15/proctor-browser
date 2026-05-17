@@ -7,39 +7,31 @@ export default function OrgPanel() {
   const [billing, setBilling] = useState(null)
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  useEffect(() => {
-    loadOrg()
-    loadBilling()
-    loadMembers()
-  }, [])
-
-  const loadOrg = async () => {
+  const loadAll = async () => {
+    setError('')
     try {
-      const r = await authFetch('/api/v1/org')
-      if (r.ok) setOrg(await r.json())
-    } catch (_) {}
-  }
-
-  const loadBilling = async () => {
-    try {
-      const r = await authFetch('/api/v1/org/billing')
-      if (r.ok) setBilling(await r.json())
-    } catch (_) {}
-    finally { setLoading(false) }
-  }
-
-  const loadMembers = async () => {
-    try {
-      const r = await authFetch('/api/v1/org/members')
-      if (r.ok) {
-        const d = await r.json()
-        setMembers(d.members || [])
+      const [orgR, billingR, membersR] = await Promise.all([
+        authFetch('/api/v1/org'),
+        authFetch('/api/v1/org/billing'),
+        authFetch('/api/v1/org/members'),
+      ])
+      if (!orgR.ok && !billingR.ok) {
+        throw new Error(`Failed to load org data (${orgR.status})`)
       }
-    } catch (_) {}
+      if (orgR.ok) setOrg(await orgR.json())
+      if (billingR.ok) setBilling(await billingR.json())
+      if (membersR.ok) { const d = await membersR.json(); setMembers(d.members || []) }
+    } catch (e) {
+      setError(e.message || 'Failed to load org data')
+    } finally { setLoading(false) }
   }
+
+  useEffect(() => { loadAll() }, [])
 
   if (loading) return <div className="loading">Loading org data...</div>
+  if (error) return <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>
 
   const plan = billing?.plan || 'starter'
   const maxStudents = billing?.max_students || 30

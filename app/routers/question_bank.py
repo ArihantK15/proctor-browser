@@ -250,7 +250,7 @@ async def generate_bank_questions(request: Request, body: GenerateQuestionsIn = 
             detail="source_text too long (max 20000 chars)")
 
     try:
-        questions = generate_questions(
+        questions = await generate_questions(
             topic=topic,
             count=count,
             difficulty=difficulty,
@@ -284,7 +284,7 @@ async def suggest_question_tags(request: Request, body: SuggestTagsIn = Body(...
     options = body.options
     correct = body.correct
     try:
-        tags = suggest_tags(question[:2000], options, str(correct)[:50])
+        tags = await suggest_tags(question[:2000], options, str(correct)[:50])
     except Exception as e:
         _qbank_log.warning("[llm] suggest_tags failed: %s", e)
         raise HTTPException(status_code=502, detail="AI provider error.")
@@ -324,7 +324,7 @@ async def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body
     try:
         for i in range(0, len(cleaned), BATCH):
             chunk = cleaned[i:i + BATCH]
-            chunk_results = lint_questions(chunk)
+            chunk_results = await lint_questions(chunk)
             if not chunk_results:
                 for q in chunk:
                     all_results.append({"idx": q["idx"], "issues": [],
@@ -356,7 +356,7 @@ async def generate_rubric_endpoint(request: Request, body: GenerateRubricIn = Bo
     teacher = await require_admin(request)
     _ = teacher
     try:
-        result = generate_rubric(body.question, body.reference_answer, body.max_score)
+        result = await generate_rubric(body.question, body.reference_answer, body.max_score)
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI provider error: {e}")

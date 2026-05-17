@@ -8,35 +8,55 @@ export default function HistoryPanel({ currentExamId }) {
   const [selectedRoll, setSelectedRoll] = useState(null)
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
 
   useEffect(() => { if (currentExamId) loadStudents() }, [currentExamId])
 
   const loadStudents = async () => {
     if (!currentExamId) { setLoading(false); return }
+    setError('')
     try {
       const r = await authFetch(`/api/v1/admin/student-history?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) setStudents((await r.json()).students || [])
-    } catch (_) {}
-    finally { setLoading(false) }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load history (${r.status})`)
+      }
+      setStudents((await r.json()).students || [])
+    } catch (e) {
+      setError(e.message || 'Failed to load student history')
+    } finally { setLoading(false) }
   }
 
   const viewDetail = async (roll) => {
     setSelectedRoll(roll)
     setDetailLoading(true)
+    setDetailError('')
     try {
       const r = await authFetch(`/api/v1/admin/student-history/${encodeURIComponent(roll)}?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) setDetail(await r.json())
-    } catch (_) {}
-    finally { setDetailLoading(false) }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load detail (${r.status})`)
+      }
+      setDetail(await r.json())
+    } catch (e) {
+      setDetailError(e.message || 'Failed to load student detail')
+    } finally { setDetailLoading(false) }
   }
+
+  const PAGE_SIZE = 50
+  const [page, setPage] = useState(1)
 
   const filtered = students.filter(s =>
     !search || s.roll_number?.toLowerCase().includes(search) || s.full_name?.toLowerCase().includes(search)
   )
+  const displayed = filtered.slice(0, page * PAGE_SIZE)
+  const hasMore = displayed.length < filtered.length
 
   if (!currentExamId) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Select an exam to view student history.</div>
   if (loading) return <div className="loading" style={{ textAlign: 'center', padding: 40 }}>Loading...</div>
+  if (error) return <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadStudents} style={{ marginLeft: 8 }}>Retry</button></div>
 
   return (
     <div>
@@ -62,7 +82,7 @@ export default function HistoryPanel({ currentExamId }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(s => (
+              {displayed.map(s => (
                 <tr key={s.roll_number} style={{ borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer' }} onClick={() => viewDetail(s.roll_number)}>
                   <td style={{ padding: '10px 14px' }}><strong>{s.roll_number}</strong></td>
                   <td style={{ padding: '10px 14px' }}>{s.full_name}</td>
@@ -74,10 +94,21 @@ export default function HistoryPanel({ currentExamId }) {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan="5" style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No students found</td></tr>
+                <tr><td colSpan="5" style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
+                  {search
+                    ? 'No students match your search.'
+                    : <span>No completed sessions yet. <a href="#live" style={{ color: 'var(--blue)', cursor: 'pointer' }} onClick={e => { e.preventDefault(); window.location.hash = 'live'; }}>Check live sessions</a> or share the exam link to get started.</span>}
+                </td></tr>
               )}
             </tbody>
           </table>
+          {hasMore && (
+            <div style={{ textAlign: 'center', padding: 12 }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => p + 1)}>
+                Load more ({filtered.length - displayed.length} remaining)
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -86,6 +117,7 @@ export default function HistoryPanel({ currentExamId }) {
         <div>
           <button className="btn btn-secondary btn-sm" onClick={() => { setSelectedRoll(null); setDetail(null) }} style={{ marginBottom: 16 }}>← Back to student list</button>
           {detailLoading && <div className="loading" style={{ textAlign: 'center', padding: 40 }}>Loading...</div>}
+          {detailError && <div className="auth-err" style={{ margin: '0 0 16px' }}>{detailError} <button className="btn-link" onClick={() => viewDetail(selectedRoll)} style={{ marginLeft: 8 }}>Retry</button></div>}
           {detail && (
             <>
               <div className="stats-bar">

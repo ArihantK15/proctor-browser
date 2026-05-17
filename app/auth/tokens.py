@@ -76,7 +76,10 @@ def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None,
                  student_id: str = None) -> str:
     now = datetime.now(timezone.utc)
     csrf = _gen_csrf()
-    payload = {"roll": roll_number, "csrf": csrf, "exp": now + timedelta(hours=TOKEN_TTL_HOURS), "iat": now}
+    payload = {
+        "roll": roll_number, "csrf": csrf, "jti": str(uuid.uuid4()),
+        "exp": now + timedelta(hours=TOKEN_TTL_HOURS), "iat": now,
+    }
     if teacher_id:
         payload["tid"] = teacher_id
     if exam_id:
@@ -86,14 +89,23 @@ def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None,
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 
-def require_auth(request: Request) -> dict:
+def require_auth(request: Request, allowed_roles: list[str] | None = None) -> dict:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     try:
-        return jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+        claims = jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    if allowed_roles and claims.get("role") not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Insufficient permissions for this endpoint")
+    return claims
+
+
+def require_teacher_auth(request: Request) -> dict:
+    """Like require_auth but restricted to teacher tokens only.
+    Use on exam management endpoints that must not accept student tokens."""
+    return require_auth(request, allowed_roles=["teacher"])
 
 
 def verify_student_token(token: str) -> dict:

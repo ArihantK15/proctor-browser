@@ -67,6 +67,25 @@ async def submit_appeal(body: AppealIn, request: Request):
     return {"status": "submitted", "message": "Your appeal has been submitted for teacher review."}
 
 
+# ── Student: read back appeal statuses ────────────────────────────
+
+
+@router.get("/student/appeals")
+@limiter.limit("20/minute")
+async def list_student_appeals(request: Request):
+    """Return all appeals submitted by the logged-in student, newest first."""
+    account = await require_student_account(request)
+    student_id = str(account.get("id", ""))
+
+    result = await _atable("appeals")\
+        .select("id,session_key,exam_id,appeal_type,description,status,teacher_note,created_at,resolved_at")\
+        .eq("student_id", student_id)\
+        .order("created_at", desc=True)\
+        .limit(50)\
+        .execute()
+    return {"appeals": result.data or []}
+
+
 # ── Teacher: list appeals ──────────────────────────────────────────
 
 

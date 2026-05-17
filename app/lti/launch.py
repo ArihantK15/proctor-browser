@@ -48,12 +48,39 @@ def _store_nonce(nonce: str):
 
 
 def _consume_nonce(nonce: str) -> bool:
+    """Atomically consume a nonce — returns True only once per nonce.
+
+    Uses Redis GETDEL (atomic get-and-delete, Redis ≥ 6.2) so two
+    concurrent requests can never both pass the check.  Falls back to
+    a Lua script for older Redis, and to the in-process dict otherwise.
+    """
     if _cache:
-        data = _cache.get(f"lti_nonce:{nonce}")
-        if data:
-            _cache.delete(f"lti_nonce:{nonce}")
-            return True
+        from .. import cache as _c
+        r = _c._client()
+        if r is not None:
+            key = f"lti_nonce:{nonce}"
+            try:
+                # GETDEL is atomic: returns the value and deletes in one step.
+                result = r.getdel(key)
+                return result is not None
+            except Exception:
+                # GETDEL requires Redis 6.2+; fall back to Lua SET-and-DELETE
+                try:
+                    _lua = r.register_script(
+                        "local v=redis.call('GET',KEYS[1]) "
+                        "if v then redis.call('DEL',KEYS[1]) return 1 "
+                        "else return 0 end"
+                    )
+                    return bool(_lua(keys=[key]))
+                except Exception:
+                    # Last resort: non-atomic but still clears the key
+                    data = _cache.get(key)
+                    if data:
+                        _cache.delete(key)
+                        return True
+                    return False
         return False
+    # In-process fallback (single-process / no Redis)
     entry = _nonces.pop(nonce, None)
     if entry and entry["expires"] > time.time():
         return True
@@ -379,6 +406,9 @@ async def store_lti_student_context(claims: dict, lti_user_id: str):
     deployment_id = claims.get(
         "https://purl.imsglobal.org/spec/lti/claim/deployment_id", ""
     )
+    # aud is client_id in LTI 1.3 (may be a string or a single-element list)
+    aud_raw = claims.get("aud", "")
+    client_id = aud_raw if isinstance(aud_raw, str) else (aud_raw[0] if isinstance(aud_raw, list) else "")
     if not iss or not sub:
         return
 
@@ -386,6 +416,7 @@ async def store_lti_student_context(claims: dict, lti_user_id: str):
         "iss": iss,
         "sub": sub,
         "deployment_id": deployment_id,
+        "client_id": client_id,
     }
     key = f"lti_student:{lti_user_id}"
     if _cache:

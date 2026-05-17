@@ -18,7 +18,7 @@ function useAuth() {
   }, [token])
 
   const login = async (email, password) => {
-    const r = await fetch('/api/auth/login', {
+    const r = await fetch(`${API_BASE}/student/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -79,7 +79,7 @@ function StudentDashboard({ token, onLogout }) {
   useEffect(() => {
     authFetch('/api/student/exams')
       .then(r => r.ok ? r.json() : [])
-      .then(d => setExams(d.active || []))
+      .then(d => setExams(d.exams || d.active || []))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [token])

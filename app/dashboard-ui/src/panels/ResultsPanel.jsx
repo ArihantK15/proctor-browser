@@ -10,24 +10,34 @@ export default function ResultsPanel({ currentExamId }) {
   const [sortKey, setSortKey] = useState('submitted_at')
   const [sortAsc, setSortAsc] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [batchSize, setBatchSize] = useState(50)
   const [stats, setStats] = useState({ total: 0, avgScore: 0, avgRisk: 0, highRisk: 0 })
   const [timelineSession, setTimelineSession] = useState(null)
 
   const loadResults = useCallback(async () => {
-    if (!currentExamId) return
+    if (!currentExamId) {
+      setResults([])
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError('')
     try {
       const r = await authFetch(`/api/v1/results?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) {
-        const d = await r.json()
-        setResults(d.results || [])
-        setBatchSize(50)
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load results (${r.status})`)
       }
-    } catch (_) {}
-    finally { setLoading(false) }
+      const d = await r.json()
+      setResults(d.results || [])
+      setBatchSize(50)
+    } catch (e) {
+      setError(e.message || 'Failed to load results')
+    } finally { setLoading(false) }
   }, [currentExamId, authFetch])
 
-  useEffect(() => { if (currentExamId) loadResults() }, [currentExamId, loadResults])
+  useEffect(() => { loadResults() }, [currentExamId, loadResults])
 
   const filtered = results
     .filter(r => !search || r.roll_number.toLowerCase().includes(search) || r.full_name.toLowerCase().includes(search) || (r.email || '').toLowerCase().includes(search))
@@ -62,6 +72,17 @@ export default function ResultsPanel({ currentExamId }) {
 
   const loadMore = () => setBatchSize(b => b + 50)
   const hasMore = batchSize < filtered.length
+  const downloadPdf = async (sessionId) => {
+    const r = await authFetch(`/api/v1/export-pdf/${encodeURIComponent(sessionId)}`)
+    if (!r.ok) return
+    const blob = await r.blob()
+    const href = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = href
+    a.download = `report_${String(sessionId).split('_')[0]}.pdf`
+    a.click()
+    URL.revokeObjectURL(href)
+  }
 
   return (
     <div>
@@ -81,9 +102,11 @@ export default function ResultsPanel({ currentExamId }) {
 
       {!currentExamId && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Select an exam to view results.</div>}
 
+      {currentExamId && error && <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadResults} style={{ marginLeft: 8 }}>Retry</button></div>}
+
       {currentExamId && loading && <div className="loading" style={{ textAlign: 'center', padding: 40 }}>Loading...</div>}
 
-      {currentExamId && !loading && (
+      {currentExamId && !loading && !error && (
         <>
           <div className="table-toolbar">
             <div className="search-wrap">
@@ -125,7 +148,13 @@ export default function ResultsPanel({ currentExamId }) {
                 </tr>
               </thead>
               <tbody>
-                {displayed.map(r => {
+                {displayed.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} style={{ padding: '32px 14px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                      No results yet — completed exam sessions will appear here.
+                    </td>
+                  </tr>
+                ) : displayed.map(r => {
                   const mins = Math.floor((r.time_taken_secs || 0) / 60)
                   const secs = (r.time_taken_secs || 0) % 60
                   const riskColor = r.risk_score == null ? 'var(--muted)' : r.risk_score > 70 ? 'var(--red)' : r.risk_score > 40 ? 'var(--amber)' : r.risk_score > 15 ? '#58a6ff' : 'var(--emerald)'
@@ -142,7 +171,7 @@ export default function ResultsPanel({ currentExamId }) {
                       <td style={{ padding: '10px 12px' }}>
                         <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => setTimelineSession(r.session_id)}>Timeline</button>
                         <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11, marginLeft: 4 }} onClick={() => window.open(`/dashboard-react?session=${r.session_id}`, '_blank')}>Detail</button>
-                        <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11, marginLeft: 4 }} onClick={() => window.open(`/api/v1/export-pdf/${encodeURIComponent(r.session_id)}`, '_blank')}>PDF</button>
+                        <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11, marginLeft: 4 }} onClick={() => downloadPdf(r.session_id)}>PDF</button>
                       </td>
                     </tr>
                   )

@@ -23,6 +23,13 @@ router = APIRouter(prefix="")
 
 
 def _invalidate_billing_cache(org_id: str):
+    """Synchronously delete billing-related cache keys.
+
+    Redis deletes are sub-millisecond on localhost and bounded by
+    socket_timeout=2s on failure, so calling the sync client from an
+    async handler is acceptable here. Use asyncio.to_thread if this
+    ever becomes a bottleneck.
+    """
     if not _cache or not org_id:
         return
     _cache.delete(f"org_subscription:{org_id}")
@@ -70,6 +77,9 @@ async def create_subscription(body: dict, request: Request):
         result = billing_create_subscription(str(org_id), plan_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        logger.error("Billing misconfigured: %s", e)
+        raise HTTPException(status_code=503, detail="Billing unavailable: payment credentials not configured.")
     except Exception as e:
         logger.exception("Failed to create subscription")
         raise HTTPException(status_code=500, detail="Failed to create subscription")
@@ -137,39 +147,113 @@ async def razorpay_webhook(request: Request):
         return {"status": "ignored"}
     org_id = db_sub.data[0]["org_id"]
 
-    if event_type == "subscription.activated":
-        await _atable("subscriptions").update({
-            "status": "active",
-            "current_period_start": sub_data.get("current_start"),
-            "current_period_end": sub_data.get("current_end"),
-        }).eq("id", db_sub.data[0]["id"]).execute()
-        _invalidate_billing_cache(str(org_id))
-        logger.info("Subscription activated for org=%s", org_id)
+    try:
+        if event_type == "subscription.activated":
+            result = await _atable("subscriptions").update({
+                "status": "active",
+                "current_period_start": sub_data.get("current_start"),
+                "current_period_end": sub_data.get("current_end"),
+            }).eq("id", db_sub.data[0]["id"]).execute()
+            if not result.data:
+                raise RuntimeError("subscription.activated DB write returned no data")
+            _invalidate_billing_cache(str(org_id))
+            logger.info("Subscription activated for org=%s", org_id)
 
-    elif event_type == "subscription.completed":
-        await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
-        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
-        _invalidate_billing_cache(str(org_id))
-        logger.info("Subscription completed for org=%s", org_id)
+        elif event_type == "subscription.completed":
+            result = await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
+            if not result.data:
+                raise RuntimeError("subscription.completed DB write returned no data")
+            await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+            _invalidate_billing_cache(str(org_id))
+            logger.info("Subscription completed for org=%s", org_id)
 
-    elif event_type == "subscription.paused":
-        await _atable("subscriptions").update({"status": "paused"}).eq("id", db_sub.data[0]["id"]).execute()
-        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
-        _invalidate_billing_cache(str(org_id))
-        logger.info("Subscription paused for org=%s", org_id)
+        elif event_type == "subscription.paused":
+            result = await _atable("subscriptions").update({"status": "paused"}).eq("id", db_sub.data[0]["id"]).execute()
+            if not result.data:
+                raise RuntimeError("subscription.paused DB write returned no data")
+            await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+            _invalidate_billing_cache(str(org_id))
+            logger.info("Subscription paused for org=%s", org_id)
 
-    elif event_type == "subscription.cancelled":
-        await _atable("subscriptions").update({"status": "cancelled"}).eq("id", db_sub.data[0]["id"]).execute()
-        await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
-        _invalidate_billing_cache(str(org_id))
-        logger.info("Subscription cancelled for org=%s", org_id)
+        elif event_type == "subscription.cancelled":
+            result = await _atable("subscriptions").update({"status": "cancelled"}).eq("id", db_sub.data[0]["id"]).execute()
+            if not result.data:
+                raise RuntimeError("subscription.cancelled DB write returned no data")
+            await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
+            _invalidate_billing_cache(str(org_id))
+            logger.info("Subscription cancelled for org=%s", org_id)
 
-    elif event_type == "payment.failed":
-        logger.warning("Payment failed for org=%s sub=%s", org_id, sub_id)
-        await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
-        _invalidate_billing_cache(str(org_id))
+        elif event_type == "payment.failed":
+            logger.warning("Payment failed for org=%s sub=%s", org_id, sub_id)
+            result = await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
+            if not result.data:
+                raise RuntimeError("payment.failed DB write returned no data")
+            _invalidate_billing_cache(str(org_id))
+            # Notify the org admin by email so they can update their payment method
+            try:
+                admin_rows = await _atable("teachers").select("email,full_name")\
+                    .eq("org_id", str(org_id)).eq("org_role", "admin").limit(1).execute()
+                if admin_rows.data:
+                    admin = admin_rows.data[0]
+                    from ..emailer import send_payment_failed_notification
+                    send_payment_failed_notification(
+                        to_email=admin["email"],
+                        to_name=admin.get("full_name", ""),
+                    )
+            except Exception as notify_err:
+                logger.warning("Payment-failed email notification failed for org=%s: %s", org_id, notify_err)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Webhook DB write failed for event=%s org=%s: %s", event_type, org_id, e)
+        # Return 500 so Razorpay retries this webhook delivery.
+        raise HTTPException(status_code=500, detail="Webhook processing failed — will retry")
 
     return {"status": "ok"}
+
+
+@router.post("/api/v1/billing/cancel")
+@limiter.limit("5/minute")
+async def cancel_subscription(request: Request):
+    """Cancel the org's Razorpay subscription at the end of the current period.
+
+    Uses Razorpay's `cancel_at_cycle_end=1` so the subscription stays active
+    until the period expires — the teacher doesn't lose access immediately.
+    In sandbox mode (no Razorpay client), just marks the DB row as cancelled.
+    """
+    teacher = await require_admin(request)
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+
+    sub = await _atable("subscriptions").select("id,razorpay_subscription_id,status")\
+        .eq("org_id", str(org_id)).limit(1).execute()
+    if not sub.data:
+        raise HTTPException(status_code=404, detail="No active subscription found")
+
+    sub_row = sub.data[0]
+    if sub_row.get("status") in ("cancelled", "expired"):
+        raise HTTPException(status_code=409, detail="Subscription is already cancelled or expired")
+
+    razorpay_sub_id = sub_row.get("razorpay_subscription_id", "")
+
+    client = _get_client()
+    if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
+        try:
+            client.subscription.cancel(razorpay_sub_id, {"cancel_at_cycle_end": 1})
+            logger.info("Subscription %s cancelled at cycle end for org=%s", razorpay_sub_id, org_id)
+        except Exception as e:
+            logger.error("Razorpay cancel failed for sub=%s: %s", razorpay_sub_id, e)
+            raise HTTPException(status_code=502, detail="Failed to cancel with payment provider")
+    else:
+        logger.info("Sandbox: cancelling sub for org=%s without Razorpay API call", org_id)
+
+    await _atable("subscriptions").update({"status": "cancelled"})\
+        .eq("id", sub_row["id"]).execute()
+    _invalidate_billing_cache(str(org_id))
+
+    return {"ok": True, "message": "Subscription cancelled. You retain access until the end of your billing period."}
 
 
 @router.get("/api/v1/billing/invoices")

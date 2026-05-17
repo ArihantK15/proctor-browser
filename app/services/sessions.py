@@ -43,6 +43,7 @@ async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
     org_id = teacher.get("org_id")
     if not org_id:
         raise HTTPException(status_code=403, detail="No organization associated with this account")
+    await _check_subscription_active(str(org_id))
     cache_key = f"org_limits:{org_id}"
     # Reads can use a short cache. Mutating capacity checks must hit
     # the DB because stale student counts would allow oversubscription.
@@ -82,6 +83,44 @@ async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
     return org
 
 
+async def _check_subscription_active(org_id: str) -> None:
+    """Raise 403 if the org's subscription has expired, been cancelled, or
+    their trial period has ended.  Superadmin orgs bypass this check.
+    Called from check_org_limits so every capacity-gated endpoint gets it."""
+    sub = await get_org_subscription(org_id)
+    if not sub:
+        # No subscription row yet — newly created org still within trial window;
+        # don't block until the row is present.
+        return
+    status = (sub.get("status") or "").lower()
+    if status in ("expired", "cancelled"):
+        raise HTTPException(
+            status_code=403,
+            detail="Your subscription has expired. Please upgrade your plan to continue.",
+        )
+    if status == "trialing":
+        trial_end_raw = sub.get("trial_end") or ""
+        if trial_end_raw:
+            try:
+                trial_end_dt = datetime.fromisoformat(
+                    str(trial_end_raw).replace("Z", "+00:00")
+                )
+                if trial_end_dt.tzinfo is None:
+                    trial_end_dt = trial_end_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) > trial_end_dt:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=(
+                            "Your free trial has ended. "
+                            "Upgrade your plan to keep running exams."
+                        ),
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                pass  # malformed date — don't block; log and continue
+
+
 async def get_org_subscription(org_id: str) -> dict | None:
     cache_key = f"org_subscription:{org_id}"
     cached = _cache.get(cache_key) if _cache else None
@@ -89,7 +128,7 @@ async def get_org_subscription(org_id: str) -> dict | None:
         return cached or None
     try:
         result = await _atable("subscriptions").select(
-            "id,org_id,plan,status,max_students,current_period_start,current_period_end,razorpay_subscription_id"
+            "id,org_id,plan,status,max_students,trial_end,current_period_start,current_period_end,razorpay_subscription_id"
         ).eq("org_id", str(org_id)).limit(1).execute()
         sub = (result.data or [None])[0]
         if _cache:

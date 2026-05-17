@@ -3,6 +3,18 @@ import { API_BASE } from '../config'
 
 const AuthContext = createContext(null)
 
+function getCsrfToken(token) {
+  try {
+    const [, payload] = String(token || '').split('.')
+    if (!payload) return ''
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const data = JSON.parse(atob(normalized))
+    return data.csrf || data.jti || ''
+  } catch (_) {
+    return ''
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -38,6 +50,8 @@ export function AuthProvider({ children }) {
       } catch (_) {}
     } catch (e) {
       localStorage.removeItem('procta_token')
+      localStorage.removeItem('procta_refresh')
+      sessionStorage.removeItem('procta_current_exam_id')
       setError(e.message)
     } finally {
       setLoading(false)
@@ -67,17 +81,32 @@ export function AuthProvider({ children }) {
     return d
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      const token = localStorage.getItem('procta_token')
+      const csrf = getCsrfToken(token)
+      const headers = { Authorization: `Bearer ${token}` }
+      if (csrf) headers['X-CSRF-Token'] = csrf
+      await fetch(`${API_BASE}/auth/logout`, { method: 'POST', headers })
+    } catch (_) {}
     localStorage.removeItem('procta_token')
     localStorage.removeItem('procta_refresh')
+    // Clear session-scoped state so a new login doesn't inherit previous user's context (L-3)
+    sessionStorage.removeItem('procta_current_exam_id')
     setUser(null)
-    window.location.href = '/login'
+    window.location.href = '/dashboard'
   }
 
   const authFetch = async (url, opts = {}) => {
     const token = localStorage.getItem('procta_token')
-    opts.headers = { ...opts.headers, Authorization: `Bearer ${token}` }
-    const r = await fetch(url, opts)
+    const method = (opts.method || 'GET').toUpperCase()
+    const csrf = getCsrfToken(token)
+    const headers = { ...opts.headers, Authorization: `Bearer ${token}` }
+    if (csrf && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      headers['X-CSRF-Token'] = csrf
+    }
+    const requestOpts = { ...opts, method, headers }
+    const r = await fetch(url, requestOpts)
     if (r.status === 401) {
       const refresh = localStorage.getItem('procta_refresh')
       if (refresh) {
@@ -90,8 +119,12 @@ export function AuthProvider({ children }) {
           if (rr.ok) {
             const rd = await rr.json()
             localStorage.setItem('procta_token', rd.access_token)
-            opts.headers.Authorization = `Bearer ${rd.access_token}`
-            return fetch(url, opts)
+            const retryHeaders = { ...headers, Authorization: `Bearer ${rd.access_token}` }
+            const retryCsrf = getCsrfToken(rd.access_token)
+            if (retryCsrf && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+              retryHeaders['X-CSRF-Token'] = retryCsrf
+            }
+            return fetch(url, { ...requestOpts, headers: retryHeaders })
           }
         } catch (_) {}
       }

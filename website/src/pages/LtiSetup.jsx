@@ -6,7 +6,7 @@ import Footer from '../components/Footer'
 import { useState } from 'react'
 
 const APP = 'https://app.procta.net'
-const BASE = import.meta.env.PROCTA_URL || APP
+const BASE = import.meta.env.VITE_PROCTA_URL || APP
 
 const platforms = [
   {

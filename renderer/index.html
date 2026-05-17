@@ -1693,6 +1693,7 @@ async function startExam(){
     const _panicLink = document.getElementById('panic-link');
     if (_panicLink) _panicLink.style.display = 'block';
     startBulkSave();
+    startHeartbeat();
     chatInit();
 
     // Anti-cheat listeners — bound once per page load, gated by examActive flag
@@ -1924,24 +1925,41 @@ function selAns(l){
   // localStorage saved above via ansWrite → _persistAnswers(). The
   // 60s bulk save (startBulkSave/doBulkSave) syncs to the server.
 }
-// ── BULK AUTO-SAVE (safety net every 60s) ──────────────────────
-let bulkSaveTimer = null;
+// ── BULK AUTO-SAVE with retry queue (H-8) ──────────────────────
+// On transient failure we schedule retries at 5s → 15s → 45s.
+// localStorage always holds the latest answers (written on every
+// selection), so a full page reload can recover from any state.
+let bulkSaveTimer    = null;
 let bulkSaveInFlight = false;
+let saveRetryTimer   = null;
+let saveRetryCount   = 0;
+const SAVE_RETRY_DELAYS = [5000, 15000, 45000]; // backoff schedule
 
 function startBulkSave(){
   if(bulkSaveTimer) clearInterval(bulkSaveTimer);
   bulkSaveTimer = setInterval(doBulkSave, 60000);
 }
 
+function _scheduleSaveRetry(){
+  if(saveRetryTimer) return; // retry already pending
+  if(saveRetryCount >= SAVE_RETRY_DELAYS.length) return; // give up — user sees "Save failed"
+  const delay = SAVE_RETRY_DELAYS[saveRetryCount++];
+  saveRetryTimer = setTimeout(async () => {
+    saveRetryTimer = null;
+    await doBulkSave();
+  }, delay);
+}
+
 async function doBulkSave(){
   if(!sessionId || !examActive || Object.keys(answers).length === 0) return;
   if(bulkSaveInFlight) return;
-  _persistAnswersNow(); // bulk save MUST flush — bypass the debounce timer
+  _persistAnswersNow(); // flush debounce so latest selection is on disk before network attempt
   const statusEl = document.getElementById('save-status');
   if(isOffline){
     statusEl.textContent = 'Offline — saved locally';
     statusEl.style.color = '#d29922';
     statusEl.style.opacity = '1';
+    _scheduleSaveRetry();
     return;
   }
   bulkSaveInFlight = true;
@@ -1963,16 +1981,20 @@ async function doBulkSave(){
     });
     if(r.ok){
       isOffline = false;
+      saveRetryCount = 0; // reset backoff on success
+      clearTimeout(saveRetryTimer); saveRetryTimer = null;
       statusEl.textContent = 'Saved ✓';
       statusEl.style.color = '#3fb950';
     } else {
-      statusEl.textContent = 'Save failed';
+      statusEl.textContent = `Save failed (retrying…)`;
       statusEl.style.color = '#ff7b72';
+      _scheduleSaveRetry();
     }
   }catch(e){
     isOffline = true;
     statusEl.textContent = 'Offline — saved locally';
     statusEl.style.color = '#d29922';
+    _scheduleSaveRetry();
   }finally{
     clearTimeout(timeoutId);
     bulkSaveInFlight = false;
@@ -1981,6 +2003,38 @@ async function doBulkSave(){
     statusEl.classList.remove('save-flash');
     if(!isOffline) statusEl.style.color = '#8b949e';
   }, 3000);
+}
+
+// ── HEARTBEAT (H-9) — keeps session alive server-side ──────────
+// Fires every 30s while exam is active. The server marks sessions
+// ABANDONED after 5 min of silence so admins can see disconnects
+// and the reaper can auto-submit answers on behalf of the student.
+let heartbeatTimer = null;
+
+function startHeartbeat(){
+  if(heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(doHeartbeat, 30000);
+  doHeartbeat(); // fire immediately so session is marked ACTIVE without 30s lag
+}
+
+function stopHeartbeat(){
+  if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+async function doHeartbeat(){
+  if(!sessionId || !examActive) return;
+  try{
+    await fetch(`${SERVER}/api/v1/heartbeat`, {
+      method: 'POST',
+      headers: authHdr(),
+      body: JSON.stringify({
+        session_id: sessionId,
+        event_type: 'heartbeat',
+        severity: 'low',
+        details: `answers:${Object.keys(answers).length}`
+      })
+    });
+  }catch(_){} // non-blocking — a missing heartbeat is caught by the server reaper
 }
 
 function goQ(i)   { curQ=i; renderQ(); }
@@ -2058,6 +2112,7 @@ async function submitExam(timeUp=false){
   submitInFlight=true;
   examActive=false;
   if(bulkSaveTimer) clearInterval(bulkSaveTimer);
+  stopHeartbeat();
   clearInterval(timerInt);
   try{ chatDisconnect(); const fab=document.getElementById('chat-fab'); if(fab) fab.classList.remove('show'); const panel=document.getElementById('chat-panel'); if(panel) panel.classList.remove('open'); }catch(_){}
 

@@ -5,20 +5,28 @@ export default function AnalyticsPanel({ currentExamId }) {
   const { authFetch } = useAuth()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => { if (currentExamId) loadAnalytics() }, [currentExamId])
 
   const loadAnalytics = async () => {
     if (!currentExamId) { setLoading(false); return }
+    setError('')
     try {
       const r = await authFetch(`/api/v1/admin/analytics?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) setData(await r.json())
-    } catch (_) {}
-    finally { setLoading(false) }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load analytics (${r.status})`)
+      }
+      setData(await r.json())
+    } catch (e) {
+      setError(e.message || 'Failed to load analytics')
+    } finally { setLoading(false) }
   }
 
   if (!currentExamId) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Select an exam to view analytics.</div>
   if (loading) return <div className="loading" style={{ textAlign: 'center', padding: 60 }}>Loading analytics...</div>
+  if (error) return <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadAnalytics} style={{ marginLeft: 8 }}>Retry</button></div>
 
   const { exam_overview: overview, score_distribution: score_dist, risk_distribution: risk_dist, violation_summary: violations_by_type, question_analysis: per_question } = data || {}
   const maxScoreDist = Math.max(...(score_dist || []).map(b => b.count), 1)

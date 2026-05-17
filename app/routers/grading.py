@@ -175,7 +175,7 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
     """
     teacher = await require_admin(request)
     tid = str(teacher["id"])
-    from llm import is_configured, grade_short_answer  # noqa
+    from ..llm import is_configured, grade_short_answer  # noqa
     if not is_configured():
         raise HTTPException(status_code=503,
             detail="AI grader unavailable. Set LLM_API_KEY on the server.")
@@ -204,7 +204,7 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
             results.append({"answer_id": a["id"], "error": "question not found"})
             continue
         try:
-            suggestion = grade_short_answer(
+            suggestion = await grade_short_answer(
                 question=q.get("question") or "",
                 reference=q.get("reference_answer") or "",
                 rubric=q.get("rubric") or "",

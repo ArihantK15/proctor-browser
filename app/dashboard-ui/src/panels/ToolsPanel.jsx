@@ -17,34 +17,31 @@ export default function ToolsPanel({ currentExamId }) {
   const [scheduleResult, setScheduleResult] = useState('')
   const [shuffleResult, setShuffleResult] = useState('')
 
-  useEffect(() => { if (currentExamId) { loadConfig(); loadSchedule(); loadAccess(); loadSensitivity() } }, [currentExamId])
+  const [loadError, setLoadError] = useState('')
 
-  const loadConfig = async () => {
+  const loadAll = async () => {
+    if (!currentExamId) return
+    setLoadError('')
     try {
-      const r = await authFetch(`/api/v1/admin/shuffle-config?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) { const d = await r.json(); setShuffleQ(!!d.shuffle_questions); setShuffleO(!!d.shuffle_options) }
-    } catch (_) {}
+      const [configR, schedR, accessR, sensR] = await Promise.all([
+        authFetch(`/api/v1/admin/shuffle-config?exam_id=${encodeURIComponent(currentExamId)}`),
+        authFetch(`/api/v1/admin/exam-schedule?exam_id=${encodeURIComponent(currentExamId)}`),
+        authFetch(`/api/v1/admin/access-code?exam_id=${encodeURIComponent(currentExamId)}`),
+        authFetch(`/api/v1/admin/proctoring-sensitivity?exam_id=${encodeURIComponent(currentExamId)}`),
+      ])
+      if (configR.ok) { const d = await configR.json(); setShuffleQ(!!d.shuffle_questions); setShuffleO(!!d.shuffle_options) }
+      if (schedR.ok) { const d = await schedR.json(); setScheduleStart(d.starts_at || ''); setScheduleEnd(d.ends_at || '') }
+      if (accessR.ok) { const d = await accessR.json(); setAccessCode(d.access_code || '') }
+      if (sensR.ok) { const d = await sensR.json(); setSensitivity(d.proctoring_sensitivity || 'balanced'); setSensitivityLoaded(true) }
+      if (!configR.ok && !schedR.ok && !accessR.ok && !sensR.ok) {
+        throw new Error(`Failed to load exam settings (${configR.status})`)
+      }
+    } catch (e) {
+      setLoadError(e.message || 'Failed to load exam settings')
+    }
   }
-  const loadAccess = async () => {
-    try {
-      const r = await authFetch(`/api/v1/admin/access-code?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) { const d = await r.json(); setAccessCode(d.access_code || '') }
-    } catch (_) {}
-  }
-  const loadSchedule = async () => {
-    try {
-      const r = await authFetch(`/api/v1/admin/exam-schedule?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) { const d = await r.json(); setScheduleStart(d.starts_at || ''); setScheduleEnd(d.ends_at || '') }
-    } catch (_) {}
-  }
-  const loadSensitivity = async () => {
-    try {
-      setSensitivityLoaded(false)
-      setSensitivityResult('')
-      const r = await authFetch(`/api/v1/admin/proctoring-sensitivity?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) { const d = await r.json(); setSensitivity(d.proctoring_sensitivity || 'balanced'); setSensitivityLoaded(true) }
-    } catch (_) {}
-  }
+
+  useEffect(() => { loadAll() }, [currentExamId])
 
   const saveShuffle = async () => {
     try {
@@ -112,11 +109,11 @@ export default function ToolsPanel({ currentExamId }) {
       if (!r.ok) throw new Error('Failed')
       const d = await r.json()
       window.parent.postMessage({ type: 'backfill_done', backfilled: d.backfilled }, window.location.origin) // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
-    } catch (_) {}
+    } catch (err) { console.error('ToolsPanel: backfill failed', err) }
   }
 
   const copyLink = (url) => {
-    navigator.clipboard.writeText(url).catch(() => {})
+    navigator.clipboard.writeText(url).catch(err => console.error('ToolsPanel: copy link failed', err))
   }
 
   if (!currentExamId) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Select an exam to access tools.</div>
@@ -127,6 +124,7 @@ export default function ToolsPanel({ currentExamId }) {
 
   return (
     <div className="tools-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+      {loadError && <div className="auth-err" style={{ gridColumn: '1 / -1', marginBottom: 8 }}>{loadError} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>}
       {/* Share links */}
       <ToolCard title="Share With Students" desc="Registration and download links for students.">
         <div style={{ marginBottom: 8 }}>
@@ -229,7 +227,7 @@ export default function ToolsPanel({ currentExamId }) {
           if (!confirm('This will clear all live sessions. Continue?')) return
           authFetch(`/api/v1/admin/sessions/clear-live`, { method: 'POST' }).then(r => {
             if (r.ok) window.parent.postMessage({ type: 'sessions_cleared' }, window.location.origin) // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
-          }).catch(() => {})
+          }).catch(err => console.error('ToolsPanel: clear sessions failed', err))
         }}>Clear Sessions</button>
       </ToolCard>
     </div>

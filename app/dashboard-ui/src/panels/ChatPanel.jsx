@@ -1,6 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 import { API_BASE } from '../config'
+
+const WS_RECONNECT_BASE_MS = 1000
+const WS_RECONNECT_MAX_MS = 30000
 
 export default function ChatPanel() {
   const { authFetch } = useAuth()
@@ -11,24 +14,37 @@ export default function ChatPanel() {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef(null)
   const chatEndRef = useRef(null)
+  const reconnectTimerRef = useRef(null)
+  const reconnectAttemptsRef = useRef(0)
+  const unmountedRef = useRef(false)
 
   useEffect(() => {
+    unmountedRef.current = false
     connectWS()
-    return () => { if (wsRef.current) wsRef.current.close() }
+    return () => {
+      unmountedRef.current = true
+      clearTimeout(reconnectTimerRef.current)
+      if (wsRef.current) wsRef.current.close()
+    }
   }, [])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const connectWS = async () => {
+  const connectWS = useCallback(async () => {
+    if (unmountedRef.current) return
     const token = localStorage.getItem('procta_token')
     if (!token) return
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = location.host
     try {
       const ws = new WebSocket(`${proto}//${host}/ws/chat/teacher`, [token])
-      ws.onopen = () => setConnected(true)
+      ws.onopen = () => {
+        if (unmountedRef.current) { ws.close(); return }
+        setConnected(true)
+        reconnectAttemptsRef.current = 0
+      }
       ws.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data)
@@ -47,12 +63,20 @@ export default function ChatPanel() {
               ts: m.ts,
             })))
           }
-        } catch (_) {}
+        } catch (err) { console.error('ChatPanel: parse ws message', err) }
       }
-      ws.onclose = () => setConnected(false)
+      ws.onclose = () => {
+        setConnected(false)
+        if (unmountedRef.current) return
+        // Exponential backoff reconnect
+        const attempts = reconnectAttemptsRef.current
+        const delay = Math.min(WS_RECONNECT_BASE_MS * 2 ** attempts, WS_RECONNECT_MAX_MS)
+        reconnectAttemptsRef.current = attempts + 1
+        reconnectTimerRef.current = setTimeout(connectWS, delay)
+      }
       wsRef.current = ws
-    } catch (_) {}
-  }
+    } catch (err) { console.error('ChatPanel: connectWS failed', err) }
+  }, [])
 
   const selectStudent = (sid) => {
     setActiveSid(sid)

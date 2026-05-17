@@ -1356,7 +1356,7 @@
     <h3 style="margin:0 0 16px;color:var(--text-primary)">Invite Teacher</h3>
     <input type="email" id="invite-email" placeholder="teacher@institution.edu" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:12px;outline:none;box-sizing:border-box">
     <input type="text" id="invite-name" placeholder="Full Name (optional)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:16px;outline:none;box-sizing:border-box">
-    <div id="invite-result" style="font-size:13px;margin-bottom:12px"></div>
+    <div id="teacher-invite-result" style="font-size:13px;margin-bottom:12px"></div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary btn-sm" onclick="hideInviteTeacherModal()" style="flex:1">Cancel</button>
       <button class="btn btn-primary btn-sm" onclick="doInviteTeacher()" style="flex:1">Send Invite</button>
@@ -1517,6 +1517,11 @@ let currentTeacherId = null;
 let currentExamId = localStorage.getItem('procta_current_exam') || null;
 let examsList = [];
 let _refreshGen = 0; // incremented on exam switch to discard stale responses
+let _liveViewSid = null;
+let _liveViewLastFrameAt = 0;
+let _liveViewFrameTimer = null;
+let _liveViewKeepaliveTimer = null;
+let _liveViewStaleTimer = null;
 
 // ── AUTH ─────────────────────────────────────────────────────────
 
@@ -1899,7 +1904,10 @@ async function _tryAutoLogin(){
   }
 }
 
-function doLogout(){
+async function doLogout(){
+  try{
+    await authFetch(`${BASE}/api/v1/auth/logout`, {method:'POST'});
+  }catch(_){}
   _saveTokens('','');
   if(autoRefreshTimer){ clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
   if(_sseSource){ try{_sseSource.close();}catch(_){} _sseSource=null; }
@@ -2894,6 +2902,20 @@ function sortLive(key){
 function filterLive(){renderLive();}
 
 
+function _setExporting(btnId, loading){
+  const btn = document.getElementById(btnId);
+  if(!btn) return;
+  if(loading){
+    btn._exportLabel = btn._exportLabel || btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Downloading…';
+  } else {
+    btn.disabled = false;
+    btn.textContent = btn._exportLabel || btn.textContent;
+    delete btn._exportLabel;
+  }
+}
+
 function exportExcel(){
   const eid = currentExamId || 'all';
   fetchBlob(`${BASE}/api/v1/export-excel${_examQuery('?')}`, `results_${eid}.xlsx`, 'btn-export-excel');
@@ -2920,34 +2942,17 @@ async function fetchBlob(url, filename, btnId){
 function dlPDF(sid){
   fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`, `report_${sid.split('_')[0]}.pdf`);
 }
-function exportCSV(){
-  fetchBlob(`${BASE}/api/v1/export-csv${_examQuery('?')}`,'results.csv');
-}
-async function fetchBlob(url,filename){
-
-  const blob = await r.blob();
-  const a = document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function dlPDF(sid){
-  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`,`report_${sid.split('_')[0]}.pdf`);
-}
 function downloadPDF(){
   if(currentSessionId) dlPDF(currentSessionId);
 }
 function dlScorecard(sid){
+  fetchBlob(`${BASE}/api/v1/admin/scorecard-pdf/${encodeURIComponent(sid)}`, `scorecard_${sid.split('_')[0]}.pdf`);
+}
 
 function dlAllScorecards(){
   const eid = currentExamId;
   if(!eid){ alert('Select an exam first.'); return; }
-  fetchBlob("${BASE}/api/v1/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}", `scorecards_${eid}.zip`, 'btn-scorecard-zip');
-}
-
-  fetchBlob(`${BASE}/api/v1/admin/scorecard-pdf/${encodeURIComponent(sid)}`,`scorecard_${sid.split('_')[0]}.pdf`);
+  fetchBlob(`${BASE}/api/v1/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}`, `scorecards_${eid}.zip`, 'btn-scorecard-zip');
 }
 // ── GRADE REVIEW (short-answer AI grading) ───────────────────────
 // Backed by /api/admin/pending-grades, /api/admin/grade-suggest,
@@ -3016,7 +3021,7 @@ function closeTriage(){
 async function doInviteTeacher(){
   const email = document.getElementById('invite-email').value.trim();
   const name = document.getElementById('invite-name').value.trim();
-  const resultEl = document.getElementById('invite-result');
+  const resultEl = document.getElementById('teacher-invite-result');
   if(!email){ resultEl.textContent = 'Email is required'; resultEl.style.color = 'var(--red)'; return; }
   resultEl.textContent = 'Sending...'; resultEl.style.color = 'var(--text-secondary)';
   try{
@@ -3095,10 +3100,10 @@ let _prevIdReviewCount = 0;
 
 async function refreshLive(){
   try{
-    const r = await authFetch(`${BASE}/sessions${_examQuery('?')}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    liveData = d.all_sessions || [];
+    liveData = d.all_sessions || d.sessions || [];
     renderLiveStats(d.sessions||[], liveData);
     renderLive();
   }catch(e){ console.error('refreshLive',e); }
@@ -3123,7 +3128,7 @@ function showInviteTeacherModal(){
   document.getElementById('invite-modal').style.display = 'flex';
   document.getElementById('invite-email').value = '';
   document.getElementById('invite-name').value = '';
-  document.getElementById('invite-result').textContent = '';
+  document.getElementById('teacher-invite-result').textContent = '';
 }
 
 
@@ -4467,10 +4472,10 @@ async function loadTimeline(sid){
     document.querySelectorAll('.tl-filter-btn').forEach(b=>{
       b.classList.toggle('active',b.dataset.sev==='all');
     });
-    renderTimelineSummary(d.summary||null);
+    renderTimelineSummary(tlData.summary||null);
     renderTimeline();
   }catch(e){
-    document.getElementById('tl-events').innerHTML=`<div class="tl-empty" style="color:var(--red)">Failed to load timeline: ${esc(e.message)}</div>`;
+    document.getElementById('tl-events').innerHTML=`<div class="tl-empty" style="color:var(--red)">Failed to load timeline: ${_escHtml(e.message)}</div>`;
   }
 }
 
@@ -4585,7 +4590,8 @@ function filterTimeline(){
 
 function renderTimelineSummary(summary){
   const container=document.getElementById('tl-summary');
-  if(!summary || !summary.highlights.length){
+  const highlights = Array.isArray(summary && summary.highlights) ? summary.highlights : [];
+  if(!summary || !highlights.length){
     container.style.display='none';
     return;
   }
@@ -4609,9 +4615,9 @@ function renderTimelineSummary(summary){
   sevEl.style.color=sevColors[sev]||sevColors.clean;
   document.getElementById('tl-summary-text').textContent=summary.narrative||'';
   document.getElementById('tl-summary-highlights').innerHTML=
-    summary.highlights.map(h=>`<div style="padding:4px 0 4px 20px;font-size:12px;position:relative">
+    highlights.map(h=>`<div style="padding:4px 0 4px 20px;font-size:12px;position:relative">
       <span style="position:absolute;left:0;color:${sevColors[sev]||sevColors.clean}">●</span>
-      ${esc(h)}
+      ${_escHtml(h)}
     </div>`).join('');
 }
 
@@ -6253,8 +6259,10 @@ function _initTabKeyboard(){
 
 async function refreshStudentList(){
   try{
-    const r = await api('/api/v1/student-search?q='+encodeURIComponent(historySearchQuery));
-    historyStudents = (r.students || []).sort(_historyCompare);
+    const r = await authFetch(`${BASE}/api/v1/student-search?q=${encodeURIComponent(historySearchQuery)}`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    historyStudents = (data.students || []).sort(_historyCompare);
     renderHistoryList();
   }catch(e){
     document.getElementById('history-body').innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load: '+_escHtml(e.message)+'</td></tr>';
@@ -6315,8 +6323,9 @@ function _riskBadge(score){
 
 async function viewStudentHistory(roll){
   try{
-    const r = await api('/api/v1/student-history/'+encodeURIComponent(roll));
-    historyDetailData = r;
+    const r = await authFetch(`${BASE}/api/v1/student-history/${encodeURIComponent(roll)}`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    historyDetailData = await r.json();
     renderHistoryDetail();
     document.getElementById('history-detail').style.display='';
     // Hide the student list table while showing detail
@@ -6353,6 +6362,7 @@ function renderHistoryDetail(){
   body.innerHTML = d.history.map(h=>{
     const behavList = h.behavioral_patterns.length ? h.behavioral_patterns.map(p=>'<span class="badge" style="background:rgba(220,38,38,0.15);color:var(--red);font-size:10px">'+_escHtml(p.replace(/_/g,' '))+'</span>').join(' ') : '<span style="color:var(--muted)">None</span>';
     const riskStr = h.risk_score != null ? _riskBadge(h.risk_score) : '—';
+    const highlights = Array.isArray(h.summary && h.summary.highlights) ? h.summary.highlights : [];
     return `<tr>
       <td>
         <div style="font-weight:600">${_escHtml(h.exam_title||'Exam')}</div>
@@ -6366,7 +6376,7 @@ function renderHistoryDetail(){
       <td style="font-size:13px">${_fmtDuration(h.time_taken_secs)}</td>
       <td style="font-size:13px;color:var(--muted)">${_escHtml(h.submitted_at)}</td>
       <td>
-        ${h.summary&&h.summary.highlights.length?`<button class="btn btn-secondary btn-sm" onclick="toggleHistorySummary('${_escHtml(h.session_id)}')" id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
+        ${highlights.length?`<button class="btn btn-secondary btn-sm" onclick="toggleHistorySummary('${_escHtml(h.session_id)}')" id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
         <button class="btn btn-secondary btn-sm" onclick="viewSessionTimeline('${_escHtml(h.session_id)}')">Timeline</button>
       </td>
     </tr>`;
@@ -6380,15 +6390,15 @@ function closeHistoryDetail(){
   document.querySelector('#panel-history .table-toolbar').style.display='';
 }
 
-function viewSessionTimeline(sessionId){
-
 function viewSession(sid){
-  window.open('/dashboard?session='+sid, '_blank');
+  if(!sid) return;
+  window.open('/dashboard?session='+encodeURIComponent(sid), '_blank');
 }
 
+function viewSessionTimeline(sessionId){
   // Navigate to the forensics timeline view (already exists in dashboard)
-  window.location.hash = '#timeline-'+sessionId;
-  if(typeof viewSession==='function') viewSession(sessionId);
+  window.location.hash = '#timeline-'+encodeURIComponent(sessionId);
+  viewSession(sessionId);
 }
 
 function toggleHistorySummary(sessionId){
@@ -6400,6 +6410,7 @@ function toggleHistorySummary(sessionId){
   const h = (historyDetailData.history||[]).find(x=>x.session_id===sessionId);
   if(!h||!h.summary) return;
   const s = h.summary;
+  const highlights = Array.isArray(s.highlights) ? s.highlights : [];
   const sevColors={clean:'var(--emerald)',minor:'var(--amber)',concerning:'var(--red)',critical:'var(--red)'};
   const sevBg={clean:'rgba(16,185,129,0.15)',minor:'rgba(245,158,11,0.15)',concerning:'rgba(220,38,38,0.15)',critical:'rgba(220,38,38,0.25)'};
   const sev = s.severity||'clean';
@@ -6411,7 +6422,7 @@ function toggleHistorySummary(sessionId){
       <span class="badge" style="background:${sevBg[sev]};color:${sevColors[sev]}">${sev.charAt(0).toUpperCase()+sev.slice(1)}</span>
     </div>
     <div style="font-size:12px;line-height:1.7;color:var(--text-secondary);white-space:pre-line;margin-bottom:8px">${_escHtml(s.narrative)}</div>
-    ${s.highlights.length?'<div style="font-size:12px">'+s.highlights.map(h=>'<div style="padding:2px 0 2px 16px;position:relative"><span style="position:absolute;left:0;color:'+sevColors[sev]+'">●</span>'+_escHtml(h)+'</div>').join('')+'</div>':''}
+    ${highlights.length?'<div style="font-size:12px">'+highlights.map(h=>'<div style="padding:2px 0 2px 16px;position:relative"><span style="position:absolute;left:0;color:'+sevColors[sev]+'">●</span>'+_escHtml(h)+'</div>').join('')+'</div>':''}
   </td>`;
   // Insert after the current row
   const btn = document.getElementById('summary-btn-'+sessionId);
@@ -6426,8 +6437,10 @@ let templatesData = [];
 
 async function loadTemplates(){
   try{
-    const r = await api('/api/v1/templates');
-    templatesData = r.templates || [];
+    const r = await authFetch(`${BASE}/api/v1/templates`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    templatesData = data.templates || [];
     renderTemplates();
     populateTemplateSourceExams();
   }catch(e){
@@ -6569,18 +6582,23 @@ function handleRealtimeAlert(a){
   const bg = sevBg[sev]||sevBg.medium;
   const container = _getAlertContainer();
   const toast = document.createElement('div');
+  const studentLabel = _escHtml(a.full_name||a.roll_number||'Student');
+  const violationType = _escHtml((a.violation_type||'').replace(/_/g,' '));
+  const details = a.details ? String(a.details) : '';
+  const detailsPreview = details.length > 120 ? details.slice(0, 120) + '…' : details;
+  const safeSessionId = _escGrp(a.session_id || '');
   toast.style.cssText = 'pointer-events:auto;background:rgba(20,20,30,0.95);backdrop-filter:blur(12px);border:1px solid var(--border);border-left:3px solid '+color+';border-radius:8px;padding:12px 14px';
   toast.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span style="font-size:14px">⚠️</span>
-      <span style="font-weight:600;font-size:13px;color:${color}">${esc(a.full_name||a.roll_number||'Student')}</span>
+      <span style="font-weight:600;font-size:13px;color:${color}">${studentLabel}</span>
       <span class="badge" style="background:${bg};color:${color};font-size:10px">${sev}</span>
       <span style="margin-left:auto;font-size:10px;color:var(--muted);cursor:pointer" onclick="this.closest('div').parentElement.remove()">✕</span>
     </div>
-    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${esc((a.violation_type||'').replace(/_/g,' '))}</div>
-    ${a.details?'<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+esc(a.details.length>120?a.details.slice(0,120)+'…':a.details)+'</div>':''}
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${violationType}</div>
+    ${details?'<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+_escHtml(detailsPreview)+'</div>':''}
     <div style="display:flex;gap:6px">
-      <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="viewSession('${esc(a.session_id)}')">View Timeline</button>
+      <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="viewSession('${safeSessionId}')">View Timeline</button>
     </div>
   `;
   container.appendChild(toast);

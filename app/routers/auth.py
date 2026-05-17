@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import json
 import logging
 import re
@@ -48,7 +48,7 @@ def _slugify(text: str) -> str:
 
 async def _get_teacher_by_email_for_auth(email: str) -> dict | None:
     result = await _atable("teachers").select(
-        "id,email,full_name,org_id,org_role,password_hash,email_verified_at,password_changed_at"
+        "id,email,full_name,org_id,org_role,password_hash,email_verified_at,password_changed_at,status,totp_enabled_at"
     ).eq("email", email).limit(1).execute()
     return result.data[0] if result.data else None
 
@@ -199,10 +199,11 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     except PasswordError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Check if teacher already exists
+    # Check if teacher already exists — use a generic message to avoid
+    # leaking whether a particular email address is registered (L-1).
     existing = await _atable("teachers").select("id").eq("email", email).execute()
     if existing.data:
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
+        raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
 
     # Check if org slug already exists
     slug = _slugify(org_name)
@@ -231,11 +232,12 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         except Exception as e:
             err_msg = str(e).lower()
             if "already registered" in err_msg or "duplicate" in err_msg:
-                raise HTTPException(status_code=409, detail="An account with this email already exists")
+                raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
             _auth_log.error("[TeacherSignup] Supabase Auth error: %s", e)
             raise HTTPException(status_code=500, detail="Failed to create account")
 
     # Create org, subscription, teacher — transactional rollback
+    org_id = None
     try:
         # Create org
         org_result = await _atable("organizations").insert({
@@ -288,11 +290,24 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.warning("[TeacherSignup] demo seed failed (non-fatal): %s", demo_err)
     except Exception as e:
         _auth_log.error("[TeacherSignup] DB error: %s", e)
+        # Rollback: delete Supabase auth user + orphaned org/subscription rows
         if auth_resp is not None:
             try:
                 supabase.auth.admin.delete_user(str(supabase_uid))
             except Exception as rollback_err:
-                _auth_log.critical("[TeacherSignup] Rollback failed: %s", rollback_err)
+                _auth_log.critical("[TeacherSignup] Rollback (auth user) failed: %s", rollback_err)
+        if org_id is not None:
+            try:
+                await _atable("subscriptions").delete().eq("org_id", str(org_id)).execute()
+                await _atable("organizations").delete().eq("id", str(org_id)).execute()
+            except Exception as rollback_err:
+                _auth_log.critical("[TeacherSignup] Rollback (org/sub) failed for org=%s: %s", org_id, rollback_err)
+        # Detect race-condition duplicate-key violations and return 409
+        # so the second concurrent request gets a meaningful error instead
+        # of a 500 (Postgres raises "duplicate key value violates unique constraint").
+        err_lower = str(e).lower()
+        if "duplicate key" in err_lower or "unique constraint" in err_lower or "already exists" in err_lower:
+            raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
         raise HTTPException(status_code=500, detail="Failed to create account")
 
     _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", name, email, org_name)
@@ -333,9 +348,10 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     locked, retry_after = await check_lockout("teacher", email)
     if locked:
         await record_auth_event("login_failed", request, "teacher", "", email, {"reason": "locked_out"})
+        # Use a generic message — don't leak exact remaining seconds (L-2).
         raise HTTPException(
             status_code=429,
-            detail=f"Too many failed attempts. Try again in {retry_after // 60} minutes."
+            detail="Too many failed attempts. Please wait a few minutes and try again."
         )
 
     auth_resp = None
@@ -367,11 +383,37 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     # Email verification check — auto-verify existing accounts (pre-feature)
     # so old users aren't locked out. New signups must verify.
     if not teacher.get("email_verified_at"):
+        if (teacher.get("status") or "") == "pending_verification":
+            await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "email_unverified"})
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": "EMAIL_UNVERIFIED",
+                    "message": "Please verify your email before logging in.",
+                    "email": email,
+                },
+            )
         await _atable("teachers").update({
             "email_verified_at": now_ist().isoformat(),
         }).eq("id", teacher["id"]).execute()
         _auth_log.info("[TeacherLogin] Auto-verified existing account %s <%s>", teacher.get("full_name", ""), email)
         await record_auth_event("email_verified", request, "teacher", teacher["id"], email)
+
+    if teacher.get("totp_enabled_at"):
+        from ..services.totp import verify_code
+        if not body.totp_code:
+            await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "totp_required"})
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "TOTP_REQUIRED",
+                    "message": "Enter your two-factor authentication code.",
+                },
+            )
+        if not await verify_code("teacher", teacher["id"], body.totp_code):
+            await record_failure("teacher", email)
+            await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "totp_invalid"})
+            raise HTTPException(status_code=401, detail="Invalid two-factor authentication code")
 
     await record_auth_event("login_success", request, "teacher", teacher["id"], email)
 
@@ -409,11 +451,11 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     except Exception:
         pass
 
-    refresh_tok = (
-        await _issue_and_persist_refresh_token(teacher["id"], "teacher", request)
-        if local_auth_enabled()
-        else auth_resp.session.refresh_token
-    )
+    # Always issue our own persisted refresh token so the revocation table
+    # covers both Supabase-auth and local-auth sessions equally.
+    # (Previously the Supabase path handed out a raw Supabase token that we
+    # couldn't revoke server-side.)
+    refresh_tok = await _issue_and_persist_refresh_token(teacher["id"], "teacher", request)
     return {
         "access_token": access_token,
         "refresh_token": refresh_tok,
@@ -446,34 +488,17 @@ async def teacher_refresh(body: RefreshIn, request: Request):
     long-term; we re-validate it via Supabase, look up the teacher, and
     issue a fresh HS256 admin token signed by us.
     """
-    if local_auth_enabled():
-        teacher_id, new_refresh = await _verify_and_rotate_refresh_token(
-            body.refresh_token, "teacher", request
-        )
-        teacher = await _get_teacher_by_id(teacher_id)
-        if not teacher:
-            raise HTTPException(status_code=403, detail="Teacher account not found")
-        return {
-            "access_token": issue_admin_token(teacher),
-            "refresh_token": new_refresh,
-        }
-
-    try:
-        auth_resp = supabase.auth.refresh_session(body.refresh_token)
-    except Exception as e:
-        _auth_log.warning("[TeacherRefresh] Error: %s", e)
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-
-    if not auth_resp or not auth_resp.user or not auth_resp.session:
-        raise HTTPException(status_code=401, detail="Invalid refresh response")
-    supabase_uid = str(auth_resp.user.id)
-    teacher = await _get_teacher_by_uid(supabase_uid)
+    # All auth paths now issue our own persisted refresh tokens, so always
+    # use the rotation logic (revocation table + replay detection).
+    teacher_id, new_refresh = await _verify_and_rotate_refresh_token(
+        body.refresh_token, "teacher", request
+    )
+    teacher = await _get_teacher_by_id(teacher_id)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
-
     return {
-        "access_token":  issue_admin_token(teacher),
-        "refresh_token": auth_resp.session.refresh_token,
+        "access_token": issue_admin_token(teacher),
+        "refresh_token": new_refresh,
     }
 
 
@@ -665,7 +690,7 @@ async def accept_org_invite(body: dict, request: Request):
             except Exception as e:
                 err_msg = str(e).lower()
                 if "already registered" in err_msg or "duplicate" in err_msg:
-                    raise HTTPException(status_code=409, detail="An account with this email already exists")
+                    raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
                 _auth_log.error("[AcceptInvite] Supabase Auth error: %s", e)
                 raise HTTPException(status_code=500, detail="Failed to create account")
 
@@ -739,7 +764,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
 
     existing = await _atable("student_accounts").select("id").eq("email", email).execute()
     if existing.data:
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
+        raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
 
     auth_resp = None
     password_hash = None
@@ -759,7 +784,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
         except Exception as e:
             err_msg = str(e).lower()
             if "already registered" in err_msg or "duplicate" in err_msg:
-                raise HTTPException(status_code=409, detail="An account with this email already exists")
+                raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
             _auth_log.error("[StudentSignup] Supabase Auth error: %s", e)
             raise HTTPException(status_code=500, detail="Failed to create account")
 
@@ -809,6 +834,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
 @router.post("/api/v1/student/auth/login")
 @limiter.limit("120/minute")
 async def student_login(body: StudentLoginIn, request: Request):
+    await verify_or_403(request, body.captcha_token)
     email = body.email.strip().lower()
     auth_resp = None
     if local_auth_enabled():
@@ -843,11 +869,8 @@ async def student_login(body: StudentLoginIn, request: Request):
     except Exception as e:
         logger.debug("Auto-link enrollments failed: %s", e)  # Non-fatal
 
-    refresh_tok = (
-        await _issue_and_persist_refresh_token(account["id"], "student", request)
-        if local_auth_enabled()
-        else auth_resp.session.refresh_token
-    )
+    # Always issue our own persisted refresh token (revocable, replay-protected).
+    refresh_tok = await _issue_and_persist_refresh_token(account["id"], "student", request)
     return {
         "access_token":  issue_student_auth_token(account),
         "refresh_token": refresh_tok,
@@ -873,34 +896,16 @@ async def student_me(request: Request):
 @router.post("/api/v1/student/auth/refresh")
 @limiter.limit("20/minute")
 async def student_refresh(body: RefreshIn, request: Request):
-    if local_auth_enabled():
-        account_id, new_refresh = await _verify_and_rotate_refresh_token(
-            body.refresh_token, "student", request
-        )
-        account = await _get_student_account_by_id(account_id)
-        if not account:
-            raise HTTPException(status_code=403, detail="Student account not found")
-        return {
-            "access_token": issue_student_auth_token(account),
-            "refresh_token": new_refresh,
-        }
-
-    try:
-        auth_resp = supabase.auth.refresh_session(body.refresh_token)
-    except Exception as e:
-        _auth_log.warning("[StudentRefresh] Error: %s", e)
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-
-    if not auth_resp or not auth_resp.user or not auth_resp.session:
-        raise HTTPException(status_code=401, detail="Invalid refresh response")
-
-    account = await _get_student_account_by_uid(str(auth_resp.user.id))
+    # All auth paths now issue our own persisted refresh tokens.
+    account_id, new_refresh = await _verify_and_rotate_refresh_token(
+        body.refresh_token, "student", request
+    )
+    account = await _get_student_account_by_id(account_id)
     if not account:
         raise HTTPException(status_code=403, detail="Student account not found")
-
     return {
-        "access_token":  issue_student_auth_token(account),
-        "refresh_token": auth_resp.session.refresh_token,
+        "access_token": issue_student_auth_token(account),
+        "refresh_token": new_refresh,
     }
 
 
@@ -1183,7 +1188,7 @@ async def verify_email(request: Request, token: str = ""):
 
 
 @router.post("/api/v1/auth/resend-verification")
-@limiter.limit("1/minute")
+@limiter.limit("3/5minute")
 async def resend_verification(body: dict, request: Request):
     """Resend the email verification link."""
     # CAPTCHA — resend is the second email-bombing vector
@@ -1356,6 +1361,36 @@ async def revoke_session(jti: str, request: Request):
     except Exception:
         pass
     await record_auth_event("session_revoked", request, "teacher", tid)
+    return {"ok": True}
+
+
+@router.post("/api/v1/auth/logout")
+@limiter.limit("30/minute")
+async def logout(request: Request):
+    """Revoke the current access-session JTI and local refresh tokens."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    auth = request.headers.get("Authorization", "")
+    current_jti = ""
+    if auth.startswith("Bearer "):
+        try:
+            import jwt as _jwt
+            from ..constants import SECRET_KEY
+            claims = _jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+            current_jti = claims.get("jti", "")
+        except Exception:
+            current_jti = ""
+    if current_jti:
+        await _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
+            .eq("jti", current_jti).eq("user_kind", "teacher").eq("user_id", tid).execute()
+        try:
+            from .. import cache as _cache
+            if _cache:
+                _cache.set(f"session:{current_jti}", {"revoked": True}, ttl=60)
+        except Exception:
+            pass
+    await _revoke_refresh_tokens_for_user(tid, "teacher")
+    await record_auth_event("logout", request, "teacher", tid)
     return {"ok": True}
 
 
@@ -1566,8 +1601,6 @@ async def oauth_start(request: Request, provider: str = "google",
                    (defaults to "/" — your frontend can override per
                    surface, e.g. "/student" for student login)
     """
-    if local_auth_enabled():
-        raise HTTPException(status_code=503, detail="OAuth is temporarily unavailable during local-auth migration")
     if provider not in auth_oauth.ALLOWED_PROVIDERS:
         raise HTTPException(status_code=400, detail="Unsupported provider")
     if intent not in auth_oauth.ALLOWED_INTENTS:
@@ -1583,6 +1616,7 @@ async def oauth_start(request: Request, provider: str = "google",
 
 
 @router.get("/api/v1/auth/oauth/callback")
+@limiter.limit("20/minute")
 async def oauth_callback(request: Request, code: str = "", state: str = "",
                          error: str = "", error_description: str = ""):
     """OAuth callback. Supabase redirects here with `?code=...&state=...`.
@@ -1594,8 +1628,6 @@ async def oauth_callback(request: Request, code: str = "", state: str = "",
     Fragments don't go to servers or referrer headers, so the JWT
     survives the SPA hop without leaking.
     """
-    if local_auth_enabled():
-        raise HTTPException(status_code=503, detail="OAuth is temporarily unavailable during local-auth migration")
     # Provider-side error (user denied consent, etc.)
     if error:
         _auth_log.warning("[oauth] provider error: %s — %s", error, error_description)

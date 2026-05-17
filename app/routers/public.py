@@ -213,11 +213,14 @@ async def health():
 
     uptime_sec = time.time() - _health_start
     status = 200 if ok else 503
+    if not ok:
+        _req_errors += 1
     return Response(
         content=json.dumps({
             "status": "ok" if ok else "degraded",
             "uptime_sec": round(uptime_sec, 1),
             "health_checks": _req_total,
+            "health_errors": _req_errors,
             "checks": checks,
         }),
         media_type="application/json",
@@ -421,6 +424,11 @@ def privacy_policy_page():
     return _static_html_response("privacy-policy.html", "Privacy policy not found")
 
 
+@router.get("/privacy")
+def privacy_page():
+    return _static_html_response("privacy.html", "Privacy center not found")
+
+
 @router.get("/security-questionnaire")
 def security_questionnaire_page():
     return _static_html_response("security-questionnaire.html", "Security questionnaire not found")
@@ -541,6 +549,41 @@ async def resolve_invite(token: str):
             raise
         except Exception:
             # Malformed expiry timestamp — fail closed (reject)
+            raise HTTPException(status_code=410, detail="Invite expired")
+
+    return {
+        "ok":          True,
+        "status":      inv.get("status"),
+        "exam_id":     inv.get("exam_id"),
+        "roll_number": inv.get("roll_number"),
+        "email":       inv.get("email"),
+        "full_name":   inv.get("full_name"),
+        "access_code": inv.get("access_code") or "",
+    }
+
+
+@router.post("/api/invite/{token}/accept")
+@router.post("/api/v1/invite/{token}/accept")
+async def accept_invite(token: str, request: Request):
+    """Accept an invite for the authenticated student account."""
+    student = await require_student_account(request)
+    row = (await _atable("student_invites").select("*")
+           .eq("token", token).execute()).data
+    if not row:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    inv = row[0]
+    status = (inv.get("status") or "").lower()
+    if status == InviteStatus.REVOKED:
+        raise HTTPException(status_code=410, detail="Invite revoked")
+    exp = inv.get("expires_at")
+    if exp:
+        try:
+            dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > dt:
+                raise HTTPException(status_code=410, detail="Invite expired")
+        except HTTPException:
+            raise
+        except Exception:
             raise HTTPException(status_code=410, detail="Invite expired")
 
     inv_email = (inv.get("email") or "").strip().lower()

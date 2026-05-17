@@ -21,6 +21,7 @@ class TeacherLoginIn(BaseModel):
     email:    str
     password: str
     captcha_token: Optional[str] = None
+    totp_code: Optional[str] = None
 
 
 class RefreshIn(BaseModel):

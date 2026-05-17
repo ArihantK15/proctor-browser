@@ -29,7 +29,6 @@ if not TOTP_ENCRYPTION_KEY:
 
 def _get_fernet() -> Fernet:
     return Fernet(_FERNET_KEY)
-    return Fernet(key)
 
 
 def _encrypt_secret(secret: str) -> str:

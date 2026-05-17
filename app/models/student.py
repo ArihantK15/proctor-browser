@@ -56,6 +56,7 @@ class StudentLoginIn(BaseModel):
     model_config = ConfigDict(strict=True)
     email:    str
     password: str
+    captcha_token: Optional[str] = None
 
 
 class BulkStudentIn(BaseModel):

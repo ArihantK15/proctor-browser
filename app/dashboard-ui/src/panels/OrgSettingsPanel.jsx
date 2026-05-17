@@ -7,16 +7,23 @@ export default function OrgSettingsPanel() {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
+  const [loadError, setLoadError] = useState('')
+
   useEffect(() => { loadOrg() }, [])
 
   const loadOrg = async () => {
+    setLoadError('')
     try {
       const r = await authFetch('/api/v1/org')
-      if (r.ok) {
-        const d = await r.json()
-        setOrgName(d.name || '')
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load org (${r.status})`)
       }
-    } catch (_) {}
+      const d = await r.json()
+      setOrgName(d.name || '')
+    } catch (e) {
+      setLoadError(e.message || 'Failed to load org settings')
+    }
   }
 
   const save = async () => {
@@ -38,6 +45,7 @@ export default function OrgSettingsPanel() {
   return (
     <div style={{ maxWidth: 500, margin: '0 auto' }}>
       <h2 style={{ color: 'var(--text-primary)', margin: '0 0 20px', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 20 }}>Org Settings</h2>
+      {loadError && <div className="auth-err" style={{ marginBottom: 16 }}>{loadError} <button className="btn-link" onClick={loadOrg} style={{ marginLeft: 8 }}>Retry</button></div>}
       <div className="card" style={{ padding: 24 }}>
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 600, letterSpacing: 0.03, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>Organization Name</label>

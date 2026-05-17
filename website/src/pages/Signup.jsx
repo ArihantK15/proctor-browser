@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'wouter'
+import { Helmet } from 'react-helmet-async'
 import { ArrowLeft, Check } from 'lucide-react'
 import { APP_URL } from '../config'
 import OAuthButtons from '../components/auth/OAuthButtons'
@@ -28,6 +29,14 @@ export default function Signup() {
     setError('')
     setLoading(true)
     try {
+      // Client-side complexity check — mirrors app/services/passwords.py rules
+      const pw = form.password
+      if (pw.length < 10) throw new Error("Password must be at least 10 characters.")
+      if (!/[A-Z]/.test(pw)) throw new Error("Password must contain at least one uppercase letter.")
+      if (!/[a-z]/.test(pw)) throw new Error("Password must contain at least one lowercase letter.")
+      if (!/[0-9]/.test(pw)) throw new Error("Password must contain at least one number.")
+      if (!/[^A-Za-z0-9]/.test(pw)) throw new Error("Password must contain at least one special character (e.g. !@#$).")
+
       // Client-side HIBP check — refuse passwords known to be in
       // public breach corpora. Fails open if HIBP is unreachable;
       // server-side validate_password still catches weak passwords.
@@ -89,6 +98,15 @@ export default function Signup() {
 
   if (submitted) {
     return (
+      <>
+      <Helmet>
+        <title>Sign Up — Procta Browser</title>
+        <meta name="description" content="Create your Procta account and start running AI-proctored exams with instant setup, free trial, and no credit card required." />
+        <meta property="og:title" content="Sign Up — Procta Browser" />
+        <meta property="og:description" content="Create your Procta account and start running AI-proctored exams with instant setup." />
+        <meta property="og:type" content="website" />
+        <link rel="canonical" href="https://procta.net/signup" />
+      </Helmet>
       <div className="flex min-h-screen items-center justify-center bg-navy-950 px-6">
         <div className="pointer-events-none fixed inset-0 grain-overlay" />
         <div className="relative w-full max-w-md text-center">
@@ -106,10 +124,20 @@ export default function Signup() {
           </div>
         </div>
       </div>
+      </>
     )
   }
 
   return (
+    <>
+      <Helmet>
+        <title>Sign Up — Procta Browser</title>
+        <meta name="description" content="Create your Procta account and start running AI-proctored exams with instant setup, free trial, and no credit card required." />
+        <meta property="og:title" content="Sign Up — Procta Browser" />
+        <meta property="og:description" content="Create your Procta account and start running AI-proctored exams with instant setup." />
+        <meta property="og:type" content="website" />
+        <link rel="canonical" href="https://procta.net/signup" />
+      </Helmet>
     <div className="flex min-h-screen items-center justify-center bg-navy-950 px-6 py-12">
       <div className="pointer-events-none fixed inset-0 grain-overlay" />
       <div className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 h-[400px] w-[600px] rounded-full bg-accent/5 blur-[120px]" />
@@ -197,8 +225,8 @@ export default function Signup() {
                 value={form.password}
                 onChange={updateForm('password')}
                 required
-                minLength={8}
-                placeholder="At least 8 characters"
+                minLength={10}
+                placeholder="At least 10 characters (uppercase, number, symbol)"
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all focus-glow"
               />
             </div>
@@ -319,5 +347,6 @@ export default function Signup() {
         </div>
       </div>
     </div>
+    </>
   )
 }

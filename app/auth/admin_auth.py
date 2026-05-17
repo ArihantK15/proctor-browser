@@ -55,7 +55,7 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
 async def _get_teacher_by_uid(uid: str) -> dict | None:
     if not uid:
         return None
-    result = (await _atable("teachers").select("id,email,full_name,org_id,org_role").eq("supabase_uid", str(uid)).execute()).data
+    result = (await _atable("teachers").select("id,email,full_name,org_id,org_role,email_verified_at,status,totp_enabled_at").eq("supabase_uid", str(uid)).execute()).data
     if not result:
         return None
     return result[0]

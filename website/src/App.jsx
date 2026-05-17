@@ -42,22 +42,29 @@ function LazyRoute({ Component }) {
 
 export default function App() {
   return (
-    <Switch>
-      <Route path="/" component={Landing} />
-      <Route path="/pricing"><LazyRoute Component={Pricing} /></Route>
-      <Route path="/lti-setup"><LazyRoute Component={LtiSetup} /></Route>
-      <Route path="/signup"><LazyRoute Component={Signup} /></Route>
-      <Route path="/privacy"><LazyRoute Component={Privacy} /></Route>
-      <Route path="/trust"><LazyRoute Component={Trust} /></Route>
-      <Route path="/terms"><LazyRoute Component={Terms} /></Route>
-      <Route path="/features"><LazyRoute Component={Features} /></Route>
-      <Route path="/how-it-works"><LazyRoute Component={HowItWorks} /></Route>
-      <Route path="/blog"><LazyRoute Component={Blog} /></Route>
-      <Route path="/blog/ai-proctoring-vs-traditional-proctoring"><LazyRoute Component={BlogAiVsTraditional} /></Route>
-      <Route path="/blog/online-exam-cheating-prevention-ai-proctoring"><LazyRoute Component={BlogCheatingPrevention} /></Route>
-      <Route path="/blog/dpdp-act-compliance-online-proctoring-indian-universities"><LazyRoute Component={BlogDPDPCompliance} /></Route>
-      <Route path="/download"><LazyRoute Component={Download} /></Route>
-      <Route path="/register"><LazyRoute Component={Register} /></Route>
-    </Switch>
+    <>
+      <a href="#main-content" className="skip-to-content" tabIndex={1}>
+        Skip to content
+      </a>
+      <div id="main-content" tabIndex={-1}>
+        <Switch>
+          <Route path="/" component={Landing} />
+          <Route path="/pricing"><LazyRoute Component={Pricing} /></Route>
+          <Route path="/lti-setup"><LazyRoute Component={LtiSetup} /></Route>
+          <Route path="/signup"><LazyRoute Component={Signup} /></Route>
+          <Route path="/privacy"><LazyRoute Component={Privacy} /></Route>
+          <Route path="/trust"><LazyRoute Component={Trust} /></Route>
+          <Route path="/terms"><LazyRoute Component={Terms} /></Route>
+          <Route path="/features"><LazyRoute Component={Features} /></Route>
+          <Route path="/how-it-works"><LazyRoute Component={HowItWorks} /></Route>
+          <Route path="/blog"><LazyRoute Component={Blog} /></Route>
+          <Route path="/blog/ai-proctoring-vs-traditional-proctoring"><LazyRoute Component={BlogAiVsTraditional} /></Route>
+          <Route path="/blog/online-exam-cheating-prevention-ai-proctoring"><LazyRoute Component={BlogCheatingPrevention} /></Route>
+          <Route path="/blog/dpdp-act-compliance-online-proctoring-indian-universities"><LazyRoute Component={BlogDPDPCompliance} /></Route>
+          <Route path="/download"><LazyRoute Component={Download} /></Route>
+          <Route path="/register"><LazyRoute Component={Register} /></Route>
+        </Switch>
+      </div>
+    </>
   )
 }

@@ -579,6 +579,10 @@
    <p class="section-subtitle">Your completed exams and their results.</p>
    <div id="history-container" class="exam-list"></div>
 
+   <h2 class="section-title">My appeals</h2>
+   <p class="section-subtitle">Status of disputes you've submitted for teacher review.</p>
+   <div id="appeals-container" class="exam-list"></div>
+
    <div class="footer-links">
     <a href="/download">Download app</a> &bull;
     <a href="https://procta.net">procta.net</a>
@@ -804,7 +808,7 @@ async function showDashboard(account) {
   document.getElementById('auth-view').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('me-name').textContent = account.full_name || account.email;
-  await Promise.all([loadExams(), loadHistory()]);
+  await Promise.all([loadExams(), loadHistory(), loadAppeals()]);
 }
 
 function fmtWhen(iso) {
@@ -896,16 +900,22 @@ function renderExams(exams) {
     // `in_progress` is also launchable because the renderer supports
     // resume (check-session endpoint).
     const launchable = e.status === 'open' || e.status === 'in_progress';
+    // Countdown shown for in-progress exams that have an ends_at timestamp
+    const countdownHtml = (e.status === 'in_progress' && e.ends_at)
+      ? `<div style="font-size:13px;color:var(--amber);margin-top:4px">⏱ Time remaining: <strong><span class="exam-countdown" data-ends="${_escHtml(e.ends_at)}">—</span></strong></div>`
+      : '';
     let actionHtml = '';
     if (launchable && INSIDE_PROCTA_APP) {
       actionHtml = `
         <div class="exam-actions">
+          ${countdownHtml}
           <div class="exam-hint">Make sure your face is visible to the camera.</div>
           <button class="btn btn-primary btn-sm" onclick="startExamFromCard(${idx})">Start exam</button>
         </div>`;
     } else if (launchable) {
       actionHtml = `
         <div class="exam-actions">
+          ${countdownHtml}
           <div class="exam-hint">
             Open this in the Procta app to start.
             <a href="/download">Download the app</a>
@@ -992,6 +1002,54 @@ function renderHistory(items){
         <div style="margin-top:8px">
           <button class="btn btn-sm btn-secondary" onclick="openAppeal('${_escHtml(h.session_key)}')">Appeal</button>
         </div>
+      </div>`;
+  }).join('');
+}
+
+// ─── Appeal status read-back ──────────────────────────────────────
+async function loadAppeals() {
+  const container = document.getElementById('appeals-container');
+  if (!container) return;
+  container.innerHTML = '<div class="exams-empty">Loading…</div>';
+  try {
+    const r = await authed('/api/v1/student/appeals');
+    if (r.status === 401) { doLogout(); return; }
+    if (!r.ok) throw new Error('Failed to load appeals');
+    const d = await r.json();
+    renderAppeals(d.appeals || []);
+  } catch (e) {
+    container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load appeals</strong></div>';
+  }
+}
+
+function renderAppeals(items) {
+  const container = document.getElementById('appeals-container');
+  if (!items.length) {
+    container.innerHTML = '<div class="exams-empty">No appeals submitted yet.</div>';
+    return;
+  }
+  const statusColor = { pending: 'var(--amber)', accepted: 'var(--emerald)', rejected: 'var(--red)' };
+  container.innerHTML = items.map(a => {
+    const col = statusColor[a.status] || 'var(--muted)';
+    const resolvedRow = a.resolved_at
+      ? `<div>Resolved<strong>${_escHtml(a.resolved_at.slice(0, 10))}</strong></div>` : '';
+    const noteRow = a.teacher_note
+      ? `<div style="margin-top:8px;font-size:13px;color:var(--muted)">Teacher note: <em>${_escHtml(a.teacher_note)}</em></div>` : '';
+    return `
+      <div class="exam-card">
+        <div class="exam-card-head">
+          <div>
+            <div class="exam-title">${_escHtml(a.appeal_type || 'Appeal')}</div>
+            <div class="exam-teacher" style="font-size:12px;color:var(--muted)">${_escHtml(a.description ? a.description.slice(0, 80) + (a.description.length > 80 ? '…' : '') : '')}</div>
+          </div>
+          <span class="badge" style="color:${col};border-color:${col};text-transform:capitalize">${_escHtml(a.status)}</span>
+        </div>
+        <div class="exam-meta">
+          <div>Type<strong>${_escHtml(a.appeal_type)}</strong></div>
+          <div>Submitted<strong>${_escHtml((a.created_at || '').slice(0, 10))}</strong></div>
+          ${resolvedRow}
+        </div>
+        ${noteRow}
       </div>`;
   }).join('');
 }
@@ -1421,6 +1479,30 @@ window.addEventListener('focus', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && _shouldRefetchExams()) loadExams({ silent: true });
 });
+
+// ─── Countdown ticker for in-progress exams ──────────────────────
+// Ticks every second and updates all .exam-countdown[data-ends] spans.
+function _fmtCountdown(ms) {
+  if (ms <= 0) return 'Time up';
+  const totalSecs = Math.floor(ms / 1000);
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+setInterval(function _tickCountdowns() {
+  const spans = document.querySelectorAll('.exam-countdown[data-ends]');
+  const now = Date.now();
+  spans.forEach(span => {
+    const ends = new Date(span.dataset.ends).getTime();
+    span.textContent = _fmtCountdown(ends - now);
+    const remaining = ends - now;
+    // Turn red when under 5 minutes
+    span.style.color = remaining < 5 * 60 * 1000 ? 'var(--red)' : 'inherit';
+  });
+}, 1000);
 </script>
 </body>
 </html>

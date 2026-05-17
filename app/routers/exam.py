@@ -17,8 +17,8 @@ from ..database import supabase, async_table as _atable
 from ..event_bus import async_publish as _bus_async_publish, _HAS_REDIS
 from .. import cache as _cache
 from ..models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, FrameIn, IdVerifyIn
-from ..auth import require_auth, create_token, _check_session_ownership, _get_teacher_by_id
-from ..utils import fmt_ist, now_ist
+from ..auth import require_auth, require_teacher_auth, create_token, _check_session_ownership, _get_teacher_by_id
+from ..utils import fmt_ist, now_ist, ts_to_id
 from ..services.practice import is_practice, _practice_validate_response, PRACTICE_QUESTIONS
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config, get_access_code as _get_access_code
 from ..repositories.sessions import check_group_access as _check_group_access, assert_session_owned as _assert_session_owned
@@ -734,9 +734,10 @@ async def _try_ags_grade_passback(
             _exam_log.debug("[AGS] No AGS context for %s/%s", iss, deployment_id)
             return
 
-        registration = find_registration(iss, "")
+        client_id = ctx.get("client_id", "")
+        registration = find_registration(iss, client_id)
         if not registration:
-            _exam_log.debug("[AGS] No registration for issuer=%s", iss)
+            _exam_log.debug("[AGS] No registration for issuer=%s client_id=%s", iss, client_id)
             return
 
         access_token = await get_access_token(

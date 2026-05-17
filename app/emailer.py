@@ -96,6 +96,45 @@ def send_invite_email(
         return SendResult(ok=False, error=str(e))
 
 
+def _reset_backend_for_tests() -> None:
+    """Compatibility hook for tests that swap email/webhook env vars."""
+    return None
+
+
+def verify_webhook(raw_body: bytes, headers) -> bool:
+    """Verify Resend/Svix webhook signatures.
+
+    In development without ``RESEND_WEBHOOK_SECRET`` configured, require a
+    non-empty signature header so unsigned calls still fail closed.
+    """
+    svix_id = headers.get("svix-id") if hasattr(headers, "get") else ""
+    svix_ts = headers.get("svix-timestamp") if hasattr(headers, "get") else ""
+    svix_sig = headers.get("svix-signature") if hasattr(headers, "get") else ""
+    if not svix_sig:
+        return False
+
+    secret = os.environ.get("RESEND_WEBHOOK_SECRET", "")
+    if not secret:
+        return bool(svix_sig)
+    if not svix_id or not svix_ts:
+        return False
+    try:
+        ts = int(svix_ts)
+        if abs(int(time.time()) - ts) > 5 * 60:
+            return False
+        key_material = secret[6:] if secret.startswith("whsec_") else secret
+        key = base64.b64decode(key_material)
+        signed = f"{svix_id}.{svix_ts}.".encode() + raw_body
+        expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
+        for part in svix_sig.split():
+            version, _, candidate = part.partition(",")
+            if version == "v1" and hmac.compare_digest(candidate, expected):
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def send_exam_reminder(
     *,
     to_email: str,
@@ -283,7 +322,18 @@ def send_demo_request_notification(
   </table>
 </body></html>
 """
-    return html, text
+    try:
+        backend = _pick_backend()
+        return backend.send(
+            to_email=admin_email,
+            to_name="Procta Admin",
+            subject=subject,
+            html=html,
+            text=text,
+        )
+    except Exception as e:
+        log.exception("send_demo_request_notification failed: %s", e)
+        return SendResult(ok=False, error=str(e))
 
 
 def send_email_verification(to_email: str, to_name: str, verify_url: str) -> SendResult:
@@ -687,3 +737,298 @@ def _render_scorecard_email(**ctx) -> tuple[str, str]:
 </body></html>
 """
     return html, text
+
+
+# ─── Backend infrastructure ──────────────────────────────────────────
+
+class _Backend:
+    """Abstract base for email provider backends."""
+    def send(
+        self, *, to_email: str, to_name: str, subject: str,
+        html: str, text: str, attachments=None,
+    ) -> SendResult:
+        raise NotImplementedError
+
+
+class _ResendBackend(_Backend):
+    def send(self, *, to_email: str, to_name: str, subject: str,
+             html: str, text: str, attachments=None) -> SendResult:
+        try:
+            import resend  # type: ignore
+        except ImportError:
+            return SendResult(ok=False, error="resend package not installed")
+        api_key = os.environ.get("RESEND_API_KEY", "")
+        if not api_key:
+            return SendResult(ok=False, error="RESEND_API_KEY not configured")
+        resend.api_key = api_key
+        from_addr = os.environ.get("EMAIL_FROM", "invites@procta.net")
+        from_name = os.environ.get("EMAIL_FROM_NAME", "Procta")
+        reply_to = os.environ.get("EMAIL_REPLY_TO", "")
+        params: dict = {
+            "from": f"{from_name} <{from_addr}>",
+            "to": [f"{to_name} <{to_email}>"] if to_name else [to_email],
+            "subject": subject,
+            "html": html,
+            "text": text,
+        }
+        if reply_to:
+            params["reply_to"] = reply_to
+        if attachments:
+            params["attachments"] = [
+                {"filename": a["filename"], "content": list(a["content"])}
+                for a in attachments
+            ]
+        try:
+            resp = resend.Emails.send(params)
+            msg_id = resp.get("id") if isinstance(resp, dict) else getattr(resp, "id", None)
+            return SendResult(ok=True, provider_msg_id=msg_id)
+        except Exception as e:
+            log.error("Resend API error: %s", e)
+            return SendResult(ok=False, error=str(e))
+
+
+class _SmtpBackend(_Backend):
+    def send(self, *, to_email: str, to_name: str, subject: str,
+             html: str, text: str, attachments=None) -> SendResult:
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.base import MIMEBase
+        from email import encoders
+        host = os.environ.get("SMTP_HOST", "localhost")
+        port = int(os.environ.get("SMTP_PORT", "587"))
+        user = os.environ.get("SMTP_USER", "")
+        password = os.environ.get("SMTP_PASS", "")
+        from_addr = os.environ.get("EMAIL_FROM", "invites@procta.net")
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = from_addr
+        msg["To"] = f"{to_name} <{to_email}>" if to_name else to_email
+        msg.attach(MIMEText(text, "plain"))
+        msg.attach(MIMEText(html, "html"))
+        if attachments:
+            for a in attachments:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(a["content"])
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f'attachment; filename="{a["filename"]}"')
+                msg.attach(part)
+        try:
+            with smtplib.SMTP(host, port) as smtp:
+                smtp.starttls()
+                if user:
+                    smtp.login(user, password)
+                smtp.sendmail(from_addr, [to_email], msg.as_string())
+            return SendResult(ok=True)
+        except Exception as e:
+            log.error("SMTP error: %s", e)
+            return SendResult(ok=False, error=str(e))
+
+
+class _NoopBackend(_Backend):
+    def send(self, *, to_email: str, to_name: str, subject: str,
+             html: str, text: str, attachments=None) -> SendResult:
+        log.info("[noop-email] to=%s subject=%r", to_email, subject)
+        return SendResult(ok=True, provider_msg_id="noop")
+
+
+def _pick_backend() -> _Backend:
+    provider = os.environ.get("EMAIL_PROVIDER", "resend").lower().strip()
+    if provider == "smtp":
+        return _SmtpBackend()
+    if provider == "noop":
+        return _NoopBackend()
+    if not os.environ.get("RESEND_API_KEY"):
+        log.debug("[emailer] RESEND_API_KEY not set — using noop backend")
+        return _NoopBackend()
+    return _ResendBackend()
+
+
+def _send(to_email: str, subject: str, html: str, text: str,
+          to_name: str = "") -> SendResult:
+    """Convenience wrapper: pick backend and send in one call."""
+    try:
+        return _pick_backend().send(
+            to_email=to_email, to_name=to_name,
+            subject=subject, html=html, text=text,
+        )
+    except Exception as e:
+        log.exception("_send failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
+def _render_invite(**ctx) -> tuple[str, str]:
+    """Return (html, text) for a new student exam invite email."""
+    to_name        = ctx.get("to_name") or "Student"
+    exam_title     = ctx.get("exam_title") or "Your exam"
+    invite_url     = ctx["invite_url"]
+    download_url   = ctx.get("download_url") or "https://procta.net/download"
+    roll_number    = ctx.get("roll_number") or ""
+    access_code    = ctx.get("access_code")
+    exam_starts_at = ctx.get("exam_starts_at") or ""
+    exam_ends_at   = ctx.get("exam_ends_at") or ""
+    custom_message = ctx.get("custom_message") or ""
+    teacher_name   = ctx.get("teacher_name") or "your teacher"
+
+    # ── Plaintext ──
+    text_lines = [
+        f"Hi {to_name},",
+        "",
+        f"You've been invited to take '{exam_title}' on Procta.",
+        "",
+        f"Roll number: {roll_number}",
+    ]
+    if access_code:
+        text_lines.append(f"Access code: {access_code}")
+    if exam_starts_at:
+        text_lines.append(f"Starts: {exam_starts_at}")
+    if exam_ends_at:
+        text_lines.append(f"Ends:   {exam_ends_at}")
+    text_lines += [
+        "",
+        "Open your invite page to join:",
+        f"  {invite_url}",
+        "",
+        "You'll need the Procta desktop app to take this exam. Download it at:",
+        f"  {download_url}",
+        "",
+    ]
+    if custom_message:
+        text_lines += [f"Note from {teacher_name}:", custom_message, ""]
+    text_lines.append("— The Procta Team")
+    text = "\n".join(text_lines)
+
+    # ── HTML ──
+    access_block = (
+        f'<div style="margin-top:6px;color:#334155;"><b>Access code:</b> '
+        f'<code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;'
+        f'font-family:monospace;font-size:14px;">{_esc(access_code)}</code></div>'
+        if access_code else ""
+    )
+    starts_block = (
+        f'<div style="color:#475569;margin-top:4px;"><b>Starts:</b> {_esc(exam_starts_at)}</div>'
+        if exam_starts_at else ""
+    )
+    ends_block = (
+        f'<div style="color:#475569;margin-top:4px;"><b>Ends:</b> {_esc(exam_ends_at)}</div>'
+        if exam_ends_at else ""
+    )
+    message_block = (
+        f'<div style="background:#fff7ed;border-left:3px solid #f59e0b;padding:12px 16px;'
+        f'margin:16px 0;border-radius:6px;color:#78350f;font-size:14px;line-height:1.5;">'
+        f'<div style="font-weight:600;margin-bottom:4px;color:#92400e;">'
+        f'Note from {_esc(teacher_name)}</div>'
+        f'{_esc(custom_message).replace(chr(10), "<br>")}'
+        f'</div>'
+        if custom_message else ""
+    )
+
+    html = f"""\
+<!doctype html>
+<html><head><meta charset="utf-8"><title>You're invited — {_esc(exam_title)}</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
+             style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;">
+        <tr><td style="background:linear-gradient(135deg,#3dd9a8,#3b82f6);padding:28px 32px;">
+          <div style="color:#ffffff;font-size:12px;letter-spacing:2px;font-weight:600;opacity:.9;">PROCTA · EXAM INVITE</div>
+          <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:6px;">You're invited to take an exam</div>
+        </td></tr>
+        <tr><td style="padding:32px;color:#0f172a;">
+          <p style="margin:0 0 16px 0;font-size:16px;">Hi {_esc(to_name)},</p>
+          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.55;color:#334155;">
+            You've been invited to take <b>{_esc(exam_title)}</b> on Procta.
+          </p>
+          <div style="background:#f8fafc;border-radius:10px;padding:16px 18px;margin:20px 0;border:1px solid #e2e8f0;">
+            <div style="color:#334155;"><b>Roll number:</b>
+              <code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;font-family:monospace;font-size:14px;">{_esc(roll_number)}</code>
+            </div>
+            {access_block}
+            {starts_block}
+            {ends_block}
+          </div>
+          {message_block}
+          <div style="margin:20px 0;">
+            <a href="{_esc(invite_url)}"
+               style="display:inline-block;background:#10b981;color:#ffffff;text-decoration:none;
+                      padding:12px 24px;border-radius:8px;font-weight:600;font-size:15px;margin-right:10px;">
+              Open invite page
+            </a>
+            <a href="{_esc(download_url)}"
+               style="display:inline-block;background:#1e293b;color:#ffffff;text-decoration:none;
+                      padding:12px 24px;border-radius:8px;font-weight:600;font-size:15px;">
+              Download Procta
+            </a>
+          </div>
+          <p style="margin:20px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.55;">
+            You'll need the Procta desktop app installed before your exam.
+            Questions? Reply to this email and {_esc(teacher_name)} will get back to you.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
+          Procta — proctored exams, made simple.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+    return html, text
+
+
+def send_payment_failed_notification(to_email: str, to_name: str) -> SendResult:
+    """Notify the org admin that their Razorpay payment failed and they need to update their payment method."""
+    subject = "[Procta] Your payment failed — action required"
+    name_esc = _esc(to_name or "there")
+    html = f"""\
+<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 16px;">
+    <table width="540" cellpadding="0" cellspacing="0"
+           style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;max-width:540px;">
+      <tr><td style="background:#ef4444;padding:28px 32px;">
+        <div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">Payment failed</div>
+        <div style="color:#fecaca;font-size:13px;margin-top:4px;">Action required to keep your Procta subscription active</div>
+      </td></tr>
+      <tr><td style="padding:32px;">
+        <p style="margin:0 0 16px 0;font-size:16px;">Hi {name_esc},</p>
+        <p style="margin:0 0 20px 0;font-size:15px;line-height:1.55;color:#334155;">
+          We were unable to process your most recent Razorpay payment for your Procta subscription.
+          Your access may be restricted if the payment is not resolved promptly.
+        </p>
+        <p style="margin:0 0 20px 0;font-size:15px;line-height:1.55;color:#334155;">
+          Please update your payment method or retry the payment to keep your team's exams running without interruption.
+        </p>
+        <div style="margin:24px 0;">
+          <a href="https://app.procta.net/dashboard#billing"
+             style="display:inline-block;background:#ef4444;color:#ffffff;text-decoration:none;
+                    padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">
+            Update payment method &rarr;
+          </a>
+        </div>
+        <p style="margin:20px 0 0 0;color:#94a3b8;font-size:12px;line-height:1.55;">
+          If you believe this is an error or need assistance, reply to this email and we'll help you right away.
+        </p>
+      </td></tr>
+      <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
+        Procta — proctored exams, made simple.
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>
+"""
+    text = (
+        f"Hi {to_name or 'there'},\n\n"
+        "We were unable to process your most recent Razorpay payment for your Procta subscription.\n"
+        "Please update your payment method to keep your team's exams running without interruption.\n\n"
+        "Update payment method: https://app.procta.net/dashboard#billing\n\n"
+        "If you need help, just reply to this email.\n\n"
+        "— The Procta team"
+    )
+    try:
+        return _send(to_email, subject, html, text)
+    except Exception as e:
+        log.exception("send_payment_failed_notification failed: %s", e)
+        return SendResult(ok=False, error=str(e))

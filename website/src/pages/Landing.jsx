@@ -1,3 +1,4 @@
+import { Helmet } from 'react-helmet-async'
 import Navbar from '../components/Navbar'
 import Hero from '../components/Hero'
 import Problem from '../components/Problem'
@@ -16,6 +17,16 @@ import Footer from '../components/Footer'
 export default function Landing() {
   return (
     <div className="min-h-screen">
+      <Helmet>
+        <title>Procta — AI Exam Proctoring Made Simple</title>
+        <meta name="description" content="Procta is the AI-powered exam proctoring platform that runs inside a secure browser. No installs, no biometrics, no student data sharing. Start free." />
+        <meta property="og:title" content="Procta — AI Exam Proctoring Made Simple" />
+        <meta property="og:description" content="AI-powered exam proctoring inside a secure browser. No installs, no biometrics, no student data sharing." />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://procta.net" />
+        <meta property="og:image" content="https://procta.net/og-image.png" />
+        <link rel="canonical" href="https://procta.net" />
+      </Helmet>
       <Navbar />
       <Hero />
       <Problem />

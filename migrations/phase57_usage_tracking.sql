@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS usage_records (
   overage       INT NOT NULL DEFAULT 0,
   overage_amount NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Unique constraint required for ON CONFLICT (org_id, period_start)
+  UNIQUE (org_id, period_start)
 );
 
 CREATE INDEX IF NOT EXISTS idx_usage_org_period
@@ -31,22 +33,19 @@ DECLARE
   v_plan_limit INT;
   v_usage_id UUID;
 BEGIN
-  -- Get plan limit from org's subscription
+  -- Get plan limit from org's max_students column (set by billing webhooks).
+  -- Avoids plan::json cast which would fail for text values like 'starter'.
   SELECT COALESCE(
-    (SELECT json_extract_path_text(plan::json, 'students')::int
-     FROM (
-       SELECT s.plan
-       FROM subscriptions s
-       JOIN organizations o ON o.id = s.org_id
-       WHERE o.id = p_org_id
-       LIMIT 1
-     ) sub
+    (SELECT o.max_students
+     FROM organizations o
+     WHERE o.id = p_org_id
+     LIMIT 1
     ), 30
   ) INTO v_plan_limit;
 
   INSERT INTO usage_records (org_id, period_start, period_end, exam_attempts, students_used, plan_limit)
   VALUES (p_org_id, v_period_start, v_period_end, p_exam_attempts, COALESCE(p_students_used, 0), v_plan_limit)
-  ON CONFLICT (org_id, period_start) WHERE (org_id, period_start) IS NOT NULL
+  ON CONFLICT (org_id, period_start)
   DO UPDATE SET
     exam_attempts = usage_records.exam_attempts + p_exam_attempts,
     students_used = GREATEST(usage_records.students_used, COALESCE(p_students_used, usage_records.students_used)),

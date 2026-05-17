@@ -37,10 +37,16 @@ def _get_client():
     )
 
 
+def _is_production() -> bool:
+    return os.environ.get("APP_ENV", "development").lower().strip() == "production"
+
+
 def create_subscription(org_id: str, plan_id: str) -> dict:
     """Create a Razorpay subscription and return checkout details.
 
-    In sandbox mode, returns a mock response.
+    In non-production sandbox mode (no Razorpay credentials), returns a mock
+    response.  In production, raises RuntimeError if credentials are missing so
+    the caller can surface a 503 rather than silently issuing a fake subscription.
     """
     if plan_id not in PLANS:
         raise ValueError(f"Unknown plan: {plan_id}")
@@ -62,6 +68,11 @@ def create_subscription(org_id: str, plan_id: str) -> dict:
             "status": sub.get("status", "created"),
         }
 
+    if _is_production():
+        raise RuntimeError(
+            "RAZORPAY_KEY_ID/SECRET not configured — cannot create live subscription"
+        )
+
     return {
         "subscription_id": f"mock_sub_{org_id[:8]}",
         "short_url": f"https://razorpay.com/payments/mock_{org_id[:8]}",
@@ -71,16 +82,21 @@ def create_subscription(org_id: str, plan_id: str) -> dict:
     }
 
 
+_SANDBOX_WEBHOOK_SECRET = os.environ.get("SANDBOX_WEBHOOK_SECRET", "")
+
 def verify_webhook(raw_body: bytes, signature: str) -> bool:
     """Verify Razorpay webhook signature.
 
-    In sandbox mode, always returns True.
-    Sandbox webhooks can be tested via Razorpay dashboard → Settings → Webhooks
-    or by setting RAZORPAY_WEBHOOK_SECRET and calling this endpoint directly.
+    In production: RAZORPAY_WEBHOOK_SECRET must be set; rejects if absent.
+    In non-production: if RAZORPAY_WEBHOOK_SECRET is set, verifies against it.
+    If explicitly configured with SANDBOX_WEBHOOK_SECRET, verifies against that.
+    If neither is set in non-production, still rejects — set SANDBOX_WEBHOOK_SECRET
+    to a known value or RAZORPAY_WEBHOOK_SECRET for verified playback.
     """
-    secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
-    if not secret or not _is_live():
-        return True
+    secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "") or _SANDBOX_WEBHOOK_SECRET
+    if not secret:
+        logger.error("[billing] No webhook secret configured (set RAZORPAY_WEBHOOK_SECRET or SANDBOX_WEBHOOK_SECRET)")
+        return False
     expected = hmac.new(
         secret.encode(), raw_body, hashlib.sha256
     ).hexdigest()

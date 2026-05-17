@@ -43,7 +43,7 @@ async def pending_verifications(request: Request, exam_id: str = None):
         try:
             obj = json.loads(row.get("details", "{}"))
         except Exception:
-            _verif_log.warning("pending-list: malformed details JSON on violation %s", row.get("id"))
+            _admin_log.warning("pending-list: malformed details JSON on violation %s", row.get("id"))
             continue
         if obj.get("status") != VerificationStatus.PENDING:
             continue

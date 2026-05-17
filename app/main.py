@@ -2,6 +2,7 @@
 import asyncio
 import gc
 import hashlib
+import json
 import time
 import uuid
 import logging
@@ -114,6 +115,10 @@ async def lifespan(_app) -> AsyncIterator[None]:
         or os.environ.get("REMINDER_LEADER_OVERRIDE", "") == "1"
     )
 
+    _reminder_task = None
+    _room_frame_cleanup_task = None
+    _reaper_task = None
+
     if os.environ.get("REMINDER_LOOP_DISABLED", "") == "1":
         print(f"[startup] reminders loop disabled by env ({worker_name})", flush=True)
     elif is_leader:
@@ -135,17 +140,31 @@ async def lifespan(_app) -> AsyncIterator[None]:
             else None
         )
 
+    if is_leader:
+        from .services.heartbeat_reaper import heartbeat_reaper_loop
+        _reaper_task = asyncio.create_task(heartbeat_reaper_loop())
+        _reaper_task.add_done_callback(
+            lambda t: print(f"[startup] heartbeat reaper ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
+        print(f"[startup] heartbeat reaper started ({worker_name})", flush=True)
+
     yield  # ── APP RUNNING ────────────────────────────────────────
 
     # ── SHUTDOWN ──────────────────────────────────────────────────
     log = logging.getLogger("shutdown")
     log.info("[shutdown] Starting graceful shutdown...")
 
-    for task in asyncio.all_tasks():
-        coro_name = task.get_coro().__name__ if hasattr(task, 'get_coro') else str(task)
-        if "reminder" in coro_name.lower():
-            task.cancel()
-            log.info("[shutdown] Cancelled reminder task")
+    if _room_frame_cleanup_task is not None and not _room_frame_cleanup_task.done():
+        _room_frame_cleanup_task.cancel()
+        log.info("[shutdown] Cancelled room-frame cleanup task")
+    if _reaper_task is not None and not _reaper_task.done():
+        _reaper_task.cancel()
+        log.info("[shutdown] Cancelled heartbeat reaper task")
+    if _reminder_task is not None and not _reminder_task.done():
+        _reminder_task.cancel()
+        log.info("[shutdown] Cancelled reminder task")
 
     from .auth.admin_auth import _teacher_cache, _student_acct_cache
     _teacher_cache.clear()
@@ -205,8 +224,8 @@ app.add_exception_handler(RateLimitExceeded, _custom_rate_limit_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID"],
     allow_credentials=True,
 )
 app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
@@ -254,6 +273,16 @@ def _looks_malicious(val: str) -> bool:
     return False
 
 
+def _json_contains_malicious(value) -> bool:
+    if isinstance(value, str):
+        return _looks_malicious(value)
+    if isinstance(value, dict):
+        return any(_json_contains_malicious(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_json_contains_malicious(v) for v in value)
+    return False
+
+
 class InputValidationMiddleware(BaseHTTPMiddleware):
     """Validate and sanitize incoming request inputs.
 
@@ -266,26 +295,49 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith('/static') or request.url.path == '/api/v1/metrics':
             return await call_next(request)
 
-        # Body size limit
+        # Body size limit — check declared header first (fast path), then
+        # enforce against actual streamed bytes so a missing or spoofed
+        # Content-Length header cannot bypass the limit.
         cl = request.headers.get('content-length')
-        if cl and int(cl) > _MAX_BODY_BYTES:
-            return Response(status_code=413, content='Payload too large')
+        try:
+            if cl and int(cl) > _MAX_BODY_BYTES:
+                return Response(status_code=413, content='Payload too large')
+        except ValueError:
+            return Response(status_code=400, content='Invalid Content-Length')
+        if request.method in ("POST", "PUT", "PATCH"):
+            body_bytes = await request.body()
+            if len(body_bytes) > _MAX_BODY_BYTES:
+                return Response(status_code=413, content='Payload too large')
+            # Re-inject the already-consumed body so downstream handlers can read it.
+            async def _body_iter():
+                yield body_bytes
+            request._body = body_bytes  # starlette caches body on ._body
 
         # Reject SQLi in query parameters
         for key, values in request.query_params.multi_items():
             if _looks_malicious(values):
                 return Response(status_code=400, content='Blocked: suspicious input')
 
-        # Reject SQLi in JSON request bodies (defense-in-depth)
-        if request.method in ('POST', 'PUT', 'PATCH') and 'application/json' in request.headers.get('content-type', ''):
-            try:
-                body = await request.json()
-                if isinstance(body, dict):
-                    for key, val in body.items():
-                        if isinstance(val, str) and _looks_malicious(val):
+        # Reject SQLi in request bodies (defense-in-depth).
+        if request.method in ('POST', 'PUT', 'PATCH'):
+            ct = request.headers.get('content-type', '')
+            if 'application/json' in ct:
+                try:
+                    body = await request.json()
+                    if _json_contains_malicious(body):
+                        return Response(status_code=400, content='Blocked: suspicious input')
+                except Exception as e:
+                    # Body isn't valid JSON despite the content-type header — let
+                    # FastAPI's own validation surface the error rather than blocking.
+                    logger.debug("InputValidation: JSON parse skipped (%s)", e)
+            elif 'application/x-www-form-urlencoded' in ct or 'multipart/form-data' in ct:
+                try:
+                    form = await request.form()
+                    for field_value in form.values():
+                        if isinstance(field_value, str) and _looks_malicious(field_value):
                             return Response(status_code=400, content='Blocked: suspicious input')
-            except Exception:
-                pass
+                except Exception as e:
+                    logger.debug("InputValidation: form parse skipped (%s)", e)
 
         return await call_next(request)
 
@@ -298,7 +350,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response
@@ -407,7 +459,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     allowed through for backward compatibility.
     """
     async def dispatch(self, request: Request, call_next):
-        if request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/"):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             auth = request.headers.get("Authorization", "")
             if auth.startswith("Bearer "):
                 try:
@@ -422,8 +474,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                             return Response(status_code=403, content="CSRF token required. Include X-CSRF-Token header.")
                         if not verify_csrf(claims, csrf_header):
                             return Response(status_code=403, content="CSRF validation failed")
-                except Exception:
-                    pass  # Invalid/expired JWT — let normal auth handle it
+                except jwt.ExpiredSignatureError:
+                    pass  # Expired JWT — let normal auth return 401
+                except jwt.InvalidTokenError:
+                    pass  # Malformed JWT — let normal auth handle it
         return await call_next(request)
 
 
@@ -433,7 +487,7 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(InputValidationMiddleware)
 app.add_middleware(ETagMiddleware)
-import traceback as _tb
+
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import JSONResponse
 
@@ -454,8 +508,7 @@ async def _http_exception_handler(request: StarletteRequest, exc: HTTPException)
 
 @app.exception_handler(Exception)
 async def _global_exception_handler(request: StarletteRequest, exc: Exception):
-    print(f"[UNHANDLED] {request.method} {request.url.path}: {exc}")
-    _tb.print_exc()
+    logger.exception("[UNHANDLED] %s %s: %s", request.method, request.url.path, exc)
     return JSONResponse(status_code=500, content={
         "error": "INTERNAL_ERROR",
         "detail": "Internal server error",

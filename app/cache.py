@@ -174,6 +174,30 @@ def delete_pattern(pattern: str) -> None:
         _log.debug("Cache pattern delete failed for pattern=%s", pattern, exc_info=True)
 
 
+# ── Async wrappers ────────────────────────────────────────────────
+# The sync Redis client blocks the event loop for the duration of each
+# call (typically < 1 ms, but up to socket_timeout on failures).
+# These thin wrappers push the blocking call to the default thread pool
+# executor so async route handlers stay non-blocking.
+
+import asyncio as _asyncio
+
+
+async def aget(key: str):
+    """Async-safe version of get()."""
+    return await _asyncio.get_event_loop().run_in_executor(None, get, key)
+
+
+async def aset(key: str, value, ttl: int = 300) -> None:
+    """Async-safe version of set()."""
+    await _asyncio.get_event_loop().run_in_executor(None, lambda: set(key, value, ttl))
+
+
+async def adelete(key: str) -> None:
+    """Async-safe version of delete()."""
+    await _asyncio.get_event_loop().run_in_executor(None, delete, key)
+
+
 def cleanup_room_frames() -> None:
     """Delete all roomframe:* keys (belt-and-suspenders — Redis TTL handles daily expiry).
     

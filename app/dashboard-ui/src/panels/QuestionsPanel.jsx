@@ -7,19 +7,27 @@ export default function QuestionsPanel({ currentExamId }) {
   const [bankQuestions, setBankQuestions] = useState([])
   const [selectedIdx, setSelectedIdx] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [bankLoading, setBankLoading] = useState(false)
   const [bankSearch, setBankSearch] = useState('')
   const [activeTab, setActiveTab] = useState('bank') // bank | generate | import
   const [aiPrompt, setAiPrompt] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
+  const [mutationError, setMutationError] = useState('')
 
   const loadQuestions = useCallback(async () => {
     if (!currentExamId) { setLoading(false); return }
+    setError('')
     try {
       const r = await authFetch(`/api/v1/admin/questions?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) setQuestions((await r.json()).questions || [])
-    } catch (_) {}
-    finally { setLoading(false) }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load questions (${r.status})`)
+      }
+      setQuestions((await r.json()).questions || [])
+    } catch (e) {
+      setError(e.message || 'Failed to load questions')
+    } finally { setLoading(false) }
   }, [currentExamId, authFetch])
 
   const loadBank = useCallback(async () => {
@@ -27,7 +35,7 @@ export default function QuestionsPanel({ currentExamId }) {
     try {
       const r = await authFetch(`/api/v1/admin/question-bank?exam_id=${encodeURIComponent(currentExamId)}`)
       if (r.ok) setBankQuestions((await r.json()).questions || [])
-    } catch (_) {}
+    } catch (err) { console.error('QuestionsPanel: load bank failed', err) }
     finally { setBankLoading(false) }
   }, [currentExamId, authFetch])
 
@@ -42,7 +50,7 @@ export default function QuestionsPanel({ currentExamId }) {
         body: JSON.stringify({ exam_id: currentExamId, question: 'New question', options: { A: '', B: '', C: '', D: '' }, correct: 'A' }),
       })
       if (r.ok) { loadQuestions(); setSelectedIdx(0) }
-    } catch (_) {}
+    } catch (err) { console.error('QuestionsPanel: add question failed', err) }
   }
 
   const saveQuestion = async (q, idx) => {
@@ -53,7 +61,7 @@ export default function QuestionsPanel({ currentExamId }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exam_id: currentExamId, question_id: q.id, question: q.question, options: q.options, correct: q.correct }),
       })
-    } catch (_) {}
+    } catch (err) { console.error('QuestionsPanel: save question failed', err) }
   }
 
   const deleteQuestion = async (qid) => {
@@ -62,7 +70,7 @@ export default function QuestionsPanel({ currentExamId }) {
       await authFetch(`/api/v1/admin/questions/${qid}?exam_id=${encodeURIComponent(currentExamId)}`, { method: 'DELETE' })
       loadQuestions()
       setSelectedIdx(null)
-    } catch (_) {}
+    } catch (err) { console.error('QuestionsPanel: delete question failed', err) }
   }
 
   const bankToExam = async (qid) => {
@@ -73,7 +81,7 @@ export default function QuestionsPanel({ currentExamId }) {
         body: JSON.stringify({ exam_id: currentExamId, question_id: qid }),
       })
       if (r.ok) loadQuestions()
-    } catch (_) {}
+    } catch (err) { console.error('QuestionsPanel: bank to exam failed', err) }
   }
 
   const runAiGenerate = async () => {
@@ -86,12 +94,13 @@ export default function QuestionsPanel({ currentExamId }) {
         body: JSON.stringify({ prompt: aiPrompt, count: 5, exam_id: currentExamId, save_to: 'exam' }),
       })
       if (r.ok) { loadQuestions(); setAiPrompt(''); setActiveTab('bank') }
-    } catch (_) {}
+    } catch (err) { console.error('QuestionsPanel: AI generate failed', err) }
     finally { setAiGenerating(false) }
   }
 
   if (!currentExamId) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Select an exam to manage questions.</div>
   if (loading) return <div className="loading" style={{ textAlign: 'center', padding: 60 }}>Loading questions...</div>
+  if (error) return <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadQuestions} style={{ marginLeft: 8 }}>Retry</button></div>
 
   const filteredBank = bankQuestions.filter(q =>
     !bankSearch || q.question?.toLowerCase().includes(bankSearch)

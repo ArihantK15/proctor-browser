@@ -10,6 +10,12 @@ function _escHtml(s) {
 function _escGrp(s) {
   return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
+function esc(s) {
+  return _escHtml(s);
+}
+function escJs(s) {
+  return _escGrp(s);
+}
 function chatEscape(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

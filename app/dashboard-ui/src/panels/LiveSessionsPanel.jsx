@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../lib/auth'
 import { API_BASE } from '../config'
 
+const PAGE_SIZE = 50
+
 export default function LiveSessionsPanel({ currentExamId }) {
   const { authFetch } = useAuth()
   const [sessions, setSessions] = useState([])
@@ -10,6 +12,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
   const [sortKey, setSortKey] = useState('risk_score')
   const [sortAsc, setSortAsc] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
   const [liveViewSid, setLiveViewSid] = useState(null)
   const [liveViewFrame, setLiveViewFrame] = useState(null)
   const [liveViewStatus, setLiveViewStatus] = useState('Connecting')
@@ -35,7 +38,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
         try {
           const d = JSON.parse(e.data)
           setSessions(d.sessions || [])
-        } catch (_) {}
+        } catch (err) { console.error('LiveSessionsPanel: parse init event', err) }
       })
       es.addEventListener('update', (e) => {
         try {
@@ -43,20 +46,28 @@ export default function LiveSessionsPanel({ currentExamId }) {
           if (d.session_id) {
             setSessions(prev => prev.map(s => s.session_id === d.session_id ? { ...s, ...d } : s))
           }
-        } catch (_) {}
+        } catch (err) { console.error('LiveSessionsPanel: parse update event', err) }
       })
       es.addEventListener('refresh', () => { loadSessions() })
       es.onerror = () => {}
       sseRef.current = es
-    } catch (_) {}
+    } catch (err) { console.error('LiveSessionsPanel: connectSSE failed', err) }
   }
 
+  const [error, setError] = useState('')
+
   const loadSessions = async () => {
+    setError('')
     try {
       const r = await authFetch(`${API_BASE}/sessions${currentExamId ? `?exam_id=${encodeURIComponent(currentExamId)}` : ''}`)
-      if (r.ok) setSessions((await r.json()).sessions || [])
-    } catch (_) {}
-    finally { setLoading(false) }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to load sessions (${r.status})`)
+      }
+      setSessions((await r.json()).sessions || [])
+    } catch (e) {
+      setError(e.message || 'Failed to load sessions')
+    } finally { setLoading(false) }
   }
 
   const openLiveView = async (sid) => {
@@ -85,7 +96,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
 
   const closeLiveView = () => {
     if (window._liveViewInterval) { clearInterval(window._liveViewInterval); window._liveViewInterval = null }
-    if (liveViewSid) authFetch(`${API_BASE}/admin/sessions/${encodeURIComponent(liveViewSid)}/live-view/stop`, { method: 'POST' }).catch(() => {})
+    if (liveViewSid) authFetch(`${API_BASE}/admin/sessions/${encodeURIComponent(liveViewSid)}/live-view/stop`, { method: 'POST' }).catch(err => console.error('LiveSessionsPanel: stop live view', err))
     setLiveViewSid(null)
     setLiveViewFrame(null)
   }
@@ -100,10 +111,16 @@ export default function LiveSessionsPanel({ currentExamId }) {
       return sortAsc ? va - vb : vb - va
     })
 
+  const displayed = filtered.slice(0, page * PAGE_SIZE)
+  const hasMore = displayed.length < filtered.length
+
   const sevColor = (sev) => sev === 'high' ? 'var(--red)' : sev === 'medium' ? 'var(--amber)' : 'var(--muted)'
+
+  if (loading) return <div className="loading" style={{ textAlign: 'center', padding: 40 }}>Loading sessions...</div>
 
   return (
     <div className="live-layout" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 200px)' }}>
+      {error && <div className="auth-err" style={{ marginBottom: 12 }}>{error} <button className="btn-link" onClick={loadSessions} style={{ marginLeft: 8 }}>Retry</button></div>}
       {/* Stats bar */}
       <div className="stats-bar" style={{ marginBottom: 14 }}>
         {[
@@ -150,7 +167,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(s => {
+              {displayed.map(s => {
                 const sid = s.session_id || ''
                 const roll = sid.split('_')[0]
                 return (
@@ -180,10 +197,21 @@ export default function LiveSessionsPanel({ currentExamId }) {
                 )
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>No live sessions{search || sevFilter !== 'all' ? ' matching filters' : ''}.</td></tr>
+                <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                  {search || sevFilter !== 'all'
+                    ? 'No live sessions matching filters.'
+                    : <span>No live sessions yet. <a href="#tools" style={{ color: 'var(--blue)', cursor: 'pointer' }} onClick={e => { e.preventDefault(); window.location.hash = 'tools'; }}>Share your exam link</a> to get students started.</span>}
+                </td></tr>
               )}
             </tbody>
           </table>
+        {hasMore && (
+          <div style={{ textAlign: 'center', padding: 12 }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => p + 1)}>
+              Load more ({filtered.length - displayed.length} remaining)
+            </button>
+          </div>
+        )}
         </div>
       )}
 

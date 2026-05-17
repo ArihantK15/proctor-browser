@@ -138,6 +138,7 @@ mock_cache.set = MagicMock()
 mock_cache.delete = MagicMock()
 mock_cache.delete_pattern = MagicMock()
 mock_cache.set_live_frame = MagicMock()
+mock_cache.adelete = AsyncMock()
 sys.modules["app.cache"] = mock_cache
 
 # Mock emailer module
@@ -172,6 +173,9 @@ def supabase_mock():
 def cache_mock():
     mock_cache.reset_mock()
     mock_cache.get.return_value = None
+    mock_cache.aget = AsyncMock(return_value=None)
+    mock_cache.aset = AsyncMock()
+    mock_cache.adelete = AsyncMock()
     return mock_cache
 
 

@@ -50,7 +50,7 @@ jobs:
           command_timeout: 15m
           script: |
             set -euo pipefail
-            cd /opt/proctor || { echo "ERROR: /opt/proctor not found — clone the repo first"; exit 1; }
+            cd /root/proctor-browser || { echo "ERROR: /root/proctor-browser not found — clone the repo first"; exit 1; }
 
             echo "==> git pull main"
             git fetch origin

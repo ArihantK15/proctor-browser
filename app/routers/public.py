@@ -27,6 +27,7 @@ from ..services.release import (
     _RELEASE_CACHE, _RELEASE_CACHE_EXPIRES, _refresh_release_cache, _resolve_release_asset, _download_redirect,
 )
 from ..jobs import enqueue_job, send_demo_request_notification_job
+from ..services.turnstile import verify_or_403
 
 
 class DemoRequest(BaseModel):
@@ -36,6 +37,7 @@ class DemoRequest(BaseModel):
     institution: str
     role: str
     message: str = ""
+    captcha_token: str = ""
 
 
 class ResolveAccessCodeIn(BaseModel):
@@ -326,9 +328,9 @@ async def lookup_teacher(request: Request, email: str = ""):
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
     result = await _atable("teachers").select("id,full_name").eq("email", email).execute()
+    # H39: Always return 200 to prevent email enumeration
     if not result.data:
-        # Return generic response to prevent email enumeration
-        raise HTTPException(status_code=404, detail="No teacher found with this email")
+        return {"teacher_id": None, "full_name": None}
     teacher = result.data[0]
     return {
         "teacher_id": teacher["id"],
@@ -674,6 +676,7 @@ async def email_webhook(request: Request):
 @limiter.limit("5/hour")
 async def submit_demo_request(req: DemoRequest, request: Request):
     """Store a demo request from the marketing site."""
+    await verify_or_403(request, req.captcha_token)
     if not req.name.strip() or not req.email.strip() or not req.institution.strip():
         raise HTTPException(status_code=400, detail="Name, email, and institution are required")
 

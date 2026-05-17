@@ -131,7 +131,21 @@ async def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
             r.raise_for_status()
         resp_body = r.json()
     content = resp_body["choices"][0]["message"]["content"]
-    return json.loads(content)
+    # Sanitize: strip markdown fences, leading/trailing whitespace
+    content = content.strip()
+    if content.startswith("```"):
+        # Remove ```json ... ``` or ``` ... ``` fences
+        lines = content.split("\n")
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        log.warning("llm returned malformed JSON (len=%d): %s", len(content), content[:300])
+        raise RuntimeError("LLM returned malformed JSON")
 
 
 # ── Question generation ──────────────────────────────────────────────

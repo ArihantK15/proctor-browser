@@ -296,7 +296,10 @@ async def _check_group_restrictions(student: dict, student_tid: str, exam_id: st
 
 async def _check_existing_session(student: dict, student_tid: str, exam_id: str) -> str | None:
     """Return existing session_key if student has a completed or in-progress session, else None."""
-    q = _atable("exam_sessions").select("session_key").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.COMPLETED)
+    # H46: Check all terminal statuses — COMPLETED, FORCE_SUBMITTED, REJECTED, ABANDONED
+    terminal = (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
+                SessionStatus.REJECTED, SessionStatus.ABANDONED)
+    q = _atable("exam_sessions").select("session_key").eq("roll_number", student["roll_number"]).in_("status", terminal)
     if student_tid:
         q.eq("teacher_id", str(student_tid))
     if exam_id:
@@ -804,7 +807,7 @@ async def submit_exam(result: ResultIn, request: Request):
     trusted_roll = jwt_roll.upper()
 
     # Guard: Block re-submission of already-completed sessions
-    existing = await _atable("exam_sessions").select("status")\
+    existing = await _atable("exam_sessions").select("status,started_at")\
         .eq("session_key", result.session_id).execute()
     if existing.data and existing.data[0].get("status") == SessionStatus.COMPLETED:
         raise HTTPException(status_code=409, detail="Exam already submitted")
@@ -824,7 +827,35 @@ async def submit_exam(result: ResultIn, request: Request):
 
     pct = round((server_score / max(server_total, 1)) * 100, 1)
 
-    # Phase 2: Session upsert + submission log + time check in parallel
+    # Phase 2: Flush answers BEFORE marking session COMPLETED (C15 fix)
+    final_cached, final_should_flush = cache_autosave_snapshot(
+        result.session_id,
+        final_answers,
+        teacher_id=tid,
+        exam_id=eid,
+        student_id=sid,
+        final=True,
+    )
+    try:
+        queued = (
+            final_cached
+            and final_should_flush
+            and _rq_enabled()
+            and _enqueue_autosave_flush(result.session_id, delete_after=True)
+        )
+        if not queued:
+            await _save_answers_bulk_to_db(
+                result.session_id,
+                final_answers,
+                teacher_id=tid,
+                exam_id=eid,
+            )
+    except Exception as e:
+        _exam_log.error("[SUBMIT] final answer flush failed for %s: %s", result.session_id, e)
+        raise HTTPException(status_code=500,
+                            detail="Failed to save final answers. Please retry.")
+
+    # Phase 3: Session upsert (COMPLETED) + submission log + time check in parallel
     # Use existing session data (created at exam start) for name/email — never
     # trust client-supplied result.full_name / result.email.
     existing_session = existing.data[0] if existing.data else {}
@@ -857,18 +888,30 @@ async def submit_exam(result: ResultIn, request: Request):
         submit_viol["teacher_id"] = tid
 
     parallel_ops = [
-        _atable("exam_sessions").upsert(session_row).execute(),
+        _atable("exam_sessions").update(session_row)\
+            .eq("session_key", result.session_id)\
+            .neq("status", SessionStatus.COMPLETED)\
+            .execute(),
         _atable("violations").insert(submit_viol).execute(),
     ]
 
-    # Time exceeded check
+    # Time exceeded check — use server-computed elapsed time (H44)
     allowed_secs = config.get("duration_minutes", 60) * 60
-    if result.time_taken_secs > allowed_secs + 120:
+    started_at_str = existing_session.get("started_at")
+    if started_at_str:
+        try:
+            started = datetime.fromisoformat(str(started_at_str).replace("Z", "+00:00"))
+            server_elapsed = (now - started).total_seconds()
+        except (ValueError, TypeError):
+            server_elapsed = result.time_taken_secs
+    else:
+        server_elapsed = result.time_taken_secs
+    if server_elapsed > allowed_secs + 120:
         time_viol = {
             "session_key":    result.session_id,
             "violation_type": "time_exceeded",
             "severity":       "high",
-            "details":        f"Submitted {result.time_taken_secs - allowed_secs}s past time limit",
+            "details":        f"Submitted {int(server_elapsed - allowed_secs)}s past time limit",
         }
         if tid:
             time_viol["teacher_id"] = tid
@@ -876,41 +919,22 @@ async def submit_exam(result: ResultIn, request: Request):
 
     # Execute parallel ops
     results = await asyncio.gather(*parallel_ops, return_exceptions=True)
+    audit_warnings = []
     for i, r in enumerate(results):
         if isinstance(r, Exception):
-            _exam_log.error("[SUBMIT] Phase 2 op %d failed for %s: %s", i, result.session_id, r)
+            _exam_log.error("[SUBMIT] Phase 3 op %d failed for %s: %s", i, result.session_id, r)
             if i == 0:
                 raise HTTPException(status_code=500,
                                     detail="Failed to save exam submission. Please retry.")
+            else:
+                audit_warnings.append(f"Audit log entry {i} failed to record")
+    # TOCTOU check: if the update affected no rows, the session was already COMPLETED
+    update_result = results[0] if not isinstance(results[0], BaseException) else None
+    if update_result is not None and not update_result.data:
+        _exam_log.warning("[SUBMIT] TOCTOU: session %s already completed by another request", result.session_id)
+        raise HTTPException(status_code=409, detail="Exam already submitted")
 
-    final_cached, final_should_flush = cache_autosave_snapshot(
-        result.session_id,
-        final_answers,
-        teacher_id=tid,
-        exam_id=eid,
-        student_id=sid,
-        final=True,
-    )
-    try:
-        queued = (
-            final_cached
-            and final_should_flush
-            and _rq_enabled()
-            and _enqueue_autosave_flush(result.session_id, delete_after=True)
-        )
-        if not queued:
-            await _save_answers_bulk_to_db(
-                result.session_id,
-                final_answers,
-                teacher_id=tid,
-                exam_id=eid,
-            )
-    except Exception as e:
-        _exam_log.error("[SUBMIT] final answer flush failed for %s: %s", result.session_id, e)
-        raise HTTPException(status_code=500,
-                            detail="Failed to save final answers. Please retry.")
-
-    # Phase 3: Risk score (non-fatal — submission already saved)
+    # Phase 4: Risk score (non-fatal — submission already saved)
     risk_score_val = 0
     risk_label = "Unknown"
     try:
@@ -944,9 +968,12 @@ async def submit_exam(result: ResultIn, request: Request):
             trusted_roll, server_score, server_total, pct,
         ))
 
-    return {"status": SessionStatus.SUBMITTED, "score": server_score,
+    resp = {"status": SessionStatus.SUBMITTED, "score": server_score,
             "total": server_total, "percentage": pct,
             "risk_score": risk_score_val, "risk_label": risk_label}
+    if audit_warnings:
+        resp["warnings"] = audit_warnings
+    return resp
 
 
 def _save_frame(student_dir: str, data: FrameIn) -> str:

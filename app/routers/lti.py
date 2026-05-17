@@ -30,6 +30,7 @@ from ..lti.ags import (
     create_line_item,
 )
 from ..lti.nrps import fetch_membership, sync_learner_roster
+from ..limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ async def lti_config():
 
 
 @router.get("/login")
+@limiter.limit("30/minute")
 async def lti_login(
     request: Request,
     iss: str = "",
@@ -125,6 +127,7 @@ async def lti_login(
 
 
 @router.post("/launch")
+@limiter.limit("60/minute")
 async def lti_launch(request: Request):
     """LTI 1.3 launch endpoint.
 
@@ -170,20 +173,18 @@ async def lti_launch(request: Request):
     )
     token = issue_lti_session_token(user, target_link_uri)
 
-    # Redirect based on role
+    # Redirect based on role — use fragment to avoid token in server logs
     if user.get("role") == "teacher":
-        redirect_to = "/dashboard"
-        # Append token as query param or set cookie
-        redirect_to = f"{redirect_to}?token={token}"
+        redirect_to = f"/dashboard#access_token={token}&token_type=Bearer"
     else:
-        redirect_to = "/student"
-        redirect_to = f"{redirect_to}?token={token}"
+        redirect_to = f"/student#access_token={token}&token_type=Bearer"
 
     logger.info("LTI launch successful: role=%s email=%s", user.get("role"), user.get("email"))
     return RedirectResponse(url=redirect_to, status_code=302)
 
 
 @router.post("/deeplink")
+@limiter.limit("60/minute")
 async def lti_deeplink(request: Request):
     """LTI 1.3 Deep Linking endpoint.
 
@@ -264,6 +265,7 @@ async def lti_deeplink(request: Request):
 
 
 @router.get("/ags/lineitems")
+@limiter.limit("30/minute")
 async def lti_ags_lineitems(request: Request):
     """List AGS line items for the current context.
 
@@ -279,6 +281,7 @@ async def lti_ags_lineitems(request: Request):
 
 
 @router.get("/nrps/membership")
+@limiter.limit("30/minute")
 async def lti_nrps_membership(request: Request):
     """Return NRPS membership for the current context.
 
@@ -294,6 +297,7 @@ async def lti_nrps_membership(request: Request):
 
 
 @router.post("/ags/sync-membership")
+@limiter.limit("30/minute")
 async def lti_sync_membership(request: Request):
     """Manually trigger an NRPS membership sync from the LMS.
 
@@ -348,6 +352,7 @@ async def lti_sync_membership(request: Request):
 
 
 @router.post("/ags/push-grades")
+@limiter.limit("30/minute")
 async def lti_push_grades(request: Request):
     """Push exam scores back to the LMS via AGS grade passback.
 

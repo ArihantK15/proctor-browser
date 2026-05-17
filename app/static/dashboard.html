@@ -1502,6 +1502,18 @@
 </div>
 
 <script>
+(function(){
+  // Consume LTI / OAuth access token from URL fragment (never sent to server)
+  if (window.location.hash && window.location.hash.includes('access_token=')) {
+    var params = new URLSearchParams(window.location.hash.substring(1));
+    var tok = params.get('access_token');
+    if (tok) {
+      localStorage.setItem('procta_token', tok);
+      // Scrub the fragment so it doesn't leak into history or future navigations
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }
+})();
 const BASE = location.origin;
 let authToken = localStorage.getItem('procta_token') || '';
 let refreshToken = localStorage.getItem('procta_refresh') || '';

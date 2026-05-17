@@ -47,6 +47,8 @@ async def get_pool() -> asyncpg.Pool:
             min_size=int(os.environ.get("POSTGRES_POOL_MIN", "3")),
             max_size=int(os.environ.get("POSTGRES_POOL_MAX", "10")),
             command_timeout=float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "15")),
+            max_inactive_connection_lifetime=float(os.environ.get("POSTGRES_IDLE_LIFETIME", "60")),
+            connect_timeout=float(os.environ.get("POSTGRES_CONNECT_TIMEOUT", "10")),
         )
     return _pool
 

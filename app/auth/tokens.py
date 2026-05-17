@@ -59,16 +59,14 @@ def _gen_csrf() -> str:
 
 def verify_csrf(claims: dict, header_value: str) -> bool:
     """Check whether ``header_value`` matches the ``csrf`` claim in the JWT.
-    
-    Returns True if the header is absent (for backward compatibility) or
-    if it matches the claim. Returns False only when the header is present
-    and DOES NOT match.
+
+    Returns False when the header is absent or doesn't match.
     """
     if not header_value:
-        return True  # Header absent — backward compat
+        return False
     expected = claims.get("csrf", "")
     if not expected:
-        return True  # Old token without csrf claim — backward compat
+        return False
     return secrets.compare_digest(header_value, expected)
 
 
@@ -144,7 +142,8 @@ def issue_student_auth_token(account: dict) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sid": str(account["id"]), "email": account.get("email", ""),
-        "role": "student_account", "csrf": _gen_csrf(), "iat": now,
+        "role": "student_account", "csrf": _gen_csrf(), "jti": str(uuid.uuid4()),
+        "iat": now,
         "exp": now + timedelta(hours=STUDENT_AUTH_TTL_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")

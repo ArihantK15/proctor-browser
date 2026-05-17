@@ -32,6 +32,12 @@ SECRET_KEY = _required_env("SUPABASE_JWT_SECRET")
 if len(SECRET_KEY) < 32:
     import logging as _logging
     _logging.warning("[boot] SUPABASE_JWT_SECRET is %d chars (recommended >= 32). HMAC keys shorter than 32 bytes for HS256 weaken signing.", len(SECRET_KEY))
+    # H43: Require >= 32 chars in production to ensure HMAC security
+    if os.environ.get("ENV", "").lower() in ("production", "prod", ""):
+        raise ValueError(
+            f"SUPABASE_JWT_SECRET is only {len(SECRET_KEY)} chars. "
+            "For production, use at least 32 characters."
+        )
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "").strip().lower()
 TOKEN_TTL_HOURS = 10
 ADMIN_TOKEN_TTL_HOURS = 12
@@ -81,7 +87,7 @@ PLANS = {
     "pro":        {"name": "Pro",      "students": 500, "price_inr": 30000, "desc": "For large universities & institutions (₹80/student)"},
     "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "desc": "Custom pricing — contact sales"},
 }
-TRIAL_DAYS = 7
+TRIAL_DAYS = 14
 TOTP_ENCRYPTION_KEY = os.environ.get("TOTP_ENCRYPTION_KEY", "")
 TOTP_GRACE_DAYS = 30
 

@@ -263,7 +263,7 @@ async def generate_bank_questions(request: Request, body: GenerateQuestionsIn = 
         raise HTTPException(status_code=502, detail="AI provider error. Try again.")
     except Exception as e:
         _qbank_log.error("[llm] generate failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Generation failed. Try again.")
 
     if not questions:
         raise HTTPException(status_code=502,
@@ -333,7 +333,7 @@ async def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body
                 all_results.extend(chunk_results)
     except Exception as e:
         _qbank_log.error("[llm] lint_questions failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"AI provider error: {e}")
+        raise HTTPException(status_code=502, detail="AI provider error. Try again.")
 
     total_issues = sum(len(r.get("issues", [])) for r in all_results)
     return {"results": all_results, "total_issues": total_issues}
@@ -359,7 +359,7 @@ async def generate_rubric_endpoint(request: Request, body: GenerateRubricIn = Bo
         result = await generate_rubric(body.question, body.reference_answer, body.max_score)
         return result
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI provider error: {e}")
+        raise HTTPException(status_code=502, detail="AI provider error. Try again.")
 
 
 @router.post("/api/v1/admin/question-bank/to-exam")
@@ -468,7 +468,7 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
     except Exception as e:
         _qbank_log.error("[bank-to-exam][ERROR] tid=%s exam=%s qcount=%d err=%s: %s", tid, exam_id, len(question_ids), type(e).__name__, e, exc_info=True)
         raise HTTPException(status_code=502,
-            detail=f"Couldn't copy questions: {type(e).__name__}: {e}")
+            detail="Couldn't copy questions from bank. Try again.")
 
 
 @router.get("/api/v1/admin/questions")
@@ -660,18 +660,13 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
     backup = await q_query.execute()
     backup_rows = backup.data or []
     try:
-        del_q = _atable("questions").delete()
-        if tid:
-            del_q = del_q.eq("teacher_id", tid)
-        if exam_id:
-            del_q = del_q.eq("exam_id", exam_id)
-        await del_q.execute() if tid or exam_id else del_q.neq("question_id", -1).execute()
         extra = {}
         if tid:
             extra["teacher_id"] = tid
         if exam_id:
             extra["exam_id"] = exam_id
         records = [{**r, **extra} for r in normalised]
+        # Insert first, delete after (C16 fix — prevents data loss on crash)
         try:
             await _atable("questions").insert(records).execute()
         except Exception as e:
@@ -688,6 +683,13 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
                 await _atable("questions").insert(legacy).execute()
             else:
                 raise
+        # Delete old questions now that new ones are safely inserted
+        del_q = _atable("questions").delete()
+        if tid:
+            del_q = del_q.eq("teacher_id", tid)
+        if exam_id:
+            del_q = del_q.eq("exam_id", exam_id)
+        await del_q.execute() if tid or exam_id else del_q.neq("question_id", -1).execute()
     except Exception as e:
         _qbank_log.error("[Questions] Insert failed, rolling back: %s", e)
         if backup_rows:
@@ -695,7 +697,7 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
                 await _atable("questions").upsert(backup_rows).execute()
             except Exception as e2:
                 _qbank_log.critical("[Questions] Rollback also failed: %s", e2)
-        raise HTTPException(status_code=500, detail=f"Failed to update questions: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update questions. Try again.")
     if _cache:
         _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
         _cache.delete(f"questions:{tid}:{exam_id or '_'}")

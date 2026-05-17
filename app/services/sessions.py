@@ -382,9 +382,12 @@ def match_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]
     return None
 
 
-def cleanup_screenshots():
+def cleanup_screenshots(stop_event=None):
     while True:
-        time.sleep(3600)
+        if stop_event and stop_event.wait(3600):
+            break
+        else:
+            time.sleep(3600)
         try:
             cutoff = now_ist() - timedelta(hours=48)
             for student_dir in Path(SCREENSHOTS_DIR).iterdir():

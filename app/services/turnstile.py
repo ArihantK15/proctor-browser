@@ -74,11 +74,8 @@ async def verify(token: Optional[str], remote_ip: str = "") -> bool:
         async with httpx.AsyncClient(timeout=_VERIFY_TIMEOUT) as client:
             resp = await client.post(_VERIFY_URL, data=payload)
     except httpx.RequestError as e:
-        # Cloudflare timeout / network blip. Fail-open is the right
-        # call here: rate-limiting + lockout are the real defences.
-        # Turnstile is a force-multiplier, not the only gate.
-        logger.warning("[turnstile] siteverify network error: %s — allowing", e)
-        return True
+        logger.error("[turnstile] siteverify unreachable — denying (fail-closed): %s", e)
+        return False
 
     if resp.status_code != 200:
         logger.warning("[turnstile] siteverify HTTP %s — denying", resp.status_code)

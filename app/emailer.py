@@ -774,8 +774,9 @@ class _ResendBackend(_Backend):
         if reply_to:
             params["reply_to"] = reply_to
         if attachments:
+            import base64 as _b64
             params["attachments"] = [
-                {"filename": a["filename"], "content": list(a["content"])}
+                {"filename": a["filename"], "content": _b64.b64encode(a["content"]).decode("ascii")}
                 for a in attachments
             ]
         try:

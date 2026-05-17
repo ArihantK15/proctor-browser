@@ -138,26 +138,28 @@ async def _verify_and_rotate_refresh_token(
         # tampering. Reject without leaking which check failed.
         raise HTTPException(status_code=401, detail="Refresh token invalid")
 
-    # Mint the replacement before revoking the old — if persist fails
-    # we still hold the old token and can retry. (Idempotency is good
-    # here: client retries don't lock the user out.)
+    # Revoke old token first, then mint replacement (H34).
+    # If the server crashes after revoke but before insert, the client
+    # still has the old token and can retry (the revoke is idempotent
+    # since the second revoke finds already-revoked = no-op).
+    now_iso = now_ist().isoformat()
+    await _atable("refresh_tokens").update({
+        "revoked_at": now_iso,
+    }).eq("jti", jti).execute()
+
     new_token, new_jti, new_exp = issue_refresh_token(user_id, expected_kind)
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "")[:500]
-    now_iso = now_ist().isoformat()
     await _atable("refresh_tokens").insert({
         "jti": new_jti,
         "user_id": str(user_id),
         "kind": expected_kind,
         "issued_at": now_iso,
         "expires_at": new_exp.isoformat(),
+        "replaced_by_jti": new_jti,
         "ip": ip,
         "user_agent": ua,
     }).execute()
-    await _atable("refresh_tokens").update({
-        "revoked_at": now_iso,
-        "replaced_by_jti": new_jti,
-    }).eq("jti", jti).execute()
     return user_id, new_token
 
 
@@ -644,8 +646,10 @@ async def accept_org_invite(body: dict, request: Request):
         raise HTTPException(status_code=400, detail="Invalid token")
     if not full_name:
         raise HTTPException(status_code=400, detail="Full name is required")
-    if len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        validate_password(password)
+    except PasswordError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     result = await _atable("org_invites").select("*").eq("token", token).eq("status", "pending").limit(1).execute()
     if not result.data:
@@ -1203,14 +1207,14 @@ async def resend_verification(body: dict, request: Request):
         if row.data:
             user = row.data[0]
             if user.get("email_verified_at"):
-                return {"status": "already_verified"}
+                return {"status": "sent"}
             from ..emailer import send_email_verification
             from ..invites import _get_invite_base_url
             vtoken = issue_email_verify_token(user["id"], email, kind)
             base = _get_invite_base_url()
             send_email_verification(email, user.get("full_name", ""), f"{base}/verify-email?token={vtoken}")
             return {"status": "sent"}
-    return {"status": "not_found"}
+    return {"status": "sent"}
 
 
 # ─── AUTH AUDIT LOG ──────────────────────────────────────────────
@@ -1390,6 +1394,14 @@ async def logout(request: Request):
         except Exception:
             pass
     await _revoke_refresh_tokens_for_user(tid, "teacher")
+    # Best-effort: invalidate the Supabase session so the user can't
+    # re-authenticate via Supabase even if our local tokens are revoked
+    supabase_uid = teacher.get("supabase_uid", "")
+    try:
+        if supabase_uid:
+            supabase.auth.admin.sign_out(supabase_uid)
+    except (AttributeError, Exception):
+        pass
     await record_auth_event("logout", request, "teacher", tid)
     return {"ok": True}
 
@@ -1690,6 +1702,10 @@ async def oauth_callback(request: Request, code: str = "", state: str = "",
 
     # Hand the JWT to the frontend via URL fragment (not query, not
     # referrer). The SPA reads window.location.hash on /auth/callback.
+    # Add Referrer-Policy header to prevent fragment leak (C20).
     fragment = f"access_token={access_token}&token_type=Bearer"
     sep = "&" if "#" in return_to else "#"
-    return RedirectResponse(url=f"{return_to}{sep}{fragment}", status_code=302)
+    from starlette.responses import RedirectResponse as RR
+    resp = RR(url=f"{return_to}{sep}{fragment}", status_code=302)
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp

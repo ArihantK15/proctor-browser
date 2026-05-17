@@ -16,15 +16,13 @@ BACKUP_CODE_COUNT = 10
 ISSUER_NAME = "Procta"
 
 # Cache Fernet key at module level so enc/dec are consistent within a process
-_FERNET_KEY = (TOTP_ENCRYPTION_KEY.encode()
-               if TOTP_ENCRYPTION_KEY
-               else Fernet.generate_key())
 if not TOTP_ENCRYPTION_KEY:
-    logger.warning(
-        "[totp] TOTP_ENCRYPTION_KEY not set — using ephemeral key. "
-        "TOTP secrets will be lost on server restart. "
-        "Set TOTP_ENCRYPTION_KEY in .env for production."
+    raise RuntimeError(
+        "TOTP_ENCRYPTION_KEY not set. Generate one with `python3 -c "
+        "\"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"` "
+        "and add it to .env"
     )
+_FERNET_KEY = TOTP_ENCRYPTION_KEY.encode()
 
 
 def _get_fernet() -> Fernet:

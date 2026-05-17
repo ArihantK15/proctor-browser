@@ -191,17 +191,19 @@ class TestExamSessionsStudentId:
                     m = MagicMock()
                     m.select.return_value = m
                     m.eq.return_value = m
+                    m.neq.return_value = m
                     m.limit.return_value = m
                     m.order.return_value = m
                     m.execute = AsyncMock()
                     m.execute.return_value = MagicMock()
-                    m.execute.return_value.data = []
+                    m.execute.return_value.data = [{"session_key": sid}]
                     m.insert.return_value = m
-                    def _upsert(row):
-                        _upserted_session.clear()
-                        _upserted_session.update(row)
+                    def _update(row):
+                        if "session_key" in row:
+                            _upserted_session.clear()
+                            _upserted_session.update(row)
                         return m
-                    m.upsert = _upsert
+                    m.update = _update
                     return m
 
                 with patch("app.routers.exam._atable", side_effect=_mock_atable):
@@ -218,4 +220,4 @@ class TestExamSessionsStudentId:
                     }, headers=_headers)
                     assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
                     assert _upserted_session.get("student_id") == "student-1", \
-                        f"Expected student_id='student-1' in upsert, got {_upserted_session.get('student_id')!r}"
+                        f"Expected student_id='student-1' in update, got {_upserted_session.get('student_id')!r}"

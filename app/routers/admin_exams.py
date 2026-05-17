@@ -488,8 +488,16 @@ async def add_group_members(group_id: str, request: Request, body: GroupMembersI
     rolls = body.roll_numbers
     if not rolls:
         raise HTTPException(status_code=400, detail="roll_numbers list is required")
-    rows = [{"group_id": group_id, "roll_number": str(r).strip(), "teacher_id": tid}
-            for r in rolls if str(r).strip()]
+    clean_rolls = [str(r).strip() for r in rolls if str(r).strip()]
+    # Validate every roll_number belongs to this teacher's roster
+    existing = (await _atable("students")
+                .select("roll_number").eq("teacher_id", tid).execute()).data or []
+    valid_rolls = {r["roll_number"] for r in existing}
+    invalid = [r for r in clean_rolls if r not in valid_rolls]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Roll numbers not found in roster: {', '.join(invalid[:5])}")
+    rows = [{"group_id": group_id, "roll_number": r, "teacher_id": tid}
+            for r in clean_rolls]
     if rows:
         await _atable("student_group_members").upsert(rows).execute()
     return {"added": len(rows)}
@@ -523,7 +531,7 @@ async def list_exam_groups(exam_id: str, request: Request):
         return []
     gids = [a["group_id"] for a in assignments]
     groups = (await _atable("student_groups")
-              .select("*").in_("id", gids).execute()).data or []
+              .select("*").in_("id", gids).eq("teacher_id", tid).execute()).data or []
     return groups
 
 

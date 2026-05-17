@@ -727,7 +727,11 @@ class TestNrpsService:
             )
             mock_client.return_value = mock_instance
             with patch("app.lti.nrps._atable") as atable:
-                atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
+                # Chain: select().eq().eq().limit().execute()
+                # Each .eq() returns self on the real AsyncTable
+                _mock_sel = atable.return_value.select.return_value
+                _mock_sel.eq.return_value = _mock_sel  # make .eq() return same mock
+                _mock_sel.limit.return_value.execute = AsyncMock(
                     return_value=MagicMock(data=[])
                 )
                 atable.return_value.insert.return_value.execute = AsyncMock()

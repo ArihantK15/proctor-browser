@@ -130,6 +130,12 @@ async def remove_member(teacher_id: str, request: Request):
 
     # Remove org association, but don't delete the teacher account
     await _atable("teachers").update({"org_id": None, "org_role": "teacher"}).eq("id", teacher_id).execute()
+    # Revoke all active auth sessions and refresh tokens so the removed
+    # member cannot continue using previously issued JWTs
+    await _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
+        .eq("user_id", teacher_id).eq("user_kind", "teacher").is_("revoked_at", "null").execute()
+    await _atable("refresh_tokens").update({"revoked_at": now_ist().isoformat()})\
+        .eq("user_id", teacher_id).eq("kind", "teacher").is_("revoked_at", "null").execute()
     return {"ok": True}
 
 

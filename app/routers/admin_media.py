@@ -73,11 +73,12 @@ async def upload_question_image(request: Request, body: UploadQuestionImageIn = 
 
 @router.get("/api/v1/question-image/{tid}/{filename}")
 @limiter.limit("60/minute")
-async def get_question_image(tid: str, filename: str, request: Request):
+async def get_question_image(tid: str, filename: str, request: Request, exam_id: str = ""):
     import jwt
     from jwt.exceptions import InvalidTokenError as JWTError
     auth = request.headers.get("Authorization", "")
     allowed = False
+    is_student = False
     if auth.startswith("Bearer "):
         tok = auth[7:]
         try:
@@ -94,10 +95,15 @@ async def get_question_image(tid: str, filename: str, request: Request):
                 )
                 if str(payload.get("tid") or "") == str(tid):
                     allowed = True
+                    is_student = True
             except JWTError:
                 pass
     if not allowed:
         raise HTTPException(status_code=401, detail="Authentication required")
+
+    # For student tokens, if an exam_id is provided verify it matches the JWT
+    if is_student and exam_id and exam_id != str(payload.get("eid") or ""):
+        raise HTTPException(status_code=403, detail="Not authorized for this exam")
 
     safe_teacher_id = _safe_path_component(tid)
     safe_file = _safe_path_component(filename)

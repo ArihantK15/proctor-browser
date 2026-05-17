@@ -391,8 +391,10 @@ async def grade_confirm_bulk(body: dict, request: Request):
     session_keys = set()
     confirmed = 0
     skipped = 0
+    answer_updates = []
     tname = teacher.get("full_name") or teacher.get("email") or tid
     bulk_action = "bulk_accept" if action == "accept" else "bulk_reject"
+    graded_at = now_ist().isoformat()
     for a in pending:
         a_id = a.get("id")
         s_key = a.get("session_key")
@@ -401,36 +403,56 @@ async def grade_confirm_bulk(body: dict, request: Request):
         if final_score is None:
             skipped += 1
             continue
-        try:
-            await _atable("answers").update({
-                "teacher_score": final_score,
-                "graded_at": now_ist().isoformat(),
-            }).eq("id", a_id).eq("teacher_id", tid).execute()
-            confirmed += 1
-            if s_key:
-                session_keys.add(s_key)
-            # Record audit
-            qm = qmap.get(str(a.get("question_id")), {})
-            audit_rows.append({
-                "teacher_id": tid, "teacher_name": tname,
-                "exam_id": exam_id, "session_key": s_key,
-                "answer_id": a_id, "question_id": a.get("question_id"),
-                "ai_score": ai_score, "ai_confidence": a.get("ai_confidence"),
-                "teacher_score": final_score,
-                "max_score": float(qm.get("max_score") or 1.0),
-                "action": bulk_action,
-            })
-        except Exception as e:
-            _grading_log.warning("[grade-confirm-bulk] failed for %s: %s", a_id, e)
-            skipped += 1
+        answer_updates.append({
+            "id": a_id,
+            "teacher_score": final_score,
+            "graded_at": graded_at,
+            "teacher_id": tid,
+            "exam_id": exam_id,
+        })
+        confirmed += 1
+        if s_key:
+            session_keys.add(s_key)
+        qm = qmap.get(str(a.get("question_id")), {})
+        audit_rows.append({
+            "teacher_id": tid, "teacher_name": tname,
+            "exam_id": exam_id, "session_key": s_key,
+            "answer_id": a_id, "question_id": a.get("question_id"),
+            "ai_score": ai_score, "ai_confidence": a.get("ai_confidence"),
+            "teacher_score": final_score,
+            "max_score": float(qm.get("max_score") or 1.0),
+            "action": bulk_action,
+        })
 
-    # Insert audit rows
+    # Batch update answers (one call instead of N)
+    if answer_updates:
+        try:
+            await _atable("answers").upsert(
+                answer_updates, on_conflict="id"
+            ).execute()
+        except Exception as e:
+            _grading_log.warning("[grade-confirm-bulk] batch answer update failed: %s", e)
+            # Fall back to individual updates — unlikely to ever be reached
+            for a in answer_updates:
+                try:
+                    await _atable("answers").update({
+                        "teacher_score": a["teacher_score"],
+                        "graded_at": a["graded_at"],
+                    }).eq("id", a["id"]).eq("teacher_id", tid).execute()
+                except Exception as e2:
+                    _grading_log.warning("[grade-confirm-bulk] fallback update failed for %s: %s", a["id"], e2)
+
+    # Batch insert audit rows (one call instead of N)
     if audit_rows:
         try:
-            for r in audit_rows:
-                await _atable("grading_audit").insert(r).execute()
+            await _atable("grading_audit").upsert(audit_rows).execute()
         except Exception as e:
-            _grading_log.warning("[grade-confirm-bulk] audit insert failed: %s", e)
+            _grading_log.warning("[grade-confirm-bulk] audit batch insert failed: %s", e)
+            for r in audit_rows:
+                try:
+                    await _atable("grading_audit").insert(r).execute()
+                except Exception as e2:
+                    _grading_log.warning("[grade-confirm-bulk] audit insert fallback failed: %s", e2)
 
     # Recompute session scores for affected sessions
     recompiled = 0

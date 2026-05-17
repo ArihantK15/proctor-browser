@@ -3,7 +3,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request, HTTPException
 from starlette.responses import RedirectResponse, HTMLResponse
@@ -11,6 +11,7 @@ from starlette.responses import RedirectResponse, HTMLResponse
 from ..auth import require_admin
 from ..database import async_table as _atable
 from ..limiter import limiter
+from ..services.crypto import encrypt_token, decrypt_token
 from ..utils import now_ist
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ async def google_auth(request: Request):
     await _atable("google_oauth_states").insert({
         "state": state,
         "teacher_id": tid,
-        "expires_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
     }).execute()
     return {"auth_url": url}
 
@@ -67,7 +68,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         "teacher_id": teacher_id,
         "email": token_data.get("email", ""),
         "display_name": token_data.get("name", ""),
-        "token_json": json.dumps(token_data),
+        "token_json": encrypt_token(json.dumps(token_data)),
         "updated_at": now_ist().isoformat(),
     }
     if existing.data:
@@ -105,7 +106,7 @@ async def google_courses(request: Request):
         return {"connected": False, "courses": []}
 
     from ..services.google_classroom import _build_credentials, list_courses
-    token_dict = json.loads(token_row.data[0].get("token_json", "{}"))
+    token_dict = json.loads(decrypt_token(token_row.data[0].get("token_json", "{}")) or "{}")
     creds = _build_credentials(token_dict)
     if not creds:
         return {"connected": False, "courses": [], "error": "Session expired. Reconnect Google Classroom."}
@@ -181,7 +182,7 @@ async def google_sync_roster(body: dict, request: Request):
         raise HTTPException(status_code=400, detail="Google Classroom not connected")
 
     from ..services.google_classroom import _build_credentials, list_students
-    token_dict = json.loads(token_row.data[0].get("token_json", "{}"))
+    token_dict = json.loads(decrypt_token(token_row.data[0].get("token_json", "{}")) or "{}")
     creds = _build_credentials(token_dict)
     if not creds:
         raise HTTPException(status_code=400, detail="Session expired")

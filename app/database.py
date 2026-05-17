@@ -206,6 +206,13 @@ class AsyncTable:
         if include_select:
             params["select"] = self._select_cols
         for col, op, val in self._filters:
+            # PostgREST filter injection prevention (C27):
+            # `.in_()` values containing commas can inject additional filter values.
+            # Reject such values to prevent filter manipulation.
+            if op == "in":
+                for v in (val if isinstance(val, (list, tuple)) else [val]):
+                    if isinstance(v, str) and ("," in v or ")" in v or "(" in v):
+                        raise ValueError(f"Filter value for `in` contains reserved characters: {v!r}")
             params[col] = f"{op}.{val}"
         if self._order_col:
             params["order"] = self._order_col

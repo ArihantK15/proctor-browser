@@ -362,6 +362,7 @@ async def request_recalibration(session_id: str, request: Request):
     except Exception as e:
         _admin_log.warning("[recalibration] chat notify failed sid=%s: %s", session_id, e)
 
+    audit_ok = True
     try:
         viol_row = {
             "session_key":    session_id,
@@ -372,7 +373,8 @@ async def request_recalibration(session_id: str, request: Request):
         }
         await _atable("violations").insert(viol_row).execute()
     except Exception as e:
-        _admin_log.warning("[recalibration] audit log failed sid=%s: %s", session_id, e)
+        _admin_log.error("[recalibration] audit log failed sid=%s: %s", session_id, e)
+        audit_ok = False
 
     if _cache:
         try:
@@ -380,7 +382,10 @@ async def request_recalibration(session_id: str, request: Request):
         except Exception:
             pass
 
-    return {"ok": True, "session_id": session_id, "status": "recalibration_requested"}
+    resp = {"ok": True, "session_id": session_id, "status": "recalibration_requested"}
+    if not audit_ok:
+        resp["warnings"] = ["Audit log failed to record"]
+    return resp
 
 
 @router.get("/api/v1/admin/sessions/{session_id:path}/triage")

@@ -114,7 +114,7 @@ def test_submit_merges_autosave_snapshot_before_scoring(client):
          patch("app.routers.exam._atable") as atable_mock:
         atable_mock.return_value.select.return_value.eq.return_value.execute = AsyncMock(
             return_value=MagicMock(data=[]))
-        atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+        atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(return_value=MagicMock(data=[{"session_key": "ALICE001_123"}]))
         atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
         atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
         atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
@@ -148,7 +148,7 @@ def test_submit_runs_final_answer_sync_fallback_when_queue_disabled(client):
          patch("app.routers.exam._atable") as atable_mock:
         atable_mock.return_value.select.return_value.eq.return_value.execute = AsyncMock(
             return_value=MagicMock(data=[]))
-        atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+        atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(return_value=MagicMock(data=[{"session_key": "ALICE001_123"}]))
         atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
         atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
         atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))

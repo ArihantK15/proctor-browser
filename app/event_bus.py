@@ -117,33 +117,43 @@ async def subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dic
 
     Yields a keepalive sentinel ``{"_keepalive": True}`` every *keepalive_sec*
     seconds so the SSE connection doesn't time out behind proxies.
+    Automatically reconnects on Redis disconnect.
     """
-    r = await _get_async()
-    pubsub = r.pubsub()
-    await pubsub.subscribe(channel)
     last_msg_time = time.monotonic()
-    try:
-        while True:
-            msg = await pubsub.get_message(
-                ignore_subscribe_messages=True, timeout=1.0)
-            if msg and msg["type"] == "message":
-                last_msg_time = time.monotonic()
-                try:
-                    yield json.loads(msg["data"])
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            else:
-                # No message this cycle — check if keepalive is due
-                if time.monotonic() - last_msg_time >= keepalive_sec:
-                    last_msg_time = time.monotonic()
-                    yield {"_keepalive": True}
-            # Yield control so other coroutines run
-            await asyncio.sleep(0)
-    except asyncio.CancelledError:
-        pass
-    finally:
+    reconnect_delay = 0.5
+    max_reconnect_delay = 10.0
+    while True:
+        pubsub = None
         try:
-            await pubsub.unsubscribe(channel)
-            await pubsub.close()
-        except Exception:
-            pass  # Best effort cleanup
+            r = await _get_async()
+            pubsub = r.pubsub()
+            await pubsub.subscribe(channel)
+            reconnect_delay = 0.5  # reset on successful connect
+            while True:
+                msg = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=1.0)
+                if msg and msg["type"] == "message":
+                    last_msg_time = time.monotonic()
+                    try:
+                        yield json.loads(msg["data"])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                else:
+                    if time.monotonic() - last_msg_time >= keepalive_sec:
+                        last_msg_time = time.monotonic()
+                        yield {"_keepalive": True}
+                await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("[event_bus] subscribe error for %s, reconnecting in %.1fs: %s",
+                           channel, reconnect_delay, e)
+            await asyncio.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
+        finally:
+            if pubsub:
+                try:
+                    await pubsub.unsubscribe(channel)
+                    await pubsub.close()
+                except Exception:
+                    pass

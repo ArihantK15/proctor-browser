@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 _HTTP_TIMEOUT = 15
 
 
+def _issuer_slug(iss: str) -> str:
+    """Derive a short, safe slug from a platform issuer URL."""
+    if not iss:
+        return "unknown"
+    import re
+    # Extract hostname from URL, fall back to first 12 alphanumeric chars
+    host = re.sub(r"https?://([^/:]+).*", r"\1", iss)
+    return re.sub(r"[^a-zA-Z0-9]", "_", host)[:20]
+
+
 async def fetch_membership(
     context_memberships_url: str,
     access_token: str,
@@ -66,6 +76,7 @@ async def sync_learner_roster(
     context_memberships_url: str,
     access_token: str,
     teacher_id: str,
+    iss: str = "",
 ) -> dict:
     """Fetch learner membership from the LMS and create local student accounts.
 
@@ -76,6 +87,7 @@ async def sync_learner_roster(
         context_memberships_url: The NRPS endpoint URL.
         access_token: OAuth2 bearer token.
         teacher_id: The local teacher ID to associate students with.
+        iss: The LMS issuer URL – used to scope student IDs per platform.
 
     Returns:
         Summary dict with counts of created/existing/failed students.
@@ -89,6 +101,7 @@ async def sync_learner_roster(
     if not members:
         return {"created": 0, "existing": 0, "failed": 0, "total": 0}
 
+    iss_slug = _issuer_slug(iss)
     created = 0
     existing = 0
     failed = 0
@@ -103,12 +116,14 @@ async def sync_learner_roster(
             failed += 1
             continue
 
-        lti_user_id = f"{user_id}"
+        # Scope the LTI user ID to the platform to prevent cross-LMS collisions
+        lti_user_id = f"iss:{iss_slug}|uid:{user_id}"
 
         try:
             result = (await _atable("students")
                 .select("id")
                 .eq("lti_user_id", lti_user_id)
+                .eq("teacher_id", teacher_id)
                 .limit(1)
                 .execute()).data
 
@@ -116,7 +131,7 @@ async def sync_learner_roster(
                 existing += 1
                 continue
 
-            roll = f"NRPS_{user_id[:12].upper()}"
+            roll = f"NRPS_{iss_slug}_{user_id[:8].upper()}"
             student = {
                 "roll_number": roll,
                 "full_name": name or username or f"Student {user_id[:8]}",

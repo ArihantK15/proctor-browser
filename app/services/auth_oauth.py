@@ -182,19 +182,24 @@ async def bind_or_create_teacher(sb_user: dict, ip: str = "") -> dict:
         return existing[0]
 
     # Case 2: same email, no supabase_uid yet (e.g. legacy password
-    # signup that never verified). Link them.
+    # signup that never verified). Only link if the legacy account
+    # already verified their email — otherwise create a fresh account
+    # to prevent pre-registration account takeover (C29).
     by_email = (await _atable("teachers").select("*")
                 .eq("email", email).limit(1).execute()).data
     if by_email:
         teacher = by_email[0]
-        await _atable("teachers").update({
-            "supabase_uid":      uid,
-            "email_verified_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", teacher["id"]).execute()
-        teacher["supabase_uid"] = uid
-        teacher["email_verified_at"] = datetime.now(timezone.utc).isoformat()
-        logger.info("[oauth] linked legacy teacher email=%s", email)
-        return teacher
+        if not teacher.get("email_verified_at"):
+            logger.info("[oauth] legacy teacher %s unverified — creating fresh", email)
+        else:
+            await _atable("teachers").update({
+                "supabase_uid":      uid,
+                "email_verified_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", teacher["id"]).execute()
+            teacher["supabase_uid"] = uid
+            teacher["email_verified_at"] = datetime.now(timezone.utc).isoformat()
+            logger.info("[oauth] linked legacy teacher email=%s", email)
+            return teacher
 
     # Case 3: brand-new signup via OAuth. Create org + sub + teacher.
     # Org name defaults to the part before @ — teacher can rename it
@@ -274,13 +279,20 @@ async def bind_or_create_student(sb_user: dict) -> dict:
                 .eq("email", email).limit(1).execute()).data
     if by_email:
         acct = by_email[0]
-        await _atable("student_accounts").update({
-            "supabase_uid":      uid,
-            "email_verified_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", acct["id"]).execute()
-        acct["supabase_uid"] = uid
-        acct["email_verified_at"] = datetime.now(timezone.utc).isoformat()
-        return acct
+        # C29: Only link legacy accounts that have email_verified_at set
+        # (i.e., the user already proved email ownership). If the legacy
+        # account was never verified, create a fresh account instead —
+        # otherwise anyone who knows the email could claim it via OAuth.
+        if not acct.get("email_verified_at"):
+            logger.info("[oauth] legacy student acct %s unverified — creating fresh", email)
+        else:
+            await _atable("student_accounts").update({
+                "supabase_uid":      uid,
+                "email_verified_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", acct["id"]).execute()
+            acct["supabase_uid"] = uid
+            acct["email_verified_at"] = datetime.now(timezone.utc).isoformat()
+            return acct
 
     # Brand-new student account
     result = await _atable("student_accounts").insert({

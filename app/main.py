@@ -91,7 +91,9 @@ async def lifespan(_app) -> AsyncIterator[None]:
 
     gc.set_threshold(300, 5, 50)
     gc.freeze()
-    threading.Thread(target=_cleanup_screenshots, daemon=True).start()
+    _cleanup_stop = threading.Event()
+    _cleanup_thread = threading.Thread(target=_cleanup_screenshots, args=(_cleanup_stop,), daemon=True)
+    _cleanup_thread.start()
 
     # ── Per-worker singleton tasks (the leader-worker pattern) ──
     # With uvicorn --workers N>1, the lifespan runs in EVERY worker.
@@ -166,16 +168,40 @@ async def lifespan(_app) -> AsyncIterator[None]:
         _reminder_task.cancel()
         log.info("[shutdown] Cancelled reminder task")
 
+    # Await cancelled tasks so they can run finally blocks
+    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _reminder_task]
+    for t in cancelled_tasks:
+        if t is not None:
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    # Belt-and-suspenders: cancel any remaining background tasks
+    # (catches renamed/renamed-coroutine edge cases)
+    for t in asyncio.all_tasks():
+        name = getattr(t, "get_name", lambda: "")()
+        if "reminder" in name.lower() or "reaper" in name.lower() or "cleanup" in name.lower():
+            if not t.done():
+                t.cancel()
+                try:
+                    await t
+                except (asyncio.CancelledError, Exception):
+                    pass
+
     from .auth.admin_auth import _teacher_cache, _student_acct_cache
     _teacher_cache.clear()
     _student_acct_cache.clear()
     log.info("[shutdown] Cleared in-memory caches")
 
     try:
-        from .cache import _r
+        from .cache import _r, _br
         if _r:
             _r.close()
             log.info("[shutdown] Closed Redis connection")
+        if _br:
+            _br.close()
+            log.info("[shutdown] Closed Redis binary connection")
     except Exception:
         log.warning("[shutdown] Failed to close Redis connection")
 
@@ -199,6 +225,13 @@ async def lifespan(_app) -> AsyncIterator[None]:
             log.info("[shutdown] Closed httpx async client")
     except Exception as e:
         log.warning("[shutdown] Failed to close httpx client: %s", e)
+
+    # Signal and join the screenshot cleanup daemon thread
+    if '_cleanup_stop' in dir() and _cleanup_stop is not None:
+        _cleanup_stop.set()
+        if '_cleanup_thread' in dir() and _cleanup_thread is not None:
+            _cleanup_thread.join(timeout=30)
+            log.info("[shutdown] Joined cleanup daemon thread")
 
     log.info("[shutdown] Graceful shutdown complete")
 
@@ -291,8 +324,11 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
-        # Skip WebSocket, static files, and metrics
-        if request.url.path.startswith('/static') or request.url.path == '/api/v1/metrics':
+        # Skip WebSocket upgrades, static files, and metrics
+        if (request.url.path.startswith('/ws') or
+            request.url.path.startswith('/static') or
+            request.url.path == '/api/v1/metrics' or
+            request.scope.get("type") == "websocket"):
             return await call_next(request)
 
         # Body size limit — check declared header first (fast path), then

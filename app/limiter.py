@@ -43,13 +43,17 @@ def _jwt_rate_limit_key(request: Request) -> str | None:
 
 
 import os as _os
-_ENV = _os.environ.get("APP_ENV", "development").lower().strip()
+
+
+def _get_env() -> str:
+    """Read APP_ENV at runtime so config reloads are honoured."""
+    return _os.environ.get("APP_ENV", "development").lower().strip()
 
 
 def _rate_limit_key(request: Request) -> str:
     # Load-test bypass is disabled in production even if the secret is set,
     # so a leaked LOADTEST_SECRET cannot be exploited on live traffic.
-    if _LOADTEST_SECRET and _ENV != "production" and request.headers.get("X-Loadtest-Key") == _LOADTEST_SECRET:
+    if _LOADTEST_SECRET and _get_env() != "production" and request.headers.get("X-Loadtest-Key") == _LOADTEST_SECRET:
         return f"loadtest-{id(request)}"
     jwt_key = _jwt_rate_limit_key(request)
     if jwt_key:

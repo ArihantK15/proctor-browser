@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useId } from 'react'
 import useInView from '../hooks/useInView'
 import { ChevronDown } from 'lucide-react'
 
@@ -39,11 +39,14 @@ const faqs = [
 
 function FAQItem({ item }) {
   const [open, setOpen] = useState(false)
+  const id = useId()
 
   return (
     <div className="border-b border-white/[0.06]">
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={id}
         className="flex w-full items-center justify-between bg-transparent border-none cursor-pointer px-6 py-5 text-left"
       >
         <span className="pr-4 text-sm font-medium text-white">{item.q}</span>
@@ -55,10 +58,9 @@ function FAQItem({ item }) {
       
         {open && (
           <div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            id={id}
+            role="region"
+            aria-labelledby={`${id}-q`}
             className={`overflow-hidden transition-all duration-200 ${open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}
           >
             <p className="px-6 pb-5 text-sm leading-relaxed text-slate-400 border-l-2 border-accent/30 ml-6 pl-4">{item.a}</p>

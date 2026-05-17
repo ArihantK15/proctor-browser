@@ -230,12 +230,26 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
         raise HTTPException(status_code=400, detail="Max 500 students per batch")
 
     rows = []
+    invalid = []
     for s in students:
         roll = str(s.get("roll_number", "")).strip().upper()
         name = str(s.get("full_name", "")).strip()
         email = str(s.get("email", "")).strip().lower()
         phone = str(s.get("phone", "")).strip() or None
-        if not roll or not name or not email:
+        # Validate required fields and format
+        errors = []
+        if not roll:
+            errors.append("missing roll_number")
+        if not name:
+            errors.append("missing full_name")
+        elif len(name) > 200:
+            errors.append("full_name exceeds 200 chars")
+        if not email:
+            errors.append("missing email")
+        elif "@" not in email or "." not in email.split("@")[-1]:
+            errors.append("invalid email format")
+        if errors:
+            invalid.append({"roll_number": roll or "(empty)", "errors": errors})
             continue
         rows.append({
             "roll_number": roll,
@@ -247,7 +261,7 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
         })
 
     if not rows:
-        raise HTTPException(status_code=400, detail="No valid students in payload")
+        raise HTTPException(status_code=400, detail={"message": "No valid students in payload", "invalid": invalid})
 
     await check_org_limits(teacher, delta=len(rows))
 
@@ -263,7 +277,10 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
             else:
                 skipped += 1
 
-    return {"registered": registered, "skipped": skipped, "total": len(rows)}
+    result = {"registered": registered, "skipped": skipped, "total": len(rows)}
+    if invalid:
+        result["invalid"] = invalid
+    return result
 
 
 @router.get("/api/v1/admin/access-code")

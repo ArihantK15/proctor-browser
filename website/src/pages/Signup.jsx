@@ -82,7 +82,7 @@ export default function Signup() {
       const res = await fetch(`${APP_URL}/api/v1/demo-request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(demoForm),
+        body: JSON.stringify({ ...demoForm, captcha_token: turnstile.token }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))

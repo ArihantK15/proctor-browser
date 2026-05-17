@@ -37,9 +37,22 @@ except Exception:
 
 _NONCE_TTL = 3600  # 1 hour
 _STATE_TTL = 600   # 10 minutes
+_MAX_IN_MEMORY = 10000  # C18: cap in-memory entries before cleanup
+
+
+def _cleanup_expired():
+    now = time.time()
+    expired_nonces = [k for k, v in _nonces.items() if v.get("expires", 0) < now]
+    for k in expired_nonces:
+        _nonces.pop(k, None)
+    expired_states = [k for k, v in _states.items() if v.get("expires", 0) < now]
+    for k in expired_states:
+        _states.pop(k, None)
 
 
 def _store_nonce(nonce: str):
+    if len(_nonces) > _MAX_IN_MEMORY:
+        _cleanup_expired()
     expires = time.time() + _NONCE_TTL
     if _cache:
         _cache.set(f"lti_nonce:{nonce}", {"expires": expires}, ttl=_NONCE_TTL)
@@ -60,11 +73,9 @@ def _consume_nonce(nonce: str) -> bool:
         if r is not None:
             key = f"lti_nonce:{nonce}"
             try:
-                # GETDEL is atomic: returns the value and deletes in one step.
                 result = r.getdel(key)
                 return result is not None
             except Exception:
-                # GETDEL requires Redis 6.2+; fall back to Lua SET-and-DELETE
                 try:
                     _lua = r.register_script(
                         "local v=redis.call('GET',KEYS[1]) "
@@ -73,11 +84,6 @@ def _consume_nonce(nonce: str) -> bool:
                     )
                     return bool(_lua(keys=[key]))
                 except Exception:
-                    # Last resort: non-atomic but still clears the key
-                    data = _cache.get(key)
-                    if data:
-                        _cache.delete(key)
-                        return True
                     return False
         return False
     # In-process fallback (single-process / no Redis)
@@ -88,6 +94,8 @@ def _consume_nonce(nonce: str) -> bool:
 
 
 def _store_state(state: str, data: dict):
+    if len(_states) > _MAX_IN_MEMORY:
+        _cleanup_expired()
     expires = time.time() + _STATE_TTL
     payload = {**data, "expires": expires}
     if _cache:

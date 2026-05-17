@@ -5,7 +5,6 @@ without Redis (just slower).
 """
 import json
 import os
-import base64
 import time
 import logging
 
@@ -18,6 +17,9 @@ _LIVEFRAME_MAX = int(os.environ.get("LIVEFRAME_MAX_SESSIONS", "50"))
 
 _r: redis.Redis | None = None
 _r_healthy: bool = False  # tracks whether _r has been successfully pinged
+
+_br: redis.Redis | None = None  # binary client (decode_responses=False) for JPEG frames
+_br_healthy: bool = False
 
 
 def _client() -> redis.Redis | None:
@@ -38,20 +40,54 @@ def _client() -> redis.Redis | None:
     return _r
 
 
+def _binary_client() -> redis.Redis | None:
+    """Redis client without decode_responses for raw binary JPEG storage."""
+    global _br, _br_healthy
+    if _br is not None and _br_healthy:
+        return _br
+    try:
+        _br = redis.Redis.from_url(REDIS_URL, decode_responses=False,
+                                    socket_connect_timeout=2,
+                                    socket_timeout=2)
+        _br.ping()
+        _br_healthy = True
+    except Exception:
+        _log.warning("Redis binary connection failed", exc_info=True)
+        _br = None
+        _br_healthy = False
+    return _br
+
+
 def get(key: str) -> dict | list | None:
     """Return cached value or None on miss / error."""
     global _r_healthy
     try:
+        # liveframe/roomframe keys use raw binary storage (no base64 overhead)
+        if key.startswith("liveframe:") or key.startswith("roomframe:"):
+            br = _binary_client()
+            if br is None:
+                return None
+            raw_bytes = br.get(key)
+            if raw_bytes is None:
+                return None
+            # Timestamp lives in the sorted-set index (text client)
+            session_id = key.split(":", 1)[1]
+            ts = time.time()
+            try:
+                r = _client()
+                if r:
+                    score = r.zscore("liveframe:_index", session_id)
+                    if score is not None:
+                        ts = float(score)
+            except Exception:
+                pass
+            return {"jpeg_bytes": raw_bytes, "at": ts}
         r = _client()
         if r is None:
             return None
         raw = r.get(key)
         if raw is None:
             return None
-        # liveframe/roomframe keys store jpeg bytes as JSON+base64
-        if key.startswith("liveframe:") or key.startswith("roomframe:"):
-            d = json.loads(raw)
-            return {"jpeg_bytes": base64.b64decode(d["j"]), "at": d["t"]}
         return json.loads(raw)
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
@@ -80,25 +116,26 @@ def set(key: str, value, ttl: int = 300) -> None:
 def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
     """Store a live camera frame with enforced LRU cap.
 
-    Pickles the frame dict then base64-encodes it so it survives the
-    redis-py decode_responses=True client. Maintains a sorted set of
-    liveframe keys by timestamp for LRU eviction.
+    JPEG bytes are stored as raw binary (no base64 overhead) via a
+    separate Redis client with decode_responses=False. The timestamp
+    is tracked in a sorted-set index (text client) for LRU eviction.
     """
     global _r_healthy
     if ttl <= 0:
         return
     try:
+        br = _binary_client()
+        if br is None:
+            return
         r = _client()
         if r is None:
             return
 
         key = f"liveframe:{session_id}"
         now = time.time()
-        # JSON + base64 — no pickle deserialization risk, survives decode_responses=True
-        payload = json.dumps({"j": base64.b64encode(jpeg_bytes).decode("ascii"), "t": now})
-        r.setex(key, ttl, payload)
+        br.setex(key, ttl, jpeg_bytes)
 
-        # Track in sorted set for LRU eviction
+        # Track in sorted set for LRU eviction (text client)
         r.zadd("liveframe:_index", {session_id: now})
         r.expire("liveframe:_index", ttl + 5)
 
@@ -109,7 +146,7 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
             oldest = r.zrange("liveframe:_index", 0, to_remove - 1)
             if oldest:
                 oldest_keys = [f"liveframe:{s.decode()}" if isinstance(s, bytes) else f"liveframe:{s}" for s in oldest]
-                r.delete(*oldest_keys)
+                br.delete(*oldest_keys)
                 r.zrem("liveframe:_index", *oldest)
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
@@ -120,20 +157,17 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
 def set_room_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
     """Store a room camera frame (from student's phone) in Redis.
 
-    Same JSON+base64 format as live frames but stored under
-    ``roomframe:{session_id}`` and NOT LRU-capped (room frames
-    are per-session, not aggregated per-teacher).
+    Raw binary storage (no base64 overhead) via binary Redis client.
+    Room frames are per-session, not aggregated per-teacher.
     """
     global _r_healthy
     if ttl <= 0:
         return
     try:
-        r = _client()
-        if r is None:
+        br = _binary_client()
+        if br is None:
             return
-        now = time.time()
-        payload = json.dumps({"j": base64.b64encode(jpeg_bytes).decode("ascii"), "t": now})
-        r.setex(f"roomframe:{session_id}", ttl, payload)
+        br.setex(f"roomframe:{session_id}", ttl, jpeg_bytes)
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:

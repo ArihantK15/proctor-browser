@@ -115,6 +115,7 @@ async def create_subscription(body: dict, request: Request):
 
 
 @router.post("/api/v1/webhooks/razorpay")
+@limiter.limit("60/minute")
 async def razorpay_webhook(request: Request):
     """Handle Razorpay webhook events.
 

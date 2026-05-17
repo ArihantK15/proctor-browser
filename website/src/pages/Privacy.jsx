@@ -90,6 +90,24 @@ export default function Privacy() {
               </a>.
             </p>
           </section>
+
+          <section>
+            <h2 className="mb-3 text-lg font-semibold text-white">8. DPDP Act Compliance (India)</h2>
+            <p className="mb-3">
+              Procta is designed to comply with India's Digital Personal Data Protection Act, 2023. We follow data
+              minimization principles, process exam data only with institutional consent (as the data fiduciary), and
+              provide mechanisms for data access, correction, and deletion.
+            </p>
+            <p className="mb-3">
+              <span className="text-white font-medium">Grievance Officer:</span> As required under Section 9(4) of the
+              DPDP Act, individuals may contact our grievance officer for any concerns regarding their personal data:
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-slate-400">
+              <li>Name: Arihant Kaul</li>
+              <li>Email: <a href="mailto:privacy@procta.net" className="text-accent-light hover:text-white no-underline">privacy@procta.net</a></li>
+              <li>Response time: Within 48 business hours</li>
+            </ul>
+          </section>
         </div>
       </div>
       <Footer />

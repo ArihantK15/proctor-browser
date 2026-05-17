@@ -25,11 +25,11 @@ export const options = {
   thresholds: {
     // If any of these fail the run exits non-zero — useful for CI.
     'http_req_duration': ['p(95)<300'],
-    // Don't count 429s as failures — slowapi rate-limiting is a
-    // sign of a healthy stack, not a broken one. Custom checker
-    // below filters them out before deciding "this was a failure".
-    'http_req_failed':   ['rate<0.05'],   // <5% non-rate-limit errors
-    'checks':            ['rate>0.95'],   // 95%+ assertions pass (some 429s expected)
+    // http_req_failed intentionally omitted: k6 counts 429s as failures by
+    // default, but slowapi rate-limiting at 10 VUs is expected and healthy.
+    // The checks threshold below is the real gate — it verifies that every
+    // response was either 200/304/429 (all "alive") with no 0/502/503.
+    'checks':            ['rate>0.95'],   // 95%+ assertions pass
   },
 }
 

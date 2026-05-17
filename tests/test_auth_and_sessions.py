@@ -19,7 +19,7 @@ import time
 import asyncio
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, AsyncMock, patch, PropertyMock
-from jose import jwt as jose_jwt
+import jwt as jose_jwt
 
 import pytest
 

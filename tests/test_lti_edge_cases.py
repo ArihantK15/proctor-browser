@@ -178,7 +178,7 @@ class TestDeepLinkingEdgeCases:
                 yield
 
     def _build_jwt(self, claims=None):
-        from jose import jwt as jose_jwt
+        import jwt as jose_jwt
         payload = {
             "iss": "https://test.canvas.edu",
             "aud": "test-client-1",

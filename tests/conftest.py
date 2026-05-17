@@ -185,7 +185,7 @@ def event_bus_mock():
 def make_student_token(roll: str = "ALICE001", tid: str = "teacher-1",
                        eid: str = "exam-1", expired: bool = False):
     """Create a valid student JWT for testing."""
-    from jose import jwt as jose_jwt
+    import jwt as jose_jwt
     secret = os.environ["SUPABASE_JWT_SECRET"]
     now = datetime.now(timezone.utc)
     payload = {
@@ -200,7 +200,7 @@ def make_student_token(roll: str = "ALICE001", tid: str = "teacher-1",
 
 def make_admin_token(teacher_id: str = "teacher-1", email: str = "prof@test.com"):
     """Create a valid admin JWT for testing."""
-    from jose import jwt as jose_jwt
+    import jwt as jose_jwt
     secret = os.environ["SUPABASE_JWT_SECRET"]
     now = datetime.now(timezone.utc)
     payload = {

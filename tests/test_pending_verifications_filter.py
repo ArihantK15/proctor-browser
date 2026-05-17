@@ -130,7 +130,7 @@ class TestIdVerificationWriter:
         monkeypatch.setenv("SCREENSHOTS_DIR", str(tmp_path))
 
         # Hand-build a token without 'eid' to simulate legacy single-exam clients.
-        from jose import jwt as jose_jwt
+        import jwt as jose_jwt
         from datetime import datetime, timezone, timedelta
         now = datetime.now(timezone.utc)
         token = jose_jwt.encode(

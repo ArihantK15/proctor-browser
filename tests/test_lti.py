@@ -53,7 +53,7 @@ def _make_test_id_token(
     override_kid: str = None,
 ) -> str:
     """Create an RS256-signed JWT for testing LTI launches."""
-    from jose import jwt as jose_jwt
+    import jwt as jose_jwt
     pem = override_priv_pem or TEST_PRIV_PEM
     headers = {"kid": override_kid or "test-key-1", "typ": "JWT"}
     payload = {
@@ -469,7 +469,7 @@ class TestDeepLinking:
     ) -> str:
         """Build a signed Deep Linking Request JWT for testing."""
         import secrets
-        from jose import jwt as jose_jwt
+        import jwt as jose_jwt
         pem = override_priv_pem or TEST_PRIV_PEM
         headers = {"kid": override_priv_pem and "wrong-key" or "test-key-1", "typ": "JWT"}
         payload = {
@@ -565,8 +565,8 @@ class TestDeepLinking:
         match = re.search(r'value="([^"]+)"', resp.text)
         assert match, "JWT not found in response HTML"
         jwt_token_resp = match.group(1)
-        from jose import jwt as jose_jwt
-        decoded = jose_jwt.get_unverified_claims(jwt_token_resp)
+        import jwt as jose_jwt
+        decoded = jose_jwt.decode(jwt_token_resp, options={"verify_signature": False})
         items = decoded.get(
             "https://purl.imsglobal.org/spec/lti-dl/claim/content_items", []
         )
@@ -592,8 +592,8 @@ class TestAgsService:
         assert isinstance(assertion, str)
         assert len(assertion.split(".")) == 3
         # Decode without verification (signed with app's key, not test key)
-        from jose import jwt as jose_jwt
-        payload = jose_jwt.get_unverified_claims(assertion)
+        import jwt as jose_jwt
+        payload = jose_jwt.decode(assertion, options={"verify_signature": False})
         assert payload["iss"] == "https://test.canvas.edu"
         assert payload["sub"] == "test-client-1"
         assert payload["aud"] == "https://test.canvas.edu/login/oauth2/token"

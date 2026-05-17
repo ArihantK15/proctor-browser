@@ -207,6 +207,8 @@
       <p>Set up your teacher dashboard</p>
       <form onsubmit="event.preventDefault();doSignup()" autocomplete="on">
         <input type="text" id="signup-name" placeholder="Full name" autocomplete="name"
+               onkeydown="if(event.key==='Enter')document.getElementById('signup-org').focus()">
+        <input type="text" id="signup-org" placeholder="Organization / institution name" autocomplete="organization"
                onkeydown="if(event.key==='Enter')document.getElementById('signup-email').focus()">
         <input type="email" id="signup-email" placeholder="Email address" autocomplete="email"
                onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd').focus()">
@@ -1599,10 +1601,11 @@ async function doPasswordReset(){
 
 async function doSignup(){
   const name = document.getElementById('signup-name').value.trim();
+  const org  = document.getElementById('signup-org').value.trim();
   const email = document.getElementById('signup-email').value.trim();
   const pwd = document.getElementById('signup-pwd').value;
   const pwd2 = document.getElementById('signup-pwd2').value;
-  if(!name||!email||!pwd){ document.getElementById('signup-err').textContent='All fields required'; return; }
+  if(!name||!org||!email||!pwd){ document.getElementById('signup-err').textContent='All fields required'; return; }
   if(pwd.length<8){ document.getElementById('signup-err').textContent='Password must be at least 8 characters'; return; }
   if(pwd!==pwd2){ document.getElementById('signup-err').textContent='Passwords do not match'; return; }
   const btn = document.getElementById('signup-btn');
@@ -1610,7 +1613,7 @@ async function doSignup(){
   try{
     const r = await fetch(`${BASE}/api/v1/auth/signup`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email,password:pwd,full_name:name})
+      body:JSON.stringify({email,password:pwd,full_name:name,org_name:org})
     });
     const data = await r.json();
     if(!r.ok) throw new Error(data.detail||'Signup failed');

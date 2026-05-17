@@ -136,7 +136,7 @@ def sign_jwt_payload(payload: dict) -> str:
 
     key_pem, _ = get_key_pair()
     headers = {"kid": _kid, "typ": "JWT"}
-    return _jwt.encode(
+    return _jwt.encode(  # nosemgrep: python.jwt.security.audit.jwt-exposed-data.jwt-python-exposed-data
         payload,
         key_pem,
         algorithm="RS256",

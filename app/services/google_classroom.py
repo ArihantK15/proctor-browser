@@ -93,7 +93,7 @@ def exchange_code(code: str) -> Optional[dict]:
             token_data["name"] = id_info.get("name", "")
         return token_data
     except Exception as e:
-        logger.error("[google_classroom] token exchange failed: %s", e)
+        logger.error("[google_classroom] token exchange failed: %s", e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         return None
 
 
@@ -112,7 +112,7 @@ def _build_credentials(token_dict: dict) -> Optional[Credentials]:
             creds.refresh(Request())
         return creds
     except Exception as e:
-        logger.warning("[google_classroom] credential refresh failed: %s", e)
+        logger.warning("[google_classroom] credential refresh failed: %s", e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         return None
 
 

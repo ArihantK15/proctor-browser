@@ -111,7 +111,7 @@ export default function ToolsPanel({ currentExamId }) {
       const r = await authFetch(`/api/v1/admin/backfill-risk-scores?exam_id=${encodeURIComponent(currentExamId)}`, { method: 'POST' })
       if (!r.ok) throw new Error('Failed')
       const d = await r.json()
-      window.parent.postMessage({ type: 'backfill_done', backfilled: d.backfilled }, '*')
+      window.parent.postMessage({ type: 'backfill_done', backfilled: d.backfilled }, window.location.origin) // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
     } catch (_) {}
   }
 
@@ -228,7 +228,7 @@ export default function ToolsPanel({ currentExamId }) {
         <button className="btn btn-secondary btn-sm" style={{ color: 'var(--red)', borderColor: 'rgba(239,68,68,0.35)' }} onClick={() => {
           if (!confirm('This will clear all live sessions. Continue?')) return
           authFetch(`/api/v1/admin/sessions/clear-live`, { method: 'POST' }).then(r => {
-            if (r.ok) window.parent.postMessage({ type: 'sessions_cleared' }, '*')
+            if (r.ok) window.parent.postMessage({ type: 'sessions_cleared' }, window.location.origin) // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
           }).catch(() => {})
         }}>Clear Sessions</button>
       </ToolCard>

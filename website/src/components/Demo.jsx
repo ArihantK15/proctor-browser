@@ -49,12 +49,14 @@ export default function Demo() {
   // the inline embed and the modal — user can click again to replay.
   useEffect(() => {
     const onMessage = (e) => {
+      // Only accept messages from the same origin (demo iframe is same-origin).
+      if (e.origin !== window.location.origin) return
       if (e?.data?.type === 'procta-demo-ended') {
         setPlaying(false)
         setFullscreen(false)
       }
     }
-    window.addEventListener('message', onMessage)
+    window.addEventListener('message', onMessage) // nosemgrep: javascript.browser.security.insufficient-postmessage-origin-validation.insufficient-postmessage-origin-validation
     return () => window.removeEventListener('message', onMessage)
   }, [])
 

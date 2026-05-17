@@ -121,18 +121,20 @@ async def health():
     checks = {}
     ok = True
 
-    # Database — required
+    # Database — required (skipped when SUPABASE_SKIP_STARTUP_CHECK=1, e.g. CI smoke tests)
     from ..database import database_backend
     db_backend = database_backend()
+    _skip_db = os.environ.get("SUPABASE_SKIP_STARTUP_CHECK", "") == "1"
     try:
         await _atable("exam_config").select("id").limit(1).execute()
         checks["database"] = "ok"
         checks["database_backend"] = db_backend
     except Exception as e:
         _pub_log.warning("[health] database check failed: %s", e)
-        checks["database"] = "error: suppressed"
+        checks["database"] = "stub" if _skip_db else "error: suppressed"
         checks["database_backend"] = db_backend
-        ok = False
+        if not _skip_db:
+            ok = False
 
     # Redis — optional
     try:

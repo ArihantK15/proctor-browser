@@ -26,7 +26,7 @@ def _load_text_set(path: Path, label: str) -> set[str]:
     one entry per line, # comments, blank lines ignored.
     """
     if not path.exists():
-        logger.warning("[passwords] %s not found at %s", label, path)
+        logger.warning("[passwords] %s not found at %s", label, path)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         return set()
     try:
         with open(path) as f:
@@ -36,7 +36,7 @@ def _load_text_set(path: Path, label: str) -> set[str]:
                 if line.strip() and not line.startswith("#")
             }
     except Exception as e:
-        logger.warning("[passwords] failed to load %s: %s", label, e)
+        logger.warning("[passwords] failed to load %s: %s", label, e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         return set()
 
 

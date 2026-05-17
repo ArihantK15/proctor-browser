@@ -82,7 +82,7 @@ async def get_access_token(
             result = resp.json()
             return result.get("access_token")
     except Exception as e:
-        logger.warning("Failed to obtain AGS access token from %s: %s", auth_token_url, e)
+        logger.warning("Failed to obtain AGS access token from %s: %s", auth_token_url, e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         return None
 
 

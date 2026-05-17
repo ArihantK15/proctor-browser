@@ -276,7 +276,7 @@ class PostgresTable:
                 count = None
                 if self._count_mode:
                     count_sql = _SQL()
-                    count = await conn.fetchval(
+                    count = await conn.fetchval(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
                         f"SELECT COUNT(*) FROM {_ident(self._table)}{self._where(count_sql)}",
                         *count_sql.params,
                     )
@@ -330,7 +330,7 @@ class PostgresTable:
                     raise ValueError("update() requires at least one filter")
                 sql = _SQL()
                 sets = ", ".join(f"{_ident(k)} = {sql.add(v)}" for k, v in self._payload.items())
-                rows = await conn.fetch(
+                rows = await conn.fetch(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
                     f"UPDATE {_ident(self._table)} SET {sets}{self._where(sql)} RETURNING *",
                     *sql.params,
                 )
@@ -340,7 +340,7 @@ class PostgresTable:
                 if not self._filters:
                     raise ValueError("delete() requires at least one filter")
                 sql = _SQL()
-                rows = await conn.fetch(
+                rows = await conn.fetch(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
                     f"DELETE FROM {_ident(self._table)}{self._where(sql)} RETURNING *",
                     *sql.params,
                 )

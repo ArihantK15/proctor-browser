@@ -1160,7 +1160,7 @@ async def verify_email(request: Request, token: str = ""):
         return HTMLResponse(EMAIL_VERIFY_HTML % {
             "title": "Link expired or invalid",
             "msg": "This verification link has expired or is invalid. Request a new one from the login page.",
-            "login_url": "/login",
+            "login_url": "/dashboard",
             "btn": "Back to Login",
         }, status_code=400)
 
@@ -1177,7 +1177,7 @@ async def verify_email(request: Request, token: str = ""):
     return HTMLResponse(EMAIL_VERIFY_HTML % {
         "title": "Email verified!",
         "msg": "Your email has been verified. You can now log in to Procta.",
-        "login_url": "/login",
+        "login_url": "/dashboard",
         "btn": "Log In",
     })
 

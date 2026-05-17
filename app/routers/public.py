@@ -225,6 +225,19 @@ async def health():
     )
 
 
+@router.get("/api/v1/public-config")
+async def public_config():
+    """Return public (non-secret) frontend configuration.
+
+    Safe to expose to unauthenticated users — only public keys here.
+    Dashboard uses this to obtain the Turnstile site key without
+    server-side templating.
+    """
+    return {
+        "turnstile_site_key": os.environ.get("TURNSTILE_SITE_KEY", ""),
+    }
+
+
 @router.post("/api/v1/register-student")
 @limiter.limit("120/minute")
 async def register_student(request: Request, body: RegisterIn):

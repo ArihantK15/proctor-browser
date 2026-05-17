@@ -21,6 +21,10 @@
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/dashboard.css">
 <script src="/static/_safe.js"></script>
+<!-- Cloudflare Turnstile — invisible/Managed mode. Renders no UI 99%
+     of the time; challenges only on high bot-signal requests.
+     See https://developers.cloudflare.com/turnstile/ -->
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
   .qx-toolbar-top input[type="text"], .qx-toolbar-top input[type="number"]{
     background:var(--surface-1);border:1px solid var(--border-subtle);
@@ -171,6 +175,8 @@
                onkeydown="if(event.key==='Enter')document.getElementById('login-pwd').focus()">
         <input type="password" id="login-pwd" placeholder="Password" autocomplete="current-password"
                onkeydown="if(event.key==='Enter')doLogin()">
+        <!-- Cloudflare Turnstile widget — invisible in most sessions. -->
+        <div id="cf-turnstile-login" style="margin:4px 0"></div>
         <button type="submit" id="login-btn">Log In</button>
       </form>
       <div class="auth-err" id="auth-err"></div>
@@ -179,7 +185,7 @@
       </p>
       <p style="color:var(--muted);font-size:12px;margin-top:8px">
         Don't have an account?
-        <a href="#" onclick="toggleAuthForm('signup');return false" style="color:var(--accent-light);text-decoration:none;font-weight:600">Create one</a>
+        <a href="https://procta.net/signup" style="color:var(--accent-light);text-decoration:none;font-weight:600">Start free trial</a>
       </p>
     </div>
 
@@ -198,30 +204,6 @@
       </div>
       <p style="color:var(--muted);font-size:12px;margin-top:16px">
         <a href="#" onclick="toggleAuthForm('login');return false" style="color:var(--accent-light);text-decoration:none;font-weight:600">Back to login</a>
-      </p>
-    </div>
-
-    <!-- SIGNUP FORM -->
-    <div id="auth-signup" style="display:none">
-      <h2>Create Account</h2>
-      <p>Set up your teacher dashboard</p>
-      <form onsubmit="event.preventDefault();doSignup()" autocomplete="on">
-        <input type="text" id="signup-name" placeholder="Full name" autocomplete="name"
-               onkeydown="if(event.key==='Enter')document.getElementById('signup-org').focus()">
-        <input type="text" id="signup-org" placeholder="Organization / institution name" autocomplete="organization"
-               onkeydown="if(event.key==='Enter')document.getElementById('signup-email').focus()">
-        <input type="email" id="signup-email" placeholder="Email address" autocomplete="email"
-               onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd').focus()">
-        <input type="password" id="signup-pwd" placeholder="Password (min 8 characters)" autocomplete="new-password"
-               onkeydown="if(event.key==='Enter')document.getElementById('signup-pwd2').focus()">
-        <input type="password" id="signup-pwd2" placeholder="Confirm password" autocomplete="new-password"
-               onkeydown="if(event.key==='Enter')doSignup()">
-        <button type="submit" id="signup-btn">Create Account</button>
-      </form>
-      <div class="auth-err" id="signup-err"></div>
-      <p style="color:var(--muted);font-size:12px;margin-top:16px">
-        Already have an account?
-        <a href="#" onclick="toggleAuthForm('login');return false" style="color:var(--accent-light);text-decoration:none;font-weight:600">Log in</a>
       </p>
     </div>
   </div>
@@ -1537,14 +1519,53 @@ let examsList = [];
 let _refreshGen = 0; // incremented on exam switch to discard stale responses
 
 // ── AUTH ─────────────────────────────────────────────────────────
+
+// Turnstile state — loaded from /api/v1/public-config on init.
+// Token is null when Turnstile is not configured (dev sandbox).
+let _turnstileToken = null;
+let _turnstileSiteKey = '';
+
+async function _loadPublicConfig() {
+  try {
+    const r = await fetch(`${BASE}/api/v1/public-config`);
+    if (r.ok) {
+      const cfg = await r.json();
+      _turnstileSiteKey = cfg.turnstile_site_key || '';
+    }
+  } catch(e) {}
+}
+
+function _initTurnstile() {
+  if (!_turnstileSiteKey) return;  // dev sandbox — skip
+  const el = document.getElementById('cf-turnstile-login');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+  if (window.turnstile) {
+    window.turnstile.render(el, {
+      sitekey: _turnstileSiteKey,
+      theme: 'dark',
+      callback: (token) => { _turnstileToken = token; },
+      'expired-callback': () => { _turnstileToken = null; },
+      'error-callback': () => { _turnstileToken = null; },
+    });
+  }
+}
+
+function _resetTurnstile() {
+  _turnstileToken = null;
+  if (_turnstileSiteKey && window.turnstile) {
+    try { window.turnstile.reset(document.getElementById('cf-turnstile-login')); } catch(e) {}
+  }
+}
+
 function toggleAuthForm(mode){
   document.getElementById('auth-login').style.display = mode==='login' ? '' : 'none';
-  document.getElementById('auth-signup').style.display = mode==='signup' ? '' : 'none';
   document.getElementById('auth-reset').style.display = mode==='reset' ? '' : 'none';
   document.getElementById('auth-err').textContent = '';
-  document.getElementById('signup-err').textContent = '';
   document.getElementById('reset-err').textContent = '';
   document.getElementById('reset-success').style.display = 'none';
+  // Render Turnstile widget when login form becomes visible
+  if (mode === 'login') _initTurnstile();
 }
 
 function _saveTokens(access, refresh){
@@ -1561,12 +1582,17 @@ async function doLogin(){
   const btn = document.getElementById('login-btn');
   btn.disabled = true; btn.textContent = 'Signing in...';
   try{
+    const body = {email, password: pwd};
+    if (_turnstileToken) body.captcha_token = _turnstileToken;
     const r = await fetch(`${BASE}/api/v1/auth/login`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email,password:pwd})
+      body:JSON.stringify(body)
     });
     const data = await r.json();
-    if(!r.ok) throw new Error(data.detail||'Login failed');
+    if(!r.ok){
+      _resetTurnstile();
+      throw new Error(data.detail||'Login failed');
+    }
     _saveTokens(data.access_token, data.refresh_token);
     _onAuthed(data.teacher);
   }catch(e){
@@ -1582,9 +1608,11 @@ async function doPasswordReset(){
   const btn = document.getElementById('reset-btn');
   btn.disabled = true; btn.textContent = 'Sending...';
   try{
+    const body = {email};
+    if (_turnstileToken) body.captcha_token = _turnstileToken;
     const r = await fetch(`${BASE}/api/v1/auth/password-reset`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email})
+      body:JSON.stringify(body)
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({detail:'Failed to send reset link'}));
@@ -1599,45 +1627,7 @@ async function doPasswordReset(){
   }
 }
 
-async function doSignup(){
-  const name = document.getElementById('signup-name').value.trim();
-  const org  = document.getElementById('signup-org').value.trim();
-  const email = document.getElementById('signup-email').value.trim();
-  const pwd = document.getElementById('signup-pwd').value;
-  const pwd2 = document.getElementById('signup-pwd2').value;
-  if(!name||!org||!email||!pwd){ document.getElementById('signup-err').textContent='All fields required'; return; }
-  if(pwd.length<8){ document.getElementById('signup-err').textContent='Password must be at least 8 characters'; return; }
-  if(pwd!==pwd2){ document.getElementById('signup-err').textContent='Passwords do not match'; return; }
-  const btn = document.getElementById('signup-btn');
-  btn.disabled = true; btn.textContent = 'Creating...';
-  try{
-    const r = await fetch(`${BASE}/api/v1/auth/signup`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email,password:pwd,full_name:name,org_name:org})
-    });
-    const data = await r.json();
-    if(!r.ok) throw new Error(data.detail||'Signup failed');
-    // Backend now returns access_token directly — use it if available
-    if(data.access_token){
-      _saveTokens(data.access_token, data.refresh_token || '');
-      _onAuthed(data);
-    } else {
-      // Fallback: auto-login for older backends
-      const lr = await fetch(`${BASE}/api/v1/auth/login`,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({email,password:pwd})
-      });
-      const ld = await lr.json();
-      if(!lr.ok) throw new Error(ld.detail||'Auto-login failed');
-      _saveTokens(ld.access_token, ld.refresh_token);
-      _onAuthed(ld.teacher);
-    }
-  }catch(e){
-    document.getElementById('signup-err').textContent = e.message;
-  }finally{
-    btn.disabled = false; btn.textContent = 'Create Account';
-  }
-}
+// Signup is handled at procta.net/signup — no inline form on the dashboard.
 
 async function _onAuthed(teacher){
   document.getElementById('auth-overlay').classList.add('hidden');
@@ -2013,6 +2003,10 @@ async function authFetch(url, opts={}){
   return r;
 }
 
+// Load public config (e.g. Turnstile site key) before showing auth.
+// Fire-and-forget: if it fails the dashboard still works in sandbox mode.
+_loadPublicConfig().then(() => _initTurnstile());
+
 // Auto-login on page load
 _tryAutoLogin();
 
@@ -2023,6 +2017,7 @@ window.addEventListener('pageshow', (e) => {
     const stored = localStorage.getItem('procta_token') || '';
     if (!stored) {
       document.getElementById('auth-overlay').classList.remove('hidden');
+      toggleAuthForm('login');
     } else {
       _tryAutoLogin();
     }

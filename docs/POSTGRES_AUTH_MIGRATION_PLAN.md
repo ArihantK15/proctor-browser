@@ -15,7 +15,7 @@ KVM-hosted Postgres database and Procta-owned authentication.
 
 ## Phase 1: Local Auth Bridge
 
-Status: started.
+Status: implemented behind `AUTH_PROVIDER=local`.
 
 Code changes:
 
@@ -85,7 +85,19 @@ Required before import:
 Start the whole stack:
 
 ```bash
+export POSTGRES_PASSWORD='<strong unique password>'
 docker compose --profile postgres up -d
+```
+
+Container limits are now KVM-sized by default, but still overrideable from
+`.env`. The "MEM USAGE / LIMIT" value in `docker stats` is the container cap,
+not the host's 16 GB RAM. Relevant knobs:
+
+```bash
+API_MEMORY_LIMIT=4g
+API_CPU_LIMIT=3.0
+POSTGRES_MEMORY_LIMIT=6g
+POSTGRES_CPU_LIMIT=3.0
 ```
 
 Verify the first backup ran:
@@ -112,6 +124,8 @@ docker compose --profile postgres exec -T postgres \
 
 Replace Supabase PostgREST calls with a Postgres-backed query adapter.
 
+Status: implemented behind `DATABASE_BACKEND=postgres`.
+
 Approach:
 
 - Keep `async_table(...)` as the compatibility boundary initially.
@@ -125,6 +139,9 @@ Approach:
   - filters: `eq`, `neq`, `is`, `in`, ranges, ordering, limits
 - Move hot paths to explicit repository functions after the compatibility
   adapter is stable.
+- Startup uses `scripts/run_postgres_migrations.py` when
+  `DATABASE_BACKEND=postgres`; otherwise it keeps the existing Supabase
+  migration runner.
 
 ## Phase 4: Data Export and Import
 
@@ -143,6 +160,38 @@ Into KVM Postgres:
 - Existing users must reset passwords because Supabase password hashes are not
   portable through the public API.
 
+Recommended concrete cutover flow:
+
+```bash
+# 1. On old Supabase, create a custom-format dump from the direct DB URI.
+pg_dump "$SUPABASE_DB_URL" \
+  --format=custom --no-owner --no-privileges \
+  --exclude-schema=auth --exclude-schema=storage --exclude-schema=realtime \
+  --file=/tmp/procta-supabase.dump
+
+# 2. Copy it to the KVM and restore into the private postgres container.
+scp /tmp/procta-supabase.dump root@app.procta.net:/root/proctor-browser/backups/postgres/
+ssh root@app.procta.net
+cd /root/proctor-browser
+docker compose --profile postgres up -d postgres
+docker compose --profile postgres exec -T postgres \
+  pg_restore -U procta -d procta --clean --if-exists \
+  < backups/postgres/procta-supabase.dump
+
+# 3. Apply local migrations directly to KVM Postgres.
+docker compose --profile postgres run --rm \
+  --entrypoint python \
+  -e DATABASE_BACKEND=postgres \
+  -e DATABASE_URL="postgresql://procta:${POSTGRES_PASSWORD}@postgres:5432/procta" \
+  api scripts/run_postgres_migrations.py
+
+# 4. Verify the restored schema shape before changing app env.
+docker compose --profile postgres run --rm \
+  --entrypoint python \
+  -e DATABASE_URL="postgresql://procta:${POSTGRES_PASSWORD}@postgres:5432/procta" \
+  api scripts/verify_postgres_cutover.py
+```
+
 **Migration application order on the fresh KVM Postgres:**
 
 1. Restore schema dump from Supabase (creates all base tables: `teachers`,
@@ -157,6 +206,10 @@ Into KVM Postgres:
 Apply migrations idempotently — every migration in this repo uses
 `IF NOT EXISTS` guards, so running them twice is safe.
 
+`scripts/run_postgres_migrations.py` records files in `schema_migrations` and
+creates a harmless `auth.uid()` compatibility shim so old Supabase RLS policy
+SQL can compile on plain Postgres.
+
 **Required env vars on the KVM API container:**
 
 | Var | Required | Default | Notes |
@@ -164,7 +217,7 @@ Apply migrations idempotently — every migration in this repo uses
 | `DATABASE_URL` | Yes (when `DATABASE_BACKEND=postgres`) | — | `postgresql://procta:PASS@postgres:5432/procta` |
 | `DATABASE_BACKEND` | No | `supabase` | Set to `postgres` to flip storage layer |
 | `AUTH_PROVIDER` | No | `supabase` | Set to `local` to flip auth |
-| `POSTGRES_POOL_MIN` | No | `1` | Bump to 3+ for snappier first requests |
+| `POSTGRES_POOL_MIN` | No | `3` | Warm connections for snappier first requests |
 | `POSTGRES_POOL_MAX` | No | `10` | Set to ~ `2 * uvicorn_workers + headroom` |
 | `POSTGRES_COMMAND_TIMEOUT` | No | `15` | Seconds. Long-running batch jobs may need more |
 | `POSTGRES_PASSWORD` | Yes (on the postgres compose profile) | — | Read by docker-compose for the postgres service |
@@ -174,10 +227,28 @@ Apply migrations idempotently — every migration in this repo uses
 ## Phase 5: Auth Cutover
 
 1. Put dashboard in a planned maintenance window.
-2. Set `AUTH_PROVIDER=local`.
-3. Set `DATABASE_BACKEND=postgres`.
-4. Restart API and workers.
-5. Verify:
+2. Stop writes briefly, or at least block new signups/submits while the final
+   dump is taken.
+3. Restore the final dump into KVM Postgres.
+4. Run `scripts/run_postgres_migrations.py`.
+5. Run `scripts/verify_postgres_cutover.py`.
+6. Set:
+
+```bash
+DATABASE_BACKEND=postgres
+AUTH_PROVIDER=local
+DATABASE_URL=postgresql://procta:<password>@postgres:5432/procta
+POSTGRES_POOL_MIN=3
+POSTGRES_POOL_MAX=20
+```
+
+7. Restart API and workers:
+
+```bash
+docker compose --profile postgres up -d --force-recreate api worker autosave-worker caddy
+```
+
+8. Verify:
    - `/health`
    - teacher login
    - student login
@@ -191,9 +262,12 @@ Apply migrations idempotently — every migration in this repo uses
 
 Rollback:
 
-1. Restore previous `.env`.
+1. Restore previous `.env` with `DATABASE_BACKEND=supabase` and
+   `AUTH_PROVIDER=supabase`.
 2. Restart API and workers.
 3. Point DNS/app back only if needed.
+4. Remember the local-auth rollback gotcha above: any users created after
+   `AUTH_PROVIDER=local` will not exist in Supabase Auth.
 
 ## Phase 6: Proof Test
 
@@ -209,4 +283,3 @@ Public claim only after this passes:
 
 > Procta completed a database-backed load test with 500 authenticated exam
 > sessions on production-equivalent infrastructure.
-

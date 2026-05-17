@@ -26,9 +26,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1200m       # 2 sync workers; ~500-600 MB each under load
-          cpus: "0.7"         # droplet has 1 CPU total; leave headroom for Caddy + Redis
-    memswap_limit: 1200m      # equal to memory = no swap allowed
+          memory: ${API_MEMORY_LIMIT:-4g}
+          cpus: "${API_CPU_LIMIT:-3.0}"
+    memswap_limit: ${API_MEMSWAP_LIMIT:-6g}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -55,9 +55,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384m
-          cpus: "0.5"
-    memswap_limit: 384m
+          memory: ${CADDY_MEMORY_LIMIT:-512m}
+          cpus: "${CADDY_CPU_LIMIT:-1.0}"
+    memswap_limit: ${CADDY_MEMSWAP_LIMIT:-768m}
     depends_on:
       # Wait for the API healthcheck to pass before Caddy starts —
       # otherwise the proxy boots first and serves 502 to anyone
@@ -84,9 +84,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
-          cpus: "0.5"
-    memswap_limit: 512m
+          memory: ${WORKER_MEMORY_LIMIT:-1g}
+          cpus: "${WORKER_CPU_LIMIT:-1.0}"
+    memswap_limit: ${WORKER_MEMSWAP_LIMIT:-1536m}
     logging:
       driver: "json-file"
       options:
@@ -114,9 +114,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256m
-          cpus: "0.25"
-    memswap_limit: 256m
+          memory: ${AUTOSAVE_WORKER_MEMORY_LIMIT:-512m}
+          cpus: "${AUTOSAVE_WORKER_CPU_LIMIT:-0.75}"
+    memswap_limit: ${AUTOSAVE_WORKER_MEMSWAP_LIMIT:-768m}
     logging:
       driver: "json-file"
       options:
@@ -134,9 +134,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 96m
-          cpus: "0.2"
-    memswap_limit: 96m
+          memory: ${REDIS_MEMORY_LIMIT:-256m}
+          cpus: "${REDIS_CPU_LIMIT:-0.5}"
+    memswap_limit: ${REDIS_MEMSWAP_LIMIT:-384m}
     logging:
       driver: "json-file"
       options:
@@ -151,7 +151,7 @@ services:
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-procta}
       - POSTGRES_USER=${POSTGRES_USER:-procta}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required when starting postgres profile}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-procta-local-dev-change-me}
     expose:
       - "5432"
     volumes:
@@ -165,8 +165,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4g
-          cpus: "2.0"
+          memory: ${POSTGRES_MEMORY_LIMIT:-6g}
+          cpus: "${POSTGRES_CPU_LIMIT:-3.0}"
+    memswap_limit: ${POSTGRES_MEMSWAP_LIMIT:-8g}
     logging:
       driver: "json-file"
       options:

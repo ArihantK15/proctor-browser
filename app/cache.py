@@ -6,7 +6,6 @@ without Redis (just slower).
 import json
 import os
 import base64
-import pickle
 import time
 import logging
 
@@ -49,10 +48,10 @@ def get(key: str) -> dict | list | None:
         raw = r.get(key)
         if raw is None:
             return None
-        # liveframe keys use pickle (raw jpeg bytes can't be JSON-encoded)
-        if key.startswith("liveframe:"):
-            # Data is base64-encoded pickle (to survive decode_responses=True)
-            return pickle.loads(base64.b64decode(raw))
+        # liveframe/roomframe keys store jpeg bytes as JSON+base64
+        if key.startswith("liveframe:") or key.startswith("roomframe:"):
+            d = json.loads(raw)
+            return {"jpeg_bytes": base64.b64decode(d["j"]), "at": d["t"]}
         return json.loads(raw)
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
@@ -95,10 +94,8 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
 
         key = f"liveframe:{session_id}"
         now = time.time()
-        # Pickle then base64 — survives decode_responses=True client
-        payload = base64.b64encode(
-            pickle.dumps({"jpeg_bytes": jpeg_bytes, "at": now})
-        ).decode("ascii")
+        # JSON + base64 — no pickle deserialization risk, survives decode_responses=True
+        payload = json.dumps({"j": base64.b64encode(jpeg_bytes).decode("ascii"), "t": now})
         r.setex(key, ttl, payload)
 
         # Track in sorted set for LRU eviction
@@ -123,7 +120,7 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
 def set_room_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
     """Store a room camera frame (from student's phone) in Redis.
 
-    Same pickle+base64 format as live frames but stored under
+    Same JSON+base64 format as live frames but stored under
     ``roomframe:{session_id}`` and NOT LRU-capped (room frames
     are per-session, not aggregated per-teacher).
     """
@@ -135,9 +132,7 @@ def set_room_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
         if r is None:
             return
         now = time.time()
-        payload = base64.b64encode(
-            pickle.dumps({"jpeg_bytes": jpeg_bytes, "at": now})
-        ).decode("ascii")
+        payload = json.dumps({"j": base64.b64encode(jpeg_bytes).decode("ascii"), "t": now})
         r.setex(f"roomframe:{session_id}", ttl, payload)
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False

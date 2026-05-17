@@ -54,7 +54,7 @@ async def upload_question_image(request: Request, body: UploadQuestionImageIn = 
     else:
         raise HTTPException(status_code=400, detail="Unsupported image format (PNG/JPEG/GIF/WebP only)")
 
-    digest = hashlib.sha1(blob).hexdigest()[:24]
+    digest = hashlib.sha1(blob, usedforsecurity=False).hexdigest()[:24]
     filename = f"{digest}.{ext}"
     tdir = Path(QUESTION_IMG_DIR) / tid
     tdir.mkdir(parents=True, exist_ok=True)

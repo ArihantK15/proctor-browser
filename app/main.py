@@ -385,7 +385,7 @@ class ETagMiddleware(BaseHTTPMiddleware):
                 )
 
         body = b"".join(chunks)
-        etag = f'"{hashlib.md5(body).hexdigest()[:12]}"'
+        etag = f'"{hashlib.md5(body, usedforsecurity=False).hexdigest()[:12]}"'
 
         inm = request.headers.get("if-none-match", "")
         if etag in inm:

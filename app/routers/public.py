@@ -157,6 +157,9 @@ async def health():
     try:
         import shutil
         target = os.getenv("SCREENSHOTS_DIR", "/var/lib/proctor/screenshots")
+        # makedirs must come before disk_usage — disk_usage raises FileNotFoundError
+        # on a path that doesn't exist yet (e.g. /tmp/proctor-screenshots in CI).
+        os.makedirs(target, exist_ok=True)
         total, used, free = shutil.disk_usage(target)
         free_mb = free // (1024 * 1024)
         checks["disk_free_mb"] = free_mb
@@ -169,7 +172,6 @@ async def health():
             checks["disk"] = "ok"
 
         # Storage write test — create + delete a temp file
-        os.makedirs(target, exist_ok=True)
         test_path = os.path.join(target, ".health_write_test")
         with open(test_path, "wb") as f:
             f.write(b"ok")

@@ -671,9 +671,8 @@ Now grade it."""
     # SHA256 cache: same inputs → same LLM output, cache for 24h
     try:
         from . import cache as _cache
-        cache_key = f"grade_cache:{hashlib.sha256(
-            (question + '\x00' + reference + '\x00' + rubric + '\x00' + student_answer + '\x00' + str(max_score)).encode()
-        ).hexdigest()}"
+        _cache_input = (question + '\x00' + reference + '\x00' + rubric + '\x00' + student_answer + '\x00' + str(max_score)).encode()
+        cache_key = f"grade_cache:{hashlib.sha256(_cache_input).hexdigest()}"
         cached = _cache.get(cache_key) if _cache else None
         if cached and isinstance(cached, dict) and cached.get("score") is not None:
             return cached

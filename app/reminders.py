@@ -52,7 +52,7 @@ async def _reminder_tick():
     for col, target_min, half_width, hours_until in buckets:
         lo, hi = _reminder_window(target_min, half_width)
         try:
-            exams_resp = await _atable("exam_config").select("exam_id,teacher_id,exam_title,starts_at,access_code,ends_at").gte("starts_at", lo.isoformat()).lte("starts_at", hi.isoformat()).execute()
+            exams_resp = await _atable("exam_config").select("exam_id,teacher_id,exam_title,starts_at,access_code,ends_at").gte("starts_at", lo).lte("starts_at", hi).execute()
         except Exception as e:
             _dep_log.warning("[reminders] exam query failed: %s", e)
             continue

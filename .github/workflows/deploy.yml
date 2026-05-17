@@ -65,6 +65,9 @@ jobs:
             echo "==> restarting api + workers"
             docker compose up -d --no-deps api worker autosave-worker
 
+            echo "==> ensuring caddy is running"
+            docker compose up -d caddy
+
             echo "==> waiting for API healthcheck (max 90s)..."
             for i in $(seq 1 18); do
               STATUS=$(docker inspect --format='{{.State.Health.Status}}' proctor-api 2>/dev/null || echo unknown)

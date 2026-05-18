@@ -68,17 +68,22 @@ create index if not exists idx_isc_day on invite_send_counters(day);
 
 alter table student_invites enable row level security;
 
+drop policy if exists student_invites_teacher_select on student_invites;
 create policy student_invites_teacher_select on student_invites
   for select using (teacher_id::text = public.get_my_teacher_id());
+drop policy if exists student_invites_teacher_insert on student_invites;
 create policy student_invites_teacher_insert on student_invites
   for insert with check (teacher_id::text = public.get_my_teacher_id());
+drop policy if exists student_invites_teacher_update on student_invites;
 create policy student_invites_teacher_update on student_invites
   for update using (teacher_id::text = public.get_my_teacher_id());
+drop policy if exists student_invites_teacher_delete on student_invites;
 create policy student_invites_teacher_delete on student_invites
   for delete using (teacher_id::text = public.get_my_teacher_id());
 -- Anonymous token lookup for the public landing page. Restricted to
 -- rows that haven't been revoked and haven't expired — acceptance flip
 -- still needs the teacher or service_role path.
+drop policy if exists student_invites_anon_token_select on student_invites;
 create policy student_invites_anon_token_select on student_invites
   for select to anon using (
     status <> 'revoked'
@@ -87,9 +92,12 @@ create policy student_invites_anon_token_select on student_invites
 
 alter table invite_send_counters enable row level security;
 
+drop policy if exists invite_send_counters_teacher_select on invite_send_counters;
 create policy invite_send_counters_teacher_select on invite_send_counters
   for select using (teacher_id::text = public.get_my_teacher_id());
+drop policy if exists invite_send_counters_teacher_insert on invite_send_counters;
 create policy invite_send_counters_teacher_insert on invite_send_counters
   for insert with check (teacher_id::text = public.get_my_teacher_id());
+drop policy if exists invite_send_counters_teacher_update on invite_send_counters;
 create policy invite_send_counters_teacher_update on invite_send_counters
   for update using (teacher_id::text = public.get_my_teacher_id());

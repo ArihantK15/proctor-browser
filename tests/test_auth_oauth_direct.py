@@ -52,6 +52,19 @@ def test_hybrid_google_authorize_url_uses_direct_provider(monkeypatch):
     assert parsed.netloc == "accounts.google.com"
 
 
+def test_hybrid_oauth_without_direct_credentials_keeps_supabase_provider(monkeypatch):
+    from app.services import auth_oauth
+
+    monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+
+    url = auth_oauth.build_authorize_url(provider="google", state="state-123")
+    parsed = urlparse(url)
+
+    assert parsed.netloc == "fake.supabase.co"
+
+
 class _FakeResponse:
     def __init__(self, status_code, data):
         self.status_code = status_code

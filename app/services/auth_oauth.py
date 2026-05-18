@@ -134,7 +134,12 @@ def build_authorize_url(*, provider: str, state: str) -> str:
     if provider not in ALLOWED_PROVIDERS:
         raise ValueError(f"unsupported provider: {provider}")
 
-    if os.environ.get("AUTH_PROVIDER", "supabase").strip().lower() in {"local", "hybrid"}:
+    auth_mode = os.environ.get("AUTH_PROVIDER", "supabase").strip().lower()
+    if direct_oauth_enabled(provider):
+        return build_direct_authorize_url(provider=provider, state=state)
+    if auth_mode == "local":
+        # Local-only auth cannot fall back to Supabase. Surface the provider
+        # config error from the direct builder.
         return build_direct_authorize_url(provider=provider, state=state)
 
     if not SUPABASE_URL:

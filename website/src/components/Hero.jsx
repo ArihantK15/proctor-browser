@@ -92,7 +92,7 @@ export default function Hero() {
               <span className="ml-3 label-mono text-slate-500">Procta Dashboard</span>
             </div>
             <div className="p-6 md:p-8">
-              <div className="grid grid-cols-4 gap-4 mb-6">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 {[
                   { label: 'Active Students', value: '47', color: 'text-emerald' },
                   { label: 'Avg Risk Score', value: '12', color: 'text-accent-light' },

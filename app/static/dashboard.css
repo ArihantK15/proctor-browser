@@ -220,6 +220,7 @@ tr:hover td{background:rgba(61,217,168,.04)}
   .toolbar input{width:100%;min-width:0}
   .toolbar{flex-wrap:wrap}
   .modal{padding:16px;width:98vw}
+  .auth-card{width:90vw;max-width:400px;padding:var(--space-6)}
   .chat-wrap{grid-template-columns:1fr;
     height:auto;min-height:0}
   .chat-roster{max-height:220px}
@@ -260,6 +261,7 @@ tr:hover td{background:rgba(61,217,168,.04)}
   table{font-size:11px}
   th,td{padding:6px 6px;white-space:nowrap}
   .modal{padding:12px;width:100vw;max-width:100vw;border-radius:8px}
+  .auth-card{padding:var(--space-5)}
   .tool-card{padding:16px}
   .tool-card p{font-size:12px}
   .q-card{padding:14px}
@@ -272,6 +274,19 @@ tr:hover td{background:rgba(61,217,168,.04)}
   }
 }
 html,body{overflow-x:hidden;max-width:100vw}
+
+/* ── Mobile touch targets ──────────────────────────────────────────── */
+@media(hover:none) and (pointer:coarse){
+  .tab{padding:12px 18px}
+  .topbar .btn{padding:8px 14px;min-height:38px}
+  .toolbar button{min-height:38px}
+  .search-input{min-height:38px;font-size:16px !important}
+  .filter-select{min-height:38px;font-size:16px !important}
+  .exam-bar select{min-height:38px;font-size:16px !important}
+  .modal input,.modal select{min-height:44px;font-size:16px !important}
+  .auth-card input{min-height:44px;font-size:16px !important}
+  .auth-card button{min-height:44px}
+}
 
 /* ── Print ──────────────────────────────────────────────────────── */
 @media print {

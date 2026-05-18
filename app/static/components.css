@@ -924,3 +924,88 @@ input[type="radio"]:focus-visible {
   font-size: var(--text-base);
   color: var(--text-mid);
 }
+
+/* ── Responsive ──────────────────────────────────────────────────────── */
+/* Tablet (≤768px) */
+@media(max-width:768px){
+  body, .page-body{font-size:var(--text-base)}
+  .page-wrap{padding:var(--space-6) var(--space-4)}
+  .page-header{flex-direction:column;gap:var(--space-2)}
+  .page-title{font-size:var(--text-xl)}
+  .section{margin-bottom:var(--space-8)}
+  .section-title{font-size:10px}
+  .card{padding:var(--space-4)}
+  .card-header{flex-direction:column;align-items:flex-start;gap:var(--space-2)}
+  .btn{padding:8px 14px;font-size:var(--text-sm);height:36px}
+  .btn-sm{padding:6px 10px;font-size:11px;height:30px}
+  .btn-block-mobile{width:100%;justify-content:center}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{font-size:var(--text-sm)}
+  th,td{padding:var(--space-1-5) var(--space-2)}
+  .form-wrap{padding:0}
+  .form-card{padding:var(--space-5)}
+  input,select,textarea{font-size:16px !important} /* prevent zoom on iOS */
+  .grid-2{grid-template-columns:1fr}
+  .grid-3{grid-template-columns:1fr}
+  .grid-4{grid-template-columns:1fr 1fr}
+  .flex-row{flex-direction:column;align-items:stretch}
+  .flex-wrap{gap:var(--space-2)}
+  .modal-overlay .modal-card{width:96vw;padding:var(--space-5)}
+  .detail-grid{grid-template-columns:1fr}
+  .auth-card{width:90vw;max-width:400px;padding:var(--space-6)}
+  .stepper{flex-direction:column;gap:var(--space-3)}
+  .stepper .step{width:100%}
+  .stats{grid-template-columns:1fr 1fr}
+  .exam-bar{gap:8px}
+  .exam-bar select{min-width:140px;width:100%}
+  .topbar{flex-wrap:wrap;row-gap:8px}
+  .topbar-actions{gap:8px}
+  .topbar .btn{padding:6px 10px;font-size:11px;height:30px}
+  .tabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;padding:0 12px}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{flex-shrink:0}
+  .topbar-status{display:none}
+  .toolbar input{width:100%}
+  .toolbar{flex-wrap:wrap}
+  .q-opts{grid-template-columns:1fr}
+  .procta-logo{justify-content:center}
+  .footer-links{margin-top:16px}
+  .web-landing-card{padding:var(--space-5)}
+  .sched-banner{padding:var(--space-3)}
+  .container{padding:12px}
+}
+/* Phone (≤480px) */
+@media(max-width:480px){
+  .page-wrap{padding:var(--space-4) var(--space-3)}
+  .page-title{font-size:var(--text-lg)}
+  .card{padding:var(--space-3)}
+  .table-wrap{border-radius:0;border-left:none;border-right:none}
+  th,td{padding:var(--space-1) var(--space-2);white-space:nowrap}
+  table{font-size:var(--text-xs)}
+  .stats{grid-template-columns:1fr}
+  .stat .value{font-size:22px}
+  .modal-overlay .modal-card{width:100vw;max-width:100vw;border-radius:0;padding:var(--space-4)}
+  .modal-card h3{font-size:var(--text-md)}
+  .auth-card{padding:var(--space-5)}
+  .topbar{padding:10px 12px}
+  .topbar .brand-name{font-size:15px}
+  .topbar .brand-icon{width:28px;height:28px}
+  .container{padding:8px}
+  .exam-bar select{min-width:0}
+  .page-header{padding-bottom:var(--space-4)}
+  .section{margin-bottom:var(--space-6)}
+  .grid-4{grid-template-columns:1fr}
+  .web-landing{padding:var(--space-3)}
+  .web-landing-card{border-radius:var(--radius-md);padding:var(--space-4)}
+  .stepper .step{padding:var(--space-3)}
+  .footer-links a{display:block;margin-bottom:8px}
+}
+/* Touch target sizing for mobile */
+@media(hover:none) and (pointer:coarse){
+  .btn,input,select,textarea,.tab,.filter-chip,.chip{touch-action:manipulation}
+  .btn-sm{padding:8px 14px;min-height:36px}
+  td a, td button{padding:6px 10px}
+  .exam-bar select{padding:10px 12px}
+  input,select,textarea{min-height:44px}
+  .tab{padding:12px 18px}
+}

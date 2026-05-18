@@ -39,6 +39,19 @@ def test_local_google_authorize_url_uses_direct_provider(monkeypatch):
     assert "openid email profile" in query["scope"]
 
 
+def test_hybrid_google_authorize_url_uses_direct_provider(monkeypatch):
+    from app.services import auth_oauth
+
+    monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+
+    url = auth_oauth.build_authorize_url(provider="google", state="state-123")
+    parsed = urlparse(url)
+
+    assert parsed.netloc == "accounts.google.com"
+
+
 class _FakeResponse:
     def __init__(self, status_code, data):
         self.status_code = status_code

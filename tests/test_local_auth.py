@@ -12,11 +12,14 @@ import pytest
 from app.constants import SECRET_KEY
 from app.services.local_auth import (
     LOCAL_AUTH_PROVIDER,
+    auth_provider_mode,
     hash_password,
     issue_password_reset_token,
     issue_refresh_token,
     local_auth_enabled,
+    local_password_auth_enabled,
     new_auth_uid,
+    supabase_auth_fallback_enabled,
     verify_password,
     verify_password_reset_token,
     verify_refresh_token,
@@ -32,7 +35,10 @@ def test_local_auth_enabled_defaults_to_false(monkeypatch):
 
 def test_local_auth_enabled_when_explicit(monkeypatch):
     monkeypatch.setenv("AUTH_PROVIDER", "local")
+    assert auth_provider_mode() == LOCAL_AUTH_PROVIDER
     assert local_auth_enabled() is True
+    assert local_password_auth_enabled() is True
+    assert supabase_auth_fallback_enabled() is False
 
 
 def test_local_auth_enabled_case_insensitive(monkeypatch):
@@ -40,6 +46,14 @@ def test_local_auth_enabled_case_insensitive(monkeypatch):
     assert local_auth_enabled() is True
     monkeypatch.setenv("AUTH_PROVIDER", " Local ")  # tolerates whitespace
     assert local_auth_enabled() is True
+
+
+def test_hybrid_auth_enables_local_passwords_and_supabase_fallback(monkeypatch):
+    monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
+
+    assert local_auth_enabled() is False
+    assert local_password_auth_enabled() is True
+    assert supabase_auth_fallback_enabled() is True
 
 
 def test_new_auth_uid_is_valid_uuid():

@@ -74,7 +74,7 @@ _STATE_TTL_SECONDS = 600
 
 def direct_oauth_enabled(provider: str) -> bool:
     """Return true when local auth should use provider OAuth directly."""
-    if os.environ.get("AUTH_PROVIDER", "supabase").strip().lower() != "local":
+    if os.environ.get("AUTH_PROVIDER", "supabase").strip().lower() not in {"local", "hybrid"}:
         return False
     cfg = DIRECT_PROVIDER_CONFIG.get(provider)
     if not cfg:
@@ -134,7 +134,7 @@ def build_authorize_url(*, provider: str, state: str) -> str:
     if provider not in ALLOWED_PROVIDERS:
         raise ValueError(f"unsupported provider: {provider}")
 
-    if os.environ.get("AUTH_PROVIDER", "supabase").strip().lower() == "local":
+    if os.environ.get("AUTH_PROVIDER", "supabase").strip().lower() in {"local", "hybrid"}:
         return build_direct_authorize_url(provider=provider, state=state)
 
     if not SUPABASE_URL:

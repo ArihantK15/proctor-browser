@@ -546,6 +546,66 @@ class TestTeacherSignup:
             assert resp.status_code == 409
 
 
+class TestHybridAuthTransition:
+    """Hybrid mode lets no-hash legacy users fall back to Supabase while
+    protecting users who already set a local password hash."""
+
+    def test_hybrid_teacher_with_local_hash_does_not_fallback_to_supabase(self, client, monkeypatch):
+        monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
+        with patch("app.routers.auth.verify_or_403", new=AsyncMock()), \
+             patch("app.routers.auth.check_lockout", new=AsyncMock(return_value=(False, 0))), \
+             patch("app.routers.auth.record_failure", new=AsyncMock()), \
+             patch("app.routers.auth.record_auth_event", new=AsyncMock()), \
+             patch("app.routers.auth._get_teacher_by_email_for_auth", new=AsyncMock(return_value={
+                 "id": "teacher-1",
+                 "email": "legacy@example.com",
+                 "full_name": "Legacy",
+                 "password_hash": "$2b$hash",
+             })), \
+             patch("app.routers.auth.verify_password", new=AsyncMock(return_value=False)), \
+             patch("app.routers.auth.supabase") as mock_supabase:
+            resp = client.post("/api/v1/auth/login", json={
+                "email": "legacy@example.com",
+                "password": "WrongPassword1!",
+            })
+
+        assert resp.status_code == 401
+        mock_supabase.auth.sign_in_with_password.assert_not_called()
+
+    def test_hybrid_teacher_without_local_hash_falls_back_to_supabase(self, client, monkeypatch):
+        monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
+        auth_resp = MagicMock()
+        auth_resp.user.id = "supabase-uid-1"
+        with patch("app.routers.auth.verify_or_403", new=AsyncMock()), \
+             patch("app.routers.auth.check_lockout", new=AsyncMock(return_value=(False, 0))), \
+             patch("app.routers.auth.clear_failures", new=AsyncMock()), \
+             patch("app.routers.auth.record_auth_event", new=AsyncMock()), \
+             patch("app.routers.auth._get_teacher_by_email_for_auth", new=AsyncMock(return_value={
+                 "id": "teacher-1",
+                 "email": "legacy@example.com",
+                 "full_name": "Legacy",
+                 "password_hash": None,
+             })), \
+             patch("app.routers.auth._get_teacher_by_uid", new=AsyncMock(return_value={
+                 "id": "teacher-1",
+                 "email": "legacy@example.com",
+                 "full_name": "Legacy",
+                 "email_verified_at": "2026-01-01T00:00:00+00:00",
+             })), \
+             patch("app.routers.auth.issue_admin_token", return_value="access-1"), \
+             patch("app.routers.auth._issue_and_persist_refresh_token", new=AsyncMock(return_value="refresh-1")), \
+             patch("app.routers.auth.supabase") as mock_supabase:
+            mock_supabase.auth.sign_in_with_password.return_value = auth_resp
+            resp = client.post("/api/v1/auth/login", json={
+                "email": "legacy@example.com",
+                "password": "SupabasePassword1!",
+            })
+
+        assert resp.status_code == 200
+        assert resp.json()["access_token"] == "access-1"
+        mock_supabase.auth.sign_in_with_password.assert_called_once()
+
+
 # ─── Student Registration ────────────────────────────────────────────
 
 class TestStudentRegistration:

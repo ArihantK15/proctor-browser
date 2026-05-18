@@ -217,7 +217,7 @@ SQL can compile on plain Postgres.
 |---|---|---|---|
 | `DATABASE_URL` | Yes (when `DATABASE_BACKEND=postgres`) | — | `postgresql://procta:PASS@postgres:5432/procta` |
 | `DATABASE_BACKEND` | No | `supabase` | Set to `postgres` to flip storage layer |
-| `AUTH_PROVIDER` | No | `supabase` | Set to `local` to flip auth |
+| `AUTH_PROVIDER` | No | `supabase` | Use `hybrid` during transition; set to `local` only after legacy users have local hashes/OAuth |
 | `POSTGRES_POOL_MIN` | No | `3` | Warm connections for snappier first requests |
 | `POSTGRES_POOL_MAX` | No | `10` | Set to ~ `2 * uvicorn_workers + headroom` |
 | `POSTGRES_COMMAND_TIMEOUT` | No | `15` | Seconds. Long-running batch jobs may need more |

@@ -14,10 +14,30 @@ from jwt.exceptions import InvalidTokenError as JWTError
 from ..constants import SECRET_KEY
 
 LOCAL_AUTH_PROVIDER = "local"
+HYBRID_AUTH_PROVIDER = "hybrid"
+
+
+def auth_provider_mode() -> str:
+    return os.environ.get("AUTH_PROVIDER", "supabase").strip().lower()
 
 
 def local_auth_enabled() -> bool:
-    return os.environ.get("AUTH_PROVIDER", "supabase").strip().lower() == LOCAL_AUTH_PROVIDER
+    return auth_provider_mode() == LOCAL_AUTH_PROVIDER
+
+
+def local_password_auth_enabled() -> bool:
+    """True when Procta should accept/set local password hashes.
+
+    `hybrid` is the cutover bridge: new password resets/signups use local
+    hashes, while legacy users without a hash can still fall back to Supabase
+    auth until they complete a reset.
+    """
+    return auth_provider_mode() in {LOCAL_AUTH_PROVIDER, HYBRID_AUTH_PROVIDER}
+
+
+def supabase_auth_fallback_enabled() -> bool:
+    """True when login may call Supabase Auth for legacy no-hash users."""
+    return auth_provider_mode() in {"supabase", HYBRID_AUTH_PROVIDER}
 
 
 def new_auth_uid() -> str:

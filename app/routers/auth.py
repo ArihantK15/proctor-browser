@@ -24,8 +24,9 @@ from ..services.local_auth import (
     hash_password,
     issue_password_reset_token,
     issue_refresh_token,
-    local_auth_enabled,
+    local_password_auth_enabled,
     new_auth_uid,
+    supabase_auth_fallback_enabled,
     verify_password,
     verify_password_reset_token,
     verify_refresh_token,
@@ -306,7 +307,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     auth_resp = None
     password_hash = None
     auth_provider = "supabase"
-    if local_auth_enabled():
+    if local_password_auth_enabled():
         supabase_uid = new_auth_uid()
         password_hash = await hash_password(body.password)
         auth_provider = "local"
@@ -325,7 +326,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.error("[TeacherSignup] Supabase Auth error: %s", e)
             raise HTTPException(status_code=500, detail="Failed to create account")
 
-    if local_auth_enabled() and is_postgres_backend():
+    if local_password_auth_enabled() and is_postgres_backend():
         try:
             teacher, org_id, _default_exam_id = await _create_teacher_signup_postgres_tx(
                 email=email,
@@ -414,7 +415,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "org_id": str(org_id),
             "org_role": "admin",
         }
-        if local_auth_enabled():
+        if local_password_auth_enabled():
             teacher_row.update({
                 "password_hash": password_hash,
                 "auth_provider": auth_provider,
@@ -516,13 +517,22 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         )
 
     auth_resp = None
-    if local_auth_enabled():
+    teacher = None
+    if local_password_auth_enabled():
         teacher = await _get_teacher_by_email_for_auth(email)
-        if not teacher or not await verify_password(body.password, teacher.get("password_hash")):
+        if teacher and teacher.get("password_hash"):
+            if not await verify_password(body.password, teacher.get("password_hash")):
+                await record_failure("teacher", email)
+                await record_auth_event("login_failed", request, "teacher", "", email)
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+        elif not supabase_auth_fallback_enabled():
             await record_failure("teacher", email)
             await record_auth_event("login_failed", request, "teacher", "", email)
             raise HTTPException(status_code=401, detail="Invalid email or password")
-    else:
+        else:
+            teacher = None
+
+    if teacher is None:
         try:
             auth_resp = supabase.auth.sign_in_with_password({
                 "email": email,
@@ -673,7 +683,7 @@ async def teacher_password_reset(body: PasswordResetIn, request: Request):
     email = body.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
-    if local_auth_enabled():
+    if local_password_auth_enabled():
         user = await _get_teacher_by_email_for_auth(email)
         if user:
             from ..emailer import send_password_reset_email
@@ -838,7 +848,7 @@ async def accept_org_invite(body: dict, request: Request):
     else:
         password_hash = None
         auth_provider = "supabase"
-        if local_auth_enabled():
+        if local_password_auth_enabled():
             supabase_uid = new_auth_uid()
             password_hash = await hash_password(password)
             auth_provider = "local"
@@ -864,7 +874,7 @@ async def accept_org_invite(body: dict, request: Request):
             "org_id": org_id,
             "org_role": "teacher",
         }
-        if local_auth_enabled():
+        if local_password_auth_enabled():
             teacher_row.update({
                 "password_hash": password_hash,
                 "auth_provider": auth_provider,
@@ -934,7 +944,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
     auth_resp = None
     password_hash = None
     auth_provider = "supabase"
-    if local_auth_enabled():
+    if local_password_auth_enabled():
         supabase_uid = new_auth_uid()
         password_hash = await hash_password(body.password)
         auth_provider = "local"
@@ -959,7 +969,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
             "full_name":    name,
             "supabase_uid": str(supabase_uid),
         }
-        if local_auth_enabled():
+        if local_password_auth_enabled():
             account_row.update({
                 "password_hash": password_hash,
                 "auth_provider": auth_provider,
@@ -1002,11 +1012,18 @@ async def student_login(body: StudentLoginIn, request: Request):
     await verify_or_403(request, body.captcha_token)
     email = body.email.strip().lower()
     auth_resp = None
-    if local_auth_enabled():
+    account = None
+    if local_password_auth_enabled():
         account = await _get_student_by_email_for_auth(email)
-        if not account or not await verify_password(body.password, account.get("password_hash")):
+        if account and account.get("password_hash"):
+            if not await verify_password(body.password, account.get("password_hash")):
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+        elif not supabase_auth_fallback_enabled():
             raise HTTPException(status_code=401, detail="Invalid email or password")
-    else:
+        else:
+            account = None
+
+    if account is None:
         try:
             auth_resp = supabase.auth.sign_in_with_password({
                 "email": email,
@@ -1407,11 +1424,18 @@ async def reauth(request: Request):
         raise HTTPException(status_code=400, detail="Password required")
 
     email = teacher.get("email", "")
-    if local_auth_enabled():
+    use_supabase_reauth = not local_password_auth_enabled()
+    if local_password_auth_enabled():
         row = await _get_teacher_by_email_for_auth(email)
-        if not row or not await verify_password(password, row.get("password_hash")):
+        if row and row.get("password_hash"):
+            if not await verify_password(password, row.get("password_hash")):
+                raise HTTPException(status_code=403, detail="Invalid password")
+        elif not supabase_auth_fallback_enabled():
             raise HTTPException(status_code=403, detail="Invalid password")
-    else:
+        else:
+            use_supabase_reauth = True
+
+    if use_supabase_reauth:
         try:
             supabase.auth.sign_in_with_password({"email": email, "password": password})
         except Exception:
@@ -1598,7 +1622,7 @@ async def revoke_other_sessions(request: Request):
     if current_jti:
         q = q.neq("jti", current_jti)
     await q.execute()
-    if local_auth_enabled():
+    if local_password_auth_enabled():
         # No FK from auth_sessions.jti to refresh_tokens.jti, so we
         # can't preserve the "current device's" refresh. Safer to nuke
         # all — see docstring.
@@ -1614,7 +1638,7 @@ async def student_password_reset(body: dict, request: Request):
     email = (body.get("email") or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
-    if local_auth_enabled():
+    if local_password_auth_enabled():
         user = await _get_student_by_email_for_auth(email)
         if user:
             from ..emailer import send_password_reset_email
@@ -1686,7 +1710,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 
 @router.get("/reset-password")
 async def reset_password_page(token: str = ""):
-    if not local_auth_enabled():
+    if not local_password_auth_enabled():
         return HTMLResponse("<h1>Password reset is handled by the auth provider.</h1>", status_code=404)
     if not verify_password_reset_token(token):
         return HTMLResponse("<h1>Reset link expired or invalid</h1>", status_code=400)
@@ -1696,7 +1720,7 @@ async def reset_password_page(token: str = ""):
 @router.post("/api/v1/auth/password-reset/confirm")
 @limiter.limit("5/minute")
 async def confirm_password_reset(body: dict, request: Request):
-    if not local_auth_enabled():
+    if not local_password_auth_enabled():
         raise HTTPException(status_code=404, detail="Password reset is handled by the auth provider")
     token = (body.get("token") or "").strip()
     password = body.get("password") or ""

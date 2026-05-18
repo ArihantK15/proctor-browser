@@ -5,11 +5,10 @@ more than HEARTBEAT_TIMEOUT_SECS seconds in the past AND the session status
 is still ACTIVE or IN_PROGRESS.
 
 On detection the reaper:
-1. Marks the session status = 'ABANDONED'.
-2. POSTs a 'session_abandoned' violation event (visible in the admin dashboard).
-3. Calls the existing submit-answers logic so whatever answers the student
-   saved up to the point of disconnection are scored and stored, rather than
-   being lost.
+1. Marks the exam session status = 'ABANDONED'.
+2. Records a 'session_abandoned' violation event (visible in the admin dashboard).
+3. Scores and persists the latest Redis autosave snapshot when available, so
+   a network drop does not discard already-saved answers.
 
 The loop runs every REAPER_INTERVAL_SECS seconds (default 60).  Only the
 leader worker runs the reaper (enforced by the caller in main.py).
@@ -47,10 +46,10 @@ async def _reap_once() -> None:
     # are excluded by the last_heartbeat IS NOT NULL filter so we don't
     # accidentally reap sessions that predate heartbeat support).
     try:
-        result = await _atable("sessions").select(
-            "id,session_id,roll_number,teacher_id,answers"
+        result = await _atable("exam_sessions").select(
+            "session_key,roll_number,teacher_id,exam_id,student_id,last_heartbeat"
         ).in_(
-            "status", ["ACTIVE", "IN_PROGRESS"]
+            "status", ["active", "in_progress"]
         ).not_.is_(
             "last_heartbeat", "null"
         ).lt(
@@ -67,7 +66,7 @@ async def _reap_once() -> None:
     logger.info("[reaper] found %d stale session(s) to abandon", len(rows))
 
     for row in rows:
-        sid = row.get("session_id") or row.get("id")
+        sid = row.get("session_key")
         try:
             await _mark_abandoned(row, _atable)
         except Exception as e:
@@ -76,47 +75,68 @@ async def _reap_once() -> None:
 
 async def _mark_abandoned(row: dict, _atable) -> None:
     """Mark a single session ABANDONED and attempt to score saved answers."""
-    sid       = row.get("session_id") or row.get("id")
-    row_id    = row.get("id")
+    from ..models import SessionStatus
+
+    sid       = row.get("session_key")
     teacher_id = str(row.get("teacher_id") or "")
+    exam_id    = row.get("exam_id")
+    student_id = row.get("student_id")
     roll      = row.get("roll_number", "unknown")
+    if not sid:
+        return
 
     # 1. Mark ABANDONED
-    await _atable("sessions").update({
-        "status": "ABANDONED",
-    }).eq("id", row_id).execute()
+    await _atable("exam_sessions").update({
+        "status": SessionStatus.ABANDONED,
+    }).eq("session_key", sid).execute()
 
     logger.info("[reaper] session %s (%s) marked ABANDONED", sid, roll)
 
     # 2. Record a violation event so it appears in the admin timeline
     try:
-        await _atable("violation_events").insert({
-            "session_id": sid,
-            "event_type": "session_abandoned",
+        viol = {
+            "session_key": sid,
+            "violation_type": "session_abandoned",
             "severity": "high",
             "details": "Session auto-abandoned: heartbeat timeout exceeded",
-        }).execute()
+        }
+        if teacher_id:
+            viol["teacher_id"] = teacher_id
+        await _atable("violations").insert(viol).execute()
     except Exception as e:
         logger.warning("[reaper] violation insert failed for %s: %s", sid, e)
 
-    # 3. Auto-submit whatever answers were saved so the student isn't penalised
-    #    for a network drop.  Call recalculate_score directly (no HTTP round-trip)
-    #    and persist the result so teachers see a scored session, not a void.
-    answers = row.get("answers")
+    # 3. Auto-submit whatever answers were saved in Redis autosave so the
+    #    student isn't penalised for a network drop.
+    try:
+        from ..services.autosave import load_autosave_snapshot, flush_answers_to_db
+        answers = load_autosave_snapshot(sid) or {}
+    except Exception as e:
+        logger.warning("[reaper] autosave snapshot load failed for %s: %s", sid, e)
+        answers = {}
     if not answers:
         return  # nothing to score
 
     try:
         from ..services.scoring import recalculate_score
+        await flush_answers_to_db(
+            sid,
+            answers,
+            teacher_id=teacher_id or None,
+            exam_id=exam_id,
+            student_id=student_id,
+            delete_after=True,
+        )
         score, total = await recalculate_score(
-            sid, answers, teacher_id=teacher_id
+            sid, answers, teacher_id=teacher_id or None, exam_id=exam_id
         )
         pct = round((score / max(total, 1)) * 100, 1)
         await _atable("exam_sessions").update({
             "score":      score,
             "total":      total,
             "percentage": pct,
-            "status":     "COMPLETED",
+            "status":     SessionStatus.FORCE_SUBMITTED,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
         }).eq("session_key", sid).execute()
         logger.info("[reaper] auto-scored session %s: %d/%d (%.1f%%)", sid, score, total, pct)
     except Exception as e:

@@ -11,6 +11,11 @@ export default function MembersPanel() {
   const [loadError, setLoadError] = useState('')
   const isAdmin = user?.org_role === 'admin' || user?.org_role === 'superadmin'
 
+  const responseError = async (response, fallback) => {
+    const data = await response.json().catch(() => ({}))
+    return new Error(data.detail || `${fallback} (${response.status})`)
+  }
+
   useEffect(() => { loadMembers() }, [])
 
   const loadMembers = async () => {
@@ -18,8 +23,7 @@ export default function MembersPanel() {
     try {
       const r = await authFetch('/api/v1/org/members')
       if (!r.ok) {
-        const d = await r.json().catch(() => ({}))
-        throw new Error(d.detail || `Failed to load members (${r.status})`)
+        throw await responseError(r, 'Failed to load members')
       }
       const d = await r.json()
       setMembers(d.members || [])
@@ -37,7 +41,7 @@ export default function MembersPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: inviteEmail, full_name: inviteName || '' }),
       })
-      if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Failed') }
+      if (!r.ok) throw await responseError(r, 'Failed to send invite')
       setStatus('✅ Invite sent!')
       setInviteEmail('')
       setInviteName('')
@@ -49,19 +53,23 @@ export default function MembersPanel() {
     if (!confirm('Remove this member?')) return
     try {
       const r = await authFetch(`/api/v1/org/members/${memberId}`, { method: 'DELETE' })
-      if (r.ok) loadMembers()
-    } catch (err) { console.error('MembersPanel: remove member failed', err) }
+      if (!r.ok) throw await responseError(r, 'Failed to remove member')
+      setStatus('✅ Member removed.')
+      loadMembers()
+    } catch (err) { setStatus(err.message || 'Failed to remove member') }
   }
 
   const changeRole = async (memberId, newRole) => {
     try {
-      await authFetch(`/api/v1/org/members/${memberId}/role`, {
+      const r = await authFetch(`/api/v1/org/members/${memberId}/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       })
+      if (!r.ok) throw await responseError(r, 'Failed to change role')
+      setStatus('✅ Role updated.')
       loadMembers()
-    } catch (err) { console.error('MembersPanel: change role failed', err) }
+    } catch (err) { setStatus(err.message || 'Failed to change role') }
   }
 
   if (loading) return <div className="loading">Loading members...</div>

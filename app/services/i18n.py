@@ -63,7 +63,7 @@ _STRINGS: dict[str, str] = {
     "timeline_no_events": "No events match the current filter.",
 
     # ── Auth ──────────────────────────────────────────────────────
-    "password_min_length": "Password must be at least 8 characters.",
+    "password_min_length": "Password must be at least 10 characters.",
     "invalid_email_format": "Please provide a valid email address.",
     "name_required": "Full name is required.",
     "email_already_registered": "This email is already registered.",

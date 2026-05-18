@@ -15,6 +15,11 @@ export default function QuestionsPanel({ currentExamId }) {
   const [aiGenerating, setAiGenerating] = useState(false)
   const [mutationError, setMutationError] = useState('')
 
+  const responseError = async (r, fallback) => {
+    const d = await r.json().catch(() => ({}))
+    return new Error(d.detail || d.message || `${fallback} (${r.status})`)
+  }
+
   const loadQuestions = useCallback(async () => {
     if (!currentExamId) { setLoading(false); return }
     setError('')
@@ -32,10 +37,12 @@ export default function QuestionsPanel({ currentExamId }) {
 
   const loadBank = useCallback(async () => {
     setBankLoading(true)
+    setMutationError('')
     try {
       const r = await authFetch(`/api/v1/admin/question-bank?exam_id=${encodeURIComponent(currentExamId)}`)
-      if (r.ok) setBankQuestions((await r.json()).questions || [])
-    } catch (err) { console.error('QuestionsPanel: load bank failed', err) }
+      if (!r.ok) throw await responseError(r, 'Failed to load question bank')
+      setBankQuestions((await r.json()).questions || [])
+    } catch (err) { setMutationError(err.message || 'Failed to load question bank') }
     finally { setBankLoading(false) }
   }, [currentExamId, authFetch])
 
@@ -43,58 +50,69 @@ export default function QuestionsPanel({ currentExamId }) {
 
   const addQuestion = async () => {
     if (!currentExamId) return
+    setMutationError('')
     try {
       const r = await authFetch('/api/v1/admin/questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exam_id: currentExamId, question: 'New question', options: { A: '', B: '', C: '', D: '' }, correct: 'A' }),
       })
-      if (r.ok) { loadQuestions(); setSelectedIdx(0) }
-    } catch (err) { console.error('QuestionsPanel: add question failed', err) }
+      if (!r.ok) throw await responseError(r, 'Failed to add question')
+      loadQuestions(); setSelectedIdx(0)
+    } catch (err) { setMutationError(err.message || 'Failed to add question') }
   }
 
   const saveQuestion = async (q, idx) => {
     if (!currentExamId || !q.id) return
+    setMutationError('')
     try {
-      await authFetch('/api/v1/admin/questions', {
+      const r = await authFetch('/api/v1/admin/questions', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exam_id: currentExamId, question_id: q.id, question: q.question, options: q.options, correct: q.correct }),
       })
-    } catch (err) { console.error('QuestionsPanel: save question failed', err) }
+      if (!r.ok) throw await responseError(r, 'Failed to save question')
+      setMutationError('Saved.')
+    } catch (err) { setMutationError(err.message || 'Failed to save question') }
   }
 
   const deleteQuestion = async (qid) => {
     if (!confirm('Delete this question?')) return
+    setMutationError('')
     try {
-      await authFetch(`/api/v1/admin/questions/${qid}?exam_id=${encodeURIComponent(currentExamId)}`, { method: 'DELETE' })
+      const r = await authFetch(`/api/v1/admin/questions/${qid}?exam_id=${encodeURIComponent(currentExamId)}`, { method: 'DELETE' })
+      if (!r.ok) throw await responseError(r, 'Failed to delete question')
       loadQuestions()
       setSelectedIdx(null)
-    } catch (err) { console.error('QuestionsPanel: delete question failed', err) }
+    } catch (err) { setMutationError(err.message || 'Failed to delete question') }
   }
 
   const bankToExam = async (qid) => {
+    setMutationError('')
     try {
       const r = await authFetch('/api/v1/admin/question-bank/to-exam', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exam_id: currentExamId, question_id: qid }),
       })
-      if (r.ok) loadQuestions()
-    } catch (err) { console.error('QuestionsPanel: bank to exam failed', err) }
+      if (!r.ok) throw await responseError(r, 'Failed to add bank question')
+      loadQuestions()
+    } catch (err) { setMutationError(err.message || 'Failed to add bank question') }
   }
 
   const runAiGenerate = async () => {
     if (!aiPrompt.trim()) return
     setAiGenerating(true)
+    setMutationError('')
     try {
       const r = await authFetch('/api/v1/admin/question-bank/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: aiPrompt, count: 5, exam_id: currentExamId, save_to: 'exam' }),
       })
-      if (r.ok) { loadQuestions(); setAiPrompt(''); setActiveTab('bank') }
-    } catch (err) { console.error('QuestionsPanel: AI generate failed', err) }
+      if (!r.ok) throw await responseError(r, 'AI generation failed')
+      loadQuestions(); setAiPrompt(''); setActiveTab('bank')
+    } catch (err) { setMutationError(err.message || 'AI generation failed') }
     finally { setAiGenerating(false) }
   }
 
@@ -108,6 +126,11 @@ export default function QuestionsPanel({ currentExamId }) {
 
   return (
     <div className="qx-shell" style={{ display: 'flex', gap: 16, height: 'calc(100vh - 200px)' }}>
+      {mutationError && (
+        <div className={mutationError === 'Saved.' ? 'auth-ok' : 'auth-err'} style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 50, maxWidth: 360 }}>
+          {mutationError}
+        </div>
+      )}
       {/* Sidebar - question list */}
       <div className="q-sidebar" style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--surface-1)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-subtle)' }}>
         <div className="qx-toolbar-top" style={{ padding: 12 }}>

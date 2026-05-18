@@ -12,6 +12,7 @@ export default function ChatPanel() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [connected, setConnected] = useState(false)
+  const [statusMsg, setStatusMsg] = useState('')
   const wsRef = useRef(null)
   const chatEndRef = useRef(null)
   const reconnectTimerRef = useRef(null)
@@ -43,6 +44,7 @@ export default function ChatPanel() {
       ws.onopen = () => {
         if (unmountedRef.current) { ws.close(); return }
         setConnected(true)
+        setStatusMsg('')
         reconnectAttemptsRef.current = 0
       }
       ws.onmessage = (ev) => {
@@ -63,11 +65,12 @@ export default function ChatPanel() {
               ts: m.ts,
             })))
           }
-        } catch (err) { console.error('ChatPanel: parse ws message', err) }
+        } catch (_) { setStatusMsg('Chat received an unreadable update. New messages may be delayed.') }
       }
       ws.onclose = () => {
         setConnected(false)
         if (unmountedRef.current) return
+        setStatusMsg('Chat disconnected. Reconnecting...')
         // Exponential backoff reconnect
         const attempts = reconnectAttemptsRef.current
         const delay = Math.min(WS_RECONNECT_BASE_MS * 2 ** attempts, WS_RECONNECT_MAX_MS)
@@ -75,7 +78,7 @@ export default function ChatPanel() {
         reconnectTimerRef.current = setTimeout(connectWS, delay)
       }
       wsRef.current = ws
-    } catch (err) { console.error('ChatPanel: connectWS failed', err) }
+    } catch (_) { setStatusMsg('Chat connection failed. Please refresh or try again.') }
   }, [])
 
   const selectStudent = (sid) => {
@@ -112,6 +115,7 @@ export default function ChatPanel() {
           </div>
           <button className="btn btn-ghost btn-sm" onClick={sendBroadcast} title="Send a message to every online student">Broadcast</button>
         </div>
+        {statusMsg && <div className="auth-err" style={{ margin: 10, fontSize: 12 }}>{statusMsg}</div>}
         <div className="chat-roster-body">
           {students.length === 0 && <div className="chat-empty">No students online yet.</div>}
           {students.map(s => (

@@ -8,10 +8,11 @@ import useTurnstile from '../hooks/useTurnstile'
 import { isPasswordPwned } from '../lib/hibp'
 
 export default function Signup() {
-  const [form, setForm] = useState({ name: '', email: '', password: '', org_name: '' })
+  const [form, setForm] = useState({ name: '', email: '', password: '', passwordConfirm: '', org_name: '' })
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
 
   const [demoForm, setDemoForm] = useState({ name: '', email: '', institution: '', role: '', message: '' })
   const [demoLoading, setDemoLoading] = useState(false)
@@ -24,18 +25,33 @@ export default function Signup() {
 
   const turnstile = useTurnstile()
 
+  const validateSignupFields = () => {
+    const nextErrors = {}
+    const pw = form.password
+    if (!form.name.trim()) nextErrors.name = 'Enter your full name.'
+    if (!form.email.trim()) nextErrors.email = 'Enter your work email.'
+    if (!form.org_name.trim()) nextErrors.org_name = 'Enter your organization name.'
+    if (pw.length < 10) nextErrors.password = 'Password must be at least 10 characters.'
+    else if (!/[A-Z]/.test(pw)) nextErrors.password = 'Add at least one uppercase letter.'
+    else if (!/[a-z]/.test(pw)) nextErrors.password = 'Add at least one lowercase letter.'
+    else if (!/[0-9]/.test(pw)) nextErrors.password = 'Add at least one number.'
+    else if (!/[^A-Za-z0-9]/.test(pw)) nextErrors.password = 'Add at least one special character.'
+    if (!form.passwordConfirm) nextErrors.passwordConfirm = 'Confirm your password.'
+    else if (form.passwordConfirm !== pw) nextErrors.passwordConfirm = 'Passwords do not match.'
+    return nextErrors
+  }
+
   const handleSignup = async (e) => {
     e.preventDefault()
     setError('')
+    setFieldErrors({})
     setLoading(true)
     try {
-      // Client-side complexity check — mirrors app/services/passwords.py rules
-      const pw = form.password
-      if (pw.length < 10) throw new Error("Password must be at least 10 characters.")
-      if (!/[A-Z]/.test(pw)) throw new Error("Password must contain at least one uppercase letter.")
-      if (!/[a-z]/.test(pw)) throw new Error("Password must contain at least one lowercase letter.")
-      if (!/[0-9]/.test(pw)) throw new Error("Password must contain at least one number.")
-      if (!/[^A-Za-z0-9]/.test(pw)) throw new Error("Password must contain at least one special character (e.g. !@#$).")
+      const nextErrors = validateSignupFields()
+      if (Object.keys(nextErrors).length) {
+        setFieldErrors(nextErrors)
+        throw new Error('Please fix the highlighted fields.')
+      }
 
       // Client-side HIBP check — refuse passwords known to be in
       // public breach corpora. Fails open if HIBP is unreachable;
@@ -189,9 +205,12 @@ export default function Signup() {
                 value={form.name}
                 onChange={updateForm('name')}
                 required
+                autoComplete="name"
+                aria-invalid={Boolean(fieldErrors.name)}
                 placeholder="Dr. Jane Doe"
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all focus-glow"
               />
+              {fieldErrors.name && <p className="mt-1 text-xs text-red-400">{fieldErrors.name}</p>}
             </div>
 
             <div>
@@ -201,9 +220,12 @@ export default function Signup() {
                 value={form.email}
                 onChange={updateForm('email')}
                 required
+                autoComplete="email"
+                aria-invalid={Boolean(fieldErrors.email)}
                 placeholder="you@institution.edu"
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all focus-glow"
               />
+              {fieldErrors.email && <p className="mt-1 text-xs text-red-400">{fieldErrors.email}</p>}
             </div>
 
             <div>
@@ -213,9 +235,12 @@ export default function Signup() {
                 value={form.org_name}
                 onChange={updateForm('org_name')}
                 required
+                autoComplete="organization"
+                aria-invalid={Boolean(fieldErrors.org_name)}
                 placeholder="e.g., IIT Delhi"
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all focus-glow"
               />
+              {fieldErrors.org_name && <p className="mt-1 text-xs text-red-400">{fieldErrors.org_name}</p>}
             </div>
 
             <div>
@@ -226,9 +251,28 @@ export default function Signup() {
                 onChange={updateForm('password')}
                 required
                 minLength={10}
+                autoComplete="new-password"
+                aria-invalid={Boolean(fieldErrors.password)}
                 placeholder="At least 10 characters (uppercase, number, symbol)"
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all focus-glow"
               />
+              {fieldErrors.password && <p className="mt-1 text-xs text-red-400">{fieldErrors.password}</p>}
+            </div>
+
+            <div>
+              <label className="mb-1.5 block label-mono text-slate-400">Confirm Password</label>
+              <input
+                type="password"
+                value={form.passwordConfirm}
+                onChange={updateForm('passwordConfirm')}
+                required
+                minLength={10}
+                autoComplete="new-password"
+                aria-invalid={Boolean(fieldErrors.passwordConfirm)}
+                placeholder="Re-enter your password"
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all focus-glow"
+              />
+              {fieldErrors.passwordConfirm && <p className="mt-1 text-xs text-red-400">{fieldErrors.passwordConfirm}</p>}
             </div>
 
             {error && (

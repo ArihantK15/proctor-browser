@@ -649,7 +649,8 @@ async def email_webhook(request: Request):
                 .update({"opened_at": now_iso})\
                 .eq("provider_msg_id", msg_id).is_("opened_at", "null").execute()
         except Exception as e:
-            _pub_log.warning("[webhook] opened update failed msg_id=%s: %s", msg_id, e)
+            _pub_log.error("[webhook] opened update failed msg_id=%s: %s", msg_id, e)
+            raise HTTPException(status_code=500, detail="Webhook processing failed — will retry")
     elif evt == "email.clicked":
         try:
             existing = (await _atable("student_invites")
@@ -665,7 +666,8 @@ async def email_webhook(request: Request):
                 await _atable("student_invites").update({"status": InviteStatus.CLICKED})\
                     .eq("id", row["id"]).in_("status", [InviteStatus.SENT, InviteStatus.OPENED]).execute()
         except Exception as e:
-            _pub_log.warning("[webhook] clicked update failed msg_id=%s: %s", msg_id, e)
+            _pub_log.error("[webhook] clicked update failed msg_id=%s: %s", msg_id, e)
+            raise HTTPException(status_code=500, detail="Webhook processing failed — will retry")
     elif evt == "email.delivered":
         pass
     _pub_log.info("[webhook] %s msg_id=%s", evt, msg_id)

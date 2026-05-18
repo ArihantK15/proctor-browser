@@ -719,7 +719,7 @@ async def _try_ags_grade_passback(
 
         lti_user_id = student[0]["lti_user_id"]
         from ..lti.launch import get_lti_student_context, get_ags_context
-        from ..lti.registration import find_registration
+        from ..lti.registration import find_registration, load_registrations
         from ..lti.ags import get_access_token, post_score
 
         ctx = get_lti_student_context(lti_user_id)
@@ -740,8 +740,18 @@ async def _try_ags_grade_passback(
         client_id = ctx.get("client_id", "")
         registration = find_registration(iss, client_id)
         if not registration:
-            _exam_log.debug("[AGS] No registration for issuer=%s client_id=%s", iss, client_id)
-            return
+            if not client_id:
+                tried_issuer_only = False
+                for r in load_registrations():
+                    if r.issuer == iss:
+                        registration = r
+                        tried_issuer_only = True
+                        break
+                if registration:
+                    _exam_log.warning("[AGS] Empty client_id, matched issuer=%s by fallback (reg=%s)", iss, registration.client_id)
+            if not registration:
+                _exam_log.warning("[AGS] No registration for issuer=%s client_id=%s — skipping grade passback", iss, client_id)
+                return
 
         access_token = await get_access_token(
             issuer=iss,

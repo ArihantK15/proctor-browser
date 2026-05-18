@@ -16,6 +16,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
   const [liveViewSid, setLiveViewSid] = useState(null)
   const [liveViewFrame, setLiveViewFrame] = useState(null)
   const [liveViewStatus, setLiveViewStatus] = useState('Connecting')
+  const [streamStatus, setStreamStatus] = useState('')
   const sseRef = useRef(null)
 
   useEffect(() => {
@@ -31,14 +32,17 @@ export default function LiveSessionsPanel({ currentExamId }) {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!ctr.ok) return
+      if (!ctr.ok) {
+        setStreamStatus(`Live updates unavailable (${ctr.status}). Use Refresh for current data.`)
+        return
+      }
       const { connect_token } = await ctr.json()
       const es = new EventSource(`${API_BASE}/sse/sessions?token=${encodeURIComponent(connect_token)}`)
       es.addEventListener('init', (e) => {
         try {
           const d = JSON.parse(e.data)
           setSessions(d.sessions || [])
-        } catch (err) { console.error('LiveSessionsPanel: parse init event', err) }
+        } catch (_) { setStreamStatus('Live update payload was unreadable. Use Refresh for current data.') }
       })
       es.addEventListener('update', (e) => {
         try {
@@ -46,12 +50,12 @@ export default function LiveSessionsPanel({ currentExamId }) {
           if (d.session_id) {
             setSessions(prev => prev.map(s => s.session_id === d.session_id ? { ...s, ...d } : s))
           }
-        } catch (err) { console.error('LiveSessionsPanel: parse update event', err) }
+        } catch (_) { setStreamStatus('Live update payload was unreadable. Use Refresh for current data.') }
       })
       es.addEventListener('refresh', () => { loadSessions() })
-      es.onerror = () => {}
+      es.onerror = () => { setStreamStatus('Live updates disconnected. Use Refresh while reconnecting.') }
       sseRef.current = es
-    } catch (err) { console.error('LiveSessionsPanel: connectSSE failed', err) }
+    } catch (_) { setStreamStatus('Live updates unavailable. Use Refresh for current data.') }
   }
 
   const [error, setError] = useState('')
@@ -96,7 +100,10 @@ export default function LiveSessionsPanel({ currentExamId }) {
 
   const closeLiveView = () => {
     if (window._liveViewInterval) { clearInterval(window._liveViewInterval); window._liveViewInterval = null }
-    if (liveViewSid) authFetch(`${API_BASE}/admin/sessions/${encodeURIComponent(liveViewSid)}/live-view/stop`, { method: 'POST' }).catch(err => console.error('LiveSessionsPanel: stop live view', err))
+    if (liveViewSid) {
+      authFetch(`${API_BASE}/admin/sessions/${encodeURIComponent(liveViewSid)}/live-view/stop`, { method: 'POST' })
+        .catch(() => setStreamStatus('Live view stopped locally, but the server stop request failed.'))
+    }
     setLiveViewSid(null)
     setLiveViewFrame(null)
   }
@@ -121,6 +128,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
   return (
     <div className="live-layout" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 200px)' }}>
       {error && <div className="auth-err" style={{ marginBottom: 12 }}>{error} <button className="btn-link" onClick={loadSessions} style={{ marginLeft: 8 }}>Retry</button></div>}
+      {streamStatus && <div className="auth-err" style={{ marginBottom: 12 }}>{streamStatus}</div>}
       {/* Stats bar */}
       <div className="stats-bar" style={{ marginBottom: 14 }}>
         {[

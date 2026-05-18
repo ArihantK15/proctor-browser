@@ -2248,6 +2248,28 @@ document.addEventListener('DOMContentLoaded', () => {
   // Trigger maybe-show after a short delay so login flow has time
   // to flip the auth-overlay class.
   setTimeout(_onboardMaybeShow, 800);
+
+  // Restore tab from URL hash (set by switchTab) so refresh doesn't
+  // lose the active tab. Runs after OAuth token scrubbing (the IIFE
+  // above) so the hash is clean.
+  var _hashTab = window.location.hash.match(/^#tab-(.+)$/);
+  if (_hashTab) {
+    var _tabName = _hashTab[1];
+    if (document.querySelector('.tab[data-tab="' + _tabName + '"]')) {
+      switchTab(_tabName);
+    }
+  }
+});
+
+// Handle browser back/forward for tab history
+window.addEventListener('hashchange', function(){
+  var m = window.location.hash.match(/^#tab-(.+)$/);
+  if (m) {
+    var t = m[1];
+    if (document.querySelector('.tab[data-tab="' + t + '"]')) {
+      switchTab(t);
+    }
+  }
 });
 
 // ── TABS ────────────────────────────────────────────────────────
@@ -2284,6 +2306,10 @@ function switchTab(tab){
   if(tab==='members') loadMembers();
   if(tab==='billing') loadBilling();
   if(tab==='all-orgs') loadAllOrgs();
+  // Persist tab in URL hash so refresh doesn't lose state
+  if (window.location.hash !== '#tab-' + tab) {
+    history.replaceState(null, '', '#tab-' + tab);
+  }
 }
 
 // Standard ARIA tablist keyboard pattern: ArrowLeft / ArrowRight cycle

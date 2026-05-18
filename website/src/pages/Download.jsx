@@ -57,7 +57,7 @@ export default function Download() {
           </div>
         )}
         <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 24, lineHeight: 1.6 }}>
-          Version {releases?.tag || '...'} &middot; Free 14-day trial &middot; No credit card required
+          Version {releases?.tag || '...'} &middot; Free 7-day trial &middot; No credit card required
         </p>
       </div>
     </div>

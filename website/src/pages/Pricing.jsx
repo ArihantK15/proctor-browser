@@ -74,7 +74,7 @@ const plans = [
 const faqs = [
   {
     q: 'Is there a free trial?',
-    a: 'Yes — every new account gets a 14-day free trial on the Starter plan with full access to all features. No credit card required.',
+    a: 'Yes — every new account gets a 7-day free trial on the Starter plan with full access to all features. No credit card required.',
   },
   {
     q: 'Can I switch plans mid-month?',
@@ -103,10 +103,10 @@ export default function Pricing() {
     <div className="min-h-screen bg-navy-950">
       <Helmet>
         <title>Pricing — Procta AI Exam Proctoring</title>
-        <meta name="description" content="Simple, transparent pricing for AI-powered exam proctoring. Starter ₹2,400/mo, Growth ₹12,000/mo, Pro ₹30,000/mo. Free 14-day trial, no credit card required." />
+        <meta name="description" content="Simple, transparent pricing for AI-powered exam proctoring. Starter ₹2,400/mo, Growth ₹12,000/mo, Pro ₹30,000/mo. Free 7-day trial, no credit card required." />
         <link rel="canonical" href="https://procta.net/pricing" />
         <meta property="og:title" content="Pricing — Procta AI Exam Proctoring" />
-        <meta property="og:description" content="Affordable AI proctoring for Indian higher education. Plans start at ₹2,400/month. Free 14-day trial." />
+        <meta property="og:description" content="Affordable AI proctoring for Indian higher education. Plans start at ₹2,400/month. Free 7-day trial." />
         <meta property="og:url" content="https://procta.net/pricing" />
       </Helmet>
 
@@ -255,7 +255,7 @@ export default function Pricing() {
             Ready to get started?
           </h2>
           <p className="mt-4 text-lg text-slate-400">
-            Free 14-day trial. No credit card. No commitment.
+            Free 7-day trial. No credit card. No commitment.
           </p>
           <Link
             to="/signup"

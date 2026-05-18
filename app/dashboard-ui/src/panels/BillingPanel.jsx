@@ -14,12 +14,14 @@ export default function BillingPanel() {
   const [usage, setUsage] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [auxError, setAuxError] = useState('')
   const [upgradeStatus, setUpgradeStatus] = useState('')
 
   useEffect(() => { loadAll() }, [])
 
   const loadAll = async () => {
     setError('')
+    setAuxError('')
     try {
       const r = await authFetch('/api/v1/org/billing')
       if (!r.ok) {
@@ -27,8 +29,14 @@ export default function BillingPanel() {
         throw new Error(d.detail || `Failed to load billing (${r.status})`)
       }
       setBilling(await r.json())
-      authFetch('/api/v1/billing/invoices').then(r => r.ok && r.json().then(d => setInvoices(d.invoices || []))).catch(err => console.error('BillingPanel: load invoices failed', err))
-      authFetch('/api/v1/billing/usage').then(r => r.ok && r.json().then(d => setUsage(d))).catch(err => console.error('BillingPanel: load usage failed', err))
+      const [invoiceR, usageR] = await Promise.all([
+        authFetch('/api/v1/billing/invoices'),
+        authFetch('/api/v1/billing/usage'),
+      ])
+      if (invoiceR.ok) setInvoices((await invoiceR.json()).invoices || [])
+      else setAuxError(`Invoice history failed to load (${invoiceR.status}).`)
+      if (usageR.ok) setUsage(await usageR.json())
+      else setAuxError(prev => [prev, `Usage failed to load (${usageR.status}).`].filter(Boolean).join(' '))
     } catch (e) {
       setError(e.message || 'Failed to load billing')
     } finally { setLoading(false) }
@@ -42,12 +50,32 @@ export default function BillingPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan_id: planId }),
       })
-      if (!r.ok) throw new Error('Upgrade failed')
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Upgrade failed (${r.status})`)
+      }
       const d = await r.json()
       if (d.short_url) window.location.href = d.short_url
       else setUpgradeStatus('Subscription created!')
     } catch (e) {
       setUpgradeStatus(e.message)
+    }
+  }
+
+  const cancelSubscription = async () => {
+    if (!confirm('Cancel this subscription at the end of the current billing period?')) return
+    setUpgradeStatus('Cancelling...')
+    try {
+      const r = await authFetch('/api/v1/billing/cancel', { method: 'POST' })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Cancel failed (${r.status})`)
+      }
+      const d = await r.json()
+      setUpgradeStatus(d.message || 'Subscription cancellation scheduled.')
+      loadAll()
+    } catch (e) {
+      setUpgradeStatus(e.message || 'Cancel failed')
     }
   }
 
@@ -72,6 +100,11 @@ export default function BillingPanel() {
           <div className="stat-tile-value">{(billing?.student_count || 0)} / {(billing?.max_students || 30)}</div>
         </div>
       </div>
+      {billing?.status && !['cancelled', 'expired', 'cancelling'].includes(String(billing.status).toLowerCase()) && (
+        <button className="btn btn-secondary btn-sm" onClick={cancelSubscription} style={{ marginBottom: 12 }}>
+          Cancel at period end
+        </button>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginTop: 20, marginBottom: 20 }}>
         {PLANS.map(p => (
@@ -91,6 +124,7 @@ export default function BillingPanel() {
         ))}
       </div>
       {upgradeStatus && <div style={{ fontSize: 13, color: 'var(--emerald)', marginBottom: 12 }}>{upgradeStatus}</div>}
+      {auxError && <div className="auth-err" style={{ marginBottom: 12 }}>{auxError} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>}
 
       {/* Usage */}
       {usage && (
@@ -129,6 +163,7 @@ export default function BillingPanel() {
                 <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04 }}>Date</th>
                 <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04 }}>Amount</th>
                 <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600, color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04 }}>Status</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04 }}>PDF</th>
               </tr>
             </thead>
             <tbody>
@@ -138,6 +173,9 @@ export default function BillingPanel() {
                   <td style={{ padding: '8px 12px', fontVariantNumeric: 'tabular-nums' }}>₹{(inv.amount / 100).toFixed(0)}</td>
                   <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                     <span style={{ color: inv.status === 'paid' ? 'var(--emerald)' : 'var(--amber)' }}>{inv.status}</span>
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                    {inv.pdf_url ? <a href={inv.pdf_url} target="_blank" rel="noreferrer">Download</a> : <span style={{ color: 'var(--text-muted)' }}>--</span>}
                   </td>
                 </tr>
               ))}

@@ -115,6 +115,31 @@ class TestWebhookEdgeCases:
         finally:
             os.environ.pop("RESEND_WEBHOOK_SECRET", None)
 
+    def test_opened_db_failure_returns_500_for_provider_retry(self, client):
+        """email.opened DB failures should not be swallowed."""
+        raw, headers = _signed_body({
+            "type": "email.opened",
+            "data": {"email_id": "msg-webhook-edge"},
+        })
+        sm = shared_supabase_mock()
+        sm.table.return_value.select.return_value.eq.return_value.limit.return_value.execute = MagicMock(
+            return_value=MagicMock(data=[])
+        )
+        sm.table.return_value.update.return_value.eq.return_value.eq.return_value.execute = AsyncMock(
+            side_effect=RuntimeError("db down")
+        )
+        sm.table.return_value.update.return_value.eq.return_value.is_.return_value.execute = AsyncMock(
+            side_effect=RuntimeError("db down")
+        )
+
+        _setup_webhook_secret()
+        try:
+            resp = client.post("/api/v1/webhooks/email", content=raw, headers=headers)
+            assert resp.status_code == 500
+            assert "retry" in resp.json()["detail"].lower()
+        finally:
+            os.environ.pop("RESEND_WEBHOOK_SECRET", None)
+
     def test_clicked_increments_click_count(self, client):
         """email.clicked should increment click_count and set status=clicked."""
         sm = shared_supabase_mock()
@@ -134,6 +159,25 @@ class TestWebhookEdgeCases:
             resp = client.post("/api/v1/webhooks/email", content=raw, headers=headers)
             assert resp.status_code == 200
             assert resp.json()["event"] == "email.clicked"
+        finally:
+            os.environ.pop("RESEND_WEBHOOK_SECRET", None)
+
+    def test_clicked_db_failure_returns_500_for_provider_retry(self, client):
+        """email.clicked DB failures should not be swallowed."""
+        sm = shared_supabase_mock()
+        sm.table.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
+            side_effect=RuntimeError("db down")
+        )
+
+        raw, headers = _signed_body({
+            "type": "email.clicked",
+            "data": {"email_id": "msg-webhook-edge"},
+        })
+        _setup_webhook_secret()
+        try:
+            resp = client.post("/api/v1/webhooks/email", content=raw, headers=headers)
+            assert resp.status_code == 500
+            assert "retry" in resp.json()["detail"].lower()
         finally:
             os.environ.pop("RESEND_WEBHOOK_SECRET", None)
 

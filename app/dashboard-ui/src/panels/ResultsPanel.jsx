@@ -11,6 +11,7 @@ export default function ResultsPanel({ currentExamId }) {
   const [sortAsc, setSortAsc] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actionError, setActionError] = useState('')
   const [batchSize, setBatchSize] = useState(50)
   const [stats, setStats] = useState({ total: 0, avgScore: 0, avgRisk: 0, highRisk: 0 })
   const [timelineSession, setTimelineSession] = useState(null)
@@ -23,6 +24,7 @@ export default function ResultsPanel({ currentExamId }) {
     }
     setLoading(true)
     setError('')
+    setActionError('')
     try {
       const r = await authFetch(`/api/v1/results?exam_id=${encodeURIComponent(currentExamId)}`)
       if (!r.ok) {
@@ -73,15 +75,23 @@ export default function ResultsPanel({ currentExamId }) {
   const loadMore = () => setBatchSize(b => b + 50)
   const hasMore = batchSize < filtered.length
   const downloadPdf = async (sessionId) => {
-    const r = await authFetch(`/api/v1/export-pdf/${encodeURIComponent(sessionId)}`)
-    if (!r.ok) return
-    const blob = await r.blob()
-    const href = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = href
-    a.download = `report_${String(sessionId).split('_')[0]}.pdf`
-    a.click()
-    URL.revokeObjectURL(href)
+    setActionError('')
+    try {
+      const r = await authFetch(`/api/v1/export-pdf/${encodeURIComponent(sessionId)}`)
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `PDF export failed (${r.status})`)
+      }
+      const blob = await r.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = `report_${String(sessionId).split('_')[0]}.pdf`
+      a.click()
+      URL.revokeObjectURL(href)
+    } catch (e) {
+      setActionError(e.message || 'PDF export failed')
+    }
   }
 
   return (
@@ -103,6 +113,7 @@ export default function ResultsPanel({ currentExamId }) {
       {!currentExamId && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Select an exam to view results.</div>}
 
       {currentExamId && error && <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadResults} style={{ marginLeft: 8 }}>Retry</button></div>}
+      {currentExamId && actionError && <div className="auth-err" style={{ margin: '0 20px 12px' }}>{actionError}</div>}
 
       {currentExamId && loading && <div className="loading" style={{ textAlign: 'center', padding: 40 }}>Loading...</div>}
 

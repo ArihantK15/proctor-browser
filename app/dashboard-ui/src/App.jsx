@@ -1,23 +1,24 @@
-import { useState, useEffect, useMemo } from 'react'
+import { lazy, Suspense, useState, useEffect, useMemo } from 'react'
 import { AuthProvider, useAuth } from './lib/auth'
 import { API_BASE } from './config'
-import OrgPanel from './panels/OrgPanel'
-import BillingPanel from './panels/BillingPanel'
-import SecurityPanel from './panels/SecurityPanel'
-import MembersPanel from './panels/MembersPanel'
-import ResultsPanel from './panels/ResultsPanel'
-import AllOrgsPanel from './panels/AllOrgsPanel'
-import HistoryPanel from './panels/HistoryPanel'
-import OrgSettingsPanel from './panels/OrgSettingsPanel'
-import AnalyticsPanel from './panels/AnalyticsPanel'
-import ChatPanel from './panels/ChatPanel'
-import QuestionsPanel from './panels/QuestionsPanel'
-import LiveSessionsPanel from './panels/LiveSessionsPanel'
-import ToolsPanel from './panels/ToolsPanel'
-import ReviewPanel from './panels/ReviewPanel'
-import OpsPanel from './panels/OpsPanel'
-import SupportConsole from './panels/SupportConsole'
-import OnboardingWizard from './components/OnboardingWizard'
+
+const OrgPanel = lazy(() => import('./panels/OrgPanel'))
+const BillingPanel = lazy(() => import('./panels/BillingPanel'))
+const SecurityPanel = lazy(() => import('./panels/SecurityPanel'))
+const MembersPanel = lazy(() => import('./panels/MembersPanel'))
+const ResultsPanel = lazy(() => import('./panels/ResultsPanel'))
+const AllOrgsPanel = lazy(() => import('./panels/AllOrgsPanel'))
+const HistoryPanel = lazy(() => import('./panels/HistoryPanel'))
+const OrgSettingsPanel = lazy(() => import('./panels/OrgSettingsPanel'))
+const AnalyticsPanel = lazy(() => import('./panels/AnalyticsPanel'))
+const ChatPanel = lazy(() => import('./panels/ChatPanel'))
+const QuestionsPanel = lazy(() => import('./panels/QuestionsPanel'))
+const LiveSessionsPanel = lazy(() => import('./panels/LiveSessionsPanel'))
+const ToolsPanel = lazy(() => import('./panels/ToolsPanel'))
+const ReviewPanel = lazy(() => import('./panels/ReviewPanel'))
+const OpsPanel = lazy(() => import('./panels/OpsPanel'))
+const SupportConsole = lazy(() => import('./panels/SupportConsole'))
+const OnboardingWizard = lazy(() => import('./components/OnboardingWizard'))
 
 const TABS = [
   { id: 'live', label: 'Live Sessions', roles: ['teacher', 'admin', 'superadmin'] },
@@ -223,12 +224,16 @@ function DashboardShell() {
 
   if (showOnboarding === null) return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Loading...</div>
   if (showOnboarding) {
-    return <OnboardingWizard onComplete={(examId) => {
-      if (examId) setCurrentExamId(examId)
-      selectTab(examId ? 'questions' : 'org')
-      setShowOnboarding(false)
-      localStorage.setItem('procta_onboarding_done', '1')
-    }} />
+    return (
+      <Suspense fallback={<div style={{ padding: 40, color: 'var(--text-muted)' }}>Loading...</div>}>
+        <OnboardingWizard onComplete={(examId) => {
+          if (examId) setCurrentExamId(examId)
+          selectTab(examId ? 'questions' : 'org')
+          setShowOnboarding(false)
+          localStorage.setItem('procta_onboarding_done', '1')
+        }} />
+      </Suspense>
+    )
   }
 
   return (
@@ -267,7 +272,9 @@ function DashboardShell() {
             onQuestions={() => selectTab('questions')}
           />
         )}
-        {Panel && <Panel currentExamId={currentExamId} setCurrentExamId={setCurrentExamId} />}
+        <Suspense fallback={<div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading panel...</div>}>
+          {Panel && <Panel currentExamId={currentExamId} setCurrentExamId={setCurrentExamId} />}
+        </Suspense>
       </div>
     </div>
   )

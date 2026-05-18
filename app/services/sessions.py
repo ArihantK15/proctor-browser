@@ -94,6 +94,18 @@ async def _check_subscription_active(org_id: str) -> None:
         return
     status = (sub.get("status") or "").lower()
     if status in ("expired", "cancelled"):
+        period_end_raw = sub.get("current_period_end") or ""
+        if period_end_raw:
+            try:
+                period_end_dt = datetime.fromisoformat(
+                    str(period_end_raw).replace("Z", "+00:00")
+                )
+                if period_end_dt.tzinfo is None:
+                    period_end_dt = period_end_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) <= period_end_dt:
+                    return
+            except Exception:
+                pass
         raise HTTPException(
             status_code=403,
             detail="Your subscription has expired. Please upgrade your plan to continue.",

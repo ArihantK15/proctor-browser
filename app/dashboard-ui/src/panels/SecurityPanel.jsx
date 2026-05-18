@@ -15,20 +15,22 @@ export default function SecurityPanel() {
   const [loadError, setLoadError] = useState('')
 
   const loadTfaStatus = async () => {
-    try {
-      const r = await authFetch('/api/v1/auth/2fa/status')
-      if (r.ok) setTfaStatus(await r.json())
-    } catch (err) { console.error('SecurityPanel: load TFA status failed', err) }
+    const r = await authFetch('/api/v1/auth/2fa/status')
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      throw new Error(d.detail || `Failed to load 2FA status (${r.status})`)
+    }
+    setTfaStatus(await r.json())
   }
 
   const loadSessions = async () => {
-    try {
-      const r = await authFetch('/api/v1/auth/sessions')
-      if (r.ok) {
-        const d = await r.json()
-        setSessions(d.sessions || [])
-      }
-    } catch (err) { console.error('SecurityPanel: load sessions failed', err) }
+    const r = await authFetch('/api/v1/auth/sessions')
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      throw new Error(d.detail || `Failed to load active sessions (${r.status})`)
+    }
+    const d = await r.json()
+    setSessions(d.sessions || [])
   }
 
   const loadAll = async () => {
@@ -69,19 +71,29 @@ export default function SecurityPanel() {
   }
 
   const revokeSession = async (jti) => {
+    setSessionsMsg('')
     try {
-      await authFetch(`/api/v1/auth/sessions/${jti}/revoke`, { method: 'POST' })
+      const r = await authFetch(`/api/v1/auth/sessions/${jti}/revoke`, { method: 'POST' })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to revoke session (${r.status})`)
+      }
+      setSessionsMsg('Session revoked.')
       loadSessions()
-    } catch (err) { console.error('SecurityPanel: revoke session failed', err) }
+    } catch (err) { setSessionsMsg(err.message || 'Failed to revoke session') }
   }
 
   const revokeOthers = async () => {
     setSessionsMsg('Revoking...')
     try {
       const r = await authFetch('/api/v1/auth/sessions/revoke-others', { method: 'POST' })
-      if (r.ok) setSessionsMsg('Other sessions revoked.')
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Failed to revoke sessions (${r.status})`)
+      }
+      setSessionsMsg('Other sessions revoked.')
       loadSessions()
-    } catch (_) { setSessionsMsg('Failed') }
+    } catch (e) { setSessionsMsg(e.message || 'Failed') }
   }
 
   return (

@@ -16,8 +16,16 @@ export default function ToolsPanel({ currentExamId }) {
   const [sensitivityResult, setSensitivityResult] = useState('')
   const [scheduleResult, setScheduleResult] = useState('')
   const [shuffleResult, setShuffleResult] = useState('')
+  const [copyResult, setCopyResult] = useState('')
+  const [backfillResult, setBackfillResult] = useState('')
+  const [clearSessionsResult, setClearSessionsResult] = useState('')
 
   const [loadError, setLoadError] = useState('')
+
+  const responseError = async (response, fallback) => {
+    const data = await response.json().catch(() => ({}))
+    return new Error(data.detail || `${fallback} (${response.status})`)
+  }
 
   const loadAll = async () => {
     if (!currentExamId) return
@@ -29,13 +37,16 @@ export default function ToolsPanel({ currentExamId }) {
         authFetch(`/api/v1/admin/access-code?exam_id=${encodeURIComponent(currentExamId)}`),
         authFetch(`/api/v1/admin/proctoring-sensitivity?exam_id=${encodeURIComponent(currentExamId)}`),
       ])
+      const failures = []
       if (configR.ok) { const d = await configR.json(); setShuffleQ(!!d.shuffle_questions); setShuffleO(!!d.shuffle_options) }
+      else failures.push(`shuffle ${configR.status}`)
       if (schedR.ok) { const d = await schedR.json(); setScheduleStart(d.starts_at || ''); setScheduleEnd(d.ends_at || '') }
+      else failures.push(`schedule ${schedR.status}`)
       if (accessR.ok) { const d = await accessR.json(); setAccessCode(d.access_code || '') }
+      else failures.push(`access code ${accessR.status}`)
       if (sensR.ok) { const d = await sensR.json(); setSensitivity(d.proctoring_sensitivity || 'balanced'); setSensitivityLoaded(true) }
-      if (!configR.ok && !schedR.ok && !accessR.ok && !sensR.ok) {
-        throw new Error(`Failed to load exam settings (${configR.status})`)
-      }
+      else failures.push(`sensitivity ${sensR.status}`)
+      if (failures.length) setLoadError(`Some exam settings could not load: ${failures.join(', ')}`)
     } catch (e) {
       setLoadError(e.message || 'Failed to load exam settings')
     }
@@ -49,8 +60,9 @@ export default function ToolsPanel({ currentExamId }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exam_id: currentExamId, shuffle_questions: shuffleQ, shuffle_options: shuffleO }),
       })
-      setShuffleResult(r.ok ? '✅ Saved' : 'Failed')
-    } catch (_) { setShuffleResult('Failed') }
+      if (!r.ok) throw await responseError(r, 'Failed to save randomization')
+      setShuffleResult('✅ Saved')
+    } catch (err) { setShuffleResult(err.message || 'Failed') }
   }
   const saveAccess = async () => {
     try {
@@ -58,8 +70,9 @@ export default function ToolsPanel({ currentExamId }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exam_id: currentExamId, access_code: accessCode }),
       })
-      setAccessResult(r.ok ? '✅ Saved' : 'Failed')
-    } catch (_) { setAccessResult('Failed') }
+      if (!r.ok) throw await responseError(r, 'Failed to save access code')
+      setAccessResult('✅ Saved')
+    } catch (err) { setAccessResult(err.message || 'Failed') }
   }
   const generateAccess = async () => {
     try {
@@ -67,14 +80,16 @@ export default function ToolsPanel({ currentExamId }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exam_id: currentExamId, access_code: '' }),
       })
-      if (r.ok) { const d = await r.json(); setAccessCode(d.access_code || ''); setAccessResult('✅ Generated') }
-    } catch (_) { setAccessResult('Failed') }
+      if (!r.ok) throw await responseError(r, 'Failed to generate access code')
+      const d = await r.json(); setAccessCode(d.access_code || ''); setAccessResult('✅ Generated')
+    } catch (err) { setAccessResult(err.message || 'Failed') }
   }
   const clearAccess = async () => {
     try {
-      await authFetch('/api/v1/admin/access-code/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ exam_id: currentExamId }) })
+      const r = await authFetch('/api/v1/admin/access-code/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ exam_id: currentExamId }) })
+      if (!r.ok) throw await responseError(r, 'Failed to clear access code')
       setAccessCode(''); setAccessResult('✅ Cleared')
-    } catch (_) { setAccessResult('Failed') }
+    } catch (err) { setAccessResult(err.message || 'Failed') }
   }
   const saveSchedule = async () => {
     try {
@@ -82,8 +97,9 @@ export default function ToolsPanel({ currentExamId }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exam_id: currentExamId, starts_at: scheduleStart, ends_at: scheduleEnd }),
       })
-      setScheduleResult(r.ok ? '✅ Saved' : 'Failed')
-    } catch (_) { setScheduleResult('Failed') }
+      if (!r.ok) throw await responseError(r, 'Failed to save schedule')
+      setScheduleResult('✅ Saved')
+    } catch (err) { setScheduleResult(err.message || 'Failed') }
   }
   const sendInvites = async () => {
     if (!inviteText.trim()) { setInviteResult('Enter recipients'); return }
@@ -104,16 +120,20 @@ export default function ToolsPanel({ currentExamId }) {
     } catch (e) { setInviteResult(`❌ ${e.message}`) }
   }
   const doBackfill = async () => {
+    setBackfillResult('Running...')
     try {
       const r = await authFetch(`/api/v1/admin/backfill-risk-scores?exam_id=${encodeURIComponent(currentExamId)}`, { method: 'POST' })
-      if (!r.ok) throw new Error('Failed')
+      if (!r.ok) throw await responseError(r, 'Backfill failed')
       const d = await r.json()
+      setBackfillResult(`✅ Backfilled ${d.backfilled || 0} sessions`)
       window.parent.postMessage({ type: 'backfill_done', backfilled: d.backfilled }, window.location.origin) // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
-    } catch (err) { console.error('ToolsPanel: backfill failed', err) }
+    } catch (err) { setBackfillResult(err.message || 'Backfill failed') }
   }
 
   const copyLink = (url) => {
-    navigator.clipboard.writeText(url).catch(err => console.error('ToolsPanel: copy link failed', err))
+    navigator.clipboard.writeText(url)
+      .then(() => setCopyResult('Copied.'))
+      .catch(() => setCopyResult('Copy failed. Select the link and copy manually.'))
   }
 
   if (!currentExamId) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Select an exam to access tools.</div>
@@ -125,6 +145,7 @@ export default function ToolsPanel({ currentExamId }) {
   return (
     <div className="tools-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
       {loadError && <div className="auth-err" style={{ gridColumn: '1 / -1', marginBottom: 8 }}>{loadError} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>}
+      {copyResult && <div className="auth-ok" style={{ gridColumn: '1 / -1', marginBottom: 8 }}>{copyResult}</div>}
       {/* Share links */}
       <ToolCard title="Share With Students" desc="Registration and download links for students.">
         <div style={{ marginBottom: 8 }}>
@@ -175,11 +196,16 @@ export default function ToolsPanel({ currentExamId }) {
             </select>
             {sensitivityResult && <div style={{ fontSize: 12, marginBottom: 6 }}>{sensitivityResult}</div>}
             <button className="btn btn-primary btn-sm" onClick={async () => {
-              const r = await authFetch('/api/v1/admin/proctoring-sensitivity', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ exam_id: currentExamId, proctoring_sensitivity: sensitivity }),
-              })
-              setSensitivityResult(r.ok ? '✅ Sensitivity saved' : 'Failed')
+              try {
+                const r = await authFetch('/api/v1/admin/proctoring-sensitivity', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ exam_id: currentExamId, proctoring_sensitivity: sensitivity }),
+                })
+                if (!r.ok) throw await responseError(r, 'Failed to save sensitivity')
+                setSensitivityResult('✅ Sensitivity saved')
+              } catch (err) {
+                setSensitivityResult(err.message || 'Failed')
+              }
             }}>Save Sensitivity</button>
           </div>
         ) : <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</div>}
@@ -218,16 +244,21 @@ export default function ToolsPanel({ currentExamId }) {
 
       {/* Backfill */}
       <ToolCard title="Backfill Risk Scores" desc="Recompute risk scores for all completed sessions.">
+        {backfillResult && <div style={{ fontSize: 12, marginBottom: 6 }}>{backfillResult}</div>}
         <button className="btn btn-primary btn-sm" onClick={doBackfill}>Run Backfill</button>
       </ToolCard>
 
       {/* Clear sessions */}
       <ToolCard title="Clear Live Sessions" desc="Erase stale/active test sessions from the dashboard.">
+        {clearSessionsResult && <div style={{ fontSize: 12, marginBottom: 6 }}>{clearSessionsResult}</div>}
         <button className="btn btn-secondary btn-sm" style={{ color: 'var(--red)', borderColor: 'rgba(239,68,68,0.35)' }} onClick={() => {
           if (!confirm('This will clear all live sessions. Continue?')) return
-          authFetch(`/api/v1/admin/sessions/clear-live`, { method: 'POST' }).then(r => {
-            if (r.ok) window.parent.postMessage({ type: 'sessions_cleared' }, window.location.origin) // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
-          }).catch(err => console.error('ToolsPanel: clear sessions failed', err))
+          setClearSessionsResult('Clearing...')
+          authFetch(`/api/v1/admin/sessions/clear-live`, { method: 'POST' }).then(async r => {
+            if (!r.ok) throw await responseError(r, 'Failed to clear sessions')
+            setClearSessionsResult('✅ Sessions cleared')
+            window.parent.postMessage({ type: 'sessions_cleared' }, window.location.origin) // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
+          }).catch(err => setClearSessionsResult(err.message || 'Failed to clear sessions'))
         }}>Clear Sessions</button>
       </ToolCard>
     </div>

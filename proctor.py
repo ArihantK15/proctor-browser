@@ -33,6 +33,7 @@ import sys
 import time
 import base64
 import platform
+import tempfile
 import threading
 import requests
 import cv2
@@ -484,7 +485,7 @@ except Exception as _ie:
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 SESSION_ID   = os.getenv("PROCTOR_SESSION_ID",  "test-session")
 SERVER_URL   = os.getenv("PROCTOR_SERVER_URL",  "http://localhost:8000/event")
-EVIDENCE_DIR = os.getenv("PROCTOR_EVIDENCE_DIR", "/tmp/evidence")
+EVIDENCE_DIR = os.getenv("PROCTOR_EVIDENCE_DIR", os.path.join(tempfile.gettempdir(), "procta_evidence"))
 JWT_TOKEN    = os.getenv("PROCTOR_JWT_TOKEN",   "")
 
 # Derive the analyze-frame endpoint from SERVER_URL. Same host, same auth.
@@ -1617,6 +1618,7 @@ def run_proctoring(cap, W, H):
     # itself lives at module scope so the control thread can also
     # see / reset it if we ever need to.
     global _LAST_LIVE_FRAME_TS
+    global _PRESET_GAZE_YAW_BIAS
 
     # Per-event sustain counters. Each detection only fires after its
     # consecutive-frame threshold is met — single noisy frames are ignored.

@@ -109,7 +109,11 @@ async def create_subscription(body: dict, request: Request):
         }).eq("id", str(org_id)).execute()
         _invalidate_billing_cache(str(org_id))
     except Exception as e:
-        logger.warning("Failed to update subscription in DB: %s", e)
+        logger.error("Failed to update subscription in DB after provider subscription creation: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="Subscription was created by the payment provider, but could not be recorded. Please contact support.",
+        )
 
     return result
 
@@ -228,7 +232,7 @@ async def cancel_subscription(request: Request):
     if not org_id:
         raise HTTPException(status_code=403, detail="No organization associated")
 
-    sub = await _atable("subscriptions").select("id,razorpay_subscription_id,status")\
+    sub = await _atable("subscriptions").select("id,razorpay_subscription_id,status,current_period_end")\
         .eq("org_id", str(org_id)).limit(1).execute()
     if not sub.data:
         raise HTTPException(status_code=404, detail="No active subscription found")
@@ -250,7 +254,7 @@ async def cancel_subscription(request: Request):
     else:
         logger.info("Sandbox: cancelling sub for org=%s without Razorpay API call", org_id)
 
-    await _atable("subscriptions").update({"status": "cancelled"})\
+    await _atable("subscriptions").update({"status": "cancelling"})\
         .eq("id", sub_row["id"]).execute()
     _invalidate_billing_cache(str(org_id))
 

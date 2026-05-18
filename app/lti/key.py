@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 _keys: dict[str, str] = {}     # kid → private key PEM
 _public_keys: dict[str, str] = {}  # kid → public key PEM
 _jwks_cache: dict | None = None
+_jwks_cache_ts: float = 0.0
+_JWKS_CACHE_TTL: float = 3600.0  # 1 hour — prevent stale keys without permanent cache
 
 
 def _load_key_from_pem(pem: str) -> tuple[str, str]:
@@ -139,8 +141,9 @@ def get_all_kids() -> list[str]:
 
 def generate_jwks() -> dict:
     """Generate JWKS with all configured keys."""
-    global _jwks_cache
-    if _jwks_cache is not None:
+    import time
+    global _jwks_cache, _jwks_cache_ts
+    if _jwks_cache is not None and (time.time() - _jwks_cache_ts) < _JWKS_CACHE_TTL:
         return _jwks_cache
 
     if not _public_keys:
@@ -166,6 +169,7 @@ def generate_jwks() -> dict:
         })
 
     _jwks_cache = {"keys": keys_list}
+    _jwks_cache_ts = time.time()
     return _jwks_cache
 
 
@@ -191,10 +195,11 @@ def sign_jwt_payload(payload: dict, kid: str | None = None) -> str:
 
 
 def _init_keys():
-    global _keys, _public_keys, _jwks_cache
+    global _keys, _public_keys, _jwks_cache, _jwks_cache_ts
     _keys = {}
     _public_keys = {}
     _jwks_cache = None
+    _jwks_cache_ts = 0.0
     loaded = _load_keys()
     for kid, (priv, pub) in loaded.items():
         _keys[kid] = priv

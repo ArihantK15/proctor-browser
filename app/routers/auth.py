@@ -6,8 +6,9 @@ import re
 _auth_log = logging.getLogger("auth")
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlencode
 
-from ..database import supabase, async_table as _atable
+from ..database import supabase, async_table as _atable, is_postgres_backend
 from ..limiter import limiter
 from ..models import TeacherSignupIn, TeacherLoginIn, RefreshIn, StudentSignupIn, StudentLoginIn, PasswordResetIn
 from ..auth import (
@@ -44,6 +45,92 @@ router = APIRouter(prefix="")
 def _slugify(text: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower().strip())
     return s.strip("-") or "org"
+
+
+async def _create_teacher_signup_postgres_tx(
+    *,
+    email: str,
+    name: str,
+    org_name: str,
+    slug: str,
+    supabase_uid: str,
+    password_hash: str,
+) -> tuple[dict, str, str]:
+    """Create org, trial subscription, teacher, and default exam atomically.
+
+    This is the real transactional signup path for the plain-Postgres/local-auth
+    deployment. The Supabase/PostgREST deployment cannot provide a multi-table
+    transaction through the REST adapter, so it still uses compensating cleanup.
+    """
+    from ..postgres_table import get_pool
+
+    pool = await get_pool()
+    org_id = str(_uuid.uuid4())
+    teacher_id = str(_uuid.uuid4())
+    subscription_id = str(_uuid.uuid4())
+    default_exam_id = str(_uuid.uuid4())
+    trial_end = datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)
+    password_changed_at = now_ist()
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            org = await conn.fetchrow(
+                """
+                INSERT INTO organizations (id, name, slug, max_students)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id, name, slug, max_students
+                """,
+                org_id,
+                org_name,
+                slug,
+                PLANS["starter"]["students"],
+            )
+            if org is None:
+                raise RuntimeError("organization insert returned no row")
+
+            await conn.execute(
+                """
+                INSERT INTO subscriptions (id, org_id, plan, status, trial_end)
+                VALUES ($1, $2, 'starter', 'trialing', $3)
+                """,
+                subscription_id,
+                org_id,
+                trial_end,
+            )
+
+            teacher = await conn.fetchrow(
+                """
+                INSERT INTO teachers (
+                    id, email, full_name, supabase_uid, org_id, org_role,
+                    password_hash, auth_provider, password_changed_at
+                )
+                VALUES ($1, $2, $3, $4, $5, 'admin', $6, 'local', $7)
+                RETURNING id, email, full_name, supabase_uid, org_id, org_role,
+                          password_hash, auth_provider, password_changed_at
+                """,
+                teacher_id,
+                email,
+                name,
+                str(supabase_uid),
+                org_id,
+                password_hash,
+                password_changed_at,
+            )
+            if teacher is None:
+                raise RuntimeError("teacher insert returned no row")
+
+            await conn.execute(
+                """
+                INSERT INTO exam_config (
+                    exam_id, teacher_id, exam_title, duration_minutes
+                )
+                VALUES ($1, $2, 'Exam', 60)
+                """,
+                default_exam_id,
+                teacher_id,
+            )
+
+    return dict(teacher), org_id, default_exam_id
 
 
 async def _get_teacher_by_email_for_auth(email: str) -> dict | None:
@@ -238,8 +325,68 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.error("[TeacherSignup] Supabase Auth error: %s", e)
             raise HTTPException(status_code=500, detail="Failed to create account")
 
+    if local_auth_enabled() and is_postgres_backend():
+        try:
+            teacher, org_id, _default_exam_id = await _create_teacher_signup_postgres_tx(
+                email=email,
+                name=name,
+                org_name=org_name,
+                slug=slug,
+                supabase_uid=str(supabase_uid),
+                password_hash=password_hash or "",
+            )
+        except Exception as e:
+            _auth_log.error("[TeacherSignup] Postgres transaction failed: %s", e)
+            err_lower = str(e).lower()
+            if (
+                "duplicate key" in err_lower
+                or "unique constraint" in err_lower
+                or "already exists" in err_lower
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="If an account exists with this email, you can sign in or reset your password.",
+                )
+            raise HTTPException(status_code=500, detail="Failed to create account")
+
+        try:
+            from ..services.demo_exam import seed_demo_exam
+            await seed_demo_exam(str(teacher["id"]), _atable=_atable)
+        except Exception as demo_err:
+            _auth_log.warning("[TeacherSignup] demo seed failed (non-fatal): %s", demo_err)
+
+        _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", name, email, org_name)
+        await record_auth_event("signup", request, "teacher", teacher["id"], email)
+        if str(email).lower() == "arihantkaul@gmail.com":
+            try:
+                await _atable("teachers").update({"org_role": "superadmin"}).eq("id", str(teacher["id"])).execute()
+                teacher["org_role"] = "superadmin"
+            except Exception as e:
+                _auth_log.warning("[TeacherSignup] failed to mark superadmin: %s", e)
+        enqueue_job(send_new_account_notification_job,
+                    account_type="teacher", name=name, email=email)
+
+        # Issue email verification
+        from ..emailer import send_email_verification
+        from ..invites import _get_invite_base_url
+        vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
+        base = _get_invite_base_url()
+        send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
+
+        return {
+            "teacher_id":    teacher["id"],
+            "email":         email,
+            "full_name":     name,
+            "org_id":        str(org_id),
+            "org_name":      org_name,
+            "org_role":      teacher.get("org_role", "admin"),
+            "status":        "pending_verification",
+        }
+
     # Create org, subscription, teacher — transactional rollback
     org_id = None
+    teacher_id = None
+    default_exam_id = None
     try:
         # Create org
         org_result = await _atable("organizations").insert({
@@ -275,10 +422,12 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             })
         teacher_result = await _atable("teachers").insert(teacher_row).execute()
         teacher = teacher_result.data[0]
+        teacher_id = teacher["id"]
 
         # Create default exam_config
+        default_exam_id = str(_uuid.uuid4())
         await _atable("exam_config").insert({
-            "exam_id": str(_uuid.uuid4()),
+            "exam_id": default_exam_id,
             "teacher_id": teacher["id"],
             "exam_title": "Exam",
             "duration_minutes": 60,
@@ -298,6 +447,16 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
                 supabase.auth.admin.delete_user(str(supabase_uid))
             except Exception as rollback_err:
                 _auth_log.critical("[TeacherSignup] Rollback (auth user) failed: %s", rollback_err)
+        if default_exam_id is not None:
+            try:
+                await _atable("exam_config").delete().eq("exam_id", str(default_exam_id)).execute()
+            except Exception as rollback_err:
+                _auth_log.critical("[TeacherSignup] Rollback (exam_config) failed for exam=%s: %s", default_exam_id, rollback_err)
+        if teacher_id is not None:
+            try:
+                await _atable("teachers").delete().eq("id", str(teacher_id)).execute()
+            except Exception as rollback_err:
+                _auth_log.critical("[TeacherSignup] Rollback (teacher) failed for teacher=%s: %s", teacher_id, rollback_err)
         if org_id is not None:
             try:
                 await _atable("subscriptions").delete().eq("org_id", str(org_id)).execute()
@@ -578,7 +737,7 @@ _INVITE_PAGE = """\
     </div>
     <div class="field">
       <label for="password">Password</label>
-      <input type="password" id="password" name="password" required minlength="8" placeholder="At least 8 characters">
+      <input type="password" id="password" name="password" required minlength="10" placeholder="At least 10 characters">
     </div>
     <button type="submit">Accept &amp; Join</button>
   </form>
@@ -594,7 +753,7 @@ document.getElementById('acceptForm').addEventListener('submit', async function(
   const full_name = document.getElementById('full_name').value.trim();
   const password = document.getElementById('password').value;
   if (!full_name) { errEl.textContent='Name is required'; errEl.style.display='block'; return; }
-  if (password.length < 8) { errEl.textContent='Password must be at least 8 characters'; errEl.style.display='block'; return; }
+  if (password.length < 10) { errEl.textContent='Password must be at least 10 characters'; errEl.style.display='block'; return; }
   try {
     const r = await fetch('/api/v1/auth/accept-org-invite', {
       method:'POST',
@@ -763,8 +922,10 @@ async def student_signup(body: StudentSignupIn, request: Request):
         raise HTTPException(status_code=400, detail="A valid email is required")
     if not name:
         raise HTTPException(status_code=400, detail="Full name is required")
-    if len(body.password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        validate_password(body.password)
+    except PasswordError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     existing = await _atable("student_accounts").select("id").eq("email", email).execute()
     if existing.data:
@@ -1622,8 +1783,12 @@ async def oauth_start(request: Request, provider: str = "google",
     if not return_to:
         return_to = "/"
 
-    state = auth_oauth.issue_state_token(intent=intent, return_to=return_to)
-    url = auth_oauth.build_authorize_url(provider=provider, state=state)
+    state = auth_oauth.issue_state_token(intent=intent, return_to=return_to, provider=provider)
+    try:
+        url = auth_oauth.build_authorize_url(provider=provider, state=state)
+    except RuntimeError as e:
+        _auth_log.warning("[oauth] provider not configured: %s", e)
+        raise HTTPException(status_code=503, detail="OAuth provider is not configured")
     return RedirectResponse(url=url, status_code=302)
 
 
@@ -1643,7 +1808,7 @@ async def oauth_callback(request: Request, code: str = "", state: str = "",
     # Provider-side error (user denied consent, etc.)
     if error:
         _auth_log.warning("[oauth] provider error: %s — %s", error, error_description)
-        return RedirectResponse(url=f"/?oauth_error={error}", status_code=302)
+        return RedirectResponse(url=f"/?{urlencode({'oauth_error': 'provider_error'})}", status_code=302)
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
 
@@ -1655,10 +1820,11 @@ async def oauth_callback(request: Request, code: str = "", state: str = "",
         raise HTTPException(status_code=400, detail="Invalid or expired state")
     intent = state_claims["intent"]
     return_to = state_claims.get("return_to") or "/"
+    provider = state_claims.get("provider") or ""
 
-    # Exchange code → Supabase user
+    # Exchange code → OAuth user
     try:
-        sb_user = await auth_oauth.exchange_code_for_user(code)
+        sb_user = await auth_oauth.exchange_code_for_user(code, provider=provider)
     except Exception as e:
         _auth_log.warning("[oauth] exchange failed: %s", e)
         raise HTTPException(status_code=400, detail="OAuth exchange failed")
@@ -1666,21 +1832,27 @@ async def oauth_callback(request: Request, code: str = "", state: str = "",
     ip = request.client.host if request.client else ""
 
     # Bind to the right table (teacher vs student) and issue our JWT
-    if intent == "teacher":
-        teacher = await auth_oauth.bind_or_create_teacher(sb_user, ip=ip)
-        access_token = issue_admin_token(teacher)
-        await record_auth_event("login_success", request, "teacher",
-                                teacher["id"], teacher["email"],
-                                {"via": "oauth"})
-        user_payload = teacher
-    else:
-        from ..auth import issue_student_auth_token
-        account = await auth_oauth.bind_or_create_student(sb_user)
-        access_token = issue_student_auth_token(account)
-        await record_auth_event("login_success", request, "student_account",
-                                account["id"], account["email"],
-                                {"via": "oauth"})
-        user_payload = account
+    try:
+        if intent == "teacher":
+            teacher = await auth_oauth.bind_or_create_teacher(sb_user, ip=ip)
+            access_token = issue_admin_token(teacher)
+            await record_auth_event("login_success", request, "teacher",
+                                    teacher["id"], teacher["email"],
+                                    {"via": "oauth"})
+            user_payload = teacher
+        else:
+            from ..auth import issue_student_auth_token
+            account = await auth_oauth.bind_or_create_student(sb_user)
+            access_token = issue_student_auth_token(account)
+            await record_auth_event("login_success", request, "student_account",
+                                    account["id"], account["email"],
+                                    {"via": "oauth"})
+            user_payload = account
+    except ValueError as e:
+        msg = str(e)
+        status = 409 if "email already exists" in msg else 400
+        _auth_log.warning("[oauth] account binding failed: %s", msg)
+        raise HTTPException(status_code=status, detail=msg)
 
     # Record the auth_sessions row so revocation works
     try:

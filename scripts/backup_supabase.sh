@@ -13,6 +13,7 @@ mkdir -p backups/supabase
 
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
 out="backups/supabase/procta-supabase-${ts}.dump"
+client_image="${PG_CLIENT_IMAGE:-postgres:17-alpine}"
 
 # Use the official Postgres client image so the server does not need pg_dump
 # installed on the host. The excluded Supabase-managed schemas are not portable
@@ -20,7 +21,7 @@ out="backups/supabase/procta-supabase-${ts}.dump"
 docker run --rm \
   -e PGPASSWORD="${PGPASSWORD:-}" \
   -v "$PWD/backups/supabase:/backups" \
-  postgres:16-alpine \
+  "$client_image" \
   pg_dump "$SUPABASE_DB_URL" \
     --format=custom \
     --no-owner \

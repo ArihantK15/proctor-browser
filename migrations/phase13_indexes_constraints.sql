@@ -24,20 +24,47 @@ CREATE INDEX IF NOT EXISTS idx_teachers_supabase_uid ON teachers(supabase_uid);
 -- ─── Unique constraints ─────────────────────────────────────────
 -- These enforce data integrity at the DB level (defense against races).
 
-ALTER TABLE students ADD CONSTRAINT students_roll_teacher_unique
-    UNIQUE (roll_number, teacher_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'students_roll_teacher_unique'
+  ) THEN
+    ALTER TABLE students ADD CONSTRAINT students_roll_teacher_unique
+      UNIQUE (roll_number, teacher_id);
+  END IF;
 
-ALTER TABLE exam_config ADD CONSTRAINT exam_config_teacher_exam_unique
-    UNIQUE (teacher_id, exam_id);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'exam_config_teacher_exam_unique'
+  ) THEN
+    ALTER TABLE exam_config ADD CONSTRAINT exam_config_teacher_exam_unique
+      UNIQUE (teacher_id, exam_id);
+  END IF;
 
-ALTER TABLE teachers ADD CONSTRAINT teachers_email_unique
-    UNIQUE (email);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'teachers_email_unique'
+  ) THEN
+    ALTER TABLE teachers ADD CONSTRAINT teachers_email_unique
+      UNIQUE (email);
+  END IF;
 
-ALTER TABLE teachers ADD CONSTRAINT teachers_supabase_uid_unique
-    UNIQUE (supabase_uid);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'teachers_supabase_uid_unique'
+  ) THEN
+    ALTER TABLE teachers ADD CONSTRAINT teachers_supabase_uid_unique
+      UNIQUE (supabase_uid);
+  END IF;
 
-ALTER TABLE student_accounts ADD CONSTRAINT student_accounts_email_unique
-    UNIQUE (email);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'student_accounts_email_unique'
+  ) THEN
+    ALTER TABLE student_accounts ADD CONSTRAINT student_accounts_email_unique
+      UNIQUE (email);
+  END IF;
 
-ALTER TABLE student_accounts ADD CONSTRAINT student_accounts_supabase_uid_unique
-    UNIQUE (supabase_uid);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'student_accounts_supabase_uid_unique'
+  ) THEN
+    ALTER TABLE student_accounts ADD CONSTRAINT student_accounts_supabase_uid_unique
+      UNIQUE (supabase_uid);
+  END IF;
+END $$;

@@ -677,7 +677,7 @@ function _escGrp(s) {
   return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
-let student=null, sessionId=null, questions=[], answers={};
+let student=null, sessionId=null, currentRoll=null, questions=[], answers={};
 let studentToken=null;
 // Practice sandbox: set when the validate-student response carries
 // {practice: true} (server-side detected by PRACTICE_ roll prefix).
@@ -770,7 +770,9 @@ function _mergeLocalAnswers(){
   if(merged) console.log(`[Offline] merged ${merged} locally-saved answers`);
 }
 function _recoverOrphanAnswers(){
-  const prefix = 'answers_' + (normalizedRoll || '') + '_';
+  const roll = currentRoll || (student && student.roll_number) || '';
+  if(!roll) return {};
+  const prefix = 'answers_' + roll + '_';
   let newest = null, newestTs = 0;
   for(let i = 0; i < localStorage.length; i++){
     const key = localStorage.key(i);
@@ -793,6 +795,58 @@ function _recoverOrphanAnswers(){
     return data;
   }catch(_){ return {}; }
 }
+
+// ── Persistent final-submit retry ────────────────────────────────
+// Autosave covers in-exam progress, but final submit is the durable
+// completion signal. Keep the exact payload on disk until the server
+// confirms submission so a reconnect, reload, or renderer crash can
+// retry without asking the student to reconstruct anything.
+function _submitKey(){
+  return sessionId ? 'submit_'+sessionId : '';
+}
+function _persistSubmitPayload(payload){
+  const key = _submitKey();
+  if(!key || !payload) return;
+  try{
+    localStorage.setItem(key, JSON.stringify({
+      payload,
+      saved_at: Date.now(),
+      roll_number: payload.roll_number || currentRoll || ''
+    }));
+  }catch(_){}
+}
+function _loadSubmitPayload(){
+  const key = _submitKey();
+  if(!key) return null;
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    return data && data.payload ? data.payload : null;
+  }catch(_){ return null; }
+}
+function _clearSubmitPayload(){
+  const key = _submitKey();
+  if(!key) return;
+  try{ localStorage.removeItem(key); }catch(_){}
+}
+function _hasFailedSubmitOnScreen(){
+  const done = document.getElementById('screen-done');
+  const heading = document.getElementById('done-heading');
+  return !!(done && done.classList.contains('active') && heading && heading.classList.contains('fail'));
+}
+function _maybeRetrySubmitOnReconnect(){
+  if(submitInFlight || !sessionId) return;
+  if(!_hasFailedSubmitOnScreen()) return;
+  const payload = lastSubmitPayload || _loadSubmitPayload();
+  if(!payload) return;
+  lastSubmitPayload = payload;
+  if(submitRetryTimer) clearTimeout(submitRetryTimer);
+  submitRetryTimer = setTimeout(()=>{
+    submitRetryTimer = null;
+    retrySubmit(true);
+  }, 1500);
+}
 window.addEventListener('online', ()=>{
   if(!isOffline) return;
   isOffline = false;
@@ -803,6 +857,8 @@ window.addEventListener('online', ()=>{
   const s = document.getElementById('save-status');
   if(s){ s.textContent='Reconnecting…'; s.style.color='#58a6ff'; s.style.opacity='1'; }
   doBulkSave();
+  if(examActive) doHeartbeat();
+  _maybeRetrySubmitOnReconnect();
 });
 window.addEventListener('offline', ()=>{
   isOffline = true;
@@ -813,6 +869,7 @@ let examActive=false;
 let submitInFlight=false;
 let antiCheatBound=false; // prevents stacking blur/visibility listeners
 let lastSubmitPayload=null; // stored for retry
+let submitRetryTimer=null;
 
 // Phase 2: the lobby hands us pre-filled roll + access code via the
 // examContext IPC. We prefill the login inputs so the student doesn't
@@ -1029,6 +1086,7 @@ async function doLogin(){
     document.getElementById('login-ldr').textContent='Checking for existing session...';
 
     const normalizedRoll = student.roll_number;
+    currentRoll = normalizedRoll;
     let existing = null;
     try{
       const cr = await fetch(`${SERVER}/api/check-session/${encodeURIComponent(normalizedRoll)}`,
@@ -1780,6 +1838,7 @@ function ansWrite(qid, setObj){
   if(arr.length) answers[qid]=arr.join(',');
   else delete answers[qid];
   _persistAnswers();
+  _scheduleSoonSave();
 }
 
 function renderQ(){
@@ -1932,6 +1991,7 @@ function selAns(l){
 let bulkSaveTimer    = null;
 let bulkSaveInFlight = false;
 let saveRetryTimer   = null;
+let saveDebounceTimer = null;
 let saveRetryCount   = 0;
 const SAVE_RETRY_DELAYS = [5000, 15000, 45000]; // backoff schedule
 
@@ -1950,11 +2010,21 @@ function _scheduleSaveRetry(){
   }, delay);
 }
 
+function _scheduleSoonSave(){
+  if(!sessionId || !examActive) return;
+  if(saveDebounceTimer) clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(() => {
+    saveDebounceTimer = null;
+    doBulkSave();
+  }, isOffline ? 10000 : 5000);
+}
+
 async function doBulkSave(){
   if(!sessionId || !examActive || Object.keys(answers).length === 0) return;
   if(bulkSaveInFlight) return;
   _persistAnswersNow(); // flush debounce so latest selection is on disk before network attempt
   const statusEl = document.getElementById('save-status');
+  if(!statusEl) return;
   if(isOffline){
     statusEl.textContent = 'Offline — saved locally';
     statusEl.style.color = '#d29922';
@@ -2112,6 +2182,7 @@ async function submitExam(timeUp=false){
   submitInFlight=true;
   examActive=false;
   if(bulkSaveTimer) clearInterval(bulkSaveTimer);
+  if(saveDebounceTimer) { clearTimeout(saveDebounceTimer); saveDebounceTimer = null; }
   stopHeartbeat();
   clearInterval(timerInt);
   try{ chatDisconnect(); const fab=document.getElementById('chat-fab'); if(fab) fab.classList.remove('show'); const panel=document.getElementById('chat-panel'); if(panel) panel.classList.remove('open'); }catch(_){}
@@ -2140,6 +2211,7 @@ async function submitExam(timeUp=false){
     time_taken_secs:taken,
     answers:answersPayload
   };
+  _persistSubmitPayload(lastSubmitPayload);
 
   const result=await _doSubmit(lastSubmitPayload);
 
@@ -2167,6 +2239,7 @@ async function submitExam(timeUp=false){
 
   // Success — clear offline answer backup
   _clearLocalAnswers();
+  _clearSubmitPayload();
 
   const dh3=document.getElementById('done-heading');
   dh3.className='ok';
@@ -2202,12 +2275,15 @@ async function submitExam(timeUp=false){
   },1000);
 }
 
-async function retrySubmit(){
+async function retrySubmit(auto=false){
+  if(!lastSubmitPayload) lastSubmitPayload = _loadSubmitPayload();
   if(!lastSubmitPayload) return;
   document.getElementById('retry-submit-btn').style.display='none';
   const dh4=document.getElementById('done-heading');
-  dh4.className='info'; dh4.textContent='Retrying...';
-  document.getElementById('done-subtext').textContent='Please wait...';
+  dh4.className='info'; dh4.textContent=auto ? 'Reconnected — retrying...' : 'Retrying...';
+  document.getElementById('done-subtext').textContent=auto
+    ? 'Connection is back. We are submitting your saved answers now.'
+    : 'Please wait...';
   document.getElementById('final-score').textContent='...';
   submitInFlight=true;
 
@@ -2219,19 +2295,21 @@ async function retrySubmit(){
     retryAnswers[String(qid)]=String(ans);
   }
   lastSubmitPayload.answers=retryAnswers;
+  _persistSubmitPayload(lastSubmitPayload);
 
   const result=await _doSubmit(lastSubmitPayload);
   if(!result){
     const dh5=document.getElementById('done-heading');
     dh5.className='fail'; dh5.textContent='Still Failed';
     document.getElementById('done-subtext').textContent=
-      'Please contact the examiner. Your answers are saved on the server.';
+      'Still waiting on the network. Your answers are saved on this device and will retry when you reconnect.';
     document.getElementById('final-score').textContent='⚠';
     document.getElementById('retry-submit-btn').style.display='block';
     submitInFlight=false;
     return;
   }
   lastSubmitPayload=null; // prevent further retries
+  _clearSubmitPayload();
   const finalScore=result.score, finalTotal=result.total||questions.length;
   const dh6=document.getElementById('done-heading');
   dh6.className='ok'; dh6.textContent='Exam Submitted';

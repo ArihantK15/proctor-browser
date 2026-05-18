@@ -163,20 +163,18 @@ Into KVM Postgres:
 Recommended concrete cutover flow:
 
 ```bash
-# 1. On old Supabase, create a custom-format dump from the direct DB URI.
-pg_dump "$SUPABASE_DB_URL" \
-  --format=custom --no-owner --no-privileges \
-  --exclude-schema=auth --exclude-schema=storage --exclude-schema=realtime \
-  --file=/tmp/procta-supabase.dump
+# 1. On the KVM, create a custom-format dump from the direct Supabase DB URI.
+#    This uses a postgres client container, so pg_dump does not need to be
+#    installed on the host.
+export SUPABASE_DB_URL='postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres'
+./scripts/backup_supabase.sh
 
-# 2. Copy it to the KVM and restore into the private postgres container.
-scp /tmp/procta-supabase.dump root@app.procta.net:/root/proctor-browser/backups/postgres/
-ssh root@app.procta.net
-cd /root/proctor-browser
+# 2. Restore the newest Supabase dump into the private postgres container.
+latest_dump="$(ls -t backups/supabase/procta-supabase-*.dump | head -1)"
 docker compose --profile postgres up -d postgres
 docker compose --profile postgres exec -T postgres \
   pg_restore -U procta -d procta --clean --if-exists \
-  < backups/postgres/procta-supabase.dump
+  < "$latest_dump"
 
 # 3. Apply local migrations directly to KVM Postgres.
 docker compose --profile postgres run --rm \
@@ -190,6 +188,9 @@ docker compose --profile postgres run --rm \
   --entrypoint python \
   -e DATABASE_URL="postgresql://procta:${POSTGRES_PASSWORD}@postgres:5432/procta" \
   api scripts/verify_postgres_cutover.py
+
+# 5. Take a local Postgres backup after restore + migrations pass.
+./scripts/backup_postgres.sh
 ```
 
 **Migration application order on the fresh KVM Postgres:**

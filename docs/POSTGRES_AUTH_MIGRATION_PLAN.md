@@ -215,7 +215,7 @@ SQL can compile on plain Postgres.
 
 | Var | Required | Default | Notes |
 |---|---|---|---|
-| `DATABASE_URL` | Yes (when `DATABASE_BACKEND=postgres`) | — | `postgresql://procta:PASS@postgres:5432/procta` |
+| `DATABASE_URL` | Yes (when `DATABASE_BACKEND=postgres`) | — | `postgresql://procta:URL_ENCODED_PASS@proctor-postgres:5432/procta`. `.env` values from `env_file` are not shell-expanded, so do not leave `${POSTGRES_PASSWORD}` inside this value. |
 | `DATABASE_BACKEND` | No | `supabase` | Set to `postgres` to flip storage layer |
 | `AUTH_PROVIDER` | No | `supabase` | Use `hybrid` during transition; set to `local` only after legacy users have local hashes/OAuth |
 | `POSTGRES_POOL_MIN` | No | `3` | Warm connections for snappier first requests |
@@ -236,12 +236,22 @@ SQL can compile on plain Postgres.
 6. Set:
 
 ```bash
+DB_PASS_ENC="$(python3 - <<'PY'
+import os, urllib.parse
+print(urllib.parse.quote(os.environ["POSTGRES_PASSWORD"], safe=""))
+PY
+)"
+
 DATABASE_BACKEND=postgres
 AUTH_PROVIDER=local
-DATABASE_URL=postgresql://procta:<password>@postgres:5432/procta
+DATABASE_URL=postgresql://procta:${DB_PASS_ENC}@proctor-postgres:5432/procta
 POSTGRES_POOL_MIN=3
 POSTGRES_POOL_MAX=20
 ```
+
+In the actual `.env` file, write the expanded `DB_PASS_ENC` value into
+`DATABASE_URL`; do not leave `${DB_PASS_ENC}` or `${POSTGRES_PASSWORD}` in the
+file.
 
 7. Restart API and workers:
 

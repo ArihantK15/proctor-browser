@@ -89,6 +89,26 @@ class _SQL:
         self.params: list[Any] = []
 
     def add(self, value: Any) -> str:
+        # asyncpg's prepared-statement parameter binding rejects ISO 8601
+        # strings as values for timestamptz columns — it requires a real
+        # datetime instance. The legacy Supabase REST adapter tolerated
+        # strings (JSON serialization), and the codebase has dozens of
+        # `now_ist().isoformat()` and `dt.isoformat()` calls that pass
+        # strings through this layer. Coerce here so all of them keep
+        # working on the postgres backend without per-callsite churn.
+        #
+        # Heuristic: only attempt coercion on strings of plausible ISO
+        # length that contain 'T' — guarantees we don't try to coerce
+        # short identifiers, emails, UA strings, or other free text.
+        # If `fromisoformat()` raises, we leave the value as a string.
+        if isinstance(value, str) and 16 <= len(value) <= 40 and "T" in value:
+            try:
+                from datetime import datetime as _dt
+                # fromisoformat in 3.11+ accepts trailing 'Z' as +00:00;
+                # the .replace() makes older Pythons accept it too.
+                value = _dt.fromisoformat(value.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass  # not an ISO timestamp — leave as-is
         self.params.append(value)
         return f"${len(self.params)}"
 

@@ -28,7 +28,12 @@ DEFAULT_TOKEN_TTL_HOURS = 24
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=500, help="number of token rows to emit")
-    parser.add_argument("--prefix", default="MIXED", help="roll/session prefix")
+    parser.add_argument("--prefix", default="MIXED", help="roll/session prefix (joined by '_')")
+    parser.add_argument(
+        "--zero-pad", type=int, default=0,
+        help="zero-pad index to N digits — set to 4 to match setup_test_data.py "
+             "(produces LOADTEST_0001 instead of LOADTEST_1). Default 0 = no padding.",
+    )
     parser.add_argument("--teacher-id", default="", help="optional teacher id claim")
     parser.add_argument("--exam-id", default="", help="optional exam id claim")
     parser.add_argument("--student-id-prefix", default="", help="optional student id prefix claim")
@@ -78,7 +83,8 @@ def main() -> int:
     secret_key = _secret_key()
     rows = []
     for idx in range(1, args.count + 1):
-        roll = f"{args.prefix}_{idx}"
+        idx_str = f"{idx:0{args.zero_pad}d}" if args.zero_pad > 0 else str(idx)
+        roll = f"{args.prefix}_{idx_str}"
         student_id = f"{args.student_id_prefix}{idx}" if args.student_id_prefix else None
         rows.append(
             {

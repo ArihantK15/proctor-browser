@@ -14,6 +14,7 @@ from .email_jobs import (
     send_new_account_notification_job,
 )
 from .autosave_jobs import flush_autosave_job
+from .scoring_jobs import score_submission_job
 
 __all__ = [
     "enqueue_job", "_redis_url", "_rq_enabled", "_run_coro_in_sync",
@@ -21,4 +22,5 @@ __all__ = [
     "send_scorecard_email_job", "send_org_invite_email_job",
     "send_new_account_notification_job",
     "flush_autosave_job",
+    "score_submission_job",
 ]

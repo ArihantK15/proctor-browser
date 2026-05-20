@@ -254,6 +254,17 @@ async def _room_frame_cleanup_loop():
 app = FastAPI(title="AI Proctor Server", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _custom_rate_limit_handler)
+
+# Note on proxy-header trust (Cloudflare + Caddy fronting Procta):
+# Real-client-IP resolution is handled at the uvicorn layer via the
+# `--forwarded-allow-ips="*"` flag in entrypoint.sh (uvicorn's built-in
+# ProxyHeadersMiddleware). This is safer than enabling it at the app
+# layer because uvicorn's middleware runs before slowapi sees the
+# request, so the rate-limit key reflects the real client IP.
+# Caddy's `client_ip_headers CF-Connecting-IP X-Forwarded-For` block
+# (Caddyfile) only trusts these headers from Cloudflare ranges, so a
+# spoofed header from a direct connection is ignored.
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,

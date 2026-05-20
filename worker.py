@@ -48,7 +48,10 @@ logging.basicConfig(
 log = logging.getLogger("worker")
 
 redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-queue_name = os.environ.get("RQ_QUEUE", "default")
+# Multiple queues supported via comma-separated list. The 'scoring'
+# queue is dedicated to /submit-exam background scoring (Fix #2) so
+# heavy submit-wave bursts don't starve other jobs (email, autosave).
+queue_names = [q.strip() for q in os.environ.get("RQ_QUEUE", "default,scoring").split(",") if q.strip()]
 
 # Import job modules so the function references are available to the worker.
 from app import jobs  # noqa: F401
@@ -96,9 +99,9 @@ _t.start()
 log.info("worker heartbeat loop started")
 
 if __name__ == "__main__":
-    log.info("worker starting — redis=%s queue=%s", redis_url, queue_name)
+    log.info("worker starting — redis=%s queues=%s", redis_url, queue_names)
     w = Worker(
-        [Queue(queue_name, connection=conn)],
+        [Queue(q, connection=conn) for q in queue_names],
         connection=conn,
         exception_handlers=[_job_failure],
     )

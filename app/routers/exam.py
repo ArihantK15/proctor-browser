@@ -780,6 +780,15 @@ async def _try_ags_grade_passback(
         _exam_log.warning("[AGS] Grade passback failed for %s: %s", roll_number, e)
 
 
+def _async_scoring_enabled() -> bool:
+    """Feature flag: when ON, /submit-exam returns 202 immediately and a
+    background RQ job does scoring + risk + LMS passback. When OFF (default),
+    the legacy inline-scoring path runs. Allows instant rollback if the
+    async path misbehaves.
+    """
+    return os.environ.get("ASYNC_SCORING_ENABLED", "").lower() in ("1", "true", "yes")
+
+
 @router.post("/api/v1/submit-exam")
 @limiter.limit("5/minute")
 async def submit_exam(result: ResultIn, request: Request):
@@ -816,11 +825,108 @@ async def submit_exam(result: ResultIn, request: Request):
     jwt_roll = claims.get("roll", "")
     trusted_roll = jwt_roll.upper()
 
-    # Guard: Block re-submission of already-completed sessions
-    existing = await _atable("exam_sessions").select("status,started_at")\
+    # Guard: Block re-submission of already-submitted-or-completed sessions.
+    # With async scoring enabled, status sits in SUBMITTED for ~100 ms while
+    # the RQ worker scores it — without this extra check, a rapid double-
+    # click would enqueue two scoring jobs and double-insert violations /
+    # SSE publishes / LMS passbacks. Catching SUBMITTED here keeps the
+    # async flow strictly idempotent at the API edge.
+    existing = await _atable("exam_sessions").select("status,started_at,full_name,email,submitted_at,score,total,percentage,risk_score")\
         .eq("session_key", result.session_id).execute()
-    if existing.data and existing.data[0].get("status") == SessionStatus.COMPLETED:
-        raise HTTPException(status_code=409, detail="Exam already submitted")
+    if existing.data:
+        current_status = existing.data[0].get("status")
+        if current_status == SessionStatus.COMPLETED:
+            raise HTTPException(status_code=409, detail="Exam already submitted")
+        if current_status == SessionStatus.SUBMITTED:
+            # Treat as a successful retry — return the same shape the renderer
+            # expects so the user sees the "Calculating your score…" state
+            # rather than an error. If scoring already finished between this
+            # check and the SUBMITTED snapshot, send the final numbers.
+            rec = existing.data[0]
+            if rec.get("score") is not None:
+                return {"status": SessionStatus.SUBMITTED,
+                        "score": rec.get("score"), "total": rec.get("total"),
+                        "percentage": rec.get("percentage"),
+                        "risk_score": rec.get("risk_score") or 0,
+                        "risk_label": ""}
+            return {"status": SessionStatus.SUBMITTED, "scoring": "pending",
+                    "message": "Submission already received. Calculating your score…",
+                    "session_id": result.session_id}
+
+    # ── Async-scoring fast path (Fix #2 — handles burst submit waves) ──
+    # When the feature flag is on, persist the answers + mark the session
+    # as 'submitted' (intermediate state), enqueue scoring to RQ, and
+    # return 202 immediately. The client polls /api/v1/session-status to
+    # learn the final score. Heavy work (scoring, risk, LMS passback)
+    # moves off the request thread.
+    if _async_scoring_enabled():
+        try:
+            # Persist answers (cache → DB) — same as Phase 2 in the legacy path
+            final_cached, final_should_flush = cache_autosave_snapshot(
+                result.session_id,
+                final_answers,
+                teacher_id=tid,
+                exam_id=eid,
+                student_id=sid,
+                final=True,
+            )
+            queued = (
+                final_cached
+                and final_should_flush
+                and _rq_enabled()
+                and _enqueue_autosave_flush(result.session_id, delete_after=True)
+            )
+            if not queued:
+                await _save_answers_bulk_to_db(
+                    result.session_id,
+                    final_answers,
+                    teacher_id=tid,
+                    exam_id=eid,
+                )
+
+            # Mark session 'submitted' (NOT 'completed' yet — scoring pending)
+            interim_row = {
+                "status":          SessionStatus.SUBMITTED,
+                "submitted_at":    now.isoformat(),
+                "time_taken_secs": result.time_taken_secs,
+                "roll_number":     trusted_roll,
+            }
+            if tid:
+                interim_row["teacher_id"] = tid
+            if eid:
+                interim_row["exam_id"] = eid
+            await _atable("exam_sessions").update(interim_row)\
+                .eq("session_key", result.session_id)\
+                .neq("status", SessionStatus.COMPLETED)\
+                .execute()
+
+            # Enqueue the scoring job — runs in RQ worker, never blocks this request
+            from ..jobs import enqueue_job, score_submission_job
+            enqueue_job(
+                score_submission_job,
+                session_id=result.session_id,
+                teacher_id=tid,
+                exam_id=eid,
+                student_id=sid,
+                roll_number=trusted_roll,
+                time_taken_secs=result.time_taken_secs,
+                queue_name="scoring",
+            )
+
+            _exam_log.info("[SUBMIT-ASYNC] %s queued for scoring (roll=%s)",
+                           result.session_id, trusted_roll)
+            return {
+                "status": SessionStatus.SUBMITTED,
+                "scoring": "pending",
+                "message": "Submission received. Calculating your score…",
+                "session_id": result.session_id,
+            }
+        except Exception as e:
+            # If the async path blows up, fall through to the inline path
+            # rather than 500-ing — this is the rollback-safety we want.
+            _exam_log.error("[SUBMIT-ASYNC] fast-path failed for %s, "
+                            "falling back to inline scoring: %s",
+                            result.session_id, e)
 
     # Phase 1: Score + config in parallel
     score_fut = _recalculate_score(result.session_id, final_answers, teacher_id=tid, exam_id=eid)
@@ -984,6 +1090,52 @@ async def submit_exam(result: ResultIn, request: Request):
     if audit_warnings:
         resp["warnings"] = audit_warnings
     return resp
+
+
+@router.get("/api/v1/session-status")
+@limiter.limit("60/minute")
+async def session_status(request: Request, session_id: str):
+    """Lightweight poll endpoint for the async-scoring flow.
+
+    The renderer calls this every ~1.5 s after `/submit-exam` returns
+    `scoring: pending`. Returns:
+      - `scoring: 'pending'` while the RQ worker is still processing
+      - `status: 'completed'` with score/percentage/risk_score once done
+
+    Cheap enough (one DB lookup, no joins) that polling 5 000 students
+    at 1.5 s intervals is ~3 300 req/s peak — well within the API's
+    capacity for read-only queries.
+    """
+    if is_practice(session_id):
+        return {"status": "completed", "score": 0, "total": 0,
+                "percentage": 0, "practice": True}
+
+    claims = require_auth(request)
+    _check_session_ownership(claims, session_id)
+
+    row = await _atable("exam_sessions")\
+        .select("status,score,total,percentage,risk_score")\
+        .eq("session_key", session_id).limit(1).execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    rec = row.data[0]
+    status = rec.get("status", "")
+
+    # Scoring still pending — session was marked 'submitted' but the
+    # background job hasn't flipped it to 'completed' yet.
+    if status == SessionStatus.SUBMITTED and rec.get("score") is None:
+        return {"status": SessionStatus.SUBMITTED, "scoring": "pending"}
+
+    # Done — return the final numbers
+    return {
+        "status":      status or SessionStatus.SUBMITTED,
+        "scoring":     "done",
+        "score":       rec.get("score") or 0,
+        "total":       rec.get("total") or 0,
+        "percentage":  rec.get("percentage") or 0,
+        "risk_score":  rec.get("risk_score") or 0,
+    }
 
 
 def _save_frame(student_dir: str, data: FrameIn) -> str:

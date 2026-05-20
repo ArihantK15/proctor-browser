@@ -40,7 +40,16 @@ set -- uvicorn app.main:app \
   --workers "$UVICORN_WORKERS" \
   --loop uvloop \
   --timeout-keep-alive "$UVICORN_KEEPALIVE" \
-  --log-level warning
+  --log-level warning \
+  --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-*}"
+
+# `--forwarded-allow-ips="*"` tells uvicorn to honour X-Forwarded-For
+# and X-Forwarded-Proto headers from any peer. This is safe because
+# the API container's port 8000 is NOT exposed on the host — the only
+# peer that can reach it is Caddy (which itself only trusts those
+# headers when they come from Cloudflare ranges, see Caddyfile). To
+# tighten further on hosts where 8000 is exposed, set
+# `FORWARDED_ALLOW_IPS=172.18.0.0/16` (the Docker bridge subnet).
 
 if [ -n "${UVICORN_LIMIT_CONCURRENCY:-}" ]; then
   set -- "$@" --limit-concurrency "$UVICORN_LIMIT_CONCURRENCY"

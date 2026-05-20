@@ -2241,6 +2241,53 @@ async function submitExam(timeUp=false){
   _clearLocalAnswers();
   _clearSubmitPayload();
 
+  // ── Async-scoring path (server returned `scoring: 'pending'`) ──
+  // The submit-exam endpoint accepted the answers but is computing the
+  // score in a background RQ worker. Poll /session-status every 1.5 s
+  // until the worker writes the final score, with a 30 s hard cap.
+  let finalResult = result;
+  if(result.scoring === 'pending'){
+    const dhPoll=document.getElementById('done-heading');
+    dhPoll.className='info'; dhPoll.textContent='Submitted ✓';
+    document.getElementById('done-subtext').textContent='Calculating your score…';
+    document.getElementById('final-score').textContent='…';
+
+    const POLL_INTERVAL_MS=1500;
+    const POLL_MAX_MS=30000;
+    const pollStart=Date.now();
+    while(Date.now()-pollStart < POLL_MAX_MS){
+      await new Promise(r=>setTimeout(r, POLL_INTERVAL_MS));
+      try{
+        const sr=await fetch(`${SERVER}/api/v1/session-status?session_id=${encodeURIComponent(sessionId)}`,{
+          headers:authHdr()
+        });
+        if(sr.ok){
+          const sd=await sr.json();
+          if(sd.scoring === 'done' || sd.status === 'completed'){
+            finalResult = sd;
+            break;
+          }
+        }
+      }catch(pollErr){
+        console.warn('[Submit] session-status poll failed:', pollErr.message);
+      }
+    }
+    // If we timed out waiting for the score, show a graceful "scoring
+    // taking longer than usual — check back later" state instead of an
+    // error. The submission itself succeeded.
+    if(finalResult.scoring === 'pending'){
+      const dhTo=document.getElementById('done-heading');
+      dhTo.className='ok'; dhTo.textContent='Exam Submitted ✓';
+      document.getElementById('done-subtext').textContent=
+        'Your answers are saved. Your score will be available in your dashboard shortly.';
+      document.getElementById('final-score').textContent='✓';
+      document.getElementById('done-note').style.display='block';
+      // Skip the auto-close countdown so student can see the message
+      if(window.proctor) window.proctor.stopProctor();
+      return;
+    }
+  }
+
   const dh3=document.getElementById('done-heading');
   dh3.className='ok';
   // Practice flow gets a different success copy so a student doesn't
@@ -2255,7 +2302,7 @@ async function submitExam(timeUp=false){
     dh3.textContent='Exam Submitted';
     document.getElementById('done-subtext').textContent='Your answers have been saved securely.';
   }
-  const finalScore=result.score, finalTotal=result.total||questions.length;
+  const finalScore=finalResult.score, finalTotal=finalResult.total||questions.length;
   document.getElementById('final-score').textContent=
     finalScore!=null ? `${finalScore}/${finalTotal}` : 'Submitted';
   document.getElementById('done-note').style.display='block';

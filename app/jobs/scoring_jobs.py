@@ -92,7 +92,12 @@ async def _score_submission_async(
         "risk_score":      risk_score_val,
         "status":          SessionStatus.COMPLETED,
     }
-    # Only set submitted_at if it isn't already (submit handler may have set it)
+    # Only set submitted_at if it isn't already (submit handler may have set it).
+    # ISO string is fine here — matches the legacy inline-scoring path which
+    # also writes .isoformat() to this column and has been working in
+    # production. asyncpg's column-input coercion accepts ISO strings for
+    # timestamptz on UPDATE values; only WHERE filter parameters need a
+    # real datetime (see heartbeat_reaper for that case).
     if not sess.get("submitted_at"):
         session_row["submitted_at"] = now.isoformat()
 

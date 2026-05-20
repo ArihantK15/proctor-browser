@@ -39,7 +39,12 @@ async def heartbeat_reaper_loop() -> None:
 async def _reap_once() -> None:
     from ..database import async_table as _atable
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_TIMEOUT_SECS)).isoformat()
+    # Pass a real datetime object (not .isoformat()) — asyncpg's postgres
+    # backend rejects ISO strings for timestamptz parameters with
+    # "expected a datetime.date or datetime.datetime instance, got 'str'".
+    # The Supabase REST backend coerces datetimes to strings on its own,
+    # so this works for both backends.
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_TIMEOUT_SECS)
 
     # Find sessions that are still marked active/in_progress but have a
     # last_heartbeat older than the cutoff (or NULL — pre-heartbeat sessions
@@ -136,6 +141,10 @@ async def _mark_abandoned(row: dict, _atable) -> None:
             "total":      total,
             "percentage": pct,
             "status":     SessionStatus.FORCE_SUBMITTED,
+            # ISO string is fine for UPDATE values — asyncpg's column-level
+            # input coercion handles it. Only WHERE-filter parameters
+            # (see cutoff above) need a real datetime to satisfy the
+            # prepared-statement parameter type check.
             "submitted_at": datetime.now(timezone.utc).isoformat(),
         }).eq("session_key", sid).execute()
         logger.info("[reaper] auto-scored session %s: %d/%d (%.1f%%)", sid, score, total, pct)

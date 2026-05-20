@@ -75,6 +75,18 @@ def test_where_is_null_and_not_null():
     assert ' IS NOT NULL' in t2._where(sql2)
 
 
+def test_where_not_proxy_is_null_and_not_null():
+    t = PostgresTable("exam_sessions").not_.is_("last_heartbeat", "null")
+    sql = _SQL()
+    assert t._where(sql) == ' WHERE "last_heartbeat" IS NOT NULL'
+    assert sql.params == []
+
+    t2 = PostgresTable("exam_sessions").not_.is_("last_heartbeat", "not-null")
+    sql2 = _SQL()
+    assert t2._where(sql2) == ' WHERE "last_heartbeat" IS NULL'
+    assert sql2.params == []
+
+
 def test_where_in_uses_ANY():
     """asyncpg's idiomatic IN-list is `= ANY($1)` with the param as a
     list, not Postgres-native `IN (...)` — that's how we get safe
@@ -86,10 +98,25 @@ def test_where_in_uses_ANY():
     assert sql.params == [["active", "pending"]]
 
 
+def test_where_not_proxy_in_uses_all():
+    t = PostgresTable("students").not_.in_("status", ["active", "pending"])
+    sql = _SQL()
+    where = t._where(sql)
+    assert '<> ALL($1)' in where
+    assert sql.params == [["active", "pending"]]
+
+
 def test_where_like_passthrough():
     t = PostgresTable("students").like("email", "%@example.com")
     sql = _SQL()
     assert ' LIKE $1' in t._where(sql)
+
+
+def test_where_not_proxy_like_passthrough():
+    t = PostgresTable("students").not_.ilike("email", "%@example.com")
+    sql = _SQL()
+    assert ' NOT ILIKE $1' in t._where(sql)
+    assert sql.params == ["%@example.com"]
 
 
 def test_where_ilike_passthrough():

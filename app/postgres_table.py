@@ -93,6 +93,47 @@ class _SQL:
         return f"${len(self.params)}"
 
 
+class _NotFilter:
+    """Small PostgREST `.not_` proxy used by Supabase-shaped callers."""
+
+    def __init__(self, table: "PostgresTable"):
+        self._table = table
+
+    def _add(self, col: str, op: str, val) -> "PostgresTable":
+        self._table._filters.append((col, f"not:{op}", val))
+        return self._table
+
+    def is_(self, col: str, val) -> "PostgresTable":
+        return self._add(col, "is", val)
+
+    def eq(self, col: str, val) -> "PostgresTable":
+        return self._add(col, "=", val)
+
+    def neq(self, col: str, val) -> "PostgresTable":
+        return self._add(col, "!=", val)
+
+    def in_(self, col: str, values) -> "PostgresTable":
+        return self._add(col, "in", list(values))
+
+    def like(self, col: str, pattern: str) -> "PostgresTable":
+        return self._add(col, "like", pattern)
+
+    def ilike(self, col: str, pattern: str) -> "PostgresTable":
+        return self._add(col, "ilike", pattern)
+
+    def gt(self, col: str, val) -> "PostgresTable":
+        return self._add(col, ">", val)
+
+    def gte(self, col: str, val) -> "PostgresTable":
+        return self._add(col, ">=", val)
+
+    def lt(self, col: str, val) -> "PostgresTable":
+        return self._add(col, "<", val)
+
+    def lte(self, col: str, val) -> "PostgresTable":
+        return self._add(col, "<=", val)
+
+
 class PostgresTable:
     def __init__(self, table: str):
         self._table = table
@@ -107,6 +148,10 @@ class PostgresTable:
         self._op: str | None = None
         self._payload = None
         self._single = False
+
+    @property
+    def not_(self) -> _NotFilter:
+        return _NotFilter(self)
 
     def select(self, cols: str = "*", *, count: str | None = None) -> "PostgresTable":
         self._select_cols = cols
@@ -212,12 +257,22 @@ class PostgresTable:
             col_sql = _ident(col)
             if op == "is":
                 clauses.append(f"{col_sql} IS {'NULL' if val in (None, 'null') else 'NOT NULL'}")
+            elif op == "not:is":
+                clauses.append(f"{col_sql} IS {'NOT NULL' if val in (None, 'null') else 'NULL'}")
             elif op == "in":
                 clauses.append(f"{col_sql} = ANY({sql.add(val)})")
+            elif op == "not:in":
+                clauses.append(f"{col_sql} <> ALL({sql.add(val)})")
             elif op == "like":
                 clauses.append(f"{col_sql} LIKE {sql.add(val)}")
+            elif op == "not:like":
+                clauses.append(f"{col_sql} NOT LIKE {sql.add(val)}")
             elif op == "ilike":
                 clauses.append(f"{col_sql} ILIKE {sql.add(val)}")
+            elif op == "not:ilike":
+                clauses.append(f"{col_sql} NOT ILIKE {sql.add(val)}")
+            elif op.startswith("not:"):
+                clauses.append(f"NOT ({col_sql} {op.removeprefix('not:')} {sql.add(val)})")
             else:
                 clauses.append(f"{col_sql} {op} {sql.add(val)}")
         return f" WHERE {' AND '.join(clauses)}" if clauses else ""

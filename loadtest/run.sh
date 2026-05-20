@@ -7,6 +7,7 @@
 #   ./run.sh real-exam       # real exam shape: autosave periodically, submit once
 #   ./run.sh burst           # 75s, 300 VUs all hitting submit
 #   ./run.sh sse             # streaming dashboard SSE connections
+#   ./run.sh mixed-proctoring # autosave + heartbeat + event + frame + optional SSE
 #
 # Env vars:
 #   TARGET       — backend URL  (default: https://app.procta.net)
@@ -21,6 +22,10 @@
 #   SUBMIT_SPREAD_SECONDS — real-exam submit spread window (default: 60)
 #   SAVE_MODE    — exam save behavior: bulk or individual (default: bulk)
 #   LOADTEST_SECRET — optional X-Loadtest-Key value; must match server env
+#   AUTH_MODE    — mixed-proctoring auth mode: practice or jwt (default: practice)
+#   TOKEN_FILE   — mixed-proctoring JWT row file for AUTH_MODE=jwt
+#   SUBMIT_MODE  — mixed-proctoring submit mode: practice, jwt, or off
+#   DASHBOARD_VUS — mixed-proctoring optional SSE dashboard VUs
 
 set -euo pipefail
 
@@ -79,6 +84,25 @@ case "$SCENARIO" in
       --env LOADTEST_SECRET="${LOADTEST_SECRET:-}" \
       real_exam.js
     ;;
+  mixed-proctoring)
+    k6 run \
+      --env TARGET="$TARGET" \
+      --env VUS="${VUS:-500}" \
+      --env EXAM_SECONDS="${EXAM_SECONDS:-300}" \
+      --env JOIN_SPREAD_SECONDS="${JOIN_SPREAD_SECONDS:-120}" \
+      --env AUTOSAVE_INTERVAL_SECONDS="${AUTOSAVE_INTERVAL_SECONDS:-60}" \
+      --env EVENT_INTERVAL_SECONDS="${EVENT_INTERVAL_SECONDS:-30}" \
+      --env FRAME_INTERVAL_SECONDS="${FRAME_INTERVAL_SECONDS:-60}" \
+      --env SUBMIT_SPREAD_SECONDS="${SUBMIT_SPREAD_SECONDS:-60}" \
+      --env LOADTEST_SECRET="${LOADTEST_SECRET:-}" \
+      --env AUTH_MODE="${AUTH_MODE:-practice}" \
+      --env TOKEN_FILE="${TOKEN_FILE:-}" \
+      --env SUBMIT_MODE="${SUBMIT_MODE:-}" \
+      --env ADMIN_TOKEN="${ADMIN_TOKEN:-}" \
+      --env DASHBOARD_VUS="${DASHBOARD_VUS:-0}" \
+      --env SSE_HOLD_SECONDS="${SSE_HOLD_SECONDS:-${EXAM_SECONDS:-300}}" \
+      mixed_proctoring.js
+    ;;
   burst)
     k6 run \
       --env TARGET="$TARGET" \
@@ -101,7 +125,7 @@ case "$SCENARIO" in
     ;;
   *)
     echo "❌ Unknown scenario: $SCENARIO"
-    echo "   Use: smoke | exam | real-exam | burst | sse"
+    echo "   Use: smoke | exam | real-exam | mixed-proctoring | burst | sse"
     exit 1
     ;;
 esac

@@ -4,7 +4,7 @@ Two tools in this directory, pick whichever you need:
 
 | Tool | When to use | Fidelity | Setup time |
 |---|---|---|---|
-| **k6** (this README) — `smoke.js`, `exam_flow.js`, `submit_burst.js`, `sse_sessions.js` | Fast confidence checks, CI gates, "did I just break submit or live dashboard streams?" | Practice-mode exam scripts skip DB writes; SSE uses a real admin JWT and opens streaming connections | **30 seconds**: `brew install k6 && ./run.sh smoke` |
+| **k6** (this README) — `smoke.js`, `exam_flow.js`, `real_exam.js`, `mixed_proctoring.js`, `submit_burst.js`, `sse_sessions.js` | Fast confidence checks, CI gates, "did I just break submit or live dashboard streams?" | Practice-mode exam scripts skip DB writes; SSE uses a real admin JWT and opens streaming connections; mixed proctoring can use synthetic JWTs for real event/frame persistence | **30 seconds**: `brew install k6 && ./run.sh smoke` |
 | **Locust** — `locustfile.py` + `setup_test_data.py` | Pre-launch capacity validation, the "can we actually do 500 board exam students?" question | Full auth, real DB writes, mirrors production exactly | **10–20 minutes**: pip install locust, pre-create test data, run |
 
 If you don't know which you need, **start with k6**. It's stupid-fast
@@ -14,7 +14,7 @@ a sales conversation.
 
 ## k6 quick start (this guide)
 
-Three scripts, one runner, no setup hell.
+One runner, several focused scenarios, no setup hell.
 
 ## What this tests
 
@@ -23,10 +23,11 @@ Three scripts, one runner, no setup hell.
 | `smoke.js` | 10 VUs hit `/health` + `/api/v1/billing/plans` for 30 s | Every deploy — 1-minute confidence check |
 | `exam_flow.js` | Stress loop: every VU repeatedly bulk-saves and submits | Finding the API ceiling |
 | `real_exam.js` | Real exam shape: staggered joins, periodic autosave, one final submit | Capacity planning and sales confidence |
+| `mixed_proctoring.js` | Real exam shape plus heartbeat, proctoring events, screenshot analysis upload, live-frame upload, and optional teacher dashboard SSE streams | Proof run for the full proctoring path, not just answer save/submit |
 | `submit_burst.js` | 300 students all submit within 60 s — the end-of-exam spike | Before any board-exam-scale deployment |
 | `sse_sessions.js` | 100 teacher dashboard SSE streams measure connect-token success, first-event latency, stream lifetime, and disconnects | Before live-monitor or dashboard stream changes |
 
-All three scripts use **practice mode** (`PRACTICE_*` session IDs)
+Most exam-path scripts use **practice mode** (`PRACTICE_*` session IDs)
 which is built into the Procta backend. Practice-mode requests
 exercise the full FastAPI middleware + router + Pydantic validation
 + route-handler pipeline but **skip DB writes and JWT auth**. Route
@@ -83,6 +84,24 @@ LOADTEST_SECRET=... SAVE_MODE=individual VUS=50 DURATION_MIN=1 ./run.sh exam
 # Teacher live dashboard SSE streams — requires a staging admin JWT
 ADMIN_TOKEN=... TARGET=https://staging.example.com ./run.sh sse
 
+# Mixed proctoring practice-mode run:
+# autosave + heartbeat + event + analyze-frame + live-frame + practice submit.
+LOADTEST_SECRET=... VUS=500 EXAM_SECONDS=300 ./run.sh mixed-proctoring
+
+# Mixed proctoring real persistence run:
+# first mint synthetic student JWTs on the server/API environment:
+docker compose run --rm --entrypoint python api \
+  scripts/mint_loadtest_tokens.py --count 1000 --prefix MIXED \
+  > /tmp/mixed_tokens.json
+
+# then copy the token file to this loadtest directory and run:
+LOADTEST_SECRET=... AUTH_MODE=jwt TOKEN_FILE=mixed_tokens.json \
+  VUS=1000 EXAM_SECONDS=300 SUBMIT_MODE=off ./run.sh mixed-proctoring
+
+# Add live teacher dashboard SSE streams to the same mixed run:
+LOADTEST_SECRET=... AUTH_MODE=jwt TOKEN_FILE=mixed_tokens.json \
+  ADMIN_TOKEN=... DASHBOARD_VUS=50 VUS=1000 ./run.sh mixed-proctoring
+
 # Override target — defaults to https://app.procta.net
 TARGET=http://localhost:8000 ./run.sh smoke
 ```
@@ -137,6 +156,15 @@ For production capacity claims, prefer `real_exam.js`: each VU is one
 student, autosave happens every `AUTOSAVE_INTERVAL_SECONDS`, and submit
 happens once. `exam_flow.js` is harsher because it loops through many
 complete exam attempts per VU.
+
+For full proctoring claims, run `mixed_proctoring.js` after the answer
+path is already green. In default `AUTH_MODE=practice`, it safely checks
+router/middleware latency and the Redis live-frame cache path. In
+`AUTH_MODE=jwt`, it uses synthetic student JWTs and synthetic session IDs
+to exercise real heartbeat, proctoring event, and screenshot upload
+persistence. `SUBMIT_MODE` defaults to `off` in JWT mode because scored
+submit requires a complete real exam fixture; the dedicated `real_exam.js`
+script should remain the source of truth for submit capacity.
 
 ## Adapting for your scenario
 

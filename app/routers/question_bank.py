@@ -581,7 +581,11 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
             normalised.append({
                 "question_id":      q["id"],
                 "question":         q["question"],
-                "options":          {},
+                # `questions.options` is a TEXT column on the legacy
+                # schema; asyncpg won't bind a Python dict there. Serialize
+                # to JSON so both Supabase REST (tolerates either) and
+                # plain Postgres (strict) accept it.
+                "options":          "{}",
                 "correct":          "",
                 "question_type":    qtype,
                 "image_url":        str(q.get("image_url") or "") or None,
@@ -635,7 +639,12 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
         normalised.append({
             "question_id":   q["id"],
             "question":      q["question"],
-            "options":       options,
+            # `questions.options` is TEXT on the legacy schema (jsonb only
+            # for question_bank). asyncpg rejects a dict for a text param
+            # with `expected str, got dict` — serialize so both backends
+            # work. The reader side (load_questions) already json.loads()
+            # the string back into a dict.
+            "options":       json.dumps(options),
             "correct":       ",".join(sorted(correct_parts)),
             "question_type": qtype,
             "image_url":     str(q.get("image_url") or "") or None,

@@ -49,10 +49,22 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
         qtype = (q.get("question_type") or "mcq_single").strip().lower()
         if qtype not in ("mcq_single", "mcq_multi", "true_false"):
             qtype = "mcq_single"
+        # `options` lands as a dict on Supabase REST (PostgREST decodes
+        # jsonb → object) but as a JSON-encoded string on the plain
+        # Postgres backend (questions.options is a TEXT column on the
+        # legacy schema and writers explicitly json.dumps before insert).
+        # Parse defensively so downstream code always sees a dict.
+        raw_options = q.get("options") or {}
+        if isinstance(raw_options, str):
+            try:
+                import json as _json
+                raw_options = _json.loads(raw_options)
+            except (ValueError, TypeError):
+                raw_options = {}
         out.append({
             "id": str(q["question_id"]),
             "question": q.get("question", "") or "",
-            "options": q.get("options") or {},
+            "options": raw_options,
             "correct": str(q.get("correct") or ""),
             "question_type": qtype,
             "image_url": q.get("image_url") or "",

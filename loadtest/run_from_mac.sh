@@ -78,8 +78,10 @@ git pull --rebase=false 2>&1 | tail -3
 # pulled changes in scripts/ (e.g. mint_loadtest_tokens.py). The image
 # bakes those files in at build time; without this step the run uses
 # yesterday's version of the script even after git pull.
-echo "  rebuilding api image (picks up new scripts)..."
-docker compose build api 2>&1 | tail -3
+echo "  rebuilding + restarting api (picks up new scripts + migrations)..."
+docker compose up -d --no-deps --force-recreate --build api 2>&1 | tail -3
+# Give the API a moment to come back + run pending migrations on boot
+sleep 12
 
 echo "  creating exam + ${VUS} students..."
 python3 loadtest/setup_test_data.py \

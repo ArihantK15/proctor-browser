@@ -15,6 +15,22 @@ import asyncpg
 _pool: asyncpg.Pool | None = None
 _IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+# Per-table default ON CONFLICT columns for upserts.
+# Supabase REST infers the conflict target from the table's primary key
+# or unique index automatically; asyncpg requires us to spell it out.
+# Most tables use `id`, but several core tables key off something else.
+# Callers can still override via `.upsert(rows, on_conflict='col,...')`.
+_UPSERT_CONFLICT_COLS: dict[str, str] = {
+    "exam_sessions":           "session_key",
+    "answers":                 "session_key,question_id",
+    "questions":               "teacher_id,exam_id,question_id",
+    "exam_config":             "teacher_id,exam_id",
+    "student_invites":         "id",
+    "student_group_members":   "group_id,student_id",
+    "exam_group_assignments":  "exam_id,group_id",
+    "grading_audit":           "id",
+}
+
 # PostgREST `or` filter mini-grammar accepted here:
 #   "col.op.value,col.op.value,..."  with op ∈ {eq, neq, gt, gte, lt, lte, like, ilike, is}
 # This is the subset the app actually uses (admin_students search). Anything
@@ -383,7 +399,11 @@ class PostgresTable:
 
             if op == "upsert":
                 data = []
-                conflict_cols = [c.strip() for c in (self._on_conflict or "id").split(",") if c.strip()]
+                # Resolve conflict column: explicit override wins, otherwise
+                # use the per-table default registry, otherwise fall back to
+                # "id" (the most common PK).
+                default_conflict = _UPSERT_CONFLICT_COLS.get(self._table, "id")
+                conflict_cols = [c.strip() for c in (self._on_conflict or default_conflict).split(",") if c.strip()]
                 for row in self._payload:
                     cols = list(row.keys())
                     sql = _SQL()

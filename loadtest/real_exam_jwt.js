@@ -56,6 +56,16 @@ const HEARTBEAT_INTERVAL_SECONDS = parseInt(__ENV.HEARTBEAT_INTERVAL_SECONDS || 
 const POLL_INTERVAL_SECONDS     = parseFloat(__ENV.POLL_INTERVAL_SECONDS || '1.5')
 const POLL_MAX_SECONDS          = parseInt(__ENV.POLL_MAX_SECONDS || '30', 10)
 const TOKEN_FILE                = __ENV.TOKEN_FILE || './loadtest_tokens.json'
+// BYPASS_CF: when set, resolve the TARGET host directly to ORIGIN_IP so traffic
+// skips Cloudflare. Used to distinguish a real server bottleneck from CF edge
+// throttling (which kicks in when a single test machine fires thousands of
+// reqs/sec at one CF-fronted hostname). A real exam has students on many IPs,
+// so CF won't throttle in production — but it WILL throttle our single-Mac
+// load test, producing fake timeouts.
+//
+//   BYPASS_CF=1 ORIGIN_IP=187.127.169.89 k6 run ...
+const BYPASS_CF                 = __ENV.BYPASS_CF === '1' || __ENV.BYPASS_CF === 'true'
+const ORIGIN_IP                 = __ENV.ORIGIN_IP || '187.127.169.89'
 
 // ── Load the JWTs at startup (one-time disk read) ───────────────
 // k6's `open()` runs in the init context — file is bundled into every
@@ -88,7 +98,25 @@ const c = {
 }
 const scoringLatency = new Trend('scoring_latency_ms', true)
 
+// Build the hosts map only when BYPASS_CF is on. The TARGET URL stays
+// `https://app.procta.net` so the TLS SNI + Host header still claim the
+// real hostname (Caddy needs them to pick the right vhost) — k6's `hosts`
+// option only overrides DNS resolution, not the SNI/Host. We also need
+// insecureSkipTLSVerify because the origin presents the procta.net cert
+// directly which would normally be validated against CF's chain.
+const hostsMap = BYPASS_CF
+  ? (() => {
+      const host = TARGET.replace(/^https?:\/\//, '').split('/')[0].split(':')[0]
+      // Init context runs per VU — only log from VU 1 to avoid 3500x duplicate lines.
+      if (typeof __VU === 'undefined' || __VU <= 1) {
+        console.log(`[real_exam_jwt] BYPASS_CF=1 — resolving ${host} → ${ORIGIN_IP}`)
+      }
+      return { [host]: ORIGIN_IP }
+    })()
+  : undefined
+
 export const options = {
+  ...(hostsMap ? { hosts: hostsMap, insecureSkipTLSVerify: true } : {}),
   scenarios: {
     real_exam: {
       executor: 'per-vu-iterations',

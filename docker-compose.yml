@@ -67,7 +67,8 @@ services:
   worker:
     build: .
     entrypoint: python worker.py
-    container_name: proctor-worker
+    # container_name removed — blocks `docker compose up --scale worker=N`.
+    # Docker will auto-name as `proctor-browser-worker-1`, `-2`, etc.
     restart: unless-stopped
     env_file:
       - .env
@@ -84,9 +85,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${WORKER_MEMORY_LIMIT:-1g}
-          cpus: "${WORKER_CPU_LIMIT:-1.0}"
-    memswap_limit: ${WORKER_MEMSWAP_LIMIT:-1536m}
+          # Sized so 20 replicas fit on a 4-vCPU / 16-GB KVM:
+          #   20 × 256 MB = 5.1 GB total — well under 16 GB
+          #   20 × 0.5 CPU cap = 10 CPU oversubscribed on 4 cores, fine
+          #   because scoring workers are I/O-bound (DB queries dominate).
+          # Observed actual per-worker usage at 3 workers: ~89 MB / 0.5 CPU.
+          memory: ${WORKER_MEMORY_LIMIT:-256m}
+          cpus: "${WORKER_CPU_LIMIT:-0.5}"
+    memswap_limit: ${WORKER_MEMSWAP_LIMIT:-384m}
     logging:
       driver: "json-file"
       options:

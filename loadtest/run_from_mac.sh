@@ -124,4 +124,6 @@ k6 run \
   -e TOKEN_FILE="${TOKENS_LOCAL}" \
   -e VUS="${VUS}" \
   -e EXAM_SECONDS="${EXAM_SECONDS}" \
+  ${BYPASS_CF:+-e BYPASS_CF="${BYPASS_CF}"} \
+  ${ORIGIN_IP:+-e ORIGIN_IP="${ORIGIN_IP}"} \
   "${HERE}/real_exam_jwt.js"

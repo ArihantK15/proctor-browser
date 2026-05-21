@@ -93,13 +93,14 @@ async def _score_submission_async(
         "status":          SessionStatus.COMPLETED,
     }
     # Only set submitted_at if it isn't already (submit handler may have set it).
-    # ISO string is fine here — matches the legacy inline-scoring path which
-    # also writes .isoformat() to this column and has been working in
-    # production. asyncpg's column-input coercion accepts ISO strings for
-    # timestamptz on UPDATE values; only WHERE filter parameters need a
-    # real datetime (see heartbeat_reaper for that case).
+    # Pass a datetime OBJECT, not .isoformat() — asyncpg's timestamptz_encode
+    # rejects strings here even though postgres_table._SQL.add has a coercion
+    # heuristic. The heuristic was bypassed when this code ran from the RQ
+    # worker container which may have stale postgres_table.py. Passing a
+    # datetime directly avoids the entire round-trip and works against any
+    # version of the adapter.
     if not sess.get("submitted_at"):
-        session_row["submitted_at"] = now.isoformat()
+        session_row["submitted_at"] = now
 
     upd_q = _atable("exam_sessions").update(session_row).eq("session_key", session_id)
     if teacher_id:

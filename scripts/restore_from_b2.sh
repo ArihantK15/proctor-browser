@@ -28,12 +28,18 @@ mkdir -p "$TMP"
 echo "[restore-drill] authorising with B2..."
 b2 account authorize "$B2_APPLICATION_KEY_ID" "$B2_APPLICATION_KEY" >/dev/null
 
-# Pick the latest pg dump
-LATEST=$(b2 file list "$B2_BUCKET" 2>/dev/null \
-  | awk '/procta-pg-.*\.dump$/ {print $NF}' \
+# Pick the latest pg dump.
+# b2 CLI v4 uses `b2 ls` (the older `b2 file list` was removed). The
+# default `b2 ls b2://<bucket>` output is one filename per line; the
+# timestamped filename pattern `procta-pg-YYYYMMDDTHHMMSSZ.dump`
+# sorts lexicographically into chronological order, so plain
+# `sort | tail -n 1` picks the most recent.
+LATEST=$(b2 ls "b2://$B2_BUCKET" 2>/dev/null \
+  | grep -E '^procta-pg-.*\.dump$' \
   | sort | tail -n 1)
 if [ -z "$LATEST" ]; then
   echo "[restore-drill] no procta-pg-*.dump found in B2 bucket $B2_BUCKET"
+  echo "[restore-drill] (try: b2 ls b2://$B2_BUCKET — does anything print?)"
   exit 1
 fi
 echo "[restore-drill] latest dump: $LATEST"

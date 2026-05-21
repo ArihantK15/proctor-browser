@@ -48,10 +48,27 @@ def main():
     auth_data = r.json()
     teacher_token = auth_data.get("access_token")
     teacher_id = auth_data.get("teacher", {}).get("id", "")
+
+    # Extract the CSRF claim from the JWT — the server's CSRFMiddleware
+    # requires every POST/PUT/PATCH/DELETE to echo it as X-CSRF-Token.
+    # We decode without verification because we just minted the token
+    # via /auth/login — we already trust it.
+    import base64 as _b64, json as _json
+    csrf_claim = ""
+    try:
+        _payload_b64 = teacher_token.split(".")[1]
+        _payload_b64 += "=" * (-len(_payload_b64) % 4)  # pad for base64
+        _claims = _json.loads(_b64.urlsafe_b64decode(_payload_b64))
+        csrf_claim = _claims.get("csrf", "")
+    except Exception as e:
+        print(f"  WARN: failed to extract CSRF claim from JWT: {e}")
+
     headers = {
         "Authorization": f"Bearer {teacher_token}",
         "Content-Type": "application/json",
     }
+    if csrf_claim:
+        headers["X-CSRF-Token"] = csrf_claim
     print(f"  OK — teacher_id: {teacher_id}")
 
     if not teacher_id:

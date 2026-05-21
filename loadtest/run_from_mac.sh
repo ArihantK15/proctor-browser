@@ -12,16 +12,26 @@
 # also generating load against itself — the latency numbers measure the
 # real production path from outside.
 #
-# Usage:
+# Usage (from your Mac, in the proctored-browser checkout):
 #   loadtest/run_from_mac.sh <teacher-email> <password> [VUs] [exam-seconds]
 #
 # Example:
 #   loadtest/run_from_mac.sh loadtest@procta.net 'LoadTest!2026' 200 300
 #
+# Prereqs:
+#   - k6 installed on this Mac (brew install k6)
+#   - SSH key auth working to the KVM (you've already done `ssh root@<ip>`
+#     without a password prompt at least once)
+#
 # Override defaults via env vars:
 #   TARGET=https://staging.procta.net   loadtest/run_from_mac.sh ...
 #   KVM_HOST=root@1.2.3.4               loadtest/run_from_mac.sh ...
 #   KVM_REPO=/opt/proctor-browser       loadtest/run_from_mac.sh ...
+#
+# This script does NOT require any repo state on the KVM beyond a checkout
+# at KVM_REPO with the latest server-side code — it runs `git pull` on
+# the KVM for you. On the Mac, only this file and loadtest/real_exam_jwt.js
+# need to exist locally.
 
 set -euo pipefail
 
@@ -31,7 +41,10 @@ VUS="${3:-200}"
 EXAM_SECONDS="${4:-300}"
 
 TARGET="${TARGET:-https://app.procta.net}"
-KVM_HOST="${KVM_HOST:-root@srv1675832}"     # uses your ~/.ssh/config alias
+# `srv1675832` is the KVM's own hostname — not DNS-resolvable from the
+# Mac. Use the public IP. Override KVM_HOST=root@some.host or
+# KVM_HOST=root@your-ssh-config-alias if you have a different setup.
+KVM_HOST="${KVM_HOST:-root@187.127.169.89}"
 KVM_REPO="${KVM_REPO:-/root/proctor-browser}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

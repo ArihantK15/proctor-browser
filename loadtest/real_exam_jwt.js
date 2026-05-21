@@ -112,6 +112,11 @@ export default function () {
   const row = tokenRows[(__VU - 1) % tokenRows.length]
   const roll = row.roll_number
   const token = row.token
+  // The server's CSRFMiddleware requires every state-changing request
+  // (POST/PUT/PATCH/DELETE) with a Bearer token to echo the JWT's
+  // `csrf` claim as X-CSRF-Token. mint_loadtest_tokens.py emits the
+  // csrf alongside the token so we don't have to decode the JWT here.
+  const csrf = row.csrf || ''
   // session_id format must be `${roll}_${suffix}` where suffix has NO
   // underscores — the server uses rsplit('_', 1), so an underscore in
   // the suffix would shift the inferred roll and cause a 403. Combine
@@ -124,6 +129,7 @@ export default function () {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
   }
+  if (csrf) headers['X-CSRF-Token'] = csrf
   const answers = buildAnswers(__VU)
 
   // 1. Join spread — fan out the exam-start events across the join window

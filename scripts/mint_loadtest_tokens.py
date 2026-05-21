@@ -56,12 +56,19 @@ def _create_token(
     teacher_id: str | None = None,
     exam_id: str | None = None,
     student_id: str | None = None,
-) -> str:
+) -> tuple[str, str]:
+    """Mint a student JWT and return (token, csrf_value).
+
+    The csrf value is also embedded inside the JWT as a claim; we return
+    it separately so callers can put it in the X-CSRF-Token header
+    without having to decode the JWT to extract it.
+    """
     now = datetime.now(timezone.utc)
     ttl_hours = int(os.environ.get("TOKEN_TTL_HOURS") or DEFAULT_TOKEN_TTL_HOURS)
+    csrf = secrets.token_hex(16)
     payload = {
         "roll": roll_number,
-        "csrf": secrets.token_hex(16),
+        "csrf": csrf,
         "jti": str(uuid.uuid4()),
         "exp": now + timedelta(hours=ttl_hours),
         "iat": now,
@@ -72,7 +79,7 @@ def _create_token(
         payload["eid"] = exam_id
     if student_id:
         payload["sid"] = student_id
-    return jwt.encode(payload, secret_key, algorithm="HS256")
+    return jwt.encode(payload, secret_key, algorithm="HS256"), csrf
 
 
 def main() -> int:
@@ -86,17 +93,19 @@ def main() -> int:
         idx_str = f"{idx:0{args.zero_pad}d}" if args.zero_pad > 0 else str(idx)
         roll = f"{args.prefix}_{idx_str}"
         student_id = f"{args.student_id_prefix}{idx}" if args.student_id_prefix else None
+        token, csrf = _create_token(
+            roll,
+            secret_key=secret_key,
+            teacher_id=args.teacher_id or None,
+            exam_id=args.exam_id or None,
+            student_id=student_id,
+        )
         rows.append(
             {
                 "roll_number": roll,
                 "session_id": f"{roll}_RUN",
-                "token": _create_token(
-                    roll,
-                    secret_key=secret_key,
-                    teacher_id=args.teacher_id or None,
-                    exam_id=args.exam_id or None,
-                    student_id=student_id,
-                ),
+                "token": token,
+                "csrf": csrf,
             }
         )
 

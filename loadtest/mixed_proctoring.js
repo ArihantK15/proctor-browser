@@ -136,7 +136,7 @@ const JPEG_B64 =
 
 export default function () {
   const identity = getIdentity()
-  const headers = requestHeaders(identity.token)
+  const headers = requestHeaders(identity.token, identity.csrf)
   const answers = Object.fromEntries(
     QUESTION_IDS.map((q, i) => [q, ANSWER_CHOICES[(__VU + i) % 4]])
   )
@@ -234,6 +234,7 @@ function getIdentity() {
       sessionId,
       rollNumber: roll,
       token: row.token,
+      csrf: row.csrf || '',  // mint_loadtest_tokens.py emits this field
       realPersistence: true,
     }
   }
@@ -242,6 +243,7 @@ function getIdentity() {
     sessionId: `${roll}_${__VU}`,
     rollNumber: roll,
     token: '',
+    csrf: '',
     realPersistence: false,
   }
 }
@@ -269,10 +271,14 @@ function rollFromSession(sessionId) {
   return value.slice(0, idx)
 }
 
-function requestHeaders(token = '') {
+function requestHeaders(token = '', csrf = '') {
   const headers = { 'Content-Type': 'application/json' }
   if (LOADTEST_SECRET) headers['X-Loadtest-Key'] = LOADTEST_SECRET
   if (token) headers.Authorization = `Bearer ${token}`
+  // The server's CSRFMiddleware rejects state-changing requests when
+  // the JWT has a `csrf` claim but the header is missing.
+  // mint_loadtest_tokens.py exposes the csrf value alongside the token.
+  if (csrf) headers['X-CSRF-Token'] = csrf
   return headers
 }
 

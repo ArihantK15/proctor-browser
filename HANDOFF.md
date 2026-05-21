@@ -147,22 +147,44 @@ the 3-core allocation), postgres at 52%, redis idle. The pool default
 of 3-10 connections × 4 workers = 40 total was the wall. Pool
 exhaustion → requests queue → hit k6's 15s client timeout → fail.
 
-Fix (env-var-only, no code change):
-```bash
-# On the KVM:
-docker exec proctor-postgres psql -U procta -d procta \
-  -c "ALTER SYSTEM SET max_connections = 200;"
-docker compose restart postgres
+**UPDATE — pool bump did NOT fix 3500.** We tried THREE times:
+  1. Default pool (4×10=40) → 66% errors on first 3500 attempt
+  2. After POSTGRES_POOL_MAX=30 + max_connections=200 → still cracking
+     at t=132s on /event with > 60% errors
+  3. After cleaning up zombie LOADTEST_* sessions (the reaper was
+     hammering the DB trying to score them, hitting a stale
+     `flush_answers_to_db(student_id=...)` kwarg bug) → STILL cracking,
+     now broader (event + heartbeat + bulk_save all timing out)
 
-cat >> /root/proctor-browser/.env <<'EOF'
-POSTGRES_POOL_MIN=10
-POSTGRES_POOL_MAX=30
-EOF
-docker compose up -d --no-deps --force-recreate api
-```
+Three attempts, same failure shape — the root cause is NOT pool size
+or reaper noise alone. The actual bottleneck at 3500 VUs lives
+somewhere we haven't yet localized. Candidates to investigate
+tomorrow morning with fresh eyes:
 
-After these tweaks (4 workers × 30 = 120 max connections, under PG's
-new 200 limit), re-running 3500 VUs should hold clean.
+  - phase66 may have added a REDUNDANT unique constraint on
+    exam_sessions.session_key (the table already has a PRIMARY KEY
+    on that column). Two unique indexes doubles the write cost per
+    upsert. Run `\d exam_sessions` and check if both
+    `exam_sessions_pkey` AND `exam_sessions_session_key_unique`
+    exist — if so, drop the latter:
+      ```
+      ALTER TABLE exam_sessions DROP CONSTRAINT exam_sessions_session_key_unique;
+      ```
+  - Caddy may have a default connection limit somewhere. Check
+    Caddy logs for `dial tcp ... i/o timeout` lines during the
+    failing window.
+  - asyncpg pool may need `min_size=20` (not 10) to actually have
+    enough warm connections by the time the join wave hits.
+  - The heartbeat reaper's `flush_answers_to_db(student_id=...)`
+    call IS a real bug — find that call site and fix the kwarg.
+  - exam_sessions's RLS policies invoke `get_my_roll_numbers()` and
+    `get_my_teacher_id()` functions. At high write rate these
+    might be slow. Verify procta is a superuser (RLS-exempt) on
+    the asyncpg connection, and if not, set
+    `SET row_security = OFF;` for the load test session.
+
+**Verified ceiling for now: 2000 VUs, 100% success, 142ms p95.**
+3500+ is a tomorrow problem, not a tonight problem.
 
 Also: macOS file descriptor limit defaults to 256. Raise to 65536
 before running > 2000 VU k6 tests, otherwise k6 stalls at ~4267/N

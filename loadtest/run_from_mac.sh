@@ -74,6 +74,13 @@ cd "${KVM_REPO}"
 echo "  git pull..."
 git pull --rebase=false 2>&1 | tail -3
 
+# Rebuild the api image so `docker compose run` picks up any newly
+# pulled changes in scripts/ (e.g. mint_loadtest_tokens.py). The image
+# bakes those files in at build time; without this step the run uses
+# yesterday's version of the script even after git pull.
+echo "  rebuilding api image (picks up new scripts)..."
+docker compose build api 2>&1 | tail -3
+
 echo "  creating exam + ${VUS} students..."
 python3 loadtest/setup_test_data.py \
   --host "${TARGET}" \

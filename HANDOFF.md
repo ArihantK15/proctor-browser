@@ -136,7 +136,16 @@ Production submit path, **real exam end-to-end** (exam_started event
 |---|---|---|---|---|---|---|
 | 200 | 200/200 | 1000/1000 | 1000/1000 | 200/200 | 126 ms | 0.00 % |
 | 500 | 500/500 | 2500/2500 | 2500/2500 | 500/500 | 126 ms | 0.00 % |
-| 1000 | _running at handoff_ | | | | | |
+| 1000 | 1000/1000 | 5000/5000 | 5000/5000 | 1000/1000 | 133 ms | 0.00 % |
+| 2000 | blocked by starter-plan student limit on the load-test teacher's org | | | | | |
+
+**To run the 2000+ VU test**, the `loadtest@procta.net` org needs
+`max_students` raised. One-liner:
+```bash
+ssh root@187.127.169.89 'docker exec proctor-postgres psql -U procta -d procta \
+  -c "UPDATE organizations SET max_students = 50000 \
+      WHERE id = (SELECT org_id FROM teachers WHERE email = '\''loadtest@procta.net'\'');"'
+```
 
 **Cost**: ~₹699/month KVM + free Cloudflare. **No** managed services
 yet. This is unusually impressive for the price point.

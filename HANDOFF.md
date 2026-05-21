@@ -137,15 +137,23 @@ Production submit path, **real exam end-to-end** (exam_started event
 | 200 | 200/200 | 1000/1000 | 1000/1000 | 200/200 | 126 ms | 0.00 % |
 | 500 | 500/500 | 2500/2500 | 2500/2500 | 500/500 | 126 ms | 0.00 % |
 | 1000 | 1000/1000 | 5000/5000 | 5000/5000 | 1000/1000 | 133 ms | 0.00 % |
-| 2000 | blocked by starter-plan student limit on the load-test teacher's org | | | | | |
+| **2000** | **2000/2000** | **10000/10000** | **10000/10000** | **2000/2000** | **142 ms** | **0.00 %** |
 
-**To run the 2000+ VU test**, the `loadtest@procta.net` org needs
-`max_students` raised. One-liner:
+p95 latency barely climbing as VUs 10× — the box still has serious
+headroom. **2000 is the highest tested, not the measured ceiling.**
+Next sensible step is 5000 (one full prior plan target) or 3500
+(midway).
+
+The starter-plan student limit on the load-test org was raised to
+50 000 via:
 ```bash
-ssh root@187.127.169.89 'docker exec proctor-postgres psql -U procta -d procta \
+docker exec proctor-postgres psql -U procta -d procta \
   -c "UPDATE organizations SET max_students = 50000 \
-      WHERE id = (SELECT org_id FROM teachers WHERE email = '\''loadtest@procta.net'\'');"'
+      WHERE id = (SELECT org_id FROM teachers WHERE email = 'loadtest@procta.net');"
 ```
+(Run on the KVM where you're already SSH'd in. The shell-escaped
+version from earlier needs the outer SSH wrapper, not when you're
+on the box.)
 
 **Cost**: ~₹699/month KVM + free Cloudflare. **No** managed services
 yet. This is unusually impressive for the price point.

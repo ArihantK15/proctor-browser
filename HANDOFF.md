@@ -138,6 +138,38 @@ Production submit path, **real exam end-to-end** (exam_started event
 | 500 | 500/500 | 2500/2500 | 2500/2500 | 500/500 | 126 ms | 0.00 % |
 | 1000 | 1000/1000 | 5000/5000 | 5000/5000 | 1000/1000 | 133 ms | 0.00 % |
 | **2000** | **2000/2000** | **10000/10000** | **10000/10000** | **2000/2000** | **142 ms** | **0.00 %** |
+| 3500 (first attempt) | 719/3500 ❌ | 5818/17500 ❌ | 6171/17500 ❌ | 1260/3500 ❌ | 295 ms | 66 % |
+
+The 3500 attempt cracked, but **the failure mode was queueing on the
+asyncpg connection pool, not CPU/RAM/network**. Docker stats during
+the submit wave showed api CPU peak at 91% of one core (well under
+the 3-core allocation), postgres at 52%, redis idle. The pool default
+of 3-10 connections × 4 workers = 40 total was the wall. Pool
+exhaustion → requests queue → hit k6's 15s client timeout → fail.
+
+Fix (env-var-only, no code change):
+```bash
+# On the KVM:
+docker exec proctor-postgres psql -U procta -d procta \
+  -c "ALTER SYSTEM SET max_connections = 200;"
+docker compose restart postgres
+
+cat >> /root/proctor-browser/.env <<'EOF'
+POSTGRES_POOL_MIN=10
+POSTGRES_POOL_MAX=30
+EOF
+docker compose up -d --no-deps --force-recreate api
+```
+
+After these tweaks (4 workers × 30 = 120 max connections, under PG's
+new 200 limit), re-running 3500 VUs should hold clean.
+
+Also: macOS file descriptor limit defaults to 256. Raise to 65536
+before running > 2000 VU k6 tests, otherwise k6 stalls at ~4267/N
+during VU init:
+```bash
+ulimit -n 65536    # in the shell where you run k6
+```
 
 p95 latency barely climbing as VUs 10× — the box still has serious
 headroom. **2000 is the highest tested, not the measured ceiling.**

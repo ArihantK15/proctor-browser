@@ -75,13 +75,16 @@ async def _create_teacher_signup_postgres_tx(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # All four conn.execute / conn.fetchrow calls in this
+            # transaction pass user-supplied values via $N positional
+            # parameters. The hardcoded literals ('starter', 'trialing',
+            # 'admin', 'local', 'Exam') are SQL constants, not
+            # interpolated input. Semgrep's heuristic over-fires on
+            # multi-line parameterized queries that also contain
+            # literal text inside the VALUES clause — each call is
+            # marked with `# nosemgrep: asyncpg-sqli` on the line
+            # IMMEDIATELY preceding it so the suppression sticks.
             # nosemgrep: asyncpg-sqli
-            # Safe: every user-supplied value is passed positionally as
-            # a $N parameter. The hardcoded literals ('starter',
-            # 'trialing', 'admin', 'local', 'Exam') are SQL constants
-            # not interpolated input. Semgrep's heuristic over-fires
-            # on multi-line parameterized queries that also contain
-            # literal text inside the VALUES clause.
             org = await conn.fetchrow(
                 """
                 INSERT INTO organizations (id, name, slug, max_students)

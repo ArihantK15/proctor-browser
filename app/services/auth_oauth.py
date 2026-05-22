@@ -420,12 +420,15 @@ async def _create_oauth_teacher_postgres_tx(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # All four statements below are parameterized via $N. The
+            # All four conn.execute / conn.fetchrow calls below pass
+            # user-supplied values via $N positional parameters. The
             # hardcoded literals ('starter', 'trialing', 'admin',
             # 'Exam') are SQL constants, not interpolated input.
             # Semgrep over-fires on multi-line parameterized queries
             # that include literal text in VALUES — see same suppression
             # rationale in app/routers/auth.py:_register_teacher_local.
+            # Each call has `# nosemgrep: asyncpg-sqli` on the line
+            # IMMEDIATELY preceding it (Semgrep's required position).
             # nosemgrep: asyncpg-sqli
             await conn.execute(
                 """

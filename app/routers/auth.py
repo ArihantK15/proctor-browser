@@ -75,7 +75,7 @@ async def _create_teacher_signup_postgres_tx(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli
+            # nosemgrep: asyncpg-sqli
             # Safe: every user-supplied value is passed positionally as
             # a $N parameter. The hardcoded literals ('starter',
             # 'trialing', 'admin', 'local', 'Exam') are SQL constants
@@ -96,7 +96,7 @@ async def _create_teacher_signup_postgres_tx(
             if org is None:
                 raise RuntimeError("organization insert returned no row")
 
-            # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli
+            # nosemgrep: asyncpg-sqli
             await conn.execute(
                 """
                 INSERT INTO subscriptions (id, org_id, plan, status, trial_end)
@@ -107,7 +107,7 @@ async def _create_teacher_signup_postgres_tx(
                 trial_end,
             )
 
-            # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli
+            # nosemgrep: asyncpg-sqli
             teacher = await conn.fetchrow(
                 """
                 INSERT INTO teachers (
@@ -129,7 +129,7 @@ async def _create_teacher_signup_postgres_tx(
             if teacher is None:
                 raise RuntimeError("teacher insert returned no row")
 
-            # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli
+            # nosemgrep: asyncpg-sqli
             await conn.execute(
                 """
                 INSERT INTO exam_config (

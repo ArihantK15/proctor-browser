@@ -426,7 +426,7 @@ async def _create_oauth_teacher_postgres_tx(
             # Semgrep over-fires on multi-line parameterized queries
             # that include literal text in VALUES — see same suppression
             # rationale in app/routers/auth.py:_register_teacher_local.
-            # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli
+            # nosemgrep: asyncpg-sqli
             await conn.execute(
                 """
                 INSERT INTO organizations (id, name, slug, max_students)
@@ -437,7 +437,7 @@ async def _create_oauth_teacher_postgres_tx(
                 slug,
                 PLANS["starter"]["students"],
             )
-            # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli
+            # nosemgrep: asyncpg-sqli
             await conn.execute(
                 """
                 INSERT INTO subscriptions (id, org_id, plan, status, trial_end)
@@ -447,7 +447,7 @@ async def _create_oauth_teacher_postgres_tx(
                 org_id,
                 trial_end,
             )
-            # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli
+            # nosemgrep: asyncpg-sqli
             teacher = await conn.fetchrow(
                 """
                 INSERT INTO teachers (
@@ -467,7 +467,7 @@ async def _create_oauth_teacher_postgres_tx(
             )
             if teacher is None:
                 raise RuntimeError("teacher insert returned no row")
-            # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli
+            # nosemgrep: asyncpg-sqli
             await conn.execute(
                 """
                 INSERT INTO exam_config (

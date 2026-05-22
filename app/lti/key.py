@@ -189,6 +189,12 @@ def sign_jwt_payload(payload: dict, kid: str | None = None) -> str:
     if not pem:
         raise ValueError(f"Unknown KID: {kid}")
     headers = {"kid": kid, "typ": "JWT"}
+    # nosemgrep: python.jwt.security.audit.jwt-exposed-data.jwt-python-exposed-data
+    # Safe: this is a generic signer used by LTI AGS grade passback.
+    # The payload comes from internal callers (app/services/ags.py)
+    # that build LTI-compliant claims (iss, aud, sub, scope) — no
+    # user secrets, PII, or sensitive data. Signed with RS256 + a
+    # private key only the server holds; receivers verify via JWKS.
     return _jwt.encode(
         payload, pem, algorithm="RS256", headers=headers,
     )

@@ -90,7 +90,11 @@ jobs:
           # `os.environ[...]` reads at import time.
           SUPABASE_URL: "http://stub"
           SUPABASE_SERVICE_ROLE_KEY: "stub"
-          SUPABASE_JWT_SECRET: "stub-jwt-secret-please-rotate"
+          # Must be >= 32 chars — app/constants.py enforces this when
+          # ENV is unset (which CI is, by design — fail-closed posture).
+          # Previous value `stub-jwt-secret-please-rotate` was 29 chars,
+          # tripping the guard and crashing pytest collection.
+          SUPABASE_JWT_SECRET: "stub-jwt-secret-please-rotate-ci-test-only-do-not-use-anywhere"
           ADMIN_PASSWORD: "stub-admin-password"
         # `--ignore=tests/browser`: the browser tests use Playwright +
         #   real Chromium, which we don't install in this lightweight
@@ -123,7 +127,7 @@ jobs:
           docker run -d --name api --network host \
             -e SUPABASE_URL=http://stub \
             -e SUPABASE_SERVICE_ROLE_KEY=stub \
-            -e SUPABASE_JWT_SECRET=stub-jwt-secret-please-rotate \
+            -e SUPABASE_JWT_SECRET=stub-jwt-secret-please-rotate-ci-test-only-do-not-use-anywhere \
             -e ADMIN_PASSWORD=stub-admin-password \
             -e REDIS_URL=redis://localhost:6379 \
             -e CORS_ORIGINS=http://localhost:8000 \

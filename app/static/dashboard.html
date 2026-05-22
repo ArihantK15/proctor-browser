@@ -24,6 +24,12 @@
 <!-- Cloudflare Turnstile — invisible/Managed mode. Renders no UI 99%
      of the time; challenges only on high bot-signal requests.
      See https://developers.cloudflare.com/turnstile/ -->
+<!-- No SRI hash: Cloudflare ships Turnstile's api.js with rolling
+     content (anti-bot signature updates) without a stable hash.
+     Pinning a hash would break the script the next time CF rotates
+     it. Cloudflare's documented integration uses the unhashed script
+     URL — same as every Turnstile-protected site. -->
+<!-- nosemgrep: html.security.audit.missing-integrity.missing-integrity -->
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
   .qx-toolbar-top input[type="text"], .qx-toolbar-top input[type="number"]{
@@ -863,7 +869,7 @@
             <div id="invite-count" style="font-size:11px;color:var(--muted)"></div>
           </div>
           <div id="invite-list"></div>
-          <div id="invite-empty" style="color:var(--muted);font-size:13px">No invites sent yet.</div>
+          <div id="invite-empty" style="color:var(--muted);font-size:13px">No invites sent yet — paste student emails above and click Send.</div>
         </div>
       </div>
 
@@ -1011,7 +1017,7 @@
           <h3>Student Groups</h3>
           <p>Create groups and assign students. Restrict exam access so only students in assigned groups can enter.</p>
           <div id="groups-list" style="margin-top:12px"></div>
-          <div id="groups-empty" style="color:var(--muted);font-size:13px;margin-top:8px">No groups yet.</div>
+           <div id="groups-empty" style="color:var(--muted);font-size:13px;margin-top:8px">No groups yet — enter a name above and click Create Group.</div>
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
             <input type="text" id="new-group-name" placeholder="New group name"
               style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
@@ -1026,7 +1032,7 @@
               <button class="btn btn-secondary btn-sm" onclick="closeGroupDetail()" style="padding:4px 10px;font-size:11px">Close</button>
             </div>
             <div id="group-members-list" style="margin-bottom:12px"></div>
-            <div id="group-members-empty" style="color:var(--muted);font-size:12px;margin-bottom:10px">No members yet.</div>
+            <div id="group-members-empty" style="color:var(--muted);font-size:12px;margin-bottom:10px">No members yet — enter roll numbers above and click Add.</div>
             <div style="display:flex;gap:8px;align-items:center">
               <input type="text" id="add-member-rolls" placeholder="Roll numbers (comma-separated)"
                 style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
@@ -1063,7 +1069,7 @@
               <button class="btn btn-primary btn-sm" onclick="saveTemplate()">Save Template</button>
             </div>
             <div id="templates-list" style="border-top:1px solid var(--border);padding-top:12px"></div>
-            <div id="templates-empty" style="color:var(--muted);font-size:13px">No templates yet.</div>
+            <div id="templates-empty" style="color:var(--muted);font-size:13px">No templates yet — configure an exam above and click Save Template.</div>
           </div>
         </div>
         <div class="tool-card-result" id="template-result" style="font-size:12px;min-height:18px"></div>

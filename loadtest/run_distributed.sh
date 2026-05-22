@@ -125,6 +125,12 @@ echo "  Codespace: $(jq length < "${TOK_CS}") tokens"
 # ── Step 4: ship Codespace half ───────────────────────────────────
 echo ""
 echo "── 4/6: upload Codespace tokens ─────────────────────"
+# First make sure the Codespace's checkout is current and the
+# loadtest/ directory exists. Without this, `gh codespace cp` errors
+# with "No such file or directory" when the Codespace was created
+# from an older commit (or before this directory existed).
+gh codespace ssh -c "${CODESPACE_NAME}" -- \
+  'cd /workspaces/proctor-browser && git pull --rebase=false 2>&1 | tail -3 && mkdir -p loadtest'
 gh codespace cp -c "${CODESPACE_NAME}" \
   "${TOK_CS}" "remote:/workspaces/proctor-browser/loadtest/loadtest_tokens.json"
 gh codespace cp -c "${CODESPACE_NAME}" \

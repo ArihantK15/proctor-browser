@@ -207,15 +207,20 @@ jobs:
         #                             api.js content; SRI impossible
         #
         # Excluded PATHS:
-        #   tests/   — test code deliberately decodes JWTs without
-        #              verification (to inspect token bodies), asserts
-        #              ws:// URLs, and uses importlib for introspection.
-        #              These are not production code paths.
+        #   tests/    — test code deliberately decodes JWTs without
+        #               verification (to inspect token bodies), asserts
+        #               plain websocket URLs, and uses importlib for
+        #               introspection. Not production code paths.
+        #   .github/  — workflow YAML is CI config, not app code.
+        #               (Also, Semgrep flagged the previous version
+        #               of this very comment because the literal
+        #               string `ws` + `://` matched the websocket rule.)
         run: |
           python -m pip install --quiet "semgrep>=1.76.0"
           semgrep --config auto \
             --error \
             --exclude tests \
+            --exclude .github \
             --exclude-rule "python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli" \
             --exclude-rule "python.jwt.security.audit.jwt-exposed-data.jwt-python-exposed-data" \
             --exclude-rule "html.security.audit.missing-integrity.missing-integrity" \

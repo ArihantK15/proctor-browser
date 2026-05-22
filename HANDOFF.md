@@ -333,7 +333,12 @@ git pull --rebase=false
 #  and removing the flag.)
 
 # 2. Bring up the stack with the new pgbouncer service:
-docker compose --profile postgres up -d --scale worker=16 --scale autosave-worker=2
+make up
+# `make up` (since 2026-05-22) exports COMPOSE_PROFILES=postgres and
+# scales worker=16 + autosave-worker=2 automatically. If you'd rather
+# call docker compose directly, the equivalent is:
+#   docker compose --profile postgres up -d \
+#     --scale worker=16 --scale autosave-worker=2
 
 # 3. Verify pgbouncer is healthy + app is connecting through it:
 docker compose ps | grep pgbouncer

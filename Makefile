@@ -14,13 +14,20 @@
 WORKER_REPLICAS ?= 16
 AUTOSAVE_WORKER_REPLICAS ?= 2
 
+# postgres + pgbouncer are gated behind the "postgres" profile so the
+# legacy Supabase-only deploys don't accidentally spin up an unused
+# postgres instance. For local-postgres deploys (which is what the
+# KVM uses) we always want the profile on. COMPOSE_PROFILES is
+# Docker Compose's standard env-var for this.
+export COMPOSE_PROFILES = postgres
+
 .PHONY: up scale logs health down restart pull
 
 up:
 	docker compose up -d --scale worker=$(WORKER_REPLICAS) --scale autosave-worker=$(AUTOSAVE_WORKER_REPLICAS)
 	@echo ""
 	@echo "✓ Stack up with $(WORKER_REPLICAS) scoring workers + $(AUTOSAVE_WORKER_REPLICAS) autosave workers"
-	@docker compose ps | grep -E "NAME|worker|api|postgres" | head -20
+	@docker compose ps | grep -E "NAME|worker|api|postgres|pgbouncer" | head -25
 
 scale:
 	docker compose up -d --no-recreate --scale worker=$(WORKER_REPLICAS) --scale autosave-worker=$(AUTOSAVE_WORKER_REPLICAS)

@@ -16,7 +16,13 @@ services:
       - GIT_SHA=${GIT_SHA:-local}
       - IMAGE_TAG=${IMAGE_TAG:-local}
       - APP_VERSION=${APP_VERSION:-dev}
-      - UVICORN_WORKERS=${UVICORN_WORKERS:-2}
+      # 4 uvicorn workers on a 4-vCPU KVM. CPU limit of 3.0 (above)
+      # is a soft cap; under burst load all 4 can run because each
+      # request is mostly I/O-bound (DB + Redis). Previous default
+      # was 2 → API CPU peaked at ~170% (1.7 cores) under load,
+      # leaving 2 cores starved. With 4 we hit ~250-300% during the
+      # submit wave, properly using the box.
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-4}
       - UVICORN_LIMIT_CONCURRENCY=${UVICORN_LIMIT_CONCURRENCY:-}
     depends_on:
       - redis
@@ -133,7 +139,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: proctor-redis
-    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --save ""
+    # maxmemory bumped 64mb → 256mb (2026-05-22) — under 3000 VU
+    # exam load the RQ scoring queue can hit 2000+ jobs in flight
+    # at ~5KB each = ~10MB just for the queue, plus session caches.
+    # The container has memory_limit=256mb (below) so we set this
+    # equal — Redis evicts before OOM-killing the container. Policy
+    # allkeys-lru is safe because we use Redis purely as cache and
+    # transient queue; persistent state is in Postgres.
+    command: redis-server --maxmemory 240mb --maxmemory-policy allkeys-lru --save ""
     restart: unless-stopped
     expose:
       - "6379"

@@ -36,6 +36,10 @@ health:
 	@docker exec proctor-postgres psql -U procta -d procta -tA -c \
 	  "SELECT state, COUNT(*) FROM pg_stat_activity WHERE datname='procta' GROUP BY state"
 	@echo ""
+	@echo "── pgbouncer pools (if running) ──"
+	@docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d pgbouncer \
+	  -c "SHOW POOLS" 2>/dev/null || echo "  pgbouncer not running or not yet wired to app"
+	@echo ""
 	@echo "── Redis queues ──"
 	@echo -n "  scoring: "; docker exec proctor-redis redis-cli LLEN rq:queue:scoring
 	@echo -n "  autosave: "; docker exec proctor-redis redis-cli LLEN rq:queue:autosave
@@ -43,6 +47,25 @@ health:
 	@echo ""
 	@echo "── Kernel SYN backlog ──"
 	@nstat -az TcpExtListenOverflows TcpExtListenDrops TcpExtTCPBacklogDrop | grep -v "#"
+
+# pgbouncer-specific diagnostics. Call after `make up` and any load
+# test to see how many real Postgres backends pgbouncer is using vs
+# how many app-side clients it's juggling.
+pgbouncer-stats:
+	@echo "── SHOW POOLS (per-database, per-user) ──"
+	@docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d pgbouncer -c "SHOW POOLS"
+	@echo ""
+	@echo "── SHOW CLIENTS (last 20 connected) ──"
+	@docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d pgbouncer -c "SHOW CLIENTS" | head -25
+	@echo ""
+	@echo "── SHOW STATS (totals since boot) ──"
+	@docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d pgbouncer -c "SHOW STATS"
+
+# Verify the app/workers ARE going through pgbouncer. If they're
+# bypassing it, this prints "WARNING: …".
+pgbouncer-verify:
+	@docker exec proctor-api env 2>/dev/null | grep -E "DATABASE_URL|DATABASE_USE_PGBOUNCER" || true
+	@docker exec proctor-api python -c "import os; url = os.environ.get('DATABASE_URL', ''); print('  api → ' + ('pgbouncer ✓' if 'pgbouncer' in url else 'postgres direct ✗ (not via pgbouncer)'))"
 
 restart:
 	docker compose restart api caddy

@@ -149,6 +149,105 @@ services:
         max-size: "5m"
         max-file: "2"
 
+  # pgbouncer — transaction-pooling connection multiplexer in front
+  # of postgres. The app and workers connect to pgbouncer:6432
+  # instead of postgres:5432. pgbouncer holds a small pool of REAL
+  # backends and lets thousands of logical client connections share
+  # them. This is the lever that lets us scale past 16 workers and
+  # 4000 VUs without running into postgres's max_connections=200 cap.
+  #
+  # Why edoburu/pgbouncer over building our own:
+  #   - Single env-var config (DATABASES_HOST etc.), no userlist.txt
+  #     to babysit
+  #   - Generates userlist on boot from DATABASES_PASSWORD using the
+  #     same auth_type Postgres expects (scram-sha-256 on PG 16)
+  #   - 30 MB image, no runtime deps
+  #
+  # Pool mode: TRANSACTION
+  #   - Each app SQL transaction grabs a real backend, releases it on
+  #     COMMIT/ROLLBACK. Many app connections share few backends.
+  #   - Breaks: prepared statements (handled — asyncpg sees
+  #     DATABASE_USE_PGBOUNCER=1 and sets statement_cache_size=0),
+  #     LISTEN/NOTIFY (we don't use it), session SET LOCAL (we don't
+  #     use it), advisory locks (we don't use them).
+  #
+  # Cutover: set in .env on the KVM:
+  #   DATABASE_URL=postgresql://procta:<urlencoded-pw>@pgbouncer:6432/procta
+  #   DATABASE_USE_PGBOUNCER=1
+  # Then `docker compose up -d` — pgbouncer comes up, app connects to
+  # it. Rollback is just changing the URL back to postgres:5432.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p2
+    container_name: proctor-pgbouncer
+    # Same profile as postgres — if you're on the Supabase legacy
+    # path (no local postgres), pgbouncer doesn't make sense either.
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${POSTGRES_USER:-procta}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-procta-local-dev-change-me}
+      - DB_NAME=${POSTGRES_DB:-procta}
+      # Use the standard pgbouncer port 6432 (not the edoburu default
+      # of 5432) so DATABASE_URL clearly says pgbouncer:6432 and
+      # postgres:5432, no ambiguity.
+      - LISTEN_PORT=6432
+      - POOL_MODE=transaction
+      # Real Postgres backends pgbouncer is allowed to open. Setting
+      # this to 25 means up to 25 actual connections to postgres —
+      # well under max_connections=200 and leaves room for ofelia
+      # backup jobs + admin sessions.
+      - DEFAULT_POOL_SIZE=25
+      # Keep 10 backends warm. First-request latency drops because
+      # we don't wait for a TCP+TLS+SCRAM handshake.
+      - MIN_POOL_SIZE=10
+      # Burst capacity — 5 extra backends pgbouncer can briefly open
+      # if DEFAULT_POOL_SIZE is exhausted and a client is waiting.
+      - RESERVE_POOL_SIZE=5
+      - RESERVE_POOL_TIMEOUT=3
+      # How many app-side "client" connections we accept. 4000 is
+      # comfortably above our 4 uvicorn × 40 + 16 workers × 40 + 2
+      # autosave × 40 = ~880 worst-case client pool slot count.
+      - MAX_CLIENT_CONN=4000
+      # Reset connection state between transactions to avoid leaking
+      # any session-scoped state from one app request to the next.
+      - SERVER_RESET_QUERY=DISCARD ALL
+      - AUTH_TYPE=scram-sha-256
+      # Behind a private Docker network — no need for client SSL
+      - CLIENT_TLS_SSLMODE=disable
+      - SERVER_TLS_SSLMODE=disable
+      # Reasonable timeouts for the exam workload
+      - SERVER_IDLE_TIMEOUT=600
+      - SERVER_LIFETIME=3600
+      - QUERY_TIMEOUT=30
+      - CLIENT_IDLE_TIMEOUT=600
+      # Logging
+      - LOG_CONNECTIONS=0
+      - LOG_DISCONNECTIONS=0
+      - LOG_POOLER_ERRORS=1
+    expose:
+      - "6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U ${POSTGRES_USER:-procta}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: ${PGBOUNCER_MEMORY_LIMIT:-128m}
+          cpus: "${PGBOUNCER_CPU_LIMIT:-0.5}"
+    memswap_limit: ${PGBOUNCER_MEMSWAP_LIMIT:-192m}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
   postgres:
     image: postgres:16-alpine
     container_name: proctor-postgres

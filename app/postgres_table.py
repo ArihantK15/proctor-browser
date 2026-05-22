@@ -64,6 +64,20 @@ async def get_pool() -> asyncpg.Pool:
         #
         # max_size=40 caps each uvicorn worker's pool. 4 workers × 40 =
         # 160 max, again under max_connections=200.
+        # When DATABASE_URL points at pgbouncer (transaction pooling),
+        # we MUST disable asyncpg's server-side prepared statement cache
+        # — under transaction pooling each acquire may land on a
+        # different real backend, so a prepared statement set up on one
+        # backend won't exist on the next. Symptoms when this is wrong:
+        # `prepared statement "__asyncpg_stmt_xxx" does not exist`
+        # errors under any load.
+        #
+        # We detect pgbouncer via the DATABASE_USE_PGBOUNCER env flag
+        # (set in docker-compose). Outside of pgbouncer mode we keep
+        # the cache because it's a ~30% query throughput win.
+        pgbouncer_mode = os.environ.get("DATABASE_USE_PGBOUNCER", "").lower() in ("1", "true", "yes")
+        statement_cache_size = 0 if pgbouncer_mode else 100
+
         _pool = await asyncpg.create_pool(
             dsn=_database_url(),
             min_size=int(os.environ.get("POSTGRES_POOL_MIN", "20")),
@@ -71,6 +85,7 @@ async def get_pool() -> asyncpg.Pool:
             command_timeout=float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "15")),
             max_inactive_connection_lifetime=float(os.environ.get("POSTGRES_IDLE_LIFETIME", "60")),
             timeout=float(os.environ.get("POSTGRES_CONNECT_TIMEOUT", "10")),
+            statement_cache_size=statement_cache_size,
         )
     return _pool
 

@@ -306,6 +306,97 @@ If that works, push to 4000 VUs distributed (2000 from each
 source). The next wall after T1-T5 is almost certainly autosave
 single-worker bottleneck (T8).
 
+---
+
+## 4b. pgbouncer cutover playbook (Tier 2 → done 2026-05-22)
+
+We added `pgbouncer` as a transaction-pooling connection multiplexer
+in front of Postgres. Why this matters beyond Tier 1:
+
+| Issue without pgbouncer | After pgbouncer |
+|---|---|
+| 4 uvicorn × 40 + 16 workers × 40 + 2 autosave × 40 = **880 worst-case logical pool slots** | **25 real Postgres backends** serve all 880 logical slots |
+| Connection acquire cost: TCP+TLS+SCRAM = ~10ms cold, ~1ms warm | Acquire from pgbouncer pool: ~0.1ms (UDS-like local socket) |
+| `max_connections=200` is a hard ceiling | pgbouncer hides 200 from app — we can crank app pool higher freely |
+| Pool exhaustion on burst = request waits / errors | pgbouncer queues clients (transient wait, never connection refused) |
+
+### Rollout (on KVM)
+
+```bash
+cd /root/proctor-browser
+git pull --rebase=false
+
+# 1. Edit .env — change DATABASE_URL host + add the flag:
+#    DATABASE_URL=postgresql://procta:<pw>@pgbouncer:6432/procta
+#    DATABASE_USE_PGBOUNCER=1
+# (rollback is just changing the host back to proctor-postgres:5432
+#  and removing the flag.)
+
+# 2. Bring up the stack with the new pgbouncer service:
+docker compose --profile postgres up -d --scale worker=16 --scale autosave-worker=2
+
+# 3. Verify pgbouncer is healthy + app is connecting through it:
+docker compose ps | grep pgbouncer
+make pgbouncer-verify    # should print "api → pgbouncer ✓"
+
+# 4. Smoke test — run a single exam end-to-end:
+docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d procta \
+  -c "SELECT count(*) FROM teachers"   # should return a number, not an error
+
+# 5. Check pool occupancy:
+make pgbouncer-stats
+# cl_active = clients currently holding a transaction
+# sv_active = real postgres backends currently serving them
+# sv_idle = real backends warm + free
+# A healthy ratio under load is cl_active >> sv_active.
+```
+
+### Things to watch for in the first hours
+
+1. **`prepared statement "__asyncpg_stmt_xxx" does not exist`** — means
+   asyncpg's statement cache wasn't disabled. Check that
+   `DATABASE_USE_PGBOUNCER=1` is in `.env` and the app container
+   has it: `docker exec proctor-api env | grep PGBOUNCER`
+2. **Auth failures** — `SCRAM authentication requires libpq version
+   10 or above`. The pgbouncer-postgres connection uses
+   `AUTH_TYPE=scram-sha-256`. If Postgres is using a different auth
+   method (e.g. md5), pgbouncer can't proxy. Fix:
+   `docker exec proctor-postgres psql -U procta -c "SHOW password_encryption"`
+   should return `scram-sha-256` (Postgres 16 default).
+3. **Worker stat says "waiting"** — `cl_waiting > 0` for any sustained
+   period means DEFAULT_POOL_SIZE=25 is too small. Bump to 50.
+
+### When pgbouncer is the wrong tool
+
+- If you start needing LISTEN/NOTIFY for SSE (you don't today — SSE
+  uses Redis pub/sub)
+- If you ever do long-running transactions (you don't)
+- If you write code that calls `SET LOCAL` (you don't)
+- If you use advisory locks (you don't)
+
+### Tuning knobs (env vars on the pgbouncer container)
+
+| Knob | Default | When to bump |
+|---|---|---|
+| `DEFAULT_POOL_SIZE` | 25 | If `cl_waiting > 0` sustained — try 50 |
+| `MIN_POOL_SIZE` | 10 | Bump if first-request latency climbs after idle |
+| `RESERVE_POOL_SIZE` | 5 | Burst headroom — keep at 5 |
+| `MAX_CLIENT_CONN` | 4000 | Bump if you ever scale workers past 40 |
+| `SERVER_LIFETIME` | 3600 | Drop to 1800 if you see slow connection accumulation |
+
+### Reading SHOW POOLS output
+
+Example healthy output under 3000 VU load (target state):
+```
+ database |  user   | cl_active | cl_waiting | sv_active | sv_idle | sv_used | pool_mode
+----------+---------+-----------+------------+-----------+---------+---------+-----------
+ procta   | procta  |       180 |          0 |        18 |       7 |       0 | transaction
+```
+
+`cl_active=180` (app holding 180 logical pool slots) → `sv_active=18`
+(only 18 real Postgres backends doing work). That's the 10× multiplier
+this whole exercise was designed to deliver.
+
 
 
 Also: macOS file descriptor limit defaults to 256. Raise to 65536

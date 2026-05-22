@@ -126,15 +126,19 @@ echo "  Codespace: $(jq length < "${TOK_CS}") tokens"
 echo ""
 echo "── 4/6: upload Codespace tokens ─────────────────────"
 # First make sure the Codespace's checkout is current and the
-# loadtest/ directory exists. Without this, `gh codespace cp` errors
-# with "No such file or directory" when the Codespace was created
-# from an older commit (or before this directory existed).
+# loadtest/ directory exists.
 gh codespace ssh -c "${CODESPACE_NAME}" -- \
   'cd /workspaces/proctor-browser && git pull --rebase=false 2>&1 | tail -3 && mkdir -p loadtest'
-gh codespace cp -c "${CODESPACE_NAME}" \
-  "${TOK_CS}" "remote:/workspaces/proctor-browser/loadtest/loadtest_tokens.json"
-gh codespace cp -c "${CODESPACE_NAME}" \
-  "${HERE}/real_exam_jwt.js" "remote:/workspaces/proctor-browser/loadtest/real_exam_jwt.js"
+
+# `gh codespace cp` wraps the remote path in single quotes when it
+# invokes scp under the hood, which scp then treats as part of the
+# filename and errors with "No such file or directory" for any
+# absolute path. Stream the file through SSH stdin instead — same
+# effect, no quoting bug.
+cat "${TOK_CS}" | gh codespace ssh -c "${CODESPACE_NAME}" -- \
+  'cat > /workspaces/proctor-browser/loadtest/loadtest_tokens.json'
+cat "${HERE}/real_exam_jwt.js" | gh codespace ssh -c "${CODESPACE_NAME}" -- \
+  'cat > /workspaces/proctor-browser/loadtest/real_exam_jwt.js'
 
 # ── Step 5: synchronized start ────────────────────────────────────
 START_AT=$(($(date +%s) + 20))
@@ -193,9 +197,10 @@ CS_LATEST_SUMMARY=$(gh codespace ssh -c "${CODESPACE_NAME}" -- \
   "ls -1t /workspaces/proctor-browser/summary-real-exam-jwt-*.json 2>/dev/null | head -1" \
   | tr -d '\r\n')
 if [ -n "$CS_LATEST_SUMMARY" ]; then
-  gh codespace cp -c "${CODESPACE_NAME}" \
-    "remote:${CS_LATEST_SUMMARY}" "${HERE}/$(basename "$CS_LATEST_SUMMARY" .json)-codespace.json"
   CS_LOCAL="${HERE}/$(basename "$CS_LATEST_SUMMARY" .json)-codespace.json"
+  # Pull via cat over SSH (same workaround as the upload — gh codespace cp
+  # mangles absolute remote paths via single-quote injection into scp).
+  gh codespace ssh -c "${CODESPACE_NAME}" -- "cat '${CS_LATEST_SUMMARY}'" > "${CS_LOCAL}"
   echo "  Codespace summary: $(basename "$CS_LOCAL")"
 else
   echo "  WARN: no Codespace summary found (test may have errored out)"

@@ -529,7 +529,24 @@ async def log_event(event: EventIn, request: Request):
         viol_row["detection_confidence"] = event.detection_confidence
     if tid:
         viol_row["teacher_id"] = tid
-    await _atable("violations").insert(viol_row).execute()
+
+    # Audit-row write. SYNCHRONOUS for two event types where
+    # durability ordering matters:
+    #   - exam_started: the exam_sessions row was already upserted
+    #     above; the matching audit row should be in place before
+    #     any subsequent /event call can reach this branch
+    #   - submit_failed: low-volume, critical, ops paths read it
+    #     before responding to /admin-submit
+    # All other event types (the high-volume proctoring detections —
+    # face_lost, multiple_faces, tab_switch, etc) get enqueued to
+    # the autosave worker queue. The Redis pub/sub publish below
+    # is unaffected — dashboards still see the event in real-time.
+    if event.event_type in ("exam_started", "submit_failed"):
+        await _atable("violations").insert(viol_row).execute()
+    else:
+        from ..jobs.event_jobs import record_violation_job
+        from ..jobs.helpers import enqueue_job
+        enqueue_job(record_violation_job, viol_row, queue_name="autosave")
 
     # Invalidate cached risk score for this session
     if _cache:

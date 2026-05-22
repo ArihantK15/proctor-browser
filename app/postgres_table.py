@@ -53,15 +53,21 @@ def _database_url() -> str:
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        # min_size=3 keeps three warm connections so the first burst of
-        # requests after a cold start doesn't pay TCP+TLS+auth handshake
-        # latency. Bumping above 3 is only worth it for very chatty
-        # workloads — the pool will grow up to max_size on demand
-        # regardless.
+        # Tuned defaults for production exam load (2026-05-22):
+        #
+        # min_size=20 keeps 20 warm connections so the first burst of
+        # the join wave (3000 students hitting exam_started within
+        # 120s) doesn't pay TCP+TLS+auth handshake latency. At 4
+        # uvicorn workers that's 80 connections held warm — well under
+        # postgres max_connections=200, leaves headroom for the worker
+        # containers + autosave.
+        #
+        # max_size=40 caps each uvicorn worker's pool. 4 workers × 40 =
+        # 160 max, again under max_connections=200.
         _pool = await asyncpg.create_pool(
             dsn=_database_url(),
-            min_size=int(os.environ.get("POSTGRES_POOL_MIN", "3")),
-            max_size=int(os.environ.get("POSTGRES_POOL_MAX", "10")),
+            min_size=int(os.environ.get("POSTGRES_POOL_MIN", "20")),
+            max_size=int(os.environ.get("POSTGRES_POOL_MAX", "40")),
             command_timeout=float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "15")),
             max_inactive_connection_lifetime=float(os.environ.get("POSTGRES_IDLE_LIFETIME", "60")),
             timeout=float(os.environ.get("POSTGRES_CONNECT_TIMEOUT", "10")),

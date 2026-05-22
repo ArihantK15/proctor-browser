@@ -145,15 +145,18 @@ START_AT=$(($(date +%s) + 20))
 START_HUMAN=$(date -r "${START_AT}" '+%H:%M:%S')
 
 CS_CMD="cd /workspaces/proctor-browser && \
-  BYPASS_CF=${BYPASS_CF} ORIGIN_IP=${ORIGIN_IP} \
   k6 run \
   -e TARGET='${TARGET}' \
-  -e TOKEN_FILE=./loadtest/loadtest_tokens.json \
+  -e TOKEN_FILE=/workspaces/proctor-browser/loadtest/loadtest_tokens.json \
   -e VUS=${CS_VUS} \
   -e EXAM_SECONDS=${EXAM_SECONDS} \
   ${BYPASS_CF:+-e BYPASS_CF=${BYPASS_CF}} \
   ${ORIGIN_IP:+-e ORIGIN_IP=${ORIGIN_IP}} \
   loadtest/real_exam_jwt.js"
+# k6 open() resolves relative paths against the SCRIPT's directory,
+# not the cwd. The script is at loadtest/real_exam_jwt.js, so a
+# relative ./loadtest/loadtest_tokens.json would expand to
+# loadtest/loadtest/loadtest_tokens.json. Use absolute paths instead.
 
 echo ""
 echo "════════════════════════════════════════════════════════"

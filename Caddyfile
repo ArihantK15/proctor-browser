@@ -167,6 +167,18 @@ app.procta.net {
     handle {
         reverse_proxy api:8000 {
             flush_interval -1
+            # Connection pool tuning for high-VU load (2026-05-22):
+            # Default Caddy upstream pool is tiny — under load it
+            # reopens TCP+keepalive to api on most requests, wasting
+            # ~5ms per. Bumping max_idle_conns_per_host to 200 lets
+            # Caddy reuse a warm pool against the api container.
+            transport http {
+                keepalive 30s
+                keepalive_idle_conns 200
+                keepalive_idle_conns_per_host 200
+                dial_timeout 5s
+                response_header_timeout 30s
+            }
         }
     }
 }

@@ -247,25 +247,34 @@ arrival rate is ~25/sec. 929 of 1493 polls timed out at the k6
 Goal: take the proven 3000 VU number and push it cleanly past 5000.
 Every item is free except where noted.
 
-### Tier 1 — Cheap wins (< 1 hour each, do now)
+### Tier 1 — Cheap wins (< 1 hour each, do now) — ALL DONE 2026-05-22
 
-| # | Change | Where | Expected impact |
+| # | Change | Status | Where |
 |---|---|---|---|
-| T1 | `--scale worker=16` permanent | docker-compose default OR a one-line `make scale` | scoring drain rate doubles → submit p95 drops from 9s to ~4s |
-| T2 | Postgres `shared_buffers=2GB` (default 128MB) | `docker-compose.yml` postgres command override | 30-50% faster reads on hot tables (questions, exam_sessions) |
-| T3 | Postgres `effective_cache_size=4GB` | same | helps planner pick index scans |
-| T4 | asyncpg `min_size=20` (warm-up) | `app/database.py` pool init | first 100 reqs after restart don't wait for pool to grow |
-| T5 | Caddy `max_idle_conns_per_host=200` on api upstream | `Caddyfile` reverse_proxy block | reuses connections to api, cuts handshake overhead |
+| T1 | `--scale worker=16` permanent | ✅ | Makefile `WORKER_REPLICAS ?= 16` |
+| T2 | Postgres `shared_buffers=2GB` | ✅ | `docker-compose.yml` postgres command |
+| T3 | Postgres `effective_cache_size=4GB` | ✅ | same |
+| T4 | asyncpg `min_size=20` warm-up | ✅ | env default in `app/postgres_table.py` |
+| T5 | Caddy `keepalive_idle_conns=200` on api upstream | ✅ | `Caddyfile` reverse_proxy block |
 
-### Tier 2 — Medium-effort, big wins (1-3 hours each)
+### Tier 2 — Medium-effort, big wins — MOSTLY DONE 2026-05-22
 
-| # | Change | Why | Expected impact |
+| # | Change | Status | Notes |
 |---|---|---|---|
-| T6 | Move `/api/v1/event` writes to the autosave queue (already exists, just unused for events) | events are fire-and-forget audit rows; no reason they should hit the DB synchronously | bulk_save + heartbeat p95 drops from 3s to ~200ms under load |
-| T7 | Combine scoring job's 4 separate DB queries into 1 with a CTE | scoring job currently does: load session → load answers → load questions → load exam_config. They can all be one query. | scoring throughput ~doubles, so 8 workers behave like 16 |
-| T8 | Add a second autosave-worker (`--scale autosave-worker=2`) | single worker is the bottleneck for the bulk_save fanout | bulk_save tail latency cuts in half |
-| T9 | k6: bump `submit` timeout from 30s → 60s in `real_exam_jwt.js` poll loop | the *scoring* drain takes >30s under load; the actual submit *response* takes <100ms. The test is incorrectly reporting timeouts for slow async scoring. | cleaner test signal — failures vs slow scoring become distinguishable |
-| T10 | Raise k6 `POLL_MAX_SECONDS` env var or change script to NOT poll (just verify 202 response) | poll loop conflates submit success with scoring completion | proves true "ingestion" capacity separately from "scoring" capacity |
+| T6 | Move `/api/v1/event` writes to autosave queue | ✅ commit `dd025fe` | exam_started + submit_failed stay sync, rest enqueued |
+| T7 | Combine scoring job's 4 DB queries into 1 CTE | ⏳ deferred | Needs profiling first — at 16 workers + bumped POLL_MAX, scoring drain may already be sufficient. Profile under load before refactoring. |
+| T8 | `--scale autosave-worker=2` | ✅ | Makefile `AUTOSAVE_WORKER_REPLICAS ?= 2` |
+| T9 | Bump k6 timeouts (submit 30→60s, event/hb 15→30s) | ✅ | `loadtest/real_exam_jwt.js` |
+| T10 | Raise k6 `POLL_MAX_SECONDS` from 30→60s | ✅ | same |
+
+### Other optimizations landed in this session
+
+| Change | Notes |
+|---|---|
+| UVICORN_WORKERS default 2 → 4 | api now uses all 4 cores under burst |
+| Redis maxmemory 64mb → 240mb | safe with 256mb container cap; RQ queue can hold 50k+ jobs |
+| `make up` auto-exports `COMPOSE_PROFILES=postgres` | postgres + pgbouncer always start with `make up` |
+| pgbouncer (transaction pooling) | §4b; multiplexes ~880 logical clients onto 25 real backends |
 
 ### Tier 3 — Architectural (1+ day each, do when revenue justifies)
 

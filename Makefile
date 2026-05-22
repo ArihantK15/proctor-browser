@@ -37,8 +37,13 @@ health:
 	  "SELECT state, COUNT(*) FROM pg_stat_activity WHERE datname='procta' GROUP BY state"
 	@echo ""
 	@echo "── pgbouncer pools (if running) ──"
-	@docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d pgbouncer \
-	  -c "SHOW POOLS" 2>/dev/null || echo "  pgbouncer not running or not yet wired to app"
+	@# psql isn't in the pgbouncer image. Run psql from proctor-postgres
+	@# (which has psql) targeting the pgbouncer container by service name.
+	@PGPASSWORD=$$(grep ^POSTGRES_PASSWORD= .env 2>/dev/null | head -1 | cut -d= -f2-); \
+	  docker exec -e PGPASSWORD=$$PGPASSWORD proctor-postgres \
+	    psql -h proctor-pgbouncer -p 6432 -U procta -d pgbouncer \
+	    -c "SHOW POOLS" 2>/dev/null \
+	  || echo "  pgbouncer not running, not wired, or auth missing"
 	@echo ""
 	@echo "── Redis queues ──"
 	@echo -n "  scoring: "; docker exec proctor-redis redis-cli LLEN rq:queue:scoring
@@ -52,20 +57,34 @@ health:
 # test to see how many real Postgres backends pgbouncer is using vs
 # how many app-side clients it's juggling.
 pgbouncer-stats:
-	@echo "── SHOW POOLS (per-database, per-user) ──"
-	@docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d pgbouncer -c "SHOW POOLS"
-	@echo ""
-	@echo "── SHOW CLIENTS (last 20 connected) ──"
-	@docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d pgbouncer -c "SHOW CLIENTS" | head -25
-	@echo ""
-	@echo "── SHOW STATS (totals since boot) ──"
-	@docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d pgbouncer -c "SHOW STATS"
+	@# psql lives in the proctor-postgres image, NOT proctor-pgbouncer.
+	@# We exec into proctor-postgres and connect over the Docker network
+	@# to proctor-pgbouncer. PGPASSWORD comes from .env on the host.
+	@PGPASSWORD=$$(grep ^POSTGRES_PASSWORD= .env 2>/dev/null | head -1 | cut -d= -f2-); \
+	  test -n "$$PGPASSWORD" || { echo "ERROR: POSTGRES_PASSWORD not in .env"; exit 1; }; \
+	  echo "── SHOW POOLS (per-database, per-user) ──"; \
+	  docker exec -e PGPASSWORD=$$PGPASSWORD proctor-postgres \
+	    psql -h proctor-pgbouncer -p 6432 -U procta -d pgbouncer -c "SHOW POOLS"; \
+	  echo ""; \
+	  echo "── SHOW CLIENTS (first 25) ──"; \
+	  docker exec -e PGPASSWORD=$$PGPASSWORD proctor-postgres \
+	    psql -h proctor-pgbouncer -p 6432 -U procta -d pgbouncer -c "SHOW CLIENTS" | head -25; \
+	  echo ""; \
+	  echo "── SHOW STATS (totals since boot) ──"; \
+	  docker exec -e PGPASSWORD=$$PGPASSWORD proctor-postgres \
+	    psql -h proctor-pgbouncer -p 6432 -U procta -d pgbouncer -c "SHOW STATS"
 
-# Verify the app/workers ARE going through pgbouncer. If they're
-# bypassing it, this prints "WARNING: …".
+# Verify the app/workers ARE going through pgbouncer (not direct to
+# postgres). Reads the DATABASE_URL from inside the running api
+# container — that's the runtime truth, not the .env file on disk.
 pgbouncer-verify:
-	@docker exec proctor-api env 2>/dev/null | grep -E "DATABASE_URL|DATABASE_USE_PGBOUNCER" || true
-	@docker exec proctor-api python -c "import os; url = os.environ.get('DATABASE_URL', ''); print('  api → ' + ('pgbouncer ✓' if 'pgbouncer' in url else 'postgres direct ✗ (not via pgbouncer)'))"
+	@echo "── api container DATABASE_URL ──"
+	@docker exec proctor-api sh -c 'echo "$$DATABASE_URL" | sed "s/:[^:@]*@/:****@/"' 2>/dev/null \
+	  || { echo "ERROR: proctor-api container not running"; exit 1; }
+	@docker exec proctor-api sh -c \
+	  'case "$$DATABASE_URL" in *pgbouncer*) echo "  api → pgbouncer ✓";; *) echo "  api → direct postgres ✗ (DATABASE_URL needs pgbouncer:6432)";; esac'
+	@docker exec proctor-api sh -c \
+	  'case "$$DATABASE_USE_PGBOUNCER" in 1|true|yes) echo "  asyncpg statement_cache → disabled ✓";; *) echo "  asyncpg statement_cache → ENABLED ✗ (set DATABASE_USE_PGBOUNCER=1 or you will see prepared-statement errors)";; esac'
 
 restart:
 	docker compose restart api caddy

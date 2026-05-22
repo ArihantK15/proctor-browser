@@ -339,8 +339,12 @@ docker compose --profile postgres up -d --scale worker=16 --scale autosave-worke
 docker compose ps | grep pgbouncer
 make pgbouncer-verify    # should print "api → pgbouncer ✓"
 
-# 4. Smoke test — run a single exam end-to-end:
-docker exec proctor-pgbouncer psql -h 127.0.0.1 -p 6432 -U procta -d procta \
+# 4. Smoke test — query Postgres VIA pgbouncer.
+# Note: psql isn't in the pgbouncer image, so we exec into postgres
+# (which has psql) and connect over the Docker network to pgbouncer.
+PGPASSWORD=$(grep ^POSTGRES_PASSWORD= .env | head -1 | cut -d= -f2-)
+docker exec -e PGPASSWORD="$PGPASSWORD" proctor-postgres \
+  psql -h proctor-pgbouncer -p 6432 -U procta -d procta \
   -c "SELECT count(*) FROM teachers"   # should return a number, not an error
 
 # 5. Check pool occupancy:

@@ -214,6 +214,12 @@ services:
       # any session-scoped state from one app request to the next.
       - SERVER_RESET_QUERY=DISCARD ALL
       - AUTH_TYPE=scram-sha-256
+      # Allow the procta user to query pgbouncer's special "pgbouncer"
+      # admin database (SHOW POOLS, SHOW STATS, SHOW CLIENTS, RECONNECT,
+      # etc). Without one of these, `make pgbouncer-stats` fails with
+      # "pgbouncer: not allowed".
+      - ADMIN_USERS=${POSTGRES_USER:-procta}
+      - STATS_USERS=${POSTGRES_USER:-procta}
       # Behind a private Docker network — no need for client SSL
       - CLIENT_TLS_SSLMODE=disable
       - SERVER_TLS_SSLMODE=disable
@@ -231,11 +237,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # pgbouncer's alpine base image does NOT include pg_isready or
+    # psql. Use busybox `nc -z` for a TCP-level liveness probe.
+    # This only confirms the port is listening (good enough for
+    # "container is up" — actual SQL reachability is checked by the
+    # app's first asyncpg connection, which will retry on failure).
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U ${POSTGRES_USER:-procta}"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:

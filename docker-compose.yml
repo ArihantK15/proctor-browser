@@ -237,7 +237,17 @@ services:
       - MAX_CLIENT_CONN=4000
       # Reset connection state between transactions to avoid leaking
       # any session-scoped state from one app request to the next.
+      # SERVER_RESET_QUERY_ALWAYS=1 is REQUIRED in transaction-pool
+      # mode — by default pgbouncer only runs the reset query in
+      # session-pool mode, silently skipping it in transaction mode.
+      # That default caused "prepared statement __asyncpg_stmt_1__
+      # already exists" errors at 3000 VU on 2026-05-23: asyncpg uses
+      # prepared statements at the wire protocol level, and without
+      # DISCARD ALL running between transactions they accumulate on
+      # recycled backends, eventually colliding on the per-connection
+      # counter-based names asyncpg generates.
       - SERVER_RESET_QUERY=DISCARD ALL
+      - SERVER_RESET_QUERY_ALWAYS=1
       - AUTH_TYPE=scram-sha-256
       # Allow the procta user to query pgbouncer's special "pgbouncer"
       # admin database (SHOW POOLS, SHOW STATS, SHOW CLIENTS, RECONNECT,

@@ -276,6 +276,48 @@ Every item is free except where noted.
 | `make up` auto-exports `COMPOSE_PROFILES=postgres` | postgres + pgbouncer always start with `make up` |
 | pgbouncer (transaction pooling) | §4b; multiplexes ~880 logical clients onto 25 real backends |
 
+---
+
+### 2026-05-23 update — Worker config breakthrough
+
+Diagnostic test isolated CPU contention as the scoring throughput
+bottleneck. Comparison at 1500 VU production-path load:
+
+| Config | Scoring drained | Avg latency | p95 latency | Notes |
+|---|---|---|---|---|
+| 16 workers × 0.5 CPU | **13%** (196/1500) | 37.5s | 58.6s | Each worker throttled to ~0.25 effective core under saturation. Heavy context-switching overhead. |
+| **8 workers × 1.0 CPU** ✅ | **100%** (1500/1500) | **8.7s** | **14.2s** | Same 8-CPU total budget. Half the context-switch overhead. Workers can use full core when others idle. |
+
+Defaults changed to **8 × 1.0**: `Makefile WORKER_REPLICAS ?= 8`,
+`docker-compose.yml WORKER_CPU_LIMIT default 1.0`.
+
+Submit p95 went from 397ms → 1050ms — that's the expected trade-off:
+previously scoring barely ran so submit response was clean; now
+scoring is actually CPU-fed in parallel with submit requests. 1.05s
+submit response is well within user tolerance; 14s scoring tail is
+fine for "wait for results" UX.
+
+#### Verified pitch numbers (2026-05-23)
+
+> **Procta sustains 1,500 concurrent students through the full
+> production exam path — including async scoring — with 100% success
+> rate, 1.05s p95 submit latency, and 100% async scoring completion
+> within ~14s.**
+>
+> Server-side at peak: 25 real Postgres backends multiplexing 172
+> logical pgbouncer clients, 1,479 transactions/sec sustained, 87%
+> Postgres connection-pool headroom remaining.
+
+#### What's still left for future capacity work
+- **T7 (CTE) for scoring queries** — deferred. At 1500 VU we no longer
+  need it; would become relevant at 3000+ VU if we wanted to push
+  scoring p95 below 5s.
+- **asyncpg persistent event loop in workers** — deferred. The 8 × 1.0
+  config closed the bulk of the gap; the remaining ~8s of avg
+  scoring latency is real DB+compute work, not loop overhead.
+- **KVM upgrade to 8 vCPU / 32 GB RAM** (~₹1400/mo) — defer until a
+  paying school routinely runs >2000 concurrent exams.
+
 ### Tier 3 — Architectural (1+ day each, do when revenue justifies)
 
 | # | Change | When to do it |

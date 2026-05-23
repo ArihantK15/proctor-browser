@@ -11,7 +11,13 @@
 # the scaling parameter has to be supplied on every `up` command.
 # Codifying it here makes "run with N workers" a memorable one-liner.
 
-WORKER_REPLICAS ?= 16
+# Empirically tuned 2026-05-23: at 1500 VU production-path load on a
+# 4-vCPU KVM, 8 workers × 1.0 CPU cap drains the scoring queue 100%
+# (1500/1500 jobs) with avg latency 8.7s. The prior 16 × 0.5 config
+# only drained 13% (196/1500) because each worker was throttled to
+# ~0.25 effective core under saturation. Same total CPU budget, but
+# half the context-switch overhead lets jobs actually finish.
+WORKER_REPLICAS ?= 8
 AUTOSAVE_WORKER_REPLICAS ?= 2
 
 # postgres + pgbouncer are gated behind the "postgres" profile so the

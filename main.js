@@ -3,7 +3,7 @@ const path = require('path');
 const {
   SERVER_URL, ADMIN_CODE, INVITE_REGEX, BLOCKING_TYPES,
 } = require('./config');
-const { extractInviteToken, authHeaders } = require('./lib/utils');
+const { extractInviteToken, authHeaders, fetchWithTimeout } = require('./lib/utils');
 const { initAutoUpdater } = require('./lib/auto-update');
 const { runIntegrityChecks } = require('./lib/integrity');
 const {
@@ -52,12 +52,12 @@ async function _scanProcesses() {
   for (const { rx, label, type } of THREATS) {
     if (rx.test(lower)) {
       if (getCurrentSessionId() && getStudentToken()) {
-        fetch(`${SERVER_URL}/event`, {
+        fetchWithTimeout(`${SERVER_URL}/event`, {
           method: 'POST', headers: authHeaders(getStudentToken()),
           body: JSON.stringify({ session_id: getCurrentSessionId(),
             event_type: type, severity: 'high',
             details: `[Live scan] ${label} detected during exam` }),
-        }).catch(() => {});
+        }, 10000).catch(() => {});
       }
       if (getMainWindow() && !getMainWindow().isDestroyed()) {
         getMainWindow().webContents.send('violation-detected', {
@@ -72,12 +72,12 @@ async function _scanProcesses() {
     const { screen } = require('electron');
     const displays = screen.getAllDisplays();
     if (displays.length > 1 && getCurrentSessionId() && getStudentToken()) {
-      fetch(`${SERVER_URL}/event`, {
+      fetchWithTimeout(`${SERVER_URL}/event`, {
         method: 'POST', headers: authHeaders(getStudentToken()),
         body: JSON.stringify({ session_id: getCurrentSessionId(),
           event_type: 'multiple_monitors', severity: 'medium',
           details: `[Live scan] ${displays.length} displays detected` }),
-      }).catch(() => {});
+      }, 10000).catch(() => {});
     }
   } catch(e) {}
 }
@@ -228,10 +228,10 @@ ipcMain.handle('get-integrity-flags', async () => {
 ipcMain.handle('validate-student', async (_, roll, accessCode) => {
   const body = { roll_number: roll, access_code: accessCode || '' };
   if (getExamContext() && getExamContext().examId) body.exam_id = getExamContext().examId;
-  const r = await fetch(`${SERVER_URL}/api/validate-student`, {
+  const r = await fetchWithTimeout(`${SERVER_URL}/api/validate-student`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, 30000);
   if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
   const data = await r.json();
   setStudentToken(data.token || null);
@@ -240,26 +240,26 @@ ipcMain.handle('validate-student', async (_, roll, accessCode) => {
 
 ipcMain.handle('get-questions', async (_, sessionId) => {
   const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
-  const r = await fetch(`${SERVER_URL}/api/questions${qs}`,
-    { headers: authHeaders(getStudentToken()) });
+  const r = await fetchWithTimeout(`${SERVER_URL}/api/questions${qs}`,
+    { headers: authHeaders(getStudentToken()) }, 30000);
   if (!r.ok) throw new Error('Could not load questions');
   return r.json();
 });
 
 ipcMain.handle('log-event', async (_, data) => {
   try {
-    await fetch(`${SERVER_URL}/event`, {
+    await fetchWithTimeout(`${SERVER_URL}/event`, {
       method: 'POST', headers: authHeaders(getStudentToken()),
       body: JSON.stringify(data),
-    });
+    }, 10000);
   } catch(e) { console.error('[log-event]', e.message); }
 });
 
 ipcMain.handle('submit-exam', async (_, data) => {
-  const r = await fetch(`${SERVER_URL}/api/submit-exam`, {
+  const r = await fetchWithTimeout(`${SERVER_URL}/api/submit-exam`, {
     method: 'POST', headers: authHeaders(getStudentToken()),
     body: JSON.stringify(data),
-  });
+  }, 60000);
   if (!r.ok) {
     const errText = await r.text();
     console.error('[Submit] Server error:', r.status, errText);
@@ -269,8 +269,8 @@ ipcMain.handle('submit-exam', async (_, data) => {
 });
 
 ipcMain.handle('get-events', async (_, sessionId) => {
-  const r = await fetch(`${SERVER_URL}/events/${sessionId}`,
-    { headers: authHeaders(getStudentToken()) });
+  const r = await fetchWithTimeout(`${SERVER_URL}/events/${sessionId}`,
+    { headers: authHeaders(getStudentToken()) }, 15000);
   if (!r.ok) return { events: [] };
   return r.json();
 });

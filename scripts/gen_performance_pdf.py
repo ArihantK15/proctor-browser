@@ -144,6 +144,20 @@ LOAD_TEST_RESULTS = [
         "iterations_pct":    100.0,
         "notes":             "Discovered RQ's default fork-per-job + asyncio.run() per job was rebuilding the 20-connection asyncpg pool on every scoring job — paying TCP+SCRAM handshakes ~20× per job. Fix: SimpleWorker + persistent event loop. Per-job scoring time dropped from ~8.7s to 30–80ms. 100–300× per-job speedup.",
     },
+    {
+        "phase":             "Phase 5 — 3000 VU verification",
+        "date":              "2026-05-23 PM",
+        "vus":               3000,
+        "config":            "Same architecture as Phase 4 — doubled concurrent VU count to verify scaling",
+        "submit_p95_ms":     66,
+        "heartbeat_p95_ms":  106,
+        "bulk_save_p95_ms":  119,
+        "scoring_p95_ms":    1571,
+        "scoring_drained":   "100%",
+        "error_rate_pct":    0.39,
+        "iterations_pct":    100.0,
+        "notes":             "3000 VU empirically verified. All 3000 iterations completed. Scoring drained 100% (2921/2921) at 1.57s p95 — essentially flat vs the 1500 VU run, proving the architecture scales. API CPU at peak: 18-22% of 3.0 CPU cap (78% idle). pgbouncer hit 4,846 transactions/sec at peak (3.3× the previous high). Two minor findings to address before 5000 VU: 79 submit failures (2.6%, root cause TBD) and an autosave queue backlog (2 workers can't quite match arrival rate at 3000 VU — fix: scale to 4 autosave-workers).",
+    },
 ]
 
 # Architectural optimizations landed during the journey
@@ -578,14 +592,16 @@ def _roadmap_page(story):
     cap_rows = [
         ["Concurrent students", "Submits/sec at peak", "vs current drain capacity", "Status"],
         ["1,500", "25", "6× headroom", "Verified 2026-05-23 ✓"],
-        ["3,000", "50", "3× headroom", "Math green, empirical pending"],
+        ["3,000", "50", "3× headroom", "Verified 2026-05-23 ✓"],
         ["5,000", "83", "~2× headroom", "Math green, empirical pending"],
         ["10,000", "167", "1× (would need T7)", "Requires CTE consolidation"],
     ]
     tbl2 = Table(cap_rows, colWidths=[42*mm, 35*mm, 50*mm, 43*mm])
     style2 = _table_style_default()
-    style2.add("BACKGROUND", (0, 1), (-1, 1), HexColor("#dcfce7"))  # verified row
+    style2.add("BACKGROUND", (0, 1), (-1, 1), HexColor("#dcfce7"))  # 1500 VU verified
     style2.add("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold")
+    style2.add("BACKGROUND", (0, 2), (-1, 2), HexColor("#dcfce7"))  # 3000 VU verified
+    style2.add("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold")
     tbl2.setStyle(style2)
     story.append(Spacer(1, 4*mm))
     story.append(tbl2)

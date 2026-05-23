@@ -803,8 +803,15 @@ document.getElementById('acceptForm').addEventListener('submit', async function(
 @router.get("/org-invite/{token}")
 @limiter.limit("30/minute")
 async def get_org_invite_page(token: str, request: Request):
-    """Serve the org invite acceptance page."""
-    result = await _atable("org_invites").select("id,org_id,email,full_name,status,expires_at").eq("token", token).limit(1).execute()
+    """Serve the org invite acceptance page.
+
+    Looks up by SHA-256(token) since 2026-05-23 — see migrations/
+    phase69_invite_token_hash.sql + audit M13. The raw token never
+    needs to leave the URL; we hash on every request to compare.
+    """
+    import hashlib as _hl
+    token_hash = _hl.sha256(token.encode("utf-8")).hexdigest()
+    result = await _atable("org_invites").select("id,org_id,email,full_name,status,expires_at").eq("token_hash", token_hash).limit(1).execute()
     if not result.data:
         return HTMLResponse("<h1>Invalid or expired invitation link</h1>", status_code=404)
     invite = result.data[0]
@@ -840,7 +847,13 @@ async def accept_org_invite(body: dict, request: Request):
     except PasswordError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    result = await _atable("org_invites").select("*").eq("token", token).eq("status", "pending").limit(1).execute()
+    # Hash-then-lookup (audit M13) so a DB compromise can't surface
+    # usable invite links. The plaintext `token` column is still
+    # populated by admin_org.py during the transition; a future
+    # migration drops it once we're confident the hash path is stable.
+    import hashlib as _hl
+    token_hash = _hl.sha256(token.encode("utf-8")).hexdigest()
+    result = await _atable("org_invites").select("*").eq("token_hash", token_hash).eq("status", "pending").limit(1).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Invalid or expired invitation")
     invite = result.data[0]

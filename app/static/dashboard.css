@@ -247,9 +247,7 @@ tr:hover td{background:rgba(61,217,168,.04)}
   #panel-live .table-wrap tbody tr.row-warn{box-shadow-x:2px}
   .analytics-section{padding:14px}
   .analytics-section-header{flex-direction:column;align-items:flex-start;gap:var(--space-1)}
-  #bank-generate-area > div[style*="grid-template-columns:1fr 90px 110px 110px"]{
-    grid-template-columns:1fr 1fr !important
-  }
+  #bank-generate-area .gen-grid{grid-template-columns:1fr 1fr !important}
   #liveview-modal .modal{max-width:96vw;padding:14px}
 }
 @media(max-width:480px){
@@ -269,9 +267,7 @@ tr:hover td{background:rgba(61,217,168,.04)}
   .stat-tile{padding:0 var(--space-2);min-width:88px}
   .stat-tile-value{font-size:var(--text-base)}
   .stat-tile-label{font-size:9px}
-  #bank-generate-area > div[style*="grid-template-columns:1fr 90px 110px 110px"]{
-    grid-template-columns:1fr !important
-  }
+  #bank-generate-area .gen-grid{grid-template-columns:1fr !important}
 }
 html,body{overflow-x:hidden;max-width:100vw}
 

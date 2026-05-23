@@ -618,6 +618,85 @@ Each row in `loadtest/loadtest_tokens.json`:
 The k6 script overrides `session_id` per-iteration to
 `${roll}_${Date.now()}v${__VU}` to avoid the rsplit pitfall above.
 
+## 6a. Audit remediation — 2026-05-23
+
+A 34-item audit (8 Critical / 8 High / 13 Medium / 5 Low) was
+worked through end-to-end in this session, **plus** the user made
+two scope-expanding product decisions mid-way: remove Google +
+Microsoft OAuth entirely, and replace TOTP 2FA with email-OTP 2FA.
+
+### Audit staleness — items confirmed already fixed
+
+These were in the audit but verification against the current code
+showed they're not broken. Documented here so future readers don't
+re-verify or accidentally regress them:
+
+| Audit ID | Why it's not actually broken |
+|---|---|
+| **C1** (loadBilling crash) | `loadBilling()` IS defined at `dashboard.html:3279`. |
+| **C3** (hardcoded superadmin email) | Replaced by `SUPER_ADMIN_EMAIL` env var in `constants.py:41`. |
+| **C5** (student login lockout missing) | `check_lockout`/`record_failure` wired at `auth.py:1019` via `services/auth_lockout.py`. |
+| **C7** (no student logout endpoint) | Exists at `auth.py:1136`. |
+| **C8** (openTriage missing) | Defined at `dashboard.html:3097`. |
+| **H1** (password client/server mismatch) | Both `register.html:567-574` and `student.html:719-722` call `isStrongPassword()`. |
+| **H3** (replaced_by_jti self-reference) | Correctly points to NEW token's JTI at `auth.py:249`. |
+| **H4** (student password reset no CAPTCHA) | `verify_or_403(...)` called at `auth.py:1715`. |
+| **H5** (no disable 2FA button) | Was at `dashboard.html:1465` + `auth.py:1557`; now replaced with email-OTP version. |
+| **H8** (12-hr access token TTL) | Actual is `ADMIN_TOKEN_TTL_MINUTES=30` / `STUDENT_AUTH_TTL_MINUTES=30` (`constants.py:45-46`). The legacy 10-hour TOKEN_TTL_HOURS is unused. |
+| **M1** (2FA accepts non-numeric) | Validates `/^\d{6}$/` at `dashboard.html:2521`. |
+| **M9** (chat WS no reconnect) | Has exponential backoff at `renderer/index.html:2498` (`chatScheduleReconnect`). |
+
+### Items fixed this session (with commit hashes)
+
+| Audit | Fix | Commit |
+|---|---|---|
+| **C2** (CSP blocks QR) | Moot — TOTP removed entirely, no more QR codes | `1bf402a` |
+| **C4** (account-existence leak) | Already returns constant `{"exists": false}` — kept (`false` preserves UX) | (no change) |
+| **C6** (single SECRET_KEY for all tokens) | Deferred — architectural debt, 4hr+ work | — |
+| **M2** (mac arch fallback) | UA-CH detection + default x64 fallback | `c9abe43` |
+| **M3** (hardcoded Asia/Kolkata) | `Intl.DateTimeFormat().resolvedOptions().timeZone` in 5 sites | `c9abe43` |
+| **M7** (removeMember collision) | Split into `removeGroupMember` + `removeOrgMember` | `297b488` |
+| **M10** (phone-cam reconnect) | Exponential backoff (1s → 30s cap) matching the chat-WS pattern | `a49446a` |
+| **M13** (invite tokens plaintext) | `token_hash` column + SHA-256 lookup; migration `phase69` backfills existing pending invites | `d89e9c3` |
+| **L1** (localInputToUtc IST) | Browser-local timezone in both directions (input → UTC, UTC → input) | `c56a41b` |
+| **L3** (marketing.html missing) | File doesn't exist + no references → non-issue | (no change) |
+| **L4** (OAuth fragment) | Moot — OAuth removed | `c8ab88c` |
+| **M12** (OAuth state key) | Moot — OAuth removed | `c8ab88c` |
+
+### Scope expansions (user decisions mid-session)
+
+| Change | Commit | Migration |
+|---|---|---|
+| **Remove Google + Microsoft OAuth entirely** — backend service, route handlers, frontend buttons, env vars, marketing copy | `c8ab88c` | (Supabase Auth dashboard manual step — disable providers) |
+| **Replace TOTP 2FA with email-OTP 2FA** — TOTP service deleted, 2FA endpoints rewritten, login flow uses `email_otp.issue` + `send_2fa_otp_email`, dashboard + React UI rewritten | `1bf402a` | `phase68_email_2fa.sql` |
+
+### Deferred with rationale (not done this session)
+
+| Audit | Why deferred |
+|---|---|
+| **C6** (single SECRET_KEY) | 4hr+ architectural; mitigated by HS256 + key not in version control. Revisit on security review or token-confusion CVE. |
+| **H2** (legacy reset token reuse) | Real but minor; only affects accounts that never had `password_changed_at` set — small population. ~30 min, batch with next auth work. |
+| **H6** (invoice rendering missing) | Real — billing tab needs implementation OR redirect to React BillingPanel. Defer until first paying customer asks. |
+| **H7** (escHtml insufficient for attr/JS context) | Real defensive issue. Need a `escAttr` + `escJs` audit + replacement across dashboard.html. ~3hr. Defer. |
+| **M4** (no fetch timeouts) | Wrapper + apply to all callsites; non-trivial regression surface. ~2hr. Defer. |
+| **M5** (44 alert() → modal) | UX polish, 4hr churn. Defer to dedicated UX sprint. |
+| **M6** (31 silent catch blocks) | Each needs triage — adding logging may surface previously-hidden errors. ~2hr. Defer. |
+| **M8** (CSRF tied to JWT) | Real architectural item but no demonstrated exploit (attacker with JWT already has full control). ~3-4hr. Defer. |
+| **M11** (WS per-IP rate limit) | Existing 10s auth-handshake timeout + per-session conn cap adequate. Marginal value. Defer. |
+| **L2** (CSP nonce) | 4hr to do right. Defer. |
+| **L5** (X-Request-ID in errors) | Request-id middleware + frontend pickup. ~1hr. Defer to next debugging-tools sprint. |
+
+### Manual cleanup needed on the KVM
+
+These can't be done from git push alone — operator action required:
+
+1. **`.env`**: remove `GOOGLE_OAUTH_*`, `MICROSOFT_OAUTH_*` env vars (silently ignored but should be cleaned up)
+2. **Supabase Auth dashboard**: disable Google + Azure providers
+3. **`TOTP_ENCRYPTION_KEY` env var**: KEEP — `app/services/crypto.py` still uses it (general-purpose encryption for Google Classroom OAuth tokens; the variable name is historical)
+4. Anyone who originally signed up via Google can use the password-reset flow on their original email to set a password and migrate to local auth
+
+---
+
 ## 7. Open work items (priority order)
 
 Priority is "what makes Procta survive solo + bus-factor 1", NOT

@@ -65,28 +65,58 @@ async def get_pool() -> asyncpg.Pool:
         # max_size=40 caps each uvicorn worker's pool. 4 workers × 40 =
         # 160 max, again under max_connections=200.
         # When DATABASE_URL points at pgbouncer (transaction pooling),
-        # we MUST disable asyncpg's server-side prepared statement cache
-        # — under transaction pooling each acquire may land on a
-        # different real backend, so a prepared statement set up on one
-        # backend won't exist on the next. Symptoms when this is wrong:
-        # `prepared statement "__asyncpg_stmt_xxx" does not exist`
-        # errors under any load.
+        # asyncpg needs TWO compatibility settings — `statement_cache_size=0`
+        # ALONE is not enough:
         #
-        # We detect pgbouncer via the DATABASE_USE_PGBOUNCER env flag
-        # (set in docker-compose). Outside of pgbouncer mode we keep
-        # the cache because it's a ~30% query throughput win.
+        #   1. statement_cache_size=0
+        #        Disables asyncpg's in-process REUSE of prepared
+        #        statements. Without this, asyncpg looks up cached
+        #        statement handles bound to a specific backend connection,
+        #        which under transaction-pool reassignment fails.
+        #
+        #   2. prepared_statement_name_func=<uuid-generator>
+        #        asyncpg STILL uses prepared statements at the wire-
+        #        protocol level (the `PREPARE name AS ...` then
+        #        `EXECUTE name (...)` dance) even with the cache off.
+        #        Default naming is a per-connection counter
+        #        (__asyncpg_stmt_1__, __asyncpg_stmt_2__, ...).
+        #        Under transaction pooling, when pgbouncer reuses a
+        #        backend that already has a `__asyncpg_stmt_1__`
+        #        registered from a previous client, the new PREPARE
+        #        for that name fails with:
+        #           "prepared statement '__asyncpg_stmt_1__' already exists"
+        #        We diagnosed exactly this error at 3000 VU on
+        #        2026-05-23, causing 79/3000 submit failures (2.6%).
+        #        Generating a UUID-based name per query makes
+        #        collisions cryptographically impossible.
+        #
+        # Outside pgbouncer mode we keep the default counter naming
+        # AND the statement cache — both are wins when connecting
+        # direct to Postgres.
         pgbouncer_mode = os.environ.get("DATABASE_USE_PGBOUNCER", "").lower() in ("1", "true", "yes")
-        statement_cache_size = 0 if pgbouncer_mode else 100
 
-        _pool = await asyncpg.create_pool(
+        pool_kwargs: dict = dict(
             dsn=_database_url(),
             min_size=int(os.environ.get("POSTGRES_POOL_MIN", "20")),
             max_size=int(os.environ.get("POSTGRES_POOL_MAX", "40")),
             command_timeout=float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "15")),
             max_inactive_connection_lifetime=float(os.environ.get("POSTGRES_IDLE_LIFETIME", "60")),
             timeout=float(os.environ.get("POSTGRES_CONNECT_TIMEOUT", "10")),
-            statement_cache_size=statement_cache_size,
         )
+        if pgbouncer_mode:
+            import uuid
+            pool_kwargs["statement_cache_size"] = 0
+            # Each prepared statement gets a fresh UUID-based name, so
+            # backend reuse via pgbouncer cannot produce name collisions.
+            # The 16-hex-char suffix gives 64 bits of entropy — collision
+            # probability is essentially zero even at millions of QPS.
+            pool_kwargs["prepared_statement_name_func"] = (
+                lambda: f"__procta_{uuid.uuid4().hex[:16]}__"
+            )
+        else:
+            pool_kwargs["statement_cache_size"] = 100  # asyncpg default
+
+        _pool = await asyncpg.create_pool(**pool_kwargs)
     return _pool
 
 

@@ -79,7 +79,7 @@ async function _scanProcesses() {
           details: `[Live scan] ${displays.length} displays detected` }),
       }, 10000).catch(() => {});
     }
-  } catch(e) {}
+  } catch(e) { console.error('[Monitor] _scanProcesses error:', e.message); }
 }
 
 setMonitorFns(startProcessMonitor, stopProcessMonitor);
@@ -218,7 +218,7 @@ app.on('window-all-closed', () => {
 // ── IPC HANDLERS ──────────────────────────────────────────────────
 ipcMain.handle('get-integrity-flags', async () => {
   const ready = getIntegrityReady();
-  if (ready) { try { await ready; } catch(e) {} }
+  if (ready) { try { await ready; } catch(e) { console.error('[Integrity] check failed:', e.message); } }
   return getIntegrityFlags().map(f => ({
     ...f,
     blocking: BLOCKING_TYPES.has(f.type) && f.severity === 'high',

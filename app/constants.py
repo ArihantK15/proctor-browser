@@ -90,8 +90,10 @@ PLANS = {
     "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "desc": "Custom pricing — contact sales"},
 }
 TRIAL_DAYS = 14
-TOTP_ENCRYPTION_KEY = os.environ.get("TOTP_ENCRYPTION_KEY", "")
-TOTP_GRACE_DAYS = 30
+# TOTP_ENCRYPTION_KEY + TOTP_GRACE_DAYS constants removed 2026-05-23
+# (TOTP retired in favour of email-OTP 2FA). The TOTP_ENCRYPTION_KEY
+# env var is still read directly by app/services/crypto.py for
+# encrypting Google Classroom OAuth tokens — name is historical.
 
 # ─── Risk scoring ─────────────────────────────────────────────────
 _SATURATION_K = 5

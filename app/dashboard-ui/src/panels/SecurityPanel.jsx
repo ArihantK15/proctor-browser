@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../lib/auth'
 
+// Email-OTP 2FA (replaced TOTP/Google Authenticator on 2026-05-23).
+// No QR codes, no authenticator app, no backup codes — when 2FA is
+// on, the login flow emails a 6-digit code every sign-in.
 export default function SecurityPanel() {
   const { authFetch } = useAuth()
   const [tfaStatus, setTfaStatus] = useState(null)
   const [sessions, setSessions] = useState([])
-  const [enrolling, setEnrolling] = useState(false)
-  const [enrollData, setEnrollData] = useState(null)
-  const [tfaCode, setTfaCode] = useState('')
   const [tfaMsg, setTfaMsg] = useState('')
+  const [tfaMsgColor, setTfaMsgColor] = useState('var(--text-muted)')
   const [sessionsMsg, setSessionsMsg] = useState('')
-
-
   const [loadError, setLoadError] = useState('')
 
   const loadTfaStatus = async () => {
@@ -44,56 +43,63 @@ export default function SecurityPanel() {
 
   useEffect(() => { loadAll() }, [])
 
-  const enable2FA = async () => {
-    setEnrolling(true)
-    setTfaMsg('Generating...')
-    try {
-      const r = await authFetch('/api/v1/auth/2fa/enroll', { method: 'POST' })
-      if (!r.ok) throw new Error('Failed')
-      setEnrollData(await r.json())
-      setTfaMsg('')
-    } catch (e) { setTfaMsg(e.message) }
+  // Re-auth helper — exchanges the user's password for a 5-minute
+  // reauth_token. Both enable and disable need one.
+  const getReauthToken = async (action) => {
+    const password = window.prompt(`Enter your password to ${action} two-factor authentication`)
+    if (!password) return null
+    const rr = await authFetch('/api/v1/auth/reauth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+    const rd = await rr.json().catch(() => ({}))
+    if (!rr.ok) throw new Error(rd.detail || 'Password verification failed')
+    return rd.reauth_token
   }
 
-  const confirm2FA = async () => {
-    if (!/^\d{6}$/.test(tfaCode)) { setTfaMsg('Enter a 6-digit numeric code'); return }
-    setTfaMsg('Verifying...')
+  const enable2FA = async () => {
+    setTfaMsgColor('var(--text-muted)'); setTfaMsg('')
     try {
-      const r = await authFetch('/api/v1/auth/2fa/confirm', {
+      const reauth_token = await getReauthToken('enable')
+      if (!reauth_token) return
+      setTfaMsg('Enabling...')
+      const r = await authFetch('/api/v1/auth/2fa/enable', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: tfaCode }),
+        body: JSON.stringify({ reauth_token }),
       })
-      if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Invalid') }
-      setTfaMsg('✅ Two-factor authentication enabled!')
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.detail || 'Failed to enable 2FA')
+      setTfaMsgColor('var(--emerald)')
+      setTfaMsg('✅ Enabled — next sign-in will require an email code.')
       await loadTfaStatus()
-    } catch (e) { setTfaMsg(e.message) }
+    } catch (e) {
+      setTfaMsgColor('var(--red)')
+      setTfaMsg(e.message || 'Failed to enable 2FA')
+    }
   }
 
   const disable2FA = async () => {
-    const password = window.prompt('Enter your password to disable two-factor authentication')
-    if (!password) return
-    setTfaMsg('Disabling...')
+    setTfaMsgColor('var(--text-muted)'); setTfaMsg('')
     try {
-      const rr = await authFetch('/api/v1/auth/reauth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-      const rd = await rr.json().catch(() => ({}))
-      if (!rr.ok) throw new Error(rd.detail || 'Password verification failed')
+      const reauth_token = await getReauthToken('disable')
+      if (!reauth_token) return
+      setTfaMsg('Disabling...')
       const r = await authFetch('/api/v1/auth/2fa/disable', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reauth_token: rd.reauth_token }),
+        body: JSON.stringify({ reauth_token }),
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.detail || 'Failed to disable 2FA')
-      setEnrollData(null)
-      setTfaCode('')
+      setTfaMsgColor('var(--emerald)')
       setTfaMsg('Two-factor authentication disabled.')
       await loadTfaStatus()
-    } catch (e) { setTfaMsg(e.message || 'Failed to disable 2FA') }
+    } catch (e) {
+      setTfaMsgColor('var(--red)')
+      setTfaMsg(e.message || 'Failed to disable 2FA')
+    }
   }
 
   const revokeSession = async (jti) => {
@@ -125,44 +131,30 @@ export default function SecurityPanel() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
       {loadError && <div className="auth-err" style={{ gridColumn: '1 / -1', marginBottom: 8 }}>{loadError} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>}
-      {/* 2FA card */}
+      {/* 2FA card — email-OTP (no QR, no authenticator app) */}
       <div className="tool-card">
         <div className="tool-card-body">
           <h3>Two-Factor Authentication</h3>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '8px 0' }}>
-            {tfaStatus?.enabled
-              ? '✅ Two-factor authentication is enabled.'
-              : '❌ Two-factor authentication is not enabled.'}
+            When enabled, we'll email you a 6-digit code every time you sign in.
+            No app required — works on any device that can read your email.
           </p>
-          {!enrolling && !tfaStatus?.enabled && (
+          {tfaStatus && (
+            <p style={{ fontSize: 13, color: 'var(--text)', margin: '12px 0' }}>
+              {tfaStatus.enabled
+                ? <>✅ Email-based 2FA is <strong style={{ color: 'var(--emerald)' }}>enabled</strong>. You'll get a code on every sign-in.</>
+                : (tfaStatus.email_verified
+                    ? <>ℹ️ Two-factor authentication is <strong style={{ color: 'var(--amber)' }}>not enabled</strong>.</>
+                    : <>⚠️ Verify your email address first — we'll send 2FA codes there.</>)}
+            </p>
+          )}
+          {tfaStatus && !tfaStatus.enabled && tfaStatus.email_verified && (
             <button className="btn btn-primary btn-sm" onClick={enable2FA}>Enable Two-Factor Auth</button>
           )}
           {tfaStatus?.enabled && (
             <button className="btn btn-secondary btn-sm" onClick={disable2FA} style={{ color: 'var(--red)' }}>Disable Two-Factor Auth</button>
           )}
-          {tfaMsg && <p style={{ fontSize: 12, marginTop: 8, color: 'var(--text-muted)' }}>{tfaMsg}</p>}
-          {enrollData && (
-            <div style={{ marginTop: 12 }}>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-                Scan this QR code with your authenticator app, or enter the key manually:
-              </p>
-              <div style={{ background: '#fff', borderRadius: 8, display: 'inline-block', padding: 8, marginBottom: 8 }}>
-                <img src={enrollData.qr_data_url || ''} alt="QR" width="160" height="160" />
-              </div>
-              <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                Manual key: {enrollData.secret}
-              </p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <input
-                  type="text" maxLength={6} placeholder="000000"
-                  style={{ width: 120, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)',
-                    background: 'var(--surface-1)', color: 'var(--text)', fontSize: 16, letterSpacing: 4, textAlign: 'center', fontFamily: 'monospace' }}
-                  value={tfaCode} onChange={(e) => setTfaCode(e.target.value)}
-                />
-                <button className="btn btn-primary btn-sm" onClick={confirm2FA}>Confirm & Enable</button>
-              </div>
-            </div>
-          )}
+          {tfaMsg && <p style={{ fontSize: 12, marginTop: 8, color: tfaMsgColor }}>{tfaMsg}</p>}
         </div>
       </div>
 

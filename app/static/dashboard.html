@@ -181,6 +181,14 @@
                onkeydown="if(event.key==='Enter')document.getElementById('login-pwd').focus()">
         <input type="password" id="login-pwd" placeholder="Password" autocomplete="current-password"
                onkeydown="if(event.key==='Enter')doLogin()">
+        <!-- Email-OTP 2FA input — shown only after server returns EMAIL_2FA_REQUIRED. -->
+        <div id="login-2fa-row" style="display:none;margin-top:8px">
+          <p style="font-size:12px;color:var(--muted);margin:4px 0 6px">We sent a 6-digit code to your email. Enter it to finish signing in.</p>
+          <input type="text" id="login-2fa-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+                 placeholder="6-digit code" autocomplete="one-time-code"
+                 style="letter-spacing:6px;text-align:center;font-family:monospace"
+                 onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
         <!-- Cloudflare Turnstile widget — invisible in most sessions. -->
         <div id="cf-turnstile-login" style="margin:4px 0"></div>
         <button type="submit" id="login-btn">Log In</button>
@@ -1437,28 +1445,13 @@
       <h2 style="color:var(--text-primary);margin:0;font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-0.02em">Security</h2>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-      <!-- 2FA card -->
+      <!-- 2FA card — email-OTP (replaced TOTP/Google Authenticator 2026-05-23) -->
       <div class="tool-card">
         <div class="tool-card-body">
           <h3>Two-Factor Authentication</h3>
-          <p>Add an extra layer of security to your account using an authenticator app.</p>
+          <p>When enabled, we'll email you a 6-digit code every time you sign in. No app required — works on any device that can read your email.</p>
           <div id="security-2fa-status" style="font-size:13px;color:var(--text-muted);margin:8px 0"></div>
-          <div id="security-2fa-qr" style="display:none;text-align:center;margin:12px 0">
-            <div id="security-2fa-qr-img" style="background:#fff;border-radius:8px;display:inline-block;padding:8px"></div>
-            <p id="security-2fa-secret" style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:monospace"></p>
-          </div>
-          <div id="security-2fa-verify" style="display:none;margin:8px 0">
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Enter the 6-digit code from your authenticator app:</label>
-            <input type="text" id="security-2fa-code" maxlength="6" style="width:140px;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text);font-size:16px;letter-spacing:4px;text-align:center;font-family:monospace">
-            <button class="btn btn-primary btn-sm" onclick="confirm2FA()" style="margin-top:8px">Confirm &amp; Enable</button>
-            <span id="security-2fa-verify-status" style="font-size:12px;margin-left:8px;color:var(--text-muted)"></span>
-          </div>
-          <div id="security-2fa-backup" style="display:none;margin:8px 0">
-            <p style="font-size:12px;color:var(--text-muted)">Save these backup codes. Each can be used once if you lose access to your authenticator app.</p>
-            <div id="security-2fa-backup-codes" style="font-family:monospace;font-size:13px;background:var(--surface-0);padding:10px;border-radius:6px;margin:6px 0;line-height:1.8"></div>
-            <button class="btn btn-primary btn-sm" onclick="close2FABackup()">Done — I've saved these</button>
-          </div>
-          <p id="security-2fa-grace" style="display:none;font-size:12px;color:var(--amber);margin-top:8px"></p>
+          <p id="security-2fa-email-unverified" style="display:none;font-size:12px;color:var(--amber);margin-top:8px">Verify your email address first — we'll send 2FA codes there.</p>
         </div>
         <div class="tool-card-actions" id="security-2fa-actions">
           <button class="btn btn-primary btn-sm" id="security-2fa-enable-btn" onclick="enable2FA()" style="display:none">Enable Two-Factor Auth</button>
@@ -1604,10 +1597,22 @@ async function doLogin(){
   const pwd = document.getElementById('login-pwd').value;
   if(!email||!pwd){ document.getElementById('auth-err').textContent='Enter email and password'; return; }
   const btn = document.getElementById('login-btn');
+  const otpRow = document.getElementById('login-2fa-row');
+  const otpInput = document.getElementById('login-2fa-code');
   btn.disabled = true; btn.textContent = 'Signing in...';
   try{
     const body = {email, password: pwd};
     if (_turnstileToken) body.captcha_token = _turnstileToken;
+    // If the 2FA row is visible, include whatever code the user typed
+    // (otherwise the server will email a new code on this attempt).
+    if (otpRow && otpRow.style.display !== 'none') {
+      const code = (otpInput && otpInput.value || '').trim();
+      if (!code) {
+        document.getElementById('auth-err').textContent = 'Enter the 6-digit code we emailed you.';
+        return;
+      }
+      body.email_otp_code = code;
+    }
     const r = await fetch(`${BASE}/api/v1/auth/login`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body)
@@ -1615,6 +1620,18 @@ async function doLogin(){
     const data = await r.json();
     if(!r.ok){
       _resetTurnstile();
+      // Email-OTP 2FA — server emailed a code and is asking the user
+      // to retry with it. Show the OTP input + a friendly status, but
+      // don't treat this as a hard error (no red flash).
+      if (data && data.error === 'EMAIL_2FA_REQUIRED') {
+        if (otpRow) otpRow.style.display = '';
+        if (otpInput) {
+          otpInput.value = '';
+          otpInput.focus();
+        }
+        document.getElementById('auth-err').textContent = data.message || 'We emailed you a 6-digit code.';
+        return;
+      }
       throw new Error(data.detail||'Login failed');
     }
     _saveTokens(data.access_token, data.refresh_token);
@@ -2474,6 +2491,11 @@ function loadSecurity(){
   loadSessions();
 }
 
+// 2FA UI — email-OTP (replaced TOTP/Google Authenticator 2026-05-23).
+// No QR codes, no authenticator app, no backup codes. When 2FA is on,
+// every login emails a 6-digit code via app/services/email_otp.py +
+// app/emailer.py:send_2fa_otp_email — the login handler in
+// app/routers/auth.py:teacher_login orchestrates the flow.
 async function load2FAStatus(){
   try{
     const r = await authFetch(`${BASE}/api/v1/auth/2fa/status`);
@@ -2482,96 +2504,83 @@ async function load2FAStatus(){
     const statusEl = document.getElementById('security-2fa-status');
     const enableBtn = document.getElementById('security-2fa-enable-btn');
     const disableBtn = document.getElementById('security-2fa-disable-btn');
+    const unverifiedEl = document.getElementById('security-2fa-email-unverified');
     if(d.enabled){
-      statusEl.innerHTML = '✅ Two-factor authentication is <strong style="color:var(--emerald)">enabled</strong>.';
+      statusEl.innerHTML = '✅ Email-based two-factor authentication is <strong style="color:var(--emerald)">enabled</strong>. We\'ll email a 6-digit code on every sign-in.';
       enableBtn.style.display = 'none';
       if(disableBtn) disableBtn.style.display = '';
+      if(unverifiedEl) unverifiedEl.style.display = 'none';
+    } else if(!d.email_verified){
+      statusEl.innerHTML = 'ℹ️ Two-factor authentication is <strong style="color:var(--amber)">not enabled</strong>.';
+      enableBtn.style.display = 'none';
+      if(disableBtn) disableBtn.style.display = 'none';
+      if(unverifiedEl) unverifiedEl.style.display = '';
     } else {
-      statusEl.innerHTML = '❌ Two-factor authentication is <strong style="color:var(--amber)">not enabled</strong>.';
+      statusEl.innerHTML = 'ℹ️ Two-factor authentication is <strong style="color:var(--amber)">not enabled</strong>.';
       enableBtn.style.display = '';
       if(disableBtn) disableBtn.style.display = 'none';
-    }
-    const graceEl = document.getElementById('security-2fa-grace');
-    if(d.grace_expired){
-      graceEl.style.display = '';
-      graceEl.textContent = '⚠️ Two-factor authentication is required. Enable it now to continue using Procta.';
-    } else {
-      graceEl.style.display = 'none';
+      if(unverifiedEl) unverifiedEl.style.display = 'none';
     }
   }catch(_){}
 }
 
-async function enable2FA(){
-  const resultEl = document.getElementById('security-2fa-result');
-  resultEl.textContent = 'Generating...';
-  try{
-    const r = await authFetch(`${BASE}/api/v1/auth/2fa/enroll`, {method:'POST'});
-    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
-    const d = await r.json();
-    document.getElementById('security-2fa-qr').style.display = '';
-    document.getElementById('security-2fa-qr-img').innerHTML = `<img src="${escAttr(d.qr_data_url || '')}" alt="QR code" width="180" height="180">`;
-    document.getElementById('security-2fa-secret').textContent = 'Manual key: ' + d.secret;
-    document.getElementById('security-2fa-verify').style.display = '';
-    document.getElementById('security-2fa-enable-btn').style.display = 'none';
-    resultEl.textContent = '';
-  }catch(e){ resultEl.textContent = e.message; }
+// Re-auth helper shared by enable/disable. Prompts for the user's
+// password and exchanges it for a 5-minute reauth_token. Centralised
+// here so both flows use identical logic.
+async function _get2FAReauthToken(action){
+  const password = prompt(`Enter your password to ${action} two-factor authentication:`);
+  if(!password) return null;
+  const rr = await authFetch(`${BASE}/api/v1/auth/reauth`, {
+    method:'POST',
+    body: JSON.stringify({password})
+  });
+  if(!rr.ok){ const d=await rr.json().catch(()=>({})); throw new Error(d.detail||'Re-authentication failed'); }
+  const rd = await rr.json();
+  return rd.reauth_token;
 }
 
-async function confirm2FA(){
-  const code = document.getElementById('security-2fa-code').value.trim();
-  if(!/^\d{6}$/.test(code)){ alert('Enter a 6-digit numeric code.'); return; }
-  const statusEl = document.getElementById('security-2fa-verify-status');
-  statusEl.textContent = 'Verifying...';
+async function enable2FA(){
+  const resultEl = document.getElementById('security-2fa-result');
+  resultEl.style.color = 'var(--text-muted)';
+  resultEl.textContent = '';
   try{
-    const r = await authFetch(`${BASE}/api/v1/auth/2fa/confirm`, {
-      method:'POST', body: JSON.stringify({code})
+    const reauth_token = await _get2FAReauthToken('enable');
+    if(!reauth_token) return;
+    resultEl.textContent = 'Enabling...';
+    const r = await authFetch(`${BASE}/api/v1/auth/2fa/enable`, {
+      method:'POST',
+      body: JSON.stringify({reauth_token})
     });
-    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Invalid code'); }
-    const d = await r.json();
-    statusEl.textContent = '✅ Two-factor authentication enabled!';
-    document.getElementById('security-2fa-verify').style.display = 'none';
-    // Show backup codes
-    if(d.backup_codes && d.backup_codes.length){
-      document.getElementById('security-2fa-qr').style.display = 'none';
-      document.getElementById('security-2fa-backup').style.display = '';
-      document.getElementById('security-2fa-backup-codes').innerHTML = d.backup_codes.map(c => '<div>🔑 ' + c + '</div>').join('');
-    }
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Failed to enable 2FA'); }
+    resultEl.textContent = '✅ Enabled — next sign-in will require an email code.';
+    resultEl.style.color = 'var(--emerald)';
     load2FAStatus();
-  }catch(e){ statusEl.textContent = e.message; }
+  }catch(e){
+    resultEl.textContent = e.message || 'Enable failed';
+    resultEl.style.color = 'var(--red)';
+  }
 }
 
 async function disable2FA(){
   const resultEl = document.getElementById('security-2fa-result');
-  const password = prompt('Enter your password to disable two-factor authentication:');
-  if(!password) return;
-  resultEl.textContent = 'Verifying...';
   resultEl.style.color = 'var(--text-muted)';
+  resultEl.textContent = '';
   try{
-    const rr = await authFetch(`${BASE}/api/v1/auth/reauth`, {
-      method:'POST',
-      body: JSON.stringify({password})
-    });
-    if(!rr.ok){ const d=await rr.json().catch(()=>({})); throw new Error(d.detail||'Re-authentication failed'); }
-    const rd = await rr.json();
+    const reauth_token = await _get2FAReauthToken('disable');
+    if(!reauth_token) return;
+    resultEl.textContent = 'Disabling...';
     const r = await authFetch(`${BASE}/api/v1/auth/2fa/disable`, {
       method:'POST',
-      body: JSON.stringify({reauth_token: rd.reauth_token})
+      body: JSON.stringify({reauth_token})
     });
     if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Disable failed'); }
     resultEl.textContent = 'Two-factor authentication disabled.';
     resultEl.style.color = 'var(--emerald)';
-    document.getElementById('security-2fa-qr').style.display = 'none';
-    document.getElementById('security-2fa-verify').style.display = 'none';
-    document.getElementById('security-2fa-backup').style.display = 'none';
     load2FAStatus();
   }catch(e){
     resultEl.textContent = e.message || 'Disable failed';
     resultEl.style.color = 'var(--red)';
   }
-}
-
-function close2FABackup(){
-  document.getElementById('security-2fa-backup').style.display = 'none';
 }
 
 async function loadSessions(){

@@ -60,17 +60,25 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { checkAuth() }, [checkAuth])
 
-  const login = async (email, password) => {
+  const login = async (email, password, emailOtpCode = null) => {
+    const body = { email, password }
+    if (emailOtpCode) body.email_otp_code = emailOtpCode
     const r = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(body),
     })
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
       // Handle EMAIL_UNVERIFIED specifically
       if (d.error === 'EMAIL_UNVERIFIED') {
         throw { code: 'EMAIL_UNVERIFIED', message: d.message || 'Please verify your email.', email }
+      }
+      // Email-OTP 2FA — server has emailed a 6-digit code and is asking
+      // the caller to retry with `emailOtpCode`. The caller (LoginPage)
+      // catches this code and surfaces a code-input UI.
+      if (d.error === 'EMAIL_2FA_REQUIRED') {
+        throw { code: 'EMAIL_2FA_REQUIRED', message: d.message || 'We sent a 6-digit code to your email.', email }
       }
       throw new Error(d.detail || d.message || 'Login failed')
     }

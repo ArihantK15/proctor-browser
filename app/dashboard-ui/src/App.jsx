@@ -56,6 +56,11 @@ function LoginForm() {
   const [unverifiedEmail, setUnverifiedEmail] = useState(null)
   const [resending, setResending] = useState(false)
   const [resendMsg, setResendMsg] = useState('')
+  // Email-OTP 2FA challenge state — set when server returns
+  // EMAIL_2FA_REQUIRED. While `awaiting2FA` is true we surface a
+  // 6-digit input and resubmit login() with the code populated.
+  const [awaiting2FA, setAwaiting2FA] = useState(false)
+  const [otpCode, setOtpCode] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -64,11 +69,18 @@ function LoginForm() {
     setResendMsg('')
     setLoading(true)
     try {
-      await login(email, password)
+      // If the 2FA input is showing, send the code along with credentials.
+      await login(email, password, awaiting2FA ? otpCode : null)
+      // Success → useEffect in useAuth picks up the new user.
     } catch (err) {
       if (err.code === 'EMAIL_UNVERIFIED') {
         setUnverifiedEmail(err.email || email)
         setError(err.message || 'Please verify your email.')
+      } else if (err.code === 'EMAIL_2FA_REQUIRED') {
+        // Server has just emailed a code. Show the OTP input.
+        setAwaiting2FA(true)
+        setOtpCode('')
+        setError(err.message || 'We sent a 6-digit code to your email.')
       } else {
         setError(err.message || 'Login failed')
       }
@@ -119,8 +131,19 @@ function LoginForm() {
           onChange={(e) => setPassword(e.target.value)}
           required className="input" style={{ width: '100%', boxSizing: 'border-box', marginBottom: 16 }}
         />
+        {awaiting2FA && (
+          <input
+            type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
+            placeholder="6-digit code" value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value)}
+            autoComplete="one-time-code" required autoFocus
+            className="input"
+            style={{ width: '100%', boxSizing: 'border-box', marginBottom: 16,
+                     letterSpacing: 6, textAlign: 'center', fontFamily: 'monospace' }}
+          />
+        )}
         <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
-          {loading ? 'Signing in...' : 'Sign In'}
+          {loading ? 'Signing in...' : (awaiting2FA ? 'Verify & Sign In' : 'Sign In')}
         </button>
       </form>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 14, fontSize: 12 }}>

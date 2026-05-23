@@ -68,14 +68,14 @@ th{font-weight:600;color:#0f172a;background:#f8fafc}
   <li>Database: AES-256 encryption via Supabase/PostgreSQL</li>
   <li>Secrets: Environment variables only, never stored in code or version control</li>
   <li>Password storage: bcrypt hashing</li>
-  <li>TOTP secrets: Fernet (symmetric) encryption before storage</li>
+  <li>One-time login codes (2FA): bcrypt-hashed before storage with bounded TTL</li>
 </ul>
 
 <h3>2.3 Authentication</h3>
 <ul>
   <li>JWT-based authentication with short-lived tokens (configurable TTL)</li>
   <li>CSRF protection for all state-changing API requests</li>
-  <li>TOTP-based two-factor authentication for teacher accounts</li>
+  <li>Email-based two-factor authentication for teacher accounts</li>
   <li>Email verification required for new account creation</li>
   <li>Account lockout after 5 failed attempts (15-minute cooldown)</li>
   <li>Password complexity: minimum 10 characters, upper+lower+digit+symbol</li>

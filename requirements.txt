@@ -15,6 +15,10 @@ httpx>=0.27.0
 uvloop>=0.19.0
 openpyxl>=3.1.0
 sentry-sdk[fastapi]>=2.0.0   # optional — only used when SENTRY_DSN is set
+# qrcode is still used by the room-cam pairing flow (app/routers/exam.py)
+# where students scan a QR with their phone to attach a second camera.
+# Was ALSO used by TOTP 2FA — that path was removed 2026-05-23 (email
+# OTP now), but qrcode itself stays because of the pairing use case.
 qrcode>=8.0
 # Structured JSON logging — used in app/logger.py via JsonFormatter.
 # Was missing from this file; container started failing on 2026-05-14
@@ -25,8 +29,8 @@ google-auth-oauthlib>=1.2.0
 
 pillow>=10.0.0
 
-# 2FA
-pyotp>=2.9.0
+# 2FA — pyotp removed 2026-05-23 (email-OTP via email_otp.py replaces TOTP).
+# bcrypt is still used to hash email-OTP codes and backup-code remnants.
 bcrypt>=4.0.0
 asyncpg>=0.30.0
 cryptography>=42.0.0

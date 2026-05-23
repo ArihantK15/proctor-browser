@@ -21,7 +21,10 @@ class TeacherLoginIn(BaseModel):
     email:    str
     password: str
     captcha_token: Optional[str] = None
-    totp_code: Optional[str] = None
+    # 2FA code from the email-delivered OTP (see app/services/email_otp.py
+    # + app/emailer.py:send_2fa_otp_email). Replaced the previous
+    # `totp_code` field when TOTP was retired 2026-05-23.
+    email_otp_code: Optional[str] = None
 
 
 class RefreshIn(BaseModel):

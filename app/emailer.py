@@ -417,6 +417,58 @@ This link expires in 30 minutes. If you did not request this, you can ignore thi
     return _send(to_email, subject, html, text)
 
 
+def send_2fa_otp_email(to_email: str, to_name: str, code: str) -> SendResult:
+    """Email a 6-digit 2FA code during the login flow.
+
+    Triggered when a user with email_2fa_enabled_at attempts to log
+    in — server generates an email_otps row via email_otp.issue() and
+    calls this helper to deliver the raw code.
+
+    Code TTL is enforced server-side (email_otp.OTP_TTL_MINUTES=10);
+    we just mention it in the message so the user knows they have a
+    bounded window to use it.
+    """
+    subject = "Your Procta login code"
+    display_name = to_name or "there"
+    text = f"""Hello {display_name},
+
+Your two-factor authentication code is:
+
+    {code}
+
+This code expires in 10 minutes. Enter it on the Procta login page to finish signing in.
+
+If you did not try to log in, please ignore this email and consider changing your password.
+
+— The Procta Team
+"""
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Your Procta login code</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="480"
+             style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:480px;">
+        <tr><td style="background:linear-gradient(135deg,#5b8af0,#4a78dc);padding:24px 28px;text-align:center;">
+          <div style="color:#ffffff;font-size:18px;font-weight:700;">Your login code</div>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0f172a;">
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{display_name}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Use this code to finish signing in to Procta:</p>
+          <div style="text-align:center;margin:24px 0;">
+            <div style="display:inline-block;padding:18px 32px;background:#f1f5f9;border-radius:8px;font-size:32px;font-weight:700;letter-spacing:8px;font-family:'SFMono-Regular',Menlo,Consolas,monospace;color:#0f172a;">{code}</div>
+          </div>
+          <p style="margin:0 0 12px;font-size:13px;color:#555;line-height:1.4;">This code expires in 10 minutes.</p>
+          <p style="margin:0;font-size:12px;color:#999;line-height:1.4;">If you did not try to log in, please ignore this email and consider changing your password.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    return _send(to_email, subject, html, text)
+
+
 def send_suspicious_login_email(
     *,
     to_email: str,

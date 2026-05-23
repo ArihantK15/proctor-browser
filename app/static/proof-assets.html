@@ -48,9 +48,9 @@ a{color:#4f46e5;text-decoration:none;font-weight:600}
 <h2>Security Controls Overview</h2>
 <table>
   <tr><th>Area</th><th>Control</th></tr>
-  <tr><td>Authentication</td><td>Email verification, OAuth sign-in, TOTP 2FA, suspicious-login alerts, lockout after failed attempts.</td></tr>
+  <tr><td>Authentication</td><td>Email verification, email-based two-factor authentication, suspicious-login alerts, lockout after failed attempts.</td></tr>
   <tr><td>Application security</td><td>CSRF on JWT-authenticated mutations, per-route rate limits, strict Pydantic validation, CSP headers, dependency audits.</td></tr>
-  <tr><td>Data protection</td><td>TLS in transit, encrypted database/storage at rest, encrypted TOTP secrets, hashed API keys, least-privilege service keys.</td></tr>
+  <tr><td>Data protection</td><td>TLS in transit, encrypted database/storage at rest, hashed one-time login codes (bcrypt), hashed API keys, least-privilege service keys.</td></tr>
   <tr><td>AI governance</td><td>AI grades and proctoring flags are recommendations. Teachers review evidence before final decisions.</td></tr>
   <tr><td>Operations</td><td>Sentry integration, structured JSON logs, RQ background workers, health checks, Docker Compose deployment, rollback runbook.</td></tr>
 </table>

@@ -108,7 +108,9 @@ services:
   autosave-worker:
     build: .
     entrypoint: python worker.py
-    container_name: proctor-autosave-worker
+    # container_name removed for the same reason as `worker` —
+    # blocks `docker compose --scale autosave-worker=N`. Docker
+    # auto-names as proctor-browser-autosave-worker-1, -2, etc.
     restart: unless-stopped
     env_file:
       - .env

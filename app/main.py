@@ -548,19 +548,27 @@ async def _http_exception_handler(request: StarletteRequest, exc: HTTPException)
         413: "PAYLOAD_TOO_LARGE",
         429: "RATE_LIMITED",
     }
+    # L5: surface request_id in error body so users can quote it when
+    # filing bug reports — the RequestIDMiddleware also sets it as a
+    # response header, but body-level inclusion is easier to copy from
+    # a JSON viewer or curl output.
+    request_id = getattr(request.state, "request_id", "") if hasattr(request, "state") else ""
     return JSONResponse(status_code=exc.status_code, content={
         "error": code_map.get(exc.status_code, "HTTP_ERROR"),
         "detail": exc.detail,
         "path": request.url.path,
+        "request_id": request_id,
     })
 
 @app.exception_handler(Exception)
 async def _global_exception_handler(request: StarletteRequest, exc: Exception):
-    logger.exception("[UNHANDLED] %s %s: %s", request.method, request.url.path, exc)
+    request_id = getattr(request.state, "request_id", "") if hasattr(request, "state") else ""
+    logger.exception("[UNHANDLED] %s %s [%s]: %s", request.method, request.url.path, request_id, exc)
     return JSONResponse(status_code=500, content={
         "error": "INTERNAL_ERROR",
         "detail": "Internal server error",
         "path": request.url.path,
+        "request_id": request_id,
     })
 
 # Static files

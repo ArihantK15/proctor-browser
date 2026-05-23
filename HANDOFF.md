@@ -660,6 +660,7 @@ re-verify or accidentally regress them:
 | **M13** (invite tokens plaintext) | `token_hash` column + SHA-256 lookup; migration `phase69` backfills existing pending invites | `d89e9c3` |
 | **L1** (localInputToUtc IST) | Browser-local timezone in both directions (input → UTC, UTC → input) | `c56a41b` |
 | **L3** (marketing.html missing) | File doesn't exist + no references → non-issue | (no change) |
+| **L5** (X-Request-ID in errors) | Already in middleware response header; added `request_id` to error JSON body + global handler log line for easier bug-report correlation | (next commit) |
 | **L4** (OAuth fragment) | Moot — OAuth removed | `c8ab88c` |
 | **M12** (OAuth state key) | Moot — OAuth removed | `c8ab88c` |
 
@@ -684,7 +685,6 @@ re-verify or accidentally regress them:
 | **M8** (CSRF tied to JWT) | Real architectural item but no demonstrated exploit (attacker with JWT already has full control). ~3-4hr. Defer. |
 | **M11** (WS per-IP rate limit) | Existing 10s auth-handshake timeout + per-session conn cap adequate. Marginal value. Defer. |
 | **L2** (CSP nonce) | 4hr to do right. Defer. |
-| **L5** (X-Request-ID in errors) | Request-id middleware + frontend pickup. ~1hr. Defer to next debugging-tools sprint. |
 
 ### Manual cleanup needed on the KVM
 

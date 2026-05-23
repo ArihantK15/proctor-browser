@@ -69,15 +69,40 @@ for cmd in k6 jq gh ssh scp; do
   command -v "$cmd" >/dev/null || { echo "missing: $cmd"; exit 1; }
 done
 
-# Pick the codespace (first running one if not specified)
+# Pick the codespace. Auto-detect picks the first codespace for this
+# repo regardless of state; if it's Shutdown we start it (saves the
+# user a manual `gh codespace start`). Previous version filtered on
+# state=="Available" which falsely reported "no codespace" whenever
+# the only one was stopped/idle.
 if [ -z "$CODESPACE_NAME" ]; then
-  CODESPACE_NAME=$(gh codespace list --json name,state -q '.[] | select(.state=="Available") | .name' | head -1)
+  CODESPACE_NAME=$(gh codespace list --json name,repository -q \
+    '.[] | select(.repository=="ArihantK15/proctor-browser") | .name' | head -1)
   if [ -z "$CODESPACE_NAME" ]; then
-    echo "No available codespace found. Create one with:"
+    echo "No codespace found for ArihantK15/proctor-browser. Create one with:"
     echo "  gh codespace create -r ArihantK15/proctor-browser -b main"
     exit 1
   fi
   echo "Using codespace: ${CODESPACE_NAME}"
+fi
+
+# Make sure the codespace is started (Shutdown codespaces can't accept ssh).
+CS_STATE=$(gh codespace list --json name,state -q \
+  ".[] | select(.name==\"${CODESPACE_NAME}\") | .state" | head -1)
+if [ "$CS_STATE" != "Available" ]; then
+  echo "Codespace ${CODESPACE_NAME} state=${CS_STATE:-unknown} — starting it (takes ~30s)..."
+  gh codespace start -c "${CODESPACE_NAME}" >/dev/null
+  # Poll until it's Available or we hit a 90s ceiling.
+  for i in $(seq 1 30); do
+    CS_STATE=$(gh codespace list --json name,state -q \
+      ".[] | select(.name==\"${CODESPACE_NAME}\") | .state" | head -1)
+    [ "$CS_STATE" = "Available" ] && break
+    sleep 3
+  done
+  if [ "$CS_STATE" != "Available" ]; then
+    echo "ERROR: codespace did not reach Available within 90s (state=${CS_STATE})"
+    exit 1
+  fi
+  echo "Codespace ready."
 fi
 
 DURATION_MIN=$(( (EXAM_SECONDS + 60) / 60 + 10 ))

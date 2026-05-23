@@ -342,6 +342,13 @@
     line-height: 2.2;
   }
   .web-steps li strong { color: var(--text); }
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100000;padding:20px}
+  .modal-box{background:var(--surface-1,#1a1f2e);border:1px solid var(--border-subtle,rgba(255,255,255,.08));border-radius:14px;padding:28px 32px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .modal-title{color:#fff;font-size:16px;font-weight:600;margin:0 0 8px}
+  .modal-body{color:var(--text-secondary,#94a3b8);font-size:13px;line-height:1.6;margin:0 0 20px;word-break:break-word}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end}
+  .modal-btn{background:var(--accent,#3b82f6);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:500;cursor:pointer}
+  .modal-btn:hover{filter:brightness(1.1)}
 </style>
 </head>
 <body>
@@ -1209,7 +1216,7 @@ async function _pfCheckBandwidth() {
 // is reused as-is.
 async function startPracticeExam() {
   if (!INSIDE_PROCTA_APP) {
-    alert('Open this page inside the Procta app to start a practice run.');
+    showModal('Open this page inside the Procta app to start a practice run.');
     return;
   }
   // Crypto-random ID so two students starting practice on the same
@@ -1227,7 +1234,7 @@ async function startPracticeExam() {
       examId:     null,
     });
   } catch (e) {
-    alert((e && e.message) || 'Failed to start practice run.');
+    showModal((e && e.message) || 'Failed to start practice run.');
   }
 }
 
@@ -1270,7 +1277,7 @@ async function confirmStartExam() {
 
 async function launchExam(exam, accessCode) {
   if (!INSIDE_PROCTA_APP) {
-    alert('Open this page inside the Procta app to start your exam.');
+    showModal('Open this page inside the Procta app to start your exam.');
     return;
   }
   const btn = document.getElementById('modal-start-btn');
@@ -1488,6 +1495,23 @@ setInterval(function _tickCountdowns() {
     span.style.color = remaining < 5 * 60 * 1000 ? 'var(--red)' : 'inherit';
   });
 }, 1000);
+function showModal(title, message){
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').textContent = message;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+function closeModal(){
+  document.getElementById('modal-overlay').style.display = 'none';
+}
 </script>
+<div id="modal-overlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="modal-btn" onclick="closeModal()">OK</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

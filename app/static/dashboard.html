@@ -155,6 +155,14 @@
     .q-aipanel{width:100%;border-left:none;
                border-top:1px solid var(--border-subtle);max-height:60vh}
   }
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100000;padding:20px}
+    .modal-box{background:var(--surface-1,#1a1f2e);border:1px solid var(--border-subtle,rgba(255,255,255,.08));border-radius:14px;padding:28px 32px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+    .modal-title{color:#fff;font-size:16px;font-weight:600;margin:0 0 8px}
+    .modal-body{color:var(--text-secondary,#94a3b8);font-size:13px;line-height:1.6;margin:0 0 20px;word-break:break-word}
+    .modal-actions{display:flex;gap:8px;justify-content:flex-end}
+    .modal-btn{background:var(--accent,#3b82f6);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:500;cursor:pointer}
+    .modal-btn:hover{filter:brightness(1.1)}
+    .modal-btn-secondary{background:var(--surface-2,#262c3d);color:var(--text-primary,#e2e8f0)}
 </style>
 </head>
 <body>
@@ -1850,7 +1858,7 @@ async function createExam(){
 }
 
 async function confirmDeleteExam(){
-  if(examsList.length <= 1){ alert('Cannot delete the only exam.'); return; }
+  if(examsList.length <= 1){ showModal('Cannot delete the only exam.'); return; }
   const ex = examsList.find(e=>e.exam_id===currentExamId);
   const name = ex ? ex.exam_title : 'this exam';
   // Two-step confirm — bare confirm() is too easy to muscle-memory-OK
@@ -1860,7 +1868,7 @@ async function confirmDeleteExam(){
   const typed = prompt(`To confirm, type the exam name exactly:\n\n${name}`, '');
   if(typed === null) return; // cancelled
   if((typed || '').trim() !== (name || '').trim()){
-    alert('Names do not match — delete cancelled.');
+    showModal('Names do not match — delete cancelled.');
     return;
   }
   try{
@@ -1870,14 +1878,14 @@ async function confirmDeleteExam(){
     await loadExams();
     liveData = []; resultsData = []; qData = [];
     refreshAll();
-  }catch(e){ alert('Delete failed: '+e.message); }
+  }catch(e){ showModal('Delete failed: '+e.message); }
 }
 
 // Clone current exam's config + questions into a new exam. The copy
 // clears the schedule + access code (so the old window can't run
 // twice) and shows up as the active exam immediately after creation.
 async function duplicateCurrentExam(){
-  if(!currentExamId){ alert('Select an exam first.'); return; }
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
   const ex = examsList.find(e => e.exam_id === currentExamId);
   const srcTitle = ex ? ex.exam_title : 'this exam';
   const defaultTitle = `${srcTitle} (copy)`;
@@ -1908,9 +1916,9 @@ async function duplicateCurrentExam(){
     if (sel) sel.value = d.exam_id;
     liveData = []; resultsData = []; qData = [];
     refreshAll();
-    alert(`Created "${d.exam_title}" with ${d.questions_copied} question(s).`);
+    showModal(`Created "${d.exam_title}" with ${d.questions_copied} question(s).`);
   } catch (e) {
-    alert('Duplicate failed: ' + e.message);
+    showModal('Duplicate failed: ' + e.message);
   }
 }
 
@@ -2721,7 +2729,7 @@ async function confirmGrade(i){
   const inp = document.getElementById(`grade-input-${i}`);
   const score = parseFloat(inp.value);
   if(isNaN(score) || score<0 || score>parseFloat(a.max_score||1)){
-    alert(`Score must be between 0 and ${a.max_score||1}.`);
+    showModal(`Score must be between 0 and ${a.max_score||1}.`);
     return;
   }
   const status = document.getElementById('grade-summary');
@@ -2806,7 +2814,7 @@ async function refreshPendingGradeBadge(){
 
 function openGradeReview(){
   const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
+  if(!eid){ showModal('Select an exam first.'); return; }
   document.getElementById('grade-modal').classList.remove('hidden');
   loadPendingGrades();
 }
@@ -3038,7 +3046,7 @@ function dlScorecard(sid){
 
 function dlAllScorecards(){
   const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
+  if(!eid){ showModal('Select an exam first.'); return; }
   fetchBlob(`${BASE}/api/v1/admin/scorecard-zip?exam_id=${encodeURIComponent(eid)}`, `scorecards_${eid}.zip`, 'btn-scorecard-zip');
 }
 // ── GRADE REVIEW (short-answer AI grading) ───────────────────────
@@ -3165,7 +3173,7 @@ async function doInviteTeacher(){
 
 async function emailAllScorecards(){
   const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
+  if(!eid){ showModal('Select an exam first.'); return; }
   const msg = prompt(
     "Email scorecards to all completed students?\n\n" +
     "Students who have already been emailed will be skipped.\n" +
@@ -3190,9 +3198,9 @@ async function emailAllScorecards(){
       `Failed: ${d.failed || 0}`,
       `Total sessions: ${d.total || 0}`,
     ];
-    alert("Scorecard email batch complete.\n\n" + parts.join("\n"));
+    showModal("Scorecard email batch complete.\n\n" + parts.join("\n"));
   } catch (e) {
-    alert("Failed to email scorecards: " + e.message);
+    showModal("Failed to email scorecards: " + e.message);
   }
 }
 
@@ -3314,21 +3322,29 @@ async function loadBilling(){
       if(invoices.length){
         invoicesWrap.style.display = '';
         invoicesBody.innerHTML = invoices.map(inv => {
-          const amount = inv.amount != null ? `₹${Number(inv.amount).toLocaleString('en-IN')}` : '—';
-          const date = inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-IN') : '—';
-          const link = inv.pdf_url ? `<a href="${escAttr(inv.pdf_url)}" target="_blank" rel="noreferrer" style="color:var(--accent)">View</a>` : '';
+          const amountPaise = inv.amount != null ? Number(inv.amount) : 0;
+          const amountInr = amountPaise / 100;
+          const amount = amountInr > 0 ? `₹${amountInr.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
+          const date = inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+          const link = inv.pdf_url ? `<a href="${escAttr(inv.pdf_url)}" target="_blank" rel="noreferrer" style="color:var(--accent)">PDF</a>` : '<span style="color:var(--text-muted)">—</span>';
+          const statusColors = {paid:'var(--emerald)',pending:'var(--yellow)',failed:'var(--red)',cancelled:'var(--text-muted)'};
+          const statusColor = statusColors[inv.status] || 'var(--text-muted)';
+          const statusHtml = `<span style="color:${statusColor};font-weight:500">${escAttr((inv.status||'—').charAt(0).toUpperCase()+(inv.status||'—').slice(1))}</span>`;
           return `<tr style="border-bottom:1px solid var(--border-subtle)">
-            <td style="padding:8px 12px">${escAttr(date)}</td>
+            <td style="padding:8px 12px;white-space:nowrap">${escAttr(date)}</td>
             <td style="padding:8px 12px">${escAttr(inv.description || inv.id || 'Invoice')}</td>
-            <td style="padding:8px 12px;text-align:right">${escAttr(amount)}</td>
-            <td style="padding:8px 12px;text-align:center">${escAttr(inv.status || '—')}</td>
+            <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">${escAttr(amount)}</td>
+            <td style="padding:8px 12px;text-align:center">${statusHtml}</td>
             <td style="padding:8px 12px;text-align:right">${link}</td>
           </tr>`;
         }).join('');
       } else {
-        invoicesWrap.style.display = 'none';
-        invoicesBody.innerHTML = '';
+        invoicesWrap.style.display = '';
+        invoicesBody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">No invoices yet</td></tr>';
       }
+    } else {
+      invoicesWrap.style.display = '';
+      invoicesBody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Invoice history unavailable</td></tr>';
     }
   }catch(e){
     if(resultEl){ resultEl.textContent = e.message || 'Failed to load billing'; resultEl.style.color = 'var(--red)'; }
@@ -3471,7 +3487,7 @@ async function toggleGoogleCourse(courseId, linked){
 async function syncGoogleRoster(){
   const courseId = document.querySelector('#google-course-list input:checked');
   const examId = document.getElementById('google-exam-select').value;
-  if(!courseId){ alert('Select a course first.'); return; }
+  if(!courseId){ showModal('Select a course first.'); return; }
   const resultEl = document.getElementById('google-result');
   resultEl.textContent = 'Syncing roster...';
   try{
@@ -3712,10 +3728,10 @@ async function forceSubmit(sid){
     const r=await authFetch(`${BASE}/api/v1/admin-submit/${encodeURIComponent(sid)}`,{method:'POST'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
-    alert(`Force-submitted! Score: ${d.score}/${d.total}, Risk: ${d.risk_score}/100`);
+    showModal(`Force-submitted! Score: ${d.score}/${d.total}, Risk: ${d.risk_score}/100`);
     loadFailed();
     refreshResults();
-  }catch(e){alert('Failed: '+e.message);}
+  }catch(e){showModal('Failed: '+e.message);}
 }
 
 // ── ACCESS CODE ────────────────────────────────────────────────
@@ -4239,13 +4255,13 @@ function toggleCorrect(idx, key){
 async function handleQImageUpload(idx, file){
   if(!file) return;
   if(file.size > 4*1024*1024){
-    alert('Image too large (max 4MB).');
+    showModal('Image too large (max 4MB).');
     return;
   }
   const reader = new FileReader();
   reader.onload = async ()=>{
     const b64 = String(reader.result||'').split(',')[1] || '';
-    if(!b64){ alert('Failed to read image.'); return; }
+    if(!b64){ showModal('Failed to read image.'); return; }
     try{
       const r = await authFetch(`${BASE}/api/v1/admin/upload-question-image`,{
         method:'POST',
@@ -4261,10 +4277,10 @@ async function handleQImageUpload(idx, file){
       markQDirty();
       renderQEditor();
     }catch(e){
-      alert('Image upload failed: '+e.message);
+      showModal('Image upload failed: '+e.message);
     }
   };
-  reader.onerror = ()=>alert('Failed to read file.');
+  reader.onerror = ()=>showModal('Failed to read file.');
   reader.readAsDataURL(file);
 }
 
@@ -4277,6 +4293,15 @@ function clearQImage(idx){
 
 function escAttr(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;').replace(/`/g,'&#96;').replace(/\//g,'&#47;');
+}
+
+function showModal(title, message){
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').textContent = message;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+function closeModal(){
+  document.getElementById('modal-overlay').style.display = 'none';
 }
 
 function setCorrect(idx,key){
@@ -4303,7 +4328,7 @@ function addOpt(idx){
 
 function removeOpt(idx,key){
   const opts=qData[idx].options;
-  if(Object.keys(opts).length<=2){alert('Minimum 2 options required.');return;}
+  if(Object.keys(opts).length<=2){showModal('Minimum 2 options required.');return;}
   delete opts[key];
   // If we removed a correct answer, strip it from the canonical set
   const cs = qGetCorrectSet(qData[idx]);
@@ -4421,7 +4446,7 @@ function renderQPreview(){
 //   low    = muted             — stylistic
 async function lintQuestions(){
   if(!Array.isArray(qData) || !qData.length){
-    alert('No questions to lint. Add some first.');
+    showModal('No questions to lint. Add some first.');
     return;
   }
   const btn = document.getElementById('btn-lint');
@@ -5431,29 +5456,29 @@ async function deleteBankQ(qid){
 
 async function bankToExam(){
   const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
+  if(!eid){ showModal('Select an exam first.'); return; }
   const ids = Array.from(_bankSelected);
-  if(!ids.length){ alert('Select questions using the checkboxes first.'); return; }
+  if(!ids.length){ showModal('Select questions using the checkboxes first.'); return; }
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/question-bank/to-exam`,
       {method:'POST',body:JSON.stringify({question_ids:ids,exam_id:eid})});
     const d = await r.json();
     if(r.ok){
-      alert(`Added ${d.added} questions to exam.`);
+      showModal(`Added ${d.added} questions to exam.`);
       _bankSelected.clear();
       loadQuestions();
       loadBank();
-    }else{ alert(d.detail||'Error'); }
-  }catch(e){ alert('Failed to add questions'); }
+    }else{ showModal(d.detail||'Error'); }
+  }catch(e){ showModal('Failed to add questions'); }
 }
 
 async function saveBankToExamSingle(qid){
   const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
+  if(!eid){ showModal('Select an exam first.'); return; }
   const r = await authFetch(`${BASE}/api/v1/admin/question-bank/to-exam`,
     {method:'POST',body:JSON.stringify({question_ids:[qid],exam_id:eid})});
   if(r.ok){ loadQuestions(); }
-  else{ const d=await r.json(); alert(d.detail||'Error'); }
+  else{ const d=await r.json(); showModal(d.detail||'Error'); }
 }
 
 function showBankImport(){
@@ -5578,7 +5603,7 @@ async function commitGenPreview(destination = 'bank'){
   //                         copies onto the exam) but feels like one.
   if(destination === 'exam'){
     if(!currentExamId){
-      alert('Select an exam first (top of the page) before adding directly.');
+      showModal('Select an exam first (top of the page) before adding directly.');
       return;
     }
   }
@@ -5607,7 +5632,7 @@ async function commitGenPreview(destination = 'bank'){
       image_url: '',
     });
   });
-  if(!out.length){ alert('Nothing to save.'); return; }
+  if(!out.length){ showModal('Nothing to save.'); return; }
 
   const status = document.getElementById('gen-status');
   status.style.color='var(--muted)';
@@ -5798,7 +5823,7 @@ async function exportBank(){
     const a = document.createElement('a');
     a.href = url; a.download = 'question_bank.json'; a.click();
     URL.revokeObjectURL(url);
-  }catch(e){ alert('Export failed'); }
+  }catch(e){ showModal('Export failed'); }
 }
 
 // "Save to Bank" helper — called from question editor cards. Prompts
@@ -5808,7 +5833,7 @@ async function exportBank(){
 async function saveQuestionToBank(idx){
   if(!qData[idx]) return;
   const q = qData[idx];
-  if(!q.question || !String(q.question).trim()){ alert('Question text is empty.'); return; }
+  if(!q.question || !String(q.question).trim()){ showModal('Question text is empty.'); return; }
   // Pre-fill tags by asking the LLM, then let the teacher edit before
   // confirming. If the LLM endpoint isn't configured (503), we silently
   // fall back to an empty default — auto-tag is a nice-to-have, not
@@ -5850,9 +5875,9 @@ async function saveQuestionToBank(idx){
     if(r.ok){
       const msg = document.getElementById('q-save-msg');
       if(msg){ msg.style.color='var(--emerald)'; msg.textContent='Saved to bank.'; setTimeout(()=>msg.textContent='',2500); }
-      else alert('Saved to bank!');
-    } else { const d=await r.json(); alert(d.detail||'Error'); }
-  }catch(e){ alert('Failed to save to bank'); }
+      else showModal('Saved to bank!');
+    } else { const d=await r.json(); showModal(d.detail||'Error'); }
+  }catch(e){ showModal('Failed to save to bank'); }
 }
 
 // Edit a question already in the bank. The PUT endpoint accepts a
@@ -5878,8 +5903,8 @@ async function editBankQ(qid){
     const r = await authFetch(`${BASE}/api/v1/admin/question-bank/${qid}`,
       {method:'PUT',body:JSON.stringify(fields)});
     if(r.ok) loadBank();
-    else { const d=await r.json(); alert(d.detail||'Error'); }
-  }catch(e){ alert('Edit failed'); }
+    else { const d=await r.json(); showModal(d.detail||'Error'); }
+  }catch(e){ showModal('Edit failed'); }
 }
 
 // ── STUDENT GROUPS ─────────────────────────────────────────────
@@ -5987,7 +6012,7 @@ async function removeOrgMember(memberId){
     {method:'DELETE'});
   if(!r.ok){
     const d = await r.json().catch(()=>({}));
-    alert(d.detail || 'Could not remove member');
+    showModal(d.detail || 'Could not remove member');
     return;
   }
   loadMembers();   // existing loader for the org members table (line ~2451)
@@ -6017,7 +6042,7 @@ async function loadExamGroups(){
 
 async function assignGroupToExam(){
   const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
+  if(!eid){ showModal('Select an exam first.'); return; }
   const gid = document.getElementById('assign-group-select').value;
   if(!gid) return;
   await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/groups`,
@@ -6116,9 +6141,9 @@ function _parseInviteRows(){
 
 async function sendInvites(){
   const eid = currentExamId;
-  if(!eid){ alert('Select an exam first.'); return; }
+  if(!eid){ showModal('Select an exam first.'); return; }
   const {rows, bad} = _parseInviteRows();
-  if(!rows.length){ alert('Add at least one recipient as: name, email, roll'); return; }
+  if(!rows.length){ showModal('Add at least one recipient as: name, email, roll'); return; }
   const st = document.getElementById('invite-result');
   if(bad.length){
     if(!confirm(`${bad.length} row(s) are malformed and will be skipped. Continue with ${rows.length} valid row(s)?`)) return;
@@ -6294,9 +6319,9 @@ async function revokeInvite(id){
   if(!confirm('Revoke this invite? The student will no longer be able to join using this link.')) return;
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/invites/${id}`, {method:'DELETE'});
-    if(!r.ok){ const d=await r.json(); alert(d.detail||'Failed'); return; }
+    if(!r.ok){ const d=await r.json(); showModal(d.detail||'Failed'); return; }
     loadInvites();
-  }catch(e){ alert('Network error'); }
+  }catch(e){ showModal('Network error'); }
 }
 
 async function resendBouncedInvites(){
@@ -6539,7 +6564,7 @@ async function viewStudentHistory(roll){
     document.querySelector('#panel-history .table-wrap').style.display='none';
     document.querySelector('#panel-history .table-toolbar').style.display='none';
   }catch(e){
-    alert('Failed to load history: '+e.message);
+    showModal('Failed to load history: '+e.message);
   }
 }
 
@@ -6826,5 +6851,14 @@ function clearAlertBadge(){
   if(badge) badge.style.display = 'none';
 }
 </script>
+<div id="modal-overlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="modal-btn" onclick="closeModal()">OK</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

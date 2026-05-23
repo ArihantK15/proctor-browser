@@ -278,7 +278,7 @@ async def list_invoices(request: Request):
 
     if not sub_id or not _is_live():
         return {"invoices": [
-            {"id": "mock_inv_01", "amount": 999, "currency": "INR",
+            {"id": "mock_inv_01", "amount": 240000, "currency": "INR",
              "status": "paid", "created_at": "2026-04-01T00:00:00Z",
              "pdf_url": None, "description": "Growth plan — mocked (sandbox mode)"},
         ]}

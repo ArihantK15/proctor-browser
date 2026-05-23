@@ -542,59 +542,6 @@ Resend (transactional email)
 
 ---
 
-## 🚀 Getting Started
-
-### Prerequisites
-- Python 3.12+, Node.js 20+, Docker (optional)
-- Supabase project (PostgreSQL)
-- Resend API key (email)
-
-### Quick Start
-
-<div style="background:#0f172a;border-radius:10px;padding:18px;margin:12px 0">
-
-```bash
-# 1. Clone and install
-git clone https://github.com/ArihantK15/proctor-browser.git
-cd proctor-browser
-
-# 2. Backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env        # fill in your secrets
-uvicorn app.main:app --reload
-
-# 3. Frontend (Electron)
-npm install
-npm start
-
-# 4. Run tests
-python -m pytest tests/
-```
-
-</div>
-
-### Docker Deploy
-
-<div style="background:#0f172a;border-radius:10px;padding:18px;margin:12px 0">
-
-```bash
-docker compose build api && docker compose up -d api
-```
-
-</div>
-
-### Quality Gate
-
-Before any deploy:
-
-```bash
-MODE=full scripts/quality_check.sh          # full release gate
-INTERVAL=60 MODE=fast scripts/continuous_review.sh   # dev loop
-```
-
----
-
 ## 📜 License
 
 <div style="background:#1e293b;border-radius:12px;padding:20px;margin:16px 0;border:1px solid rgba(239,68,68,0.15)">

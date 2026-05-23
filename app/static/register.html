@@ -243,7 +243,7 @@
     <div id="pwd-section">
       <div class="fg">
         <label>Password</label>
-        <input type="password" id="inp-pwd" placeholder="Min 8 characters"
+        <input type="password" id="inp-pwd" placeholder="Min 10 chars, A-z, 0-9, symbol"
                autocomplete="new-password"
                oninput="clearErr()">
       </div>
@@ -469,9 +469,9 @@ async function doRegister(){
 
   // Re-validate password after the check
   if(_createAccount){
-    if(!pwd || pwd.length < 8){
+    if(!isStrongPassword(pwd)){
       document.getElementById('inp-pwd').classList.add('err-border');
-      document.getElementById('reg-err').textContent='Password must be at least 8 characters';
+      document.getElementById('reg-err').textContent='Password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol';
       btn.disabled = false;
       document.getElementById('reg-ldr').textContent = '';
       return;
@@ -562,6 +562,15 @@ async function doRegister(){
     btn.disabled = false;
   }
   document.getElementById('reg-ldr').textContent = '';
+}
+
+function isStrongPassword(password) {
+  return !!password
+    && password.length >= 10
+    && /[a-z]/.test(password)
+    && /[A-Z]/.test(password)
+    && /\d/.test(password)
+    && /[^A-Za-z0-9]/.test(password);
 }
 
 // Load exam schedule banner

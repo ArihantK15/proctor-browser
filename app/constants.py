@@ -40,8 +40,10 @@ if len(SECRET_KEY) < 32:
         )
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "").strip().lower()
 TOKEN_TTL_HOURS = 10
-ADMIN_TOKEN_TTL_HOURS = 12
-STUDENT_AUTH_TTL_HOURS = 12
+ADMIN_TOKEN_TTL_HOURS = 12  # legacy export; admin tokens use ADMIN_TOKEN_TTL_MINUTES
+STUDENT_AUTH_TTL_HOURS = 12  # legacy export; student dashboard tokens use STUDENT_AUTH_TTL_MINUTES
+ADMIN_TOKEN_TTL_MINUTES = int(os.getenv("ADMIN_TOKEN_TTL_MINUTES", "30"))
+STUDENT_AUTH_TTL_MINUTES = int(os.getenv("STUDENT_AUTH_TTL_MINUTES", "30"))
 _LOADTEST_SECRET = os.environ.get("LOADTEST_SECRET", "")
 
 # ─── CORS ─────────────────────────────────────────────────────────

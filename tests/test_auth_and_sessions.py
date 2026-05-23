@@ -606,6 +606,32 @@ class TestHybridAuthTransition:
         mock_supabase.auth.sign_in_with_password.assert_called_once()
 
 
+class TestStudentDashboardAuthHardening:
+    """Regression tests for student auth audit findings."""
+
+    def test_account_exists_no_longer_reveals_presence(self, client):
+        with patch("app.routers.auth._atable", new=AsyncMock()) as mock_table:
+            resp = client.get("/api/v1/student/account-exists?email=known@example.com")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"exists": False}
+        mock_table.assert_not_called()
+
+    def test_student_login_honors_lockout_before_auth_lookup(self, client):
+        with patch("app.routers.auth.verify_or_403", new=AsyncMock()), \
+             patch("app.routers.auth.check_lockout", new=AsyncMock(return_value=(True, 900))), \
+             patch("app.routers.auth.record_auth_event", new=AsyncMock()) as event_mock, \
+             patch("app.routers.auth._get_student_by_email_for_auth", new=AsyncMock()) as lookup_mock:
+            resp = client.post("/api/v1/student/auth/login", json={
+                "email": "student@example.com",
+                "password": "WrongPassword1!",
+            })
+
+        assert resp.status_code == 429
+        event_mock.assert_awaited()
+        lookup_mock.assert_not_called()
+
+
 # ─── Student Registration ────────────────────────────────────────────
 
 class TestStudentRegistration:

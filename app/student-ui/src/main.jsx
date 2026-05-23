@@ -30,7 +30,16 @@ function useAuth() {
     return d
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      const currentToken = localStorage.getItem('procta_student_token')
+      if (currentToken) {
+        await fetch(`${API_BASE}/student/auth/logout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${currentToken}` },
+        })
+      }
+    } catch (_) {}
     localStorage.removeItem('procta_student_token')
     setUser(null)
   }

@@ -1462,6 +1462,7 @@
         </div>
         <div class="tool-card-actions" id="security-2fa-actions">
           <button class="btn btn-primary btn-sm" id="security-2fa-enable-btn" onclick="enable2FA()" style="display:none">Enable Two-Factor Auth</button>
+          <button class="btn btn-secondary btn-sm" id="security-2fa-disable-btn" onclick="disable2FA()" style="display:none;color:var(--red)">Disable Two-Factor Auth</button>
           <span id="security-2fa-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
         </div>
       </div>
@@ -2480,12 +2481,15 @@ async function load2FAStatus(){
     const d = await r.json();
     const statusEl = document.getElementById('security-2fa-status');
     const enableBtn = document.getElementById('security-2fa-enable-btn');
+    const disableBtn = document.getElementById('security-2fa-disable-btn');
     if(d.enabled){
       statusEl.innerHTML = '✅ Two-factor authentication is <strong style="color:var(--emerald)">enabled</strong>.';
       enableBtn.style.display = 'none';
+      if(disableBtn) disableBtn.style.display = '';
     } else {
       statusEl.innerHTML = '❌ Two-factor authentication is <strong style="color:var(--amber)">not enabled</strong>.';
       enableBtn.style.display = '';
+      if(disableBtn) disableBtn.style.display = 'none';
     }
     const graceEl = document.getElementById('security-2fa-grace');
     if(d.grace_expired){
@@ -2505,7 +2509,7 @@ async function enable2FA(){
     if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
     const d = await r.json();
     document.getElementById('security-2fa-qr').style.display = '';
-    document.getElementById('security-2fa-qr-img').innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(d.otpauth_url)}" alt="QR code" width="180" height="180">`;
+    document.getElementById('security-2fa-qr-img').innerHTML = `<img src="${escAttr(d.qr_data_url || '')}" alt="QR code" width="180" height="180">`;
     document.getElementById('security-2fa-secret').textContent = 'Manual key: ' + d.secret;
     document.getElementById('security-2fa-verify').style.display = '';
     document.getElementById('security-2fa-enable-btn').style.display = 'none';
@@ -2515,7 +2519,7 @@ async function enable2FA(){
 
 async function confirm2FA(){
   const code = document.getElementById('security-2fa-code').value.trim();
-  if(!code || code.length !== 6){ alert('Enter a 6-digit code.'); return; }
+  if(!/^\d{6}$/.test(code)){ alert('Enter a 6-digit numeric code.'); return; }
   const statusEl = document.getElementById('security-2fa-verify-status');
   statusEl.textContent = 'Verifying...';
   try{
@@ -2534,6 +2538,36 @@ async function confirm2FA(){
     }
     load2FAStatus();
   }catch(e){ statusEl.textContent = e.message; }
+}
+
+async function disable2FA(){
+  const resultEl = document.getElementById('security-2fa-result');
+  const password = prompt('Enter your password to disable two-factor authentication:');
+  if(!password) return;
+  resultEl.textContent = 'Verifying...';
+  resultEl.style.color = 'var(--text-muted)';
+  try{
+    const rr = await authFetch(`${BASE}/api/v1/auth/reauth`, {
+      method:'POST',
+      body: JSON.stringify({password})
+    });
+    if(!rr.ok){ const d=await rr.json().catch(()=>({})); throw new Error(d.detail||'Re-authentication failed'); }
+    const rd = await rr.json();
+    const r = await authFetch(`${BASE}/api/v1/auth/2fa/disable`, {
+      method:'POST',
+      body: JSON.stringify({reauth_token: rd.reauth_token})
+    });
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Disable failed'); }
+    resultEl.textContent = 'Two-factor authentication disabled.';
+    resultEl.style.color = 'var(--emerald)';
+    document.getElementById('security-2fa-qr').style.display = 'none';
+    document.getElementById('security-2fa-verify').style.display = 'none';
+    document.getElementById('security-2fa-backup').style.display = 'none';
+    load2FAStatus();
+  }catch(e){
+    resultEl.textContent = e.message || 'Disable failed';
+    resultEl.style.color = 'var(--red)';
+  }
 }
 
 function close2FABackup(){
@@ -3060,6 +3094,39 @@ function closeTriage(){
   _triageSid = null;
 }
 
+async function openTriage(sid){
+  if(!sid) return;
+  _triageSid = sid;
+  const modal = document.getElementById('triage-modal');
+  const body = document.getElementById('triage-body');
+  const meta = document.getElementById('triage-meta');
+  const stats = document.getElementById('triage-stats');
+  const timelineBtn = document.getElementById('triage-open-timeline');
+  modal.classList.remove('hidden');
+  meta.textContent = sid;
+  stats.textContent = '';
+  body.style.color = 'var(--text)';
+  if(timelineBtn) timelineBtn.disabled = false;
+  body.innerHTML = '<div class="spinner" style="margin-right:10px"></div><span style="color:var(--muted)">Analysing recent activity…</span>';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/triage`);
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || `Failed to load insight (${r.status})`);
+    const summary = d.summary || d.insight || d;
+    const text = summary.summary || summary.text || summary.verdict || 'No concerning pattern detected in the recent events.';
+    body.textContent = text;
+    const pieces = [];
+    if(summary.risk_level) pieces.push('Risk: ' + summary.risk_level);
+    if(summary.event_count != null) pieces.push('Events: ' + summary.event_count);
+    if(summary.cached) pieces.push('Cached');
+    stats.textContent = pieces.join(' · ');
+  }catch(e){
+    body.textContent = e.message || 'Could not load AI insight.';
+    body.style.color = 'var(--red)';
+    if(timelineBtn) timelineBtn.disabled = false;
+  }
+}
+
 
 
 async function doInviteTeacher(){
@@ -3206,6 +3273,59 @@ async function upgradePlan(planId){
     }
   }catch(e){
     resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
+  }
+}
+
+async function loadBilling(){
+  const planEl = document.getElementById('billing-plan');
+  const statusEl = document.getElementById('billing-status');
+  const usageEl = document.getElementById('billing-usage');
+  const resultEl = document.getElementById('upgrade-result');
+  const invoicesWrap = document.getElementById('billing-invoices');
+  const invoicesBody = document.getElementById('billing-invoices-body');
+  if(resultEl){ resultEl.textContent = 'Loading billing...'; resultEl.style.color = 'var(--text-secondary)'; }
+  try{
+    const [billingRes, invoiceRes] = await Promise.all([
+      authFetch(`${BASE}/api/v1/org/billing`),
+      authFetch(`${BASE}/api/v1/billing/invoices`).catch(()=>null),
+    ]);
+    if(!billingRes.ok){
+      const d = await billingRes.json().catch(()=>({}));
+      throw new Error(d.detail || `Billing failed (${billingRes.status})`);
+    }
+    const b = await billingRes.json();
+    planEl.textContent = (b.plan || '--').toUpperCase();
+    statusEl.textContent = b.status || '--';
+    usageEl.textContent = `${b.student_count || 0}/${b.max_students || 0}`;
+    if(resultEl) resultEl.textContent = '';
+
+    if(invoiceRes && invoiceRes.ok){
+      const invData = await invoiceRes.json();
+      const invoices = invData.invoices || [];
+      if(invoices.length){
+        invoicesWrap.style.display = '';
+        invoicesBody.innerHTML = invoices.map(inv => {
+          const amount = inv.amount != null ? `₹${Number(inv.amount).toLocaleString('en-IN')}` : '—';
+          const date = inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-IN') : '—';
+          const link = inv.pdf_url ? `<a href="${escAttr(inv.pdf_url)}" target="_blank" rel="noreferrer" style="color:var(--accent)">View</a>` : '';
+          return `<tr style="border-bottom:1px solid var(--border-subtle)">
+            <td style="padding:8px 12px">${escAttr(date)}</td>
+            <td style="padding:8px 12px">${escAttr(inv.description || inv.id || 'Invoice')}</td>
+            <td style="padding:8px 12px;text-align:right">${escAttr(amount)}</td>
+            <td style="padding:8px 12px;text-align:center">${escAttr(inv.status || '—')}</td>
+            <td style="padding:8px 12px;text-align:right">${link}</td>
+          </tr>`;
+        }).join('');
+      } else {
+        invoicesWrap.style.display = 'none';
+        invoicesBody.innerHTML = '';
+      }
+    }
+  }catch(e){
+    if(resultEl){ resultEl.textContent = e.message || 'Failed to load billing'; resultEl.style.color = 'var(--red)'; }
+    if(planEl) planEl.textContent = '--';
+    if(statusEl) statusEl.textContent = '--';
+    if(usageEl) usageEl.textContent = '--';
   }
 }
 
@@ -4132,7 +4252,7 @@ function clearQImage(idx){
 }
 
 function escAttr(s){
-  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;').replace(/`/g,'&#96;').replace(/\//g,'&#47;');
 }
 
 function setCorrect(idx,key){

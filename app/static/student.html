@@ -692,7 +692,7 @@ async function doReset() {
   const btn = document.getElementById('reset-btn');
   btn.disabled = true; btn.textContent = 'Sending...';
   try {
-    await fetch(apiUrl('/api/v1/auth/password-reset'), {
+    await fetch(apiUrl('/api/v1/student-auth/password-reset'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({email}),
@@ -715,7 +715,11 @@ async function doAuth() {
   const name = document.getElementById('inp-name').value.trim();
 
   if (!email || !email.includes('@')) { errEl.textContent = 'A valid email is required'; return; }
-  if (!password || password.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; return; }
+  if (!password) { errEl.textContent = 'Password is required'; return; }
+  if (authMode === 'signup' && !isStrongPassword(password)) {
+    errEl.textContent = 'Password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol';
+    return;
+  }
   if (authMode === 'signup' && !name) { errEl.textContent = 'Full name is required'; return; }
 
   const btn = document.getElementById('auth-btn');
@@ -758,12 +762,29 @@ async function doAuth() {
   }
 }
 
-function doLogout() {
+async function doLogout() {
+  try {
+    if (authToken) {
+      await fetch(apiUrl('/api/v1/student/auth/logout'), {
+        method: 'POST',
+        headers: {'Authorization': 'Bearer ' + authToken},
+      });
+    }
+  } catch(e) {}
   localStorage.removeItem('procta_student_token');
   localStorage.removeItem('procta_student_refresh');
   authToken = '';
   refreshTok = '';
   location.reload();
+}
+
+function isStrongPassword(password) {
+  return !!password
+    && password.length >= 10
+    && /[a-z]/.test(password)
+    && /[A-Z]/.test(password)
+    && /\d/.test(password)
+    && /[^A-Za-z0-9]/.test(password);
 }
 
 // ─── fetch wrapper with single-flight refresh ─────────────────
@@ -1120,7 +1141,6 @@ function _fmtDuration(secs){
 }
 
 // ─── Preflight device check ─────────────────────────────────────
-let _pendingAccessCode = '';
 let _preflightResults = {};
 
 function showPreflight() {

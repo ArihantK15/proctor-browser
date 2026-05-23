@@ -10,6 +10,7 @@ import jwt
 import pytest
 
 from app.constants import SECRET_KEY
+from app.auth.tokens import issue_admin_token, issue_student_auth_token
 from app.services.local_auth import (
     LOCAL_AUTH_PROVIDER,
     auth_provider_mode,
@@ -134,6 +135,23 @@ def test_refresh_token_wrong_scope_rejected():
 def test_refresh_token_garbage_rejected():
     assert verify_refresh_token("not.a.jwt", "teacher") is None
     assert verify_refresh_token("", "teacher") is None
+
+
+def test_dashboard_access_tokens_default_to_short_ttl():
+    now = int(time.time())
+    admin = jwt.decode(
+        issue_admin_token({"id": "teacher-1", "email": "teacher@example.com"}),
+        SECRET_KEY,
+        algorithms=["HS256"],
+    )
+    student = jwt.decode(
+        issue_student_auth_token({"id": "student-1", "email": "student@example.com"}),
+        SECRET_KEY,
+        algorithms=["HS256"],
+    )
+
+    assert 20 * 60 <= admin["exp"] - now <= 35 * 60
+    assert 20 * 60 <= student["exp"] - now <= 35 * 60
 
 
 def test_refresh_token_expired_rejected():

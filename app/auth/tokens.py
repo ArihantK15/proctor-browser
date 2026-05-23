@@ -12,7 +12,12 @@ from fastapi import Request, HTTPException
 import jwt
 from jwt.exceptions import InvalidTokenError as JWTError
 
-from ..constants import SECRET_KEY, TOKEN_TTL_HOURS, ADMIN_TOKEN_TTL_HOURS, STUDENT_AUTH_TTL_HOURS
+from ..constants import (
+    SECRET_KEY,
+    TOKEN_TTL_HOURS,
+    ADMIN_TOKEN_TTL_MINUTES,
+    STUDENT_AUTH_TTL_MINUTES,
+)
 
 
 @dataclass(frozen=True)
@@ -128,7 +133,7 @@ def issue_admin_token(teacher: dict) -> str:
     payload = {
         "tid": str(teacher["id"]), "email": teacher.get("email", ""),
         "role": "teacher", "csrf": csrf, "jti": jti,
-        "iat": now, "exp": now + timedelta(hours=ADMIN_TOKEN_TTL_HOURS),
+        "iat": now, "exp": now + timedelta(minutes=ADMIN_TOKEN_TTL_MINUTES),
     }
     org_id = teacher.get("org_id")
     if org_id:
@@ -144,7 +149,7 @@ def issue_student_auth_token(account: dict) -> str:
         "sid": str(account["id"]), "email": account.get("email", ""),
         "role": "student_account", "csrf": _gen_csrf(), "jti": str(uuid.uuid4()),
         "iat": now,
-        "exp": now + timedelta(hours=STUDENT_AUTH_TTL_HOURS),
+        "exp": now + timedelta(minutes=STUDENT_AUTH_TTL_MINUTES),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 

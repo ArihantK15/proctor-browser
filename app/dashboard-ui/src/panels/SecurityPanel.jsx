@@ -56,7 +56,7 @@ export default function SecurityPanel() {
   }
 
   const confirm2FA = async () => {
-    if (!tfaCode || tfaCode.length !== 6) { setTfaMsg('Enter a 6-digit code'); return }
+    if (!/^\d{6}$/.test(tfaCode)) { setTfaMsg('Enter a 6-digit numeric code'); return }
     setTfaMsg('Verifying...')
     try {
       const r = await authFetch('/api/v1/auth/2fa/confirm', {
@@ -68,6 +68,32 @@ export default function SecurityPanel() {
       setTfaMsg('✅ Two-factor authentication enabled!')
       await loadTfaStatus()
     } catch (e) { setTfaMsg(e.message) }
+  }
+
+  const disable2FA = async () => {
+    const password = window.prompt('Enter your password to disable two-factor authentication')
+    if (!password) return
+    setTfaMsg('Disabling...')
+    try {
+      const rr = await authFetch('/api/v1/auth/reauth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+      const rd = await rr.json().catch(() => ({}))
+      if (!rr.ok) throw new Error(rd.detail || 'Password verification failed')
+      const r = await authFetch('/api/v1/auth/2fa/disable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reauth_token: rd.reauth_token }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.detail || 'Failed to disable 2FA')
+      setEnrollData(null)
+      setTfaCode('')
+      setTfaMsg('Two-factor authentication disabled.')
+      await loadTfaStatus()
+    } catch (e) { setTfaMsg(e.message || 'Failed to disable 2FA') }
   }
 
   const revokeSession = async (jti) => {
@@ -111,6 +137,9 @@ export default function SecurityPanel() {
           {!enrolling && !tfaStatus?.enabled && (
             <button className="btn btn-primary btn-sm" onClick={enable2FA}>Enable Two-Factor Auth</button>
           )}
+          {tfaStatus?.enabled && (
+            <button className="btn btn-secondary btn-sm" onClick={disable2FA} style={{ color: 'var(--red)' }}>Disable Two-Factor Auth</button>
+          )}
           {tfaMsg && <p style={{ fontSize: 12, marginTop: 8, color: 'var(--text-muted)' }}>{tfaMsg}</p>}
           {enrollData && (
             <div style={{ marginTop: 12 }}>
@@ -118,7 +147,7 @@ export default function SecurityPanel() {
                 Scan this QR code with your authenticator app, or enter the key manually:
               </p>
               <div style={{ background: '#fff', borderRadius: 8, display: 'inline-block', padding: 8, marginBottom: 8 }}>
-                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(enrollData.otpauth_url)}`} alt="QR" width="160" height="160" />
+                <img src={enrollData.qr_data_url || ''} alt="QR" width="160" height="160" />
               </div>
               <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
                 Manual key: {enrollData.secret}

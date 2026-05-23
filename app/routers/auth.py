@@ -239,16 +239,16 @@ async def _verify_and_rotate_refresh_token(
         # tampering. Reject without leaking which check failed.
         raise HTTPException(status_code=401, detail="Refresh token invalid")
 
-    # Revoke old token first, then mint replacement (H34).
-    # If the server crashes after revoke but before insert, the client
-    # still has the old token and can retry (the revoke is idempotent
-    # since the second revoke finds already-revoked = no-op).
+    # Mint replacement, then revoke the old token with a pointer to the
+    # successor. This preserves the rotation chain for audit/replay
+    # investigation; the new token row itself has no replacement yet.
     now_iso = now_ist().isoformat()
+    new_token, new_jti, new_exp = issue_refresh_token(user_id, expected_kind)
     await _atable("refresh_tokens").update({
         "revoked_at": now_iso,
+        "replaced_by_jti": new_jti,
     }).eq("jti", jti).execute()
 
-    new_token, new_jti, new_exp = issue_refresh_token(user_id, expected_kind)
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "")[:500]
     await _atable("refresh_tokens").insert({
@@ -257,7 +257,6 @@ async def _verify_and_rotate_refresh_token(
         "kind": expected_kind,
         "issued_at": now_iso,
         "expires_at": new_exp.isoformat(),
-        "replaced_by_jti": new_jti,
         "ip": ip,
         "user_agent": ua,
     }).execute()
@@ -371,12 +370,6 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
 
         _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", name, email, org_name)
         await record_auth_event("signup", request, "teacher", teacher["id"], email)
-        if str(email).lower() == "arihantkaul@gmail.com":
-            try:
-                await _atable("teachers").update({"org_role": "superadmin"}).eq("id", str(teacher["id"])).execute()
-                teacher["org_role"] = "superadmin"
-            except Exception as e:
-                _auth_log.warning("[TeacherSignup] failed to mark superadmin: %s", e)
         enqueue_job(send_new_account_notification_job,
                     account_type="teacher", name=name, email=email)
 
@@ -916,18 +909,17 @@ async def accept_org_invite(body: dict, request: Request):
 # ─── STUDENT DASHBOARD AUTH ──────────────────────────────────────
 
 @router.get("/api/v1/student/account-exists")
-@limiter.limit("120/minute")
+@limiter.limit("10/minute")
 async def student_account_exists(request: Request, email: str = ""):
-    """Check if a student dashboard account exists for this email."""
-    email = (email or "").strip().lower()
-    if not email or "@" not in email:
-        return {"exists": False}
-    result = await _atable("student_accounts")\
-        .select("id")\
-        .eq("email", email)\
-        .execute()
-    count = len(result.data or [])
-    return {"exists": count > 0}
+    """Compatibility shim that does not reveal account existence.
+
+    Older registration pages used this endpoint to hide password fields for
+    existing accounts. That leaked a direct student-email oracle. Keep the
+    route so old clients do not break, but always return the same answer.
+    The signup endpoint remains idempotent enough for existing-account races:
+    callers can treat 409 as "account already exists".
+    """
+    return {"exists": False}
 
 
 @router.post("/api/v1/student/auth/signup")
@@ -1020,18 +1012,30 @@ async def student_signup(body: StudentSignupIn, request: Request):
 
 
 @router.post("/api/v1/student/auth/login")
-@limiter.limit("120/minute")
+@limiter.limit("10/minute")
 async def student_login(body: StudentLoginIn, request: Request):
     await verify_or_403(request, body.captcha_token)
     email = body.email.strip().lower()
+    locked, retry_after = await check_lockout("student", email)
+    if locked:
+        await record_auth_event("login_failed", request, "student_account", "", email, {"reason": "locked_out"})
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Please wait a few minutes and try again.",
+        )
+
     auth_resp = None
     account = None
     if local_password_auth_enabled():
         account = await _get_student_by_email_for_auth(email)
         if account and account.get("password_hash"):
             if not await verify_password(body.password, account.get("password_hash")):
+                await record_failure("student", email)
+                await record_auth_event("login_failed", request, "student_account", "", email)
                 raise HTTPException(status_code=401, detail="Invalid email or password")
         elif not supabase_auth_fallback_enabled():
+            await record_failure("student", email)
+            await record_auth_event("login_failed", request, "student_account", "", email)
             raise HTTPException(status_code=401, detail="Invalid email or password")
         else:
             account = None
@@ -1044,14 +1048,20 @@ async def student_login(body: StudentLoginIn, request: Request):
             })
         except Exception as e:
             _auth_log.warning("[StudentLogin] Auth error: %s", e)
+            await record_failure("student", email)
+            await record_auth_event("login_failed", request, "student_account", "", email)
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         supabase_uid = str(auth_resp.user.id)
         account = await _get_student_account_by_uid(supabase_uid)
         if not account:
+            await record_failure("student", email)
+            await record_auth_event("login_failed", request, "student_account", "", email, {"reason": "account_missing"})
             raise HTTPException(
                 status_code=403,
                 detail="No student account found for this login. Please sign up first.")
+
+    await clear_failures("student", email)
 
     # Opportunistic auto-link on every login in case the student was
     # registered by a teacher AFTER they created their account.
@@ -1064,10 +1074,29 @@ async def student_login(body: StudentLoginIn, request: Request):
     except Exception as e:
         logger.debug("Auto-link enrollments failed: %s", e)  # Non-fatal
 
+    access_token = issue_student_auth_token(account)
+    try:
+        import jwt as _jwt
+        from ..constants import SECRET_KEY
+        claims = _jwt.decode(access_token, SECRET_KEY, algorithms=["HS256"])
+        jti = claims.get("jti", "")
+        if jti:
+            await _atable("auth_sessions").insert({
+                "jti": jti,
+                "user_kind": "student_account",
+                "user_id": account["id"],
+                "ip": request.client.host if request.client else "",
+                "user_agent": request.headers.get("user-agent", ""),
+            }).execute()
+    except Exception as e:
+        _auth_log.warning("[StudentLogin] session record failed: %s", e)
+
+    await record_auth_event("login_success", request, "student_account", account["id"], email)
+
     # Always issue our own persisted refresh token (revocable, replay-protected).
     refresh_tok = await _issue_and_persist_refresh_token(account["id"], "student", request)
     return {
-        "access_token":  issue_student_auth_token(account),
+        "access_token":  access_token,
         "refresh_token": refresh_tok,
         "account": {
             "id":        account["id"],
@@ -1102,6 +1131,41 @@ async def student_refresh(body: RefreshIn, request: Request):
         "access_token": issue_student_auth_token(account),
         "refresh_token": new_refresh,
     }
+
+
+@router.post("/api/v1/student/auth/logout")
+@limiter.limit("30/minute")
+async def student_logout(request: Request):
+    """Revoke the current student access-session and refresh tokens."""
+    account = await require_student_account(request)
+    account_id = str(account["id"])
+    auth = request.headers.get("Authorization", "")
+    current_jti = ""
+    if auth.startswith("Bearer "):
+        try:
+            import jwt as _jwt
+            from ..constants import SECRET_KEY
+            claims = _jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+            current_jti = claims.get("jti", "")
+        except Exception:
+            current_jti = ""
+    if current_jti:
+        await _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
+            .eq("jti", current_jti).eq("user_kind", "student_account").eq("user_id", account_id).execute()
+        try:
+            from .. import cache as _cache
+            if _cache:
+                from ..constants import STUDENT_AUTH_TTL_MINUTES
+                _cache.set(
+                    f"session:{current_jti}",
+                    {"revoked": True},
+                    ttl=max(60, STUDENT_AUTH_TTL_MINUTES * 60),
+                )
+        except Exception:
+            pass
+    await _revoke_refresh_tokens_for_user(account_id, "student")
+    await record_auth_event("logout", request, "student_account", account_id, account.get("email", ""))
+    return {"ok": True}
 
 
 @router.get("/api/student/exams")
@@ -1648,6 +1712,7 @@ async def revoke_other_sessions(request: Request):
 @limiter.limit("3/minute")
 async def student_password_reset(body: dict, request: Request):
     """Send a password reset email for student accounts."""
+    await verify_or_403(request, (body or {}).get("captcha_token"))
     email = (body.get("email") or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
@@ -1763,13 +1828,15 @@ async def confirm_password_reset(body: dict, request: Request):
     # forward) OR the user changed their password through another flow.
     # Either way, reject.
     pwc_claim = claims.get("pwc")
+    live = await _atable(table).select("password_changed_at").eq("id", user_id).limit(1).execute()
+    if not live.data:
+        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+    live_pwc = _stringify_pwc(live.data[0].get("password_changed_at"))
     if pwc_claim is not None:
-        live = await _atable(table).select("password_changed_at").eq("id", user_id).limit(1).execute()
-        if not live.data:
-            raise HTTPException(status_code=400, detail="Reset link expired or invalid")
-        live_pwc = _stringify_pwc(live.data[0].get("password_changed_at"))
         if live_pwc != pwc_claim:
             raise HTTPException(status_code=400, detail="Reset link has already been used")
+    elif live_pwc is not None:
+        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
 
     await _atable(table).update({
         "password_hash": await hash_password(password),

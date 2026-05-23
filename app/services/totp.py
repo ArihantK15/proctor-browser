@@ -1,11 +1,13 @@
 """TOTP 2FA — enrollment, verification, backup codes, recovery, grace period."""
 import json
 import logging
+from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from cryptography.fernet import Fernet
 import pyotp
+import qrcode
 
 from ..constants import TOTP_ENCRYPTION_KEY, TOTP_GRACE_DAYS
 from ..database import async_table as _atable
@@ -46,6 +48,14 @@ def _generate_backup_codes() -> list[str]:
     return [secrets.token_hex(6).upper() for _ in range(BACKUP_CODE_COUNT)]
 
 
+def _qr_data_url(otpauth_url: str) -> str:
+    img = qrcode.make(otpauth_url)
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    import base64
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 async def generate_secret(user_kind: str, user_id: str, email: str) -> dict:
     """Generate a TOTP secret, encrypt it, store it, and return provisioning info.
     
@@ -70,6 +80,7 @@ async def generate_secret(user_kind: str, user_id: str, email: str) -> dict:
     return {
         "secret": secret,
         "otpauth_url": otpauth_url,
+        "qr_data_url": _qr_data_url(otpauth_url),
         "email": email,
     }
 

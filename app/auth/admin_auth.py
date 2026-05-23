@@ -156,6 +156,17 @@ async def verify_student_auth_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
     if payload.get("role") != "student_account":
         raise HTTPException(status_code=403, detail="Not a student token")
+    jti = payload.get("jti", "")
+    if jti:
+        try:
+            from .. import cache as _cache
+            cached = _cache.get(f"session:{jti}") if _cache else None
+            if cached and isinstance(cached, dict) and cached.get("revoked"):
+                raise HTTPException(status_code=401, detail="Session has been revoked")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     sid = payload.get("sid")
     account = await _get_student_account_by_id(sid)
     if not account:

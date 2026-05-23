@@ -67,7 +67,7 @@
   A secure, intelligent, and scalable platform for conducting cheat-resistant online examinations.
   <strong style="color:#e2e8f0">42,816 lines of Python</strong> ·
   <strong style="color:#e2e8f0">29 API routers</strong> ·
-  <strong style="color:#e2e8f0">45 database migrations</strong>
+  <strong style="color:#e2e8f0">46 database migrations</strong>
 </p>
 
 </div>
@@ -400,7 +400,7 @@ Full control center for teachers and admins. Live session monitoring, violation 
 │                                   │   Auth + Realtime)│      │       │
 │                                   └──────────────────┘      │       │
 │                                                              │       │
-│  Infrastructure: Docker · Caddy (auto HTTPS) · 2GB droplet ·       │
+│  Infrastructure: Docker · Caddy (auto HTTPS) · Hostinger KVM 4 ·   │
 │  GitHub Actions CI/CD · Resend (email) · Cloudflare Turnstile      │
 └────────────────────────────────────────────────────────────────────┘
 ```
@@ -452,7 +452,7 @@ Groq (question generation)
 <div style="color:#94a3b8;font-size:13px;line-height:1.7">
 Docker + Docker Compose<br>
 Caddy (auto HTTPS)<br>
-DigitalOcean droplet (2GB)<br>
+Hostinger KVM 4 (4 vCPU / 16 GB)<br>
 Vercel (marketing site)<br>
 GitHub Actions CI/CD<br>
 Resend (transactional email)
@@ -478,8 +478,8 @@ Resend (transactional email)
 - Student exam experience with AI proctoring
 - LTI 1.3 integration (Deep Linking, NRPS, Grade Passback)
 - AI question generation (Llama 3.3 70B)
-- OAuth (Google, Microsoft) for teachers + students
-- Email 2FA, session management, password reset
+- Email OTP-based 2FA, session management, password reset
+- LTI 1.3 SSO for school/LMS integrations
 - 578 automated tests passing
 - Refresh token rotation with replay detection
 - Design system with 3 themes (dark, dark-OLED, light)
@@ -534,7 +534,7 @@ Resend (transactional email)
 </div>
 
 <div style="text-align:center;background:rgba(148,163,184,0.08);border-radius:10px;padding:16px">
-  <div style="font-size:32px;font-weight:700;color:#94a3b8">45</div>
+  <div style="font-size:32px;font-weight:700;color:#94a3b8">46</div>
   <div style="color:#94a3b8;font-size:12px">Migrations</div>
 </div>
 

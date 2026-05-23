@@ -3784,20 +3784,31 @@ async function loadSchedule(){
 
 function utcToLocalInput(iso){
   if(!iso) return '';
-  // Convert UTC ISO to IST datetime-local value (IST = UTC+5:30)
-  const d=new Date(iso);
-  const ist=new Date(d.getTime()+5.5*60*60*1000);
-  return ist.toISOString().slice(0,16);
+  // Convert UTC ISO → BROWSER LOCAL datetime-local input format
+  // (audit L1 — was hardcoded IST). new Date(iso) parses the UTC
+  // timestamp; getFullYear()/getMonth()/etc. then return the user's
+  // local time components, which we format as `YYYY-MM-DDTHH:MM`.
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function localInputToUtc(val){
   if(!val) return null;
-  // The datetime-local input is treated as IST — convert to UTC ISO
-  const parts=val.split('T');
-  if(parts.length!==2) return null;
-  // Build an IST date and subtract 5:30 to get UTC
-  const ist=new Date(val+':00+05:30');
-  return ist.toISOString();
+  // Treat the datetime-local input as the user's BROWSER local time
+  // (audit L1 — was hardcoded IST). The Date constructor with
+  // integer year/month/day/hour/minute uses local time naturally;
+  // .toISOString() then returns the UTC equivalent. A teacher in
+  // Dubai scheduling "10:00 AM" now correctly stores 06:00 UTC,
+  // and a teacher in Delhi correctly stores 04:30 UTC.
+  const parts = val.split('T');
+  if(parts.length !== 2) return null;
+  const [y, mo, d] = parts[0].split('-').map(Number);
+  const [h, mi] = parts[1].split(':').map(Number);
+  if (!y || !mo || !d || Number.isNaN(h) || Number.isNaN(mi)) return null;
+  const local = new Date(y, mo - 1, d, h, mi, 0);
+  return local.toISOString();
 }
 
 function updateScheduleStatus(d){

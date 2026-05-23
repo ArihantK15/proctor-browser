@@ -3807,10 +3807,14 @@ function updateScheduleStatus(d){
     st.textContent='No schedule set — exam is always accessible.';
     return;
   }
-  const opts={timeZone:'Asia/Kolkata',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true};
+  // Use browser locale + timezone so non-India users see local times.
+  // (Audit M3 — was hardcoded Asia/Kolkata.) Falls back to IST if Intl is unavailable.
+  const tz = (()=>{ try { return Intl.DateTimeFormat().resolvedOptions().timeZone||'Asia/Kolkata'; } catch(_){ return 'Asia/Kolkata'; } })();
+  const locale = navigator.language || 'en-IN';
+  const opts={timeZone:tz,month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true,timeZoneName:'short'};
   let msg='';
-  if(d.starts_at) msg+='Opens: '+new Date(d.starts_at).toLocaleString('en-IN',opts);
-  if(d.ends_at) msg+=(msg?' | ':'')+'Closes: '+new Date(d.ends_at).toLocaleString('en-IN',opts);
+  if(d.starts_at) msg+='Opens: '+new Date(d.starts_at).toLocaleString(locale,opts);
+  if(d.ends_at) msg+=(msg?' | ':'')+'Closes: '+new Date(d.ends_at).toLocaleString(locale,opts);
   const now=new Date();
   let color='var(--emerald)';
   if(d.starts_at&&now<new Date(d.starts_at)){color='var(--amber)';msg+=' (not started yet)';}

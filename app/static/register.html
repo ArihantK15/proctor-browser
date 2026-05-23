@@ -380,9 +380,13 @@ async function lookupByCode(){
       const banner = document.getElementById('schedule-banner');
       banner.style.display = '';
       document.getElementById('sched-title').textContent = d.exam_title || 'Exam';
+      // Browser-local timezone (audit M3 — was hardcoded IST).
+      const _tz = (()=>{ try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'; } catch(_){ return 'Asia/Kolkata'; } })();
+      const _loc = navigator.language || 'en-IN';
+      const _opts = {timeZone:_tz, timeZoneName:'short'};
       let times = '';
-      if(d.starts_at) times += 'Starts: ' + new Date(d.starts_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) + '\n';
-      if(d.ends_at) times += 'Ends: ' + new Date(d.ends_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+      if(d.starts_at) times += 'Starts: ' + new Date(d.starts_at).toLocaleString(_loc, _opts) + '\n';
+      if(d.ends_at) times += 'Ends: ' + new Date(d.ends_at).toLocaleString(_loc, _opts);
       document.getElementById('sched-times').textContent = times;
     }
   }catch(e){ document.getElementById('lookup-err').textContent = e.message; }
@@ -580,11 +584,14 @@ function isStrongPassword(password) {
     const banner = document.getElementById('schedule-banner');
     banner.style.display = 'block';
     document.getElementById('sched-title').textContent = d.exam_title || 'Exam';
-    const opts = {timeZone:'Asia/Kolkata', year:'numeric', month:'short', day:'numeric',
-                  hour:'2-digit', minute:'2-digit', hour12:true};
+    // Browser-local timezone (audit M3).
+    const _tz = (()=>{ try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'; } catch(_){ return 'Asia/Kolkata'; } })();
+    const _loc = navigator.language || 'en-IN';
+    const opts = {timeZone:_tz, year:'numeric', month:'short', day:'numeric',
+                  hour:'2-digit', minute:'2-digit', hour12:true, timeZoneName:'short'};
     let times = '';
-    if(d.starts_at) times += 'Starts: ' + new Date(d.starts_at).toLocaleString('en-IN', opts);
-    if(d.ends_at) times += (times ? '  |  ' : '') + 'Ends: ' + new Date(d.ends_at).toLocaleString('en-IN', opts);
+    if(d.starts_at) times += 'Starts: ' + new Date(d.starts_at).toLocaleString(_loc, opts);
+    if(d.ends_at) times += (times ? '  |  ' : '') + 'Ends: ' + new Date(d.ends_at).toLocaleString(_loc, opts);
     document.getElementById('sched-times').textContent = times;
     if(d.duration_minutes) {
       document.getElementById('sched-times').textContent += '  |  Duration: ' + d.duration_minutes + ' min';

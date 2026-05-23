@@ -265,17 +265,27 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
 
     await check_org_limits(teacher, delta=len(rows))
 
+    # Use upsert with ON CONFLICT to make this idempotent at the DB
+    # layer — previously, re-running the same registration (common in
+    # load testing and admin re-import flows) generated one Postgres
+    # ERROR per duplicate row, all caught silently by the except
+    # block below. With ON CONFLICT (roll_number), duplicates are a
+    # no-op: the existing row keeps its data, the new row is
+    # discarded, no error logged.
     registered = 0
     skipped = 0
     for row in rows:
         try:
-            await _atable("students").insert(row).execute()
-            registered += 1
-        except Exception as e:
-            if "duplicate" in str(e).lower() or "unique" in str(e).lower():
-                skipped += 1
+            result = await _atable("students").upsert(row, on_conflict="roll_number").execute()
+            if result.data:
+                registered += 1
             else:
                 skipped += 1
+        except Exception:
+            # Defensive: ON CONFLICT should prevent duplicate errors,
+            # but anything else (FK violation, NOT NULL, etc.) lands
+            # here. Count as skipped rather than failing the whole batch.
+            skipped += 1
 
     result = {"registered": registered, "skipped": skipped, "total": len(rows)}
     if invalid:

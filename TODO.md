@@ -257,7 +257,10 @@ LOC; do them in priority order:
      every JS hook (`#cam-preview`, `#exam-timer`, `#save-status`,
      `.q-field`, `.opt-btn`, etc.) so the proctor + anti-cheat stack
      keeps working.
-  3. **Marketing / download page** (port `marketing.html`).
+  3. ~~**Marketing / download page** (port `marketing.html`)~~ —
+     superseded: the marketing site now lives at `website/` (Vite
+     + React, deployed to Vercel at procta.net). The `marketing.html`
+     design preview was used only as visual reference.
   4. **Question editor** (port `question-editor.html`).
   5. **Analytics tab** (port `analytics.html`).
   6. **Calibration screen** (port `calibration.html`) — renderer
@@ -277,7 +280,7 @@ The design preview files (React JSX previews of each screen) live at
   panel (now wired end-to-end via on-demand live-view; see live-view
   endpoints in §1.6 below).
 - `student-exam.html` — kiosk exam window, calmer palette.
-- `marketing.html` — single-page marketing site.
+- ~~`marketing.html`~~ — superseded by `website/` (React/Vite on Vercel).
 - `analytics.html`, `calibration.html`, `question-editor.html`,
   `mobile-spec.html`, `migration-plan.html`.
 
@@ -306,8 +309,9 @@ The design preview files (React JSX previews of each screen) live at
    (`#cam-preview`, `#exam-timer`, `#save-status`, `.q-field`,
    `.opt-btn`, etc.) so the proctor + anti-cheat stack keeps working.
 
-5. **Marketing site** — `marketing.html` replaces `download.html` /
-   `website/index.html`. Standalone, lowest risk.
+5. ~~**Marketing site**~~ — superseded. The `website/` React/Vite app
+   on Vercel (procta.net) is the live marketing surface; no port from
+   `marketing.html` is needed.
 
 6. **Mobile** — implement the responsive surfaces from
    `mobile-spec.html` for the teacher dashboard's three priority

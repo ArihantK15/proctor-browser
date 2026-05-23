@@ -659,7 +659,7 @@ re-verify or accidentally regress them:
 | **M10** (phone-cam reconnect) | Exponential backoff (1s → 30s cap) matching the chat-WS pattern | `a49446a` |
 | **M13** (invite tokens plaintext) | `token_hash` column + SHA-256 lookup; migration `phase69` backfills existing pending invites | `d89e9c3` |
 | **L1** (localInputToUtc IST) | Browser-local timezone in both directions (input → UTC, UTC → input) | `c56a41b` |
-| **L3** (marketing.html missing) | File doesn't exist + no references → non-issue | (no change) |
+| **L3** (marketing.html missing) | File doesn't exist; live marketing is `website/` (React/Vite on Vercel). Stale references in `TODO.md` struck through. | (next commit) |
 | **L5** (X-Request-ID in errors) | Already in middleware response header; added `request_id` to error JSON body + global handler log line for easier bug-report correlation | (next commit) |
 | **L4** (OAuth fragment) | Moot — OAuth removed | `c8ab88c` |
 | **M12** (OAuth state key) | Moot — OAuth removed | `c8ab88c` |

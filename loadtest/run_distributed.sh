@@ -85,21 +85,16 @@ if [ -z "$CODESPACE_NAME" ]; then
   echo "Using codespace: ${CODESPACE_NAME}"
 fi
 
-# Make sure the codespace is started (Shutdown codespaces can't accept ssh).
+# Make sure the codespace is started. `gh codespace` doesn't have a
+# `start` subcommand — the documented way to start a Shutdown
+# codespace from the CLI is to `gh codespace ssh` into it, which
+# auto-starts and blocks until reachable.
 CS_STATE=$(gh codespace list --json name,state -q \
   ".[] | select(.name==\"${CODESPACE_NAME}\") | .state" | head -1)
 if [ "$CS_STATE" != "Available" ]; then
-  echo "Codespace ${CODESPACE_NAME} state=${CS_STATE:-unknown} — starting it (takes ~30s)..."
-  gh codespace start -c "${CODESPACE_NAME}" >/dev/null
-  # Poll until it's Available or we hit a 90s ceiling.
-  for i in $(seq 1 30); do
-    CS_STATE=$(gh codespace list --json name,state -q \
-      ".[] | select(.name==\"${CODESPACE_NAME}\") | .state" | head -1)
-    [ "$CS_STATE" = "Available" ] && break
-    sleep 3
-  done
-  if [ "$CS_STATE" != "Available" ]; then
-    echo "ERROR: codespace did not reach Available within 90s (state=${CS_STATE})"
+  echo "Codespace ${CODESPACE_NAME} state=${CS_STATE:-unknown} — triggering auto-start via ssh (takes ~30-60s)..."
+  if ! gh codespace ssh -c "${CODESPACE_NAME}" -- 'echo started' >/dev/null 2>&1; then
+    echo "ERROR: failed to start codespace ${CODESPACE_NAME}"
     exit 1
   fi
   echo "Codespace ready."

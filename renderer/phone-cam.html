@@ -118,6 +118,24 @@ async function startCamera(){
   connectWs();
 }
 
+// Exponential-backoff reconnect state. Starts at 1s, doubles per
+// failure up to a 30s cap, resets to 1s on each successful connect.
+// Matches the pattern used by the student chat WS in renderer/index.html
+// (chatScheduleReconnect). Audit M10 — was a hardcoded 3s retry that
+// would hammer the server during sustained outages.
+let wsReconnectDelay = 1000;
+let wsReconnectTimer = null;
+
+function _scheduleWsReconnect(){
+  if(wsReconnectTimer) return;
+  const d = Math.min(wsReconnectDelay, 30000);
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
+    if(consentGiven) connectWs();
+  }, d);
+}
+
 function connectWs(){
   if(!token || !sessionId){
     setStatus('error', 'Invalid QR code — please scan again from the exam screen.');
@@ -131,6 +149,8 @@ function connectWs(){
     setStatus('connected', 'Room camera connected — capturing 1 frame/second');
     warningBanner.style.display = 'none';
     targetOverlay.style.display = '';
+    // Successful open — reset backoff so future failures restart from 1s.
+    wsReconnectDelay = 1000;
 
     // Start sending frames
     sendTimer = setInterval(sendFrame, 1000);
@@ -138,17 +158,15 @@ function connectWs(){
   };
 
   ws.onclose = (e) => {
-    setStatus('connecting', 'Disconnected — reconnecting...');
+    setStatus('connecting', `Disconnected — reconnecting in ${Math.round(Math.min(wsReconnectDelay, 30000)/1000)}s...`);
     if(sendTimer){ clearInterval(sendTimer); sendTimer = null; }
     if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
-    // Auto-reconnect after 3 seconds
-    setTimeout(() => {
-      if(consentGiven) connectWs();
-    }, 3000);
+    _scheduleWsReconnect();
   };
 
   ws.onerror = () => {
     setStatus('error', 'Connection error. Check your network.');
+    // onclose follows; reconnect scheduled there.
   };
 }
 

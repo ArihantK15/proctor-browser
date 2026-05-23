@@ -36,7 +36,19 @@ if SENTRY_DSN:
 
 # RQ / Redis imports after Sentry (avoid import-order side effects)
 import logging
-from rq import Worker, Queue
+# Use SimpleWorker (no fork-per-job) so module-level state — most
+# importantly the asyncio event loop maintained by app.jobs.helpers
+# and the asyncpg connection pool — survives across job invocations.
+# Default `Worker` forks a child process per job on POSIX, which
+# means any in-process loop/pool dies after every job and the next
+# job pays TCP+SCRAM handshake costs to rebuild the asyncpg pool.
+#
+# Trade-off: a job that hits OOM or segfaults will crash the worker
+# process. Scoring/autosave jobs are well-behaved Python code, and
+# docker compose's restart=unless-stopped recovers within seconds
+# if a worker does die. Net win is ~5-10× scoring throughput.
+from rq import SimpleWorker as Worker
+from rq import Queue
 from rq.job import Job
 from redis import Redis
 

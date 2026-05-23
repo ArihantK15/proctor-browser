@@ -56,20 +56,70 @@ def enqueue_job(func: Callable, *args, queue_name: str = "default", **kwargs) ->
     return func(*args, **kwargs)
 
 
+# ── Persistent event loop for RQ workers ────────────────────────────
+# In SimpleWorker mode the worker runs all jobs in the same process,
+# so a single shared event loop can host coroutines from every job.
+# This is critical because asyncpg connection pools are loop-bound —
+# if we created a new loop per job (the old `asyncio.run` pattern),
+# the pool's TCP+SCRAM-authed connections would die with the loop
+# and the next job would pay ~500ms-1s to rebuild a 20-connection
+# pool. With a persistent loop, the pool lives for the worker's
+# entire lifetime.
+
+_persistent_loop: Optional[asyncio.AbstractEventLoop] = None
+_loop_thread: Optional[threading.Thread] = None
+_loop_lock = threading.Lock()
+
+
+def _get_persistent_loop() -> asyncio.AbstractEventLoop:
+    """Get or lazily create the per-process persistent event loop."""
+    global _persistent_loop, _loop_thread
+    if _persistent_loop is not None and _persistent_loop.is_running():
+        return _persistent_loop
+    with _loop_lock:
+        # Double-check after acquiring the lock — another thread may
+        # have just created the loop while we were waiting.
+        if _persistent_loop is not None and _persistent_loop.is_running():
+            return _persistent_loop
+        loop = asyncio.new_event_loop()
+        t = threading.Thread(
+            target=loop.run_forever,
+            daemon=True,
+            name="rq-async-loop",
+        )
+        t.start()
+        _persistent_loop = loop
+        _loop_thread = t
+        log.info("[helpers] persistent asyncio event loop started for RQ jobs")
+    return _persistent_loop
+
+
 def _run_coro_in_sync(coro) -> Any:
     """Run an async coroutine from a sync context.
 
-    Handles both environments transparently:
+    Two paths:
 
-    * **RQ worker process** – no running event loop, uses ``asyncio.run()``.
-    * **uvicorn sync fallback** – a running event loop exists.  Spawns a
-      daemon thread with its own loop so we never nest loops.
+    1. **RQ SimpleWorker (no running loop in this thread)**: submit
+       the coroutine to a process-persistent background loop running
+       in its own thread. asyncpg pools created on this loop survive
+       across all job invocations — no per-job handshake overhead.
+       This is the codepath for proctor-worker and
+       proctor-autosave-worker containers.
+
+    2. **uvicorn sync fallback (running loop in this thread)**: only
+       hit when a sync helper is invoked from inside an async request
+       handler. Spawns a one-shot thread + loop so we don't nest
+       loops in the same thread. Unchanged from prior behavior.
     """
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
+        # No running loop → submit to the persistent background loop.
+        loop = _get_persistent_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
 
+    # Running loop exists → spawn a fresh thread + loop for this call.
     result: list = []
     exc: list[Exception] = []
 

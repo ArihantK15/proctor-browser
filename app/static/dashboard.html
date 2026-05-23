@@ -2460,7 +2460,7 @@ async function loadMembers(){
         <td>${escHtml(m.email)}</td>
         <td>${escHtml(m.org_role)}</td>
         <td>${m.created_at||'--'}</td>
-        <td>${m.org_role==='teacher' ? '<button class="btn btn-secondary btn-sm" style="color:var(--red);font-size:11px;padding:4px 8px" onclick="removeMember(\''+m.id+'\')">Remove</button>' : ''}</td>
+        <td>${m.org_role==='teacher' ? '<button class="btn btn-secondary btn-sm" style="color:var(--red);font-size:11px;padding:4px 8px" onclick="removeOrgMember(\''+m.id+'\')">Remove</button>' : ''}</td>
       </tr>
     `).join('');
   }catch(_){}
@@ -5931,7 +5931,7 @@ async function openGroupDetail(gid, name){
   list.innerHTML = members.map(m=>`
     <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(61,217,168,.1);border:1px solid rgba(61,217,168,.2);border-radius:14px;padding:3px 10px;margin:3px 3px;font-size:12px;color:var(--accent-light)">
       ${_escHtml(m.roll_number)}
-      <span onclick="removeMember('${gid}','${_escGrp(m.roll_number)}')" style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
+      <span onclick="removeGroupMember('${gid}','${_escGrp(m.roll_number)}')" style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
     </span>`).join('');
 }
 
@@ -5952,11 +5952,30 @@ async function addGroupMembers(){
   loadGroups();
 }
 
-async function removeMember(gid, roll){
+// Renamed from `removeMember` 2026-05-23 (audit M7). The org-side
+// members table at line ~2463 was calling `removeMember(memberId)`
+// which collided with this group-side function — the org call landed
+// on /api/v1/admin/groups/{teacher_id}/members with
+// roll_numbers:[undefined], silently failing or worse. Split into
+// removeGroupMember + removeOrgMember (the latter defined below).
+async function removeGroupMember(gid, roll){
   await authFetch(`${BASE}/api/v1/admin/groups/${gid}/members`,
     {method:'DELETE',body:JSON.stringify({roll_numbers:[roll]})});
   openGroupDetail(gid, document.getElementById('group-detail-name').textContent);
   loadGroups();
+}
+
+async function removeOrgMember(memberId){
+  if(!memberId) return;
+  if(!confirm('Remove this teacher from the organization? They will lose access immediately.')) return;
+  const r = await authFetch(`${BASE}/api/v1/org/members/${encodeURIComponent(memberId)}`,
+    {method:'DELETE'});
+  if(!r.ok){
+    const d = await r.json().catch(()=>({}));
+    alert(d.detail || 'Could not remove member');
+    return;
+  }
+  loadMembers();   // existing loader for the org members table (line ~2451)
 }
 
 function populateGroupSelect(){

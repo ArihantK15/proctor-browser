@@ -139,8 +139,15 @@ async def get_org_subscription(org_id: str) -> dict | None:
     if cached is not None:
         return cached or None
     try:
+        # `max_students` lives on the `organizations` table, NOT on
+        # `subscriptions` — selecting it here fired a Postgres ERROR
+        # on every authenticated request (caught by the try/except
+        # below, so the call returned None silently). Confirmed no
+        # caller reads `sub["max_students"]` — they all read it from
+        # the organizations table directly (see app/services/sessions.py:54,
+        # app/routers/admin_org.py:39, etc.).
         result = await _atable("subscriptions").select(
-            "id,org_id,plan,status,max_students,trial_end,current_period_start,current_period_end,razorpay_subscription_id"
+            "id,org_id,plan,status,trial_end,current_period_start,current_period_end,razorpay_subscription_id"
         ).eq("org_id", str(org_id)).limit(1).execute()
         sub = (result.data or [None])[0]
         if _cache:

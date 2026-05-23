@@ -318,6 +318,62 @@ fine for "wait for results" UX.
 - **KVM upgrade to 8 vCPU / 32 GB RAM** (~₹1400/mo) — defer until a
   paying school routinely runs >2000 concurrent exams.
 
+---
+
+### 2026-05-23 update #2 — Persistent loop + SimpleWorker breakthrough
+
+**Hypothesis confirmed.** The real bottleneck was an architectural
+bug in how RQ workers ran async code, not CPU contention:
+
+  1. RQ's default `Worker` forks a child process per job on POSIX.
+  2. Each child called `asyncio.run(coro)` → new event loop per job.
+  3. asyncpg pools are loop-bound; when the loop closes, ~20 TCP+
+     SCRAM-authenticated connections die with it.
+  4. Result: every scoring job paid 250-500ms+ of pool-rebuild
+     overhead before any actual work happened.
+
+Two-part fix (commit 57bdf83):
+  - `worker.py`: `from rq import SimpleWorker as Worker` (no fork-per-job)
+  - `app/jobs/helpers.py`: persistent asyncio event loop in a daemon
+    thread, `_run_coro_in_sync()` submits via
+    `asyncio.run_coroutine_threadsafe()`
+
+Results at 1500 VU production-path load:
+
+| Metric | Before fix | After fix | Improvement |
+|---|---|---|---|
+| Submit p95 | 1,050ms | **46ms** | **22× faster** |
+| Heartbeat p95 | 558ms | **41ms** | **13× faster** |
+| Session_status p95 | 870ms | **37ms** | **23× faster** |
+| Avg scoring latency | 8,700ms | **1,536ms** | **5.7× faster** |
+| Scoring p95 | 14,180ms | **1,538ms** | **9.2× faster** |
+| Per-job scoring time | ~8.7s effective | **30-80ms** | **100-300× faster** |
+| Errors | 0.00% | 0.00% | maintained |
+| Scoring drained | 100% | 100% | maintained |
+
+**The 1.5s scoring p95 is now bounded by k6's 1.5s poll interval,
+not actual job time.** Per-worker logs show jobs completing in
+30-80ms each. With 8 workers, theoretical drain rate is now
+~160 jobs/sec.
+
+#### Math on the new ceiling
+
+- Scoring: ~50ms/job × 8 workers = ~160 jobs/sec
+- At 3000 VU = 50 submits/sec arrival — **3× headroom**
+- At 5000 VU = 83 submits/sec — **~2× headroom**
+- At 10000 VU = 167/sec — borderline; needs T7 then
+
+#### Verified pitch numbers (updated 2026-05-23)
+
+> **Procta sustains 1,500 concurrent students through the full
+> production exam path — including async scoring — with 100% success
+> rate, 46ms p95 submit latency, and 100% async scoring completion
+> within ~1.5s.**
+>
+> Per-job server-side scoring takes 30-80ms. Architecture is
+> designed for 5,000+ concurrent — actual ceiling being determined
+> via incremental load tests.
+
 ### Tier 3 — Architectural (1+ day each, do when revenue justifies)
 
 | # | Change | When to do it |

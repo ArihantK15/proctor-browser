@@ -16,7 +16,7 @@
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^8.57.1",
     "electron": "^42.0.1",
     "electron-builder": "^26.8.1",
     "eslint": "^8.57.1",

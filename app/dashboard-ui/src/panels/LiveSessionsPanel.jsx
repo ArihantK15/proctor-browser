@@ -63,7 +63,14 @@ export default function LiveSessionsPanel({ currentExamId }) {
   const loadSessions = async () => {
     setError('')
     try {
-      const r = await authFetch(`${API_BASE}/sessions${currentExamId ? `?exam_id=${encodeURIComponent(currentExamId)}` : ''}`)
+      // Backend exposes /api/v1/admin/sessions (admin_sessions.py:36);
+      // /api/v1/sessions was a stale path from before the admin/ prefix
+      // landed. Pass page_size=200 so org admins viewing the whole org
+      // don't get truncated at the server-side default of 50.
+      const qs = new URLSearchParams()
+      if (currentExamId) qs.set('exam_id', currentExamId)
+      qs.set('page_size', '200')
+      const r = await authFetch(`${API_BASE}/admin/sessions?${qs}`)
       if (!r.ok) {
         const d = await r.json().catch(() => ({}))
         throw new Error(d.detail || `Failed to load sessions (${r.status})`)

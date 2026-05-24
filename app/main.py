@@ -428,7 +428,30 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "frame-ancestors 'none'"
         )
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # Per-route Permissions-Policy: deny camera + mic by default,
+        # but allow `self` on the specific HTML pages that need
+        # getUserMedia(). Without this carve-out the global camera=()
+        # blocks the browser's permission prompt on /phone-cam,
+        # /student, and /student-react, breaking proctoring entirely.
+        # The path comparison uses startswith() so /student/foo and
+        # /student-react/* are covered without an exhaustive list.
+        path = request.url.path
+        camera_allowed = (
+            path == "/phone-cam"
+            or path.startswith("/student")            # /student, /student/*
+            or path == "/student-react"
+            # /student-react/* assets go through Caddy, not here, but
+            # belt-and-suspenders cover them too.
+            or path.startswith("/student-react/")
+        )
+        if camera_allowed:
+            response.headers["Permissions-Policy"] = (
+                "camera=(self), microphone=(self), geolocation=()"
+            )
+        else:
+            response.headers["Permissions-Policy"] = (
+                "camera=(), microphone=(), geolocation=()"
+            )
         return response
 
 

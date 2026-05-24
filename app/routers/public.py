@@ -472,6 +472,21 @@ def api_docs_page():
     return _static_html_response("api-docs.html", "API docs not found")
 
 
+@router.get("/student-react")
+def student_react_page():
+    """React student dashboard entrypoint.
+
+    Caddy serves /student-react/assets/* directly (cached); FastAPI
+    serves only the bare /student-react URL so the index.html flows
+    through SecurityHeadersMiddleware (CSP, Permissions-Policy) and
+    _stamp_static_urls (cache-bust). Without this route the URL hit a
+    Caddy file_server block that didn't strip the prefix → 404.
+    """
+    return _static_html_response(
+        "student-react/index.html", "Student dashboard not found",
+    )
+
+
 @router.get("/download/mac")
 async def download_mac():
     return await _download_redirect(DOWNLOAD_MAC_ARM, "mac_arm",

@@ -127,10 +127,17 @@ app.procta.net {
     # Cache-Control no-cache for these pages is set by FastAPI directly
     # (see _static_html_response).
 
-    handle /student-react* {
-        root * /srv/static/student-react
+    # Vite-hashed React bundle assets. `root * /srv/static` (not the
+    # subdir) means the URL path `/student-react/assets/foo.js` maps to
+    # the file `/srv/static/student-react/assets/foo.js` — Caddy's `root`
+    # does NOT strip the URL prefix, so previously this 404'd for every
+    # asset. The bare /student-react (without trailing slash) falls
+    # through to FastAPI which serves the index.html through the full
+    # middleware chain (CSP, cache-bust, etc.).
+    handle /student-react/* {
+        root * /srv/static
         file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
+        header Cache-Control "public, max-age=86400"
     }
 
     # ── Everything else: API ──

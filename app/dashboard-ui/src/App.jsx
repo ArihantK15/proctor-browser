@@ -18,24 +18,34 @@ const ToolsPanel = lazy(() => import('./panels/ToolsPanel'))
 const ReviewPanel = lazy(() => import('./panels/ReviewPanel'))
 const OpsPanel = lazy(() => import('./panels/OpsPanel'))
 const SupportConsole = lazy(() => import('./panels/SupportConsole'))
+const IssuesPanel = lazy(() => import('./panels/IssuesPanel'))
 const OnboardingWizard = lazy(() => import('./components/OnboardingWizard'))
 
+// Role matrix mirrors the legacy dashboard's data-roles attributes
+// (commit c1d75e4 + earlier role-reshape plan). Teacher gets exam
+// tools, admin loses Questions/Chat/Tools/Review (delegated to teachers
+// in the org), super admin is maintenance-only — no exam tools at all.
 const TABS = [
-  { id: 'live', label: 'Live Sessions', roles: ['teacher', 'admin', 'superadmin'] },
-  { id: 'tools', label: 'Tools', roles: ['teacher', 'admin', 'superadmin'] },
-  { id: 'support', label: 'Support', roles: ['admin', 'superadmin'] },
-  { id: 'review', label: 'Review', roles: ['teacher', 'admin', 'superadmin'] },
-  { id: 'results', label: 'Results', roles: ['teacher', 'admin', 'superadmin'] },
-  { id: 'history', label: 'History', roles: ['teacher', 'admin', 'superadmin'] },
-  { id: 'analytics', label: 'Analytics', roles: ['teacher', 'admin', 'superadmin'] },
-  { id: 'chat', label: 'Chat', roles: ['teacher', 'admin', 'superadmin'] },
-  { id: 'questions', label: 'Questions', roles: ['teacher', 'admin', 'superadmin'] },
-  { id: 'org', label: 'Org Overview', roles: ['admin', 'superadmin'] },
-  { id: 'org-settings', label: 'Org Settings', roles: ['admin', 'superadmin'] },
-  { id: 'members', label: 'Members', roles: ['admin', 'superadmin'] },
-  { id: 'billing', label: 'Billing', roles: ['admin', 'superadmin'] },
-  { id: 'security', label: 'Security', roles: ['admin', 'superadmin'] },
-  { id: 'all-orgs', label: 'All Orgs', roles: ['superadmin'] },
+  // Teacher + admin operational tabs
+  { id: 'live',         label: 'Live Sessions',  roles: ['teacher', 'admin'] },
+  { id: 'results',      label: 'Results',        roles: ['teacher', 'admin'] },
+  { id: 'history',      label: 'History',        roles: ['teacher', 'admin'] },
+  { id: 'analytics',    label: 'Analytics',      roles: ['teacher', 'admin'] },
+  // Teacher-only exam ops
+  { id: 'questions',    label: 'Questions',      roles: ['teacher'] },
+  { id: 'chat',         label: 'Chat',           roles: ['teacher'] },
+  { id: 'tools',        label: 'Tools',          roles: ['teacher'] },
+  { id: 'review',       label: 'Review',         roles: ['teacher'] },
+  // Admin + super-admin org management
+  { id: 'org',          label: 'Org Overview',   roles: ['admin', 'superadmin'] },
+  { id: 'members',      label: 'Members',        roles: ['admin', 'superadmin'] },
+  { id: 'billing',      label: 'Billing',        roles: ['admin', 'superadmin'] },
+  { id: 'security',     label: 'Security',       roles: ['admin', 'superadmin'] },
+  { id: 'org-settings', label: 'Org Settings',   roles: ['admin', 'superadmin'] },
+  { id: 'support',      label: 'Support',        roles: ['admin', 'superadmin'] },
+  // Super-admin only (maintenance)
+  { id: 'all-orgs',     label: 'All Orgs',       roles: ['superadmin'] },
+  { id: 'issues',       label: 'Issues',         roles: ['superadmin'] },
 ]
 
 function getUserRole(user) {
@@ -147,7 +157,7 @@ function LoginForm() {
         </button>
       </form>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 14, fontSize: 12 }}>
-        <a href="/dashboard" style={{ color: 'var(--accent)' }}>Forgot password?</a>
+        <a href="/dashboard#tab-reset" style={{ color: 'var(--accent)' }}>Forgot password?</a>
         <a href="https://procta.net/signup" style={{ color: 'var(--accent)' }}>Start free trial</a>
       </div>
     </div>
@@ -190,16 +200,30 @@ function DashboardShell() {
     security: SecurityPanel,
     'all-orgs': AllOrgsPanel,
     'org-settings': OrgSettingsPanel,
+    issues: IssuesPanel,
   }
   const Panel = PANELS[activeTab]
 
   useEffect(() => {
     if (visibleTabs.length && !visibleTabs.some(tab => tab.id === activeTab)) {
-      const fallback = visibleTabs[0].id
+      // Role-aware default landing tab. Mirrors the legacy dashboard
+      // default-routing (commit c1d75e4 in dashboard-app.js): teachers
+      // land on live, admins on live (operational visibility daily),
+      // superadmin on all-orgs (maintenance overview). Falls back to
+      // whatever's first visible if a preferred tab isn't actually in
+      // the role's matrix (defensive).
+      const role = getUserRole(user)
+      const prefs = role === 'superadmin'
+        ? ['all-orgs', 'issues', 'org']
+        : role === 'admin'
+          ? ['live', 'org']
+          : ['live']
+      const pick = prefs.find(p => visibleTabs.some(tab => tab.id === p))
+      const fallback = pick || visibleTabs[0].id
       setActiveTab(fallback)
       window.history.replaceState(null, '', `#${fallback}`)
     }
-  }, [activeTab, visibleTabs])
+  }, [activeTab, visibleTabs, user])
 
   useEffect(() => {
     const onHashChange = () => {

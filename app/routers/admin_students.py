@@ -25,6 +25,88 @@ _BEHAVIORAL_PATTERNS = frozenset({
 })
 
 
+@router.get("/api/v1/admin/student-history")
+@limiter.limit("30/minute")
+async def list_student_history(request: Request, exam_id: str = None,
+                               page: int = 1, page_size: int = 50):
+    """List all students-in-scope with aggregate history stats.
+
+    The React dashboard's HistoryPanel hits this for the directory view
+    (then drills into /api/v1/student-history/{roll} for per-student
+    detail). Scope respects the same teacher_id / org_id rules as the
+    rest of the admin endpoints via resolve_scope().
+    """
+    teacher = await require_admin(request)
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+
+    # Pull all completed sessions in scope, then bucket by roll_number.
+    # Same scope-collapse trick used by build_sessions_payload etc.:
+    # .eq() for single-teacher, .in_() for multi.
+    sess_q = (_atable("exam_sessions")
+              .select("session_key,roll_number,full_name,email,exam_id,"
+                      "score,total,percentage,time_taken_secs,"
+                      "submitted_at,risk_score,teacher_id")
+              .eq("status", SessionStatus.COMPLETED)
+              .order("submitted_at", desc=True))
+    if tids is not None:
+        if not tids:
+            sess_q = sess_q.eq("teacher_id", "__none__")
+        elif len(tids) == 1:
+            sess_q = sess_q.eq("teacher_id", str(tids[0]))
+        else:
+            sess_q = sess_q.in_("teacher_id", tids)
+    if exam_id:
+        sess_q = sess_q.eq("exam_id", exam_id)
+    sessions = (await sess_q.limit(5000).execute()).data or []
+
+    by_roll: dict[str, dict] = {}
+    for s in sessions:
+        roll = (s.get("roll_number") or "").upper()
+        if not roll:
+            continue
+        agg = by_roll.setdefault(roll, {
+            "roll_number":   roll,
+            "full_name":     s.get("full_name") or "",
+            "email":         s.get("email") or "",
+            "teacher_id":    str(s.get("teacher_id") or ""),
+            "total_exams":   0,
+            "avg_percentage": 0.0,
+            "_pct_sum":      0.0,
+            "_pct_count":    0,
+            "last_exam_at":  None,
+            "last_exam_risk": None,
+        })
+        agg["total_exams"] += 1
+        pct = s.get("percentage")
+        if isinstance(pct, (int, float)):
+            agg["_pct_sum"] += float(pct)
+            agg["_pct_count"] += 1
+        sub = s.get("submitted_at")
+        if sub and (agg["last_exam_at"] is None or sub > agg["last_exam_at"]):
+            agg["last_exam_at"] = sub
+            agg["last_exam_risk"] = s.get("risk_score")
+
+    rows = []
+    for roll, agg in by_roll.items():
+        if agg["_pct_count"]:
+            agg["avg_percentage"] = round(agg["_pct_sum"] / agg["_pct_count"], 1)
+        agg.pop("_pct_sum", None); agg.pop("_pct_count", None)
+        agg["last_exam_at"] = fmt_ist(agg["last_exam_at"]) if agg["last_exam_at"] else ""
+        rows.append(agg)
+    # Default order: most-recently-active first.
+    rows.sort(key=lambda r: r["last_exam_at"] or "", reverse=True)
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "students": rows[start:end],
+        "total": len(rows),
+        "page": page,
+        "page_size": page_size,
+    }
+
+
 @router.get("/api/v1/student-history/{roll_number}")
 @limiter.limit("30/minute")
 async def get_student_history(

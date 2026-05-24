@@ -26,7 +26,11 @@ export default function ResultsPanel({ currentExamId }) {
     setError('')
     setActionError('')
     try {
-      const r = await authFetch(`/api/v1/results?exam_id=${encodeURIComponent(currentExamId)}`)
+      // Backend defaults page_size=50 (admin_sessions.py:60). Without an
+      // explicit override here org admins with >50 completed sessions only
+      // saw the first page. Hard cap at 200 — proper pagination UI is
+      // tracked separately as a UX project.
+      const r = await authFetch(`/api/v1/results?exam_id=${encodeURIComponent(currentExamId)}&page_size=200`)
       if (!r.ok) {
         const d = await r.json().catch(() => ({}))
         throw new Error(d.detail || `Failed to load results (${r.status})`)

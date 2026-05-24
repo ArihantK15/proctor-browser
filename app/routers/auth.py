@@ -654,6 +654,11 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     # (Previously the Supabase path handed out a raw Supabase token that we
     # couldn't revoke server-side.)
     refresh_tok = await _issue_and_persist_refresh_token(teacher["id"], "teacher", request)
+    # `org_role` is already promoted to 'superadmin' for the master email
+    # by issue_admin_token() (admin_auth.py:119) before we get here, so we
+    # just need to surface the resolved values to the client. Without these
+    # fields, the React dashboard (App.jsx) defaults role to 'teacher' and
+    # admins/superadmins see the wrong tab matrix.
     return {
         "access_token": access_token,
         "refresh_token": refresh_tok,
@@ -661,6 +666,9 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             "id": teacher["id"],
             "email": teacher["email"],
             "full_name": teacher["full_name"],
+            "org_id": teacher.get("org_id"),
+            "org_role": teacher.get("org_role", "teacher"),
+            "email_verified_at": teacher.get("email_verified_at"),
         },
     }
 
@@ -668,12 +676,18 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
 @router.get("/api/v1/auth/me")
 @limiter.limit("30/minute")
 async def teacher_me(request: Request):
-    """Get current teacher profile from Bearer token."""
+    """Get current teacher profile from Bearer token. Shape matches the
+    `teacher` object returned by /login so the React dashboard can refresh
+    role state on every page load without remembering whether it has the
+    login response or the /me response."""
     teacher = await require_admin(request)
     return {
         "id": teacher["id"],
         "email": teacher["email"],
         "full_name": teacher["full_name"],
+        "org_id": teacher.get("org_id"),
+        "org_role": teacher.get("org_role", "teacher"),
+        "email_verified_at": teacher.get("email_verified_at"),
     }
 
 

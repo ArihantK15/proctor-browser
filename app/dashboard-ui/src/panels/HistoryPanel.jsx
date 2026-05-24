@@ -34,7 +34,11 @@ export default function HistoryPanel({ currentExamId }) {
     setDetailLoading(true)
     setDetailError('')
     try {
-      const r = await authFetch(`/api/v1/admin/student-history/${encodeURIComponent(roll)}?exam_id=${encodeURIComponent(currentExamId)}`)
+      // Detail endpoint lives under /api/v1/student-history/{roll}
+      // (no /admin/ prefix). Only the LIST endpoint added in this
+      // sprint is under /admin/. Frontend previously assumed both
+      // shared the prefix and 404'd on every detail click.
+      const r = await authFetch(`/api/v1/student-history/${encodeURIComponent(roll)}?exam_id=${encodeURIComponent(currentExamId)}`)
       if (!r.ok) {
         const d = await r.json().catch(() => ({}))
         throw new Error(d.detail || `Failed to load detail (${r.status})`)

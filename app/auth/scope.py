@@ -100,10 +100,22 @@ async def assert_session_accessible(session_id: str, scope: dict) -> dict:
     """Single-session access check for endpoints that operate on a
     specific session_key (timeline, risk-score, terminate, etc.).
 
-    Returns the session row on success. Raises 404 if missing, 403 if
-    out of scope. Replacement for the old `_assert_session_owned()`
-    which only knew about single-teacher ownership.
+    Always returns 404 for missing-or-out-of-scope sessions so we don't
+    leak existence (mirrors the data-leak guard the old
+    `assert_session_owned` enforced — see test_cross_tenant_access_is_denied).
+
+    Preserves the original "no exam_sessions row but violations exist
+    for me" fallback path: students who submitted ID photos but never
+    started the exam have only violations, no session row.
     """
+    # For plain teachers, delegate to the legacy ownership helper so the
+    # full fallback chain (orphan row, violation-only synthesis) keeps
+    # working. The helper already 404s cross-tenant.
+    if scope["role"] == "teacher":
+        from ..repositories.sessions import assert_session_owned
+        return await assert_session_owned(session_id, scope["teacher_id"])
+
+    # Admin / superadmin path. Try direct row lookup first.
     rows = (
         await _atable("exam_sessions")
         .select("*")
@@ -111,18 +123,56 @@ async def assert_session_accessible(session_id: str, scope: dict) -> dict:
         .limit(1)
         .execute()
     ).data
-    if not rows:
+    if rows:
+        sess = rows[0]
+        sess_tid = str(sess.get("teacher_id", ""))
+        if scope["role"] == "superadmin":
+            return sess
+        # admin — must be in their org
+        if sess_tid and await _verify_teacher_in_org(sess_tid, scope["org_id"]):
+            return sess
+        # Orphan row with no teacher_id — only allow if no other teacher's
+        # violations claim it.
+        if not sess_tid:
+            v_other = (await _atable("violations")
+                       .select("teacher_id")
+                       .eq("session_key", session_id)
+                       .limit(1).execute()).data
+            if not v_other:
+                return sess
+        # Cross-tenant — pretend the row doesn't exist.
         raise HTTPException(status_code=404, detail="Session not found")
-    sess = rows[0]
-    sess_tid = str(sess.get("teacher_id", ""))
 
-    if scope["role"] == "superadmin":
-        return sess
-    if scope["role"] == "admin":
-        if not await _verify_teacher_in_org(sess_tid, scope["org_id"]):
-            raise HTTPException(status_code=403, detail="Session not in your organization")
-        return sess
-    # teacher
-    if sess_tid != scope["teacher_id"]:
-        raise HTTPException(status_code=403, detail="You don't own this session")
-    return sess
+    # No row — synthesise from violations only if at least one violation's
+    # teacher_id is in scope.
+    v_rows = (await _atable("violations")
+              .select("teacher_id")
+              .eq("session_key", session_id)
+              .limit(5).execute()).data or []
+    in_scope_tid: str | None = None
+    for v in v_rows:
+        v_tid = str(v.get("teacher_id") or "")
+        if not v_tid:
+            continue
+        if scope["role"] == "superadmin":
+            in_scope_tid = v_tid
+            break
+        if scope["role"] == "admin" and await _verify_teacher_in_org(v_tid, scope["org_id"]):
+            in_scope_tid = v_tid
+            break
+    if in_scope_tid:
+        # Synthetic placeholder — matches the shape returned by
+        # repositories/sessions.py:assert_session_owned for the same
+        # "violations exist but no session row" case.
+        from ..models import SessionStatus
+        return {
+            "session_key": session_id,
+            "teacher_id":  in_scope_tid,
+            "roll_number": (session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]),
+            "full_name":   "",
+            "status":      SessionStatus.IN_PROGRESS,
+            "started_at":  "",
+            "submitted_at": "",
+            "score": None, "total": None, "risk_score": None, "exam_id": None,
+        }
+    raise HTTPException(status_code=404, detail="Session not found")

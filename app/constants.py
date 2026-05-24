@@ -108,6 +108,11 @@ if JWT_ACCEPT_LEGACY_MASTER_TOKENS and SECRET_KEY not in ALL_SIGNING_KEYS:
     ALL_SIGNING_KEYS.append(SECRET_KEY)
 
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "").strip().lower()
+
+# ─── Teacher-reported issues ─────────────────────────────────────
+ISSUE_CATEGORIES = {"bug", "question", "feature", "session-issue", "other"}
+ISSUE_SEVERITIES = {"low", "normal", "high"}
+ISSUE_STATUSES = {"open", "triaged", "resolved"}
 TOKEN_TTL_HOURS = 10
 ADMIN_TOKEN_TTL_HOURS = 12  # legacy export; admin tokens use ADMIN_TOKEN_TTL_MINUTES
 STUDENT_AUTH_TTL_HOURS = 12  # legacy export; student dashboard tokens use STUDENT_AUTH_TTL_MINUTES

@@ -3,6 +3,7 @@
 import logging
 from fastapi import APIRouter, Request, HTTPException, Body
 from ..auth import require_admin
+from ..auth.scope import resolve_scope, scope_to_teacher_ids
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_exam_config as _load_exam_config, get_access_code as _get_access_code, set_access_code as _set_access_code
@@ -34,27 +35,33 @@ async def get_student_history(
     page_size: int = 50,
 ):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
     roll = roll_number.strip().upper()
     if not roll:
         raise HTTPException(status_code=400, detail="roll_number is required")
 
-    student_rows = (await _atable("students")
-                    .select("roll_number,full_name,email,phone,teacher_id")
-                    .eq("roll_number", roll)
-                    .eq("teacher_id", tid)
-                    .limit(1)
-                    .execute()).data or []
+    if tids is not None:
+        student_q = (_atable("students")
+                     .select("roll_number,full_name,email,phone,teacher_id")
+                     .eq("roll_number", roll))
+        student_q = student_q.in_("teacher_id", tids) if tids else student_q.eq("teacher_id", "__none__")
+    else:
+        student_q = (_atable("students")
+                     .select("roll_number,full_name,email,phone,teacher_id")
+                     .eq("roll_number", roll))
+    student_rows = (await student_q.limit(1).execute()).data or []
     if not student_rows:
-        raise HTTPException(status_code=404, detail="Student not found for this teacher")
+        raise HTTPException(status_code=404, detail="Student not found")
     student = student_rows[0]
+    scoped_tid = str(student["teacher_id"])
 
     sess_q = (_atable("exam_sessions")
               .select("session_key,exam_id,roll_number,full_name,email,"
                       "score,total,percentage,time_taken_secs,"
                       "status,started_at,submitted_at,risk_score")
               .eq("roll_number", roll)
-              .eq("teacher_id", tid)
+              .eq("teacher_id", scoped_tid)
               .eq("status", SessionStatus.COMPLETED)
               .order("submitted_at", desc=True))
     if exam_id:
@@ -68,7 +75,7 @@ async def get_student_history(
     if session_keys:
         all_viols = (await _atable("violations")
                      .select("session_key,violation_type,severity,created_at")
-                     .eq("teacher_id", tid)
+                     .eq("teacher_id", scoped_tid)
                      .in_("session_key", session_keys)
                      .execute()).data or []
         for v in all_viols:
@@ -80,7 +87,7 @@ async def get_student_history(
     if exam_ids:
         configs = (await _atable("exam_config")
                    .select("exam_id,exam_title")
-                   .eq("teacher_id", tid)
+                   .eq("teacher_id", scoped_tid)
                    .in_("exam_id", exam_ids)
                    .execute()).data or []
         exam_titles = {c["exam_id"]: c.get("exam_title") or "Exam" for c in configs}
@@ -160,11 +167,13 @@ async def get_student_history(
 @limiter.limit("30/minute")
 async def search_students(request: Request, q: str = "", page: int = 1, page_size: int = 20):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
 
     query = (_atable("students")
-             .select("roll_number,full_name,email,phone,teacher_id")
-             .eq("teacher_id", tid))
+             .select("roll_number,full_name,email,phone,teacher_id"))
+    if tids is not None:
+        query = query.in_("teacher_id", tids) if tids else query.eq("teacher_id", "__none__")
     if q:
         q_upper = q.strip().upper()
         query = query.or_(
@@ -177,21 +186,23 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
     roll_numbers = [s["roll_number"] for s in students]
 
     all_sessions = (await _atable("exam_sessions")
-                    .select("roll_number,session_key,percentage,risk_score,submitted_at,status")
-                    .eq("teacher_id", tid)
+                    .select("roll_number,session_key,percentage,risk_score,submitted_at,status,teacher_id")
                     .eq("status", SessionStatus.COMPLETED)
                     .in_("roll_number", roll_numbers)
                     .order("submitted_at", desc=True)
                     .execute()).data or []
+    if tids is not None:
+        tid_set = set(tids)
+        all_sessions = [s for s in all_sessions if str(s.get("teacher_id")) in tid_set]
 
-    sessions_by_roll: dict[str, list[dict]] = {}
+    sessions_by_student: dict[tuple[str, str], list[dict]] = {}
     for sess in all_sessions:
-        sessions_by_roll.setdefault(sess["roll_number"], []).append(sess)
+        sessions_by_student.setdefault((str(sess.get("teacher_id")), sess["roll_number"]), []).append(sess)
 
     result = []
     for s in students:
         roll = s["roll_number"]
-        sess_list = sessions_by_roll.get(roll, [])
+        sess_list = sessions_by_student.get((str(s.get("teacher_id")), roll), [])
         last_exam = sess_list[0] if sess_list else None
         total_count = len(sess_list)
         percentages = [x["percentage"] for x in sess_list if x.get("percentage") is not None]

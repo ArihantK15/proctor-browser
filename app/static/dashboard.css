@@ -1004,3 +1004,57 @@ html,body{overflow-x:hidden;max-width:100vw}
 .org-card-title{font-family:var(--font-display);font-size:16px;
   font-weight:600;letter-spacing:-0.01em;color:var(--text-high);
   margin:0 0 14px}
+
+/* ── Teacher issue reporting / superadmin inbox ───────────────── */
+.flag-fab{position:fixed;right:24px;bottom:24px;z-index:9000;
+  display:inline-flex;align-items:center;gap:8px;padding:12px 16px;
+  border-radius:999px;border:1px solid rgba(91,138,240,0.45);
+  background:linear-gradient(180deg,var(--accent),var(--accent-active));
+  color:#fff;font-size:13px;font-weight:700;letter-spacing:0;
+  box-shadow:0 16px 36px -18px rgba(91,138,240,0.85);
+  cursor:pointer;transition:transform .16s ease,box-shadow .16s ease}
+.flag-fab:hover{transform:translateY(-1px);
+  box-shadow:0 22px 44px -18px rgba(91,138,240,0.95)}
+.session-flag-btn{display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;margin-left:6px;border-radius:6px;
+  border:1px solid var(--border-subtle);background:var(--surface-1);
+  color:var(--text-muted);cursor:pointer;font-size:13px}
+.session-flag-btn:hover{color:var(--accent-light);border-color:rgba(91,138,240,0.45);
+  background:rgba(91,138,240,0.08)}
+.issues-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;
+  gap:16px;align-items:start;padding:0 24px 24px}
+.issue-row{cursor:pointer}
+.issue-row.active{background:rgba(91,138,240,0.08)}
+.issue-badge{display:inline-flex;align-items:center;border-radius:999px;
+  padding:3px 8px;font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:0.04em;border:1px solid var(--border-subtle);
+  background:rgba(255,255,255,0.03);color:var(--text-muted)}
+.issue-badge.status-open,.issue-badge.severity-high{color:var(--red);
+  border-color:rgba(239,68,68,0.35);background:rgba(239,68,68,0.10)}
+.issue-badge.status-triaged,.issue-badge.severity-normal{color:var(--amber);
+  border-color:rgba(245,158,11,0.35);background:rgba(245,158,11,0.10)}
+.issue-badge.status-resolved,.issue-badge.severity-low{color:var(--emerald);
+  border-color:rgba(16,185,129,0.35);background:rgba(16,185,129,0.10)}
+.issue-detail{position:sticky;top:132px;min-height:260px;
+  background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);
+  border-radius:var(--radius-lg);padding:18px}
+.issue-detail-empty{display:flex;align-items:center;justify-content:center;
+  min-height:220px;color:var(--text-muted);font-size:13px;text-align:center}
+.issue-detail-head{display:flex;gap:8px;margin-bottom:10px}
+.issue-detail h3{margin:0 0 4px;color:var(--text-high);font-size:18px}
+.issue-meta{margin:0 0 14px;color:var(--text-muted);font-size:12px}
+.issue-description{white-space:pre-wrap;font-size:13px;line-height:1.6;
+  color:var(--text-mid);padding:12px;border-radius:8px;
+  background:rgba(0,0,0,0.14);border:1px solid rgba(255,255,255,0.05)}
+.issue-context{margin:12px 0;padding:10px;border-radius:8px;
+  background:rgba(91,138,240,0.07);border:1px solid rgba(91,138,240,0.18);
+  color:var(--text-mid);font-size:12px;line-height:1.6}
+.issue-field{display:block;margin:12px 0 0;color:var(--text-muted);
+  font-size:11px}
+.issue-field .input{width:100%;margin-top:5px;box-sizing:border-box}
+.issue-detail-result{min-height:18px;margin:10px 0 8px;font-size:12px}
+@media(max-width:900px){
+  .flag-fab{right:16px;bottom:16px}
+  .issues-layout{grid-template-columns:1fr;padding:0 14px 18px}
+  .issue-detail{position:static}
+}

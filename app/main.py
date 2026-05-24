@@ -31,6 +31,7 @@ from .constants import SCREENSHOTS_DIR, QUESTION_IMG_DIR, STATIC_DIR, CORS_ALLOW
 from .domains.identity import auth_router
 from .domains.proctoring import exam_router
 from .routers.admin import router as admin_router
+from .routers.issues import router as issues_router
 from .domains.exams import question_bank_router
 from .routers.grading import router as grading_router
 from .domains.ops import public_router
@@ -625,6 +626,7 @@ async def metrics(request: Request):
 app.include_router(auth_router)
 app.include_router(exam_router)
 app.include_router(admin_router)
+app.include_router(issues_router)
 app.include_router(question_bank_router)
 app.include_router(grading_router)
 app.include_router(public_router)

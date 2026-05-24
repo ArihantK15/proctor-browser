@@ -391,6 +391,14 @@
         </span>
         <input type="text" id="live-search" class="search-input" placeholder="Search by name, roll, or session id…" oninput="filterLive()">
       </div>
+      <!-- Bifurcation by teacher — only visible to admin/superadmin
+           (data-roles + applyOrgRole). Plain teachers see nothing here. -->
+      <select class="filter-select teacher-filter" id="live-teacher-filter"
+              data-roles="admin superadmin"
+              onchange="applyTeacherFilter('live')"
+              title="Filter by teacher" style="display:none">
+        <option value="">All teachers</option>
+      </select>
       <select class="filter-select" id="live-sev-filter" onchange="filterLive()" title="Filter by severity">
         <option value="all">All severities</option>
         <option value="critical">Critical only</option>
@@ -440,6 +448,12 @@
         </span>
         <input type="text" id="results-search" class="search-input" placeholder="Search by name, roll, or email…" oninput="filterResults()">
       </div>
+      <select class="filter-select teacher-filter" id="results-teacher-filter"
+              data-roles="admin superadmin"
+              onchange="applyTeacherFilter('results')"
+              title="Filter by teacher" style="display:none">
+        <option value="">All teachers</option>
+      </select>
       <select class="filter-select" id="results-risk-filter" onchange="filterResults()" title="Filter by risk level">
         <option value="all">All risk levels</option>
         <option value="critical">Critical (>70)</option>
@@ -497,6 +511,12 @@
          </span>
          <input type="text" id="history-search" class="search-input" placeholder="Search students by roll number, name, or email…" oninput="filterHistorySearch()">
        </div>
+       <select class="filter-select teacher-filter" id="history-teacher-filter"
+               data-roles="admin superadmin"
+               onchange="applyTeacherFilter('history')"
+               title="Filter by teacher" style="display:none">
+         <option value="">All teachers</option>
+       </select>
        <div class="toolbar-right">
          <button class="btn btn-primary btn-sm" onclick="refreshStudentList()">Refresh</button>
        </div>
@@ -792,6 +812,16 @@
         <h1 class="panel-title">Analytics</h1>
         <p class="panel-lede">Aggregate trends across your exams — risk distributions, violation types, performance over time.</p>
       </div>
+    </div>
+    <!-- Teacher bifurcation filter (admin/superadmin only) — Analytics
+         has no .table-toolbar, so the select sits inline above the
+         charts. Hidden for plain teachers via data-roles. -->
+    <div class="analytics-filter-row" data-roles="admin superadmin" style="display:none;margin:0 0 16px;text-align:right">
+      <select class="filter-select teacher-filter" id="analytics-teacher-filter"
+              onchange="applyTeacherFilter('analytics')"
+              title="Filter by teacher">
+        <option value="">All teachers</option>
+      </select>
     </div>
     <div id="analytics-empty" style="text-align:center;padding:60px 20px;color:var(--muted)">
       <div style="font-size:40px;margin-bottom:12px;opacity:0.3">&#9776;</div>
@@ -1683,20 +1713,98 @@
 </div>
 
 <!-- DEBUG/FLAGS PANEL (super admin) -->
-<!-- ISSUES PANEL — super-admin inbox for teacher-reported flags.
-     Skeleton lands in Phase 1 so switchTab('issues') has a target;
-     full table + detail view ships in Phase 3 (migrations/phase70_issues.sql). -->
+<!-- ISSUES PANEL — super-admin inbox for teacher-reported flags. -->
 <div class="panel" id="panel-issues">
   <div class="panel-header">
     <div class="panel-glow" aria-hidden="true"></div>
     <div class="panel-header-text">
       <h1 class="panel-title">Issues</h1>
-      <p class="panel-lede">Teacher-reported bugs and feature requests, across every org. Triage and resolve from here.</p>
+      <p class="panel-lede">Teacher-reported bugs and feature requests, across every org.</p>
     </div>
   </div>
-  <div class="org-wrap">
-    <div id="issues-content">
-      <p style="color:var(--text-muted);font-size:13px">Loading…</p>
+  <div class="table-toolbar">
+    <select class="filter-select" id="issues-status-filter" onchange="loadIssues()" title="Filter by status">
+      <option value="open">Open</option>
+      <option value="triaged">Triaged</option>
+      <option value="resolved">Resolved</option>
+      <option value="all">All statuses</option>
+    </select>
+    <select class="filter-select" id="issues-category-filter" onchange="loadIssues()" title="Filter by category">
+      <option value="all">All categories</option>
+      <option value="bug">Bug</option>
+      <option value="question">Question</option>
+      <option value="feature">Feature request</option>
+      <option value="session-issue">Session issue</option>
+      <option value="other">Other</option>
+    </select>
+    <select class="filter-select" id="issues-org-filter" onchange="loadIssues()" title="Filter by organization">
+      <option value="">All orgs</option>
+    </select>
+    <div class="toolbar-right">
+      <button class="btn btn-primary btn-sm" onclick="loadIssues()">Refresh</button>
+    </div>
+  </div>
+  <div class="issues-layout">
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Status</th>
+          <th>Severity</th>
+          <th>Org</th>
+          <th>Teacher</th>
+          <th>Category</th>
+          <th>Description</th>
+          <th>Submitted</th>
+        </tr></thead>
+        <tbody id="issues-body"></tbody>
+      </table>
+    </div>
+    <aside class="issue-detail" id="issue-detail">
+      <div class="issue-detail-empty">Select an issue to triage.</div>
+    </aside>
+  </div>
+</div>
+
+<!-- REPORT ISSUE BUTTON + MODAL (teacher only) -->
+<button class="flag-fab" id="report-issue-fab" data-roles="teacher" onclick="openIssueReport()" style="display:none">
+  <span aria-hidden="true">⚑</span>
+  Report Issue
+</button>
+<div class="modal-bg hidden" id="issue-report-modal" onclick="if(event.target===this)closeIssueReport()">
+  <div class="modal" style="max-width:520px">
+    <button class="close" onclick="closeIssueReport()">&times;</button>
+    <h3 style="margin-bottom:6px">Report Issue</h3>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 14px;line-height:1.5">Send a bug, question, or session concern to Procta support.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <label style="font-size:11px;color:var(--muted)">Category
+        <select id="issue-category" class="input" style="width:100%;margin-top:4px">
+          <option value="bug">Bug</option>
+          <option value="question">Question</option>
+          <option value="feature">Feature request</option>
+          <option value="session-issue">Session issue</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <label style="font-size:11px;color:var(--muted)">Severity
+        <select id="issue-severity" class="input" style="width:100%;margin-top:4px">
+          <option value="low">Low</option>
+          <option value="normal" selected>Normal</option>
+          <option value="high">High</option>
+        </select>
+      </label>
+    </div>
+    <label style="font-size:11px;color:var(--muted)">Description
+      <textarea id="issue-description" class="input" rows="5" minlength="20" placeholder="Describe what happened, what you expected, and how urgent it is." style="width:100%;margin-top:4px;resize:vertical;box-sizing:border-box"></textarea>
+    </label>
+    <label class="shuffle-toggle" style="margin-top:10px">
+      <input type="checkbox" id="issue-include-context">
+      <span>Include current session context</span>
+    </label>
+    <div id="issue-context-label" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+    <div id="issue-report-error" style="font-size:12px;color:var(--red);min-height:18px;margin-top:8px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-secondary btn-sm" onclick="closeIssueReport()">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="issue-submit-btn" onclick="submitIssueReport()">Submit</button>
     </div>
   </div>
 </div>

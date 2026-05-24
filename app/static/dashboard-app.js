@@ -19,6 +19,11 @@ let resSortKey = 'submitted_at', resSortAsc = false;
 let currentSessionId = null;
 let autoRefreshTimer = null;
 let currentTeacherId = null;
+let currentTeacherFilter = '';
+let orgTeacherOptions = [];
+let issuesData = [];
+let currentIssueId = null;
+let issueReportContext = {session_id:'', exam_id:''};
 // Restore the previously-selected exam across page refreshes. Without
 // this, F5 silently swaps you to examsList[0], and live sessions / results
 // / schedule all blank out because they filter by exam_id.
@@ -325,8 +330,14 @@ function onExamSwitch(examId){
 }
 
 function _examQuery(sep){
-  // Returns query string fragment like "?exam_id=xxx" or "&exam_id=xxx"
-  return currentExamId ? `${sep}exam_id=${encodeURIComponent(currentExamId)}` : '';
+  const params = [];
+  if(currentExamId) params.push(`exam_id=${encodeURIComponent(currentExamId)}`);
+  if(currentTeacherFilter) params.push(`teacher_id=${encodeURIComponent(currentTeacherFilter)}`);
+  return params.length ? `${sep}${params.join('&')}` : '';
+}
+
+function _teacherQuery(sep){
+  return currentTeacherFilter ? `${sep}teacher_id=${encodeURIComponent(currentTeacherFilter)}` : '';
 }
 
 function showCreateExamModal(){
@@ -872,7 +883,9 @@ function switchTab(tab){
   if(tab==='security') loadSecurity();
   if(tab==='members') loadMembers();
   if(tab==='billing') loadBilling();
+  if(tab==='org-settings') loadOrgSettings();
   if(tab==='all-orgs') loadAllOrgs();
+  if(tab==='issues') loadIssues();
   // Persist tab in URL hash so refresh doesn't lose state
   if (window.location.hash !== '#tab-' + tab) {
     history.replaceState(null, '', '#tab-' + tab);
@@ -911,10 +924,18 @@ function decodeJWT(token){
 
 function applyOrgRole(org_role){
   currentOrgRole = org_role || 'teacher';
-  document.querySelectorAll('.tab[data-roles]').forEach(tab => {
-    const roles = (tab.dataset.roles || '').split(' ');
-    tab.style.display = roles.includes(currentOrgRole) ? '' : 'none';
+  // Tabs use inline `style.display = ''` / 'none' since they belong to a
+  // flex row. Other role-gated elements (teacher-filter dropdowns,
+  // analytics filter row) get the same treatment so admin-only UI
+  // appears/disappears uniformly.
+  document.querySelectorAll('[data-roles]').forEach(el => {
+    const roles = (el.dataset.roles || '').split(' ');
+    el.style.display = roles.includes(currentOrgRole) ? '' : 'none';
   });
+  // Populate the teacher dropdowns the first time we discover admin role.
+  if(currentOrgRole === 'admin' || currentOrgRole === 'superadmin'){
+    loadOrgMembers().catch(() => {/* dropdown stays empty, filter still works */});
+  }
   // Surface the active role in the topbar so admins know they're
   // looking at org-wide controls vs a teacher's day-to-day view.
   const badge = document.getElementById('topbar-role-badge');
@@ -957,6 +978,45 @@ _saveTokens = function(access, refresh){
   _origSaveTokens(access, refresh);
   _onAuthDone();
 };
+
+async function loadOrgMembers(){
+  if(!(currentOrgRole === 'admin' || currentOrgRole === 'superadmin')) return;
+  const url = currentOrgRole === 'superadmin'
+    ? `${BASE}/api/v1/admin/all-teachers`
+    : `${BASE}/api/v1/org/members`;
+  const r = await authFetch(url);
+  if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  const d = await r.json();
+  const rows = currentOrgRole === 'superadmin' ? (d.teachers || []) : (d.members || []);
+  orgTeacherOptions = rows.map(t => ({
+    id: String(t.id || ''),
+    name: t.full_name || t.email || 'Teacher',
+    email: t.email || '',
+    org_id: t.org_id || '',
+    org_name: t.org_name || '',
+  })).filter(t => t.id);
+  const opts = ['<option value="">All teachers</option>'].concat(orgTeacherOptions.map(t => {
+    const suffix = currentOrgRole === 'superadmin' && t.org_name ? ` · ${t.org_name}` : '';
+    const label = `${t.name}${suffix}`;
+    return `<option value="${escAttr(t.id)}">${_escHtml(label)}</option>`;
+  })).join('');
+  document.querySelectorAll('.teacher-filter').forEach(sel => {
+    sel.innerHTML = opts;
+    sel.value = currentTeacherFilter;
+  });
+}
+
+function applyTeacherFilter(source){
+  const sel = document.getElementById(`${source}-teacher-filter`);
+  currentTeacherFilter = sel ? sel.value : '';
+  document.querySelectorAll('.teacher-filter').forEach(other => { other.value = currentTeacherFilter; });
+  _analyticsCache = {};
+  if(source === 'live') refreshLive();
+  else if(source === 'results') refreshResults();
+  else if(source === 'history') refreshStudentList();
+  else if(source === 'analytics') loadAnalytics();
+  else refreshAll();
+}
 
 // ── ORG API ────────────────────────────────────────────────────
 async function loadOrgOverview(){
@@ -1011,6 +1071,18 @@ async function loadOrgOverview(){
     if(!r.ok) return;
     const m = await r.json();
     document.getElementById('org-teachers').textContent = (m.members||[]).length;
+  }catch(_){}
+}
+
+async function loadOrgSettings(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org`);
+    if(!r.ok) return;
+    const d = await r.json();
+    const name = document.getElementById('settings-org-name');
+    const result = document.getElementById('settings-result');
+    if(name) name.value = d.name || '';
+    if(result) result.textContent = '';
   }catch(_){}
 }
 
@@ -1792,6 +1864,7 @@ async function refreshLive(){
     liveData = d.all_sessions || d.sessions || [];
     renderLiveStats(d.sessions||[], liveData);
     renderLive();
+    decorateSessionFlagButtons('live');
   }catch(e){ console.error('refreshLive',e); }
 }
 
@@ -1805,7 +1878,247 @@ async function refreshResults(){
     resultsData = d.results || [];
     renderResultsStats();
     renderResults();
+    decorateSessionFlagButtons('results');
   }catch(e){ console.error('refreshResults',e); }
+}
+
+function _issueLabel(value){
+  return {
+    'bug':'Bug',
+    'question':'Question',
+    'feature':'Feature request',
+    'session-issue':'Session issue',
+    'other':'Other',
+    'open':'Open',
+    'triaged':'Triaged',
+    'resolved':'Resolved',
+    'low':'Low',
+    'normal':'Normal',
+    'high':'High',
+  }[value] || value || '—';
+}
+
+function _sessionIdFromRow(row){
+  return row && (row.session_id || row.session_key || row.id || '');
+}
+
+function decorateSessionFlagButtons(kind){
+  if(currentOrgRole !== 'teacher') return;
+  const body = document.getElementById(kind === 'results' ? 'results-body' : 'live-body');
+  const rows = kind === 'results' ? resultsData : liveData;
+  if(!body || !Array.isArray(rows)) return;
+  body.querySelectorAll('tr').forEach((tr, idx) => {
+    if(tr.querySelector('.session-flag-btn')) return;
+    const row = rows[idx] || {};
+    const sid = _sessionIdFromRow(row);
+    if(!sid) return;
+    const lastCell = tr.lastElementChild;
+    if(!lastCell) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'session-flag-btn';
+    btn.title = 'Report an issue for this session';
+    btn.textContent = '⚑';
+    btn.onclick = (event) => {
+      event.stopPropagation();
+      openIssueReport({
+        category: 'session-issue',
+        session_id: sid,
+        exam_id: row.exam_id || currentExamId || '',
+      });
+    };
+    lastCell.appendChild(btn);
+  });
+}
+
+function openIssueReport(context={}){
+  if(currentOrgRole !== 'teacher') return;
+  issueReportContext = {
+    session_id: context.session_id || '',
+    exam_id: context.exam_id || currentExamId || '',
+  };
+  const modal = document.getElementById('issue-report-modal');
+  const category = document.getElementById('issue-category');
+  const severity = document.getElementById('issue-severity');
+  const desc = document.getElementById('issue-description');
+  const include = document.getElementById('issue-include-context');
+  const contextLabel = document.getElementById('issue-context-label');
+  const err = document.getElementById('issue-report-error');
+  if(category) category.value = context.category || (issueReportContext.session_id ? 'session-issue' : 'bug');
+  if(severity) severity.value = context.severity || 'normal';
+  if(desc) desc.value = '';
+  if(include){
+    include.checked = !!issueReportContext.session_id;
+    include.disabled = !issueReportContext.session_id;
+  }
+  if(contextLabel){
+    contextLabel.textContent = issueReportContext.session_id
+      ? `Context: session ${issueReportContext.session_id}${issueReportContext.exam_id ? `, exam ${issueReportContext.exam_id}` : ''}`
+      : 'No session context selected.';
+  }
+  if(err) err.textContent = '';
+  if(modal) modal.classList.remove('hidden');
+  setTimeout(()=>{ if(desc) desc.focus(); }, 0);
+}
+
+function closeIssueReport(){
+  const modal = document.getElementById('issue-report-modal');
+  if(modal) modal.classList.add('hidden');
+}
+
+async function submitIssueReport(){
+  const btn = document.getElementById('issue-submit-btn');
+  const err = document.getElementById('issue-report-error');
+  const include = document.getElementById('issue-include-context');
+  const description = (document.getElementById('issue-description')?.value || '').trim();
+  if(description.length < 20){
+    if(err) err.textContent = 'Please add at least 20 characters so support has enough context.';
+    return;
+  }
+  const body = {
+    category: document.getElementById('issue-category')?.value || 'bug',
+    severity: document.getElementById('issue-severity')?.value || 'normal',
+    description,
+  };
+  if(include && include.checked && issueReportContext.session_id){
+    body.session_id = issueReportContext.session_id;
+    if(issueReportContext.exam_id) body.exam_id = issueReportContext.exam_id;
+  }
+  if(btn){ btn.disabled = true; btn.textContent = 'Submitting...'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/issues`, {method:'POST', body:JSON.stringify(body)});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    closeIssueReport();
+    showModal('Issue reported', 'Thanks. The Procta team can now triage this from the Issues inbox.');
+  }catch(e){
+    if(err) err.textContent = e.message || 'Failed to submit issue.';
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Submit'; }
+  }
+}
+
+async function loadIssues(){
+  if(currentOrgRole !== 'superadmin') return;
+  if(!orgTeacherOptions.length){
+    try{ await loadOrgMembers(); }catch(_){}
+  }
+  const body = document.getElementById('issues-body');
+  if(body) body.innerHTML = '<tr><td colspan="7" class="empty-state">Loading issues...</td></tr>';
+  const status = document.getElementById('issues-status-filter')?.value || 'open';
+  const category = document.getElementById('issues-category-filter')?.value || 'all';
+  const orgId = document.getElementById('issues-org-filter')?.value || '';
+  const params = new URLSearchParams();
+  if(status && status !== 'all') params.set('status', status);
+  if(category && category !== 'all') params.set('category', category);
+  if(orgId) params.set('org_id', orgId);
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/issues${params.toString() ? `?${params}` : ''}`);
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    issuesData = d.issues || [];
+    const badge = document.getElementById('issues-open-badge');
+    if(badge){
+      const count = d.open_count || 0;
+      badge.textContent = count;
+      badge.style.display = count ? '' : 'none';
+    }
+    _populateIssueOrgFilter(issuesData);
+    renderIssuesTable();
+  }catch(e){
+    if(body) body.innerHTML = `<tr><td colspan="7" class="empty-state">Failed to load issues: ${_escHtml(e.message || e)}</td></tr>`;
+  }
+}
+
+function _populateIssueOrgFilter(rows){
+  const sel = document.getElementById('issues-org-filter');
+  if(!sel) return;
+  const seen = new Map();
+  rows.forEach(i => {
+    if(i.org_id && !seen.has(i.org_id)) seen.set(i.org_id, i.org_name || i.org_id);
+  });
+  orgTeacherOptions.forEach(t => {
+    if(t.org_id && !seen.has(t.org_id)) seen.set(t.org_id, t.org_name || t.org_id);
+  });
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All orgs</option>' + Array.from(seen.entries())
+    .sort((a,b)=>String(a[1]).localeCompare(String(b[1])))
+    .map(([id,name])=>`<option value="${escAttr(id)}">${_escHtml(name)}</option>`)
+    .join('');
+  sel.value = current;
+}
+
+function renderIssuesTable(){
+  const body = document.getElementById('issues-body');
+  if(!body) return;
+  if(!issuesData.length){
+    body.innerHTML = '<tr><td colspan="7" class="empty-state">No issues match this filter.</td></tr>';
+    return;
+  }
+  body.innerHTML = issuesData.map(i => {
+    const desc = (i.description || '').length > 60 ? `${i.description.slice(0,60)}...` : (i.description || '');
+    return `<tr class="issue-row ${currentIssueId===i.id?'active':''}" onclick="openIssueDetail('${escJs(i.id)}')">
+      <td><span class="issue-badge status-${escAttr(i.status)}">${_escHtml(_issueLabel(i.status))}</span></td>
+      <td><span class="issue-badge severity-${escAttr(i.severity)}">${_escHtml(_issueLabel(i.severity))}</span></td>
+      <td>${_escHtml(i.org_name || i.org_id || '—')}</td>
+      <td>${_escHtml(i.teacher_name || i.teacher_email || '—')}</td>
+      <td>${_escHtml(_issueLabel(i.category))}</td>
+      <td>${_escHtml(desc)}</td>
+      <td style="font-size:12px;color:var(--muted)">${_escHtml(i.created_at || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function openIssueDetail(issueId){
+  currentIssueId = issueId;
+  const i = issuesData.find(x => x.id === issueId);
+  const detail = document.getElementById('issue-detail');
+  renderIssuesTable();
+  if(!detail || !i) return;
+  detail.innerHTML = `
+    <div class="issue-detail-head">
+      <span class="issue-badge status-${escAttr(i.status)}">${_escHtml(_issueLabel(i.status))}</span>
+      <span class="issue-badge severity-${escAttr(i.severity)}">${_escHtml(_issueLabel(i.severity))}</span>
+    </div>
+    <h3>${_escHtml(_issueLabel(i.category))}</h3>
+    <p class="issue-meta">${_escHtml(i.org_name || i.org_id || 'Unknown org')} · ${_escHtml(i.teacher_name || i.teacher_email || 'Unknown teacher')}</p>
+    <div class="issue-description">${_escHtml(i.description || '')}</div>
+    ${i.session_id ? `<div class="issue-context">Session: <code>${_escHtml(i.session_id)}</code>${i.exam_id ? `<br>Exam: <code>${_escHtml(i.exam_id)}</code>` : ''}</div>` : ''}
+    <label class="issue-field">Status
+      <select id="issue-detail-status" class="input">
+        ${['open','triaged','resolved'].map(s=>`<option value="${s}" ${i.status===s?'selected':''}>${_escHtml(_issueLabel(s))}</option>`).join('')}
+      </select>
+    </label>
+    <label class="issue-field">Superadmin note
+      <textarea id="issue-detail-note" class="input" rows="4">${_escHtml(i.superadmin_note || '')}</textarea>
+    </label>
+    <div id="issue-detail-result" class="issue-detail-result"></div>
+    <button class="btn btn-primary btn-sm" onclick="updateIssueStatus()">Save</button>
+  `;
+}
+
+async function updateIssueStatus(){
+  const i = issuesData.find(x => x.id === currentIssueId);
+  if(!i) return;
+  const result = document.getElementById('issue-detail-result');
+  const body = {
+    status: document.getElementById('issue-detail-status')?.value || i.status,
+    superadmin_note: document.getElementById('issue-detail-note')?.value || '',
+  };
+  if(result){ result.textContent = 'Saving...'; result.style.color = 'var(--muted)'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/issues/${encodeURIComponent(i.id)}`, {
+      method:'PATCH',
+      body:JSON.stringify(body),
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    Object.assign(i, d.issue || body);
+    if(result){ result.textContent = 'Saved'; result.style.color = 'var(--emerald)'; }
+    openIssueDetail(i.id);
+  }catch(e){
+    if(result){ result.textContent = e.message || 'Save failed'; result.style.color = 'var(--red)'; }
+  }
 }
 
 
@@ -4907,20 +5220,21 @@ async function loadAnalytics(){
   const loading = document.getElementById('analytics-loading');
   const content = document.getElementById('analytics-content');
   if(!eid){ empty.style.display=''; loading.style.display='none'; content.style.display='none'; return; }
+  const cacheKey = `${eid}:${currentTeacherFilter || 'all'}`;
 
   // Use cached if fresh (<60s)
-  const cached = _analyticsCache[eid];
+  const cached = _analyticsCache[cacheKey];
   if(cached && Date.now()-cached._ts < 60000){ _renderAnalytics(cached); return; }
 
   empty.style.display='none'; loading.style.display=''; content.style.display='none';
   if(_analyticsLoading) return;
   _analyticsLoading = true;
   try{
-    const r = await authFetch(`${BASE}/api/v1/admin/analytics?exam_id=${encodeURIComponent(eid)}`);
+    const r = await authFetch(`${BASE}/api/v1/admin/analytics${_examQuery('?')}`);
     if(!r.ok) throw new Error('Failed');
     const data = await r.json();
     data._ts = Date.now();
-    _analyticsCache[eid] = data;
+    _analyticsCache[cacheKey] = data;
     _renderAnalytics(data);
   }catch(e){
     console.error('Analytics load error:', e);
@@ -5049,7 +5363,7 @@ function _initTabKeyboard(){
 
 async function refreshStudentList(){
   try{
-    const r = await authFetch(`${BASE}/api/v1/student-search?q=${encodeURIComponent(historySearchQuery)}`);
+    const r = await authFetch(`${BASE}/api/v1/student-search?q=${encodeURIComponent(historySearchQuery)}${_teacherQuery('&')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     historyStudents = (data.students || []).sort(_historyCompare);
@@ -5113,7 +5427,7 @@ function _riskBadge(score){
 
 async function viewStudentHistory(roll){
   try{
-    const r = await authFetch(`${BASE}/api/v1/student-history/${encodeURIComponent(roll)}`);
+    const r = await authFetch(`${BASE}/api/v1/student-history/${encodeURIComponent(roll)}${_teacherQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     historyDetailData = await r.json();
     renderHistoryDetail();

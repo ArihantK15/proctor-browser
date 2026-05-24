@@ -317,7 +317,7 @@
 <!-- EXAM SELECTOR -->
 <div class="exam-bar" id="exam-bar" style="display:none">
   <span class="exam-label">Exam</span>
-  <select id="exam-select" onchange="onExamSwitch(this.value)"></select>
+  <select id="exam-select" data-change-action="_onExamSwitchWrap"></select>
   <button class="btn btn-primary btn-sm" data-action="showCreateExamModal" style="height:32px;font-size:12px">+ New Exam</button>
   <button class="btn btn-secondary btn-sm" data-action="duplicateCurrentExam" id="duplicate-exam-btn" style="height:32px;font-size:12px;display:none" title="Clone this exam's config + questions into a new exam">Duplicate</button>
   <button class="btn btn-secondary btn-sm" data-action="confirmDeleteExam" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
@@ -389,17 +389,17 @@
         <span class="search-icon">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         </span>
-        <input type="text" id="live-search" class="search-input" placeholder="Search by name, roll, or session id…" oninput="filterLive()">
+        <input type="text" id="live-search" class="search-input" placeholder="Search by name, roll, or session id…" data-input-action="filterLive"">
       </div>
       <!-- Bifurcation by teacher — only visible to admin/superadmin
            (data-roles + applyOrgRole). Plain teachers see nothing here. -->
       <select class="filter-select teacher-filter" id="live-teacher-filter"
               data-roles="admin superadmin"
-              onchange="applyTeacherFilter('live')"
+              data-change-action="applyTeacherFilter" data-change-args='["live"]'
               title="Filter by teacher" style="display:none">
         <option value="">All teachers</option>
       </select>
-      <select class="filter-select" id="live-sev-filter" onchange="filterLive()" title="Filter by severity">
+      <select class="filter-select" id="live-sev-filter" data-change-action="filterLive" title="Filter by severity">
         <option value="all">All severities</option>
         <option value="critical">Critical only</option>
         <option value="high">High</option>
@@ -446,15 +446,15 @@
         <span class="search-icon">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         </span>
-        <input type="text" id="results-search" class="search-input" placeholder="Search by name, roll, or email…" oninput="filterResults()">
+        <input type="text" id="results-search" class="search-input" placeholder="Search by name, roll, or email…" data-input-action="filterResults"">
       </div>
       <select class="filter-select teacher-filter" id="results-teacher-filter"
               data-roles="admin superadmin"
-              onchange="applyTeacherFilter('results')"
+              data-change-action="applyTeacherFilter" data-change-args='["results"]'
               title="Filter by teacher" style="display:none">
         <option value="">All teachers</option>
       </select>
-      <select class="filter-select" id="results-risk-filter" onchange="filterResults()" title="Filter by risk level">
+      <select class="filter-select" id="results-risk-filter" data-change-action="filterResults" title="Filter by risk level">
         <option value="all">All risk levels</option>
         <option value="critical">Critical (>70)</option>
         <option value="high">High (41–70)</option>
@@ -509,11 +509,11 @@
          <span class="search-icon">
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
          </span>
-         <input type="text" id="history-search" class="search-input" placeholder="Search students by roll number, name, or email…" oninput="filterHistorySearch()">
+         <input type="text" id="history-search" class="search-input" placeholder="Search students by roll number, name, or email…" data-input-action="filterHistorySearch"">
        </div>
        <select class="filter-select teacher-filter" id="history-teacher-filter"
                data-roles="admin superadmin"
-               onchange="applyTeacherFilter('history')"
+               data-change-action="applyTeacherFilter" data-change-args='["history"]'
                title="Filter by teacher" style="display:none">
          <option value="">All teachers</option>
        </select>
@@ -603,7 +603,7 @@
           <div class="q-sidebar-title"><span id="q-list-count">0</span> Questions</div>
           <div class="q-sidebar-search">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input type="text" id="q-list-search" placeholder="Search…" oninput="renderQSidebar()">
+            <input type="text" id="q-list-search" placeholder="Search…" data-input-action="renderQSidebar"">
           </div>
         </div>
         <div class="q-sidebar-filter" role="radiogroup" aria-label="Filter by question type">
@@ -711,7 +711,7 @@
                default; setAITab('bank') reveals it. -->
           <div data-aipane="bank" style="display:none">
             <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
-              <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" oninput="filterBank()"
+              <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" data-input-action="filterBank""
                 style="flex:1;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);font-size:12px;font-family:inherit">
               <button class="btn btn-secondary btn-sm" data-action="exportBank" title="Download bank as JSON">Export</button>
             </div>
@@ -730,7 +730,7 @@
             <textarea id="bank-import-text" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
               style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:10px;color:var(--text-high);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
             <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <input type="file" id="bank-import-file" accept=".csv,.json" onchange="loadBankFile(this)" style="font-size:11px;color:var(--text-muted);flex:1;min-width:120px">
+              <input type="file" id="bank-import-file" accept=".csv,.json" data-change-action="_loadBankFileWrap" style="font-size:11px;color:var(--text-muted);flex:1;min-width:120px">
               <button class="btn btn-primary btn-sm" data-action="doBankImport">Import</button>
             </div>
             <div id="bank-import-status" style="font-size:12px;min-height:18px;margin-top:6px"></div>
@@ -818,7 +818,7 @@
          charts. Hidden for plain teachers via data-roles. -->
     <div class="analytics-filter-row" data-roles="admin superadmin" style="display:none;margin:0 0 16px;text-align:right">
       <select class="filter-select teacher-filter" id="analytics-teacher-filter"
-              onchange="applyTeacherFilter('analytics')"
+              data-change-action="applyTeacherFilter" data-change-args='["analytics"]'
               title="Filter by teacher">
         <option value="">All teachers</option>
       </select>
@@ -971,7 +971,7 @@
                 style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace;resize:vertical"></textarea>
               <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
                 <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
-                  <input type="file" id="invite-csv" accept=".csv,.txt" style="display:none" onchange="importInviteCsv(event)">
+                  <input type="file" id="invite-csv" accept=".csv,.txt" style="display:none" data-change-action="_importInviteCsvWrap">
                   Import CSV
                 </label>
                 <select id="invite-from-group"
@@ -1022,11 +1022,11 @@
              Two students sitting side by side see different sequences, so "the answer is B"
              doesn't help a neighbour. Same student on a resume sees the exact same view.</p>
           <label class="shuffle-toggle">
-            <input type="checkbox" id="shuffle-q-toggle" onchange="saveShuffleConfig()">
+            <input type="checkbox" id="shuffle-q-toggle" data-change-action="saveShuffleConfig">
             <span>Shuffle question order</span>
           </label>
           <label class="shuffle-toggle">
-            <input type="checkbox" id="shuffle-o-toggle" onchange="saveShuffleConfig()">
+            <input type="checkbox" id="shuffle-o-toggle" data-change-action="saveShuffleConfig">
             <span>Shuffle option order</span>
           </label>
         </div>
@@ -1038,7 +1038,7 @@
           <h3>Room Camera</h3>
           <p>Require students to connect a phone camera for room monitoring during the exam.</p>
           <label class="shuffle-toggle" style="margin-top:8px">
-            <input type="checkbox" id="phone-cam-toggle" onchange="savePhoneCamConfig()">
+            <input type="checkbox" id="phone-cam-toggle" data-change-action="savePhoneCamConfig">
             <span>Require phone camera (student scans QR)</span>
           </label>
         </div>
@@ -1092,11 +1092,11 @@
           <h3 style="color:var(--red)">Clear Sessions</h3>
           <p>Destructive. Wipes <em>stale</em> in-progress exam sessions for your account — along with the saved answers, violation events and screenshots that belong to them. A student whose client has sent a heartbeat in the last 2 minutes is considered actively taking the exam and is <b>never</b> touched. Your questions and other teachers' data are never touched. Requires two confirmations.</p>
           <label class="shuffle-toggle" style="margin-top:8px">
-            <input type="checkbox" id="clear-include-completed" onchange="_clearLiveReset()">
+            <input type="checkbox" id="clear-include-completed" data-change-action="_clearLiveReset">
             <span>Include completed (submitted) sessions</span>
           </label>
           <label class="shuffle-toggle" style="margin-top:4px;color:var(--red)">
-            <input type="checkbox" id="clear-include-active" onchange="_clearLiveReset()">
+            <input type="checkbox" id="clear-include-active" data-change-action="_clearLiveReset">
             <span>Also force-wipe <b>active</b> sessions (kicks students out mid-exam)</span>
           </label>
           <div class="tool-card-result" id="clear-live-preview" style="font-size:12px;color:var(--muted)"></div>
@@ -1440,11 +1440,11 @@
     </div>
     <!-- Severity filter -->
     <div class="tl-filters" id="tl-filters">
-      <label class="tl-filter-btn active" data-sev="all"><input type="radio" name="tl-sev" value="all" checked onchange="filterTimeline()"> All</label>
-      <label class="tl-filter-btn" data-sev="high"><input type="radio" name="tl-sev" value="high" onchange="filterTimeline()"> High</label>
-      <label class="tl-filter-btn" data-sev="medium"><input type="radio" name="tl-sev" value="medium" onchange="filterTimeline()"> Medium</label>
-      <label class="tl-filter-btn" data-sev="low"><input type="radio" name="tl-sev" value="low" onchange="filterTimeline()"> Low</label>
-      <label class="tl-filter-btn" data-sev="violations"><input type="radio" name="tl-sev" value="violations" onchange="filterTimeline()"> Violations Only</label>
+      <label class="tl-filter-btn active" data-sev="all"><input type="radio" name="tl-sev" value="all" checked data-change-action="filterTimeline"> All</label>
+      <label class="tl-filter-btn" data-sev="high"><input type="radio" name="tl-sev" value="high" data-change-action="filterTimeline"> High</label>
+      <label class="tl-filter-btn" data-sev="medium"><input type="radio" name="tl-sev" value="medium" data-change-action="filterTimeline"> Medium</label>
+      <label class="tl-filter-btn" data-sev="low"><input type="radio" name="tl-sev" value="low" data-change-action="filterTimeline"> Low</label>
+      <label class="tl-filter-btn" data-sev="violations"><input type="radio" name="tl-sev" value="violations" data-change-action="filterTimeline"> Violations Only</label>
     </div>
     <!-- Scrubber bar -->
     <div class="tl-scrubber" id="tl-scrubber">
@@ -1730,13 +1730,13 @@
       </div>
     </div>
     <div class="table-toolbar">
-    <select class="filter-select" id="issues-status-filter" onchange="loadIssues()" title="Filter by status">
+    <select class="filter-select" id="issues-status-filter" data-change-action="loadIssues" title="Filter by status">
       <option value="open">Open</option>
       <option value="triaged">Triaged</option>
       <option value="resolved">Resolved</option>
       <option value="all">All statuses</option>
     </select>
-    <select class="filter-select" id="issues-category-filter" onchange="loadIssues()" title="Filter by category">
+    <select class="filter-select" id="issues-category-filter" data-change-action="loadIssues" title="Filter by category">
       <option value="all">All categories</option>
       <option value="bug">Bug</option>
       <option value="question">Question</option>
@@ -1744,7 +1744,7 @@
       <option value="session-issue">Session issue</option>
       <option value="other">Other</option>
     </select>
-    <select class="filter-select" id="issues-org-filter" onchange="loadIssues()" title="Filter by organization">
+    <select class="filter-select" id="issues-org-filter" data-change-action="loadIssues" title="Filter by organization">
       <option value="">All orgs</option>
     </select>
     <div class="toolbar-right">

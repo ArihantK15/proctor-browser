@@ -2569,7 +2569,7 @@ async function loadGoogleClassroom(){
     const listEl = document.getElementById('google-course-list');
     listEl.innerHTML = (d.courses||[]).map(c => `
       <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-subtle);cursor:pointer" data-cid="${escAttr(c.id)}">
-        <input type="checkbox" ${c.linked?'checked':''} onchange="toggleGoogleCourse('${escJs(c.id)}', this.checked)">
+        <input type="checkbox" ${c.linked?'checked':''} data-change-action="_toggleGoogleCourseWrap" data-course-id='${escAttr(c.id)}'>
         <span style="font-size:12px;color:${c.linked?'var(--accent-light)':'var(--text-secondary)'}">${escHtml(c.name)} ${c.section?'('+escHtml(c.section)+')':''}</span>
       </label>
     `).join('');
@@ -3269,7 +3269,7 @@ function renderQEditor(){
       <div class="q-lint-slot" id="qlint-${i}"></div>
       <div class="q-type-row">
         <label for="qtype-${i}">Question type</label>
-        <select id="qtype-${i}" onchange="setQType(${i},this.value)">
+        <select id="qtype-${i}" data-change-action="_setQTypeWrap" data-qidx='${i}'>
           <option value="mcq_single" ${qtype==='mcq_single'?'selected':''}>Single choice (MCQ)</option>
           <option value="mcq_multi"  ${qtype==='mcq_multi'?'selected':''}>Multi-select (2+ correct)</option>
           <option value="true_false" ${qtype==='true_false'?'selected':''}>True / False</option>
@@ -3278,7 +3278,7 @@ function renderQEditor(){
       </div>
       <div class="q-field">
         <label>Question Text</label>
-        <textarea oninput="qData[${i}].question=this.value;markQDirty()">${escAttr(q.question||'')}</textarea>
+        <textarea data-input-action="_setQQuestion" data-qidx='${i}'>${escAttr(q.question||'')}</textarea>
       </div>
       <div class="q-img-wrap">
         <div class="q-img-thumb" id="qimg-${i}">${q.image_url?'loading...':'No image'}</div>
@@ -3288,22 +3288,22 @@ function renderQEditor(){
           </button>
           ${q.image_url?`<button class="q-img-btn danger" data-action="clearQImage" data-args='${_jsonArgsForAttr(i)}'>Remove image</button>`:''}
           <input type="file" id="qimg-input-${i}" accept="image/png,image/jpeg,image/gif,image/webp"
-                 style="display:none" onchange="handleQImageUpload(${i},this.files[0])">
+                 style="display:none" data-change-action="_handleQImageUploadWrap" data-qidx='${i}'>
         </div>
       </div>
       ${isShort?`
       <div class="q-field">
         <label>Reference answer (model answer the AI grades against)</label>
-        <textarea oninput="qData[${i}].reference_answer=this.value;markQDirty()" placeholder="e.g. Atomicity, Consistency, Isolation, Durability">${escAttr(q.reference_answer||'')}</textarea>
+        <textarea data-input-action="_setQRefAnswer" data-qidx='${i}' placeholder="e.g. Atomicity, Consistency, Isolation, Durability">${escAttr(q.reference_answer||'')}</textarea>
       </div>
       <div class="q-field">
         <label>Rubric (optional grading guidance for the AI)</label>
-        <textarea oninput="qData[${i}].rubric=this.value;markQDirty()" placeholder="e.g. Accept any of: atomicity / consistency / isolation / durability. Half marks for 2+ of 4. Lenient on spelling.">${escAttr(q.rubric||'')}</textarea>
+        <textarea data-input-action="_setQRubric" data-qidx='${i}' placeholder="e.g. Accept any of: atomicity / consistency / isolation / durability. Half marks for 2+ of 4. Lenient on spelling.">${escAttr(q.rubric||'')}</textarea>
       </div>
       <div class="q-correct-row">
         <label>Max score</label>
         <input type="number" min="0.5" step="0.5" value="${escAttr(String(q.max_score||1))}"
-               oninput="qData[${i}].max_score=parseFloat(this.value)||1;markQDirty()"
+               data-input-action="_setQMaxScore" data-qidx='${i}'
                style="width:80px;padding:4px 6px">
         <span class="q-correct-status" style="color:var(--muted);font-size:11px;margin-left:8px">
           Students type a free-text answer. The AI suggests a score; you confirm it from the Results tab.
@@ -3324,7 +3324,7 @@ function renderQEditor(){
                    title="${isMulti?'Click to toggle correct':'Click to set as correct'}"
                    style="cursor:pointer">${esc}</div>
               <input value="${escAttr(q.options[k])}"
-                     ${optionsEditable?`oninput="qData[${i}].options['${esc}']=this.value;markQDirty()"`:'readonly'}
+                     ${optionsEditable?`data-input-action="_setQOption" data-qidx='${i}' data-okey='${esc}'`:'readonly'}
                      placeholder="Option ${esc}">
               ${(optionsEditable && optKeys.length>2)?`<button class="q-opt-remove" data-action="removeOpt" data-args='${_jsonArgsForAttr(i,esc)}' title="Remove option">&times;</button>`:''}
             </div>`;
@@ -3926,7 +3926,7 @@ function renderTimeline(){
     const icCls=`ic-${e.severity}`;
     const timeStr=extractTime(e.timestamp);
     const thumbHtml=e.screenshot
-      ?`<img class="tl-thumb" data-src="${escAttr(e.screenshot)}" data-action="_showLightbox" data-args=${_jsonArgsForAttr(e.screenshot,e.type,timeStr)} onerror="this.style.display='none'">`
+      ?`<img class="tl-thumb" data-src="${escAttr(e.screenshot)}" data-action="_showLightbox" data-args=${_jsonArgsForAttr(e.screenshot,e.type,timeStr)} data-error-action="_hideSelf">`
       :'';
     return `<div class="tl-event sev-${e.severity}${e.is_violation?' is-violation':''}" id="tl-evt-${i}">
       <div class="tl-time">${timeStr}</div>
@@ -4549,7 +4549,7 @@ function renderBank(data){
     <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;
                 background:var(--surface-2);border-bottom:1px solid var(--border);
                 position:sticky;top:0;z-index:1">
-      <input type="checkbox" id="bank-select-all" onchange="_bankSelectAll(this.checked)"
+      <input type="checkbox" id="bank-select-all" data-change-action="_bankSelectAllWrap"
              ${allSelected ? 'checked' : ''}
              style="margin:0;flex-shrink:0">
       <label for="bank-select-all" style="font-size:11px;color:var(--text-mid);cursor:pointer;flex:1">
@@ -4565,7 +4565,7 @@ function renderBank(data){
     const tags = (q.tags||[]).map(t=>`<span style="background:rgba(61,217,168,.1);color:var(--accent-light);border-radius:10px;padding:1px 8px;font-size:10px;margin-right:4px">${_escHtml(t)}</span>`).join('');
     const checked = _bankSelected.has(q.id) ? 'checked' : '';
     return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-bottom:1px solid var(--border);${i%2===0?'background:rgba(255,255,255,.01)':''}">
-      <input type="checkbox" ${checked} onchange="_bankToggle('${escJs(q.id)}',this.checked)" style="margin-top:4px;flex-shrink:0">
+      <input type="checkbox" ${checked} data-change-action="_bankToggleWrap" data-qid='${escAttr(q.id)}' style="margin-top:4px;flex-shrink:0">
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;color:var(--text);margin-bottom:4px;max-height:120px;overflow-y:auto">${_escHtml(q.question)}</div>
         <div style="font-size:11px;color:var(--muted)">${optStr}</div>
@@ -6068,3 +6068,72 @@ document.addEventListener('submit', (e) => {
   const fn = window[el.dataset.submit];
   if (typeof fn === 'function') fn();
 });
+
+// ── Wrappers for onchange handlers ────────────────────────────────
+// Called via delegated change listener with this=el.
+function _onExamSwitchWrap(){ onExamSwitch(this.value); }
+function _loadBankFileWrap(){ loadBankFile(this); }
+function _importInviteCsvWrap(){ importInviteCsv({target: this}); }
+function _toggleGoogleCourseWrap(){ toggleGoogleCourse(this.dataset.courseId, this.checked); }
+function _setQTypeWrap(){ setQType(parseInt(this.dataset.qidx), this.value); }
+function _handleQImageUploadWrap(){ handleQImageUpload(parseInt(this.dataset.qidx), this.files[0]); }
+function _bankSelectAllWrap(){ _bankSelectAll(this.checked); }
+function _bankToggleWrap(){ _bankToggle(this.dataset.qid, this.checked); }
+
+// ── Wrappers for oninput handlers (compound DOM updates) ─────────
+function _setQQuestion(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].question=this.value; markQDirty(); }
+function _setQRefAnswer(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].reference_answer=this.value; markQDirty(); }
+function _setQRubric(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].rubric=this.value; markQDirty(); }
+function _setQMaxScore(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].max_score=parseFloat(this.value)||1; markQDirty(); }
+function _setQOption(){ var i=parseInt(this.dataset.qidx); if(isNaN(i)||!this.dataset.okey)return; qData[i].options[this.dataset.okey]=this.value; markQDirty(); }
+
+// ── Wrapper for onerror (this.style.display) ─────────────────────
+function _hideSelf(){ this.style.display='none'; }
+
+// ── Delegated change listener ─────────────────────────────────────
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('[data-change-action]');
+  if (!el || !el.dataset.changeAction) return;
+  const fn = window[el.dataset.changeAction];
+  if (typeof fn !== 'function') return;
+  const args = JSON.parse(el.dataset.changeArgs || '[]');
+  fn.call(el, ...args);
+});
+
+// ── Delegated input listener ─────────────────────────────────────
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('[data-input-action]');
+  if (!el || !el.dataset.inputAction) return;
+  const fn = window[el.dataset.inputAction];
+  if (typeof fn !== 'function') return;
+  const args = JSON.parse(el.dataset.inputArgs || '[]');
+  fn.call(el, ...args);
+});
+
+// ── MutationObserver: attach error handlers for data-error-action ─
+// onerror doesn't bubble, so we observe the DOM for new <img> elements
+// with data-error-action and imperatively attach the handler.
+(function(){
+  function _bindError(el){
+    if(el.__errorBound) return;
+    el.__errorBound = true;
+    el.addEventListener('error', function(){
+      var fn = window[this.dataset.errorAction];
+      if(typeof fn === 'function') fn.call(this);
+    });
+  }
+  // Scan existing
+  [].forEach.call(document.querySelectorAll('[data-error-action]'), _bindError);
+  // Watch for new elements
+  var obs = new MutationObserver(function(ms){
+    ms.forEach(function(m){
+      [].forEach.call(m.addedNodes, function(n){
+        if(n.nodeType===1 && n.dataset && n.dataset.errorAction) _bindError(n);
+        if(n.nodeType===1 && n.querySelectorAll){
+          [].forEach.call(n.querySelectorAll('[data-error-action]'), _bindError);
+        }
+      });
+    });
+  });
+  if(document.body) obs.observe(document.body, {childList:true, subtree:true});
+})();

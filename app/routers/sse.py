@@ -31,8 +31,56 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="")
 
 # ─── SHORT-LIVED CONNECTION TOKENS (avoid JWT in URL query params) ─
-_connect_tokens: dict[str, str] = {}  # token -> teacher_id
+#
+# Stored in Redis so all uvicorn workers see the same token pool.
+# Previously this was an in-memory dict per process, which meant
+# UVICORN_WORKERS=4 caused random 401s: token issued by worker A,
+# EventSource open hit worker B which had no entry → "Invalid token".
+# Falls back to the in-process dict only when Redis is unreachable
+# (local dev). Single-use via DEL on read.
+_CONNECT_TOKEN_TTL_SECONDS = 30
+_connect_tokens: dict[str, str] = {}  # legacy fallback if Redis is down
 _connect_tokens_lock = asyncio.Lock()
+
+
+def _ct_key(token: str) -> str:
+    return f"sse_ct:{token}"
+
+
+async def _store_connect_token(token: str, teacher_id: str) -> None:
+    if _cache is not None:
+        try:
+            _cache.set(_ct_key(token), str(teacher_id), ttl=_CONNECT_TOKEN_TTL_SECONDS)
+            return
+        except Exception as e:
+            logger.warning("[sse] redis store_connect_token fallback: %s", e)
+    async with _connect_tokens_lock:
+        _connect_tokens[token] = str(teacher_id)
+        async def _cleanup():
+            await asyncio.sleep(_CONNECT_TOKEN_TTL_SECONDS)
+            async with _connect_tokens_lock:
+                _connect_tokens.pop(token, None)
+        asyncio.create_task(_cleanup())
+
+
+async def _consume_connect_token(token: str) -> str | None:
+    """Single-use lookup: returns teacher_id and deletes the entry."""
+    if _cache is not None:
+        try:
+            tid = _cache.get(_ct_key(token))
+            if tid:
+                # Best-effort delete — even if it fails, the 30s TTL
+                # bounds replay-attack window.
+                try:
+                    _cache.delete(_ct_key(token))
+                except Exception:
+                    pass
+                return str(tid)
+        except Exception as e:
+            logger.warning("[sse] redis consume_connect_token fallback: %s", e)
+    async with _connect_tokens_lock:
+        return _connect_tokens.pop(token, None)
+
 
 @router.post("/api/v1/sse/connect-token")
 async def sse_connect_token(request: Request):
@@ -44,13 +92,7 @@ async def sse_connect_token(request: Request):
     """
     teacher = await require_admin(request)
     token = base64.urlsafe_b64encode(time.monotonic_ns().to_bytes(8, 'big')).decode()
-    async with _connect_tokens_lock:
-        _connect_tokens[token] = str(teacher["id"])
-    async def _cleanup():
-        await asyncio.sleep(30)
-        async with _connect_tokens_lock:
-            _connect_tokens.pop(token, None)
-    asyncio.create_task(_cleanup())
+    await _store_connect_token(token, str(teacher["id"]))
     return {"connect_token": token}
 
 
@@ -544,9 +586,8 @@ async def sse_sessions(request: Request):
         return Response(status_code=401, content="Missing token")
 
     teacher_id = None
-    # Try connect token first
-    async with _connect_tokens_lock:
-        teacher_id = _connect_tokens.pop(token, None)
+    # Try connect token first (Redis-backed; falls back to per-process dict)
+    teacher_id = await _consume_connect_token(token)
     if teacher_id:
         teacher = await _get_teacher_by_id(teacher_id)
         if not teacher:

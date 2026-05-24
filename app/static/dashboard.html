@@ -209,7 +209,7 @@
     <div id="auth-login">
       <h2>Welcome Back</h2>
       <p>Sign in to your teacher dashboard</p>
-      <form onsubmit="event.preventDefault();doLogin()" autocomplete="on">
+      <form data-submit="doLogin" autocomplete="on">
         <input type="email" id="login-email" placeholder="Email address" autocomplete="email"
                onkeydown="if(event.key==='Enter')document.getElementById('login-pwd').focus()">
         <input type="password" id="login-pwd" placeholder="Password" autocomplete="current-password"
@@ -228,7 +228,7 @@
       </form>
       <div class="auth-err" id="auth-err"></div>
       <p style="color:var(--muted);font-size:12px;margin-top:12px">
-        <a href="#" onclick="toggleAuthForm('reset');return false" style="color:var(--muted);text-decoration:none;font-size:12px">Forgot password?</a>
+        <a href="#" data-action="toggleAuthForm" data-args='["reset"]' style="color:var(--muted);text-decoration:none;font-size:12px">Forgot password?</a>
       </p>
       <p style="color:var(--muted);font-size:12px;margin-top:8px">
         Don't have an account?
@@ -240,7 +240,7 @@
     <div id="auth-reset" style="display:none">
       <h2>Reset Password</h2>
       <p>Enter your email and we'll send a reset link</p>
-      <form onsubmit="event.preventDefault();doPasswordReset()" autocomplete="on">
+      <form data-submit="doPasswordReset" autocomplete="on">
         <input type="email" id="reset-email" placeholder="Email address" autocomplete="email"
                onkeydown="if(event.key==='Enter')doPasswordReset()">
         <button type="submit" id="reset-btn">Send Reset Link</button>
@@ -250,7 +250,7 @@
         Reset link sent! Check your email inbox.
       </div>
       <p style="color:var(--muted);font-size:12px;margin-top:16px">
-        <a href="#" onclick="toggleAuthForm('login');return false" style="color:var(--accent-light);text-decoration:none;font-weight:600">Back to login</a>
+        <a href="#" data-action="toggleAuthForm" data-args='["login"]' style="color:var(--accent-light);text-decoration:none;font-weight:600">Back to login</a>
       </p>
     </div>
     </div><!-- /.auth-card -->
@@ -279,9 +279,9 @@
          answered at a glance. Populated by applyOrgRole(). Hidden until
          the role is known. -->
     <span id="topbar-role-badge" class="topbar-role" style="display:none"></span>
-    <span id="topbar-trial-badge" style="display:none;font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer" onclick="trialBannerClick()"></span>
-    <button class="btn btn-secondary btn-sm" onclick="refreshAll()">Refresh</button>
-    <button class="btn btn-ghost topbar-logout btn-sm" onclick="doLogout()">Logout</button>
+    <span id="topbar-trial-badge" style="display:none;font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer" data-action="trialBannerClick"></span>
+    <button class="btn btn-secondary btn-sm" data-action="refreshAll">Refresh</button>
+    <button class="btn btn-ghost topbar-logout btn-sm" data-action="doLogout">Logout</button>
   </div>
 </div>
 
@@ -292,40 +292,40 @@
   <!-- Teacher + Admin tabs — operational exam visibility.
        data-roles makes them hide from super admin (super admin is
        maintenance-only, doesn't run exams). -->
-  <button type="button" class="tab active" data-tab="live"      role="tab" aria-selected="true"  onclick="switchTab('live');clearAlertBadge()" data-roles="teacher admin">Live Sessions<span class="tab-badge" id="live-alert-badge" style="display:none;background:var(--red);color:#fff">0</span></button>
-  <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" onclick="switchTab('results')" data-roles="teacher admin">Results</button>
-  <button type="button" class="tab"        data-tab="history"   role="tab" aria-selected="false" onclick="switchTab('history')" data-roles="teacher admin">Student History</button>
-  <button type="button" class="tab"        data-tab="analytics" role="tab" aria-selected="false" onclick="switchTab('analytics')" data-roles="teacher admin">Analytics</button>
+  <button type="button" class="tab active" data-tab="live"      role="tab" aria-selected="true"  data-action="switchTabLiveClearBadge" data-roles="teacher admin">Live Sessions<span class="tab-badge" id="live-alert-badge" style="display:none;background:var(--red);color:#fff">0</span></button>
+  <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" data-action="switchTab" data-args='["results"]' data-roles="teacher admin">Results</button>
+  <button type="button" class="tab"        data-tab="history"   role="tab" aria-selected="false" data-action="switchTab" data-args='["history"]' data-roles="teacher admin">Student History</button>
+  <button type="button" class="tab"        data-tab="analytics" role="tab" aria-selected="false" data-action="switchTab" data-args='["analytics"]' data-roles="teacher admin">Analytics</button>
   <!-- Teacher-only exam ops — admins delegate these to teachers in the org. -->
-  <button type="button" class="tab"        data-tab="questions" role="tab" aria-selected="false" onclick="switchTab('questions')" data-roles="teacher">Questions</button>
-  <button type="button" class="tab"        data-tab="chat"      role="tab" aria-selected="false" onclick="switchTab('chat')" data-roles="teacher">
+  <button type="button" class="tab"        data-tab="questions" role="tab" aria-selected="false" data-action="switchTab" data-args='["questions"]' data-roles="teacher">Questions</button>
+  <button type="button" class="tab"        data-tab="chat"      role="tab" aria-selected="false" data-action="switchTab" data-args='["chat"]' data-roles="teacher">
     Chat<span class="tab-badge" id="chat-tab-badge" style="display:none">0</span>
   </button>
-  <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" onclick="switchTab('tools')" data-roles="teacher">Tools</button>
+  <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" data-action="switchTab" data-args='["tools"]' data-roles="teacher">Tools</button>
   <!-- Admin tabs (role-gated) -->
-  <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" onclick="switchTab('org')"       data-roles="admin superadmin" style="display:none">Org Overview</button>
-  <button type="button" class="tab"        data-tab="security"  role="tab" aria-selected="false" onclick="switchTab('security')"  data-roles="admin superadmin" style="display:none">Security</button>
-  <button type="button" class="tab"        data-tab="members"   role="tab" aria-selected="false" onclick="switchTab('members')"   data-roles="admin superadmin" style="display:none">Members</button>
-  <button type="button" class="tab"        data-tab="billing"   role="tab" aria-selected="false" onclick="switchTab('billing')"   data-roles="admin superadmin" style="display:none">Billing</button>
-  <button type="button" class="tab"        data-tab="org-settings" role="tab" aria-selected="false" onclick="switchTab('org-settings')" data-roles="admin superadmin" style="display:none">Org Settings</button>
+  <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" data-action="switchTab" data-args='["org"]'       data-roles="admin superadmin" style="display:none">Org Overview</button>
+  <button type="button" class="tab"        data-tab="security"  role="tab" aria-selected="false" data-action="switchTab" data-args='["security"]'  data-roles="admin superadmin" style="display:none">Security</button>
+  <button type="button" class="tab"        data-tab="members"   role="tab" aria-selected="false" data-action="switchTab" data-args='["members"]'   data-roles="admin superadmin" style="display:none">Members</button>
+  <button type="button" class="tab"        data-tab="billing"   role="tab" aria-selected="false" data-action="switchTab" data-args='["billing"]'   data-roles="admin superadmin" style="display:none">Billing</button>
+  <button type="button" class="tab"        data-tab="org-settings" role="tab" aria-selected="false" data-action="switchTab" data-args='["org-settings"]' data-roles="admin superadmin" style="display:none">Org Settings</button>
   <!-- Super admin tabs — maintenance only. -->
-  <button type="button" class="tab"        data-tab="all-orgs"   role="tab" aria-selected="false" onclick="switchTab('all-orgs')" data-roles="superadmin" style="display:none">All Orgs</button>
-  <button type="button" class="tab"        data-tab="issues"     role="tab" aria-selected="false" onclick="switchTab('issues')"   data-roles="superadmin" style="display:none">Issues<span class="tab-badge" id="issues-open-badge" style="display:none;background:var(--amber);color:#000">0</span></button>
-  <button type="button" class="tab"        data-tab="debug"      role="tab" aria-selected="false" onclick="switchTab('debug')"    data-roles="superadmin" style="display:none">Flags</button>
+  <button type="button" class="tab"        data-tab="all-orgs"   role="tab" aria-selected="false" data-action="switchTab" data-args='["all-orgs"]' data-roles="superadmin" style="display:none">All Orgs</button>
+  <button type="button" class="tab"        data-tab="issues"     role="tab" aria-selected="false" data-action="switchTab" data-args='["issues"]'   data-roles="superadmin" style="display:none">Issues<span class="tab-badge" id="issues-open-badge" style="display:none;background:var(--amber);color:#000">0</span></button>
+  <button type="button" class="tab"        data-tab="debug"      role="tab" aria-selected="false" data-action="switchTab" data-args='["debug"]'    data-roles="superadmin" style="display:none">Flags</button>
 </div>
 
 <!-- EXAM SELECTOR -->
 <div class="exam-bar" id="exam-bar" style="display:none">
   <span class="exam-label">Exam</span>
   <select id="exam-select" onchange="onExamSwitch(this.value)"></select>
-  <button class="btn btn-primary btn-sm" onclick="showCreateExamModal()" style="height:32px;font-size:12px">+ New Exam</button>
-  <button class="btn btn-secondary btn-sm" onclick="duplicateCurrentExam()" id="duplicate-exam-btn" style="height:32px;font-size:12px;display:none" title="Clone this exam's config + questions into a new exam">Duplicate</button>
-  <button class="btn btn-secondary btn-sm" onclick="confirmDeleteExam()" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
+  <button class="btn btn-primary btn-sm" data-action="showCreateExamModal" style="height:32px;font-size:12px">+ New Exam</button>
+  <button class="btn btn-secondary btn-sm" data-action="duplicateCurrentExam" id="duplicate-exam-btn" style="height:32px;font-size:12px;display:none" title="Clone this exam's config + questions into a new exam">Duplicate</button>
+  <button class="btn btn-secondary btn-sm" data-action="confirmDeleteExam" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
   <span class="exam-count" id="exam-count"></span>
 </div>
 
 <!-- CREATE EXAM MODAL -->
-<div class="modal-overlay hidden" id="create-exam-modal" onclick="if(event.target===this)hideCreateExamModal()">
+<div class="modal-overlay hidden" id="create-exam-modal" data-action="hideCreateExamModal" data-guard-self>
   <div class="modal-card">
     <h3>Create New Exam</h3>
     <label>Exam Title</label>
@@ -338,8 +338,8 @@
     </label>
     <div id="create-exam-err" style="color:var(--red);font-size:12px;min-height:18px;margin-bottom:8px"></div>
     <div class="modal-actions">
-      <button class="btn btn-secondary btn-sm" onclick="hideCreateExamModal()">Cancel</button>
-      <button class="btn btn-primary btn-sm" id="create-exam-btn" onclick="createExam()">Create</button>
+      <button class="btn btn-secondary btn-sm" data-action="hideCreateExamModal">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="create-exam-btn" data-action="createExam">Create</button>
     </div>
   </div>
 </div>
@@ -407,20 +407,20 @@
         <option value="low">Low</option>
       </select>
       <div class="toolbar-right">
-        <button class="btn btn-secondary btn-sm" onclick="refreshLive()">Refresh</button>
-        <button class="btn btn-secondary btn-sm" id="alert-mute-btn" onclick="toggleAlertMute()" title="Mute/unmute alert sounds">🔔</button>
+        <button class="btn btn-secondary btn-sm" data-action="refreshLive">Refresh</button>
+        <button class="btn btn-secondary btn-sm" id="alert-mute-btn" data-action="toggleAlertMute" title="Mute/unmute alert sounds">🔔</button>
       </div>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th onclick="sortLive('session_id')">Session <span class="arrow"></span></th>
-          <th onclick="sortLive('last_event')">Last Event <span class="arrow"></span></th>
-          <th onclick="sortLive('last_severity')">Severity <span class="arrow"></span></th>
-          <th onclick="sortLive('risk_score')">Risk <span class="arrow"></span></th>
+          <th data-action="sortLive" data-args='["session_id"]'>Session <span class="arrow"></span></th>
+          <th data-action="sortLive" data-args='["last_event"]'>Last Event <span class="arrow"></span></th>
+          <th data-action="sortLive" data-args='["last_severity"]'>Severity <span class="arrow"></span></th>
+          <th data-action="sortLive" data-args='["risk_score"]'>Risk <span class="arrow"></span></th>
           <th title="Per-student calibration quality. Tight = barely moved (possible gaming). Loose = moved more than expected (large screen or sloppy calibration).">Cal</th>
-          <th onclick="sortLive('last_seen')">Last Seen <span class="arrow"></span></th>
-          <th onclick="sortLive('submitted')">Status <span class="arrow"></span></th>
+          <th data-action="sortLive" data-args='["last_seen"]'>Last Seen <span class="arrow"></span></th>
+          <th data-action="sortLive" data-args='["submitted"]'>Status <span class="arrow"></span></th>
           <th>Actions</th>
         </tr></thead>
         <tbody id="live-body"></tbody>
@@ -462,33 +462,33 @@
         <option value="low">Low (≤15)</option>
       </select>
       <div class="toolbar-right">
-        <button class="btn btn-secondary btn-sm" id="btn-export-csv" onclick="exportCSV()">CSV</button>
-        <button class="btn btn-secondary btn-sm" id="btn-export-excel" onclick="exportExcel()">Excel</button>
-        <button class="btn btn-secondary btn-sm" id="grade-pending-btn" onclick="openGradeReview()" title="Review AI-suggested grades for short-answer responses">Review answers <span id="pending-grade-count" style="display:none;background:var(--amber);color:#000;border-radius:8px;padding:1px 6px;font-size:10px;margin-left:4px"></span></button>
-        <button class="btn btn-secondary btn-sm" id="btn-scorecard-zip" onclick="dlAllScorecards()" title="Download a ZIP containing one PDF scorecard per student">Scorecards ZIP</button>
-        <button class="btn btn-secondary btn-sm" onclick="emailAllScorecards()" title="Email each student their scorecard PDF">Email</button>
-        <button class="btn btn-primary btn-sm" onclick="refreshResults()">Refresh</button>
+        <button class="btn btn-secondary btn-sm" id="btn-export-csv" data-action="exportCSV">CSV</button>
+        <button class="btn btn-secondary btn-sm" id="btn-export-excel" data-action="exportExcel">Excel</button>
+        <button class="btn btn-secondary btn-sm" id="grade-pending-btn" data-action="openGradeReview" title="Review AI-suggested grades for short-answer responses">Review answers <span id="pending-grade-count" style="display:none;background:var(--amber);color:#000;border-radius:8px;padding:1px 6px;font-size:10px;margin-left:4px"></span></button>
+        <button class="btn btn-secondary btn-sm" id="btn-scorecard-zip" data-action="dlAllScorecards" title="Download a ZIP containing one PDF scorecard per student">Scorecards ZIP</button>
+        <button class="btn btn-secondary btn-sm" data-action="emailAllScorecards" title="Email each student their scorecard PDF">Email</button>
+        <button class="btn btn-primary btn-sm" data-action="refreshResults">Refresh</button>
       </div>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th onclick="sortResults('roll_number')">Roll # <span class="arrow"></span></th>
-          <th onclick="sortResults('full_name')">Name <span class="arrow"></span></th>
-          <th onclick="sortResults('score')">Score <span class="arrow"></span></th>
-          <th onclick="sortResults('percentage')">% <span class="arrow"></span></th>
-          <th onclick="sortResults('violation_count')">Violations <span class="arrow"></span></th>
-          <th onclick="sortResults('risk_score')">Risk Score <span class="arrow"></span></th>
+          <th data-action="sortResults" data-args='["roll_number"]'>Roll # <span class="arrow"></span></th>
+          <th data-action="sortResults" data-args='["full_name"]'>Name <span class="arrow"></span></th>
+          <th data-action="sortResults" data-args='["score"]'>Score <span class="arrow"></span></th>
+          <th data-action="sortResults" data-args='["percentage"]'>% <span class="arrow"></span></th>
+          <th data-action="sortResults" data-args='["violation_count"]'>Violations <span class="arrow"></span></th>
+          <th data-action="sortResults" data-args='["risk_score"]'>Risk Score <span class="arrow"></span></th>
           <th title="Per-student calibration quality. Tight = barely moved (possible gaming). Loose = moved more than expected (large screen or sloppy calibration).">Cal</th>
-          <th onclick="sortResults('time_taken_secs')">Time <span class="arrow"></span></th>
-          <th onclick="sortResults('submitted_at')">Submitted <span class="arrow"></span></th>
+          <th data-action="sortResults" data-args='["time_taken_secs"]'>Time <span class="arrow"></span></th>
+          <th data-action="sortResults" data-args='["submitted_at"]'>Submitted <span class="arrow"></span></th>
           <th>Actions</th>
         </tr></thead>
         <tbody id="results-body"></tbody>
       </table>
     </div>
     <div id="post-exam-cta" style="display:none;margin-top:14px;padding:14px 18px;background:var(--accent-bg);border:1px solid var(--accent);border-radius:var(--radius-md);font-size:13px;color:var(--accent-fg);text-align:center">
-      🎉 First exam results ready! <a href="#" onclick="showUpgradeModal('You\u2019ve outgrown the Starter plan. Unlock more students and features.');return false" style="color:var(--accent-light);font-weight:600">Upgrade your plan</a> to register more students and unlock higher limits.
+      🎉 First exam results ready! <a href="#" data-action="showUpgradeModal" data-args='["You’ve outgrown the Starter plan. Unlock more students and features."]' style="color:var(--accent-light);font-weight:600">Upgrade your plan</a> to register more students and unlock higher limits.
     </div>
    </div>
 
@@ -518,19 +518,19 @@
          <option value="">All teachers</option>
        </select>
        <div class="toolbar-right">
-         <button class="btn btn-primary btn-sm" onclick="refreshStudentList()">Refresh</button>
+         <button class="btn btn-primary btn-sm" data-action="refreshStudentList">Refresh</button>
        </div>
      </div>
      <!-- Student list: searchable directory with aggregate stats -->
      <div class="table-wrap">
        <table>
          <thead><tr>
-           <th onclick="sortHistory('roll_number')">Roll # <span class="arrow"></span></th>
-           <th onclick="sortHistory('full_name')">Name <span class="arrow"></span></th>
-           <th onclick="sortHistory('total_exams')">Exams <span class="arrow"></span></th>
-           <th onclick="sortHistory('avg_percentage')">Avg Score <span class="arrow"></span></th>
-           <th onclick="sortHistory('last_exam_risk')">Last Risk <span class="arrow"></span></th>
-           <th onclick="sortHistory('last_exam_date')">Last Exam <span class="arrow"></span></th>
+           <th data-action="sortHistory" data-args='["roll_number"]'>Roll # <span class="arrow"></span></th>
+           <th data-action="sortHistory" data-args='["full_name"]'>Name <span class="arrow"></span></th>
+           <th data-action="sortHistory" data-args='["total_exams"]'>Exams <span class="arrow"></span></th>
+           <th data-action="sortHistory" data-args='["avg_percentage"]'>Avg Score <span class="arrow"></span></th>
+           <th data-action="sortHistory" data-args='["last_exam_risk"]'>Last Risk <span class="arrow"></span></th>
+           <th data-action="sortHistory" data-args='["last_exam_date"]'>Last Exam <span class="arrow"></span></th>
            <th>Actions</th>
          </tr></thead>
          <tbody id="history-body"></tbody>
@@ -540,7 +540,7 @@
      <div id="history-detail" style="display:none;margin-top:20px">
        <div class="stats-bar" id="history-detail-stats"></div>
        <div style="margin-bottom:12px">
-         <button class="btn btn-secondary btn-sm" onclick="closeHistoryDetail()">← Back to student list</button>
+         <button class="btn btn-secondary btn-sm" data-action="closeHistoryDetail">← Back to student list</button>
        </div>
        <div class="table-wrap">
          <table>
@@ -586,11 +586,11 @@
         Duration (min)
         <input type="number" id="q-duration" min="1" max="600" value="60" style="width:90px">
       </label>
-      <button class="btn btn-primary btn-sm" onclick="saveQuestions()">Save All</button>
-      <button class="btn btn-secondary btn-sm" onclick="togglePreview()">Preview</button>
-      <button class="btn btn-secondary btn-sm" onclick="lintQuestions()" id="btn-lint" title="AI review of every question for ambiguity, wrong answer keys, unbalanced options" style="color:var(--accent)">✨ Lint</button>
-      <button class="btn btn-secondary btn-sm" onclick="loadQuestions()">Reload</button>
-      <button class="btn btn-secondary btn-sm" onclick="toggleBank()" id="btn-toggle-bank" style="margin-left:auto">Question Bank ↔ AI</button>
+      <button class="btn btn-primary btn-sm" data-action="saveQuestions">Save All</button>
+      <button class="btn btn-secondary btn-sm" data-action="togglePreview">Preview</button>
+      <button class="btn btn-secondary btn-sm" data-action="lintQuestions" id="btn-lint" title="AI review of every question for ambiguity, wrong answer keys, unbalanced options" style="color:var(--accent)">✨ Lint</button>
+      <button class="btn btn-secondary btn-sm" data-action="loadQuestions">Reload</button>
+      <button class="btn btn-secondary btn-sm" data-action="toggleBank" id="btn-toggle-bank" style="margin-left:auto">Question Bank ↔ AI</button>
     </div>
     <div id="q-save-msg" style="font-size:13px;min-height:22px;margin-bottom:8px"></div>
 
@@ -607,28 +607,28 @@
           </div>
         </div>
         <div class="q-sidebar-filter" role="radiogroup" aria-label="Filter by question type">
-          <button class="filter-chip active" data-qtypef="all" onclick="setQTypeFilter('all')">All</button>
-          <button class="filter-chip" data-qtypef="mcq_single" onclick="setQTypeFilter('mcq_single')">Single</button>
-          <button class="filter-chip" data-qtypef="mcq_multi" onclick="setQTypeFilter('mcq_multi')">Multi</button>
-          <button class="filter-chip" data-qtypef="true_false" onclick="setQTypeFilter('true_false')">T/F</button>
-          <button class="filter-chip" data-qtypef="img" onclick="setQTypeFilter('img')">Has image</button>
+          <button class="filter-chip active" data-qtypef="all" data-action="setQTypeFilter" data-args='["all"]'>All</button>
+          <button class="filter-chip" data-qtypef="mcq_single" data-action="setQTypeFilter" data-args='["mcq_single"]'>Single</button>
+          <button class="filter-chip" data-qtypef="mcq_multi" data-action="setQTypeFilter" data-args='["mcq_multi"]'>Multi</button>
+          <button class="filter-chip" data-qtypef="true_false" data-action="setQTypeFilter" data-args='["true_false"]'>T/F</button>
+          <button class="filter-chip" data-qtypef="img" data-action="setQTypeFilter" data-args='["img"]'>Has image</button>
         </div>
         <div class="q-list-wrap" id="q-list-wrap">
           <div class="q-list-empty">No questions yet — click "Add" in the toolbar.</div>
         </div>
         <div style="padding:var(--space-2) var(--space-4);border-top:1px solid var(--border-subtle);flex-shrink:0">
-          <button class="btn btn-secondary btn-sm" onclick="addQuestion()" style="width:100%;justify-content:center">+ Add Question</button>
+          <button class="btn btn-secondary btn-sm" data-action="addQuestion" style="width:100%;justify-content:center">+ Add Question</button>
         </div>
       </aside>
 
       <!-- CENTER — content toolbar + editor scroll -->
       <div class="q-content">
         <div class="q-content-toolbar">
-          <button class="qct-btn" onclick="addQuestion()">+ Add</button>
-          <button class="qct-btn" onclick="toggleBank();showBankImport()">Import CSV</button>
+          <button class="qct-btn" data-action="addQuestion">+ Add</button>
+          <button class="qct-btn" data-action="toggleBankShowImport">Import CSV</button>
           <div class="toolbar-spacer"></div>
-          <button class="qct-btn ghost" onclick="qExpandAll()" title="Expand all question cards">Expand all</button>
-          <button class="qct-btn ghost" onclick="qCollapseAll()" title="Collapse all question cards">Collapse all</button>
+          <button class="qct-btn ghost" data-action="qExpandAll" title="Expand all question cards">Expand all</button>
+          <button class="qct-btn ghost" data-action="qCollapseAll" title="Collapse all question cards">Collapse all</button>
         </div>
         <div class="q-content-scroll">
           <!-- EDITOR VIEW — render JS untouched, emits .q-card children with #qcard-N hooks -->
@@ -652,12 +652,12 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M5 17l1 2"/><path d="M19 17l-1 2"/></svg>
           <span class="q-aipanel-title">AI &amp; Bank</span>
           <span class="q-aipanel-badge">Beta</span>
-          <button class="qct-btn ghost" onclick="toggleBank()" title="Close panel" style="padding:2px 8px">×</button>
+          <button class="qct-btn ghost" data-action="toggleBank" title="Close panel" style="padding:2px 8px">×</button>
         </div>
         <div class="q-aipanel-tabs" role="tablist">
-          <button class="q-aipanel-tab active" data-aitab="generate" onclick="setAITab('generate')" role="tab" aria-selected="true">✨ Generate</button>
-          <button class="q-aipanel-tab" data-aitab="bank" onclick="setAITab('bank')" role="tab" aria-selected="false">Bank</button>
-          <button class="q-aipanel-tab" data-aitab="import" onclick="setAITab('import')" role="tab" aria-selected="false">Import</button>
+          <button class="q-aipanel-tab active" data-aitab="generate" data-action="setAITab" data-args='["generate"]' role="tab" aria-selected="true">✨ Generate</button>
+          <button class="q-aipanel-tab" data-aitab="bank" data-action="setAITab" data-args='["bank"]' role="tab" aria-selected="false">Bank</button>
+          <button class="q-aipanel-tab" data-aitab="import" data-action="setAITab" data-args='["import"]' role="tab" aria-selected="false">Import</button>
         </div>
         <div class="q-aipanel-body">
 
@@ -702,7 +702,7 @@
               <textarea id="gen-source" rows="4" placeholder="Paste a chapter, lecture notes, or article — generated questions will be based on this text."
                 style="width:100%;margin-top:6px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
             </details>
-            <button class="btn btn-primary btn-sm" onclick="doGenerateQuestions()" id="gen-btn" style="width:100%;justify-content:center">Generate</button>
+            <button class="btn btn-primary btn-sm" data-action="doGenerateQuestions" id="gen-btn" style="width:100%;justify-content:center">Generate</button>
             <div id="gen-status" style="font-size:12px;color:var(--text-muted);margin-top:8px"></div>
             <div id="gen-preview" style="margin-top:12px"></div>
           </div>
@@ -713,11 +713,11 @@
             <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
               <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" oninput="filterBank()"
                 style="flex:1;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);font-size:12px;font-family:inherit">
-              <button class="btn btn-secondary btn-sm" onclick="exportBank()" title="Download bank as JSON">Export</button>
+              <button class="btn btn-secondary btn-sm" data-action="exportBank" title="Download bank as JSON">Export</button>
             </div>
             <div id="bank-list" style="max-height:50vh;overflow-y:auto"></div>
             <div id="bank-empty" style="color:var(--text-muted);font-size:12px;padding:20px;text-align:center">No questions in bank yet.</div>
-            <button class="btn btn-primary btn-sm" onclick="bankToExam()" style="margin-top:10px;width:100%;justify-content:center">Add Selected → Exam</button>
+            <button class="btn btn-primary btn-sm" data-action="bankToExam" style="margin-top:10px;width:100%;justify-content:center">Add Selected → Exam</button>
           </div>
 
           <!-- IMPORT pane — bulk JSON/CSV upload. Hidden by default. -->
@@ -725,13 +725,13 @@
             <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;line-height:1.5">
               Paste CSV/JSON or upload a file. CSV columns: question, question_type, option_A, option_B, option_C, option_D, correct, image_url, tags.
               Wrap commas in <code style="color:var(--accent)">"double quotes"</code>; separate tags with <code style="color:var(--accent)">|</code>.
-              <a href="#" onclick="downloadBankCSVTemplate();return false;" style="color:var(--accent);text-decoration:underline">Template</a>
+              <a href="#" data-action="downloadBankCSVTemplate" style="color:var(--accent);text-decoration:underline">Template</a>
             </p>
             <textarea id="bank-import-text" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
               style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:10px;color:var(--text-high);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
             <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <input type="file" id="bank-import-file" accept=".csv,.json" onchange="loadBankFile(this)" style="font-size:11px;color:var(--text-muted);flex:1;min-width:120px">
-              <button class="btn btn-primary btn-sm" onclick="doBankImport()">Import</button>
+              <button class="btn btn-primary btn-sm" data-action="doBankImport">Import</button>
             </div>
             <div id="bank-import-status" style="font-size:12px;min-height:18px;margin-top:6px"></div>
           </div>
@@ -764,7 +764,7 @@
             <div class="chat-roster-title">Active Students</div>
             <div class="chat-roster-sub" id="chat-roster-sub">Not connected</div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="openBroadcastModal()" title="Send a message to every online student">Broadcast</button>
+          <button class="btn btn-ghost btn-sm" data-action="openBroadcastModal" title="Send a message to every online student">Broadcast</button>
         </div>
         <div class="chat-roster-body" id="chat-roster-body">
           <div class="chat-empty">No students online yet.</div>
@@ -778,7 +778,7 @@
         <div class="chat-thread-body" id="chat-thread-body">
           <div class="chat-empty-lg">Pick a student on the left to start chatting.</div>
         </div>
-        <form class="chat-composer" id="chat-composer" onsubmit="return sendTeacherMsg(event)">
+        <form class="chat-composer" id="chat-composer" data-submit="sendTeacherMsg">
           <textarea id="chat-input" placeholder="Type a reply&hellip; (Enter to send, Shift+Enter for newline)" rows="2" disabled></textarea>
           <button type="submit" class="btn btn-primary btn-sm" id="chat-send" disabled>Send</button>
         </form>
@@ -787,9 +787,9 @@
   </div>
 
   <!-- BROADCAST MODAL (Phase 2 design) -->
-  <div class="modal-bg" id="broadcast-modal" onclick="if(event.target===this)closeBroadcastModal()">
+  <div class="modal-bg" id="broadcast-modal" data-action="closeBroadcastModal" data-guard-self>
     <div class="modal" style="width:480px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-xl)">
-      <button class="close" onclick="closeBroadcastModal()">&times;</button>
+      <button class="close" data-action="closeBroadcastModal">&times;</button>
       <h3 style="margin:0 0 8px;color:var(--text-high);font-family:var(--font-display);font-weight:600">Broadcast to all students</h3>
       <p style="color:var(--text-muted);font-size:var(--text-sm,13px);margin-bottom:16px;line-height:1.5">
         This message will be delivered to every student currently online under your exam.
@@ -798,8 +798,8 @@
         class="input" style="width:100%;min-height:90px;resize:vertical;box-sizing:border-box"></textarea>
       <div id="broadcast-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--sev-success-fg,var(--emerald))"></div>
       <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
-        <button class="btn btn-secondary btn-sm" onclick="closeBroadcastModal()">Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick="sendBroadcast()">Send Broadcast</button>
+        <button class="btn btn-secondary btn-sm" data-action="closeBroadcastModal">Cancel</button>
+        <button class="btn btn-primary btn-sm" data-action="sendBroadcast">Send Broadcast</button>
       </div>
     </div>
   </div>
@@ -944,7 +944,7 @@
               <div style="display:flex;gap:8px;align-items:center">
                 <input type="text" id="share-register-link" readonly
                   style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
-                <button class="btn btn-primary btn-sm" onclick="copyLink('share-register-link')" style="white-space:nowrap;padding:10px 16px">Copy</button>
+                <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-register-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
               </div>
             </div>
             <div>
@@ -952,7 +952,7 @@
               <div style="display:flex;gap:8px;align-items:center">
                 <input type="text" id="share-download-link" readonly
                   style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
-                <button class="btn btn-primary btn-sm" onclick="copyLink('share-download-link')" style="white-space:nowrap;padding:10px 16px">Copy</button>
+                <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-download-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
               </div>
             </div>
           </div>
@@ -978,7 +978,7 @@
                   style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px">
                   <option value="">— or pull from a group —</option>
                 </select>
-                <button class="btn btn-secondary btn-sm" onclick="pullGroupIntoInvites()" style="padding:6px 12px;font-size:12px">Load Group</button>
+                <button class="btn btn-secondary btn-sm" data-action="pullGroupIntoInvites" style="padding:6px 12px;font-size:12px">Load Group</button>
                 <a href="data:text/csv;charset=utf-8,full_name,email,roll_number%0AAlice%20Smith,alice@school.edu,R001" download="invite-template.csv"
                   style="color:var(--muted);font-size:11px;text-decoration:underline">template</a>
               </div>
@@ -999,9 +999,9 @@
           </div>
         </div>
         <div class="tool-card-actions" style="margin-top:8px">
-          <button class="btn btn-primary btn-sm" id="btn-invite-send" onclick="sendInvites()">Send Invites</button>
-          <button class="btn btn-secondary btn-sm" onclick="loadInvites()">Refresh List</button>
-          <button class="btn btn-secondary btn-sm" onclick="resendBouncedInvites()" style="color:var(--amber)">Resend Bounced</button>
+          <button class="btn btn-primary btn-sm" id="btn-invite-send" data-action="sendInvites">Send Invites</button>
+          <button class="btn btn-secondary btn-sm" data-action="loadInvites">Refresh List</button>
+          <button class="btn btn-secondary btn-sm" data-action="resendBouncedInvites" style="color:var(--amber)">Resend Bounced</button>
         </div>
         <div class="tool-card-result" id="invite-result" style="font-size:12px;min-height:18px"></div>
 
@@ -1054,12 +1054,12 @@
             <div style="margin-bottom:6px;max-height:200px;overflow-y:auto" id="google-course-list"></div>
             <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Link to exam:</label>
             <select id="google-exam-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text);font-size:12px;margin-bottom:8px"></select>
-            <button class="btn btn-primary btn-sm" onclick="syncGoogleRoster()" style="margin-right:6px">Sync roster</button>
-            <button class="btn btn-secondary btn-sm" onclick="disconnectGoogle()">Disconnect</button>
+            <button class="btn btn-primary btn-sm" data-action="syncGoogleRoster" style="margin-right:6px">Sync roster</button>
+            <button class="btn btn-secondary btn-sm" data-action="disconnectGoogle">Disconnect</button>
           </div>
         </div>
         <div class="tool-card-actions" id="google-actions">
-          <button class="btn btn-primary btn-sm" id="google-connect-btn" onclick="connectGoogle()" style="display:none">Connect Google Classroom</button>
+          <button class="btn btn-primary btn-sm" id="google-connect-btn" data-action="connectGoogle" style="display:none">Connect Google Classroom</button>
           <div id="google-spinner" class="spinner" style="display:none"></div>
         </div>
         <div class="tool-card-result" id="google-result" style="font-size:12px"></div>
@@ -1071,7 +1071,7 @@
           <p>Recompute risk scores for all completed sessions. Use after first deployment or formula update.</p>
         </div>
         <div class="tool-card-actions">
-          <button class="btn btn-primary btn-sm" id="btn-backfill" onclick="doBackfill()">Run Backfill</button>
+          <button class="btn btn-primary btn-sm" id="btn-backfill" data-action="doBackfill">Run Backfill</button>
         </div>
         <div class="tool-card-result" id="backfill-result" style="color:var(--emerald)"></div>
       </div>
@@ -1082,7 +1082,7 @@
           <p>Delete screenshots older than 7 days to free disk space.</p>
         </div>
         <div class="tool-card-actions">
-          <button class="btn btn-secondary btn-sm" onclick="doCleanup()">Run Cleanup</button>
+          <button class="btn btn-secondary btn-sm" data-action="doCleanup">Run Cleanup</button>
         </div>
         <div class="tool-card-result" id="cleanup-result" style="color:var(--emerald)"></div>
       </div>
@@ -1102,7 +1102,7 @@
           <div class="tool-card-result" id="clear-live-preview" style="font-size:12px;color:var(--muted)"></div>
         </div>
         <div class="tool-card-actions">
-          <button class="btn btn-secondary btn-sm" id="clear-live-btn" onclick="clearLiveSessionsStep()" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Clear Sessions</button>
+          <button class="btn btn-secondary btn-sm" id="clear-live-btn" data-action="clearLiveSessionsStep" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Clear Sessions</button>
         </div>
         <div class="tool-card-result" id="clear-live-result" style="font-size:12px"></div>
       </div>
@@ -1113,7 +1113,7 @@
           <p>View sessions where submission failed and may need admin force-submit.</p>
         </div>
         <div class="tool-card-actions">
-          <button class="btn btn-secondary btn-sm" onclick="loadFailed()">Check Failed</button>
+          <button class="btn btn-secondary btn-sm" data-action="loadFailed">Check Failed</button>
         </div>
         <div class="tool-card-result" id="failed-result"></div>
       </div>
@@ -1127,9 +1127,9 @@
           </div>
         </div>
         <div class="tool-card-actions">
-          <button class="btn btn-primary btn-sm" onclick="saveAccessCode()">Save</button>
-          <button class="btn btn-secondary btn-sm" onclick="generateAccessCode()">Generate</button>
-          <button class="btn btn-secondary btn-sm" onclick="clearAccessCode()" style="color:var(--red)">Clear</button>
+          <button class="btn btn-primary btn-sm" data-action="saveAccessCode">Save</button>
+          <button class="btn btn-secondary btn-sm" data-action="generateAccessCode">Generate</button>
+          <button class="btn btn-secondary btn-sm" data-action="clearAccessCode" style="color:var(--red)">Clear</button>
         </div>
         <div class="tool-card-result" id="access-code-status" style="font-size:12px"></div>
       </div>
@@ -1148,8 +1148,8 @@
           </div>
         </div>
         <div class="tool-card-actions">
-          <button class="btn btn-primary btn-sm" onclick="saveSchedule()">Save Schedule</button>
-          <button class="btn btn-secondary btn-sm" onclick="clearSchedule()" style="color:var(--red)">Clear</button>
+          <button class="btn btn-primary btn-sm" data-action="saveSchedule">Save Schedule</button>
+          <button class="btn btn-secondary btn-sm" data-action="clearSchedule" style="color:var(--red)">Clear</button>
         </div>
         <div class="tool-card-result" id="schedule-status" style="font-size:12px"></div>
       </div>
@@ -1163,7 +1163,7 @@
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
             <input type="text" id="new-group-name" placeholder="New group name"
               style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
-            <button class="btn btn-primary btn-sm" onclick="createGroup()" style="white-space:nowrap">Create Group</button>
+            <button class="btn btn-primary btn-sm" data-action="createGroup" style="white-space:nowrap">Create Group</button>
           </div>
           <div id="group-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--emerald)"></div>
 
@@ -1171,14 +1171,14 @@
           <div id="group-detail" style="display:none;margin-top:16px;padding:16px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
               <h4 id="group-detail-name" style="margin:0;font-size:14px;color:var(--accent-light)"></h4>
-              <button class="btn btn-secondary btn-sm" onclick="closeGroupDetail()" style="padding:4px 10px;font-size:11px">Close</button>
+              <button class="btn btn-secondary btn-sm" data-action="closeGroupDetail" style="padding:4px 10px;font-size:11px">Close</button>
             </div>
             <div id="group-members-list" style="margin-bottom:12px"></div>
             <div id="group-members-empty" style="color:var(--muted);font-size:12px;margin-bottom:10px">No members yet — enter roll numbers above and click Add.</div>
             <div style="display:flex;gap:8px;align-items:center">
               <input type="text" id="add-member-rolls" placeholder="Roll numbers (comma-separated)"
                 style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
-              <button class="btn btn-primary btn-sm" onclick="addGroupMembers()" style="white-space:nowrap">Add</button>
+              <button class="btn btn-primary btn-sm" data-action="addGroupMembers" style="white-space:nowrap">Add</button>
             </div>
           </div>
 
@@ -1192,7 +1192,7 @@
                 style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
                 <option value="">Select a group to restrict access...</option>
               </select>
-              <button class="btn btn-primary btn-sm" onclick="assignGroupToExam()" style="white-space:nowrap">Assign</button>
+              <button class="btn btn-primary btn-sm" data-action="assignGroupToExam" style="white-space:nowrap">Assign</button>
             </div>
           </div>
         </div>
@@ -1208,7 +1208,7 @@
                 <option value="">Select exam to save as template…</option>
               </select>
               <input type="text" id="template-name-input" placeholder="Template name (e.g. Math Midterm v2)" style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
-              <button class="btn btn-primary btn-sm" onclick="saveTemplate()">Save Template</button>
+              <button class="btn btn-primary btn-sm" data-action="saveTemplate">Save Template</button>
             </div>
             <div id="templates-list" style="border-top:1px solid var(--border);padding-top:12px"></div>
             <div id="templates-empty" style="color:var(--muted);font-size:13px">No templates yet — configure an exam above and click Save Template.</div>
@@ -1222,17 +1222,17 @@
 </div>
 
 <!-- DETAIL MODAL -->
-<div class="modal-bg" id="detail-modal" onclick="if(event.target===this)closeModal()">
+<div class="modal-bg" id="detail-modal" data-action="closeModal" data-guard-self>
   <div class="modal">
-    <button class="close" onclick="closeModal()">&times;</button>
+    <button class="close" data-action="closeModal">&times;</button>
     <h3 id="modal-title">Session Detail</h3>
     <div class="detail-grid" id="modal-info"></div>
     <div class="breakdown" id="modal-breakdown"></div>
     <div id="modal-answers" style="margin-top:20px"></div>
     <div style="margin-top:20px;display:flex;gap:10px">
-      <button class="btn btn-secondary btn-sm" id="modal-pdf" onclick="downloadPDF()">Download PDF</button>
-      <button class="btn btn-secondary btn-sm" id="modal-risk" onclick="viewRiskDetail()">Full Risk Breakdown</button>
-      <button class="btn btn-primary btn-sm" id="modal-timeline" onclick="openTimeline()">Forensics Timeline</button>
+      <button class="btn btn-secondary btn-sm" id="modal-pdf" data-action="downloadPDF">Download PDF</button>
+      <button class="btn btn-secondary btn-sm" id="modal-risk" data-action="viewRiskDetail">Full Risk Breakdown</button>
+      <button class="btn btn-primary btn-sm" id="modal-timeline" data-action="openTimeline">Forensics Timeline</button>
     </div>
   </div>
 </div>
@@ -1249,9 +1249,9 @@
      Designed to be skippable at any time (no friction — a teacher
      who hits "Skip" should never be re-prompted unless they opt
      back in via the topbar). -->
-<div class="modal-bg hidden" id="onboard-modal" onclick="if(event.target===this)onboardSkip()">
+<div class="modal-bg hidden" id="onboard-modal" data-action="onboardSkip" data-guard-self>
   <div class="modal" style="max-width:580px;padding:32px">
-    <button class="close" onclick="onboardSkip()">&times;</button>
+    <button class="close" data-action="onboardSkip">&times;</button>
 
     <!-- Step indicator dots — click to jump. Cheap to implement,
          high perceived value: makes the wizard feel like a guided
@@ -1261,18 +1261,18 @@
     <div id="onboard-content" style="min-height:240px"></div>
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;gap:10px">
-      <button class="btn btn-secondary btn-sm" id="onboard-skip-btn" onclick="onboardSkip()" style="color:var(--text-muted)">Skip tour</button>
+      <button class="btn btn-secondary btn-sm" id="onboard-skip-btn" data-action="onboardSkip" style="color:var(--text-muted)">Skip tour</button>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" id="onboard-prev-btn" onclick="onboardPrev()">← Back</button>
-        <button class="btn btn-primary btn-sm" id="onboard-next-btn" onclick="onboardNext()">Next →</button>
+        <button class="btn btn-secondary btn-sm" id="onboard-prev-btn" data-action="onboardPrev">← Back</button>
+        <button class="btn btn-primary btn-sm" id="onboard-next-btn" data-action="onboardNext">Next →</button>
       </div>
     </div>
   </div>
 </div>
 
-<div class="modal-bg hidden" id="liveview-modal" onclick="if(event.target===this)closeLiveView()">
+<div class="modal-bg hidden" id="liveview-modal" data-action="closeLiveView" data-guard-self>
   <div class="modal" style="max-width:560px">
-    <button class="close" onclick="closeLiveView()">&times;</button>
+    <button class="close" data-action="closeLiveView">&times;</button>
     <h3 style="margin-bottom:4px">Live Camera</h3>
     <div id="liveview-meta" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);margin-bottom:14px"></div>
     <div id="liveview-frame-wrap" style="position:relative;background:#000;border:1px solid var(--border);border-radius:8px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center">
@@ -1287,7 +1287,7 @@
       <span id="liveview-ts"></span>
     </div>
     <div style="margin-top:14px;display:flex;gap:10px">
-      <button class="btn btn-secondary btn-sm" onclick="closeLiveView()" style="flex:1">Stop & Close</button>
+      <button class="btn btn-secondary btn-sm" data-action="closeLiveView" style="flex:1">Stop & Close</button>
     </div>
     <p style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.5">
       The student's app uploads one frame every ~1.5 s while this panel is open.
@@ -1297,9 +1297,9 @@
 </div>
 
 <!-- ── ROOM CAMERA MODAL ────────────────────────────────────────── -->
-<div class="modal-bg hidden" id="roomcam-modal" onclick="if(event.target===this)closeRoomCamView()">
+<div class="modal-bg hidden" id="roomcam-modal" data-action="closeRoomCamView" data-guard-self>
   <div class="modal" style="max-width:560px">
-    <button class="close" onclick="closeRoomCamView()">&times;</button>
+    <button class="close" data-action="closeRoomCamView">&times;</button>
     <h3 style="margin-bottom:4px">Room Camera</h3>
     <div id="roomcam-meta" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);margin-bottom:14px"></div>
     <div style="position:relative;background:#000;border:1px solid var(--border);border-radius:8px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center">
@@ -1314,9 +1314,9 @@
       <span id="roomcam-ts"></span>
     </div>
     <div style="margin-top:14px;display:flex;gap:10px">
-      <button class="btn btn-success btn-sm" id="roomcam-approve-btn" onclick="roomCamApprove()" style="flex:1;background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Approve</button>
-      <button class="btn btn-danger btn-sm" onclick="roomCamReject()" style="flex:1">Reject</button>
-      <button class="btn btn-secondary btn-sm" onclick="closeRoomCamView()" style="flex:1">Close</button>
+      <button class="btn btn-success btn-sm" id="roomcam-approve-btn" data-action="roomCamApprove" style="flex:1;background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Approve</button>
+      <button class="btn btn-danger btn-sm" data-action="roomCamReject" style="flex:1">Reject</button>
+      <button class="btn btn-secondary btn-sm" data-action="closeRoomCamView" style="flex:1">Close</button>
     </div>
     <div id="roomcam-result" style="font-size:11px;text-align:center;margin-top:8px;color:var(--muted)"></div>
   </div>
@@ -1325,9 +1325,9 @@
 <!-- ── AI Insight modal — one-line LLM TL;DR of a session's recent
      violations. Backed by GET /api/admin/sessions/{sid}/triage which
      caches 60s in Redis so re-opens are instant. -->
-<div class="modal-bg hidden" id="triage-modal" onclick="if(event.target===this)closeTriage()">
+<div class="modal-bg hidden" id="triage-modal" data-action="closeTriage" data-guard-self>
   <div class="modal" style="max-width:560px">
-    <button class="close" onclick="closeTriage()">&times;</button>
+    <button class="close" data-action="closeTriage">&times;</button>
     <h3 style="margin-bottom:6px;display:flex;align-items:center;gap:8px">
       <span style="color:var(--accent)">✨</span> AI Insight
     </h3>
@@ -1347,16 +1347,16 @@
       Generated by Llama 3.3 70B from the last 80 violation events. Cached for 60 s — close and re-open for a fresh take. AI is a starting point, not a verdict; review the full timeline before acting.
     </p>
     <div style="margin-top:14px;display:flex;gap:10px">
-      <button class="btn btn-secondary btn-sm" onclick="closeTriage()" style="flex:1">Close</button>
-      <button class="btn btn-primary btn-sm" onclick="_triageOpenTimeline()" id="triage-open-timeline" style="flex:1">Open full timeline →</button>
+      <button class="btn btn-secondary btn-sm" data-action="closeTriage" style="flex:1">Close</button>
+      <button class="btn btn-primary btn-sm" data-action="_triageOpenTimeline" id="triage-open-timeline" style="flex:1">Open full timeline →</button>
     </div>
   </div>
 </div>
 
 <!-- GRADE REVIEW MODAL — short-answer AI grading -->
-<div class="modal-bg hidden" id="grade-modal" onclick="if(event.target===this)closeGradeReview()">
+<div class="modal-bg hidden" id="grade-modal" data-action="closeGradeReview" data-guard-self>
   <div class="modal" style="width:920px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column">
-    <button class="close" onclick="closeGradeReview()">&times;</button>
+    <button class="close" data-action="closeGradeReview">&times;</button>
     <h3 style="margin-bottom:4px;display:flex;align-items:center;gap:8px">
       <span style="color:var(--accent)">✏️</span> Review short-answer responses
     </h3>
@@ -1365,12 +1365,12 @@
       <span id="grade-meta" style="margin-left:8px;font-family:var(--font-mono)"></span>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-      <button class="btn btn-secondary btn-sm" onclick="loadPendingGrades()">Refresh</button>
-      <button class="btn btn-primary btn-sm" id="grade-suggest-btn" onclick="runGradeSuggest()" title="Send all un-suggested answers to the AI grader">Suggest grades</button>
-      <button class="btn btn-success btn-sm" onclick="gradeBulkAccept('all')" id="grade-accept-all-btn" title="Accept all suggested AI grades" style="background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Accept all</button>
-      <button class="btn btn-danger btn-sm" onclick="gradeBulkAccept('high')" id="grade-accept-high-btn" title="Only accept high-confidence suggestions" style="color:var(--amber);border-color:var(--amber)">Accept high conf</button>
-      <button class="btn btn-danger btn-sm" onclick="gradeBulkReject()" id="grade-reject-all-btn" title="Reject all pending and set to 0" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Reject all</button>
-      <button class="btn btn-ghost btn-sm" onclick="toggleGradeAudit()" id="grade-audit-btn" title="View past AI grading decisions">Audit trail</button>
+      <button class="btn btn-secondary btn-sm" data-action="loadPendingGrades">Refresh</button>
+      <button class="btn btn-primary btn-sm" id="grade-suggest-btn" data-action="runGradeSuggest" title="Send all un-suggested answers to the AI grader">Suggest grades</button>
+      <button class="btn btn-success btn-sm" data-action="gradeBulkAccept" data-args='["all"]' id="grade-accept-all-btn" title="Accept all suggested AI grades" style="background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Accept all</button>
+      <button class="btn btn-danger btn-sm" data-action="gradeBulkAccept" data-args='["high"]' id="grade-accept-high-btn" title="Only accept high-confidence suggestions" style="color:var(--amber);border-color:var(--amber)">Accept high conf</button>
+      <button class="btn btn-danger btn-sm" data-action="gradeBulkReject" id="grade-reject-all-btn" title="Reject all pending and set to 0" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Reject all</button>
+      <button class="btn btn-ghost btn-sm" data-action="toggleGradeAudit" id="grade-audit-btn" title="View past AI grading decisions">Audit trail</button>
       <span id="grade-summary" style="margin-left:auto;align-self:center;font-size:11px;color:var(--muted)"></span>
     </div>
     <div id="grade-list" style="overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
@@ -1384,22 +1384,22 @@
 </div>
 
 <!-- ── UPGRADE MODAL (shown on student limit / trial expiry) ──── -->
-<div class="modal-bg hidden" id="upgrade-modal" onclick="if(event.target===this)closeUpgradeModal()">
+<div class="modal-bg hidden" id="upgrade-modal" data-action="closeUpgradeModal" data-guard-self>
   <div class="modal" style="max-width:500px">
-    <button class="close" onclick="closeUpgradeModal()">&times;</button>
+    <button class="close" data-action="closeUpgradeModal">&times;</button>
     <h3 id="upgrade-title" style="margin-bottom:4px">Upgrade your plan</h3>
     <p id="upgrade-desc" style="color:var(--text-muted);font-size:13px;margin-bottom:16px;line-height:1.5">
       You've reached the student limit for your current plan.
     </p>
     <div id="upgrade-plan-cards" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
-      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center" onclick="upgradePlan('starter')">
+      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center" data-action="upgradePlan" data-args='["starter"]'>
         <div class="tool-card-body">
           <h3 style="font-size:13px">Starter</h3>
           <p style="font-size:20px;font-weight:700;color:var(--text-high);margin:4px 0">₹2,400</p>
           <p style="font-size:11px;color:var(--text-muted)">30 students</p>
         </div>
       </div>
-      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center;border-color:var(--accent)" onclick="upgradePlan('growth')">
+      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center;border-color:var(--accent)" data-action="upgradePlan" data-args='["growth"]'>
         <div class="tool-card-body">
           <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--accent);margin-bottom:2px">Popular</div>
           <h3 style="font-size:13px">Growth</h3>
@@ -1407,7 +1407,7 @@
           <p style="font-size:11px;color:var(--text-muted)">150 students</p>
         </div>
       </div>
-      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center" onclick="upgradePlan('pro')">
+      <div class="tool-card" style="cursor:pointer;padding:14px;text-align:center" data-action="upgradePlan" data-args='["pro"]'>
         <div class="tool-card-body">
           <h3 style="font-size:13px">Pro</h3>
           <p style="font-size:20px;font-weight:700;color:var(--text-high);margin:4px 0">₹30,000</p>
@@ -1417,15 +1417,15 @@
     </div>
     <div id="upgrade-modal-status" style="font-size:12px;text-align:center;color:var(--text-muted)"></div>
     <div style="margin-top:12px;text-align:center">
-      <button class="btn btn-secondary btn-sm" onclick="closeUpgradeModal()" style="margin-right:8px">Later</button>
+      <button class="btn btn-secondary btn-sm" data-action="closeUpgradeModal" style="margin-right:8px">Later</button>
     </div>
   </div>
 </div>
 
 <!-- TIMELINE MODAL -->
-<div class="modal-bg" id="timeline-modal" onclick="if(event.target===this)closeTimeline()">
+<div class="modal-bg" id="timeline-modal" data-action="closeTimeline" data-guard-self>
   <div class="modal" style="width:900px;max-width:95vw">
-    <button class="close" onclick="closeTimeline()">&times;</button>
+    <button class="close" data-action="closeTimeline">&times;</button>
     <h3 id="tl-title">Forensics Timeline</h3>
     <div class="tl-meta" id="tl-meta"></div>
     <!-- AI-generated narrative summary -->
@@ -1454,7 +1454,7 @@
     <!-- Event list -->
     <div class="tl-events" id="tl-events"></div>
     <!-- Screenshot lightbox -->
-    <div class="tl-lightbox" id="tl-lightbox" onclick="closeLightbox()">
+    <div class="tl-lightbox" id="tl-lightbox" data-action="closeLightbox">
       <img id="tl-lightbox-img" src="">
       <div class="tl-lightbox-caption" id="tl-lightbox-caption"></div>
     </div>
@@ -1502,7 +1502,7 @@
       <div class="table-toolbar" style="margin:0;border-radius:0;border-left:0;border-right:0;border-top:0">
         <span class="org-card-title" style="margin:0">Team</span>
         <div style="margin-left:auto">
-          <button class="btn btn-primary btn-sm" onclick="showInviteTeacherModal()">+ Invite Teacher</button>
+          <button class="btn btn-primary btn-sm" data-action="showInviteTeacherModal">+ Invite Teacher</button>
         </div>
       </div>
       <table id="members-table" style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1514,15 +1514,15 @@
 </div>
 
 <!-- INVITE TEACHER MODAL -->
-<div class="modal-overlay" id="invite-modal" style="display:none" onclick="if(event.target===this)hideInviteTeacherModal()">
+<div class="modal-overlay" id="invite-modal" style="display:none" data-action="hideInviteTeacherModal" data-guard-self>
   <div class="modal" style="max-width:420px">
     <h3 style="margin:0 0 16px;color:var(--text-primary)">Invite Teacher</h3>
     <input type="email" id="invite-email" placeholder="teacher@institution.edu" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:12px;outline:none;box-sizing:border-box">
     <input type="text" id="invite-name" placeholder="Full Name (optional)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:16px;outline:none;box-sizing:border-box">
     <div id="teacher-invite-result" style="font-size:13px;margin-bottom:12px"></div>
     <div style="display:flex;gap:10px">
-      <button class="btn btn-secondary btn-sm" onclick="hideInviteTeacherModal()" style="flex:1">Cancel</button>
-      <button class="btn btn-primary btn-sm" onclick="doInviteTeacher()" style="flex:1">Send Invite</button>
+      <button class="btn btn-secondary btn-sm" data-action="hideInviteTeacherModal" style="flex:1">Cancel</button>
+      <button class="btn btn-primary btn-sm" data-action="doInviteTeacher" style="flex:1">Send Invite</button>
     </div>
   </div>
 </div>
@@ -1555,7 +1555,7 @@
            in dashboard-app.js toggle .is-current without rebuilding the
            DOM. -->
       <div id="billing-plans" class="plan-grid">
-        <article class="plan-tile" data-plan="starter" onclick="upgradePlan('starter')">
+        <article class="plan-tile" data-plan="starter" data-action="upgradePlan" data-args='["starter"]'>
           <header class="plan-head">
             <h3 class="plan-name">Starter</h3>
             <p class="plan-summary">For small classrooms getting started</p>
@@ -1571,10 +1571,10 @@
             <li>Full AI proctoring</li>
             <li>Email support</li>
           </ul>
-          <button class="btn btn-secondary plan-cta" type="button" onclick="event.stopPropagation();upgradePlan('starter')">Choose Starter</button>
+          <button class="btn btn-secondary plan-cta" type="button" data-action="upgradePlan" data-args='["starter"]'>Choose Starter</button>
         </article>
 
-        <article class="plan-tile is-recommended" data-plan="growth" onclick="upgradePlan('growth')">
+        <article class="plan-tile is-recommended" data-plan="growth" data-action="upgradePlan" data-args='["growth"]'>
           <span class="plan-ribbon">Recommended</span>
           <header class="plan-head">
             <h3 class="plan-name">Growth</h3>
@@ -1591,10 +1591,10 @@
             <li>Bulk student import</li>
             <li>Priority email + chat support</li>
           </ul>
-          <button class="btn btn-primary plan-cta" type="button" onclick="event.stopPropagation();upgradePlan('growth')">Choose Growth</button>
+          <button class="btn btn-primary plan-cta" type="button" data-action="upgradePlan" data-args='["growth"]'>Choose Growth</button>
         </article>
 
-        <article class="plan-tile" data-plan="pro" onclick="upgradePlan('pro')">
+        <article class="plan-tile" data-plan="pro" data-action="upgradePlan" data-args='["pro"]'>
           <header class="plan-head">
             <h3 class="plan-name">Pro</h3>
             <p class="plan-summary">For institutions running entrance tests</p>
@@ -1610,7 +1610,7 @@
             <li>LTI 1.3 LMS integration</li>
             <li>Dedicated onboarding</li>
           </ul>
-          <button class="btn btn-secondary plan-cta" type="button" onclick="event.stopPropagation();upgradePlan('pro')">Choose Pro</button>
+          <button class="btn btn-secondary plan-cta" type="button" data-action="upgradePlan" data-args='["pro"]'>Choose Pro</button>
         </article>
       </div>
       <div class="plan-result-row">
@@ -1647,7 +1647,7 @@
       <h2 class="org-card-title">Organization name</h2>
       <input type="text" id="settings-org-name" class="search-input" style="width:100%;box-sizing:border-box;margin-bottom:16px" placeholder="Your organization name">
       <div style="display:flex;gap:12px;align-items:center">
-        <button class="btn btn-primary" onclick="saveOrgName()">Save Changes</button>
+        <button class="btn btn-primary" data-action="saveOrgName">Save Changes</button>
         <span id="settings-result" style="font-size:13px;color:var(--text-muted)"></span>
       </div>
     </div>
@@ -1674,8 +1674,8 @@
           <p id="security-2fa-email-unverified" style="display:none;font-size:12px;color:var(--amber);margin-top:8px">Verify your email address first — we'll send 2FA codes there.</p>
         </div>
         <div class="tool-card-actions" id="security-2fa-actions">
-          <button class="btn btn-primary btn-sm" id="security-2fa-enable-btn" onclick="enable2FA()" style="display:none">Enable Two-Factor Auth</button>
-          <button class="btn btn-secondary btn-sm" id="security-2fa-disable-btn" onclick="disable2FA()" style="display:none;color:var(--red)">Disable Two-Factor Auth</button>
+          <button class="btn btn-primary btn-sm" id="security-2fa-enable-btn" data-action="enable2FA" style="display:none">Enable Two-Factor Auth</button>
+          <button class="btn btn-secondary btn-sm" id="security-2fa-disable-btn" data-action="disable2FA" style="display:none;color:var(--red)">Disable Two-Factor Auth</button>
           <span id="security-2fa-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
         </div>
       </div>
@@ -1687,7 +1687,7 @@
           <div id="security-sessions" style="margin-top:10px;max-height:300px;overflow-y:auto"></div>
         </div>
         <div class="tool-card-actions">
-          <button class="btn btn-secondary btn-sm" onclick="revokeOtherSessions()">Sign out other devices</button>
+          <button class="btn btn-secondary btn-sm" data-action="revokeOtherSessions">Sign out other devices</button>
           <span id="security-sessions-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
         </div>
       </div>
@@ -1748,7 +1748,7 @@
       <option value="">All orgs</option>
     </select>
     <div class="toolbar-right">
-      <button class="btn btn-primary btn-sm" onclick="loadIssues()">Refresh</button>
+      <button class="btn btn-primary btn-sm" data-action="loadIssues">Refresh</button>
     </div>
   </div>
   <div class="issues-layout">
@@ -1774,13 +1774,13 @@
 </div>
 
 <!-- REPORT ISSUE BUTTON + MODAL (teacher only) -->
-<button class="flag-fab" id="report-issue-fab" data-roles="teacher" onclick="openIssueReport()" style="display:none">
+<button class="flag-fab" id="report-issue-fab" data-roles="teacher" data-action="openIssueReport" style="display:none">
   <span aria-hidden="true">⚑</span>
   Report Issue
 </button>
-<div class="modal-bg hidden" id="issue-report-modal" onclick="if(event.target===this)closeIssueReport()">
+<div class="modal-bg hidden" id="issue-report-modal" data-action="closeIssueReport" data-guard-self>
   <div class="modal" style="max-width:520px">
-    <button class="close" onclick="closeIssueReport()">&times;</button>
+    <button class="close" data-action="closeIssueReport">&times;</button>
     <h3 style="margin-bottom:6px">Report Issue</h3>
     <p style="color:var(--muted);font-size:12px;margin:0 0 14px;line-height:1.5">Send a bug, question, or session concern to Procta support.</p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
@@ -1811,8 +1811,8 @@
     <div id="issue-context-label" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
     <div id="issue-report-error" style="font-size:12px;color:var(--red);min-height:18px;margin-top:8px"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
-      <button class="btn btn-secondary btn-sm" onclick="closeIssueReport()">Cancel</button>
-      <button class="btn btn-primary btn-sm" id="issue-submit-btn" onclick="submitIssueReport()">Submit</button>
+      <button class="btn btn-secondary btn-sm" data-action="closeIssueReport">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="issue-submit-btn" data-action="submitIssueReport">Submit</button>
     </div>
   </div>
 </div>
@@ -1834,12 +1834,12 @@
 </div>
 
 <script src="/static/dashboard-app.js" defer></script>
-<div id="modal-overlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+<div id="modal-overlay" class="modal-overlay" style="display:none" data-action="closeModal" data-guard-self>
   <div class="modal-box">
     <div class="modal-title" id="modal-title"></div>
     <div class="modal-body" id="modal-body"></div>
     <div class="modal-actions">
-      <button class="modal-btn" onclick="closeModal()">OK</button>
+      <button class="modal-btn" data-action="closeModal">OK</button>
     </div>
   </div>
 </div>

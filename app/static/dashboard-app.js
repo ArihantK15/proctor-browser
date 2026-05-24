@@ -6021,3 +6021,29 @@ function clearAlertBadge(){
   const badge = document.getElementById('live-alert-badge');
   if(badge) badge.style.display = 'none';
 }
+
+// ── Wrappers for compound onclick handlers migrated from HTML ────
+function toggleBankShowImport(){ toggleBank(); showBankImport(); }
+function switchTabLiveClearBadge(){ switchTab('live'); clearAlertBadge(); }
+
+// ── Delegated listeners replacing inline onclick/onsubmit ────────
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el || !el.dataset.action) return;
+  if (el.dataset.guardSelf !== undefined && e.target !== el) return;
+  if (e.target.closest('a') === el) e.preventDefault();
+  const fn = window[el.dataset.action];
+  if (typeof fn !== 'function') return;
+  const argsRaw = el.dataset.args || '[]';
+  let args = [];
+  try { args = JSON.parse(argsRaw); } catch (_) {}
+  fn.apply(null, args);
+});
+
+document.addEventListener('submit', (e) => {
+  const el = e.target.closest('[data-submit]');
+  if (!el || !el.dataset.submit) return;
+  e.preventDefault();
+  const fn = window[el.dataset.submit];
+  if (typeof fn === 'function') fn();
+});

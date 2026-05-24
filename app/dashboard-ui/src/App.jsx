@@ -108,7 +108,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="auth-card" style={{ margin: '100px auto', maxWidth: 380 }}>
+    <div className="auth-card dashboard-login-card">
       <h2>Procta Dashboard</h2>
       <p>Sign in to your account</p>
       {error && <div className="auth-err">{error}</div>}
@@ -285,7 +285,7 @@ function DashboardShell() {
           </button>
         ))}
       </div>
-      <div className="container" style={{ padding: '20px 24px' }}>
+      <div className="container dashboard-react-container">
         {showDemoCta && (
           <ActivationBanner
             onDismiss={() => {

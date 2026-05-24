@@ -27,7 +27,7 @@ export default function Comparison() {
         </div>
 
         <div
-          className="mt-12 relative overflow-hidden rounded-2xl border border-white/[0.06]"
+          className="table-scroll mt-12 relative rounded-2xl border border-white/[0.06]"
         >
           {/* Accent top line */}
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent z-10" />

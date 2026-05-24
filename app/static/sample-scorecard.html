@@ -7,7 +7,9 @@
 <title>Sample Scorecard - Procta</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fafc;color:#1e293b;line-height:1.65;padding:40px;max-width:900px;margin:0 auto}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fafc;color:#1e293b;line-height:1.65;padding:clamp(16px,4vw,40px);max-width:min(900px,100%);margin:0 auto;overflow-x:hidden}
+table{min-width:620px}
+.section{overflow-x:auto}
 .sheet{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:28px;box-shadow:0 1px 3px rgba(15,23,42,.08)}
 h1{font-size:28px;color:#0f172a} h2{font-size:17px;margin:26px 0 10px;color:#0f172a}
 .sub{color:#64748b;margin:4px 0 20px}

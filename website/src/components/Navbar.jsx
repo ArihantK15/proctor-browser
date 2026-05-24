@@ -25,7 +25,7 @@ export default function Navbar() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-navy-950/80 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
         <Link to="/" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2.5 no-underline">
           {/* Brand chip — shield+eye mark, white on accent. Matches the
               favicon family (which is the same mark, blue on navy) so the
@@ -73,16 +73,17 @@ export default function Navbar() {
 
         <button
           onClick={() => setOpen(!open)}
-          className="text-slate-400 md:hidden bg-transparent border-none cursor-pointer"
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 md:hidden bg-transparent border-none cursor-pointer transition-colors hover:bg-white/5 hover:text-white"
           aria-label="Toggle menu"
+          aria-expanded={open}
         >
           {open ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
 
       {open && (
-        <div className="border-t border-white/5 bg-navy-950/95 backdrop-blur-xl md:hidden">
-          <div className="flex flex-col gap-1 px-6 py-4">
+        <div className="max-h-[calc(100dvh-64px)] overflow-y-auto border-t border-white/5 bg-navy-950/95 backdrop-blur-xl md:hidden">
+          <div className="flex flex-col gap-1 px-4 py-4 sm:px-6">
             {links.map(l => {
               const isHash = l.href.startsWith('/#') || l.href.startsWith('#')
               return isHash ? (

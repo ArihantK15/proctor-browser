@@ -79,7 +79,7 @@ export default function BlogCheatingPrevention() {
             <h2 className="text-white font-display text-2xl font-bold mt-10 mb-4">How AI Proctoring Prevents Cheating: Detection Technologies Compared</h2>
             <p>Modern AI proctoring platforms use multiple detection layers to create a comprehensive security envelope. Here's how each technology works:</p>
 
-            <div className="overflow-x-auto">
+            <div className="table-scroll">
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr className="border-b border-white/[0.08]">

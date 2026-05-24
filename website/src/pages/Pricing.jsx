@@ -191,7 +191,7 @@ export default function Pricing() {
           <h2 className="font-display text-2xl font-bold text-white text-center md:text-3xl">
             What's included
           </h2>
-          <div className="mt-10 overflow-hidden rounded-2xl border border-white/[0.06]">
+          <div className="table-scroll mt-10 rounded-2xl border border-white/[0.06]">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/[0.06] bg-white/[0.02]">

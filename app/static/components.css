@@ -949,6 +949,22 @@ input[type="radio"]:focus-visible {
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box}
+img,video,canvas,svg{max-width:100%;height:auto}
+.app-shell,.container,.panel,.card,.table-wrap{min-width:0}
+.container{width:100%;max-width:1400px;margin-inline:auto}
+.stats-bar{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.stats-bar::-webkit-scrollbar{display:none}
+.table-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
+.table-toolbar .search-wrap{flex:1 1 220px;min-width:0}
+.table-toolbar .toolbar-right{margin-left:auto;display:flex;flex-wrap:wrap;gap:var(--space-2)}
+table{min-width:max-content}
+td,th{vertical-align:middle}
+.dashboard-login-card{margin:clamp(24px,10vh,100px) auto;max-width:380px}
+.dashboard-react-container{padding:20px 24px}
+.live-layout,.qx-shell{min-width:0}
+.qx-shell .q-content,.qx-shell .q-sidebar,.qx-shell .q-aipanel{min-width:0}
+
 /* Tablet (≤768px) */
 @media(max-width:768px){
   body, .page-body{font-size:var(--text-base)}
@@ -982,7 +998,8 @@ input[type="radio"]:focus-visible {
   .exam-bar{gap:8px}
   .exam-bar select{min-width:140px;width:100%}
   .topbar{flex-wrap:wrap;row-gap:8px}
-  .topbar-actions{gap:8px}
+  .topbar-brand,.topbar-actions{min-width:0}
+  .topbar-actions{gap:8px;flex-wrap:wrap}
   .topbar .btn{padding:6px 10px;font-size:11px;height:30px}
   .tabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;padding:0 12px}
   .tabs::-webkit-scrollbar{display:none}
@@ -990,12 +1007,23 @@ input[type="radio"]:focus-visible {
   .topbar-status{display:none}
   .toolbar input{width:100%}
   .toolbar{flex-wrap:wrap}
+  .table-toolbar{align-items:stretch}
+  .table-toolbar .search-wrap{flex-basis:100%}
+  .table-toolbar .toolbar-right{margin-left:0;width:100%;justify-content:flex-end}
+  .filter-select,.search-input{width:100%}
+  .table-toolbar .input{width:100% !important}
+  .dashboard-react-container .table-wrap{max-height:none !important}
   .q-opts{grid-template-columns:1fr}
   .procta-logo{justify-content:center}
   .footer-links{margin-top:16px}
   .web-landing-card{padding:var(--space-5)}
   .sched-banner{padding:var(--space-3)}
-  .container{padding:12px}
+  .container,.dashboard-react-container{padding:12px}
+  .live-layout{height:auto !important;min-height:0}
+  .live-layout .table-wrap{max-height:none !important}
+  .qx-shell{flex-direction:column !important;height:auto !important;min-height:0}
+  .qx-shell .q-sidebar,.qx-shell .q-aipanel{width:100% !important;max-height:280px;overflow:auto}
+  .qx-shell .q-content{overflow:visible !important}
 }
 /* Phone (≤480px) */
 @media(max-width:480px){
@@ -1011,9 +1039,12 @@ input[type="radio"]:focus-visible {
   .modal-card h3{font-size:var(--text-md)}
   .auth-card{padding:var(--space-5)}
   .topbar{padding:10px 12px}
+  .topbar-brand{width:100%}
+  .topbar-actions{width:100%;justify-content:space-between}
+  .topbar-teacher{max-width:calc(100vw - 120px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .topbar .brand-name{font-size:15px}
   .topbar .brand-icon{width:28px;height:28px}
-  .container{padding:8px}
+  .container,.dashboard-react-container{padding:8px}
   .exam-bar select{min-width:0}
   .page-header{padding-bottom:var(--space-4)}
   .section{margin-bottom:var(--space-6)}
@@ -1022,6 +1053,13 @@ input[type="radio"]:focus-visible {
   .web-landing-card{border-radius:var(--radius-md);padding:var(--space-4)}
   .stepper .step{padding:var(--space-3)}
   .footer-links a{display:block;margin-bottom:8px}
+  .table-toolbar .toolbar-right .btn{flex:1 1 auto;min-width:96px}
+  .stats-bar{padding-inline:var(--space-2)}
+  .stat-tile{min-width:96px}
+  .dashboard-login-card{width:calc(100vw - 24px);max-width:400px}
+  .qx-shell{gap:10px !important}
+  .qx-shell .q-card{padding:14px !important}
+  .qx-shell .q-sidebar,.qx-shell .q-aipanel{max-height:none}
 }
 /* Touch target sizing for mobile */
 @media(hover:none) and (pointer:coarse){

@@ -51,6 +51,8 @@
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    width: 100%;
+    overflow-x: hidden;
   }
 
   body {
@@ -58,6 +60,21 @@
     color: var(--color-slate-300);
     font-family: var(--font-sans);
     line-height: 1.6;
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  #root {
+    min-width: 0;
+  }
+
+  img,
+  video,
+  canvas,
+  svg {
+    max-width: 100%;
+    height: auto;
   }
 
   ::selection {
@@ -128,6 +145,15 @@
   .focus-glow:focus {
     box-shadow: 0 0 0 3px rgba(91,138,240, 0.1);
     border-color: rgba(91,138,240, 0.4);
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-scroll table {
+    min-width: 640px;
   }
 }
 

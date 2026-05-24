@@ -235,10 +235,15 @@ async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
 @limiter.limit("20/minute")
 async def get_analytics(request: Request):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
+    from ..auth.scope import resolve_scope, scope_to_teacher_ids
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
     exam_id = request.query_params.get("exam_id")
 
-    cache_key = f"analytics:{tid}:{exam_id or '_'}"
+    # Cache key includes the scope so admin's org-wide view and a
+    # filtered-by-teacher view don't collide.
+    scope_key = "all" if tids is None else (",".join(sorted(tids)) or "_")
+    cache_key = f"analytics:{scope_key}:{exam_id or '_'}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached:
@@ -247,11 +252,19 @@ async def get_analytics(request: Request):
     sess_q = _atable("exam_sessions")\
         .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at")\
         .eq("status", SessionStatus.COMPLETED)
-    if tid:
-        sess_q = sess_q.eq("teacher_id", tid)
+    if tids is not None:
+        sess_q = sess_q.in_("teacher_id", tids) if tids else sess_q.eq("teacher_id", "__none__")
     if exam_id:
         sess_q = sess_q.eq("exam_id", exam_id)
     sessions = (await sess_q.execute()).data or []
+
+    # `tid` below feeds question-bank lookups + per-answer filters. When
+    # the scope narrows to one teacher we use that; otherwise fall back
+    # to the caller's own id, which gives a meaningful question bank for
+    # plain teachers and degrades gracefully (empty bank → q_analysis
+    # naturally drops) for org-wide admin views. Question-level analysis
+    # across multiple teachers is out of scope for this phase.
+    tid = scope.get("teacher_id") or str(teacher["id"])
 
     if not sessions:
         empty = {"exam_overview": {"count": 0}, "score_distribution": [],

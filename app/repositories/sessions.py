@@ -83,12 +83,20 @@ async def check_group_access(roll_number: str, teacher_id: str, exam_id: str) ->
     return bool(member)
 
 
-async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: int = 5000) -> list[dict]:
+async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: int = 5000,
+                            teacher_ids: list[str] | None = None) -> list[dict]:
+    """Fetch completed-session results. Filter precedence:
+       teacher_ids (multi) > teacher_id (single) > unfiltered.
+    teacher_ids is the org-scope path: pass the list of teachers the
+    caller is authorised to see (from app/auth/scope.py)."""
     from ..services.risk import _risk_label, compute_risk_score
     from ..utils import fmt_ist
 
     query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score").eq("status", SessionStatus.COMPLETED)
-    if teacher_id:
+    if teacher_ids is not None:
+        # Empty list → match nothing (defensive: empty org, no rows).
+        query = query.in_("teacher_id", teacher_ids) if teacher_ids else query.eq("teacher_id", "__none__")
+    elif teacher_id:
         query = query.eq("teacher_id", teacher_id)
     if exam_id:
         query = query.eq("exam_id", exam_id)

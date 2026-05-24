@@ -13,6 +13,11 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException
 
 from ..auth import require_admin
+from ..auth.scope import (
+    resolve_scope,
+    scope_to_teacher_ids,
+    assert_session_accessible,
+)
 from ..utils import fmt_ist, now_ist
 from ..constants import SUPER_ADMIN_EMAIL
 from ..repositories.sessions import assert_session_owned as _assert_session_owned, fetch_all_results as _fetch_all_results
@@ -61,9 +66,12 @@ router.include_router(liveview_router)
 @limiter.limit("60/minute")
 async def get_risk_score(session_id: str, request: Request):
     teacher = await require_admin(request)
-    tid = teacher["id"]
-    await _assert_session_owned(session_id, tid)
-    result = await compute_risk_score(session_id, teacher_id=tid)
+    scope = await resolve_scope(teacher, request)
+    sess = await assert_session_accessible(session_id, scope)
+    # Risk score is computed against the session's actual teacher_id, not
+    # the caller's — needed so an org admin viewing Teacher B's session
+    # sees Teacher B's calibration/sensitivity profile.
+    result = await compute_risk_score(session_id, teacher_id=str(sess["teacher_id"]))
     result["session_id"] = session_id
     return result
 
@@ -74,8 +82,11 @@ async def get_risk_score(session_id: str, request: Request):
 @limiter.limit("60/minute")
 async def get_timeline(session_id: str, request: Request):
     teacher = await require_admin(request)
-    tid = teacher["id"]
-    session_info = await _assert_session_owned(session_id, tid)
+    scope = await resolve_scope(teacher, request)
+    session_info = await assert_session_accessible(session_id, scope)
+    # All downstream lookups use the session's own teacher_id so org
+    # admins / superadmins see the originating teacher's data, not their own.
+    tid = str(session_info["teacher_id"])
     viol_result = await _atable("violations")\
         .select("*")\
         .eq("session_key", session_id)\
@@ -198,19 +209,17 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
 @router.get("/api/v1/admin/live-monitor")
 @limiter.limit("10/minute")
 async def live_monitor(request: Request):
-    """Return all active sessions across the org (superadmin: all orgs)."""
+    """Return active sessions in scope: teacher → own; admin → org-wide
+    (optionally narrowed via ?teacher_id=); superadmin → unrestricted."""
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    email = teacher.get("email", "").lower()
-    is_super = bool(SUPER_ADMIN_EMAIL) and email == SUPER_ADMIN_EMAIL.lower()
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
 
-    q = _atable("exam_sessions").select("session_key,roll_number,full_name,email,status,risk_score,started_at,exam_id,teacher_id")
-    if is_super:
-        # Superadmin: see ALL active sessions across all teachers
-        q = q.eq("status", SessionStatus.IN_PROGRESS)
-    else:
-        # Regular admin: see only their sessions
-        q = q.eq("status", SessionStatus.IN_PROGRESS).eq("teacher_id", tid)
+    q = _atable("exam_sessions").select(
+        "session_key,roll_number,full_name,email,status,risk_score,started_at,exam_id,teacher_id"
+    ).eq("status", SessionStatus.IN_PROGRESS)
+    if tids is not None:
+        q = q.in_("teacher_id", tids) if tids else q.eq("teacher_id", "__none__")
     sessions = (await q.order("started_at", desc=True).execute()).data or []
 
     # Attach latest violation for each session
@@ -234,22 +243,47 @@ async def live_monitor(request: Request):
     return {"sessions": sessions, "total": len(sessions)}
 
 
+@router.get("/api/v1/admin/all-teachers")
+@limiter.limit("30/minute")
+async def list_all_teachers(request: Request):
+    """Super-admin only: list every teacher across every org for the
+    "filter by teacher" dropdown. Returns id + name + email + org."""
+    teacher = await require_admin(request)
+    if (teacher.get("org_role") or "").lower() != "superadmin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    rows = (await _atable("teachers")
+            .select("id,full_name,email,org_id")
+            .order("full_name")
+            .execute()).data or []
+    # Resolve org_id → org name in one batch lookup.
+    org_ids = list({r.get("org_id") for r in rows if r.get("org_id")})
+    org_map: dict[str, str] = {}
+    if org_ids:
+        org_rows = (await _atable("organizations")
+                    .select("id,name").in_("id", org_ids).execute()).data or []
+        org_map = {str(o["id"]): o.get("name", "") for o in org_rows}
+    return {
+        "teachers": [
+            {
+                "id": str(r["id"]),
+                "full_name": r.get("full_name", ""),
+                "email": r.get("email", ""),
+                "org_id": str(r.get("org_id") or ""),
+                "org_name": org_map.get(str(r.get("org_id") or ""), ""),
+            }
+            for r in rows
+        ]
+    }
+
+
 @router.post("/api/v1/admin/sessions/{session_id}/terminate")
 @limiter.limit("10/minute")
 async def terminate_session(session_id: str, request: Request):
-    """Force-terminate a stuck session (superadmin or session owner)."""
+    """Force-terminate a stuck session. Allowed for: session owner,
+    any admin whose org contains the session, or any superadmin."""
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    email = teacher.get("email", "").lower()
-    is_super = bool(SUPER_ADMIN_EMAIL) and email == SUPER_ADMIN_EMAIL.lower()
-
-    session = await _atable("exam_sessions").select("*").eq("session_key", session_id).limit(1).execute()
-    if not session.data:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    sess = session.data[0]
-    if not is_super and str(sess.get("teacher_id", "")) != tid:
-        raise HTTPException(status_code=403, detail="You don't own this session")
+    scope = await resolve_scope(teacher, request)
+    sess = await assert_session_accessible(session_id, scope)
 
     now = now_ist().isoformat()
     await _atable("exam_sessions").update({
@@ -257,11 +291,12 @@ async def terminate_session(session_id: str, request: Request):
         "submitted_at": now,
     }).eq("session_key", session_id).execute()
 
+    actor = scope["role"]
     await _atable("violations").insert({
         "session_key": session_id,
         "violation_type": "session_terminated",
         "severity": "high",
-        "details": f"Session force-terminated by {'superadmin' if is_super else 'teacher'}",
+        "details": f"Session force-terminated by {actor}",
     }).execute()
 
     return {"status": "terminated", "session_id": session_id}

@@ -37,9 +37,12 @@ router = APIRouter(prefix="")
 @limiter.limit("60/minute")
 async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
     teacher = await require_admin(request)
-    tid = teacher["id"]
+    from ..auth.scope import resolve_scope, scope_to_teacher_ids
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
     try:
-        payload = await _build_sessions_payload(str(tid), exam_id=exam_id)
+        # tids=None for superadmin unrestricted; list of ids otherwise.
+        payload = await _build_sessions_payload(str(teacher["id"]), exam_id=exam_id, tids=tids)
         start = (page - 1) * page_size
         end = start + page_size
         all_sessions = payload.get("sessions", [])
@@ -59,7 +62,12 @@ async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1,
 @limiter.limit("60/minute")
 async def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
     teacher = await require_admin(request)
-    all_results = await _fetch_all_results(teacher["id"], exam_id=exam_id)
+    from ..auth.scope import resolve_scope, scope_to_teacher_ids
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    all_results = await _fetch_all_results(
+        teacher_id=str(teacher["id"]), exam_id=exam_id, teacher_ids=tids,
+    )
     start = (page - 1) * page_size
     end = start + page_size
     return {

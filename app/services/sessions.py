@@ -298,16 +298,26 @@ def clear_token_consume(token: str, teacher_id: str) -> bool:
 
 # ─── BUILD SESSIONS PAYLOAD ────────────────────────────────────────
 
-async def build_sessions_payload(tid: str, exam_id: str = None) -> dict:
+async def build_sessions_payload(tid: str, exam_id: str = None,
+                                 tids: list[str] | None = None) -> dict:
+    """Build the Live-tab session payload. Filter precedence:
+       tids (multi) > tid (single) > unfiltered.
+    Org-admin/superadmin endpoints pass `tids` from
+    app/auth/scope.py:scope_to_teacher_ids() so the caller's filter
+    is enforced uniformly."""
     cutoff = (now_ist() - timedelta(hours=48)).isoformat()
     evts_query = _atable("violations").select("session_key,violation_type,severity,created_at,details").gte("created_at", cutoff)
-    if tid:
+    if tids is not None:
+        evts_query = evts_query.in_("teacher_id", tids) if tids else evts_query.eq("teacher_id", "__none__")
+    elif tid:
         evts_query = evts_query.eq("teacher_id", str(tid))
     evts_result = await evts_query.order("created_at", desc=True).limit(2000).execute()
     events = evts_result.data or []
 
     sess_query = _atable("exam_sessions").select("session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at,room_cam_status")
-    if tid:
+    if tids is not None:
+        sess_query = sess_query.in_("teacher_id", tids) if tids else sess_query.eq("teacher_id", "__none__")
+    elif tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
     if exam_id:
         sess_query = sess_query.eq("exam_id", exam_id)

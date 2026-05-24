@@ -336,6 +336,22 @@
 
   <!-- LIVE SESSIONS -->
   <div class="panel active live-layout" id="panel-live">
+    <!-- Panel header — mirrors the marketing-site Hero treatment
+         (display title + lede + pulse indicator) so the in-app
+         landing surface feels continuous with procta.net. The pulse
+         is purely decorative; JS still drives the alert badge on
+         the tab strip above. -->
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Live Sessions</h1>
+        <p class="panel-lede">Active exam sessions, updated in real time. Click any row to open the candidate triage panel.</p>
+      </div>
+      <div class="panel-status">
+        <span class="status-pulse" aria-hidden="true"></span>
+        <span class="status-label">Streaming</span>
+      </div>
+    </div>
     <!-- Pending ID reviews (hidden when empty). Sits OUTSIDE the
          flex-1 stats/toolbar/table chain so it can grow naturally
          when reviews are queued. JS hooks unchanged. -->

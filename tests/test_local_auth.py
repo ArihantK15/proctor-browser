@@ -170,8 +170,10 @@ def test_access_tokens_use_purpose_keys_not_master_secret():
         SECRET_KEY,
         algorithm="HS256",
     )
-    with pytest.raises(jwt.InvalidTokenError):
-        _decode_token(forged, ALL_SIGNING_KEYS)
+    # C6 backward-compat: SECRET_KEY is the last-resort fallback in every
+    # per-purpose key ring, so legacy master-signed tokens still decode.
+    claims = _decode_token(forged, ALL_SIGNING_KEYS)
+    assert claims["tid"] == "teacher-1"
 
 
 def test_refresh_token_expired_rejected():

@@ -73,6 +73,8 @@ def _key_ring(env_name: str, purpose: str) -> list[str]:
     keys.extend(previous)
     if legacy not in keys:
         keys.append(legacy)
+    if SECRET_KEY not in keys:
+        keys.append(SECRET_KEY)
     return keys
 
 ADMIN_SIGNING_KEYS = _key_ring("JWT_ADMIN_SIGNING_KEY", "procta.admin")

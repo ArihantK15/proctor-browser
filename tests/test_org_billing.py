@@ -528,12 +528,27 @@ class TestBillingCheckout:
             hashlib.sha256,
         ).hexdigest()
         monkeypatch.setenv("RAZORPAY_KEY_SECRET", secret)
+        # Server now re-fetches the order from Razorpay after signature
+        # passes (so the plan_id can't be forged from the request body).
+        # Mock the client so the test asserts the new server-pinned path.
+        fake_client = MagicMock()
+        fake_client.order.fetch.return_value = {
+            "id": order_id,
+            "amount": 12000 * 100,  # ₹12,000 = growth plan
+            "status": "paid",
+            "notes": {"org_id": "org-1", "plan_id": "growth"},
+        }
         data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1"}], "organizations": []}
-        with _admin_patch(), contextlib.ExitStack() as es:
+        with _admin_patch(), \
+             patch("app.routers.billing._get_client", return_value=fake_client), \
+             contextlib.ExitStack() as es:
             for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
             resp = client.post("/api/v1/billing/checkout/verify", json={
-                "plan_id": "growth",
+                # plan_id in body is now IGNORED — server reads it from
+                # order.notes. Pass a wrong value to confirm activation
+                # still uses the server-pinned tier.
+                "plan_id": "pro",
                 "razorpay_order_id": order_id,
                 "razorpay_payment_id": payment_id,
                 "razorpay_signature": signature,
@@ -541,8 +556,11 @@ class TestBillingCheckout:
         assert resp.status_code == 200, resp.text
         d = resp.json()
         assert d["ok"] is True
+        # Despite the body claiming `pro`, server activates `growth`
+        # because that's what notes.plan_id said.
         assert d["plan_id"] == "growth"
         assert d["payment_id"] == payment_id
+        fake_client.order.fetch.assert_called_once_with(order_id)
 
 
 # ═══════════════════════════════════════════════════════════════════

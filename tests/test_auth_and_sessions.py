@@ -225,6 +225,8 @@ class TestSubmitExam:
              patch("app.routers.exam._atable") as atable_mock:
             atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+            atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[]))
             atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             yield atable_mock
@@ -236,6 +238,8 @@ class TestSubmitExam:
             return_value=MagicMock(data=[]))
         atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
         atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+        atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(
+            return_value=MagicMock(data=[]))
         atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
         atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
 
@@ -278,6 +282,8 @@ class TestSubmitExam:
                 return_value=MagicMock(data=[]))
             atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+            atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[]))
             atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
 
@@ -339,6 +345,8 @@ class TestSubmitExam:
             atable_mock.return_value.select.return_value.eq.return_value.execute = AsyncMock(
                 return_value=MagicMock(data=[]))
             atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+            atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[]))
             atable_mock.return_value.insert.side_effect = track_insert
             atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))

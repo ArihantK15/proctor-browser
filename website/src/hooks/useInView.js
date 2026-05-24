@@ -8,7 +8,8 @@ export default function useInView({ once = true, margin = '0px', threshold = 0 }
     const el = ref.current
     if (!el) return
     if (typeof IntersectionObserver === 'undefined') {
-      setInView(true)
+      // Defer fallback state so the effect body does not synchronously cascade a render.
+      queueMicrotask(() => setInView(true))
       return
     }
     const observer = new IntersectionObserver(

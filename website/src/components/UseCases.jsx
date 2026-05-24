@@ -1,5 +1,4 @@
 import { GraduationCap, BookOpen, Briefcase, ArrowRight } from 'lucide-react'
-import useInView from '../hooks/useInView'
 import { Link } from 'wouter'
 
 export default function UseCases() {
@@ -40,7 +39,7 @@ export default function UseCases() {
         </div>
 
         <div className="mt-16 grid gap-6 md:grid-cols-3">
-          {cases.map((item, i) => (
+          {cases.map((item) => (
             <div
               key={item.title}
               className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-accent/15 hover:bg-accent/[0.02] card-topline grain-overlay"

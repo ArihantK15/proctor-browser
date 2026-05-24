@@ -56,7 +56,7 @@ export default function Features() {
         </div>
 
         <div className="mt-16 space-y-12">
-          {groups.map((group, gi) => (
+          {groups.map((group) => (
             <div
               key={group.label}
             >

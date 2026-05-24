@@ -1,5 +1,4 @@
 import { Helmet } from 'react-helmet-async'
-import useInView from '../hooks/useInView'
 import { Link } from 'wouter'
 import { UserPlus, Monitor, ShieldCheck, FileText } from 'lucide-react'
 import Navbar from '../components/Navbar'
@@ -54,7 +53,7 @@ export default function HowItWorksPage() {
           </div>
 
           <div className="mt-20 space-y-16">
-            {steps.map((step, i) => (
+            {steps.map((step) => (
               <div
                 key={step.title}
                 className="flex flex-col gap-6 md:flex-row md:items-start md:gap-10"

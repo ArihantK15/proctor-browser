@@ -1,5 +1,4 @@
 import { useState, useId } from 'react'
-import useInView from '../hooks/useInView'
 import { ChevronDown } from 'lucide-react'
 
 const faqs = [

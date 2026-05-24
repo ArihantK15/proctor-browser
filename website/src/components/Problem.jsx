@@ -1,5 +1,4 @@
 import { AlertTriangle, Users, IndianRupee } from 'lucide-react'
-import useInView from '../hooks/useInView'
 
 const fadeUp = {
   initial: { opacity: 0, y: 24 },
@@ -45,7 +44,7 @@ export default function Problem() {
               stat: '10x',
               statLabel: 'cost of manual vs. AI proctoring'
             }
-          ].map((item, i) => (
+          ].map((item) => (
             <div
               key={item.title}
               className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-red-500/20 hover:bg-white/[0.04] card-topline grain-overlay"

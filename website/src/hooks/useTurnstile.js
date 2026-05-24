@@ -47,7 +47,7 @@ export default function useTurnstile() {
     if (!ref.current || !window.turnstile) return
     // Remove any prior widget on this element before re-rendering
     if (widgetIdRef.current != null) {
-      try { window.turnstile.remove(widgetIdRef.current) } catch (e) { /* noop */ }
+      try { window.turnstile.remove(widgetIdRef.current) } catch { /* noop */ }
       widgetIdRef.current = null
     }
     widgetIdRef.current = window.turnstile.render(ref.current, {
@@ -71,7 +71,7 @@ export default function useTurnstile() {
     return () => {
       cancelled = true
       if (widgetIdRef.current != null && window.turnstile) {
-        try { window.turnstile.remove(widgetIdRef.current) } catch (e) { /* noop */ }
+        try { window.turnstile.remove(widgetIdRef.current) } catch { /* noop */ }
       }
     }
   }, [render])
@@ -81,7 +81,7 @@ export default function useTurnstile() {
   const refresh = useCallback(() => {
     setToken(null)
     if (widgetIdRef.current != null && window.turnstile) {
-      try { window.turnstile.reset(widgetIdRef.current) } catch (e) { /* noop */ }
+      try { window.turnstile.reset(widgetIdRef.current) } catch { /* noop */ }
     }
   }, [])
 

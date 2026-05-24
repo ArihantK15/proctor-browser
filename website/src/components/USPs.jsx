@@ -1,5 +1,4 @@
 import { ShieldCheck, FileCheck2, Server, Users, Languages, Lock } from 'lucide-react'
-import useInView from '../hooks/useInView'
 
 /**
  * "Why Procta" outcomes section — 6 cards from the Claude design's
@@ -68,7 +67,7 @@ export default function USPs() {
         </div>
 
         <div className="mt-16 grid gap-4 md:grid-cols-3">
-          {usps.map((item, i) => (
+          {usps.map((item) => (
             <div
               key={item.title}
               className="relative flex flex-col gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 transition-colors hover:border-accent/20"

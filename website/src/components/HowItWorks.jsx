@@ -1,5 +1,4 @@
 import { Upload, Monitor, Scan, FileText } from 'lucide-react'
-import useInView from '../hooks/useInView'
 
 export default function HowItWorks() {
   const steps = [
@@ -47,7 +46,7 @@ export default function HowItWorks() {
           <div className="absolute top-12 left-0 right-0 hidden h-px bg-gradient-to-r from-transparent via-accent/30 to-transparent md:block" />
 
           <div className="grid gap-8 md:grid-cols-4">
-            {steps.map((item, i) => (
+            {steps.map((item) => (
               <div
                 key={item.step}
                 className="relative text-center"

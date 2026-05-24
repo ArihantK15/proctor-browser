@@ -1,5 +1,4 @@
 import { Shield, Camera, Database, Lock } from 'lucide-react'
-import useInView from '../hooks/useInView'
 
 export default function PrivacySection() {
   const items = [
@@ -42,7 +41,7 @@ export default function PrivacySection() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            {items.map((item, i) => (
+            {items.map((item) => (
               <div
                 key={item.title}
                 className="relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 card-topline grain-overlay"

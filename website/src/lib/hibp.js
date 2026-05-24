@@ -50,7 +50,7 @@ export async function isPasswordPwned(password) {
   let hash
   try {
     hash = await sha1Hex(password)
-  } catch (e) {
+  } catch {
     // Web Crypto unavailable (very old browser / non-https context)
     // — fail-open. Server still validates.
     return false
@@ -71,7 +71,7 @@ export async function isPasswordPwned(password) {
     const upper = text.toUpperCase()
     // Match at start-of-line so a substring collision can't false-positive
     return upper.split('\n').some((line) => line.startsWith(suffix + ':'))
-  } catch (e) {
+  } catch {
     // Network error, blocked, offline — fail-open
     return false
   }

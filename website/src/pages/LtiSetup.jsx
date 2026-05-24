@@ -170,7 +170,7 @@ export default function LtiSetup() {
                 </div>
                 <div className="px-6 py-6">
                   <ol className="space-y-4">
-                    {p.steps.map((step, i) => {
+                    {p.steps.map((step) => {
                       const stepKey = `${p.id}-${step.id}`
                       const done = checkedSteps[stepKey]
                       return (

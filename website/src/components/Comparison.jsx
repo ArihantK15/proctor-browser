@@ -1,5 +1,4 @@
 import { Check, X } from 'lucide-react'
-import useInView from '../hooks/useInView'
 
 export default function Comparison() {
   const rows = [

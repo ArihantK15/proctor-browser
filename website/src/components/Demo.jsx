@@ -1,4 +1,3 @@
-import useInView from '../hooks/useInView'
 import { Play, Maximize2, X } from 'lucide-react'
 import { Link } from 'wouter'
 import { useState, useRef, useEffect, useCallback } from 'react'
@@ -104,7 +103,7 @@ export default function Demo() {
     return () => {
       active = false
       if (screen.orientation && screen.orientation.unlock) {
-        try { screen.orientation.unlock() } catch (e) { /* noop */ }
+        try { screen.orientation.unlock() } catch { /* noop */ }
       }
       const exit = document.exitFullscreen || document.webkitExitFullscreen
       if (exit && (document.fullscreenElement || document.webkitFullscreenElement)) {

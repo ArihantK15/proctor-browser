@@ -1,5 +1,4 @@
 import { ArrowRight, Play } from 'lucide-react'
-import useInView from '../hooks/useInView'
 import { Link } from 'wouter'
 
 export default function Hero() {

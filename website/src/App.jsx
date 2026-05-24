@@ -1,5 +1,5 @@
 import { Route, Switch } from 'wouter'
-import { lazy, Suspense } from 'react'
+import { createElement, lazy, Suspense } from 'react'
 
 import Landing from './pages/Landing'
 
@@ -32,10 +32,10 @@ function RouteFallback() {
   )
 }
 
-function LazyRoute({ Component }) {
+function LazyRoute({ Component: RouteComponent }) {
   return (
     <Suspense fallback={<RouteFallback />}>
-      <Component />
+      {createElement(RouteComponent)}
     </Suspense>
   )
 }

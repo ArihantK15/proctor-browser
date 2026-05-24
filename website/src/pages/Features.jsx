@@ -1,5 +1,4 @@
 import { Helmet } from 'react-helmet-async'
-import useInView from '../hooks/useInView'
 import { Link } from 'wouter'
 import { CheckCircle } from 'lucide-react'
 import Navbar from '../components/Navbar'
@@ -112,7 +111,7 @@ export default function FeaturesPage() {
           </div>
 
           <div className="mt-20 space-y-24">
-            {featureGroups.map((group, gi) => (
+            {featureGroups.map((group) => (
               <div
                 key={group.title}
                 className="border-b border-white/[0.06] pb-16 last:border-0 last:pb-0"

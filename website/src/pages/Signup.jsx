@@ -80,7 +80,6 @@ export default function Signup() {
         turnstile.refresh()
         throw new Error(data.detail || 'Something went wrong. Please try again.')
       }
-      const data = await res.json()
       setSubmitted(true)  // Show "Check your inbox" instead of redirecting
     } catch (err) {
       setError(err.message || 'Failed to sign up. Please try again.')

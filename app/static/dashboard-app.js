@@ -846,7 +846,11 @@ function switchTab(tab){
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
-  if(tab!=='results') _resDisconnectObserver();
+  // Defensive: _resDisconnectObserver was removed during an earlier
+  // refactor but this call site was missed. Guarded the same way as
+  // refreshPendingGradeBadge below so a missing observer can't throw
+  // and break tab switching.
+  if(tab!=='results' && typeof _resDisconnectObserver==='function') _resDisconnectObserver();
   if(tab==='results' && resultsData.length===0) refreshResults();
   if(tab==='results' && typeof refreshPendingGradeBadge==='function') refreshPendingGradeBadge();
   if(tab==='questions' && qData.length===0) loadQuestions();

@@ -399,7 +399,34 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         if "Referrer-Policy" not in response.headers:
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self' https://challenges.cloudflare.com https://checkout.razorpay.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.razorpay.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://challenges.cloudflare.com https://*.razorpay.com; frame-src https://challenges.cloudflare.com https://*.razorpay.com; frame-ancestors 'none'"
+        # CSP — relaxed 2026-05-24 after the Caddy short-circuit removal
+        # finally surfaced live CSP enforcement on /dashboard:
+        #   • Added 'unsafe-inline' to script-src because dashboard.html
+        #     still has ~160 inline `onclick="..."` handlers. Converting
+        #     them all to addEventListener is real work; until that lands
+        #     this is the same security posture production had for months
+        #     when Caddy was bypassing the CSP entirely.
+        #   • Added https://fonts.googleapis.com to style-src — Google
+        #     Fonts serves the CSS from googleapis but the woff2 files
+        #     from gstatic; we'd whitelisted only the latter.
+        #   • Added media-src 'self' data: because the dashboard alert
+        #     chime is an inline base64-encoded WAV (data:audio/wav;base64,…).
+        #     Without an explicit media-src, default-src 'self' was the
+        #     fallback and blocked the data: URI.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "object-src 'none'; "
+            "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://checkout.razorpay.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "img-src 'self' data: blob: https://*.razorpay.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "connect-src 'self' https://challenges.cloudflare.com https://*.razorpay.com; "
+            "media-src 'self' data:; "
+            "frame-src https://challenges.cloudflare.com https://*.razorpay.com; "
+            "frame-ancestors 'none'"
+        )
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response

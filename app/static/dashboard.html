@@ -169,7 +169,32 @@
 
 <!-- AUTH OVERLAY -->
 <div id="auth-overlay">
-  <div class="auth-card">
+  <!-- Decorative accent glow behind the card — matches the marketing
+       site's Hero treatment (Hero.jsx uses an absolutely-positioned
+       blurred radial). Pure CSS, no JS hook. -->
+  <div class="auth-glow" aria-hidden="true"></div>
+  <div class="auth-shell">
+    <!-- Left: value-prop panel (hidden on mobile to keep the form
+         above the fold). Mirrors the procta.net Hero copy so the
+         transition from website → login feels continuous. -->
+    <aside class="auth-aside">
+      <a href="https://procta.net" class="auth-aside-back">← Back to procta.net</a>
+      <h1 class="auth-aside-h1">Remote exams.<br>
+        <span class="auth-aside-h1-accent">Real results.</span></h1>
+      <p class="auth-aside-lede">
+        AI proctoring that catches cheating without making honest
+        students nervous. Sign in to manage your exams, monitor
+        live sessions, and review flagged candidates.
+      </p>
+      <ul class="auth-aside-list">
+        <li><span class="auth-aside-bullet"></span>Real-time face, gaze, and audio monitoring</li>
+        <li><span class="auth-aside-bullet"></span>Risk-scored sessions with evidence trails</li>
+        <li><span class="auth-aside-bullet"></span>3,000 concurrent students on a ₹699/mo box</li>
+      </ul>
+    </aside>
+
+    <!-- Right: login/reset form card -->
+    <div class="auth-card">
     <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:20px">
       <div style="width:40px;height:40px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center">
         <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
@@ -228,7 +253,8 @@
         <a href="#" onclick="toggleAuthForm('login');return false" style="color:var(--accent-light);text-decoration:none;font-weight:600">Back to login</a>
       </p>
     </div>
-  </div>
+    </div><!-- /.auth-card -->
+  </div><!-- /.auth-shell -->
 </div>
 
 <!-- TOPBAR -->
@@ -1552,12 +1578,26 @@ let _turnstileSiteKey = '';
 
 async function _loadPublicConfig() {
   try {
-    const r = await fetch(`${BASE}/api/v1/public-config`);
+    const r = await fetchWithTimeout(`${BASE}/api/v1/public-config`);
     if (r.ok) {
       const cfg = await r.json();
       _turnstileSiteKey = cfg.turnstile_site_key || '';
     }
   } catch(e) {}
+}
+
+async function fetchWithTimeout(url, opts={}, timeoutMs=30000){
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
+  const merged = {...opts, signal: opts.signal || ctrl.signal};
+  try{
+    return await fetch(url, merged);
+  }catch(e){
+    if(e && e.name === 'AbortError') throw new Error('Request timed out. Please check your connection and try again.');
+    throw e;
+  }finally{
+    clearTimeout(timer);
+  }
 }
 
 function _initTurnstile() {
@@ -1598,6 +1638,12 @@ function _saveTokens(access, refresh){
   refreshToken = refresh;
   localStorage.setItem('procta_token', access);
   localStorage.setItem('procta_refresh', refresh);
+  if(!access){
+    try{
+      sessionStorage.removeItem('procta_csrf');
+      localStorage.removeItem('procta_csrf');
+    }catch(_){}
+  }
 }
 
 async function doLogin(){
@@ -1621,7 +1667,7 @@ async function doLogin(){
       }
       body.email_otp_code = code;
     }
-    const r = await fetch(`${BASE}/api/v1/auth/login`,{
+    const r = await fetchWithTimeout(`${BASE}/api/v1/auth/login`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body)
     });
@@ -1643,6 +1689,7 @@ async function doLogin(){
       throw new Error(data.detail||'Login failed');
     }
     _saveTokens(data.access_token, data.refresh_token);
+    await _ensureCsrfToken(true);
     _onAuthed(data.teacher);
   }catch(e){
     document.getElementById('auth-err').textContent = e.message;
@@ -1659,7 +1706,7 @@ async function doPasswordReset(){
   try{
     const body = {email};
     if (_turnstileToken) body.captcha_token = _turnstileToken;
-    const r = await fetch(`${BASE}/api/v1/auth/password-reset`,{
+    const r = await fetchWithTimeout(`${BASE}/api/v1/auth/password-reset`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body)
     });
@@ -1705,7 +1752,7 @@ async function _connectSSE(){
 
   try{
     // Fetch a short-lived connect token (avoids putting JWT in URL)
-    const ctr = await fetch(`${BASE}/api/v1/sse/connect-token`, {
+    const ctr = await fetchWithTimeout(`${BASE}/api/v1/sse/connect-token`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${authToken}` },
     });
@@ -1926,21 +1973,22 @@ async function _tryAutoLogin(){
   if(!authToken) return;
   try{
     // Try current token
-    let r = await fetch(`${BASE}/api/v1/auth/me`,{headers:{'Authorization':'Bearer '+authToken}});
-    if(r.ok){ _onAuthed(await r.json()); return; }
+    let r = await fetchWithTimeout(`${BASE}/api/v1/auth/me`,{headers:{'Authorization':'Bearer '+authToken}});
+    if(r.ok){ await _ensureCsrfToken(true); _onAuthed(await r.json()); return; }
 
     // Token expired — try refresh
     if(!refreshToken){ _saveTokens('',''); return; }
-    const rr = await fetch(`${BASE}/api/v1/auth/refresh`,{
+    const rr = await fetchWithTimeout(`${BASE}/api/v1/auth/refresh`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({refresh_token:refreshToken})
     });
     if(!rr.ok){ _saveTokens('',''); return; }
     const rd = await rr.json();
     _saveTokens(rd.access_token, rd.refresh_token);
+    await _ensureCsrfToken(true);
 
     // Retry with fresh token
-    r = await fetch(`${BASE}/api/v1/auth/me`,{headers:{'Authorization':'Bearer '+rd.access_token}});
+    r = await fetchWithTimeout(`${BASE}/api/v1/auth/me`,{headers:{'Authorization':'Bearer '+rd.access_token}});
     if(r.ok){ _onAuthed(await r.json()); return; }
     _saveTokens('','');
   }catch(e){
@@ -2003,12 +2051,28 @@ function hdr(){
 }
 
 function _getCsrfToken(){
-  if(!authToken) return '';
   try{
-    const b64 = authToken.split('.')[1];
-    const payload = JSON.parse(atob(b64.replace(/-/g,'+').replace(/_/g,'/')));
-    return payload.csrf || '';
+    return sessionStorage.getItem('procta_csrf') || localStorage.getItem('procta_csrf') || '';
   }catch(_){ return ''; }
+}
+
+async function _ensureCsrfToken(force=false){
+  if(!authToken) return '';
+  const existing = _getCsrfToken();
+  if(existing && !force) return existing;
+  const r = await fetchWithTimeout(`${BASE}/api/v1/auth/csrf`, {
+    headers:{'Authorization':'Bearer '+authToken},
+  });
+  if(!r.ok) return '';
+  const d = await r.json().catch(()=>({}));
+  const csrf = d.csrf_token || '';
+  if(csrf){
+    try{
+      sessionStorage.setItem('procta_csrf', csrf);
+      localStorage.setItem('procta_csrf', csrf);
+    }catch(_){}
+  }
+  return csrf;
 }
 
 // Single-flight guard so concurrent 401s only trigger one /refresh call —
@@ -2019,13 +2083,14 @@ let _refreshInFlight = null;
 async function _refreshTokens(){
   if(_refreshInFlight) return _refreshInFlight;
   _refreshInFlight = (async ()=>{
-    const rr = await fetch(`${BASE}/api/v1/auth/refresh`,{
+    const rr = await fetchWithTimeout(`${BASE}/api/v1/auth/refresh`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({refresh_token:refreshToken})
     });
     if(!rr.ok) throw new Error('refresh failed');
     const rd = await rr.json();
     _saveTokens(rd.access_token, rd.refresh_token);
+    await _ensureCsrfToken(true);
     return rd;
   })();
   try { return await _refreshInFlight; }
@@ -2037,11 +2102,11 @@ async function _refreshTokens(){
 // that pass {'Content-Type':'application/json'} still get authenticated.
 async function authFetch(url, opts={}){
   opts.headers = {...hdr(), ...(opts.headers||{})};
-  if(!opts.method || opts.method==='POST' || opts.method==='PUT' || opts.method==='DELETE'){
-    const csrf = _getCsrfToken();
+  if(!opts.method || opts.method==='POST' || opts.method==='PUT' || opts.method==='PATCH' || opts.method==='DELETE'){
+    const csrf = await _ensureCsrfToken();
     if(csrf) opts.headers['X-CSRF-Token'] = csrf;
   }
-  let r = await fetch(url, opts);
+  let r = await fetchWithTimeout(url, opts);
   if(r.status===401 && refreshToken){
     try{
       await _refreshTokens();
@@ -2050,7 +2115,11 @@ async function authFetch(url, opts={}){
       return r;
     }
     opts.headers = {...hdr(), ...(opts.headers||{}), 'Authorization':'Bearer '+authToken};
-    r = await fetch(url, opts);
+    if(!opts.method || opts.method==='POST' || opts.method==='PUT' || opts.method==='PATCH' || opts.method==='DELETE'){
+      const csrf = await _ensureCsrfToken();
+      if(csrf) opts.headers['X-CSRF-Token'] = csrf;
+    }
+    r = await fetchWithTimeout(url, opts);
   }
   return r;
 }
@@ -2605,7 +2674,7 @@ async function loadSessions(){
       <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
         <div style="font-size:12px;color:var(--text)">${escHtml(s.user_agent||'Unknown browser')}</div>
         <div style="font-size:11px;color:var(--muted);font-family:monospace">${s.ip||''}</div>
-        <button class="btn btn-ghost btn-sm" onclick="revokeSession('${escAttr(s.jti)}')" style="font-size:10px;color:var(--red);padding:2px 6px">Revoke</button>
+        <button class="btn btn-ghost btn-sm" onclick="revokeSession('${escJs(s.jti)}')" style="font-size:10px;color:var(--red);padding:2px 6px">Revoke</button>
       </div>
     `).join('');
   }catch(_){}
@@ -2853,7 +2922,7 @@ function _pollRoomCamFrame(){
   const statusEl = document.getElementById('roomcam-status');
   const tsEl = document.getElementById('roomcam-ts');
   const t = Date.now();
-  fetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/frame?t=${t}`, {
+  fetchWithTimeout(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/frame?t=${t}`, {
     headers: { 'Authorization': `Bearer ${authToken}` },
   }).then(r => {
     if(!r.ok) throw new Error();
@@ -2951,7 +3020,7 @@ async function loadGradeAudit(){
       const actionLabel = {'confirmed':'Confirmed','bulk_accept':'Bulk accepted','bulk_reject':'Bulk rejected','overridden':'Overridden'}[e.action]||e.action;
       const actionColor = e.action==='overridden'?'var(--amber)':e.action==='bulk_reject'?'var(--red)':'var(--emerald)';
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
-        <div><span style="color:${actionColor};font-weight:600;font-size:11px;text-transform:uppercase">${actionLabel}</span>
+        <div><span style="color:${actionColor};font-weight:600;font-size:11px;text-transform:uppercase">${_escHtml(actionLabel)}</span>
         <span style="color:var(--text);font-size:12px;margin-left:8px">AI: ${e.ai_score!=null?e.ai_score+'/':'—/'}${e.max_score} → ${e.teacher_score}</span></div>
         <div style="font-size:10px;color:var(--muted);font-family:monospace">${e.created_at?(new Date(e.created_at).toLocaleDateString()):''}</div>
       </div>`;
@@ -3407,7 +3476,7 @@ async function loadGoogleClassroom(){
     const listEl = document.getElementById('google-course-list');
     listEl.innerHTML = (d.courses||[]).map(c => `
       <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-subtle);cursor:pointer" data-cid="${escAttr(c.id)}">
-        <input type="checkbox" ${c.linked?'checked':''} onchange="toggleGoogleCourse('${escAttr(c.id)}', this.checked)">
+        <input type="checkbox" ${c.linked?'checked':''} onchange="toggleGoogleCourse('${escJs(c.id)}', this.checked)">
         <span style="font-size:12px;color:${c.linked?'var(--accent-light)':'var(--text-secondary)'}">${escHtml(c.name)} ${c.section?'('+escHtml(c.section)+')':''}</span>
       </label>
     `).join('');
@@ -4152,7 +4221,7 @@ function renderQEditor(){
         <label>Options ${isMulti?'(check all correct)':qtype==='true_false'?'(fixed)':'(pick one correct)'}</label>
         <div class="q-opts">
           ${optKeys.map(k=>{
-            const esc=escAttr(k);
+            const esc=escJs(k);
             const hit=correctSet.has(k);
             const keyCls=hit?(isMulti?'correct-multi':'correct'):'';
             return `
@@ -4756,7 +4825,7 @@ function renderTimeline(){
     const icCls=`ic-${e.severity}`;
     const timeStr=extractTime(e.timestamp);
     const thumbHtml=e.screenshot
-      ?`<img class="tl-thumb" data-src="${e.screenshot}" onclick="event.stopPropagation();showLightbox('${escJs(e.screenshot)}','${escJs(e.type)} — ${escJs(timeStr)}')" onerror="this.style.display='none'">`
+      ?`<img class="tl-thumb" data-src="${escAttr(e.screenshot)}" onclick="event.stopPropagation();showLightbox('${escJs(e.screenshot)}','${escJs(e.type)} — ${escJs(timeStr)}')" onerror="this.style.display='none'">`
       :'';
     return `<div class="tl-event sev-${e.severity}${e.is_violation?' is-violation':''}" id="tl-evt-${i}">
       <div class="tl-time">${timeStr}</div>
@@ -5395,7 +5464,7 @@ function renderBank(data){
     const tags = (q.tags||[]).map(t=>`<span style="background:rgba(61,217,168,.1);color:var(--accent-light);border-radius:10px;padding:1px 8px;font-size:10px;margin-right:4px">${_escHtml(t)}</span>`).join('');
     const checked = _bankSelected.has(q.id) ? 'checked' : '';
     return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-bottom:1px solid var(--border);${i%2===0?'background:rgba(255,255,255,.01)':''}">
-      <input type="checkbox" ${checked} onchange="_bankToggle('${q.id}',this.checked)" style="margin-top:4px;flex-shrink:0">
+      <input type="checkbox" ${checked} onchange="_bankToggle('${escJs(q.id)}',this.checked)" style="margin-top:4px;flex-shrink:0">
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;color:var(--text);margin-bottom:4px;max-height:120px;overflow-y:auto">${_escHtml(q.question)}</div>
         <div style="font-size:11px;color:var(--muted)">${optStr}</div>
@@ -5406,9 +5475,9 @@ function renderBank(data){
         </div>
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0">
-        <button class="btn btn-secondary btn-sm" onclick="saveBankToExamSingle('${q.id}')" style="padding:2px 8px;font-size:10px" title="Add to current exam">+Exam</button>
-        <button class="btn btn-secondary btn-sm" onclick="editBankQ('${q.id}')" style="padding:2px 8px;font-size:10px" title="Edit question">Edit</button>
-        <button class="btn btn-secondary btn-sm" onclick="deleteBankQ('${q.id}')" style="padding:2px 8px;font-size:10px;color:var(--red)" title="Delete">&times;</button>
+        <button class="btn btn-secondary btn-sm" onclick="saveBankToExamSingle('${escJs(q.id)}')" style="padding:2px 8px;font-size:10px" title="Add to current exam">+Exam</button>
+        <button class="btn btn-secondary btn-sm" onclick="editBankQ('${escJs(q.id)}')" style="padding:2px 8px;font-size:10px" title="Edit question">Edit</button>
+        <button class="btn btn-secondary btn-sm" onclick="deleteBankQ('${escJs(q.id)}')" style="padding:2px 8px;font-size:10px;color:var(--red)" title="Delete">&times;</button>
       </div>
     </div>`;
   }).join('');
@@ -5570,10 +5639,10 @@ function _renderGenPreview(){
           </div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:6px;font-size:11px">
             <span style="color:var(--muted)">Correct:</span>
-            <input type="text" data-field="correct" value="${_escHtml(q.correct)}" maxlength="7"
+            <input type="text" data-field="correct" value="${escAttr(q.correct)}" maxlength="7"
               style="background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--accent-light);font-family:monospace;width:60px;font-size:11px">
             <span style="color:var(--muted);margin-left:8px">Tags:</span>
-            <input type="text" data-field="tags" value="${_escHtml((q.tags||[]).join(', '))}"
+            <input type="text" data-field="tags" value="${escAttr((q.tags||[]).join(', '))}"
               style="background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--text);flex:1;font-size:11px">
             <button class="btn btn-secondary btn-sm" onclick="_dropGenQ(${i})" style="padding:1px 6px;font-size:10px;color:var(--red)" title="Discard">&times;</button>
           </div>
@@ -5929,10 +5998,10 @@ function renderGroups(){
   empty.style.display='none';
   list.innerHTML = _groupsData.map(g=>`
     <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;cursor:pointer"
-         onclick="openGroupDetail('${g.id}','${_escGrp(g.group_name)}')">
+         onclick="openGroupDetail('${escJs(g.id)}','${_escGrp(g.group_name)}')">
       <span style="flex:1;font-size:13px;color:var(--text)">${_escHtml(g.group_name)}</span>
       <span style="font-size:11px;color:var(--muted)">${g.member_count||0} members</span>
-      <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();deleteGroup('${g.id}')" style="padding:2px 8px;font-size:10px;color:var(--red)">Delete</button>
+      <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();deleteGroup('${escJs(g.id)}')" style="padding:2px 8px;font-size:10px;color:var(--red)">Delete</button>
     </div>`).join('');
 }
 
@@ -5971,7 +6040,7 @@ async function openGroupDetail(gid, name){
   list.innerHTML = members.map(m=>`
     <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(61,217,168,.1);border:1px solid rgba(61,217,168,.2);border-radius:14px;padding:3px 10px;margin:3px 3px;font-size:12px;color:var(--accent-light)">
       ${_escHtml(m.roll_number)}
-      <span onclick="removeGroupMember('${gid}','${_escGrp(m.roll_number)}')" style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
+      <span onclick="removeGroupMember('${escJs(gid)}','${_escGrp(m.roll_number)}')" style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
     </span>`).join('');
 }
 
@@ -6021,7 +6090,7 @@ async function removeOrgMember(memberId){
 function populateGroupSelect(){
   const sel = document.getElementById('assign-group-select');
   sel.innerHTML = '<option value="">Select a group to restrict access...</option>' +
-    _groupsData.map(g=>`<option value="${g.id}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
+    _groupsData.map(g=>`<option value="${escAttr(g.id)}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
 }
 
 async function loadExamGroups(){
@@ -6036,7 +6105,7 @@ async function loadExamGroups(){
   list.innerHTML = groups.map(g=>`
     <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:14px;padding:3px 10px;margin:3px 3px;font-size:12px;color:var(--emerald)">
       ${_escHtml(g.group_name)}
-      <span onclick="unassignGroup('${g.id}')" style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
+      <span onclick="unassignGroup('${escJs(g.id)}')" style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
     </span>`).join('');
 }
 
@@ -6071,7 +6140,7 @@ function _populateInviteGroupSelect(){
   const sel = document.getElementById('invite-from-group');
   if(!sel) return;
   sel.innerHTML = '<option value="">— or pull from a group —</option>' +
-    (_groupsData||[]).map(g=>`<option value="${g.id}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
+    (_groupsData||[]).map(g=>`<option value="${escAttr(g.id)}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
 }
 
 function importInviteCsv(evt){
@@ -6266,8 +6335,8 @@ function _renderInvites(){
       : '<span style="color:var(--muted)">—</span>';
     const actions = [
       i.invite_url ? `<button class="btn btn-secondary btn-sm" onclick="_copyInviteLink('${_escGrp(i.invite_url)}')" style="padding:2px 8px;font-size:10px">Copy</button>` : '',
-      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="btn btn-secondary btn-sm" onclick="resendInvite('${i.id}')" style="padding:2px 8px;font-size:10px">Resend</button>` : '',
-      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="btn btn-secondary btn-sm" onclick="revokeInvite('${i.id}')" style="padding:2px 8px;font-size:10px;color:var(--red)">Revoke</button>` : '',
+      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="btn btn-secondary btn-sm" onclick="resendInvite('${escJs(i.id)}')" style="padding:2px 8px;font-size:10px">Resend</button>` : '',
+      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="btn btn-secondary btn-sm" onclick="revokeInvite('${escJs(i.id)}')" style="padding:2px 8px;font-size:10px;color:var(--red)">Revoke</button>` : '',
     ].filter(Boolean).join(' ');
     return `<tr>
       <td style="padding:6px 8px;font-size:12px">${_escHtml(i.full_name||'')}</td>
@@ -6521,7 +6590,7 @@ function renderHistoryList(){
       <td>${s.avg_percentage != null ? s.avg_percentage+'%' : '—'}</td>
       <td>${riskBadge}</td>
       <td style="font-size:13px;color:var(--muted)">${_escHtml(s.last_exam_date || '—')}</td>
-      <td><button class="btn btn-primary btn-sm" onclick="viewStudentHistory('${_escHtml(s.roll_number)}')">View History</button></td>
+      <td><button class="btn btn-primary btn-sm" onclick="viewStudentHistory('${escJs(s.roll_number)}')">View History</button></td>
     </tr>`;
   }).join('');
 }
@@ -6608,8 +6677,8 @@ function renderHistoryDetail(){
       <td style="font-size:13px">${_fmtDuration(h.time_taken_secs)}</td>
       <td style="font-size:13px;color:var(--muted)">${_escHtml(h.submitted_at)}</td>
       <td>
-        ${highlights.length?`<button class="btn btn-secondary btn-sm" onclick="toggleHistorySummary('${_escHtml(h.session_id)}')" id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
-        <button class="btn btn-secondary btn-sm" onclick="viewSessionTimeline('${_escHtml(h.session_id)}')">Timeline</button>
+        ${highlights.length?`<button class="btn btn-secondary btn-sm" onclick="toggleHistorySummary('${escJs(h.session_id)}')" id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="viewSessionTimeline('${escJs(h.session_id)}')">Timeline</button>
       </td>
     </tr>`;
   }).join('');
@@ -6685,7 +6754,7 @@ function populateTemplateSourceExams(){
   if(!sel || !examsList) return;
   sel.innerHTML = '<option value="">Select exam to save as template…</option>';
   examsList.forEach(ex=>{
-    sel.innerHTML += `<option value="${ex.id}">${_escHtml(ex.exam_title||ex.id)}</option>`;
+    sel.innerHTML += `<option value="${escAttr(ex.id)}">${_escHtml(ex.exam_title||ex.id)}</option>`;
   });
 }
 
@@ -6704,8 +6773,8 @@ function renderTemplates(){
         <div style="font-weight:600;font-size:13px">${_escHtml(t.template_name)}</div>
         <div style="font-size:11px;color:var(--muted)">${_escHtml(t.exam_title)} · ${t.duration_minutes} min · ${t.questions_count} questions · Created ${_escHtml(t.created_at)}</div>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="createExamFromTemplate('${_escHtml(t.id)}')" style="white-space:nowrap;font-size:12px;padding:6px 12px">Create Exam</button>
-      <button class="btn btn-secondary btn-sm" onclick="deleteTemplate('${_escHtml(t.id)}')" style="white-space:nowrap;font-size:12px;padding:6px 12px;color:var(--red)">Delete</button>
+      <button class="btn btn-primary btn-sm" onclick="createExamFromTemplate('${escJs(t.id)}')" style="white-space:nowrap;font-size:12px;padding:6px 12px">Create Exam</button>
+      <button class="btn btn-secondary btn-sm" onclick="deleteTemplate('${escJs(t.id)}')" style="white-space:nowrap;font-size:12px;padding:6px 12px;color:var(--red)">Delete</button>
     </div>
   `).join('');
 }

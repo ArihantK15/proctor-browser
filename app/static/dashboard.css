@@ -1,21 +1,61 @@
 /* ── Auth overlay ─────────────────────────────────────────────── */
+/* Updated 2026-05-24: redesigned to match procta.net marketing
+   surface — split layout with brand-pitch aside on the left and
+   form card on the right (stacked on mobile), grain texture, and
+   a soft accent glow behind the shell mirroring Hero.jsx. */
 #auth-overlay{position:fixed;inset:0;background:var(--bg);z-index:9999;
-  display:flex;align-items:center;justify-content:center}
+  display:flex;align-items:center;justify-content:center;
+  background-image:var(--grain);background-size:200px 200px;
+  padding:24px;overflow-y:auto}
 #auth-overlay.hidden{display:none}
-.auth-card{background:var(--card);border:1px solid var(--border);
-  border-radius:var(--radius-lg);padding:40px;width:380px;text-align:center;
-  position:relative;overflow:hidden}
+.auth-glow{position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:800px;height:600px;border-radius:50%;
+  background:radial-gradient(circle,var(--accent-glow) 0%,transparent 70%);
+  filter:blur(120px);pointer-events:none;z-index:0}
+.auth-shell{position:relative;z-index:1;display:grid;gap:32px;
+  grid-template-columns:1fr;align-items:center;
+  width:100%;max-width:1040px;margin:auto}
+@media (min-width: 900px){
+  .auth-shell{grid-template-columns:1fr 420px;gap:48px;align-items:start}
+}
+.auth-aside{display:none;color:var(--text);padding:8px 8px 8px 0}
+@media (min-width: 900px){.auth-aside{display:block}}
+.auth-aside-back{display:inline-flex;align-items:center;gap:6px;
+  color:var(--muted);font-size:12px;text-decoration:none;margin-bottom:24px;
+  font-family:var(--font-mono);letter-spacing:0.04em;transition:color .15s}
+.auth-aside-back:hover{color:var(--accent-light)}
+.auth-aside-h1{font-family:var(--font-display);font-size:44px;line-height:1.1;
+  font-weight:700;letter-spacing:-0.02em;color:#fff;margin:0 0 20px}
+.auth-aside-h1-accent{background:linear-gradient(135deg,var(--accent),var(--accent-light));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.auth-aside-lede{color:var(--muted);font-size:14px;line-height:1.65;
+  max-width:440px;margin:0 0 24px}
+.auth-aside-list{list-style:none;padding:0;margin:0;display:flex;
+  flex-direction:column;gap:10px}
+.auth-aside-list li{display:flex;align-items:center;gap:10px;
+  font-size:13px;color:var(--text)}
+.auth-aside-bullet{width:6px;height:6px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 8px var(--accent-glow);flex-shrink:0}
+.auth-card{background:rgba(255,255,255,0.02);
+  border:1px solid rgba(255,255,255,0.06);
+  border-radius:var(--radius-lg);padding:40px;width:auto;max-width:420px;
+  text-align:center;position:relative;overflow:hidden;
+  backdrop-filter:blur(8px);justify-self:center}
+@media (min-width: 900px){.auth-card{justify-self:end;width:420px}}
 .auth-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,transparent,var(--accent),transparent)}
-.auth-card h2{color:var(--accent);margin-bottom:8px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);z-index:2}
+.auth-card h2{color:#fff;margin-bottom:8px;font-size:24px;font-weight:700;
   font-family:var(--font-display);letter-spacing:-0.02em}
 .auth-card p{color:var(--muted);font-size:13px;margin-bottom:20px}
-.auth-card input{width:100%;background:rgba(255,255,255,0.02);border:1px solid var(--border);
-  border-radius:var(--radius-sm);padding:10px 14px;color:var(--text);font-size:14px;
-  margin-bottom:12px;font-family:var(--font-body);transition:border-color 0.2s,box-shadow 0.2s}
+.auth-card input{width:100%;background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:var(--radius-sm);padding:12px 14px;color:var(--text);font-size:14px;
+  margin-bottom:12px;font-family:var(--font-body);transition:border-color 0.2s,box-shadow 0.2s;
+  box-sizing:border-box}
 .auth-card input:focus{outline:none;border-color:var(--accent);
   box-shadow:0 0 0 3px var(--accent-glow)}
-.auth-card button{width:100%;padding:12px;border-radius:var(--radius-sm);border:1px solid var(--accent);
+.auth-card button{width:100%;padding:13px;border-radius:var(--radius-sm);
+  border:1px solid var(--accent);
   background:var(--accent-dark);color:#fff;font-size:14px;font-weight:600;cursor:pointer;
   font-family:var(--font-body);transition:all 0.15s;
   box-shadow:0 0 20px var(--accent-glow)}

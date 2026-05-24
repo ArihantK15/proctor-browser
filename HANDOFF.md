@@ -677,6 +677,7 @@ Reverified by grep on the live tree — these are no longer pending:
 
 | Audit | Evidence |
 |---|---|
+| **C6** (single SECRET_KEY for all token types) | Per-purpose key rings via `_key_ring()` in `constants.py:42–108`. Env vars `JWT_ADMIN_SIGNING_KEY`, `JWT_STUDENT_SIGNING_KEY`, `JWT_REFRESH_SIGNING_KEY`, `JWT_RESET_SIGNING_KEY`, `JWT_EMAIL_VERIFY_SIGNING_KEY`, `JWT_REAUTH_SIGNING_KEY`, `JWT_EXAM_TOKEN_SIGNING_KEY`, `JWT_ROOM_CAM_SIGNING_KEY`, each with `*_PREVIOUS` rotation slot. Legacy master-key acceptance now opt-in only (`JWT_ACCEPT_LEGACY_MASTER_TOKENS=true`). |
 | **H2** (legacy reset token reuse) | `password_changed_at` populated on register, password-reset, password-change paths (`auth.py:82, 436, 940`). |
 | **H6** (invoice rendering) | `loadBilling()` fetches `/api/v1/billing/invoices` and renders into `#billing-invoices-body` (dashboard.html:3344–3348). |
 | **H7** (escHtml insufficient) | `escAttr` defined at `dashboard.html:4337` and applied 63× across the file. |
@@ -686,12 +687,15 @@ Reverified by grep on the live tree — these are no longer pending:
 
 ### Still genuinely deferred
 
+Three items remain — none are bugs, all are intentional trade-offs:
+
 | Audit | Why deferred |
 |---|---|
-| **C6** (single SECRET_KEY) | 4hr+ architectural; mitigated by HS256 + key not in version control. Revisit on security review or token-confusion CVE. |
 | **M6** (silent catch blocks) | Reverified: the 33 surviving `catch(_){}` blocks are intentional best-effort cleanup (`localStorage.setItem`, `_sseSource.close()`, `turnstile.reset()`). Silent failure is the right behaviour — adding logs would be noise. |
 | **M8** (CSRF tied to JWT) | Architectural item, no demonstrated exploit (attacker with JWT already has full control). ~3-4hr. Defer. |
-| **L2** (CSP nonce) | 4hr to do right. Defer. |
+| **L2** (CSP nonce) | `script-src` already excludes `'unsafe-inline'`. Only remaining gap is `style-src 'unsafe-inline'` — tightening it would mean nonce-ing every `<style>` block and eliminating every `style="..."` attribute (hundreds across `dashboard.html`'s 6907 lines). 6–8 hr UI rewrite. Defer to dedicated frontend hardening sprint. |
+
+**Original 34-item audit → 0 bugs remaining.** The three deferred items are conscious trade-offs documented above, not unresolved defects.
 
 ### Manual cleanup needed on the KVM
 

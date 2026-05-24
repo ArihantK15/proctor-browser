@@ -924,11 +924,25 @@ function applyOrgRole(org_role){
     badge.dataset.role = currentOrgRole;
     badge.style.display = '';
   }
-  if(currentOrgRole === 'teacher' && document.querySelector('.tab.active')?.dataset.tab !== 'live'){
-    switchTab('live');
-  }
-  if(currentOrgRole !== 'teacher' && !document.querySelector('.tab.active[data-roles]')){
-    switchTab('org');
+  // Default-tab routing — per role, in priority order. If the currently
+  // active tab is hidden for this role (e.g. a super admin landing on
+  // the old `live` default), pick the first preferred tab that's visible.
+  const _defaults = {
+    teacher:    ['live'],
+    admin:      ['live', 'org'],
+    superadmin: ['all-orgs', 'issues'],
+  };
+  const activeTab = document.querySelector('.tab.active');
+  const activeVisible = activeTab && activeTab.style.display !== 'none';
+  if(!activeVisible){
+    const candidates = _defaults[currentOrgRole] || ['live'];
+    for(const t of candidates){
+      const btn = document.querySelector(`.tab[data-tab="${t}"]`);
+      if(btn && btn.style.display !== 'none'){
+        switchTab(t);
+        break;
+      }
+    }
   }
 }
 

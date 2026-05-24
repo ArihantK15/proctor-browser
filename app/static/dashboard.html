@@ -289,23 +289,28 @@
      role="tab" + aria-selected lets assistive tech announce active state.
      Arrow-key navigation wired up in dashboard JS (see _initTabKeyboard). -->
 <div class="tabs" role="tablist" aria-label="Dashboard sections">
-  <button type="button" class="tab active" data-tab="live"      role="tab" aria-selected="true"  onclick="switchTab('live');clearAlertBadge()">Live Sessions<span class="tab-badge" id="live-alert-badge" style="display:none;background:var(--red);color:#fff">0</span></button>
-  <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" onclick="switchTab('results')">Results</button>
-   <button type="button" class="tab"        data-tab="history"   role="tab" aria-selected="false" onclick="switchTab('history')">Student History</button>
-   <button type="button" class="tab"        data-tab="questions" role="tab" aria-selected="false" onclick="switchTab('questions')">Questions</button>
-  <button type="button" class="tab"        data-tab="chat"      role="tab" aria-selected="false" onclick="switchTab('chat')">
+  <!-- Teacher + Admin tabs — operational exam visibility.
+       data-roles makes them hide from super admin (super admin is
+       maintenance-only, doesn't run exams). -->
+  <button type="button" class="tab active" data-tab="live"      role="tab" aria-selected="true"  onclick="switchTab('live');clearAlertBadge()" data-roles="teacher admin">Live Sessions<span class="tab-badge" id="live-alert-badge" style="display:none;background:var(--red);color:#fff">0</span></button>
+  <button type="button" class="tab"        data-tab="results"   role="tab" aria-selected="false" onclick="switchTab('results')" data-roles="teacher admin">Results</button>
+  <button type="button" class="tab"        data-tab="history"   role="tab" aria-selected="false" onclick="switchTab('history')" data-roles="teacher admin">Student History</button>
+  <button type="button" class="tab"        data-tab="analytics" role="tab" aria-selected="false" onclick="switchTab('analytics')" data-roles="teacher admin">Analytics</button>
+  <!-- Teacher-only exam ops — admins delegate these to teachers in the org. -->
+  <button type="button" class="tab"        data-tab="questions" role="tab" aria-selected="false" onclick="switchTab('questions')" data-roles="teacher">Questions</button>
+  <button type="button" class="tab"        data-tab="chat"      role="tab" aria-selected="false" onclick="switchTab('chat')" data-roles="teacher">
     Chat<span class="tab-badge" id="chat-tab-badge" style="display:none">0</span>
   </button>
-  <button type="button" class="tab"        data-tab="analytics" role="tab" aria-selected="false" onclick="switchTab('analytics')">Analytics</button>
-  <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" onclick="switchTab('tools')">Tools</button>
+  <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" onclick="switchTab('tools')" data-roles="teacher">Tools</button>
   <!-- Admin tabs (role-gated) -->
   <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" onclick="switchTab('org')"       data-roles="admin superadmin" style="display:none">Org Overview</button>
   <button type="button" class="tab"        data-tab="security"  role="tab" aria-selected="false" onclick="switchTab('security')"  data-roles="admin superadmin" style="display:none">Security</button>
   <button type="button" class="tab"        data-tab="members"   role="tab" aria-selected="false" onclick="switchTab('members')"   data-roles="admin superadmin" style="display:none">Members</button>
   <button type="button" class="tab"        data-tab="billing"   role="tab" aria-selected="false" onclick="switchTab('billing')"   data-roles="admin superadmin" style="display:none">Billing</button>
   <button type="button" class="tab"        data-tab="org-settings" role="tab" aria-selected="false" onclick="switchTab('org-settings')" data-roles="admin superadmin" style="display:none">Org Settings</button>
-  <!-- Super admin tabs -->
+  <!-- Super admin tabs — maintenance only. -->
   <button type="button" class="tab"        data-tab="all-orgs"   role="tab" aria-selected="false" onclick="switchTab('all-orgs')" data-roles="superadmin" style="display:none">All Orgs</button>
+  <button type="button" class="tab"        data-tab="issues"     role="tab" aria-selected="false" onclick="switchTab('issues')"   data-roles="superadmin" style="display:none">Issues<span class="tab-badge" id="issues-open-badge" style="display:none;background:var(--amber);color:#000">0</span></button>
   <button type="button" class="tab"        data-tab="debug"      role="tab" aria-selected="false" onclick="switchTab('debug')"    data-roles="superadmin" style="display:none">Flags</button>
 </div>
 
@@ -1678,11 +1683,36 @@
 </div>
 
 <!-- DEBUG/FLAGS PANEL (super admin) -->
+<!-- ISSUES PANEL — super-admin inbox for teacher-reported flags.
+     Skeleton lands in Phase 1 so switchTab('issues') has a target;
+     full table + detail view ships in Phase 3 (migrations/phase70_issues.sql). -->
+<div class="panel" id="panel-issues">
+  <div class="panel-header">
+    <div class="panel-glow" aria-hidden="true"></div>
+    <div class="panel-header-text">
+      <h1 class="panel-title">Issues</h1>
+      <p class="panel-lede">Teacher-reported bugs and feature requests, across every org. Triage and resolve from here.</p>
+    </div>
+  </div>
+  <div class="org-wrap">
+    <div id="issues-content">
+      <p style="color:var(--text-muted);font-size:13px">Loading…</p>
+    </div>
+  </div>
+</div>
+
+<!-- FLAGS & DEBUG PANEL — feature flags + kill switches (separate from Issues). -->
 <div class="panel" id="panel-debug">
-  <div style="max-width:800px;margin:0 auto;padding:20px 0">
-    <h2 style="color:var(--text-primary);margin:0 0 20px">Flags & Debug</h2>
+  <div class="panel-header">
+    <div class="panel-glow" aria-hidden="true"></div>
+    <div class="panel-header-text">
+      <h1 class="panel-title">Flags &amp; Debug</h1>
+      <p class="panel-lede">Feature flags and kill switches. Operational toggles only — not for issue triage (use Issues tab).</p>
+    </div>
+  </div>
+  <div class="org-wrap">
     <div id="debug-content">
-      <p style="color:var(--text-secondary);font-size:13px">No active flags. All organizations operating normally.</p>
+      <p style="color:var(--text-muted);font-size:13px">No active flags. All organizations operating normally.</p>
     </div>
   </div>
 </div>

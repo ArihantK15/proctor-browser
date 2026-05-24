@@ -671,19 +671,26 @@ re-verify or accidentally regress them:
 | **Remove Google + Microsoft OAuth entirely** — backend service, route handlers, frontend buttons, env vars, marketing copy | `c8ab88c` | (Supabase Auth dashboard manual step — disable providers) |
 | **Replace TOTP 2FA with email-OTP 2FA** — TOTP service deleted, 2FA endpoints rewritten, login flow uses `email_otp.issue` + `send_2fa_otp_email`, dashboard + React UI rewritten | `1bf402a` | `phase68_email_2fa.sql` |
 
-### Deferred with rationale (not done this session)
+### Fixed in follow-up commits (since first remediation pass)
+
+Reverified by grep on the live tree — these are no longer pending:
+
+| Audit | Evidence |
+|---|---|
+| **H2** (legacy reset token reuse) | `password_changed_at` populated on register, password-reset, password-change paths (`auth.py:82, 436, 940`). |
+| **H6** (invoice rendering) | `loadBilling()` fetches `/api/v1/billing/invoices` and renders into `#billing-invoices-body` (dashboard.html:3344–3348). |
+| **H7** (escHtml insufficient) | `escAttr` defined at `dashboard.html:4337` and applied 63× across the file. |
+| **M4** (fetch timeouts) | `fetchWithTimeout` wrapper present in dashboard.html, student.html, register.html, download.html, privacy.html (default 30s). |
+| **M5** (alert() → modal) | Zero `alert(` calls remain in `app/static/*.html` — replaced with the modal/toast utility. |
+| **M11** (WS per-IP rate limit) | `ws_rate_limiter.check_and_increment` gates connect in `sse.py` and `chat.py` with corresponding decrement on disconnect. |
+
+### Still genuinely deferred
 
 | Audit | Why deferred |
 |---|---|
 | **C6** (single SECRET_KEY) | 4hr+ architectural; mitigated by HS256 + key not in version control. Revisit on security review or token-confusion CVE. |
-| **H2** (legacy reset token reuse) | Real but minor; only affects accounts that never had `password_changed_at` set — small population. ~30 min, batch with next auth work. |
-| **H6** (invoice rendering missing) | Real — billing tab needs implementation OR redirect to React BillingPanel. Defer until first paying customer asks. |
-| **H7** (escHtml insufficient for attr/JS context) | Real defensive issue. Need a `escAttr` + `escJs` audit + replacement across dashboard.html. ~3hr. Defer. |
-| **M4** (no fetch timeouts) | Wrapper + apply to all callsites; non-trivial regression surface. ~2hr. Defer. |
-| **M5** (44 alert() → modal) | UX polish, 4hr churn. Defer to dedicated UX sprint. |
-| **M6** (31 silent catch blocks) | Each needs triage — adding logging may surface previously-hidden errors. ~2hr. Defer. |
-| **M8** (CSRF tied to JWT) | Real architectural item but no demonstrated exploit (attacker with JWT already has full control). ~3-4hr. Defer. |
-| **M11** (WS per-IP rate limit) | Existing 10s auth-handshake timeout + per-session conn cap adequate. Marginal value. Defer. |
+| **M6** (silent catch blocks) | Reverified: the 33 surviving `catch(_){}` blocks are intentional best-effort cleanup (`localStorage.setItem`, `_sseSource.close()`, `turnstile.reset()`). Silent failure is the right behaviour — adding logs would be noise. |
+| **M8** (CSRF tied to JWT) | Architectural item, no demonstrated exploit (attacker with JWT already has full control). ~3-4hr. Defer. |
 | **L2** (CSP nonce) | 4hr to do right. Defer. |
 
 ### Manual cleanup needed on the KVM

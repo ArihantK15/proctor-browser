@@ -91,15 +91,11 @@ async def invite_member(body: OrgInviteIn, request: Request):
     # SHA-256 hex of the token — what we actually look up by, so a
     # read-only DB compromise can't surface usable invite links.
     # See migrations/phase69_invite_token_hash.sql for rationale.
-    # The plaintext `token` column is also populated for backward
-    # compatibility during the transition (a future migration will
-    # drop it once we verify the new path is stable in production).
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
     await _atable("org_invites").insert({
         "org_id": str(org_id),
-        "token": token,
         "token_hash": token_hash,
         "email": email,
         "full_name": body.full_name,

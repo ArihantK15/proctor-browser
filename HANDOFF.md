@@ -848,6 +848,13 @@ ssh root@187.127.169.89 'cd /root/proctor-browser && docker compose stop api && 
 - **Job queue**: `app/jobs/` — `scoring_jobs.py`, `autosave_jobs.py`,
   `email_jobs.py`. Workers consume via RQ.
 
+## 12. Pending manual KVM migration
+
+- Apply `migrations/phase71_drop_invite_token_plaintext.sql` with the
+  project's standard Postgres migration runner. Do not skip this on the
+  KVM: app code no longer writes `org_invites.token`, and the migration
+  completes the token-hash-only invite storage transition.
+
 ---
 
 If you're a fresh Claude session reading this: the user is solo,

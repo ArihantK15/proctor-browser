@@ -222,9 +222,8 @@ async function _connectSSE(){
 
   try{
     // Fetch a short-lived connect token (avoids putting JWT in URL)
-    const ctr = await fetchWithTimeout(`${BASE}/api/v1/sse/connect-token`, {
+    const ctr = await authFetch(`${BASE}/api/v1/sse/connect-token`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${authToken}` },
     });
     if(!ctr.ok) throw new Error('connect-token failed');
     const { connect_token } = await ctr.json();

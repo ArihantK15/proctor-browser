@@ -1629,6 +1629,212 @@ function sortLive(key){
 }
 function filterLive(){renderLive();}
 
+function _riskClass(score){
+  const n = Number(score || 0);
+  if(n > 70) return 'critical';
+  if(n > 40) return 'high';
+  if(n > 15) return 'moderate';
+  return 'low';
+}
+
+function _severityRank(sev){
+  return {critical:4, high:3, medium:2, low:1, info:0}[String(sev || '').toLowerCase()] ?? 0;
+}
+
+function _calBadge(cal){
+  const tier = (cal && cal.tier) || 'missing';
+  const label = {stable:'Stable', normal:'Normal', loose:'Loose', tight:'Tight', missing:'--'}[tier] || tier;
+  return `<span class="badge" title="${escAttr((cal && cal.reason) || '')}">${_escHtml(label)}</span>`;
+}
+
+function renderLiveStats(activeRows=[], allRows=[]){
+  const el = document.getElementById('live-stats');
+  if(!el) return;
+  const all = Array.isArray(allRows) ? allRows : [];
+  const active = Array.isArray(activeRows) ? activeRows : [];
+  const submitted = all.filter(s => s.submitted || s.live_state === 'submitted').length;
+  const stale = all.filter(s => s.live_state === 'stale').length;
+  const highRisk = all.filter(s => Number(s.risk_score || 0) > 40).length;
+  el.innerHTML = `
+    <div class="stat-tile"><div class="stat-tile-label">Live Now</div><div class="stat-tile-value accent">${active.length}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">All Sessions</div><div class="stat-tile-value">${all.length}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">High Risk</div><div class="stat-tile-value" style="color:var(--red)">${highRisk}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Submitted</div><div class="stat-tile-value success">${submitted}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Stale</div><div class="stat-tile-value">${stale}</div></div>
+  `;
+}
+
+function renderLive(){
+  const body = document.getElementById('live-body');
+  if(!body) return;
+  const q = (document.getElementById('live-search')?.value || '').toLowerCase().trim();
+  const sevFilter = document.getElementById('live-sev-filter')?.value || 'all';
+  let rows = [...(liveData || [])];
+  if(q){
+    rows = rows.filter(s => [s.session_id, s.last_event, s.last_severity, s.live_state]
+      .some(v => String(v || '').toLowerCase().includes(q)));
+  }
+  if(sevFilter !== 'all'){
+    rows = rows.filter(s => String(s.last_severity || '').toLowerCase() === sevFilter);
+  }
+  rows.sort((a,b)=>{
+    let va = a[liveSortKey], vb = b[liveSortKey];
+    if(liveSortKey === 'last_severity'){ va = _severityRank(va); vb = _severityRank(vb); }
+    else if(liveSortKey === 'risk_score' || liveSortKey === 'heartbeat_age_sec'){ va = Number(va || 0); vb = Number(vb || 0); }
+    else { va = String(va || ''); vb = String(vb || ''); }
+    const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : va.localeCompare(vb);
+    return liveSortAsc ? cmp : -cmp;
+  });
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:18px">No live sessions found.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(s => {
+    const sid = s.session_id || s.session_key || '';
+    const risk = s.risk_score == null ? '--' : String(s.risk_score);
+    const state = s.submitted ? 'Submitted' : (s.live_state || 'Active');
+    return `<tr onclick="openTimelineForSession('${escJs(sid)}')" style="cursor:pointer">
+      <td><span style="font-family:var(--font-mono);font-size:11px">${_escHtml(sid)}</span></td>
+      <td>${_escHtml((s.last_event || '--').replace(/_/g,' '))}</td>
+      <td><span class="sev ${escAttr(String(s.last_severity || 'low').toLowerCase())}">${_escHtml(s.last_severity || '--')}</span></td>
+      <td><span class="badge">${_escHtml(risk)}</span></td>
+      <td>${_calBadge(s.calibration)}</td>
+      <td>${_escHtml(s.last_seen || (s.heartbeat_age_sec != null ? `${s.heartbeat_age_sec}s ago` : '--'))}</td>
+      <td>${_escHtml(state)}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openTriage('${escJs(sid)}')">Insight</button>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openTimelineForSession('${escJs(sid)}')">Timeline</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderResultsStats(){
+  const el = document.getElementById('results-stats');
+  if(!el) return;
+  const rows = resultsData || [];
+  const avg = rows.length ? Math.round(rows.reduce((s,r)=>s + Number(r.percentage || 0), 0) / rows.length) : 0;
+  const highRisk = rows.filter(r => Number(r.risk_score || 0) > 40).length;
+  const violations = rows.reduce((s,r)=>s + Number(r.violation_count || 0), 0);
+  el.innerHTML = `
+    <div class="stat-tile"><div class="stat-tile-label">Submissions</div><div class="stat-tile-value accent">${rows.length}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Avg Score</div><div class="stat-tile-value">${avg}%</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">High Risk</div><div class="stat-tile-value" style="color:var(--red)">${highRisk}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Violations</div><div class="stat-tile-value">${violations}</div></div>
+  `;
+}
+
+function renderResults(){
+  const body = document.getElementById('results-body');
+  if(!body) return;
+  const q = (document.getElementById('results-search')?.value || '').toLowerCase().trim();
+  const riskFilter = document.getElementById('results-risk-filter')?.value || 'all';
+  let rows = [...(resultsData || [])];
+  if(q){
+    rows = rows.filter(r => [r.roll_number, r.full_name, r.email, r.session_id]
+      .some(v => String(v || '').toLowerCase().includes(q)));
+  }
+  if(riskFilter !== 'all'){
+    rows = rows.filter(r => _riskClass(r.risk_score) === riskFilter);
+  }
+  rows.sort((a,b)=>{
+    let va = a[resSortKey], vb = b[resSortKey];
+    if(['score','total','percentage','violation_count','risk_score','time_taken_secs'].includes(resSortKey)){
+      va = Number(va || 0); vb = Number(vb || 0);
+    } else {
+      va = String(va || ''); vb = String(vb || '');
+    }
+    const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : va.localeCompare(vb);
+    return resSortAsc ? cmp : -cmp;
+  });
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:18px">No results found.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => {
+    const sid = r.session_id || r.session_key || '';
+    return `<tr onclick="openTimelineForSession('${escJs(sid)}')" style="cursor:pointer">
+      <td>${_escHtml(r.roll_number || '--')}</td>
+      <td>${_escHtml(r.full_name || '--')}</td>
+      <td>${_escHtml(r.score ?? '--')} / ${_escHtml(r.total ?? '--')}</td>
+      <td>${_escHtml(r.percentage ?? '--')}%</td>
+      <td>${_escHtml(r.violation_count ?? 0)}</td>
+      <td>${_riskBadge(r.risk_score)}</td>
+      <td>${_calBadge(r.calibration)}</td>
+      <td>${_fmtDuration(r.time_taken_secs || 0)}</td>
+      <td>${_escHtml(r.submitted_at || '--')}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();dlScorecard('${escJs(sid)}')">Scorecard</button>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openTimelineForSession('${escJs(sid)}')">Timeline</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function filterResults(){renderResults();}
+
+async function refreshIdReviews(){
+  const section = document.getElementById('id-reviews-section');
+  const list = document.getElementById('id-reviews-list');
+  const count = document.getElementById('id-reviews-count');
+  if(!section || !list || !count) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/pending-verifications${_examQuery('?')}`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const rows = d.pending || [];
+    count.textContent = rows.length;
+    section.style.display = rows.length ? '' : 'none';
+    list.innerHTML = rows.map(v => `
+      <div class="id-review-card">
+        <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+          <div>
+            <div style="font-weight:600;color:var(--text-high)">${_escHtml(v.full_name || v.roll_number || 'Student')}</div>
+            <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${_escHtml(v.session_key || '')}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-secondary btn-sm" onclick="decideIdReview('${escJs(v.id)}','${escJs(v.session_key)}','approved')">Approve</button>
+            <button class="btn btn-secondary btn-sm" onclick="decideIdReview('${escJs(v.id)}','${escJs(v.session_key)}','retake')">Retake</button>
+            <button class="btn btn-secondary btn-sm" onclick="decideIdReview('${escJs(v.id)}','${escJs(v.session_key)}','rejected')" style="color:var(--red)">Reject</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          ${v.selfie_url ? `<img src="${escAttr(v.selfie_url)}" style="width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">` : ''}
+          ${v.id_url ? `<img src="${escAttr(v.id_url)}" style="width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">` : ''}
+          <span style="font-size:11px;color:var(--text-muted);align-self:center">${_escHtml(v.created_at || '')}</span>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){
+    console.warn('refreshIdReviews', e);
+    section.style.display = 'none';
+  }
+}
+
+async function decideIdReview(violationId, sessionKey, decision){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/id-decision`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({violation_id: violationId, session_key: sessionKey, decision})
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || `HTTP ${r.status}`);
+    }
+    await refreshIdReviews();
+    await refreshLive();
+  }catch(e){
+    showModal('ID review failed', e.message || 'Could not save review decision.');
+  }
+}
+
+function openTimelineForSession(sid){
+  if(!sid) return;
+  currentSessionId = sid;
+  openTimeline();
+}
+
 
 function _setExporting(btnId, loading){
   const btn = document.getElementById(btnId);
@@ -3250,6 +3456,14 @@ function clearQImage(idx){
 
 function escAttr(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;').replace(/`/g,'&#96;').replace(/\//g,'&#47;');
+}
+
+function _escHtml(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
+function escJs(s){
+  return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/`/g,'\\`').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/</g,'\\x3c');
 }
 
 function showModal(title, message){

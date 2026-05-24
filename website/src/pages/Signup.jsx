@@ -3,7 +3,6 @@ import { Link } from 'wouter'
 import { Helmet } from 'react-helmet-async'
 import { ArrowLeft, Check } from 'lucide-react'
 import { APP_URL } from '../config'
-import OAuthButtons from '../components/auth/OAuthButtons'
 import useTurnstile from '../hooks/useTurnstile'
 import { isPasswordPwned } from '../lib/hibp'
 
@@ -158,12 +157,13 @@ export default function Signup() {
       <div className="pointer-events-none fixed inset-0 grain-overlay" />
       <div className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 h-[400px] w-[600px] rounded-full bg-accent/5 blur-[120px]" />
 
-      <div className="relative w-full max-w-lg">
+      <div className="relative w-full max-w-lg lg:max-w-6xl">
         <Link to="/" className="mb-8 inline-flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-accent-light no-underline">
           <ArrowLeft size={16} />
           Back to home
         </Link>
 
+        <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
         <div className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 backdrop-blur-sm overflow-hidden grain-overlay">
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent z-10" />
 
@@ -181,20 +181,6 @@ export default function Signup() {
             <p className="mt-2 text-sm text-slate-400">
               7 days free on Starter plan. No credit card required. Full access, no limits.
             </p>
-          </div>
-
-          {/* OAuth: most teachers have Google or Microsoft 365 accounts;
-              clicking these skips email verification, password creation,
-              and password remembering entirely. */}
-          <OAuthButtons
-            intent="teacher"
-            returnTo={`${APP_URL}/dashboard`}
-          />
-
-          <div className="my-5 flex items-center gap-3 text-xs text-slate-500">
-            <div className="h-px flex-1 bg-white/[0.08]" />
-            <span className="label-mono">or use email</span>
-            <div className="h-px flex-1 bg-white/[0.08]" />
           </div>
 
           <form onSubmit={handleSignup} className="space-y-4">
@@ -303,8 +289,9 @@ export default function Signup() {
           </p>
         </div>
 
-        {/* Enterprise / Demo Request section */}
-        <div className="mt-10 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 overflow-hidden grain-overlay">
+        {/* Enterprise / Demo Request section — sits beside signup on
+            desktop, stacks below on mobile (handled by parent grid). */}
+        <div className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 overflow-hidden grain-overlay">
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-amber/40 to-transparent z-10" />
           <h2 className="text-lg font-bold text-white font-display">Enterprise / Custom Plan</h2>
           <p className="mt-2 text-sm text-slate-400">
@@ -388,6 +375,7 @@ export default function Signup() {
               </button>
             </form>
           )}
+        </div>
         </div>
       </div>
     </div>

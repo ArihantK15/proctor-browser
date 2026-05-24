@@ -102,16 +102,32 @@ function LoginForm({ onLogin }) {
 function StudentDashboard({ token, onLogout }) {
   const [exams, setExams] = useState([])
   const [loading, setLoading] = useState(true)
+  // P2.6: distinguish error / empty / loading states. The old
+  // `.then(r => r.ok ? r.json() : [])` swallowed API failures into
+  // "no upcoming exams" — students thought their teacher hadn't
+  // assigned anything when the API was down.
+  const [loadError, setLoadError] = useState(null)
 
   const authFetch = (url, opts = {}) => fetchWithTimeout(url, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${token}` } })
 
-  useEffect(() => {
+  const loadExams = () => {
+    setLoading(true); setLoadError(null)
     authFetch('/api/student/exams')
-      .then(r => r.ok ? r.json() : [])
+      .then(async (r) => {
+        if (!r.ok) {
+          let detail = `Could not load your exams (${r.status})`
+          try { const b = await r.json(); detail = b.detail || b.message || detail } catch (_) {}
+          const requestId = r.headers.get('X-Request-ID') || null
+          throw Object.assign(new Error(detail), { requestId })
+        }
+        return r.json()
+      })
       .then(d => setExams(d.exams || d.active || []))
-      .catch(() => {})
+      .catch(err => setLoadError({ message: err.message, requestId: err.requestId }))
       .finally(() => setLoading(false))
-  }, [token])
+  }
+
+  useEffect(() => { loadExams() }, [token])
 
   return (
     <div className="app-shell">
@@ -125,7 +141,18 @@ function StudentDashboard({ token, onLogout }) {
       </div>
       <div className="container" style={{ padding: '20px 24px' }}>
         <h2 style={{ marginBottom: 16 }}>My Exams</h2>
-        {loading ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Loading...</div> : exams.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Loading...</div>
+        ) : loadError ? (
+          <div className="card" style={{ padding: 24, textAlign: 'center', border: '1px solid rgba(239,68,68,0.30)', background: 'rgba(239,68,68,0.05)' }}>
+            <p style={{ color: 'var(--red, #ef4444)', fontWeight: 600, marginBottom: 6 }}>Could not load your exams</p>
+            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>{loadError.message}</p>
+            {loadError.requestId && (
+              <p style={{ color: 'var(--muted)', fontSize: 11, fontFamily: 'monospace', marginBottom: 12 }}>request_id: {loadError.requestId}</p>
+            )}
+            <button className="btn btn-secondary btn-sm" onClick={loadExams}>Retry</button>
+          </div>
+        ) : exams.length === 0 ? (
           <div className="card" style={{ padding: 40, textAlign: 'center' }}>
             <p style={{ color: 'var(--muted)' }}>No upcoming exams. Your teacher will invite you when an exam is scheduled.</p>
           </div>

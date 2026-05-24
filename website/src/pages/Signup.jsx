@@ -100,6 +100,11 @@ export default function Signup() {
         body: JSON.stringify({ ...demoForm, captcha_token: turnstile.token }),
       })
       if (!res.ok) {
+        // P2.7: Turnstile tokens are single-use. Both signup and demo
+        // share one widget on this page; without refresh-on-failure,
+        // a user who fails one form then submits the other gets a
+        // bogus "captcha required" 403 from the reused stale token.
+        turnstile.refresh()
         const data = await res.json().catch(() => ({}))
         throw new Error(data.detail || 'Something went wrong.')
       }

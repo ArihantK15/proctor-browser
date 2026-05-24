@@ -523,9 +523,19 @@ async def list_invoices(request: Request):
         import razorpay
         client = _get_client()
         raw = client.invoice.all({"subscription_id": sub_id})
+        # P2.5: Razorpay returns `created_at` as Unix epoch seconds (int).
+        # React clients pipe it into `new Date(value)` which expects ms or
+        # ISO — the seconds value rendered as a 1970-era date. Convert
+        # here so the contract is human-readable ISO 8601 in UTC.
+        def _to_iso(epoch_secs):
+            if not epoch_secs: return ""
+            try:
+                return datetime.fromtimestamp(int(epoch_secs), tz=timezone.utc).isoformat()
+            except (TypeError, ValueError):
+                return str(epoch_secs)  # last-resort: pass through
         invoices = [
             {"id": inv["id"], "amount": inv["amount"], "currency": inv["currency"],
-             "status": inv["status"], "created_at": inv.get("created_at"),
+             "status": inv["status"], "created_at": _to_iso(inv.get("created_at")),
              "pdf_url": inv.get("invoice_url") or None,
              "description": inv.get("description", "")}
             for inv in (raw.get("items", []) if isinstance(raw, dict) else raw.get("items", []))

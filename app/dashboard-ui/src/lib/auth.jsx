@@ -45,6 +45,54 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null)
   const [org, setOrg] = useState(null)
   const [billing, setBilling] = useState(null)
+  // P2.4: per-panel error state with request_id. Previously the
+  // org/billing fetches silently swallowed errors → user saw empty
+  // panels with no way to tell "no data" from "API broken". Now
+  // surfaces a retry-able banner in the affected panel.
+  const [orgError, setOrgError] = useState(null)
+  const [billingError, setBillingError] = useState(null)
+
+  const _captureError = async (response, fallbackMsg) => {
+    const requestId = response.headers.get('X-Request-ID') || null
+    let detail = fallbackMsg
+    try {
+      const body = await response.json()
+      detail = body.detail || body.message || fallbackMsg
+    } catch (_) { /* keep fallbackMsg */ }
+    return { message: `${detail} (${response.status})`, requestId }
+  }
+
+  const loadOrg = useCallback(async (token) => {
+    setOrgError(null)
+    try {
+      const orgR = await fetchWithTimeout(`${API_BASE}/org`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (orgR.ok) {
+        setOrg(await orgR.json())
+      } else {
+        setOrgError(await _captureError(orgR, 'Could not load organisation'))
+      }
+    } catch (e) {
+      setOrgError({ message: e.message || 'Could not load organisation', requestId: null })
+    }
+  }, [])
+
+  const loadBilling = useCallback(async (token) => {
+    setBillingError(null)
+    try {
+      const billR = await fetchWithTimeout(`${API_BASE}/org/billing`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (billR.ok) {
+        setBilling(await billR.json())
+      } else {
+        setBillingError(await _captureError(billR, 'Could not load billing'))
+      }
+    } catch (e) {
+      setBillingError({ message: e.message || 'Could not load billing', requestId: null })
+    }
+  }, [])
 
   const checkAuth = useCallback(async () => {
     const token = localStorage.getItem('procta_token')
@@ -60,19 +108,11 @@ export function AuthProvider({ children }) {
       const data = await r.json()
       await ensureCsrfToken(token, true)
       setUser(data)
-      // Fetch org and billing info
-      try {
-        const orgR = await fetchWithTimeout(`${API_BASE}/org`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (orgR.ok) setOrg(await orgR.json())
-      } catch (_) {}
-      try {
-        const billR = await fetchWithTimeout(`${API_BASE}/org/billing`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (billR.ok) setBilling(await billR.json())
-      } catch (_) {}
+      // Org and billing are non-fatal — track their errors separately
+      // so the dashboard still mounts (auth succeeded). loadOrg/Billing
+      // are exposed in context so individual panels can call them as
+      // retry handlers from a banner click.
+      await Promise.all([loadOrg(token), loadBilling(token)])
     } catch (e) {
       localStorage.removeItem('procta_token')
       localStorage.removeItem('procta_refresh')
@@ -82,7 +122,16 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadOrg, loadBilling])
+
+  const retryOrg = useCallback(() => {
+    const token = localStorage.getItem('procta_token')
+    if (token) loadOrg(token)
+  }, [loadOrg])
+  const retryBilling = useCallback(() => {
+    const token = localStorage.getItem('procta_token')
+    if (token) loadBilling(token)
+  }, [loadBilling])
 
   useEffect(() => { checkAuth() }, [checkAuth])
 
@@ -179,7 +228,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, org, billing, login, logout, authFetch, checkAuth }}>
+    <AuthContext.Provider value={{ user, loading, error, org, billing, orgError, billingError, retryOrg, retryBilling, login, logout, authFetch, checkAuth }}>
       {children}
     </AuthContext.Provider>
   )

@@ -78,7 +78,14 @@ def _static_html_response(filename: str, missing_detail: str) -> HTMLResponse:
     html_path = STATIC_DIR / filename
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=missing_detail)
-    return HTMLResponse(_stamp_static_urls(html_path.read_text()))
+    return HTMLResponse(
+        _stamp_static_urls(html_path.read_text()),
+        # Auth-gated pages: always re-fetch so post-login redirects + new
+        # deploys take effect immediately. Mirrors the Cache-Control that
+        # Caddy previously set when it short-circuited these routes
+        # (removed from Caddyfile 2026-05-24 to restore CSP + cache-bust).
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @router.get("/")
@@ -456,6 +463,13 @@ def privacy_page():
 @router.get("/security-questionnaire")
 def security_questionnaire_page():
     return _static_html_response("security-questionnaire.html", "Security questionnaire not found")
+
+
+@router.get("/api-docs")
+def api_docs_page():
+    """API docs static HTML — moved here from a Caddy short-circuit
+    so it picks up CSP + cache-bust like the rest of the auth pages."""
+    return _static_html_response("api-docs.html", "API docs not found")
 
 
 @router.get("/download/mac")

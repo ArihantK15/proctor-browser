@@ -96,67 +96,22 @@ app.procta.net {
         header Cache-Control "public, max-age=86400"
     }
 
-    # ── HTML pages: no-cache so auth checks always run fresh ──
-    handle /dashboard {
-        root * /srv/static
-        rewrite * /dashboard.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /download {
-        root * /srv/static
-        rewrite * /download.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /register {
-        root * /srv/static
-        rewrite * /register.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /student {
-        root * /srv/static
-        rewrite * /student.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /privacy {
-        root * /srv/static
-        rewrite * /privacy.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /privacy-policy {
-        root * /srv/static
-        rewrite * /privacy-policy.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /dpa {
-        root * /srv/static
-        rewrite * /dpa.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /trust-center {
-        root * /srv/static
-        rewrite * /trust-center.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /security-questionnaire {
-        root * /srv/static
-        rewrite * /security-questionnaire.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
-    handle /api-docs {
-        root * /srv/static
-        rewrite * /api-docs.html
-        file_server
-        header Cache-Control "no-cache, no-store, must-revalidate"
-    }
+    # ── HTML pages now served by FastAPI ──
+    # Previously Caddy short-circuited /dashboard, /download, etc.
+    # straight to file_server. That bypassed FastAPI's middleware chain
+    # so the Content-Security-Policy header never got applied and the
+    # `?v=<build>` cache-busting in _stamp_static_urls (public.py)
+    # never ran — confirmed by `curl -D - https://app.procta.net/dashboard`
+    # missing the CSP header that JSON endpoints carry.
+    # Removed 2026-05-24. The catch-all reverse_proxy at the bottom now
+    # routes these to FastAPI's _static_html_response which:
+    #   - adds CSP / X-Frame-Options / Permissions-Policy via
+    #     SecurityHeadersMiddleware
+    #   - injects ?v=<build_ts> into <link>/<script> src so every API
+    #     restart busts stale CSS/JS caches
+    # Cache-Control no-cache for these pages is set by FastAPI directly
+    # (see _static_html_response).
+
     handle /student-react* {
         root * /srv/static/student-react
         file_server

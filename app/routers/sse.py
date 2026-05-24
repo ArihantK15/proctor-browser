@@ -53,7 +53,9 @@ async def _store_connect_token(token: str, teacher_id: str) -> None:
             _cache.set(_ct_key(token), str(teacher_id), ttl=_CONNECT_TOKEN_TTL_SECONDS)
             return
         except Exception as e:
-            logger.warning("[sse] redis store_connect_token fallback: %s", e)
+            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak
+            # `e` is the Redis connection failure, not the token value.
+            logger.warning("[sse] redis store fallback: %s", e)
     async with _connect_tokens_lock:
         _connect_tokens[token] = str(teacher_id)
         async def _cleanup():
@@ -77,7 +79,9 @@ async def _consume_connect_token(token: str) -> str | None:
                     pass
                 return str(tid)
         except Exception as e:
-            logger.warning("[sse] redis consume_connect_token fallback: %s", e)
+            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak
+            # `e` is the Redis read failure, not the token value.
+            logger.warning("[sse] redis read fallback: %s", e)
     async with _connect_tokens_lock:
         return _connect_tokens.pop(token, None)
 

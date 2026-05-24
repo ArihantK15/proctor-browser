@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint": "eslint src --max-warnings=0",
+    "type-check": "echo 'No TypeScript in this package — skipping' && exit 0",
+    "test": "echo 'No tests in this package yet — placeholder' && exit 0",
     "preview": "vite preview"
   },
   "dependencies": {

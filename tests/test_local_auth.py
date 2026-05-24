@@ -138,20 +138,40 @@ def test_refresh_token_garbage_rejected():
 
 
 def test_dashboard_access_tokens_default_to_short_ttl():
+    from app.constants import ADMIN_SIGNING_KEY, STUDENT_SIGNING_KEY
     now = int(time.time())
     admin = jwt.decode(
         issue_admin_token({"id": "teacher-1", "email": "teacher@example.com"}),
-        SECRET_KEY,
+        ADMIN_SIGNING_KEY,
         algorithms=["HS256"],
     )
     student = jwt.decode(
         issue_student_auth_token({"id": "student-1", "email": "student@example.com"}),
-        SECRET_KEY,
+        STUDENT_SIGNING_KEY,
         algorithms=["HS256"],
     )
 
     assert 20 * 60 <= admin["exp"] - now <= 35 * 60
     assert 20 * 60 <= student["exp"] - now <= 35 * 60
+
+
+def test_access_tokens_use_purpose_keys_not_master_secret():
+    from app.auth.tokens import _decode_token
+    from app.constants import ADMIN_SIGNING_KEY, ALL_SIGNING_KEYS
+
+    token = issue_admin_token({"id": "teacher-1", "email": "teacher@example.com"})
+
+    assert jwt.decode(token, ADMIN_SIGNING_KEY, algorithms=["HS256"])["tid"] == "teacher-1"
+    with pytest.raises(jwt.InvalidTokenError):
+        jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+
+    forged = jwt.encode(
+        {"tid": "teacher-1", "role": "teacher", "iat": 1, "exp": 9999999999},
+        SECRET_KEY,
+        algorithm="HS256",
+    )
+    with pytest.raises(jwt.InvalidTokenError):
+        _decode_token(forged, ALL_SIGNING_KEYS)
 
 
 def test_refresh_token_expired_rejected():

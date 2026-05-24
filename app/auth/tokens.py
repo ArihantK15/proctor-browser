@@ -1,8 +1,10 @@
 """JWT issue and verify helpers."""
 from __future__ import annotations
 import hashlib
+import os
 import re
 import secrets
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Optional
@@ -13,7 +15,17 @@ import jwt
 from jwt.exceptions import InvalidTokenError as JWTError
 
 from ..constants import (
-    SECRET_KEY,
+    ADMIN_SIGNING_KEY,
+    ADMIN_SIGNING_KEYS,
+    STUDENT_SIGNING_KEY,
+    STUDENT_SIGNING_KEYS,
+    EXAM_TOKEN_SIGNING_KEY,
+    EXAM_TOKEN_SIGNING_KEYS,
+    EMAIL_VERIFY_SIGNING_KEYS,
+    EMAIL_VERIFY_SIGNING_KEY,
+    REAUTH_SIGNING_KEYS,
+    REAUTH_SIGNING_KEY,
+    ALL_SIGNING_KEYS,
     TOKEN_TTL_HOURS,
     ADMIN_TOKEN_TTL_MINUTES,
     STUDENT_AUTH_TTL_MINUTES,
@@ -57,20 +69,97 @@ async def extract_auth(request: Request) -> AuthCtx:
 
 # ─── CSRF protection ─────────────────────────────────────────────
 
+_CSRF_TTL_SECONDS = int(os.environ.get("CSRF_TOKEN_TTL_SECONDS", str(max(
+    ADMIN_TOKEN_TTL_MINUTES,
+    STUDENT_AUTH_TTL_MINUTES,
+) * 60)))
+_CSRF_MEMORY: dict[str, tuple[str, float]] = {}
+
+
 def _gen_csrf() -> str:
-    """Generate a random CSRF value to embed in the JWT payload."""
-    return secrets.token_hex(16)
+    """Generate an independent CSRF secret."""
+    return secrets.token_urlsafe(32)
+
+
+def _csrf_subject(claims: dict) -> str:
+    """Stable server-side CSRF storage subject for browser auth tokens."""
+    role = claims.get("role")
+    jti = str(claims.get("jti") or "")
+    if role in {"teacher", "student_account"} and jti:
+        return f"{role}:{jti}"
+    return ""
+
+
+def _csrf_key(claims: dict) -> str:
+    subject = _csrf_subject(claims)
+    if not subject:
+        return ""
+    digest = hashlib.sha256(subject.encode("utf-8")).hexdigest()
+    return f"csrf:{digest}"
+
+
+def csrf_required_for_claims(claims: dict) -> bool:
+    """CSRF applies to browser account JWTs, not exam-runtime bearer tokens."""
+    return claims.get("role") in {"teacher", "student_account"}
+
+
+def issue_csrf_token(claims: dict) -> str:
+    """Issue a server-stored CSRF secret for the current access-token JTI.
+
+    The value is deliberately not embedded in the JWT.  A stolen access token
+    alone is therefore insufficient to satisfy browser mutation CSRF checks.
+    """
+    key = _csrf_key(claims)
+    if not key:
+        return ""
+    token = _gen_csrf()
+    try:
+        from .. import cache as _cache
+        _cache.set(key, token, ttl=_CSRF_TTL_SECONDS)
+    except Exception:
+        _CSRF_MEMORY[key] = (token, time.time() + _CSRF_TTL_SECONDS)
+    else:
+        _CSRF_MEMORY[key] = (token, time.time() + _CSRF_TTL_SECONDS)
+    return token
+
+
+def clear_csrf_token(claims: dict) -> None:
+    key = _csrf_key(claims)
+    if not key:
+        return
+    _CSRF_MEMORY.pop(key, None)
+    try:
+        from .. import cache as _cache
+        _cache.delete(key)
+    except Exception:
+        pass
 
 
 def verify_csrf(claims: dict, header_value: str) -> bool:
-    """Check whether ``header_value`` matches the ``csrf`` claim in the JWT.
+    """Check whether ``header_value`` matches the server-stored CSRF secret.
 
     Returns False when the header is absent or doesn't match.
     """
     if not header_value:
         return False
-    expected = claims.get("csrf", "")
-    if not expected:
+    key = _csrf_key(claims)
+    if not key:
+        return False
+    expected = None
+    try:
+        from .. import cache as _cache
+        expected = _cache.get(key)
+    except Exception:
+        expected = None
+    if expected is None:
+        fallback = _CSRF_MEMORY.get(key)
+        if fallback:
+            value, expires_at = fallback
+            if expires_at >= time.time():
+                expected = value
+            else:
+                _CSRF_MEMORY.pop(key, None)
+    if not isinstance(expected, str) or not expected:
         return False
     return secrets.compare_digest(header_value, expected)
 
@@ -78,9 +167,8 @@ def verify_csrf(claims: dict, header_value: str) -> bool:
 def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None,
                  student_id: str = None) -> str:
     now = datetime.now(timezone.utc)
-    csrf = _gen_csrf()
     payload = {
-        "roll": roll_number, "csrf": csrf, "jti": str(uuid.uuid4()),
+        "roll": roll_number, "jti": str(uuid.uuid4()),
         "exp": now + timedelta(hours=TOKEN_TTL_HOURS), "iat": now,
     }
     if teacher_id:
@@ -89,7 +177,18 @@ def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None,
         payload["eid"] = exam_id
     if student_id:
         payload["sid"] = student_id
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    return jwt.encode(payload, EXAM_TOKEN_SIGNING_KEY, algorithm="HS256")
+
+
+def _decode_token(token: str, keys: list[str]) -> dict:
+    """Try decoding a JWT with multiple signing keys (ordered by likelihood)."""
+    last_err = None
+    for key in keys:
+        try:
+            return jwt.decode(token, key, algorithms=["HS256"])
+        except JWTError as e:
+            last_err = e
+    raise last_err or JWTError("Token could not be decoded with any key")
 
 
 def require_auth(request: Request, allowed_roles: list[str] | None = None) -> dict:
@@ -97,7 +196,7 @@ def require_auth(request: Request, allowed_roles: list[str] | None = None) -> di
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     try:
-        claims = jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+        claims = _decode_token(auth[7:], ALL_SIGNING_KEYS)
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     if allowed_roles and claims.get("role") not in allowed_roles:
@@ -115,7 +214,7 @@ def verify_student_token(token: str) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        payload = _decode_token(token, EXAM_TOKEN_SIGNING_KEYS)
     except JWTError as e:
         msg = str(e).lower()
         if "expired" in msg:
@@ -128,11 +227,10 @@ def verify_student_token(token: str) -> dict:
 
 def issue_admin_token(teacher: dict) -> str:
     now = datetime.now(timezone.utc)
-    csrf = _gen_csrf()
     jti = str(uuid.uuid4())
     payload = {
         "tid": str(teacher["id"]), "email": teacher.get("email", ""),
-        "role": "teacher", "csrf": csrf, "jti": jti,
+        "role": "teacher", "jti": jti,
         "iat": now, "exp": now + timedelta(minutes=ADMIN_TOKEN_TTL_MINUTES),
     }
     org_id = teacher.get("org_id")
@@ -140,18 +238,18 @@ def issue_admin_token(teacher: dict) -> str:
         payload["org_id"] = str(org_id)
     org_role = teacher.get("org_role", "teacher")
     payload["org_role"] = org_role
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    return jwt.encode(payload, ADMIN_SIGNING_KEY, algorithm="HS256")
 
 
 def issue_student_auth_token(account: dict) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sid": str(account["id"]), "email": account.get("email", ""),
-        "role": "student_account", "csrf": _gen_csrf(), "jti": str(uuid.uuid4()),
+        "role": "student_account", "jti": str(uuid.uuid4()),
         "iat": now,
         "exp": now + timedelta(minutes=STUDENT_AUTH_TTL_MINUTES),
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    return jwt.encode(payload, STUDENT_SIGNING_KEY, algorithm="HS256")
 
 
 # ─── Special-purpose token generators ───────────────────────────
@@ -160,20 +258,20 @@ def issue_email_verify_token(user_id: str, email: str, kind: str = "teacher") ->
     return jwt.encode({
         "scope": "email_verify", "uid": user_id, "email": email, "kind": kind,
         "exp": datetime.now(timezone.utc) + timedelta(hours=24),
-    }, SECRET_KEY, algorithm="HS256")
+    }, EMAIL_VERIFY_SIGNING_KEY, algorithm="HS256")
 
 
 def issue_reauth_token(user_id: str) -> str:
     return jwt.encode({
         "scope": "reauth", "uid": user_id,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-    }, SECRET_KEY, algorithm="HS256")
+    }, REAUTH_SIGNING_KEY, algorithm="HS256")
 
 
 def verify_email_token(token: str) -> dict | None:
     """Decode and validate an email_verify token. Returns claims dict or None."""
     try:
-        claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        claims = _decode_token(token, EMAIL_VERIFY_SIGNING_KEYS)
         if claims.get("scope") != "email_verify":
             return None
         return claims

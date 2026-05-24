@@ -170,12 +170,12 @@ class TestExamSessionsStudentId:
         from tests.conftest import make_student_token
         # Use a token that includes sid claim
         import jwt as _pyjwt
-        import os
+        from app.constants import STUDENT_SIGNING_KEY
         _sid = "student-1"
         _token = _pyjwt.encode({
             "sid": _sid, "roll": "ALICE001", "role": "student_account",
             "exp": 9999999999, "iat": 1700000000,
-        }, os.environ["SUPABASE_JWT_SECRET"], algorithm="HS256")
+        }, STUDENT_SIGNING_KEY, algorithm="HS256")
         _headers = {"Authorization": f"Bearer {_token}"}
 
         sid = f"ALICE001_{uuid.uuid4().hex[:8]}"

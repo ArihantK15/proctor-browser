@@ -162,20 +162,21 @@ def main():
 
     from jose import jwt
     from datetime import datetime, timezone, timedelta
+    from app.constants import ADMIN_SIGNING_KEY, EXAM_TOKEN_SIGNING_KEY
 
     def make_student_token():
         now = datetime.now(timezone.utc)
         return jwt.encode(
             {"roll": "TEST001", "tid": "t1", "eid": "e1", "iat": now,
              "exp": now + timedelta(hours=1)},
-            os.environ["SUPABASE_JWT_SECRET"], algorithm="HS256")
+            EXAM_TOKEN_SIGNING_KEY, algorithm="HS256")
 
     def make_admin_token():
         now = datetime.now(timezone.utc)
         return jwt.encode(
             {"tid": "t1", "email": "a@b.com", "role": "teacher",
              "exp": now + timedelta(hours=1), "iat": now},
-            os.environ["SUPABASE_JWT_SECRET"], algorithm="HS256")
+            ADMIN_SIGNING_KEY, algorithm="HS256")
 
     student_headers = {"Authorization": f"Bearer {make_student_token()}"}
     admin_headers = {"Authorization": f"Bearer {make_admin_token()}"}

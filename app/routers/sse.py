@@ -19,7 +19,9 @@ from ..database import supabase
 from ..event_bus import subscribe as _bus_subscribe, _HAS_REDIS, async_publish as _bus_async_publish
 from ..services.sessions import build_sessions_payload as _build_sessions_payload
 from .. import cache as _cache
-from ..constants import SECRET_KEY, _CRITICAL_TYPES
+from ..constants import EXAM_TOKEN_SIGNING_KEYS, ROOM_CAM_SIGNING_KEYS, _CRITICAL_TYPES
+from ..limiter import _ws_client_ip, ws_rate_limiter
+from ..auth.tokens import _decode_token
 from ..utils import now_ist, fmt_ist
 from ..models import SessionStatus
 from ..services.risk import VIOLATION_WEIGHTS
@@ -300,17 +302,24 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
 
     await _ws_ensure_cleanup()
 
+    client_ip = _ws_client_ip(websocket)
+    if not await ws_rate_limiter.check_and_increment(client_ip):
+        await websocket.close(code=4002, reason="rate_limited")
+        return
+
     try:
         auth_msg = await asyncio.wait_for(websocket.receive_text(), timeout=10)
         data = json.loads(auth_msg)
         token = data.get("token", "")
-        claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        claims = _decode_token(token, EXAM_TOKEN_SIGNING_KEYS)
     except (asyncio.TimeoutError, json.JSONDecodeError, JWTError, KeyError):
+        await ws_rate_limiter.decrement(client_ip)
         await websocket.close(code=4001, reason="auth_failed")
         return
 
     session_roll = session_id.rsplit("_", 1)[0].upper()
     if claims.get("roll", "").upper() != session_roll:
+        await ws_rate_limiter.decrement(client_ip)
         await websocket.close(code=4003, reason="access_denied")
         return
 
@@ -318,6 +327,7 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
     async with _ws_lock:
         cnt = _ws_conn_count.get(session_id, 0)
         if cnt >= MAX_WS_PER_SESSION:
+            await ws_rate_limiter.decrement(client_ip)
             await websocket.close(code=4002, reason="max_connections_reached")
             return
         _ws_conn_count[session_id] = cnt + 1
@@ -336,6 +346,7 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.debug("WebSocket live-frame error: %s", e)
     finally:
+        await ws_rate_limiter.decrement(client_ip)
         await _ws_unsubscribe(session_id, websocket)
 
 
@@ -361,16 +372,24 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
 
     await websocket.accept(subprotocol=token or None)
 
+    client_ip = _ws_client_ip(websocket)
+    if not await ws_rate_limiter.check_and_increment(client_ip):
+        await websocket.close(code=4002, reason="rate_limited")
+        return
+
     # Validate room-cam token
     try:
-        claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        claims = _decode_token(token, ROOM_CAM_SIGNING_KEYS)
         if claims.get("scope") != "room-cam":
+            await ws_rate_limiter.decrement(client_ip)
             await websocket.close(code=4001, reason="invalid_scope")
             return
         if claims.get("sid") != session_id:
+            await ws_rate_limiter.decrement(client_ip)
             await websocket.close(code=4003, reason="access_denied")
             return
     except Exception:
+        await ws_rate_limiter.decrement(client_ip)
         await websocket.close(code=4001, reason="auth_failed")
         return
 
@@ -418,6 +437,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
     except Exception:
         pass
     finally:
+        await ws_rate_limiter.decrement(client_ip)
         async with _ws_lock:
             if _ws_room_conns.get(session_id) is websocket:
                 _ws_room_conns.pop(session_id, None)

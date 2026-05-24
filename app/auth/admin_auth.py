@@ -7,12 +7,28 @@ from fastapi import Request, HTTPException
 import jwt
 from jwt.exceptions import InvalidTokenError as JWTError
 
-from ..constants import SECRET_KEY, SUPER_ADMIN_EMAIL, _TEACHER_CACHE_MAX, _STUDENT_ACCT_CACHE_MAX
+from ..constants import (
+    ADMIN_SIGNING_KEYS,
+    STUDENT_SIGNING_KEYS,
+    SUPER_ADMIN_EMAIL,
+    _TEACHER_CACHE_MAX,
+    _STUDENT_ACCT_CACHE_MAX,
+)
 from ..database import async_table as _atable
 try:
     from .. import cache as _cache
 except Exception:
     _cache = None
+
+
+def _decode_with_keys(token: str, keys: list[str], **kwargs) -> dict:
+    last_err: Exception | None = None
+    for key in keys:
+        try:
+            return jwt.decode(token, key, algorithms=["HS256"], **kwargs)
+        except JWTError as e:
+            last_err = e
+    raise last_err or JWTError("Token could not be decoded with any key")
 
 # ─── Teacher lookup cache ─────────────────────────────────────────
 _teacher_cache: OrderedDict = OrderedDict()
@@ -65,8 +81,8 @@ async def verify_admin_token(token: str) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"],
-                             options={"require": ["exp", "tid"]})
+        payload = _decode_with_keys(token, ADMIN_SIGNING_KEYS,
+                                    options={"require": ["exp", "tid"]})
     except JWTError as e:
         msg = str(e).lower()
         if "expired" in msg:
@@ -147,8 +163,8 @@ async def verify_student_auth_token(token: str) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"],
-                             options={"verify_aud": False, "require": ["exp", "sid"]})
+        payload = _decode_with_keys(token, STUDENT_SIGNING_KEYS,
+                                    options={"verify_aud": False, "require": ["exp", "sid"]})
     except JWTError as e:
         msg = str(e).lower()
         if "expired" in msg:

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -40,13 +42,16 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _secret_key() -> str:
-    secret = os.environ.get("SUPABASE_JWT_SECRET") or os.environ.get("SECRET_KEY") or ""
-    if not secret:
-        raise SystemExit("SUPABASE_JWT_SECRET is required to mint tokens")
-    if len(secret) < 32:
+def _exam_signing_key() -> str:
+    explicit = os.environ.get("JWT_EXAM_TOKEN_SIGNING_KEY", "").strip()
+    if explicit:
+        return explicit
+    master = os.environ.get("SUPABASE_JWT_SECRET") or os.environ.get("SECRET_KEY") or ""
+    if not master:
+        raise SystemExit("JWT_EXAM_TOKEN_SIGNING_KEY or SUPABASE_JWT_SECRET is required to mint tokens")
+    if len(master) < 32:
         raise SystemExit("SUPABASE_JWT_SECRET must be at least 32 characters")
-    return secret
+    return hmac.new(master.encode(), b"procta.exam_token", hashlib.sha256).hexdigest()
 
 
 def _create_token(
@@ -87,7 +92,7 @@ def main() -> int:
     if args.count <= 0:
         raise SystemExit("--count must be positive")
 
-    secret_key = _secret_key()
+    secret_key = _exam_signing_key()
     rows = []
     for idx in range(1, args.count + 1):
         idx_str = f"{idx:0{args.zero_pad}d}" if args.zero_pad > 0 else str(idx)

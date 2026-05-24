@@ -191,7 +191,7 @@ def make_student_token(roll: str = "ALICE001", tid: str = "teacher-1",
                        eid: str = "exam-1", expired: bool = False):
     """Create a valid student JWT for testing."""
     import jwt as jose_jwt
-    secret = os.environ["SUPABASE_JWT_SECRET"]
+    from app.constants import EXAM_TOKEN_SIGNING_KEY
     now = datetime.now(timezone.utc)
     payload = {
         "roll": roll,
@@ -200,13 +200,13 @@ def make_student_token(roll: str = "ALICE001", tid: str = "teacher-1",
         "iat": now,
         "exp": now + timedelta(hours=-1 if expired else 10),
     }
-    return jose_jwt.encode(payload, secret, algorithm="HS256")
+    return jose_jwt.encode(payload, EXAM_TOKEN_SIGNING_KEY, algorithm="HS256")
 
 
 def make_admin_token(teacher_id: str = "teacher-1", email: str = "prof@test.com"):
     """Create a valid admin JWT for testing."""
     import jwt as jose_jwt
-    secret = os.environ["SUPABASE_JWT_SECRET"]
+    from app.constants import ADMIN_SIGNING_KEY
     now = datetime.now(timezone.utc)
     payload = {
         "tid": teacher_id,
@@ -215,7 +215,7 @@ def make_admin_token(teacher_id: str = "teacher-1", email: str = "prof@test.com"
         "exp": now + timedelta(hours=12),
         "iat": now,
     }
-    return jose_jwt.encode(payload, secret, algorithm="HS256")
+    return jose_jwt.encode(payload, ADMIN_SIGNING_KEY, algorithm="HS256")
 
 
 @pytest.fixture

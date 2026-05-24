@@ -32,7 +32,7 @@ from ..services.autosave import (
 )
 from ..services.risk import compute_risk_score, publish_critical_alert
 from ..jobs import enqueue_job, flush_autosave_job, _rq_enabled
-from ..constants import SCREENSHOTS_DIR
+from ..constants import ROOM_CAM_SIGNING_KEY, SCREENSHOTS_DIR
 from ..logger import get_logger
 from ..limiter import limiter
 from ..models import SessionStatus, InviteStatus
@@ -1370,13 +1370,12 @@ async def room_cam_token(request: Request, body: dict = Body(...)):
     if session_id.rsplit("_", 1)[0].upper() != roll.upper():
         raise HTTPException(status_code=403, detail="Session does not belong to this student")
     import jwt as _jwt
-    from ..constants import SECRET_KEY
     token = _jwt.encode({
         "scope": "room-cam",
         "sid": session_id,
         "roll": roll,
         "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-    }, SECRET_KEY, algorithm="HS256")
+    }, ROOM_CAM_SIGNING_KEY, algorithm="HS256")
     return {"token": token, "session_id": session_id, "expires_in_hours": 2}
 
 
@@ -1400,11 +1399,10 @@ async def room_cam_qr(request: Request):
         token = cached["token"]
     else:
         import jwt as _jwt
-        from ..constants import SECRET_KEY
         token = _jwt.encode({
             "scope": "room-cam", "sid": session_id, "roll": roll,
             "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-        }, SECRET_KEY, algorithm="HS256")
+        }, ROOM_CAM_SIGNING_KEY, algorithm="HS256")
         room_cam_qr._token_cache[cache_key] = {"token": token, "expires": time.time() + 60}
     from ..invites import _get_invite_base_url
     base = _get_invite_base_url()

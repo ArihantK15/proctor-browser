@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../lib/auth'
+import { fetchWithTimeout, useAuth } from '../lib/auth'
 import { API_BASE } from '../config'
 
 const PAGE_SIZE = 50
@@ -28,7 +28,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
     const token = localStorage.getItem('procta_token')
     if (!token) return
     try {
-      const ctr = await fetch(`${API_BASE}/sse/connect-token`, {
+      const ctr = await fetchWithTimeout(`${API_BASE}/sse/connect-token`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -83,7 +83,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
       setLiveViewStatus('Live')
       const poll = setInterval(async () => {
         try {
-          const r = await fetch(`${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-frame?t=${Date.now()}`, {
+          const r = await fetchWithTimeout(`${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-frame?t=${Date.now()}`, {
             headers: { Authorization: `Bearer ${localStorage.getItem('procta_token')}` },
           })
           if (r.ok) {

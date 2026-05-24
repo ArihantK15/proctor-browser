@@ -38,6 +38,75 @@ if len(SECRET_KEY) < 32:
             f"SUPABASE_JWT_SECRET is only {len(SECRET_KEY)} chars. "
             "For production, use at least 32 characters."
         )
+
+# ─── Per-purpose JWT signing keys + rotation (C6) ────────────────
+#
+# New tokens are signed with explicit per-purpose env keys when provided:
+#   JWT_ADMIN_SIGNING_KEY, JWT_STUDENT_SIGNING_KEY, ...
+#
+# Rotation is additive: put the old key in the matching *_PREVIOUS env var
+# (comma-separated) before changing the primary. Decoders try primary first,
+# then previous keys, then the legacy derived key so tokens minted before this
+# migration naturally expire without forcing every user out at deploy time.
+#
+# SUPABASE_JWT_SECRET remains as the migration root/legacy key, but it is no
+# longer accepted directly by default. Set JWT_ACCEPT_LEGACY_MASTER_TOKENS=true
+# for a short emergency bridge only if you know old master-signed tokens are
+# still in circulation.
+import hmac as _hmac
+import hashlib as _hashlib
+def _derive_key(purpose: str) -> str:
+    return _hmac.new(SECRET_KEY.encode(), purpose.encode(), _hashlib.sha256).hexdigest()
+
+def _split_keys(raw: str | None) -> list[str]:
+    return [k.strip() for k in (raw or "").split(",") if k.strip()]
+
+def _key_ring(env_name: str, purpose: str) -> list[str]:
+    explicit = os.environ.get(env_name, "").strip()
+    previous = _split_keys(os.environ.get(f"{env_name}_PREVIOUS"))
+    legacy = _derive_key(purpose)
+    keys: list[str] = []
+    if explicit:
+        keys.append(explicit)
+    else:
+        keys.append(legacy)
+    keys.extend(previous)
+    if legacy not in keys:
+        keys.append(legacy)
+    return keys
+
+ADMIN_SIGNING_KEYS = _key_ring("JWT_ADMIN_SIGNING_KEY", "procta.admin")
+STUDENT_SIGNING_KEYS = _key_ring("JWT_STUDENT_SIGNING_KEY", "procta.student")
+REFRESH_SIGNING_KEYS = _key_ring("JWT_REFRESH_SIGNING_KEY", "procta.refresh")
+RESET_SIGNING_KEYS = _key_ring("JWT_RESET_SIGNING_KEY", "procta.password_reset")
+EMAIL_VERIFY_SIGNING_KEYS = _key_ring("JWT_EMAIL_VERIFY_SIGNING_KEY", "procta.email_verify")
+REAUTH_SIGNING_KEYS = _key_ring("JWT_REAUTH_SIGNING_KEY", "procta.reauth")
+EXAM_TOKEN_SIGNING_KEYS = _key_ring("JWT_EXAM_TOKEN_SIGNING_KEY", "procta.exam_token")
+ROOM_CAM_SIGNING_KEYS = _key_ring("JWT_ROOM_CAM_SIGNING_KEY", "procta.room_cam")
+
+ADMIN_SIGNING_KEY = ADMIN_SIGNING_KEYS[0]
+STUDENT_SIGNING_KEY = STUDENT_SIGNING_KEYS[0]
+REFRESH_SIGNING_KEY = REFRESH_SIGNING_KEYS[0]
+RESET_SIGNING_KEY = RESET_SIGNING_KEYS[0]
+EMAIL_VERIFY_SIGNING_KEY = EMAIL_VERIFY_SIGNING_KEYS[0]
+REAUTH_SIGNING_KEY = REAUTH_SIGNING_KEYS[0]
+EXAM_TOKEN_SIGNING_KEY = EXAM_TOKEN_SIGNING_KEYS[0]
+ROOM_CAM_SIGNING_KEY = ROOM_CAM_SIGNING_KEYS[0]
+
+JWT_ACCEPT_LEGACY_MASTER_TOKENS = os.environ.get("JWT_ACCEPT_LEGACY_MASTER_TOKENS", "").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+
+# Ordered list for middleware that must decode an unknown token type
+ALL_SIGNING_KEYS = [
+    *ADMIN_SIGNING_KEYS,
+    *STUDENT_SIGNING_KEYS,
+    *EXAM_TOKEN_SIGNING_KEYS,
+    *ROOM_CAM_SIGNING_KEYS,
+]
+if JWT_ACCEPT_LEGACY_MASTER_TOKENS and SECRET_KEY not in ALL_SIGNING_KEYS:
+    ALL_SIGNING_KEYS.append(SECRET_KEY)
+
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "").strip().lower()
 TOKEN_TTL_HOURS = 10
 ADMIN_TOKEN_TTL_HOURS = 12  # legacy export; admin tokens use ADMIN_TOKEN_TTL_MINUTES
@@ -45,6 +114,7 @@ STUDENT_AUTH_TTL_HOURS = 12  # legacy export; student dashboard tokens use STUDE
 ADMIN_TOKEN_TTL_MINUTES = int(os.getenv("ADMIN_TOKEN_TTL_MINUTES", "30"))
 STUDENT_AUTH_TTL_MINUTES = int(os.getenv("STUDENT_AUTH_TTL_MINUTES", "30"))
 _LOADTEST_SECRET = os.environ.get("LOADTEST_SECRET", "")
+WS_MAX_CONNECTIONS_PER_IP = int(os.getenv("WS_MAX_CONNECTIONS_PER_IP", "10"))
 
 # ─── CORS ─────────────────────────────────────────────────────────
 _CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "")

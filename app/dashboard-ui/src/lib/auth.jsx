@@ -3,16 +3,40 @@ import { API_BASE } from '../config'
 
 const AuthContext = createContext(null)
 
-function getCsrfToken(token) {
+export async function fetchWithTimeout(url, opts = {}, timeoutMs = 30000) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const [, payload] = String(token || '').split('.')
-    if (!payload) return ''
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const data = JSON.parse(atob(normalized))
-    return data.csrf || data.jti || ''
-  } catch (_) {
-    return ''
+    return await fetch(url, { ...opts, signal: opts.signal || ctrl.signal })
+  } finally {
+    clearTimeout(timer)
   }
+}
+
+function getCsrfToken() {
+  return sessionStorage.getItem('procta_csrf') || localStorage.getItem('procta_csrf') || ''
+}
+
+function clearCsrfToken() {
+  sessionStorage.removeItem('procta_csrf')
+  localStorage.removeItem('procta_csrf')
+}
+
+async function ensureCsrfToken(token, force = false) {
+  if (!token) return ''
+  const existing = getCsrfToken()
+  if (existing && !force) return existing
+  const r = await fetchWithTimeout(`${API_BASE}/auth/csrf`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!r.ok) return ''
+  const d = await r.json()
+  const csrf = d.csrf_token || ''
+  if (csrf) {
+    sessionStorage.setItem('procta_csrf', csrf)
+    localStorage.setItem('procta_csrf', csrf)
+  }
+  return csrf
 }
 
 export function AuthProvider({ children }) {
@@ -29,21 +53,22 @@ export function AuthProvider({ children }) {
       return
     }
     try {
-      const r = await fetch(`${API_BASE}/auth/me`, {
+      const r = await fetchWithTimeout(`${API_BASE}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!r.ok) throw new Error('Auth failed')
       const data = await r.json()
+      await ensureCsrfToken(token, true)
       setUser(data)
       // Fetch org and billing info
       try {
-        const orgR = await fetch(`${API_BASE}/org`, {
+        const orgR = await fetchWithTimeout(`${API_BASE}/org`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (orgR.ok) setOrg(await orgR.json())
       } catch (_) {}
       try {
-        const billR = await fetch(`${API_BASE}/org/billing`, {
+        const billR = await fetchWithTimeout(`${API_BASE}/org/billing`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (billR.ok) setBilling(await billR.json())
@@ -51,6 +76,7 @@ export function AuthProvider({ children }) {
     } catch (e) {
       localStorage.removeItem('procta_token')
       localStorage.removeItem('procta_refresh')
+      clearCsrfToken()
       sessionStorage.removeItem('procta_current_exam_id')
       setError(e.message)
     } finally {
@@ -63,7 +89,7 @@ export function AuthProvider({ children }) {
   const login = async (email, password, emailOtpCode = null) => {
     const body = { email, password }
     if (emailOtpCode) body.email_otp_code = emailOtpCode
-    const r = await fetch(`${API_BASE}/auth/login`, {
+    const r = await fetchWithTimeout(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -85,6 +111,7 @@ export function AuthProvider({ children }) {
     const d = await r.json()
     localStorage.setItem('procta_token', d.access_token)
     if (d.refresh_token) localStorage.setItem('procta_refresh', d.refresh_token)
+    await ensureCsrfToken(d.access_token, true)
     setUser(d.teacher)
     return d
   }
@@ -92,13 +119,14 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       const token = localStorage.getItem('procta_token')
-      const csrf = getCsrfToken(token)
+      const csrf = getCsrfToken()
       const headers = { Authorization: `Bearer ${token}` }
       if (csrf) headers['X-CSRF-Token'] = csrf
-      await fetch(`${API_BASE}/auth/logout`, { method: 'POST', headers })
+      await fetchWithTimeout(`${API_BASE}/auth/logout`, { method: 'POST', headers })
     } catch (_) {}
     localStorage.removeItem('procta_token')
     localStorage.removeItem('procta_refresh')
+    clearCsrfToken()
     // Clear session-scoped state so a new login doesn't inherit previous user's context (L-3)
     sessionStorage.removeItem('procta_current_exam_id')
     setUser(null)
@@ -108,18 +136,19 @@ export function AuthProvider({ children }) {
   const authFetch = async (url, opts = {}) => {
     const token = localStorage.getItem('procta_token')
     const method = (opts.method || 'GET').toUpperCase()
-    const csrf = getCsrfToken(token)
     const headers = { ...opts.headers, Authorization: `Bearer ${token}` }
-    if (csrf && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const needsCsrf = !['GET', 'HEAD', 'OPTIONS'].includes(method)
+    const csrf = needsCsrf ? await ensureCsrfToken(token) : ''
+    if (csrf && needsCsrf) {
       headers['X-CSRF-Token'] = csrf
     }
     const requestOpts = { ...opts, method, headers }
-    const r = await fetch(url, requestOpts)
+    const r = await fetchWithTimeout(url, requestOpts)
     if (r.status === 401) {
       const refresh = localStorage.getItem('procta_refresh')
       if (refresh) {
         try {
-          const rr = await fetch(`${API_BASE}/auth/refresh`, {
+          const rr = await fetchWithTimeout(`${API_BASE}/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refresh_token: refresh }),
@@ -128,11 +157,11 @@ export function AuthProvider({ children }) {
             const rd = await rr.json()
             localStorage.setItem('procta_token', rd.access_token)
             const retryHeaders = { ...headers, Authorization: `Bearer ${rd.access_token}` }
-            const retryCsrf = getCsrfToken(rd.access_token)
-            if (retryCsrf && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+            const retryCsrf = needsCsrf ? await ensureCsrfToken(rd.access_token, true) : ''
+            if (retryCsrf && needsCsrf) {
               retryHeaders['X-CSRF-Token'] = retryCsrf
             }
-            return fetch(url, { ...requestOpts, headers: retryHeaders })
+            return fetchWithTimeout(url, { ...requestOpts, headers: retryHeaders })
           }
         } catch (_) {}
       }

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
+import { fetchWithTimeout } from '../lib/auth'
 
 export default function DownloadPage() {
   const [releases, setReleases] = useState(null)
 
   useEffect(() => {
-    fetch('/download/latest-info')
+    fetchWithTimeout('/download/latest-info')
       .then(r => r.ok ? r.json() : null)
       .then(d => setReleases(d))
       .catch(() => {})

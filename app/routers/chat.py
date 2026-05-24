@@ -10,6 +10,7 @@ from ..auth import (
 )
 from ..database import supabase, async_table as _atable
 from ..constants import CHAT_MAX_TEXT_LEN
+from ..limiter import _ws_client_ip, ws_rate_limiter
 from ..models import SessionStatus
 from ..utils import now_ist
 from ..services.chat import ChatHub
@@ -48,6 +49,12 @@ async def ws_chat_student(ws: WebSocket):
     token = sp.split(",")[0].strip() if sp else ""
 
     await ws.accept(subprotocol=token or None)
+
+    client_ip = _ws_client_ip(ws)
+    if not await ws_rate_limiter.check_and_increment(client_ip):
+        await ws.close(code=4400, reason="rate_limited")
+        return
+
     try:
         session_id = (ws.query_params.get("session_id") or "").strip()
         if not session_id:
@@ -118,6 +125,7 @@ async def ws_chat_student(ws: WebSocket):
     except Exception as e:
         logger.error("[ws_chat_student] error: %s", e)
     finally:
+        await ws_rate_limiter.decrement(client_ip)
         sid = (ws.query_params.get("session_id") or "").strip()
         if sid:
             await chat_hub.unregister_student(sid)
@@ -130,6 +138,12 @@ async def ws_chat_teacher(ws: WebSocket):
     {"type": "auth", "token": "..."}.  Query params deprecated.
     """
     await ws.accept()
+
+    client_ip = _ws_client_ip(ws)
+    if not await ws_rate_limiter.check_and_increment(client_ip):
+        await ws.close(code=4400, reason="rate_limited")
+        return
+
     teacher_id = None
     teacher = None
     try:
@@ -197,5 +211,6 @@ async def ws_chat_teacher(ws: WebSocket):
     except Exception as e:
         logger.error("[ws_chat_teacher] error: %s", e)
     finally:
+        await ws_rate_limiter.decrement(client_ip)
         if teacher_id is not None:
             await chat_hub.unregister_teacher(teacher_id, ws)

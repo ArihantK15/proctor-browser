@@ -18,7 +18,7 @@ from ..auth import (
 )
 from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus
-from ..constants import PLANS, TRIAL_DAYS
+from ..constants import ALL_SIGNING_KEYS, PLANS, TRIAL_DAYS
 from ..services.passwords import validate_password, PasswordError
 from ..services.local_auth import (
     hash_password,
@@ -34,7 +34,15 @@ from ..services.local_auth import (
 from ..services.auth_lockout import check_lockout, record_failure, clear_failures
 from ..services.auth_events import record as record_auth_event
 from ..services.turnstile import verify_or_403
-from ..auth.tokens import issue_email_verify_token, issue_reauth_token, verify_email_token
+from ..auth.tokens import (
+    _decode_token,
+    clear_csrf_token,
+    csrf_required_for_claims,
+    issue_csrf_token,
+    issue_email_verify_token,
+    issue_reauth_token,
+    verify_email_token,
+)
 from ..utils import _html_escape as _esc
 from ..jobs import enqueue_job, send_new_account_notification_job
 
@@ -628,9 +636,8 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     access_token = issue_admin_token(teacher)
     # Record session
     try:
-        import jwt as _jwt
-        from ..constants import SECRET_KEY
-        claims = _jwt.decode(access_token, SECRET_KEY, algorithms=["HS256"])
+        from ..constants import ADMIN_SIGNING_KEYS
+        claims = _decode_token(access_token, ADMIN_SIGNING_KEYS)
         jti = claims.get("jti", "")
         if jti:
             ip = request.client.host if request.client else ""
@@ -668,6 +675,25 @@ async def teacher_me(request: Request):
         "email": teacher["email"],
         "full_name": teacher["full_name"],
     }
+
+
+@router.get("/api/v1/auth/csrf")
+@limiter.limit("60/minute")
+async def issue_csrf(request: Request):
+    """Issue an independent server-side CSRF token for browser mutations."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    try:
+        claims = _decode_token(auth[7:], ALL_SIGNING_KEYS)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    if not csrf_required_for_claims(claims):
+        raise HTTPException(status_code=403, detail="CSRF token not available for this token type")
+    csrf_token = issue_csrf_token(claims)
+    if not csrf_token:
+        raise HTTPException(status_code=400, detail="Token cannot receive a CSRF secret")
+    return {"csrf_token": csrf_token}
 
 
 @router.post("/api/v1/auth/refresh")
@@ -1103,9 +1129,8 @@ async def student_login(body: StudentLoginIn, request: Request):
 
     access_token = issue_student_auth_token(account)
     try:
-        import jwt as _jwt
-        from ..constants import SECRET_KEY
-        claims = _jwt.decode(access_token, SECRET_KEY, algorithms=["HS256"])
+        from ..constants import STUDENT_SIGNING_KEYS
+        claims = _decode_token(access_token, STUDENT_SIGNING_KEYS)
         jti = claims.get("jti", "")
         if jti:
             await _atable("auth_sessions").insert({
@@ -1170,13 +1195,13 @@ async def student_logout(request: Request):
     current_jti = ""
     if auth.startswith("Bearer "):
         try:
-            import jwt as _jwt
-            from ..constants import SECRET_KEY
-            claims = _jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+            from ..constants import STUDENT_SIGNING_KEYS
+            claims = _decode_token(auth[7:], STUDENT_SIGNING_KEYS)
             current_jti = claims.get("jti", "")
         except Exception:
             current_jti = ""
     if current_jti:
+        clear_csrf_token({"role": "student_account", "jti": current_jti})
         await _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
             .eq("jti", current_jti).eq("user_kind", "student_account").eq("user_id", account_id).execute()
         try:
@@ -1578,10 +1603,9 @@ async def email_2fa_enable(body: dict, request: Request):
     reauth_token = (body.get("reauth_token") or "").strip()
     if not reauth_token:
         raise HTTPException(status_code=400, detail="reauth_token required")
-    from ..auth.tokens import jwt as _jwt
-    from ..constants import SECRET_KEY
+    from ..constants import REAUTH_SIGNING_KEYS
     try:
-        claims = _jwt.decode(reauth_token, SECRET_KEY, algorithms=["HS256"])
+        claims = _decode_token(reauth_token, REAUTH_SIGNING_KEYS)
         if claims.get("scope") != "reauth" or claims.get("uid") != tid:
             raise HTTPException(status_code=403, detail="Invalid reauth token")
     except HTTPException:
@@ -1616,10 +1640,9 @@ async def email_2fa_disable(body: dict, request: Request):
     reauth_token = (body.get("reauth_token") or "").strip()
     if not reauth_token:
         raise HTTPException(status_code=400, detail="reauth_token required")
-    from ..auth.tokens import jwt as _jwt
-    from ..constants import SECRET_KEY
+    from ..constants import REAUTH_SIGNING_KEYS
     try:
-        claims = _jwt.decode(reauth_token, SECRET_KEY, algorithms=["HS256"])
+        claims = _decode_token(reauth_token, REAUTH_SIGNING_KEYS)
         if claims.get("scope") != "reauth" or claims.get("uid") != tid:
             raise HTTPException(status_code=403, detail="Invalid reauth token")
     except HTTPException:
@@ -1693,13 +1716,13 @@ async def logout(request: Request):
     current_jti = ""
     if auth.startswith("Bearer "):
         try:
-            import jwt as _jwt
-            from ..constants import SECRET_KEY
-            claims = _jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+            from ..constants import ADMIN_SIGNING_KEYS
+            claims = _decode_token(auth[7:], ADMIN_SIGNING_KEYS)
             current_jti = claims.get("jti", "")
         except Exception:
             current_jti = ""
     if current_jti:
+        clear_csrf_token({"role": "teacher", "jti": current_jti})
         await _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
             .eq("jti", current_jti).eq("user_kind", "teacher").eq("user_id", tid).execute()
         try:
@@ -1737,13 +1760,12 @@ async def revoke_other_sessions(request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     # Decode current token to get its JTI
-    import jwt as _jwt
-    from ..constants import SECRET_KEY
+    from ..constants import ADMIN_SIGNING_KEYS
     auth = request.headers.get("Authorization", "")
     current_jti = ""
     if auth.startswith("Bearer "):
         try:
-            claims = _jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
+            claims = _decode_token(auth[7:], ADMIN_SIGNING_KEYS)
             current_jti = claims.get("jti", "")
         except Exception:
             pass

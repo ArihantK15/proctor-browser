@@ -88,7 +88,7 @@ def test_reaper_marks_stale_exam_session_abandoned_and_force_submits_autosave(mo
         return 1, 2
 
     monkeypatch.setattr(database, "async_table", fake_db.table)
-    monkeypatch.setattr(autosave, "load_autosave_snapshot", lambda _sid: {"q1": "A"})
+    monkeypatch.setattr(autosave, "load_autosave_snapshot", lambda _sid: {"answers": {"q1": "A"}})
     monkeypatch.setattr(autosave, "flush_answers_to_db", fake_flush)
     monkeypatch.setattr(scoring, "recalculate_score", fake_score)
 

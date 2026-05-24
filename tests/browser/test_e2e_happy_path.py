@@ -164,7 +164,6 @@ class TestE2EHappyPath:
         with _api() as c:
             r = c.get("/api/v1/privacy/export", headers={
                 **_auth_h(teacher_token),
-                "X-CSRF-Token": _extract_csrf(teacher_token),
             })
             assert r.status_code == 200, f"Privacy export failed: {r.status_code}"
             d = r.json()
@@ -201,7 +200,6 @@ class TestE2EHappyPath:
         with _api() as c:
             r = c.get("/api/v1/admin/status", headers={
                 **_auth_h(teacher_token),
-                "X-CSRF-Token": _extract_csrf(teacher_token),
             })
             assert r.status_code == 200
             d = r.json()
@@ -247,21 +245,3 @@ class TestE2EHappyPath:
         """The React dashboard serves successfully."""
         r = teacher_page.goto(f"{PROCTA_URL}/dashboard-react")
         assert r.status == 200 or r.status == 304
-
-
-# ── CSRF helper (duplicated from privacy.html) ────────────────────────
-
-def _extract_csrf(token: str) -> str:
-    """Extract the CSRF claim from a JWT."""
-    if not token:
-        return ""
-    try:
-        import base64
-        import json as _json
-        parts = token.split(".")
-        b64 = parts[1].replace("-", "+").replace("_", "/")
-        while len(b64) % 4:
-            b64 += "="
-        return _json.loads(base64.b64decode(b64)).get("csrf", "")
-    except Exception:
-        return ""

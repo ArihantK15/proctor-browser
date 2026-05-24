@@ -1,10 +1,19 @@
 node_modules/
 dist/
 venv/
+.venv/
 *.pt
 .DS_Store
 __pycache__/
 *.pyc
+
+# Local scan / scratch outputs — never commit
+bandit.json
+supabase/.temp/
+
+# k6 load test summaries dumped at repo root
+/summary-*.json
+loadtest/loadtest_tokens*.json
 
 # Environment & secrets — never commit
 .env

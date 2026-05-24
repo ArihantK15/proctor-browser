@@ -398,7 +398,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         if "Referrer-Policy" not in response.headers:
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response
@@ -500,11 +500,13 @@ class ETagMiddleware(BaseHTTPMiddleware):
 class CSRFMiddleware(BaseHTTPMiddleware):
     """Protect state-changing endpoints from cross-site request forgery.
 
-    Checks ``X-CSRF-Token`` header against the JWT's ``csrf`` claim
-    on POST/PUT/DELETE requests to API routes.  If the JWT has a
-    ``csrf`` claim, the header is **required** and must match.
-    Tokens issued before the CSRF feature was added (no claim) are
-    allowed through for backward compatibility.
+    Browser account tokens must pair state-changing requests with an
+    ``X-CSRF-Token`` value issued by ``/api/v1/auth/csrf``.  The CSRF
+    value is stored server-side by access-token JTI; it is not embedded
+    in the JWT, so stealing the bearer token alone does not reveal it.
+
+    Exam-runtime bearer tokens are intentionally excluded because those
+    calls are native/API flows, not browser cookie-like account sessions.
     """
     async def dispatch(self, request: Request, call_next):
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
@@ -512,10 +514,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             if auth.startswith("Bearer "):
                 try:
                     import jwt
-                    from .constants import SECRET_KEY
-                    claims = jwt.decode(auth[7:], SECRET_KEY, algorithms=["HS256"])
-                    csrf_claim = claims.get("csrf")
-                    if csrf_claim:
+                    from .constants import ALL_SIGNING_KEYS
+                    from .auth.tokens import _decode_token, csrf_required_for_claims
+                    claims = _decode_token(auth[7:], ALL_SIGNING_KEYS)
+                    if csrf_required_for_claims(claims):
                         from .auth.tokens import verify_csrf
                         csrf_header = request.headers.get("x-csrf-token", "")
                         if not csrf_header:

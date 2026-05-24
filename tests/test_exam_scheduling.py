@@ -37,7 +37,7 @@ def _admin_headers():
 def _student_account_token(account_id="student-1", email="alice@test.com"):
     """Create a student account JWT (role=student_account, requires sid)."""
     import jwt as jose_jwt
-    secret = os.environ["SUPABASE_JWT_SECRET"]
+    from app.constants import STUDENT_SIGNING_KEY
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
     payload = {
@@ -47,7 +47,7 @@ def _student_account_token(account_id="student-1", email="alice@test.com"):
         "exp": now + timedelta(hours=10),
         "iat": now,
     }
-    return jose_jwt.encode(payload, secret, algorithm="HS256")
+    return jose_jwt.encode(payload, STUDENT_SIGNING_KEY, algorithm="HS256")
 
 
 def _student_headers(account_id="student-1", email="alice@test.com"):

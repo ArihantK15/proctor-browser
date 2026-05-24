@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useMemo } from 'react'
-import { AuthProvider, useAuth } from './lib/auth'
+import { AuthProvider, fetchWithTimeout, useAuth } from './lib/auth'
 import { API_BASE } from './config'
 
 const OrgPanel = lazy(() => import('./panels/OrgPanel'))
@@ -93,7 +93,7 @@ function LoginForm() {
     setResending(true)
     setResendMsg('Sending...')
     try {
-      const r = await fetch(`${API_BASE}/auth/resend-verification`, {
+      const r = await fetchWithTimeout(`${API_BASE}/auth/resend-verification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: unverifiedEmail || email }),

@@ -121,8 +121,15 @@ async def flush_answers_to_db(
     *,
     teacher_id: str | None = None,
     exam_id: str | None = None,
+    student_id: str | None = None,
+    delete_after: bool = False,
 ) -> int:
-    """Canonicalise and bulk upsert answers to Supabase."""
+    """Canonicalise and bulk upsert answers to the answers table.
+
+    ``student_id`` is accepted for callers that carry full session metadata,
+    even though the answers schema is keyed by session/question. ``delete_after``
+    is used by terminal recovery paths after persistence succeeds.
+    """
     normalised = _normalise_answers(answers)
     if not normalised:
         return 0
@@ -143,6 +150,13 @@ async def flush_answers_to_db(
         records.append(rec)
 
     await _atable("answers").upsert(records).execute()
+    if delete_after:
+        try:
+            client = _cache._client()
+            if client is not None:
+                client.delete(_snapshot_key(session_id), _flush_lock_key(session_id), _final_flush_key(session_id))
+        except Exception:
+            log.debug("Failed to delete autosave snapshot session=%s student_id=%s", session_id, student_id, exc_info=True)
     return len(records)
 
 

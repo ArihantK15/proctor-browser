@@ -11,7 +11,12 @@ import bcrypt
 import jwt
 from jwt.exceptions import InvalidTokenError as JWTError
 
-from ..constants import SECRET_KEY
+from ..constants import (
+    REFRESH_SIGNING_KEY,
+    REFRESH_SIGNING_KEYS,
+    RESET_SIGNING_KEY,
+    RESET_SIGNING_KEYS,
+)
 
 LOCAL_AUTH_PROVIDER = "local"
 HYBRID_AUTH_PROVIDER = "hybrid"
@@ -81,7 +86,7 @@ def issue_refresh_token(user_id: str, kind: str) -> tuple[str, str, datetime]:
         "jti": jti,
         "iat": now,
         "exp": exp,
-    }, SECRET_KEY, algorithm="HS256")
+    }, REFRESH_SIGNING_KEY, algorithm="HS256")
     return token, jti, exp
 
 
@@ -93,7 +98,7 @@ def verify_refresh_token(token: str, expected_kind: str) -> tuple[str, str] | No
     is not enough since stateless verification cannot detect revocation.
     """
     try:
-        claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        claims = _decode_with_keys(token, REFRESH_SIGNING_KEYS)
     except JWTError:
         return None
     if claims.get("scope") != "refresh" or claims.get("kind") != expected_kind:
@@ -138,12 +143,12 @@ def issue_password_reset_token(
     }
     if password_changed_at:
         payload["pwc"] = password_changed_at
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    return jwt.encode(payload, RESET_SIGNING_KEY, algorithm="HS256")
 
 
 def verify_password_reset_token(token: str, expected_kind: str | None = None) -> dict | None:
     try:
-        claims = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        claims = _decode_with_keys(token, RESET_SIGNING_KEYS)
     except JWTError:
         return None
     if claims.get("scope") != "password_reset":
@@ -151,3 +156,13 @@ def verify_password_reset_token(token: str, expected_kind: str | None = None) ->
     if expected_kind and claims.get("kind") != expected_kind:
         return None
     return claims
+
+
+def _decode_with_keys(token: str, keys: list[str]) -> dict:
+    last_err: Exception | None = None
+    for key in keys:
+        try:
+            return jwt.decode(token, key, algorithms=["HS256"])
+        except JWTError as e:
+            last_err = e
+    raise last_err or JWTError("Token could not be decoded with any key")

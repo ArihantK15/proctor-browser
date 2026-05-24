@@ -3,6 +3,12 @@ import ReactDOM from 'react-dom/client'
 
 const API_BASE = '/api/v1'
 
+function fetchWithTimeout(url, opts = {}, timeoutMs = 30000) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  return fetch(url, { ...opts, signal: opts.signal || ctrl.signal }).finally(() => clearTimeout(timer))
+}
+
 function useAuth() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -10,7 +16,7 @@ function useAuth() {
 
   useEffect(() => {
     if (!token) { setLoading(false); return }
-    fetch(`${API_BASE}/student/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+    fetchWithTimeout(`${API_BASE}/student/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setUser(d) })
       .catch(() => {})
@@ -18,7 +24,7 @@ function useAuth() {
   }, [token])
 
   const login = async (email, password) => {
-    const r = await fetch(`${API_BASE}/student/auth/login`, {
+    const r = await fetchWithTimeout(`${API_BASE}/student/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -34,7 +40,7 @@ function useAuth() {
     try {
       const currentToken = localStorage.getItem('procta_student_token')
       if (currentToken) {
-        await fetch(`${API_BASE}/student/auth/logout`, {
+        await fetchWithTimeout(`${API_BASE}/student/auth/logout`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${currentToken}` },
         })
@@ -83,7 +89,7 @@ function StudentDashboard({ token, onLogout }) {
   const [exams, setExams] = useState([])
   const [loading, setLoading] = useState(true)
 
-  const authFetch = (url, opts = {}) => fetch(url, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${token}` } })
+  const authFetch = (url, opts = {}) => fetchWithTimeout(url, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${token}` } })
 
   useEffect(() => {
     authFetch('/api/student/exams')

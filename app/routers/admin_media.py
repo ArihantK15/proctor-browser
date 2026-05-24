@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from ..auth import require_admin, verify_admin_token
 from ..limiter import limiter
-from ..constants import SECRET_KEY, QUESTION_IMG_DIR, SCREENSHOTS_DIR
+from ..constants import QUESTION_IMG_DIR, SCREENSHOTS_DIR
 from ..utils import _safe_path_component, _assert_within_directory
 from ..models import UploadQuestionImageIn
 
@@ -89,10 +89,9 @@ async def get_question_image(tid: str, filename: str, request: Request, exam_id:
             pass
         if not allowed:
             try:
-                payload = jwt.decode(
-                    tok, SECRET_KEY, algorithms=["HS256"],
-                    options={"require": ["exp"]},
-                )
+                from ..auth.tokens import _decode_token
+                from ..constants import ALL_SIGNING_KEYS
+                payload = _decode_token(tok, ALL_SIGNING_KEYS)
                 if str(payload.get("tid") or "") == str(tid):
                     allowed = True
                     is_student = True

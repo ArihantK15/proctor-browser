@@ -24,7 +24,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-long!!")
 
 from tests.conftest import shared_supabase_mock, make_admin_token  # noqa: E402
-from app.constants import SECRET_KEY  # noqa: E402
+from app.constants import EXAM_TOKEN_SIGNING_KEY, ROOM_CAM_SIGNING_KEY  # noqa: E402
 import app.repositories.sessions as _sess_repo  # noqa: E402
 
 
@@ -32,19 +32,19 @@ ROOM_CAM_STUDENT_TOKEN = _jwt.encode({
     "roll": "ALICE001", "tid": "teacher-1",
     "scope": "room-cam", "sid": "ALICE001_abc",
     "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-}, SECRET_KEY, algorithm="HS256")
+}, ROOM_CAM_SIGNING_KEY, algorithm="HS256")
 
 ROOM_CAM_WRONG_SCOPE = _jwt.encode({
     "roll": "ALICE001", "tid": "teacher-1",
     "scope": "live-frame", "sid": "ALICE001_abc",
     "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-}, SECRET_KEY, algorithm="HS256")
+}, ROOM_CAM_SIGNING_KEY, algorithm="HS256")
 
 ROOM_CAM_EXPIRED = _jwt.encode({
     "roll": "ALICE001", "tid": "teacher-1",
     "scope": "room-cam", "sid": "ALICE001_abc",
     "exp": datetime.now(timezone.utc) - timedelta(hours=1),
-}, SECRET_KEY, algorithm="HS256")
+}, ROOM_CAM_SIGNING_KEY, algorithm="HS256")
 
 
 def _mock_ws():
@@ -75,7 +75,7 @@ class TestTokenMint:
         token = _jwt.encode({
             "roll": "BOB002", "tid": "teacher-1",
             "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-        }, SECRET_KEY, algorithm="HS256")
+        }, EXAM_TOKEN_SIGNING_KEY, algorithm="HS256")
         resp = client.post("/api/v1/room-cam-token",
                            json={"session_id": "ALICE001_abc"},
                            headers={"Authorization": f"Bearer {token}"})
@@ -85,7 +85,7 @@ class TestTokenMint:
         token = _jwt.encode({
             "roll": "ALICE001", "tid": "teacher-1",
             "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-        }, SECRET_KEY, algorithm="HS256")
+        }, EXAM_TOKEN_SIGNING_KEY, algorithm="HS256")
         resp = client.post("/api/v1/room-cam-token",
                            json={"session_id": "ALICE001_abc"},
                            headers={"Authorization": f"Bearer {token}"})
@@ -161,7 +161,7 @@ class TestApprovalStatusEndpoint:
         token = _jwt.encode({
             "roll": "ALICE001", "tid": "teacher-1",
             "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-        }, SECRET_KEY, algorithm="HS256")
+        }, EXAM_TOKEN_SIGNING_KEY, algorithm="HS256")
         chain = MagicMock()
         chain._data = [{"room_cam_status": "pending", "room_cam_approved_at": None}]
         for attr in ("select", "eq", "limit"):

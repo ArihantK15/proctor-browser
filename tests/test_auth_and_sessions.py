@@ -126,7 +126,7 @@ class TestAdminAuth:
 
     def test_admin_token_with_wrong_role(self, client):
         """Token with role != 'teacher' should be rejected."""
-        secret = os.environ["SUPABASE_JWT_SECRET"]
+        from app.constants import ADMIN_SIGNING_KEY
         now = datetime.now(timezone.utc)
         token = jose_jwt.encode({
             "tid": "teacher-1",
@@ -134,7 +134,7 @@ class TestAdminAuth:
             "role": "student_account",  # Wrong role
             "exp": now + timedelta(hours=12),
             "iat": now,
-        }, secret, algorithm="HS256")
+        }, ADMIN_SIGNING_KEY, algorithm="HS256")
         resp = client.get("/api/v1/admin/exam-schedule",
                           headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 403

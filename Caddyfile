@@ -76,7 +76,15 @@ app.procta.net {
         # Prevent other sites from embedding our resources
         X-Permitted-Cross-Domain-Policies "none"
         # Isolate this origin from others (mitigates Spectre-style attacks)
-        Cross-Origin-Opener-Policy "same-origin"
+        # but ALLOW popups to cross-origin destinations (Razorpay
+        # Standard Checkout, OAuth providers) to talk back via
+        # window.opener. With strict `same-origin`, Razorpay's
+        # Netbanking / 3DS popup completes auth but can't post the
+        # result back to the parent — user sees a blank tab + the
+        # payment modal hangs and eventually shows "Payment failed".
+        # `same-origin-allow-popups` is the documented Razorpay-
+        # compatible setting.
+        Cross-Origin-Opener-Policy "same-origin-allow-popups"
     }
 
     # ── Static CSS / JS / SVG / favicon ────────────────────────────────

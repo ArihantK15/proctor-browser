@@ -443,7 +443,7 @@ function renderExams(exams) {
         <div class="exam-actions">
           ${countdownHtml}
           <div class="exam-hint">Make sure your face is visible to the camera.</div>
-          <button class="btn btn-primary btn-sm" onclick="startExamFromCard(${idx})">Start exam</button>
+          <button class="btn btn-primary btn-sm" data-action="startExamFromCard" data-args='[${idx}]'>Start exam</button>
         </div>`;
     } else if (launchable) {
       actionHtml = `
@@ -533,7 +533,7 @@ function renderHistory(items){
           <div>Submitted<strong>${_escHtml(h.submitted_at)}</strong></div>
         </div>
         <div style="margin-top:8px">
-          <button class="btn btn-sm btn-secondary" onclick="openAppeal('${_escHtml(h.session_key)}')">Appeal</button>
+          <button class="btn btn-sm btn-secondary" data-action="openAppeal" data-args='["${_escHtml(h.session_key)}"]'>Appeal</button>
         </div>
       </div>`;
   }).join('');
@@ -1044,3 +1044,43 @@ function showModal(title, message){
 function closeModal(){
   document.getElementById('modal-overlay').style.display = 'none';
 }
+
+function _parseDataArgs(raw) {
+  try { return JSON.parse(raw || '[]'); } catch (_) { return []; }
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el || !el.dataset.action) return;
+  if (el.dataset.guardSelf !== undefined && e.target !== el) return;
+  if (e.target.closest('a') === el) e.preventDefault();
+  const fn = window[el.dataset.action];
+  if (typeof fn !== 'function') return;
+  fn.call(el, ..._parseDataArgs(el.dataset.args));
+});
+
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('[data-change-action]');
+  if (!el || !el.dataset.changeAction) return;
+  const fn = window[el.dataset.changeAction];
+  if (typeof fn !== 'function') return;
+  fn.call(el, ..._parseDataArgs(el.dataset.changeArgs));
+});
+
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('[data-input-action]');
+  if (!el || !el.dataset.inputAction) return;
+  const fn = window[el.dataset.inputAction];
+  if (typeof fn !== 'function') return;
+  fn.call(el, ..._parseDataArgs(el.dataset.inputArgs));
+});
+
+document.addEventListener('keydown', (e) => {
+  const el = e.target.closest('[data-keydown-action]');
+  if (!el || !el.dataset.keydownAction) return;
+  const wantKey = el.dataset.keydownKey || '';
+  if (wantKey && e.key !== wantKey) return;
+  const fn = window[el.dataset.keydownAction];
+  if (typeof fn !== 'function') return;
+  fn.call(el, ..._parseDataArgs(el.dataset.keydownArgs));
+});

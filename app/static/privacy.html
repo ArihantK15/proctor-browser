@@ -73,7 +73,7 @@ pre{font-size:12px;background:#f1f5f9;padding:12px;border-radius:8px;overflow:au
   <h2>Export your data</h2>
   <div class="card">
     <p>Download all personal data we hold about you as a JSON file.</p>
-    <button class="btn btn-primary" id="export-btn" onclick="doExport()">Export my data</button>
+    <button class="btn btn-primary" id="export-btn" data-action="doExport">Export my data</button>
     <div id="export-status"></div>
   </div>
 </div>
@@ -82,7 +82,7 @@ pre{font-size:12px;background:#f1f5f9;padding:12px;border-radius:8px;overflow:au
   <h2 style="color:#dc2626">Delete your account</h2>
   <div class="card" style="border:1px solid #fecaca">
     <p>This will anonymize all personal data and revoke access. This action cannot be undone.</p>
-    <button class="btn btn-danger" id="delete-btn" onclick="showDeleteConfirm()">Delete my account</button>
+    <button class="btn btn-danger" id="delete-btn" data-action="showDeleteConfirm">Delete my account</button>
     <div id="delete-status"></div>
   </div>
 </div>
@@ -93,8 +93,8 @@ pre{font-size:12px;background:#f1f5f9;padding:12px;border-radius:8px;overflow:au
     <h3>Confirm account deletion</h3>
     <p>This will anonymize all your personal data. You will not be able to log in again. Are you sure?</p>
     <div class="modal-actions">
-      <button class="btn btn-secondary" style="flex:1" onclick="closeDeleteConfirm()">Cancel</button>
-      <button class="btn btn-danger" style="flex:1" onclick="confirmDelete()">Yes, delete</button>
+      <button class="btn btn-secondary" style="flex:1" data-action="closeDeleteConfirm">Cancel</button>
+      <button class="btn btn-danger" style="flex:1" data-action="confirmDelete">Yes, delete</button>
     </div>
     <div id="delete-modal-err" style="color:#dc2626;font-size:13px;margin-top:8px"></div>
   </div>

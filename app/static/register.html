@@ -16,7 +16,7 @@
 <link rel="canonical" href="https://app.procta.net/register">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/components.css">
 <link rel="stylesheet" href="/static/theme.css">
@@ -191,9 +191,9 @@
     <div class="fg">
       <label>Teacher's email</label>
       <input type="email" id="lookup-email" placeholder="e.g. teacher@university.edu"
-             onkeydown="if(event.key==='Enter')lookupTeacherByEmail()">
+             data-keydown-action="lookupTeacherByEmail" data-keydown-key="Enter">
     </div>
-    <button class="submit-btn" id="lookup-btn" onclick="lookupTeacherByEmail()" style="margin-bottom:20px">
+    <button class="submit-btn" id="lookup-btn" data-action="lookupTeacherByEmail" style="margin-bottom:20px">
       Find Teacher
     </button>
     <div class="divider"><span>or</span></div>
@@ -201,10 +201,10 @@
       <label>Exam access code</label>
       <input type="text" id="lookup-code" placeholder="Enter the code from your teacher"
              style="text-transform:uppercase;font-family:monospace;font-weight:600;letter-spacing:1px"
-             oninput="this.value=this.value.toUpperCase().trim()"
-             onkeydown="if(event.key==='Enter')lookupByCode()">
+             data-input-action="_uppercaseTrimInput"
+             data-keydown-action="lookupByCode" data-keydown-key="Enter">
     </div>
-    <button class="submit-btn" id="code-btn" onclick="lookupByCode()">
+    <button class="submit-btn" id="code-btn" data-action="lookupByCode">
       Resolve Code
     </button>
     <div class="err-msg" id="lookup-err"></div>
@@ -216,21 +216,21 @@
       <label>Full Name</label>
       <input type="text" id="inp-name" placeholder="e.g. Arihant Kaul"
              autocomplete="name" spellcheck="false"
-             oninput="clearErr()">
+             data-input-action="clearErr">
     </div>
     <div class="fg">
       <label>Roll Number</label>
       <input type="text" id="inp-roll" placeholder="e.g. CS2024001"
              autocomplete="off" spellcheck="false"
              style="text-transform:uppercase;font-family:monospace;font-weight:600;letter-spacing:1px"
-             oninput="this.value=this.value.toUpperCase().trim();clearErr()">
+             data-input-action="_uppercaseTrimAndClearErr">
     </div>
     <div class="fg">
       <label>Email</label>
       <input type="email" id="inp-email" placeholder="e.g. arihant@university.edu"
              autocomplete="email"
-             oninput="clearErr()"
-             onblur="checkExistingAccount()">
+             data-input-action="clearErr"
+             data-blur-action="checkExistingAccount">
     </div>
     <div class="fg">
       <label>Phone <span class="opt">(optional)</span></label>
@@ -245,13 +245,13 @@
         <label>Password</label>
         <input type="password" id="inp-pwd" placeholder="Min 10 chars, A-z, 0-9, symbol"
                autocomplete="new-password"
-               oninput="clearErr()">
+               data-input-action="clearErr">
       </div>
       <div class="fg">
         <label>Confirm Password</label>
         <input type="password" id="inp-pwd2" placeholder="Confirm password"
                autocomplete="new-password"
-               onkeydown="if(event.key==='Enter')doRegister()">
+               data-keydown-action="doRegister" data-keydown-key="Enter">
       </div>
     </div>
     <div id="pwd-skipped" style="display:none;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:8px;padding:12px 16px;margin-bottom:16px">
@@ -260,7 +260,7 @@
       </p>
     </div>
 
-    <button class="submit-btn" id="reg-btn" onclick="doRegister()">Register & Create Account</button>
+    <button class="submit-btn" id="reg-btn" data-action="doRegister">Register & Create Account</button>
     <div class="err-msg" id="reg-err"></div>
     <div class="loading" id="reg-ldr"></div>
   </div>

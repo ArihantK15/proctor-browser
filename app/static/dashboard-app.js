@@ -6042,6 +6042,7 @@ function _clickQImageInput(i){ document.getElementById('qimg-input-'+i).click();
 function _showLightbox(screenshot, type, timeStr){ showLightbox(screenshot, type+' \u2014 '+timeStr); }
 function _discardGenPreview(){ _genPreview=[]; _renderGenPreview(); document.getElementById('gen-status').textContent=''; }
 function _closeToastParent(){ this.closest('div').parentElement.remove(); }
+function _focusLoginPwd(){ document.getElementById('login-pwd')?.focus(); }
 
 // ── Delegated listeners replacing inline onclick/onsubmit ────────
 document.addEventListener('click', (e) => {
@@ -6107,6 +6108,19 @@ document.addEventListener('input', (e) => {
   const fn = window[el.dataset.inputAction];
   if (typeof fn !== 'function') return;
   const args = JSON.parse(el.dataset.inputArgs || '[]');
+  fn.call(el, ...args);
+});
+
+// ── Delegated keydown listener ───────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  const el = e.target.closest('[data-keydown-action]');
+  if (!el || !el.dataset.keydownAction) return;
+  const wantKey = el.dataset.keydownKey || '';
+  if (wantKey && e.key !== wantKey) return;
+  const fn = window[el.dataset.keydownAction];
+  if (typeof fn !== 'function') return;
+  let args = [];
+  try { args = JSON.parse(el.dataset.keydownArgs || '[]'); } catch (_) {}
   fn.call(el, ...args);
 });
 

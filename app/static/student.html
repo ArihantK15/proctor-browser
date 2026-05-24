@@ -16,7 +16,7 @@
 <!-- Non-blocking font load — prevents white screen if Google Fonts is slow/blocked -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <!-- The served (FastAPI) path is /static/theme.css. When loaded via
      file:// from inside the Electron lobby, theme.css sits next to this
      HTML in the same directory. Both links are included — browsers pick
@@ -403,8 +403,8 @@
     </div>
 
     <div class="auth-tabs" role="tablist">
-      <button class="auth-tab active" id="tab-login" onclick="setAuthMode('login')">Log in</button>
-      <button class="auth-tab" id="tab-signup" onclick="setAuthMode('signup')">Sign up</button>
+      <button class="auth-tab active" id="tab-login" data-action="setAuthMode" data-args='["login"]'>Log in</button>
+      <button class="auth-tab" id="tab-signup" data-action="setAuthMode" data-args='["signup"]'>Sign up</button>
     </div>
 
     <!-- OAuth (Google + Microsoft) removed 2026-05-23 — email + password only -->
@@ -426,7 +426,7 @@
          student-app.js _initTurnstile() picks up this element after
          the public-config fetch returns the site key. -->
     <div id="cf-turnstile-login" style="margin:4px 0"></div>
-    <button class="btn btn-primary btn-block" id="auth-btn" onclick="doAuth()">Log in</button>
+    <button class="btn btn-primary btn-block" id="auth-btn" data-action="doAuth">Log in</button>
     <div class="auth-err" id="auth-err"></div>
 
     <!-- Password reset (hidden by default) -->
@@ -436,18 +436,18 @@
         <input type="email" id="reset-email" autocomplete="email" placeholder="you@university.edu">
       </div>
       <div id="cf-turnstile-reset" style="margin:4px 0"></div>
-      <button class="btn btn-primary btn-block" id="reset-btn" onclick="doReset()">Send Reset Link</button>
+      <button class="btn btn-primary btn-block" id="reset-btn" data-action="doReset">Send Reset Link</button>
       <div class="auth-err" id="reset-err"></div>
       <div id="reset-ok" style="display:none;color:var(--emerald,#10b981);font-size:13px;margin-top:8px;text-align:center">
         If that email is registered, a reset link has been sent.
       </div>
       <p style="text-align:center;margin-top:14px">
-        <a href="#" onclick="cancelReset();return false" style="color:var(--accent-light,#63dfc4);font-size:12px;text-decoration:none;font-weight:600">Back to login</a>
+        <a href="#" data-action="cancelReset" style="color:var(--accent-light,#63dfc4);font-size:12px;text-decoration:none;font-weight:600">Back to login</a>
       </p>
     </div>
 
     <p id="forgot-link" style="text-align:center;margin-top:12px">
-      <a href="#" onclick="showReset();return false" style="color:var(--muted,#8b949e);font-size:12px;text-decoration:none">Forgot password?</a>
+      <a href="#" data-action="showReset" style="color:var(--muted,#8b949e);font-size:12px;text-decoration:none">Forgot password?</a>
     </p>
 
     <div class="footer-links">
@@ -475,7 +475,7 @@
       <div class="topbar-user">
         Signed in as <strong id="me-name">—</strong>
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="doLogout()">Log out</button>
+      <button class="btn btn-secondary btn-sm" data-action="doLogout">Log out</button>
     </div>
   </div>
 
@@ -498,8 +498,8 @@
       </div>
       <div class="modal-err" id="appeal-err"></div>
       <div class="modal-actions">
-        <button class="btn btn-secondary" style="flex:1" onclick="closeAppeal()">Cancel</button>
-        <button class="btn btn-primary" style="flex:1" id="appeal-submit-btn" onclick="submitAppeal()">Submit</button>
+        <button class="btn btn-secondary" style="flex:1" data-action="closeAppeal">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" id="appeal-submit-btn" data-action="submitAppeal">Submit</button>
       </div>
     </div>
   </div>
@@ -523,8 +523,8 @@
       </div>
       <div class="modal-err" id="modal-err"></div>
       <div class="modal-actions">
-        <button class="btn btn-secondary" style="flex:1" onclick="closeCodeModal()">Cancel</button>
-        <button class="btn btn-primary" style="flex:1" id="modal-start-btn" onclick="confirmStartExam()">Start exam</button>
+        <button class="btn btn-secondary" style="flex:1" data-action="closeCodeModal">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" id="modal-start-btn" data-action="confirmStartExam">Start exam</button>
       </div>
     </div>
   </div>
@@ -553,8 +553,8 @@
       </div>
       <div id="preflight-err" class="modal-err"></div>
       <div class="modal-actions">
-        <button class="btn btn-secondary" style="flex:1" onclick="closePreflight()">Cancel</button>
-        <button class="btn btn-primary" style="flex:1" id="preflight-start-btn" onclick="launchAfterPreflight()" disabled>Start exam</button>
+        <button class="btn btn-secondary" style="flex:1" data-action="closePreflight">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" id="preflight-start-btn" data-action="launchAfterPreflight" disabled>Start exam</button>
       </div>
     </div>
   </div>
@@ -571,7 +571,7 @@
        Three throwaway questions. Same lockdown stack as a real exam, so if your camera or browser misbehaves you find out now — not 5 minutes into a high-stakes test.
      </p>
      <div class="exam-card-actions">
-       <button class="btn btn-primary btn-sm" onclick="startPracticeExam()">Start practice exam</button>
+       <button class="btn btn-primary btn-sm" data-action="startPracticeExam">Start practice exam</button>
      </div>
    </div>
 
@@ -590,12 +590,12 @@
 </div>
 
 <script src="/static/student-app.js" defer></script>
-<div id="modal-overlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+<div id="modal-overlay" class="modal-overlay" style="display:none" data-action="closeModal" data-guard-self>
   <div class="modal-box">
     <div class="modal-title" id="modal-title"></div>
     <div class="modal-body" id="modal-body"></div>
     <div class="modal-actions">
-      <button class="modal-btn" onclick="closeModal()">OK</button>
+      <button class="modal-btn" data-action="closeModal">OK</button>
     </div>
   </div>
 </div>

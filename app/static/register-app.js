@@ -273,3 +273,47 @@ function isStrongPassword(password) {
     }
   }).catch(()=>{});
 })();
+
+function _parseDataArgs(raw) {
+  try { return JSON.parse(raw || '[]'); } catch (_) { return []; }
+}
+function _uppercaseTrimInput(){ this.value = this.value.toUpperCase().trim(); }
+function _uppercaseTrimAndClearErr(){
+  this.value = this.value.toUpperCase().trim();
+  clearErr();
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el || !el.dataset.action) return;
+  if (e.target.closest('a') === el) e.preventDefault();
+  const fn = window[el.dataset.action];
+  if (typeof fn !== 'function') return;
+  fn.call(el, ..._parseDataArgs(el.dataset.args));
+});
+
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('[data-input-action]');
+  if (!el || !el.dataset.inputAction) return;
+  const fn = window[el.dataset.inputAction];
+  if (typeof fn !== 'function') return;
+  fn.call(el, ..._parseDataArgs(el.dataset.inputArgs));
+});
+
+document.addEventListener('keydown', (e) => {
+  const el = e.target.closest('[data-keydown-action]');
+  if (!el || !el.dataset.keydownAction) return;
+  const wantKey = el.dataset.keydownKey || '';
+  if (wantKey && e.key !== wantKey) return;
+  const fn = window[el.dataset.keydownAction];
+  if (typeof fn !== 'function') return;
+  fn.call(el, ..._parseDataArgs(el.dataset.keydownArgs));
+});
+
+document.addEventListener('focusout', (e) => {
+  const el = e.target.closest('[data-blur-action]');
+  if (!el || !el.dataset.blurAction) return;
+  const fn = window[el.dataset.blurAction];
+  if (typeof fn !== 'function') return;
+  fn.call(el, ..._parseDataArgs(el.dataset.blurArgs));
+});

@@ -130,13 +130,17 @@ class TestIdVerificationWriter:
         monkeypatch.setenv("SCREENSHOTS_DIR", str(tmp_path))
 
         # Hand-build a token without 'eid' to simulate legacy single-exam clients.
+        # Switched from SUPABASE_JWT_SECRET to EXAM_TOKEN_SIGNING_KEY in the
+        # C6 wiring (1f974c0) — student exam tokens are now signed with the
+        # per-purpose key, master-key tokens no longer verify by default.
         import jwt as jose_jwt
         from datetime import datetime, timezone, timedelta
+        from app.constants import EXAM_TOKEN_SIGNING_KEY
         now = datetime.now(timezone.utc)
         token = jose_jwt.encode(
             {"roll": "BOB002", "tid": "teacher-1",
              "iat": now, "exp": now + timedelta(hours=1)},
-            os.environ["SUPABASE_JWT_SECRET"], algorithm="HS256",
+            EXAM_TOKEN_SIGNING_KEY, algorithm="HS256",
         )
 
         captured = {}

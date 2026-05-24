@@ -65,8 +65,16 @@ jobs:
             echo "==> restarting api + workers"
             docker compose up -d --no-deps api worker autosave-worker
 
-            echo "==> ensuring caddy is running"
+            echo "==> ensuring caddy is running + reloading Caddyfile"
             docker compose up -d caddy
+            # `docker compose up -d caddy` is a no-op if the container is
+            # already running and the compose config hasn't changed — so
+            # Caddyfile edits stay invisible until someone manually
+            # `docker compose restart caddy`s. Reload the live config in
+            # place every deploy so Caddyfile changes (routing, headers)
+            # actually take effect.
+            docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
+              || docker compose restart caddy
 
             echo "==> waiting for API healthcheck (max 90s)..."
             for i in $(seq 1 18); do

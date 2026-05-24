@@ -6030,10 +6030,18 @@ function _jsonArgsForAttr(){
 // ── Wrappers for compound/manipulation onclick handlers ──────────
 function toggleBankShowImport(){ toggleBank(); showBankImport(); }
 function switchTabLiveClearBadge(){ switchTab('live'); clearAlertBadge(); }
-function _clickQImageInput(el, i){ document.getElementById('qimg-input-'+i).click(); }
-function _showLightbox(el, screenshot, type, timeStr){ showLightbox(screenshot, type+' \u2014 '+timeStr); }
+// These wrappers used to take `el` as first parameter, but that
+// signature would break the 170+ existing data-action handlers from
+// the first-pass static-HTML conversion (which expect their JSON
+// args directly \u2014 `upgradePlan(planId)` not `upgradePlan(el, planId)`).
+// Fix: drop the unused `el` param. Where a wrapper genuinely needs
+// the element (only _closeToastParent in this set), it reads `this`
+// instead \u2014 the delegated listener below binds the clicked element
+// to `this`, matching native inline-onclick semantics.
+function _clickQImageInput(i){ document.getElementById('qimg-input-'+i).click(); }
+function _showLightbox(screenshot, type, timeStr){ showLightbox(screenshot, type+' \u2014 '+timeStr); }
 function _discardGenPreview(){ _genPreview=[]; _renderGenPreview(); document.getElementById('gen-status').textContent=''; }
-function _closeToastParent(el){ el.closest('div').parentElement.remove(); }
+function _closeToastParent(){ this.closest('div').parentElement.remove(); }
 
 // ── Delegated listeners replacing inline onclick/onsubmit ────────
 document.addEventListener('click', (e) => {
@@ -6046,7 +6054,11 @@ document.addEventListener('click', (e) => {
   const argsRaw = el.dataset.args || '[]';
   let args = [];
   try { args = JSON.parse(argsRaw); } catch (_) {}
-  fn.call(null, el, ...args);
+  // fn.call(el, ...args): bind clicked element to `this` (so wrappers
+  // like _closeToastParent can use this.closest(...)) without
+  // polluting the positional arg list. Matches native inline-onclick
+  // semantics where `this` = the element with the onclick attribute.
+  fn.call(el, ...args);
 });
 
 document.addEventListener('submit', (e) => {

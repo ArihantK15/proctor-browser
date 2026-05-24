@@ -418,6 +418,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "base-uri 'self'; "
             "form-action 'self'; "
             "object-src 'none'; "
+            # 'unsafe-inline' STAYS for now. The onclick → data-action
+            # conversion (170 static + 49 dynamic) is complete, but
+            # ~20 onchange/oninput attrs and a handful of onerror attrs
+            # in JS template strings still need migration. CSP3 lumps
+            # ALL inline event-handler attributes under
+            # script-src 'unsafe-inline' — so dropping it would break
+            # search inputs, filter dropdowns, file pickers, image
+            # error-fallback. Convert those in a future pass, then drop.
             "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://checkout.razorpay.com https://cdn.razorpay.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: blob: https://*.razorpay.com; "

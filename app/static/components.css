@@ -147,32 +147,46 @@ body {
 .btn-md { padding: var(--space-1-5) var(--space-4); }
 .btn-lg { padding: var(--space-2-5) var(--space-6); font-size: var(--text-md); }
 
-/* Variants */
+/* Variants — refreshed 2026-05-24 to share visual vocabulary with
+   the procta.net marketing site (glow halo on primary, soft glass
+   on secondary). Class names + sizes unchanged so no markup edits
+   needed across the 700+ button uses in dashboard.html. */
 .btn-primary {
   background: var(--accent);
   color: var(--btn-primary-text);
   border-color: var(--accent);
+  /* Idle glow — subtle, draws the eye without being aggressive. */
+  box-shadow: 0 0 0 0 transparent,
+              0 6px 18px -8px rgba(91,138,240,0.45);
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+  /* Halo lift on hover — mirrors marketing site's .glow-btn. */
+  box-shadow: 0 0 0 3px rgba(91,138,240,0.18),
+              0 10px 28px -6px rgba(91,138,240,0.55);
+  transform: translateY(-1px);
 }
 .btn-primary:active:not(:disabled) {
   background: var(--accent-active);
   border-color: var(--accent-active);
+  transform: translateY(0);
+  box-shadow: 0 0 0 0 transparent,
+              0 4px 12px -6px rgba(91,138,240,0.40);
 }
 
 .btn-secondary {
-  background: var(--surface-1);
+  /* Soft glass — matches .stats-bar / .table-wrap / .auth-card */
+  background: rgba(255,255,255,0.03);
   color: var(--text-high);
-  border-color: var(--border-default);
+  border-color: rgba(255,255,255,0.08);
 }
 .btn-secondary:hover:not(:disabled) {
-  background: var(--surface-2);
-  border-color: var(--border-strong);
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.14);
 }
 .btn-secondary:active:not(:disabled) {
-  background: var(--surface-3);
+  background: rgba(255,255,255,0.08);
 }
 
 .btn-ghost {
@@ -181,22 +195,31 @@ body {
   border-color: transparent;
 }
 .btn-ghost:hover:not(:disabled) {
-  background: var(--surface-1);
+  background: rgba(255,255,255,0.04);
   color: var(--text-high);
 }
 .btn-ghost:active:not(:disabled) {
-  background: var(--surface-2);
+  background: rgba(255,255,255,0.06);
 }
 
 .btn-danger {
   background: var(--sev-error-bg);
   color: var(--sev-error-fg);
   border-color: oklch(from var(--sev-error-fg) l c h / 0.3);
+  box-shadow: 0 0 0 0 transparent,
+              0 6px 18px -8px oklch(from var(--sev-error-fg) l c h / 0.40);
 }
 .btn-danger:hover:not(:disabled) {
   background: oklch(from var(--sev-error-fg) l c h / 0.20);
   border-color: oklch(from var(--sev-error-fg) l c h / 0.50);
+  box-shadow: 0 0 0 3px oklch(from var(--sev-error-fg) l c h / 0.15),
+              0 10px 28px -6px oklch(from var(--sev-error-fg) l c h / 0.50);
+  transform: translateY(-1px);
 }
+.btn-danger:active:not(:disabled){transform:translateY(0)}
+
+/* Add transform to base .btn so hover lift transitions smoothly */
+.btn { transition-property: background, border-color, color, box-shadow, transform; }
 
 .btn:disabled,
 .btn[aria-disabled="true"] {

@@ -550,8 +550,14 @@ async def get_usage(request: Request):
     plan_id = (sub.data or [{}])[0].get("plan", "starter") if sub.data else "starter"
     sub_status = (sub.data or [{}])[0].get("status", "unknown") if sub.data else "unknown"
     plan_limit = PLAN_LIMITS.get(plan_id, 30)
-    price_per_student = PLANS.get(plan_id, {}).get("price_inr", 0)
-    base_price = PLANS.get(plan_id, {}).get("price_inr", 0)
+    plan_def = PLANS.get(plan_id, {})
+    base_price = plan_def.get("price_inr", 0)
+    # `overage_price_inr` is the per-EXTRA-STUDENT charge above the
+    # plan limit. Was previously using base price_inr (₹12,000 for
+    # Growth, etc.) which produced absurd overage_amount values.
+    # P1.4 fix — read the explicit per-student rate added to the
+    # PLANS dict, fall back to 0 (= no overage charging) when missing.
+    price_per_student = plan_def.get("overage_price_inr", 0)
 
     # Count current period usage
     now_utc = datetime.now(timezone.utc)

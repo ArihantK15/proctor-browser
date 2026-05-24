@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useMemo } from 'react'
 import { AuthProvider, fetchWithTimeout, useAuth } from './lib/auth'
 import { API_BASE } from './config'
+import useTurnstile from './hooks/useTurnstile'
 
 const OrgPanel = lazy(() => import('./panels/OrgPanel'))
 const BillingPanel = lazy(() => import('./panels/BillingPanel'))
@@ -71,6 +72,10 @@ function LoginForm() {
   // 6-digit input and resubmit login() with the code populated.
   const [awaiting2FA, setAwaiting2FA] = useState(false)
   const [otpCode, setOtpCode] = useState('')
+  // P1.1: Cloudflare Turnstile token. Managed mode renders invisibly
+  // 99% of the time. When TURNSTILE_SECRET_KEY is unset (dev), `token`
+  // stays null and login() proceeds via the backend's sandbox path.
+  const turnstile = useTurnstile()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -80,9 +85,13 @@ function LoginForm() {
     setLoading(true)
     try {
       // If the 2FA input is showing, send the code along with credentials.
-      await login(email, password, awaiting2FA ? otpCode : null)
+      await login(email, password, awaiting2FA ? otpCode : null, turnstile.token)
       // Success → useEffect in useAuth picks up the new user.
     } catch (err) {
+      // Turnstile tokens are single-use; refresh on every failure so
+      // the next attempt has a valid token (same pattern as
+      // website/Signup.jsx).
+      turnstile.refresh()
       if (err.code === 'EMAIL_UNVERIFIED') {
         setUnverifiedEmail(err.email || email)
         setError(err.message || 'Please verify your email.')
@@ -103,16 +112,21 @@ function LoginForm() {
     setResending(true)
     setResendMsg('Sending...')
     try {
+      const body = { email: unverifiedEmail || email }
+      // Backend's /resend-verification also runs verify_or_403 in
+      // production. Pass the same Turnstile token used on login.
+      if (turnstile.token) body.captcha_token = turnstile.token
       const r = await fetchWithTimeout(`${API_BASE}/auth/resend-verification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: unverifiedEmail || email }),
+        body: JSON.stringify(body),
       })
       if (!r.ok) throw new Error('Failed')
       setResendMsg('✅ Verification email sent! Check your inbox.')
     } catch (e) {
       setResendMsg('Failed to resend. Try again later.')
     } finally {
+      turnstile.refresh()
       setResending(false)
     }
   }
@@ -152,6 +166,11 @@ function LoginForm() {
                      letterSpacing: 6, textAlign: 'center', fontFamily: 'monospace' }}
           />
         )}
+        {/* Cloudflare Turnstile (Managed mode) — invisible 99% of the
+            time, shows a challenge only when bot signal is high. The
+            hook returns ref=null when VITE_TURNSTILE_SITE_KEY is unset
+            so the empty <div> is a harmless no-op in dev. */}
+        <div ref={turnstile.ref} style={{ margin: '4px 0' }} />
         <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
           {loading ? 'Signing in...' : (awaiting2FA ? 'Verify & Sign In' : 'Sign In')}
         </button>

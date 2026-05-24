@@ -37,24 +37,41 @@ async function _loadPublicConfig() {
   } catch(e) {}
 }
 
-function _initTurnstile() {
+// Track every widget we render so reset() hits all of them — the
+// login + signup + reset forms each have their own widget slot.
+const _turnstileWidgetIds = [];
+
+function _renderTurnstileSlot(elementId) {
   if (!_turnstileSiteKey || !window.turnstile) return;
-  const el = document.getElementById('cf-turnstile-reset');
+  const el = document.getElementById(elementId);
   if (!el || el.dataset.rendered) return;
   el.dataset.rendered = '1';
-  _turnstileWidgetId = window.turnstile.render(el, {
+  const id = window.turnstile.render(el, {
     sitekey: _turnstileSiteKey,
     theme: 'dark',
     callback: (token) => { _turnstileToken = token; },
     'expired-callback': () => { _turnstileToken = null; },
     'error-callback': () => { _turnstileToken = null; },
   });
+  _turnstileWidgetIds.push(id);
+  // Keep the existing single-id var for back-compat with anything
+  // still reading it directly.
+  _turnstileWidgetId = id;
+}
+
+function _initTurnstile() {
+  // P1.2: login form (#cf-turnstile-login) needs a widget too. The
+  // reset slot was already wired; without the login slot we never
+  // collected a captcha_token to send on /student/auth/login.
+  _renderTurnstileSlot('cf-turnstile-login');
+  _renderTurnstileSlot('cf-turnstile-reset');
 }
 
 function _resetTurnstile() {
   _turnstileToken = null;
-  if (_turnstileSiteKey && window.turnstile && _turnstileWidgetId !== null) {
-    try { window.turnstile.reset(_turnstileWidgetId); } catch(e) {}
+  if (!_turnstileSiteKey || !window.turnstile) return;
+  for (const id of _turnstileWidgetIds) {
+    try { window.turnstile.reset(id); } catch(e) {}
   }
 }
 
@@ -157,21 +174,35 @@ async function doAuth() {
 
   try {
     if (authMode === 'signup') {
+      // P2.8: send captcha_token on signup too once backend gates
+      // it. Backend currently accepts the field whether or not
+      // verify_or_403 runs (no-op when sandbox/disabled), so this
+      // is forward-compatible without waiting for the backend gate.
+      const signupBody = {email, password, full_name: name};
+      if (_turnstileToken) signupBody.captcha_token = _turnstileToken;
       const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/signup'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email, password, full_name: name}),
+        body: JSON.stringify(signupBody),
       });
       if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Signup failed');
       // fall through to login
     }
 
+    // P1.2: backend's /student/auth/login calls verify_or_403 when
+    // TURNSTILE_SECRET_KEY is set. Pass _turnstileToken so production
+    // logins succeed; null in dev falls through the sandbox path.
+    const loginBody = {email, password};
+    if (_turnstileToken) loginBody.captcha_token = _turnstileToken;
     const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/login'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({email, password}),
+      body: JSON.stringify(loginBody),
     });
-    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Login failed');
+    if (!r.ok) {
+      _resetTurnstile && _resetTurnstile();
+      throw new Error((await r.json().catch(()=>({}))).detail || 'Login failed');
+    }
     const d = await r.json();
     authToken  = d.access_token;
     refreshTok = d.refresh_token;

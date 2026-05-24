@@ -86,9 +86,17 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { checkAuth() }, [checkAuth])
 
-  const login = async (email, password, emailOtpCode = null) => {
+  const login = async (email, password, emailOtpCode = null, captchaToken = null) => {
+    // P1.1: backend's /auth/login calls verify_or_403 (auth.py:699)
+    // when TURNSTILE_SECRET_KEY is set in production. Without
+    // captcha_token here, login 403s on the KVM but worked in dev
+    // (where the var was unset). LoginForm passes the token from
+    // useTurnstile() — if the hook didn't load a site key (dev/
+    // sandbox), captchaToken is null and the backend's matching
+    // sandbox path lets it through.
     const body = { email, password }
     if (emailOtpCode) body.email_otp_code = emailOtpCode
+    if (captchaToken) body.captcha_token = captchaToken
     const r = await fetchWithTimeout(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

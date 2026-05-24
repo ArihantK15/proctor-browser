@@ -50,6 +50,12 @@ class StudentSignupIn(BaseModel):
     email:     str
     password:  str
     full_name: str
+    # P2.8: backend now gates student signup behind Turnstile too
+    # (matches teacher signup + every other auth endpoint). Optional
+    # so existing clients that don't yet send a token continue to work
+    # in sandbox; production with TURNSTILE_SECRET_KEY set rejects on
+    # verify_or_403 when missing.
+    captcha_token: Optional[str] = None
 
 
 class StudentLoginIn(BaseModel):

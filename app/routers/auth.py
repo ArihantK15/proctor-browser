@@ -998,6 +998,11 @@ async def student_signup(body: StudentSignupIn, request: Request):
     pre-existing per-teacher `students` enrollments that match the email
     so the student immediately sees their upcoming exam(s) on first login.
     """
+    # P2.8: bot-resistant signup. Teacher signup, password reset, OTP
+    # request and login already gate on verify_or_403; student signup
+    # was the last unprotected auth surface. Sandbox/no-secret mode
+    # passes through (matches local-dev workflow).
+    await verify_or_403(request, body.captcha_token)
     email = body.email.strip().lower()
     name = body.full_name.strip()
     if not email or "@" not in email:

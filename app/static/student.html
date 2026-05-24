@@ -422,6 +422,10 @@
       <input type="password" id="inp-password" autocomplete="current-password" placeholder="••••••••">
     </div>
 
+    <!-- P1.2: Cloudflare Turnstile (Managed mode invisible). The
+         student-app.js _initTurnstile() picks up this element after
+         the public-config fetch returns the site key. -->
+    <div id="cf-turnstile-login" style="margin:4px 0"></div>
     <button class="btn btn-primary btn-block" id="auth-btn" onclick="doAuth()">Log in</button>
     <div class="auth-err" id="auth-err"></div>
 

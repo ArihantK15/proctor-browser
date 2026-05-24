@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
+import useTurnstile from './hooks/useTurnstile'
 
 const API_BASE = '/api/v1'
 
@@ -23,11 +24,17 @@ function useAuth() {
       .finally(() => setLoading(false))
   }, [token])
 
-  const login = async (email, password) => {
+  const login = async (email, password, captchaToken = null) => {
+    // P1.2: backend's /student/auth/login calls verify_or_403
+    // (auth.py:1040) when TURNSTILE_SECRET_KEY is set. Pass through
+    // when the LoginForm has a token; backend's sandbox path accepts
+    // null when no site key configured.
+    const body = { email, password }
+    if (captchaToken) body.captcha_token = captchaToken
     const r = await fetchWithTimeout(`${API_BASE}/student/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(body),
     })
     if (!r.ok) throw new Error((await r.json()).detail || 'Login failed')
     const d = await r.json()
@@ -58,13 +65,17 @@ function LoginForm({ onLogin }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const turnstile = useTurnstile()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError(''); setBusy(true)
     try {
-      await onLogin(email, password)
-    } catch (e) { setError(e.message) }
+      await onLogin(email, password, turnstile.token)
+    } catch (e) {
+      turnstile.refresh()
+      setError(e.message)
+    }
     finally { setBusy(false) }
   }
 
@@ -77,6 +88,9 @@ function LoginForm({ onLogin }) {
           <div className="fg"><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus /></div>
           <div className="fg"><label>Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} required /></div>
           {error && <div className="err">{error}</div>}
+          {/* P1.2 Cloudflare Turnstile (Managed mode invisible). Backend
+              /student/auth/login requires captcha_token in production. */}
+          <div ref={turnstile.ref} style={{ marginTop: 8 }} />
           <button className="btn btn-primary" type="submit" disabled={busy} style={{ width: '100%', marginTop: 12 }}>{busy ? 'Logging in...' : 'Log in'}</button>
         </form>
         <p className="sub" style={{ marginTop: 16 }}>Don't have an account? <a href="/register">Register here</a></p>

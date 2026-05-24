@@ -61,6 +61,18 @@ def _derive_key(purpose: str) -> str:
 def _split_keys(raw: str | None) -> list[str]:
     return [k.strip() for k in (raw or "").split(",") if k.strip()]
 
+# Env gate to retire SECRET_KEY-derived legacy keys after rotation.
+# Default `true` (rollout window) so existing tokens keep verifying.
+# Once you've rotated every accepted JWT off the derived key (verify
+# by tailing logs for "Invalid token" spikes during a soak period),
+# set JWT_ACCEPT_DERIVED_LEGACY_KEYS=false on the KVM and redeploy.
+# Without this gate, leaking SUPABASE_JWT_SECRET would let an
+# attacker derive any per-purpose key indefinitely (audit P1.5).
+_ACCEPT_LEGACY_DERIVED = os.environ.get(
+    "JWT_ACCEPT_DERIVED_LEGACY_KEYS", "true",
+).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _key_ring(env_name: str, purpose: str) -> list[str]:
     explicit = os.environ.get(env_name, "").strip()
     previous = _split_keys(os.environ.get(f"{env_name}_PREVIOUS"))
@@ -68,13 +80,27 @@ def _key_ring(env_name: str, purpose: str) -> list[str]:
     keys: list[str] = []
     if explicit:
         keys.append(explicit)
+    elif _ACCEPT_LEGACY_DERIVED:
+        # No explicit key set AND legacy still accepted → use the
+        # derived key as the active signing key (back-compat).
+        keys.append(legacy)
     else:
-        keys.append(legacy)
+        # No explicit key set AND legacy gated off — this purpose is
+        # broken. Surface loudly at boot rather than silently signing
+        # tokens nobody can verify. Misconfiguration, not an attack
+        # vector, but we don't want it to limp along.
+        raise RuntimeError(
+            f"JWT key ring for purpose '{purpose}' has no explicit "
+            f"{env_name} set and JWT_ACCEPT_DERIVED_LEGACY_KEYS=false. "
+            f"Set {env_name} to a 32+ char secret before disabling "
+            f"the derived-legacy fallback."
+        )
     keys.extend(previous)
-    if legacy not in keys:
-        keys.append(legacy)
-    if SECRET_KEY not in keys:
-        keys.append(SECRET_KEY)
+    if _ACCEPT_LEGACY_DERIVED:
+        if legacy not in keys:
+            keys.append(legacy)
+        if SECRET_KEY not in keys:
+            keys.append(SECRET_KEY)
     return keys
 
 ADMIN_SIGNING_KEYS = _key_ring("JWT_ADMIN_SIGNING_KEY", "procta.admin")
@@ -160,11 +186,18 @@ _CAL_TIGHT_HEAD = 8.0
 _CAL_LOOSE_HEAD = 30.0
 
 # ─── Plan / billing ──────────────────────────────────────────────
+# `overage_price_inr` is what each student OVER the plan limit costs
+# per billing cycle. Per the plan-description text, all paid tiers
+# charge ₹80 per overage student (price_inr ÷ students for Starter/
+# Growth/Pro — all happen to be ₹80). Without this explicit field,
+# billing.py was using price_inr (the BASE plan price) as the per-
+# student overage price → a single student over Growth = ₹12,000
+# extra. Audit P1.4.
 PLANS = {
-    "starter":    {"name": "Starter",  "students": 30,  "price_inr": 2400,  "desc": "For small classes & tutorials (₹80/student)"},
-    "growth":     {"name": "Growth",   "students": 150, "price_inr": 12000, "desc": "For departments & mid-size programs (₹80/student)"},
-    "pro":        {"name": "Pro",      "students": 500, "price_inr": 30000, "desc": "For large universities & institutions (₹80/student)"},
-    "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "desc": "Custom pricing — contact sales"},
+    "starter":    {"name": "Starter",  "students": 30,  "price_inr": 2400,  "overage_price_inr": 80,  "desc": "For small classes & tutorials (₹80/student)"},
+    "growth":     {"name": "Growth",   "students": 150, "price_inr": 12000, "overage_price_inr": 80,  "desc": "For departments & mid-size programs (₹80/student)"},
+    "pro":        {"name": "Pro",      "students": 500, "price_inr": 30000, "overage_price_inr": 80,  "desc": "For large universities & institutions (₹80/student)"},
+    "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "overage_price_inr": 0,   "desc": "Custom pricing — contact sales"},
 }
 TRIAL_DAYS = 14
 # TOTP_ENCRYPTION_KEY + TOTP_GRACE_DAYS constants removed 2026-05-23

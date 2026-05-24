@@ -90,6 +90,16 @@ async def _fetch_completed_sessions(tid: str, exam_id_scope: str | None,
 @router.post("/api/v1/admin/clear-live-sessions")
 @limiter.limit("5/minute")
 async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...)):
+    # P1.6: intentionally SELF-SCOPED — every caller can only clear
+    # their own teacher_id's sessions. Org-wide clear-by-admin would
+    # need a real-time impersonation model and a much larger blast
+    # radius for a destructive action; we don't want a single admin
+    # click nuking other teachers' live sessions. UI surface is
+    # already restricted to the teacher's own Tools tab (legacy
+    # dashboard data-roles="teacher", React TABS roles=['teacher'])
+    # so admins/superadmins can't trigger this from the dashboard
+    # anyway — but enforcing self-scope at the endpoint is the
+    # belt-and-suspenders.
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     step = body.step.lower().strip()

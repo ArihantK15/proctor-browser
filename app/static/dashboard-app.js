@@ -915,6 +915,15 @@ function applyOrgRole(org_role){
     const roles = (tab.dataset.roles || '').split(' ');
     tab.style.display = roles.includes(currentOrgRole) ? '' : 'none';
   });
+  // Surface the active role in the topbar so admins know they're
+  // looking at org-wide controls vs a teacher's day-to-day view.
+  const badge = document.getElementById('topbar-role-badge');
+  if(badge){
+    const labels = {teacher:'Teacher', admin:'Admin', superadmin:'Super Admin'};
+    badge.textContent = labels[currentOrgRole] || currentOrgRole;
+    badge.dataset.role = currentOrgRole;
+    badge.style.display = '';
+  }
   if(currentOrgRole === 'teacher' && document.querySelector('.tab.active')?.dataset.tab !== 'live'){
     switchTab('live');
   }

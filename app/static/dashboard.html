@@ -268,9 +268,17 @@
   <div class="topbar-actions">
     <div class="topbar-status">
       <span class="spinner" id="refresh-spin" style="display:none"></span>
-      <span id="last-refresh">--</span>
+      <!-- Last refresh timestamp — empty until the first SSE/refresh
+           cycle completes, hidden via :empty so the topbar doesn't
+           show a meaningless "--" placeholder on first paint. -->
+      <span id="last-refresh"></span>
     </div>
     <span id="teacher-name" class="topbar-teacher"></span>
+    <!-- Role badge — shows whether you're operating as Teacher, Admin,
+         or Super Admin so the "what dashboard is this?" confusion is
+         answered at a glance. Populated by applyOrgRole(). Hidden until
+         the role is known. -->
+    <span id="topbar-role-badge" class="topbar-role" style="display:none"></span>
     <span id="topbar-trial-badge" style="display:none;font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer" onclick="trialBannerClick()"></span>
     <button class="btn btn-secondary btn-sm" onclick="refreshAll()">Refresh</button>
     <button class="btn btn-ghost topbar-logout btn-sm" onclick="doLogout()">Logout</button>
@@ -1428,7 +1436,8 @@
       </div>
     </div>
   <div style="max-width:800px;margin:0 auto;padding:20px 0">
-    <h2 style="color:var(--text-primary);margin:0 0 20px">Org Overview</h2>
+    <!-- Title moved into .panel-header above. -->
+
     <div id="org-overview-content">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px">
         <div class="stat-tile"><div class="stat-tile-label">Organization</div><div class="stat-tile-value accent" id="org-name">--</div></div>
@@ -1486,7 +1495,8 @@
       </div>
     </div>
   <div style="max-width:800px;margin:0 auto;padding:20px 0">
-    <h2 style="color:var(--text-primary);margin:0 0 20px">Billing & Plan</h2>
+    <!-- Title moved into .panel-header above. -->
+
     <div id="billing-content">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:24px">
         <div class="stat-tile"><div class="stat-tile-label">Current Plan</div><div class="stat-tile-value accent" id="billing-plan">--</div></div>
@@ -1553,9 +1563,7 @@
       </div>
     </div>
   <div style="max-width:800px;margin:0 auto;padding:20px 0">
-    <div style="display:flex;align-items:center;gap:12px;margin:0 0 24px">
-      <h2 style="color:var(--text-primary);margin:0;font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-0.02em">Security</h2>
-    </div>
+    <!-- Title moved into .panel-header above. -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
       <!-- 2FA card — email-OTP (replaced TOTP/Google Authenticator 2026-05-23) -->
       <div class="tool-card">

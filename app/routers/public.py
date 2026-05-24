@@ -19,7 +19,7 @@ from ..limiter import limiter
 from .. import cache as _cache
 from ..models import RegisterIn, SessionStatus, InviteStatus, VerificationStatus
 from ..utils import fmt_ist, now_ist
-from ..constants import SECRET_KEY, SUPER_ADMIN_EMAIL, DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN
+from ..constants import SUPER_ADMIN_EMAIL, DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..invites import _get_invite_base_url
 from ..services.invite_landing import _render_invite_error, _render_invite_landing
@@ -51,12 +51,34 @@ router = APIRouter(prefix="")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
+# Cache-bust version stamp for static asset URLs.
+# Computed once at module import — every API restart (CI deploy) gets
+# a new value, forcing browsers + Cloudflare to fetch fresh CSS/JS
+# instead of serving stale cached copies. Cheap and self-maintaining.
+import time as _time
+import re as _re
+_ASSET_VERSION = str(int(_time.time()))
+_ASSET_VERSION_RE = _re.compile(
+    r'(<(?:link|script)\b[^>]*\b(?:href|src)\s*=\s*["\'])(/static/[^"\']+\.(?:css|js))(["\'])'
+)
+
+
+def _stamp_static_urls(html: str) -> str:
+    """Inject ?v=<build> into /static/*.css and /static/*.js URLs.
+    Skips URLs that already carry a query string so we don't double-stamp."""
+    def _sub(m):
+        url = m.group(2)
+        if "?" in url:
+            return m.group(0)
+        return f"{m.group(1)}{url}?v={_ASSET_VERSION}{m.group(3)}"
+    return _ASSET_VERSION_RE.sub(_sub, html)
+
 
 def _static_html_response(filename: str, missing_detail: str) -> HTMLResponse:
     html_path = STATIC_DIR / filename
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=missing_detail)
-    return HTMLResponse(html_path.read_text())
+    return HTMLResponse(_stamp_static_urls(html_path.read_text()))
 
 
 @router.get("/")

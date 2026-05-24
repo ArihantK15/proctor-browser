@@ -113,10 +113,24 @@
   justify-content:flex-end}
 .topbar-status{display:flex;align-items:center;gap:8px;font-size:12px;
   color:var(--muted);line-height:1}
+#last-refresh:empty{display:none}
 .topbar-status .spinner{width:13px;height:13px;border-width:2px}
 .topbar-teacher{font-size:12px;font-weight:600;color:var(--accent-light);
   line-height:1;padding-left:14px;border-left:1px solid var(--border)}
 .topbar-teacher:empty{display:none}
+/* Role badge — Teacher / Admin / Super Admin. Tinted by role so the
+   colour answers "what am I looking at" without reading the label. */
+.topbar-role{font-size:10px;font-weight:700;font-family:var(--font-mono);
+  letter-spacing:0.06em;text-transform:uppercase;
+  padding:3px 9px;border-radius:999px;line-height:1;
+  background:rgba(255,255,255,0.05);
+  border:1px solid rgba(255,255,255,0.10);color:var(--text-mid)}
+.topbar-role[data-role="admin"]{
+  background:rgba(91,138,240,0.10);
+  border-color:rgba(91,138,240,0.30);color:var(--accent-light)}
+.topbar-role[data-role="superadmin"]{
+  background:rgba(245,158,11,0.10);
+  border-color:rgba(245,158,11,0.30);color:var(--amber)}
 .topbar .btn{padding:7px 14px;height:32px;display:inline-flex;
   align-items:center;justify-content:center;line-height:1}
 .topbar-logout{color:var(--red)}

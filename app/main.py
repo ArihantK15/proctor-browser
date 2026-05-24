@@ -399,34 +399,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         if "Referrer-Policy" not in response.headers:
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # CSP — relaxed 2026-05-24 after the Caddy short-circuit removal
-        # finally surfaced live CSP enforcement on /dashboard:
-        #   • Added 'unsafe-inline' to script-src because dashboard.html
-        #     still has ~160 inline `onclick="..."` handlers. Converting
-        #     them all to addEventListener is real work; until that lands
-        #     this is the same security posture production had for months
-        #     when Caddy was bypassing the CSP entirely.
-        #   • Added https://fonts.googleapis.com to style-src — Google
-        #     Fonts serves the CSS from googleapis but the woff2 files
-        #     from gstatic; we'd whitelisted only the latter.
-        #   • Added media-src 'self' data: because the dashboard alert
-        #     chime is an inline base64-encoded WAV (data:audio/wav;base64,…).
-        #     Without an explicit media-src, default-src 'self' was the
-        #     fallback and blocked the data: URI.
+        # CSP — hardened after the Caddy short-circuit removal finally
+        # surfaced live CSP enforcement on /dashboard:
+        #   • 'unsafe-inline' DROPPED from script-src — all inline event
+        #     handlers migrated to data-* delegated listeners. References:
+        #     7df818b, a1315d2, 5683710, 57fe44d.
+        #   • https://fonts.googleapis.com stays on style-src — Google
+        #     Fonts serves CSS from googleapis and woff2 files from gstatic.
+        #   • media-src 'self' data: allows the dashboard alert chime,
+        #     which is an inline base64-encoded WAV (data:audio/wav;base64,…).
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "base-uri 'self'; "
             "form-action 'self'; "
             "object-src 'none'; "
-            # 'unsafe-inline' STAYS for now. The onclick → data-action
-            # conversion (170 static + 49 dynamic) is complete, but
-            # ~20 onchange/oninput attrs and a handful of onerror attrs
-            # in JS template strings still need migration. CSP3 lumps
-            # ALL inline event-handler attributes under
-            # script-src 'unsafe-inline' — so dropping it would break
-            # search inputs, filter dropdowns, file pickers, image
-            # error-fallback. Convert those in a future pass, then drop.
-            "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://checkout.razorpay.com https://cdn.razorpay.com; "
+            "script-src 'self' https://challenges.cloudflare.com https://checkout.razorpay.com https://cdn.razorpay.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: blob: https://*.razorpay.com; "
             "font-src 'self' https://fonts.gstatic.com; "

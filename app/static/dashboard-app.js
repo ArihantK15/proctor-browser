@@ -4943,7 +4943,7 @@ function _renderAnalytics(data){
     return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
       <span style="font-size:10px;color:var(--text);font-weight:600">${d.count}</span>
       <div style="width:100%;height:${pct}%;min-height:2px;background:${color};border-radius:4px 4px 0 0;transition:height 0.4s"></div>
-      <span style="font-size:9px;color:var(--muted);white-space:nowrap">${d.range.replace('%','')}</span>
+      <span style="font-size:9px;color:var(--muted);white-space:nowrap">${d.range.replace(/%/g,'')}</span>
     </div>`;
   }).join('');
 

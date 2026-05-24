@@ -1,7 +1,7 @@
 """Razorpay billing integration.
 
 Supports two modes:
-  - sandbox (default): works without Razorpay keys for local dev/testing
+  - sandbox (explicit): works without Razorpay keys for local dev/testing
   - live: uses Razorpay API when RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are set
 
 Environment variables:
@@ -41,12 +41,16 @@ def _is_production() -> bool:
     return os.environ.get("APP_ENV", "development").lower().strip() == "production"
 
 
+def _sandbox_enabled() -> bool:
+    return os.environ.get("RAZORPAY_SANDBOX_MODE", "").lower().strip() in {"1", "true", "yes", "on"}
+
+
 def create_subscription(org_id: str, plan_id: str) -> dict:
     """Create a Razorpay subscription and return checkout details.
 
-    In non-production sandbox mode (no Razorpay credentials), returns a mock
-    response.  In production, raises RuntimeError if credentials are missing so
-    the caller can surface a 503 rather than silently issuing a fake subscription.
+    Live mode requires Razorpay credentials and a configured Razorpay plan ID.
+    Sandbox mode is explicit via RAZORPAY_SANDBOX_MODE=1 and never returns a
+    fake external Razorpay URL; otherwise users land on Razorpay's 404 page.
     """
     if plan_id not in PLANS:
         raise ValueError(f"Unknown plan: {plan_id}")
@@ -68,14 +72,19 @@ def create_subscription(org_id: str, plan_id: str) -> dict:
             "status": sub.get("status", "created"),
         }
 
-    if _is_production():
+    if _is_live() and not plan_key:
+        raise RuntimeError(
+            f"RAZORPAY_PLAN_{plan_id.upper()} not configured — cannot create subscription"
+        )
+
+    if not _sandbox_enabled():
         raise RuntimeError(
             "RAZORPAY_KEY_ID/SECRET not configured — cannot create live subscription"
         )
 
     return {
         "subscription_id": f"mock_sub_{org_id[:8]}",
-        "short_url": f"https://razorpay.com/payments/mock_{org_id[:8]}",
+        "short_url": "",
         "status": "created",
         "_sandbox": True,
         "_note": f"Sandbox: would charge ₹{plan['price_inr']}/mo for {plan['students']} students ({plan['name']})",

@@ -7,8 +7,30 @@ const PLANS = [
   { id: 'pro', name: 'Pro', price: '₹30,000', students: 500, desc: 'For large universities & institutions (₹80/student)' },
 ]
 
+let razorpayCheckoutPromise = null
+
+function loadRazorpayCheckout() {
+  if (window.Razorpay) return Promise.resolve()
+  if (razorpayCheckoutPromise) return razorpayCheckoutPromise
+  razorpayCheckoutPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true })
+      existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay checkout.')), { once: true })
+      return
+    }
+    const s = document.createElement('script')
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    s.async = true
+    s.onload = resolve
+    s.onerror = () => reject(new Error('Failed to load Razorpay checkout.'))
+    document.head.appendChild(s)
+  })
+  return razorpayCheckoutPromise
+}
+
 export default function BillingPanel() {
-  const { authFetch } = useAuth()
+  const { authFetch, user } = useAuth()
   const [billing, setBilling] = useState(null)
   const [invoices, setInvoices] = useState([])
   const [usage, setUsage] = useState(null)
@@ -43,9 +65,10 @@ export default function BillingPanel() {
   }
 
   const upgrade = async (planId) => {
-    setUpgradeStatus('Redirecting to payment...')
+    setUpgradeStatus('Opening secure checkout...')
     try {
-      const r = await authFetch('/api/v1/billing/create-subscription', {
+      await loadRazorpayCheckout()
+      const r = await authFetch('/api/v1/billing/checkout/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan_id: planId }),
@@ -54,9 +77,60 @@ export default function BillingPanel() {
         const d = await r.json().catch(() => ({}))
         throw new Error(d.detail || `Upgrade failed (${r.status})`)
       }
-      const d = await r.json()
-      if (d.short_url) window.location.href = d.short_url
-      else setUpgradeStatus('Subscription created!')
+      const order = await r.json()
+      await new Promise((resolve, reject) => {
+        if (!window.Razorpay) return reject(new Error('Razorpay checkout did not load.'))
+        const rzp = new window.Razorpay({
+          key: order.key_id,
+          amount: order.amount,
+          currency: order.currency || 'INR',
+          name: 'Procta',
+          description: order.description || `${order.plan_name || 'Procta'} plan`,
+          order_id: order.order_id,
+          prefill: {
+            name: user?.full_name || '',
+            email: user?.email || '',
+          },
+          notes: { plan_id: order.plan_id || '' },
+          theme: { color: '#2563eb' },
+          modal: {
+            confirm_close: true,
+            ondismiss: () => {
+              setUpgradeStatus('Payment cancelled. No changes were made.')
+              resolve()
+            },
+          },
+          handler: async (resp) => {
+            setUpgradeStatus('Verifying payment...')
+            try {
+              const verifyR = await authFetch('/api/v1/billing/checkout/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  plan_id: order.plan_id,
+                  razorpay_order_id: resp.razorpay_order_id,
+                  razorpay_payment_id: resp.razorpay_payment_id,
+                  razorpay_signature: resp.razorpay_signature,
+                }),
+              })
+              if (!verifyR.ok) {
+                const d = await verifyR.json().catch(() => ({}))
+                throw new Error(d.detail || `Payment verification failed (${verifyR.status})`)
+              }
+              setUpgradeStatus('Payment verified. Your plan is active.')
+              await loadAll()
+              resolve()
+            } catch (e) {
+              setUpgradeStatus(e.message || 'Payment verification failed.')
+              reject(e)
+            }
+          },
+        })
+        rzp.on('payment.failed', (response) => {
+          setUpgradeStatus(response?.error?.description || 'Payment failed. Please try again.')
+        })
+        rzp.open()
+      })
     } catch (e) {
       setUpgradeStatus(e.message)
     }

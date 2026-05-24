@@ -1,8 +1,11 @@
 """Billing router — Razorpay subscription management."""
 
+import hashlib
+import hmac
 import json
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Request, HTTPException
 from ..auth import require_admin
 from ..database import async_table as _atable
@@ -20,6 +23,48 @@ from .. import cache as _cache
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
+
+
+def _require_billing_admin(teacher: dict) -> str:
+    if teacher.get("org_role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only admins can manage billing")
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+    return str(org_id)
+
+
+def _validate_paid_plan(plan_id: str) -> dict:
+    plan_id = (plan_id or "").strip().lower()
+    if plan_id not in PLANS:
+        raise HTTPException(status_code=400, detail=f"Invalid plan: {plan_id}")
+    plan = PLANS[plan_id]
+    if int(plan.get("price_inr") or 0) <= 0:
+        raise HTTPException(status_code=400, detail="This plan requires a sales conversation.")
+    return plan
+
+
+async def _activate_org_plan(org_id: str, plan_id: str, razorpay_order_id: str):
+    period_start = datetime.now(timezone.utc)
+    period_end = period_start + timedelta(days=30)
+    sub_data = {
+        "plan": plan_id,
+        "status": "active",
+        "razorpay_subscription_id": None,
+        "razorpay_order_id": razorpay_order_id,
+        "current_period_start": period_start.isoformat(),
+        "current_period_end": period_end.isoformat(),
+    }
+    existing = await _atable("subscriptions").select("id").eq("org_id", org_id).limit(1).execute()
+    sub = (existing.data or [None])[0]
+    if sub:
+        await _atable("subscriptions").update(sub_data).eq("org_id", org_id).execute()
+    else:
+        await _atable("subscriptions").insert({"org_id": org_id, **sub_data}).execute()
+    await _atable("organizations").update({
+        "max_students": PLAN_LIMITS.get(plan_id, 30)
+    }).eq("id", org_id).execute()
+    _invalidate_billing_cache(org_id)
 
 
 def _invalidate_billing_cache(org_id: str):
@@ -116,6 +161,98 @@ async def create_subscription(body: dict, request: Request):
         )
 
     return result
+
+
+@router.post("/api/v1/billing/checkout/order")
+@limiter.limit("10/minute")
+async def create_checkout_order(body: dict, request: Request):
+    """Create a Razorpay Standard Checkout order for a paid plan.
+
+    The browser must pass the returned `order_id` to checkout.js. We only
+    activate the subscription after `/checkout/verify` validates Razorpay's
+    HMAC signature server-side.
+    """
+    teacher = await require_admin(request)
+    org_id = _require_billing_admin(teacher)
+    plan_id = (body.get("plan_id") or "").strip().lower()
+    plan = _validate_paid_plan(plan_id)
+
+    client = _get_client()
+    key_id = os.environ.get("RAZORPAY_KEY_ID", "").strip()
+    if client is None or not key_id:
+        logger.error("Razorpay Standard Checkout requested without RAZORPAY_KEY_ID/SECRET")
+        raise HTTPException(status_code=503, detail="Billing unavailable: Razorpay credentials not configured.")
+
+    amount = int(plan["price_inr"]) * 100
+    receipt = f"procta_{str(org_id).replace('-', '')[:12]}_{int(datetime.now(timezone.utc).timestamp())}"[:40]
+    try:
+        order = client.order.create({
+            "amount": amount,
+            "currency": "INR",
+            "receipt": receipt,
+            "notes": {
+                "org_id": org_id,
+                "plan_id": plan_id,
+                "teacher_id": str(teacher.get("id") or ""),
+            },
+            "payment_capture": 1,
+        })
+    except Exception as e:
+        logger.exception("Failed to create Razorpay order for org=%s plan=%s", org_id, plan_id)
+        raise HTTPException(status_code=502, detail="Could not create Razorpay order. Please try again.") from e
+
+    return {
+        "key_id": key_id,
+        "order_id": order["id"],
+        "amount": order.get("amount", amount),
+        "currency": order.get("currency", "INR"),
+        "plan_id": plan_id,
+        "plan_name": plan["name"],
+        "description": f"{plan['name']} plan",
+    }
+
+
+@router.post("/api/v1/billing/checkout/verify")
+@limiter.limit("20/minute")
+async def verify_checkout_payment(body: dict, request: Request):
+    """Verify Razorpay Checkout success and activate the org plan."""
+    teacher = await require_admin(request)
+    org_id = _require_billing_admin(teacher)
+    plan_id = (body.get("plan_id") or "").strip().lower()
+    _validate_paid_plan(plan_id)
+
+    order_id = (body.get("razorpay_order_id") or "").strip()
+    payment_id = (body.get("razorpay_payment_id") or "").strip()
+    signature = (body.get("razorpay_signature") or "").strip()
+    if not order_id or not payment_id or not signature:
+        raise HTTPException(status_code=400, detail="Missing Razorpay payment verification fields.")
+
+    secret = os.environ.get("RAZORPAY_KEY_SECRET", "").strip()
+    if not secret:
+        logger.error("Razorpay verification requested without RAZORPAY_KEY_SECRET")
+        raise HTTPException(status_code=503, detail="Payment verification unavailable.")
+
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        f"{order_id}|{payment_id}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        logger.warning("Invalid Razorpay signature for org=%s order=%s payment=%s", org_id, order_id, payment_id)
+        raise HTTPException(status_code=400, detail="Invalid payment signature.")
+
+    try:
+        await _activate_org_plan(org_id, plan_id, order_id)
+    except Exception as e:
+        logger.error("Payment verified but DB activation failed for org=%s order=%s: %s", org_id, order_id, e)
+        raise HTTPException(
+            status_code=500,
+            detail="Payment verified, but plan activation failed. Please contact support.",
+        ) from e
+
+    logger.info("Razorpay payment verified and plan activated org=%s plan=%s order=%s payment=%s",
+                org_id, plan_id, order_id, payment_id)
+    return {"ok": True, "plan_id": plan_id, "order_id": order_id, "payment_id": payment_id}
 
 
 @router.post("/api/v1/webhooks/razorpay")
@@ -275,6 +412,9 @@ async def list_invoices(request: Request):
 
     sub = await _atable("subscriptions").select("razorpay_subscription_id").eq("org_id", str(org_id)).limit(1).execute()
     sub_id = (sub.data or [{}])[0].get("razorpay_subscription_id")
+
+    if not sub_id and _is_live():
+        return {"invoices": []}
 
     if not sub_id or not _is_live():
         return {"invoices": [

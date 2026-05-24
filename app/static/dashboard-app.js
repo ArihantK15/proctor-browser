@@ -24,6 +24,8 @@ let orgTeacherOptions = [];
 let issuesData = [];
 let currentIssueId = null;
 let issueReportContext = {session_id:'', exam_id:''};
+let currentTeacherProfile = null;
+let razorpayCheckoutPromise = null;
 // Restore the previously-selected exam across page refreshes. Without
 // this, F5 silently swaps you to examsList[0], and live sessions / results
 // / schedule all blank out because they filter by exam_id.
@@ -194,6 +196,7 @@ async function doPasswordReset(){
 
 async function _onAuthed(teacher){
   document.getElementById('auth-overlay').classList.add('hidden');
+  currentTeacherProfile = teacher || null;
   _onAuthDone();
   if(teacher && teacher.full_name){
     document.getElementById('teacher-name').textContent = teacher.full_name;
@@ -2141,9 +2144,10 @@ function sortResults(key){
 
 async function upgradePlan(planId){
   const resultEl = document.getElementById('upgrade-result');
-  resultEl.textContent = 'Redirecting to payment...'; resultEl.style.color = 'var(--text-secondary)';
+  resultEl.textContent = 'Opening secure checkout...'; resultEl.style.color = 'var(--text-secondary)';
   try{
-    const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
+    await loadRazorpayCheckout();
+    const r = await authFetch(`${BASE}/api/v1/billing/checkout/order`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({plan_id:planId})
@@ -2153,15 +2157,97 @@ async function upgradePlan(planId){
       throw new Error(d.detail||'Upgrade failed');
     }
     const d = await r.json();
-    if(d.short_url){
-      window.location.href = d.short_url;  // Redirect to Razorpay
-    } else {
-      resultEl.textContent = 'Subscription created!'; resultEl.style.color = 'var(--emerald)';
-      loadBilling();
-    }
+    await openRazorpayCheckout(d, resultEl);
   }catch(e){
     resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
   }
+}
+
+function loadRazorpayCheckout(){
+  if(window.Razorpay) return Promise.resolve();
+  if(razorpayCheckoutPromise) return razorpayCheckoutPromise;
+  razorpayCheckoutPromise = new Promise((resolve, reject)=>{
+    const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+    if(existing){
+      existing.addEventListener('load', resolve, {once:true});
+      existing.addEventListener('error', ()=>reject(new Error('Failed to load Razorpay checkout.')), {once:true});
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = ()=>reject(new Error('Failed to load Razorpay checkout.'));
+    document.head.appendChild(s);
+  });
+  return razorpayCheckoutPromise;
+}
+
+function openRazorpayCheckout(order, resultEl){
+  return new Promise((resolve, reject)=>{
+    if(!window.Razorpay) return reject(new Error('Razorpay checkout did not load.'));
+    const profile = currentTeacherProfile || {};
+    const rzp = new window.Razorpay({
+      key: order.key_id,
+      amount: order.amount,
+      currency: order.currency || 'INR',
+      name: 'Procta',
+      description: order.description || `${order.plan_name || 'Procta'} plan`,
+      order_id: order.order_id,
+      prefill: {
+        name: profile.full_name || '',
+        email: profile.email || '',
+      },
+      notes: {
+        plan_id: order.plan_id || '',
+      },
+      theme: {color: '#2563eb'},
+      modal: {
+        confirm_close: true,
+        ondismiss: ()=> {
+          resultEl.textContent = 'Payment cancelled. No changes were made.';
+          resultEl.style.color = 'var(--text-secondary)';
+          resolve();
+        },
+      },
+      handler: async function(resp){
+        resultEl.textContent = 'Verifying payment...';
+        resultEl.style.color = 'var(--text-secondary)';
+        try{
+          const verifyRes = await authFetch(`${BASE}/api/v1/billing/checkout/verify`, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+              plan_id: order.plan_id,
+              razorpay_order_id: resp.razorpay_order_id,
+              razorpay_payment_id: resp.razorpay_payment_id,
+              razorpay_signature: resp.razorpay_signature,
+            })
+          });
+          if(!verifyRes.ok){
+            const d = await verifyRes.json().catch(()=>({}));
+            throw new Error(d.detail || `Payment verification failed (${verifyRes.status})`);
+          }
+          resultEl.textContent = 'Payment verified. Your plan is active.';
+          resultEl.style.color = 'var(--emerald)';
+          await loadBilling();
+          resolve();
+        }catch(e){
+          resultEl.textContent = e.message || 'Payment verification failed.';
+          resultEl.style.color = 'var(--red)';
+          reject(e);
+        }
+      }
+    });
+    rzp.on('payment.failed', function(response){
+      const msg = response && response.error && response.error.description
+        ? response.error.description
+        : 'Payment failed. Please try again.';
+      resultEl.textContent = msg;
+      resultEl.style.color = 'var(--red)';
+    });
+    rzp.open();
+  });
 }
 
 async function loadBilling(){

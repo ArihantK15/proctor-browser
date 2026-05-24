@@ -5,11 +5,13 @@ Covers:
   1. Org CRUD — GET /api/v1/org, PATCH /api/v1/org
   2. Member management — GET /api/v1/org/members, POST /api/v1/org/invite,
      DELETE /api/v1/org/members/{teacher_id}
-  3. Billing — GET /api/v1/billing/plans, POST /api/v1/billing/create-subscription
+  3. Billing — plans, legacy subscriptions, Standard Checkout order/verify
   4. Razorpay webhooks — activated, completed, paused, cancelled, payment.failed
   5. Superadmin — GET /api/v1/admin/all-orgs
 """
 import contextlib
+import hashlib
+import hmac
 import json
 import os
 import sys
@@ -367,7 +369,7 @@ class TestListPlans:
 class TestCreateSubscription:
     MOCK_RESULT = {
         "subscription_id": "mock_sub_org-1",
-        "short_url": "https://razorpay.com/payments/mock_org-1",
+        "short_url": "",
         "status": "created",
         "_sandbox": True,
         "_note": "Sandbox: would charge ₹999/mo for 150 students (Growth)",
@@ -426,6 +428,121 @@ class TestCreateSubscription:
             resp = client.post("/api/v1/billing/create-subscription",
                                json={"plan_id": "growth"}, headers=admin_headers())
         assert resp.status_code == 500
+
+
+class TestBillingServiceConfiguration:
+    def test_missing_credentials_do_not_return_fake_razorpay_url(self, monkeypatch):
+        from app.services.billing import create_subscription
+
+        monkeypatch.delenv("RAZORPAY_KEY_ID", raising=False)
+        monkeypatch.delenv("RAZORPAY_KEY_SECRET", raising=False)
+        monkeypatch.delenv("RAZORPAY_SANDBOX_MODE", raising=False)
+
+        with pytest.raises(RuntimeError, match="RAZORPAY_KEY_ID/SECRET"):
+            create_subscription("org-1", "growth")
+
+    def test_explicit_sandbox_returns_no_external_checkout_url(self, monkeypatch):
+        from app.services.billing import create_subscription
+
+        monkeypatch.delenv("RAZORPAY_KEY_ID", raising=False)
+        monkeypatch.delenv("RAZORPAY_KEY_SECRET", raising=False)
+        monkeypatch.setenv("RAZORPAY_SANDBOX_MODE", "1")
+
+        result = create_subscription("org-1", "growth")
+
+        assert result["_sandbox"] is True
+        assert result["subscription_id"].startswith("mock_sub_")
+        assert result["short_url"] == ""
+
+    def test_live_credentials_without_plan_id_fail_closed(self, monkeypatch):
+        from app.services.billing import create_subscription
+
+        monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_123")
+        monkeypatch.setenv("RAZORPAY_KEY_SECRET", "secret")
+        monkeypatch.delenv("RAZORPAY_PLAN_GROWTH", raising=False)
+
+        with pytest.raises(RuntimeError, match="RAZORPAY_PLAN_GROWTH"):
+            create_subscription("org-1", "growth")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Razorpay Standard Checkout billing flow
+# ═══════════════════════════════════════════════════════════════════
+class TestBillingCheckout:
+    def test_create_order_non_admin_403(self, client):
+        with _admin_patch(NON_ADMIN):
+            resp = client.post("/api/v1/billing/checkout/order",
+                               json={"plan_id": "growth"}, headers=admin_headers())
+        assert resp.status_code == 403
+
+    def test_create_order_invalid_plan_400(self, client):
+        with _admin_patch():
+            resp = client.post("/api/v1/billing/checkout/order",
+                               json={"plan_id": "enterprise"}, headers=admin_headers())
+        assert resp.status_code == 400
+
+    def test_create_order_missing_credentials_503(self, client, monkeypatch):
+        monkeypatch.delenv("RAZORPAY_KEY_ID", raising=False)
+        monkeypatch.delenv("RAZORPAY_KEY_SECRET", raising=False)
+        with _admin_patch(), patch("app.routers.billing._get_client", return_value=None):
+            resp = client.post("/api/v1/billing/checkout/order",
+                               json={"plan_id": "growth"}, headers=admin_headers())
+        assert resp.status_code == 503
+
+    def test_create_order_returns_checkout_payload(self, client, monkeypatch):
+        monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_key")
+        fake_client = MagicMock()
+        fake_client.order.create.return_value = {
+            "id": "order_123",
+            "amount": 1200000,
+            "currency": "INR",
+        }
+        with _admin_patch(), patch("app.routers.billing._get_client", return_value=fake_client):
+            resp = client.post("/api/v1/billing/checkout/order",
+                               json={"plan_id": "growth"}, headers=admin_headers())
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d["key_id"] == "rzp_test_key"
+        assert d["order_id"] == "order_123"
+        assert d["amount"] == 1200000
+        fake_client.order.create.assert_called_once()
+
+    def test_verify_invalid_signature_400(self, client, monkeypatch):
+        monkeypatch.setenv("RAZORPAY_KEY_SECRET", "test_secret")
+        with _admin_patch():
+            resp = client.post("/api/v1/billing/checkout/verify", json={
+                "plan_id": "growth",
+                "razorpay_order_id": "order_123",
+                "razorpay_payment_id": "pay_123",
+                "razorpay_signature": "bad",
+            }, headers=admin_headers())
+        assert resp.status_code == 400
+
+    def test_verify_valid_signature_activates_plan(self, client, monkeypatch):
+        secret = "test_secret"
+        order_id = "order_123"
+        payment_id = "pay_123"
+        signature = hmac.new(
+            secret.encode(),
+            f"{order_id}|{payment_id}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        monkeypatch.setenv("RAZORPAY_KEY_SECRET", secret)
+        data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1"}], "organizations": []}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/checkout/verify", json={
+                "plan_id": "growth",
+                "razorpay_order_id": order_id,
+                "razorpay_payment_id": payment_id,
+                "razorpay_signature": signature,
+            }, headers=admin_headers())
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d["ok"] is True
+        assert d["plan_id"] == "growth"
+        assert d["payment_id"] == payment_id
 
 
 # ═══════════════════════════════════════════════════════════════════

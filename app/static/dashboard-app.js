@@ -1094,7 +1094,10 @@ async function loadMembers(){
     if(!r.ok) return;
     const d = await r.json();
     const tbody = document.getElementById('members-tbody');
-    tbody.innerHTML = (d.members||[]).map(m => `
+    const members = d.members || [];
+    const countEl = document.getElementById('members-count');
+    if(countEl) countEl.textContent = String(members.length);
+    tbody.innerHTML = members.map(m => `
       <tr>
         <td>${escHtml(m.full_name||'--')}</td>
         <td>${escHtml(m.email)}</td>

@@ -137,7 +137,15 @@ async def ws_chat_teacher(ws: WebSocket):
     header (set by `new WebSocket(url, [token])`) or as first message:
     {"type": "auth", "token": "..."}.  Query params deprecated.
     """
-    await ws.accept()
+    # CRITICAL: must echo the Sec-WebSocket-Protocol value back on .accept().
+    # When the client opens `new WebSocket(url, [authToken])`, the browser
+    # treats the connection as failed if the server's 101 response omits a
+    # matching Sec-WebSocket-Protocol header. (Student endpoint at line 51
+    # already does this — teacher endpoint was missing it, which broke every
+    # teacher chat WS connection on the dashboard.)
+    sp = ws.headers.get("sec-websocket-protocol", "")
+    subproto_first = sp.split(",")[0].strip() if sp else ""
+    await ws.accept(subprotocol=subproto_first or None)
 
     client_ip = _ws_client_ip(ws)
     if not await ws_rate_limiter.check_and_increment(client_ip):
@@ -147,8 +155,9 @@ async def ws_chat_teacher(ws: WebSocket):
     teacher_id = None
     teacher = None
     try:
-        # 1. Check Sec-WebSocket-Protocol subprotocol header
-        subproto = ws.headers.get("sec-websocket-protocol", "").strip()
+        # 1. Check Sec-WebSocket-Protocol subprotocol header.
+        # `subproto_first` was extracted before .accept() above.
+        subproto = subproto_first
         if subproto and not subproto.startswith("websocket"):
             try:
                 teacher = await verify_admin_token(subproto)

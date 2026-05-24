@@ -215,11 +215,17 @@ async def create_checkout_order(body: dict, request: Request):
 @router.post("/api/v1/billing/checkout/verify")
 @limiter.limit("20/minute")
 async def verify_checkout_payment(body: dict, request: Request):
-    """Verify Razorpay Checkout success and activate the org plan."""
+    """Verify Razorpay Checkout success and activate the org plan.
+
+    SECURITY: the plan_id and org_id used for activation come from the
+    Razorpay Order's `notes` (pinned server-side at create time), NOT
+    from the request body. Without this, a user who pays ₹2,400 for
+    Starter could re-submit /verify with plan_id=pro and get the ₹30k
+    plan activated — the signature only proves the payment happened
+    for that order, it doesn't bind to a plan tier.
+    """
     teacher = await require_admin(request)
-    org_id = _require_billing_admin(teacher)
-    plan_id = (body.get("plan_id") or "").strip().lower()
-    _validate_paid_plan(plan_id)
+    caller_org_id = _require_billing_admin(teacher)
 
     order_id = (body.get("razorpay_order_id") or "").strip()
     payment_id = (body.get("razorpay_payment_id") or "").strip()
@@ -238,21 +244,64 @@ async def verify_checkout_payment(body: dict, request: Request):
         hashlib.sha256,
     ).hexdigest()
     if not hmac.compare_digest(expected, signature):
-        logger.warning("Invalid Razorpay signature for org=%s order=%s payment=%s", org_id, order_id, payment_id)
+        logger.warning("Invalid Razorpay signature for org=%s order=%s payment=%s",
+                       caller_org_id, order_id, payment_id)
         raise HTTPException(status_code=400, detail="Invalid payment signature.")
 
+    # Re-fetch the order from Razorpay so we trust SERVER-PINNED notes
+    # (plan_id, org_id) instead of whatever the caller chose to post.
+    client = _get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Razorpay client not configured.")
     try:
-        await _activate_org_plan(org_id, plan_id, order_id)
+        order = client.order.fetch(order_id)
     except Exception as e:
-        logger.error("Payment verified but DB activation failed for org=%s order=%s: %s", org_id, order_id, e)
+        logger.exception("Razorpay order fetch failed during verify org=%s order=%s",
+                         caller_org_id, order_id)
+        raise HTTPException(status_code=502, detail="Could not confirm order with Razorpay.") from e
+
+    notes = order.get("notes") or {}
+    notes_org_id = str(notes.get("org_id") or "")
+    notes_plan_id = (notes.get("plan_id") or "").strip().lower()
+
+    if notes_org_id != caller_org_id:
+        logger.warning("Cross-org checkout verify: caller org=%s order notes org=%s order=%s",
+                       caller_org_id, notes_org_id, order_id)
+        raise HTTPException(status_code=403, detail="This order does not belong to your organization.")
+
+    if notes_plan_id not in PLANS:
+        logger.error("Razorpay order missing/invalid plan_id in notes: order=%s notes=%s",
+                     order_id, notes)
+        raise HTTPException(status_code=500, detail="Order plan binding missing — contact support.")
+    plan = _validate_paid_plan(notes_plan_id)
+
+    # Belt-and-suspenders: amount must match what we'd charge for that plan.
+    expected_amount = int(plan["price_inr"]) * 100
+    if int(order.get("amount") or 0) != expected_amount:
+        logger.error("Razorpay order amount mismatch: order=%s amount=%s expected=%s plan=%s",
+                     order_id, order.get("amount"), expected_amount, notes_plan_id)
+        raise HTTPException(status_code=400, detail="Order amount does not match plan price.")
+
+    # Status check is informational — auto-capture means the order should
+    # be "paid" by the time the handler fires. If somehow it isn't yet,
+    # the webhook (or the user's next refresh) will eventually reconcile.
+    if (order.get("status") or "").lower() not in ("paid", "attempted"):
+        logger.warning("Razorpay order verify with unexpected status: order=%s status=%s",
+                       order_id, order.get("status"))
+
+    try:
+        await _activate_org_plan(caller_org_id, notes_plan_id, order_id)
+    except Exception as e:
+        logger.error("Payment verified but DB activation failed for org=%s order=%s: %s",
+                     caller_org_id, order_id, e)
         raise HTTPException(
             status_code=500,
             detail="Payment verified, but plan activation failed. Please contact support.",
         ) from e
 
     logger.info("Razorpay payment verified and plan activated org=%s plan=%s order=%s payment=%s",
-                org_id, plan_id, order_id, payment_id)
-    return {"ok": True, "plan_id": plan_id, "order_id": order_id, "payment_id": payment_id}
+                caller_org_id, notes_plan_id, order_id, payment_id)
+    return {"ok": True, "plan_id": notes_plan_id, "order_id": order_id, "payment_id": payment_id}
 
 
 @router.post("/api/v1/webhooks/razorpay")
@@ -276,6 +325,53 @@ async def razorpay_webhook(request: Request):
 
     event_type = event.get("event", "")
     payload = event.get("payload", {})
+
+    # ── Standard Checkout (one-off Order + Payment) safety-net path ──
+    # /checkout/verify already activates the plan synchronously when the
+    # browser returns from Razorpay. These webhook events are a
+    # belt-and-suspenders reconciliation in case the user closes the tab
+    # before verify lands. We trust the `notes.plan_id` we set at order
+    # creation since the webhook is authenticated by signature.
+    if event_type in ("payment.captured", "order.paid"):
+        entity = (payload.get("payment", {}).get("entity")
+                  or payload.get("order", {}).get("entity")
+                  or {})
+        notes = entity.get("notes") or {}
+        # `order.paid` carries `notes` directly; `payment.captured` only
+        # carries the order_id, so we look up the order to read notes.
+        notes_org_id = str(notes.get("org_id") or "")
+        notes_plan_id = (notes.get("plan_id") or "").strip().lower()
+        order_id_for_log = entity.get("order_id") or entity.get("id") or ""
+
+        if not notes_org_id and entity.get("order_id"):
+            try:
+                client = _get_client()
+                if client is not None:
+                    o = client.order.fetch(entity["order_id"])
+                    o_notes = o.get("notes") or {}
+                    notes_org_id = str(o_notes.get("org_id") or "")
+                    notes_plan_id = (o_notes.get("plan_id") or "").strip().lower()
+                    order_id_for_log = entity["order_id"]
+            except Exception as e:
+                logger.warning("Webhook order-notes lookup failed for %s: %s",
+                               entity.get("order_id"), e)
+
+        if not notes_org_id or notes_plan_id not in PLANS:
+            logger.info("Webhook %s ignored — missing org_id/plan_id in notes (event_id=%s)",
+                        event_type, event.get("id", ""))
+            return {"status": "ignored"}
+        try:
+            await _activate_org_plan(notes_org_id, notes_plan_id, order_id_for_log)
+            logger.info("Webhook %s reconciled org=%s plan=%s order=%s",
+                        event_type, notes_org_id, notes_plan_id, order_id_for_log)
+        except Exception as e:
+            logger.error("Webhook %s activation failed for org=%s order=%s: %s",
+                         event_type, notes_org_id, order_id_for_log, e)
+            raise HTTPException(status_code=500, detail="Webhook reconciliation failed — will retry")
+        return {"status": "ok"}
+
+    # ── Legacy subscription-based path (kept for back-compat with any
+    #    existing subscription IDs in the DB) ──
     sub_data = payload.get("subscription", {}).get("entity", {})
 
     sub_id = sub_data.get("id")

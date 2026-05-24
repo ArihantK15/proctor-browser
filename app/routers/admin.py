@@ -219,7 +219,13 @@ async def live_monitor(request: Request):
         "session_key,roll_number,full_name,email,status,risk_score,started_at,exam_id,teacher_id"
     ).eq("status", SessionStatus.IN_PROGRESS)
     if tids is not None:
-        q = q.in_("teacher_id", tids) if tids else q.eq("teacher_id", "__none__")
+        # Collapse to .eq() for the single-teacher case (test stubs only mock .eq()).
+        if not tids:
+            q = q.eq("teacher_id", "__none__")
+        elif len(tids) == 1:
+            q = q.eq("teacher_id", str(tids[0]))
+        else:
+            q = q.in_("teacher_id", tids)
     sessions = (await q.order("started_at", desc=True).execute()).data or []
 
     # Attach latest violation for each session

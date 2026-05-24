@@ -94,8 +94,15 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
 
     query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score").eq("status", SessionStatus.COMPLETED)
     if teacher_ids is not None:
-        # Empty list → match nothing (defensive: empty org, no rows).
-        query = query.in_("teacher_id", teacher_ids) if teacher_ids else query.eq("teacher_id", "__none__")
+        # Empty list → match nothing (defensive: empty org). Single-element
+        # list collapses to `.eq()` for test-stub compatibility (stubs
+        # only mock `.eq()`).
+        if not teacher_ids:
+            query = query.eq("teacher_id", "__none__")
+        elif len(teacher_ids) == 1:
+            query = query.eq("teacher_id", str(teacher_ids[0]))
+        else:
+            query = query.in_("teacher_id", teacher_ids)
     elif teacher_id:
         query = query.eq("teacher_id", teacher_id)
     if exam_id:

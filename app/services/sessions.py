@@ -306,9 +306,17 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
     app/auth/scope.py:scope_to_teacher_ids() so the caller's filter
     is enforced uniformly."""
     cutoff = (now_ist() - timedelta(hours=48)).isoformat()
+    # `_apply_tids` collapses to `.eq()` for the single-teacher case so
+    # plain-teacher callers (the overwhelming majority) and our existing
+    # test stubs — which only mock `.eq()` not `.in_()` — keep working.
+    def _apply_tids(q, tids):
+        if tids is None:    return q
+        if not tids:        return q.eq("teacher_id", "__none__")
+        if len(tids) == 1:  return q.eq("teacher_id", str(tids[0]))
+        return q.in_("teacher_id", tids)
     evts_query = _atable("violations").select("session_key,violation_type,severity,created_at,details").gte("created_at", cutoff)
     if tids is not None:
-        evts_query = evts_query.in_("teacher_id", tids) if tids else evts_query.eq("teacher_id", "__none__")
+        evts_query = _apply_tids(evts_query, tids)
     elif tid:
         evts_query = evts_query.eq("teacher_id", str(tid))
     evts_result = await evts_query.order("created_at", desc=True).limit(2000).execute()
@@ -316,7 +324,7 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
 
     sess_query = _atable("exam_sessions").select("session_key,status,risk_score,exam_id,last_heartbeat,started_at,submitted_at,room_cam_status")
     if tids is not None:
-        sess_query = sess_query.in_("teacher_id", tids) if tids else sess_query.eq("teacher_id", "__none__")
+        sess_query = _apply_tids(sess_query, tids)
     elif tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
     if exam_id:

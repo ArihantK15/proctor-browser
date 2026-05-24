@@ -253,7 +253,13 @@ async def get_analytics(request: Request):
         .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at")\
         .eq("status", SessionStatus.COMPLETED)
     if tids is not None:
-        sess_q = sess_q.in_("teacher_id", tids) if tids else sess_q.eq("teacher_id", "__none__")
+        # Collapse to .eq() for the single-teacher case (test stubs only mock .eq()).
+        if not tids:
+            sess_q = sess_q.eq("teacher_id", "__none__")
+        elif len(tids) == 1:
+            sess_q = sess_q.eq("teacher_id", str(tids[0]))
+        else:
+            sess_q = sess_q.in_("teacher_id", tids)
     if exam_id:
         sess_q = sess_q.eq("exam_id", exam_id)
     sessions = (await sess_q.execute()).data or []

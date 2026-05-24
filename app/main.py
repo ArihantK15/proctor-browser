@@ -418,7 +418,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "base-uri 'self'; "
             "form-action 'self'; "
             "object-src 'none'; "
-            "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://checkout.razorpay.com; "
+            "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://checkout.razorpay.com https://cdn.razorpay.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: blob: https://*.razorpay.com; "
             "font-src 'self' https://fonts.gstatic.com; "

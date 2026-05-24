@@ -412,7 +412,14 @@
        table + sticky export actions on the right. Every JS hook
        (#results-stats, #results-search, #results-body) preserved. -->
   <div class="panel live-layout" id="panel-results">
-    <div class="stats-bar" id="results-stats" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px"></div>
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Results</h1>
+        <p class="panel-lede">Submitted exam attempts with risk scores and final grades. Click any row to open the candidate review packet.</p>
+      </div>
+    </div>
+    <div class="stats-bar" id="results-stats"></div>
     <div class="table-toolbar">
       <div class="search-wrap">
         <span class="search-icon">
@@ -462,7 +469,14 @@
         across all exams. Search by roll number to see their complete
         exam history with scores, violations, and behavioral patterns. -->
    <div class="panel live-layout" id="panel-history">
-     <div class="stats-bar" id="history-stats" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px"></div>
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Student History</h1>
+        <p class="panel-lede">Every exam a student has taken, across all your courses. Filter by name or roll to drill in.</p>
+      </div>
+    </div>
+     <div class="stats-bar" id="history-stats"></div>
      <div class="table-toolbar">
        <div class="search-wrap">
          <span class="search-icon">
@@ -522,11 +536,17 @@
        continues to populate them; this commit only restructures
        the surrounding markup. -->
   <div class="panel qx-shell" id="panel-questions">
-
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Questions</h1>
+        <p class="panel-lede">Your question bank. Add manually or generate with AI; tag for reuse across exams.</p>
+      </div>
+    </div>
     <!-- Top stat strip + meta toolbar (kept above the 3-column main
          so exam-title and duration sit at the page level rather than
          inside the editor column). #q-stats and #q-save-msg unchanged. -->
-    <div class="stats-bar" id="q-stats" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px"></div>
+    <div class="stats-bar" id="q-stats"></div>
     <div class="qx-toolbar-top">
       <input type="text" id="q-title" placeholder="Exam title" style="flex:1;min-width:200px">
       <label>
@@ -697,6 +717,13 @@
 
   <!-- CHAT -->
   <div class="panel" id="panel-chat">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Chat</h1>
+        <p class="panel-lede">Two-way messaging with students mid-exam. Broadcast to everyone, or reply to individuals.</p>
+      </div>
+    </div>
     <div class="chat-wrap">
       <aside class="chat-roster">
         <div class="chat-roster-head">
@@ -746,6 +773,13 @@
 
   <!-- ANALYTICS -->
   <div class="panel" id="panel-analytics">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Analytics</h1>
+        <p class="panel-lede">Aggregate trends across your exams — risk distributions, violation types, performance over time.</p>
+      </div>
+    </div>
     <div id="analytics-empty" style="text-align:center;padding:60px 20px;color:var(--muted)">
       <div style="font-size:40px;margin-bottom:12px;opacity:0.3">&#9776;</div>
       <div style="font-size:14px">Select an exam to view analytics</div>
@@ -837,9 +871,16 @@
 
   <!-- TOOLS -->
   <div class="panel" id="panel-tools">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Tools</h1>
+        <p class="panel-lede">Bulk operations and integrations — Google Classroom, LTI, exam cloning, session cleanup.</p>
+      </div>
+    </div>
     <!-- Phase 2: stat-tile strip pattern matches Live + Analytics +
          Results tabs. tools-registered + tools-failed hooks preserved. -->
-    <div class="stats-bar" style="border-radius:var(--radius-md);border:1px solid var(--border-subtle);margin-bottom:14px">
+    <div class="stats-bar">
       <div class="stat-tile">
         <div class="stat-tile-label">Registered Students</div>
         <div class="stat-tile-value accent" id="tools-registered">--</div>
@@ -1379,6 +1420,13 @@
 
 <!-- ORG OVERVIEW PANEL -->
 <div class="panel" id="panel-org">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Organization</h1>
+        <p class="panel-lede">Members, roles, and invites. Manage who can access your org's exams.</p>
+      </div>
+    </div>
   <div style="max-width:800px;margin:0 auto;padding:20px 0">
     <h2 style="color:var(--text-primary);margin:0 0 20px">Org Overview</h2>
     <div id="org-overview-content">
@@ -1430,6 +1478,13 @@
 
 <!-- BILLING PANEL -->
 <div class="panel" id="panel-billing">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Billing</h1>
+        <p class="panel-lede">Your subscription, student usage, and invoices.</p>
+      </div>
+    </div>
   <div style="max-width:800px;margin:0 auto;padding:20px 0">
     <h2 style="color:var(--text-primary);margin:0 0 20px">Billing & Plan</h2>
     <div id="billing-content">
@@ -1490,6 +1545,13 @@
 
 <!-- SECURITY PANEL (2FA + sessions) -->
 <div class="panel" id="panel-security">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Security</h1>
+        <p class="panel-lede">Your account security — 2FA, sessions, audit log, password change.</p>
+      </div>
+    </div>
   <div style="max-width:800px;margin:0 auto;padding:20px 0">
     <div style="display:flex;align-items:center;gap:12px;margin:0 0 24px">
       <h2 style="color:var(--text-primary);margin:0;font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-0.02em">Security</h2>

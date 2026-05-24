@@ -62,14 +62,19 @@ def _split_keys(raw: str | None) -> list[str]:
     return [k.strip() for k in (raw or "").split(",") if k.strip()]
 
 # Env gate to retire SECRET_KEY-derived legacy keys after rotation.
-# Default `true` (rollout window) so existing tokens keep verifying.
+# Default is fail-open only outside production so local/dev tokens keep
+# verifying during upgrades. In production, absence of the env var is
+# fail-closed: set JWT_ACCEPT_DERIVED_LEGACY_KEYS=true only for a
+# deliberate, time-boxed migration window.
 # Once you've rotated every accepted JWT off the derived key (verify
 # by tailing logs for "Invalid token" spikes during a soak period),
 # set JWT_ACCEPT_DERIVED_LEGACY_KEYS=false on the KVM and redeploy.
 # Without this gate, leaking SUPABASE_JWT_SECRET would let an
 # attacker derive any per-purpose key indefinitely (audit P1.5).
+_APP_ENV = os.environ.get("APP_ENV") or os.environ.get("ENV") or "development"
+_JWT_LEGACY_DEFAULT = "false" if _APP_ENV.strip().lower() in {"production", "prod"} else "true"
 _ACCEPT_LEGACY_DERIVED = os.environ.get(
-    "JWT_ACCEPT_DERIVED_LEGACY_KEYS", "true",
+    "JWT_ACCEPT_DERIVED_LEGACY_KEYS", _JWT_LEGACY_DEFAULT,
 ).strip().lower() in {"1", "true", "yes", "on"}
 
 

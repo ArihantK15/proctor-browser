@@ -38,6 +38,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             app/dashboard-ui/package-lock.json
+            app/student-ui/package-lock.json
             website/package-lock.json
 
       - name: Install runtime + test deps
@@ -66,14 +67,30 @@ jobs:
           print('All Python files parse cleanly.')
           "
 
-      - name: Audit Electron dependencies
-        run: npm audit --audit-level=low
+      - name: Install + lint Electron dependencies
+        run: |
+          npm ci
+          npm run lint
+          npm audit --audit-level=low
 
       - name: Build dashboard
         run: |
           cd app/dashboard-ui
           npm ci
           npm audit --audit-level=low
+          npm run lint
+          npm run type-check
+          npm test
+          npm run build
+
+      - name: Build student UI
+        run: |
+          cd app/student-ui
+          npm ci
+          npm audit --audit-level=low
+          npm run lint
+          npm run type-check
+          npm test
           npm run build
 
       - name: Build marketing site
@@ -81,6 +98,7 @@ jobs:
           cd website
           npm ci
           npm audit --audit-level=low
+          npm run lint
           npm run build
 
       - name: Run pytest

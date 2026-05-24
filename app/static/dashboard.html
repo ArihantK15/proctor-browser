@@ -1463,6 +1463,7 @@
 
 <!-- ORG OVERVIEW PANEL -->
 <div class="panel" id="panel-org">
+  <div class="org-wrap">
     <div class="panel-header">
       <div class="panel-glow" aria-hidden="true"></div>
       <div class="panel-header-text">
@@ -1470,7 +1471,6 @@
         <p class="panel-lede">Members, roles, and invites. Manage who can access your org's exams.</p>
       </div>
     </div>
-  <div class="org-wrap">
     <div id="org-overview-content">
       <div class="org-stats">
         <div class="stat-tile"><div class="stat-tile-label">Organization</div><div class="stat-tile-value accent" id="org-name">--</div></div>
@@ -1487,14 +1487,14 @@
 
 <!-- MEMBERS PANEL — admin-only team management. -->
 <div class="panel" id="panel-members">
-  <div class="panel-header">
-    <div class="panel-glow" aria-hidden="true"></div>
-    <div class="panel-header-text">
-      <h1 class="panel-title">Members</h1>
-      <p class="panel-lede">Invite teachers, change roles, and remove access. Every teacher gets the same exam tools — admins additionally see Billing, Security, and these org screens.</p>
-    </div>
-  </div>
   <div class="org-wrap">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Members</h1>
+        <p class="panel-lede">Invite teachers, change roles, and remove access. Every teacher gets the same exam tools — admins additionally see Billing, Security, and these org screens.</p>
+      </div>
+    </div>
     <div class="org-stats" id="members-stats">
       <div class="stat-tile"><div class="stat-tile-label">Members</div><div class="stat-tile-value accent" id="members-count">--</div></div>
     </div>
@@ -1529,6 +1529,7 @@
 
 <!-- BILLING PANEL -->
 <div class="panel" id="panel-billing">
+  <div class="billing-wrap">
     <div class="panel-header">
       <div class="panel-glow" aria-hidden="true"></div>
       <div class="panel-header-text">
@@ -1536,7 +1537,6 @@
         <p class="panel-lede">Your subscription, student usage, and invoices.</p>
       </div>
     </div>
-  <div class="billing-wrap">
     <div id="billing-content">
       <!-- Subscription status — soft-card stats tiles matching the
            rest of the dashboard. Wrapped in .billing-stats so it
@@ -1635,14 +1635,14 @@
 
 <!-- ORG SETTINGS PANEL — admin-only org name + slug controls. -->
 <div class="panel" id="panel-org-settings">
-  <div class="panel-header">
-    <div class="panel-glow" aria-hidden="true"></div>
-    <div class="panel-header-text">
-      <h1 class="panel-title">Org Settings</h1>
-      <p class="panel-lede">Organization name and slug. Visible to every member and shown on invite emails.</p>
-    </div>
-  </div>
   <div class="org-wrap" style="max-width:640px">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Org Settings</h1>
+        <p class="panel-lede">Organization name and slug. Visible to every member and shown on invite emails.</p>
+      </div>
+    </div>
     <div class="org-card">
       <h2 class="org-card-title">Organization name</h2>
       <input type="text" id="settings-org-name" class="search-input" style="width:100%;box-sizing:border-box;margin-bottom:16px" placeholder="Your organization name">
@@ -1656,6 +1656,7 @@
 
 <!-- SECURITY PANEL (2FA + sessions) -->
 <div class="panel" id="panel-security">
+  <div style="max-width:800px;margin:0 auto;padding:20px 0">
     <div class="panel-header">
       <div class="panel-glow" aria-hidden="true"></div>
       <div class="panel-header-text">
@@ -1663,8 +1664,6 @@
         <p class="panel-lede">Your account security — 2FA, sessions, audit log, password change.</p>
       </div>
     </div>
-  <div style="max-width:800px;margin:0 auto;padding:20px 0">
-    <!-- Title moved into .panel-header above. -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
       <!-- 2FA card — email-OTP (replaced TOTP/Google Authenticator 2026-05-23) -->
       <div class="tool-card">
@@ -1699,6 +1698,13 @@
 <!-- ALL ORGS PANEL (Phase 2 design) -->
 <div class="panel" id="panel-all-orgs">
   <div style="max-width:1000px;margin:0 auto;padding:20px 0">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">All Organizations</h1>
+        <p class="panel-lede">Every org on the platform — usage, plan, and status at a glance.</p>
+      </div>
+    </div>
     <div class="stats-bar" id="all-orgs-stats">
       <div class="stat-tile"><div class="stat-tile-label">Organizations</div><div class="stat-tile-value accent" id="all-orgs-count">--</div></div>
     </div>
@@ -1715,14 +1721,15 @@
 <!-- DEBUG/FLAGS PANEL (super admin) -->
 <!-- ISSUES PANEL — super-admin inbox for teacher-reported flags. -->
 <div class="panel" id="panel-issues">
-  <div class="panel-header">
-    <div class="panel-glow" aria-hidden="true"></div>
-    <div class="panel-header-text">
-      <h1 class="panel-title">Issues</h1>
-      <p class="panel-lede">Teacher-reported bugs and feature requests, across every org.</p>
+  <div class="org-wrap">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Issues</h1>
+        <p class="panel-lede">Teacher-reported bugs and feature requests, across every org.</p>
+      </div>
     </div>
-  </div>
-  <div class="table-toolbar">
+    <div class="table-toolbar">
     <select class="filter-select" id="issues-status-filter" onchange="loadIssues()" title="Filter by status">
       <option value="open">Open</option>
       <option value="triaged">Triaged</option>
@@ -1762,6 +1769,7 @@
     <aside class="issue-detail" id="issue-detail">
       <div class="issue-detail-empty">Select an issue to triage.</div>
     </aside>
+    </div>
   </div>
 </div>
 
@@ -1811,14 +1819,14 @@
 
 <!-- FLAGS & DEBUG PANEL — feature flags + kill switches (separate from Issues). -->
 <div class="panel" id="panel-debug">
-  <div class="panel-header">
-    <div class="panel-glow" aria-hidden="true"></div>
-    <div class="panel-header-text">
-      <h1 class="panel-title">Flags &amp; Debug</h1>
-      <p class="panel-lede">Feature flags and kill switches. Operational toggles only — not for issue triage (use Issues tab).</p>
-    </div>
-  </div>
   <div class="org-wrap">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Flags &amp; Debug</h1>
+        <p class="panel-lede">Feature flags and kill switches. Operational toggles only — not for issue triage (use Issues tab).</p>
+      </div>
+    </div>
     <div id="debug-content">
       <p style="color:var(--text-muted);font-size:13px">No active flags. All organizations operating normally.</p>
     </div>

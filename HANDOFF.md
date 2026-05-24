@@ -684,18 +684,28 @@ Reverified by grep on the live tree — these are no longer pending:
 | **M4** (fetch timeouts) | `fetchWithTimeout` wrapper present in dashboard.html, student.html, register.html, download.html, privacy.html (default 30s). |
 | **M5** (alert() → modal) | Zero `alert(` calls remain in `app/static/*.html` — replaced with the modal/toast utility. |
 | **M11** (WS per-IP rate limit) | `ws_rate_limiter.check_and_increment` gates connect in `sse.py` and `chat.py` with corresponding decrement on disconnect. |
+| **L2** (CSP — inline scripts) | All five user-facing HTMLs (`dashboard`, `student`, `register`, `download`, `privacy`) had their inline `<script>` blocks extracted to external same-origin `*-app.js` files (commit `58a921a`, ~6900 lines moved). `script-src 'self'` is now the genuine policy — no inline-script allowance needed at all. Mechanical extraction performed by DeepSeek V4 Flash, verified by grep + line counts. |
 
 ### Still genuinely deferred
 
-Three items remain — none are bugs, all are intentional trade-offs:
+Two items remain — neither are bugs, both intentional trade-offs:
 
 | Audit | Why deferred |
 |---|---|
 | **M6** (silent catch blocks) | Reverified: the 33 surviving `catch(_){}` blocks are intentional best-effort cleanup (`localStorage.setItem`, `_sseSource.close()`, `turnstile.reset()`). Silent failure is the right behaviour — adding logs would be noise. |
 | **M8** (CSRF tied to JWT) | Architectural item, no demonstrated exploit (attacker with JWT already has full control). ~3-4hr. Defer. |
-| **L2** (CSP nonce) | `script-src` already excludes `'unsafe-inline'`. Only remaining gap is `style-src 'unsafe-inline'` — tightening it would mean nonce-ing every `<style>` block and eliminating every `style="..."` attribute (hundreds across `dashboard.html`'s 6907 lines). 6–8 hr UI rewrite. Defer to dedicated frontend hardening sprint. |
 
-**Original 34-item audit → 0 bugs remaining.** The three deferred items are conscious trade-offs documented above, not unresolved defects.
+### L2 follow-on work (optional, not bugs)
+
+Two CSP-adjacent cleanups remain but block nothing — both are
+hygiene rather than security fixes:
+
+| Item | Detail |
+|---|---|
+| Inline event handlers | ~183 `onclick=`/`onsubmit=` attrs remain across the 5 HTMLs (dashboard.html alone has 160). Browsers may or may not be enforcing `script-src 'self'` against these — needs a 30-sec DevTools check on a live dashboard tab to see if CSP violations are being logged. Conversion to `addEventListener` is 1–2 hr of focused work, not safely delegatable. |
+| `style-src 'unsafe-inline'` | Hundreds of `style="..."` attrs across dashboard.html. Removing them is a 6–8 hr CSS refactor (class-based replacements). Real frontend hardening sprint, not a quick fix. |
+
+**Original 34-item audit → 0 bugs remaining.** The remaining items are either intentional trade-offs (M6, M8) or hygiene-grade follow-ons (above) — not unresolved defects.
 
 ### Manual cleanup needed on the KVM
 

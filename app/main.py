@@ -246,7 +246,7 @@ async def _room_frame_cleanup_loop():
     from . import cache as _cache
     while True:
         try:
-            _cache.cleanup_room_frames()
+            await _cache.acleanup_room_frames()
         except Exception as e:
             logger.warning("[room_frame_cleanup] failed: %s", e)
         await asyncio.sleep(86400)  # 24 hours
@@ -357,9 +357,8 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
             if len(body_bytes) > _MAX_BODY_BYTES:
                 return Response(status_code=413, content='Payload too large')
             # Re-inject the already-consumed body so downstream handlers can read it.
-            async def _body_iter():
-                yield body_bytes
-            request._body = body_bytes  # starlette caches body on ._body
+            request.state.body_bytes = body_bytes
+            request._body = body_bytes
 
         # Reject SQLi in query parameters
         for key, values in request.query_params.multi_items():
@@ -495,6 +494,14 @@ class ETagMiddleware(BaseHTTPMiddleware):
     _SKIP_PREFIXES = ("/api/v1/sse/", "/ws/", "/static/", "/api/v1/metrics")
     _MAX_BODY = 10 * 1024 * 1024  # 10 MB
 
+    @staticmethod
+    def _digest(body: bytes) -> str:
+        try:
+            return hashlib.md5(body, usedforsecurity=False).hexdigest()
+        except TypeError:
+            # Python <3.9 compatibility for local tooling.
+            return hashlib.md5(body).hexdigest()
+
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         if request.method not in ("GET", "HEAD"):
@@ -508,6 +515,17 @@ class ETagMiddleware(BaseHTTPMiddleware):
             return response
         ct = response.headers.get("content-type", "")
         if "application/json" not in ct:
+            return response
+        content_length = response.headers.get("content-length")
+        if content_length is None:
+            # Avoid buffering streaming/unknown-size JSON responses just to
+            # compute a weak ETag. Bounded non-streaming responses still get
+            # ETags below.
+            return response
+        try:
+            if int(content_length) > self._MAX_BODY:
+                return response
+        except ValueError:
             return response
 
         chunks = []
@@ -531,7 +549,7 @@ class ETagMiddleware(BaseHTTPMiddleware):
                 )
 
         body = b"".join(chunks)
-        etag = f'"{hashlib.md5(body, usedforsecurity=False).hexdigest()[:12]}"'
+        etag = f'"{self._digest(body)[:12]}"'
 
         inm = request.headers.get("if-none-match", "")
         if etag in inm:
@@ -555,14 +573,11 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     calls are native/API flows, not browser cookie-like account sessions.
     """
     async def dispatch(self, request: Request, call_next):
-        # Pytest bypass: PYTEST_CURRENT_TEST is set by pytest on every
-        # test run and is never present in production. The test suite
-        # exercises mutation endpoints via fabricated JWTs that have no
-        # paired CSRF token in the server-side cache — enforcing CSRF
-        # there means rewriting hundreds of test calls to negotiate a
-        # token, with zero security benefit (the test process owns
-        # both sides of the call). Cheap, standard escape hatch.
-        if os.environ.get("PYTEST_CURRENT_TEST"):
+        # Test-only escape hatch. Do not key CSRF bypasses off ambient
+        # environment variables; local processes can set those accidentally.
+        # Tests that truly need to bypass CSRF must set
+        # app.state.disable_csrf_for_tests explicitly.
+        if getattr(request.app.state, "disable_csrf_for_tests", False):
             return await call_next(request)
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             # Auth token can arrive via Authorization: Bearer ... (legacy native
@@ -570,6 +585,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             # the exact path CSRF defense exists for — never skip the check just
             # because the Authorization header is absent.
             token = ""
+            token_from_cookie = False
             auth = request.headers.get("Authorization", "")
             if auth.startswith("Bearer "):
                 token = auth[7:]
@@ -579,13 +595,14 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                     or request.cookies.get("procta_student_access")
                     or ""
                 )
+                token_from_cookie = bool(token)
             if token:
                 try:
                     import jwt
                     from .constants import ALL_SIGNING_KEYS
                     from .auth.tokens import _decode_token, csrf_required_for_claims
                     claims = _decode_token(token, ALL_SIGNING_KEYS)
-                    if csrf_required_for_claims(claims):
+                    if token_from_cookie and csrf_required_for_claims(claims):
                         from .auth.tokens import verify_csrf
                         csrf_header = request.headers.get("x-csrf-token", "")
                         if not csrf_header:
@@ -612,6 +629,7 @@ from starlette.responses import JSONResponse
 @app.exception_handler(HTTPException)
 async def _http_exception_handler(request: StarletteRequest, exc: HTTPException):
     code_map = {
+        400: "BAD_REQUEST",
         401: "UNAUTHORIZED",
         403: "FORBIDDEN",
         404: "NOT_FOUND",

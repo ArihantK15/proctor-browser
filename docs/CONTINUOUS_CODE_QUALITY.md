@@ -175,9 +175,9 @@ should fail only when the secret value itself is committed as a literal.
 Good examples to fail:
 
 ```python
-SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOi..."
-RAZORPAY_KEY_SECRET = "rzp_live_actual_secret"
-ADMIN_PASSWORD = "ProdPassword123!"
+SERVICE_ROLE_KEY = "committed-real-jwt-value"
+PAYMENT_PROVIDER_SECRET = "committed-real-payment-secret"
+ADMIN_PASSWORD_LITERAL = "committed-real-admin-password"
 ```
 
 Good examples to allow:

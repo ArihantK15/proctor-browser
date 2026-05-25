@@ -115,7 +115,7 @@ async def _mark_abandoned(row: dict, _atable) -> None:
     #    student isn't penalised for a network drop.
     try:
         from ..services.autosave import load_autosave_snapshot, flush_answers_to_db
-        snapshot = load_autosave_snapshot(sid) or {}
+        snapshot = await asyncio.to_thread(load_autosave_snapshot, sid) or {}
         answers = snapshot.get("answers") if isinstance(snapshot.get("answers"), dict) else snapshot
     except Exception as e:
         logger.warning("[reaper] autosave snapshot load failed for %s: %s", sid, e)

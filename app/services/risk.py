@@ -45,7 +45,7 @@ VIOLATION_WEIGHTS: dict[str, float] = {
     "note_reading": 25, "sustained_offtask": 15, "nervous_evasion": 12,
 }
 
-_SEVERITY_MULTIPLIER = {"high": 1.0, "medium": 0.4}
+_SEVERITY_MULTIPLIER = {"high": 1.0, "medium": 0.4, "low": 0.1}
 RISK_LABELS = [(15, "Low Risk"), (40, "Moderate Risk"), (70, "High Risk"), (100, "Critical Risk")]
 
 _NON_VIOLATION_TYPES = {

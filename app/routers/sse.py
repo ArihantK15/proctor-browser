@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import hashlib
+import inspect
 import io
 import json
 import logging
@@ -15,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from ..auth import (
     require_admin, verify_admin_token, verify_student_token, _get_teacher_by_id, require_auth,
 )
-from ..database import supabase
+from ..database import supabase, async_table as _atable
 from ..event_bus import subscribe as _bus_subscribe, _HAS_REDIS, async_publish as _bus_async_publish
 from ..services.sessions import build_sessions_payload as _build_sessions_payload
 from .. import cache as _cache
@@ -100,13 +101,60 @@ async def sse_connect_token(request: Request):
     return {"connect_token": token}
 
 
-def _store_live_frame(session_id: str, jpeg_bytes: bytes) -> bool:
+def _recompress_jpeg(jpeg_bytes: bytes) -> bytes:
+    img = Image.open(io.BytesIO(jpeg_bytes))
+    buf = io.BytesIO()
+    img.save(buf, 'JPEG', quality=60, optimize=True)
+    return buf.getvalue()
+
+
+def _evict_live_frame_ts(now: float | None = None) -> None:
+    now = now or time.time()
+    if not hasattr(_evict_live_frame_ts, "_last_cleanup"):
+        _evict_live_frame_ts._last_cleanup = 0
+    if now - _evict_live_frame_ts._last_cleanup < 60 and len(_last_live_frame_ts) < 1000:
+        return
+    _evict_live_frame_ts._last_cleanup = now
+    cutoff = now - 300
+    for sid, last in list(_last_live_frame_ts.items()):
+        if last < cutoff:
+            _last_live_frame_ts.pop(sid, None)
+
+
+async def _assert_exam_ws_session_access(claims: dict, session_id: str) -> None:
+    session_roll = session_id.rsplit("_", 1)[0].upper()
+    if claims.get("roll", "").upper() != session_roll:
+        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        executed = _atable("exam_sessions").select(
+            "session_key,roll_number,teacher_id,exam_id,student_id"
+        ).eq("session_key", session_id).limit(1).execute()
+        row = await executed if inspect.isawaitable(executed) else executed
+    except Exception:
+        return
+    if isinstance(getattr(row, "data", None), list) and row.data:
+        sess = row.data[0]
+        if not isinstance(sess, dict):
+            return
+        row_roll = sess.get("roll_number")
+        if row_roll and str(row_roll).upper() != str(claims.get("roll") or "").upper():
+            raise HTTPException(status_code=403, detail="Access denied")
+        for claim_key, row_key in (("tid", "teacher_id"), ("eid", "exam_id"), ("sid", "student_id")):
+            claim_val = claims.get(claim_key)
+            row_val = sess.get(row_key)
+            if claim_val and row_val and str(claim_val) != str(row_val):
+                raise HTTPException(status_code=403, detail="Access denied")
+        return
+
+
+async def _store_live_frame(session_id: str, jpeg_bytes: bytes) -> bool:
     """Store live frame using Redis LRU-capped cache if available.
     Returns True if frame was accepted, False if rate-limited.
     Rate-limited to 5 FPS per session to cap bandwidth.
     Re-compresses JPEG to quality 60 to save ~35% egress bandwidth.
     """
     now = time.time()
+    _evict_live_frame_ts(now)
     last = _last_live_frame_ts.get(session_id, 0)
     if now - last < _LIVE_FRAME_INTERVAL:
         return False
@@ -114,15 +162,12 @@ def _store_live_frame(session_id: str, jpeg_bytes: bytes) -> bool:
 
     # Re-compress JPEG at quality 60 — visually fine on dashboard tiles
     try:
-        img = Image.open(io.BytesIO(jpeg_bytes))
-        buf = io.BytesIO()
-        img.save(buf, 'JPEG', quality=60, optimize=True)
-        jpeg_bytes = buf.getvalue()
+        jpeg_bytes = await asyncio.to_thread(_recompress_jpeg, jpeg_bytes)
     except Exception:
         pass
 
     if _cache and hasattr(_cache, 'set_live_frame'):
-        _cache.set_live_frame(session_id, jpeg_bytes, ttl=10)
+        await asyncio.to_thread(_cache.set_live_frame, session_id, jpeg_bytes, 10)
     return True
 
 
@@ -148,12 +193,12 @@ async def upload_live_frame_http(body: LiveFrameIn):
         logger.warning("[sse] live-frame b64 decode failed", exc_info=True)
         return Response(status_code=400, content="Invalid base64")
 
-    _store_live_frame(body.session_id, jpeg_bytes)
+    await _store_live_frame(body.session_id, jpeg_bytes)
 
     # Notify subscribed dashboards via Redis pub/sub
     if _HAS_REDIS:
         await _bus_async_publish(
-            f"liveframe:{body.session_id}",
+            f"{_cache.LIVEFRAME_PREFIX}{body.session_id}",
             {"session_id": body.session_id, "at": time.time()},
         )
 
@@ -193,6 +238,7 @@ async def _ws_unsubscribe(session_id: str, ws: WebSocket):
             _ws_conn_count[session_id] = cnt - 1
         if _ws_conn_count.get(session_id, 0) <= 0:
             _ws_conn_count.pop(session_id, None)
+            _last_live_frame_ts.pop(session_id, None)
 
 
 async def _ws_broadcast(session_id: str, frame_bytes: bytes):
@@ -208,13 +254,21 @@ async def _ws_broadcast(session_id: str, frame_bytes: bytes):
     if dead:
         async with _ws_lock:
             clients = _ws_clients.get(session_id, [])
+            removed = 0
             for c in dead:
                 try:
                     clients.remove(c)
+                    removed += 1
                 except ValueError:
                     pass
             if not clients:
                 _ws_clients.pop(session_id, None)
+            if removed:
+                next_count = max(_ws_conn_count.get(session_id, 0) - removed, 0)
+                if next_count:
+                    _ws_conn_count[session_id] = next_count
+                else:
+                    _ws_conn_count.pop(session_id, None)
 
 
 _WS_CLEANUP_STARTED = False
@@ -265,8 +319,8 @@ async def _room_cam_offline_check():
         try:
             from .. import cache as _cache
             if _cache:
-                _cache.delete_pattern("roomframe:*")
-                _cache.delete_pattern("roomcam:*")
+                await _cache.adelete_pattern(f"{_cache.ROOMFRAME_PREFIX}*")
+                await _cache.adelete_pattern(f"{_cache.ROOMCAM_PREFIX}*")
                 logger.debug("[room_cam] flushed stale roomframe/roomcam keys from Redis")
         except Exception as e:
             logger.warning("[room_cam] stale key flush failed: %s", e)
@@ -328,8 +382,16 @@ async def _ws_cleanup():
                     dead.append(c)  # Client disconnected
             for c in dead:
                 clients.remove(c)
+            if dead:
+                next_count = max(_ws_conn_count.get(sid, 0) - len(dead), 0)
+                if next_count:
+                    _ws_conn_count[sid] = next_count
+                else:
+                    _ws_conn_count.pop(sid, None)
             if not clients:
                 _ws_clients.pop(sid, None)
+                _ws_conn_count.pop(sid, None)
+                _last_live_frame_ts.pop(sid, None)
 
 
 @router.websocket("/ws/v1/live-frame/{session_id}")
@@ -363,8 +425,9 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
         await websocket.close(code=4001, reason="auth_failed")
         return
 
-    session_roll = session_id.rsplit("_", 1)[0].upper()
-    if claims.get("roll", "").upper() != session_roll:
+    try:
+        await _assert_exam_ws_session_access(claims, session_id)
+    except HTTPException:
         await ws_rate_limiter.decrement(client_ip)
         await websocket.close(code=4003, reason="access_denied")
         return
@@ -385,7 +448,7 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
             data = await websocket.receive_bytes()
             if len(data) > MAX_WS_MSG_BYTES:
                 continue  # silently drop oversized frames
-            if _store_live_frame(session_id, data):
+            if await _store_live_frame(session_id, data):
                 await _ws_broadcast(session_id, data)
     except WebSocketDisconnect:
         pass
@@ -493,6 +556,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
             _store_room_frame._frame_meta.pop(session_id, None)
         if hasattr(_store_room_frame, "_last_ts"):
             _store_room_frame._last_ts.pop(session_id, None)
+        _last_live_frame_ts.pop(session_id, None)
         # Mark room cam as offline in DB
         try:
             from ..database import async_table as _atable
@@ -552,8 +616,9 @@ async def proctor_control(session_id: str, request: Request):
     except HTTPException:
         return Response(status_code=401, content="Invalid token")
 
-    session_roll = session_id.rsplit("_", 1)[0].upper()
-    if (claims.get("roll") or "").upper() != session_roll:
+    try:
+        await _assert_exam_ws_session_access(claims, session_id)
+    except HTTPException:
         return Response(status_code=403, content="Access denied")
 
     active = False

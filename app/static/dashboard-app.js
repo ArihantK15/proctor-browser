@@ -4,15 +4,15 @@
     var params = new URLSearchParams(window.location.hash.substring(1));
     var tok = params.get('access_token');
     if (tok) {
-      localStorage.setItem('procta_token', tok);
+      window.__proctaFragmentToken = tok;
       // Scrub the fragment so it doesn't leak into history or future navigations
       history.replaceState(null, '', window.location.pathname + window.location.search);
     }
   }
 })();
 const BASE = location.origin;
-let authToken = localStorage.getItem('procta_token') || '';
-let refreshToken = localStorage.getItem('procta_refresh') || '';
+let authToken = window.__proctaFragmentToken || '';
+let refreshToken = '';
 let liveData = [], resultsData = [];
 let liveSortKey = 'last_seen', liveSortAsc = false;
 let resSortKey = 'submitted_at', resSortAsc = false;
@@ -62,7 +62,16 @@ async function fetchWithTimeout(url, opts={}, timeoutMs=30000){
   try{
     return await fetch(url, merged);
   }catch(e){
-    if(e && e.name === 'AbortError') throw new Error('Request timed out. Please check your connection and try again.');
+    if(e && e.name === 'AbortError') {
+      const err = new Error('Request timed out. Please check your connection and try again.');
+      err.code = 'REQUEST_TIMEOUT';
+      err.url = String(url || '');
+      throw err;
+    }
+    if(e && e.name === 'TypeError' && !e.code) {
+      e.code = 'NETWORK_ERROR';
+      e.url = String(url || '');
+    }
     throw e;
   }finally{
     clearTimeout(timer);
@@ -103,14 +112,11 @@ function toggleAuthForm(mode){
 }
 
 function _saveTokens(access, refresh){
-  authToken = access;
-  refreshToken = refresh;
-  localStorage.setItem('procta_token', access);
-  localStorage.setItem('procta_refresh', refresh);
+  authToken = access || '';
+  refreshToken = refresh || '';
   if(!access){
     try{
       sessionStorage.removeItem('procta_csrf');
-      localStorage.removeItem('procta_csrf');
     }catch(_){}
   }
 }
@@ -138,6 +144,7 @@ async function doLogin(){
     }
     const r = await fetchWithTimeout(`${BASE}/api/v1/auth/login`,{
       method:'POST',headers:{'Content-Type':'application/json'},
+      credentials:'include',
       body:JSON.stringify(body)
     });
     const data = await r.json();
@@ -445,17 +452,21 @@ async function duplicateCurrentExam(){
 }
 
 async function _tryAutoLogin(){
-  if(!authToken) return;
   try{
-    // Try current token
-    let r = await fetchWithTimeout(`${BASE}/api/v1/auth/me`,{headers:{'Authorization':'Bearer '+authToken}});
+    // Cookie auth is primary. Bearer is only kept for one-shot OAuth/LTI
+    // fragments before the backend sets HttpOnly cookies.
+    let r = await fetchWithTimeout(`${BASE}/api/v1/auth/me`, {
+      credentials:'include',
+      headers: authToken ? {'Authorization':'Bearer '+authToken} : {},
+    });
     if(r.ok){ await _ensureCsrfToken(true); _onAuthed(await r.json()); return; }
 
-    // Token expired — try refresh
-    if(!refreshToken){ _saveTokens('',''); return; }
+    // Token/cookie expired — try refresh. Modern sessions refresh via
+    // HttpOnly cookies; legacy refreshToken is accepted during migration.
     const rr = await fetchWithTimeout(`${BASE}/api/v1/auth/refresh`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({refresh_token:refreshToken})
+      credentials:'include',
+      body:JSON.stringify(refreshToken ? {refresh_token:refreshToken} : {})
     });
     if(!rr.ok){ _saveTokens('',''); return; }
     const rd = await rr.json();
@@ -463,7 +474,10 @@ async function _tryAutoLogin(){
     await _ensureCsrfToken(true);
 
     // Retry with fresh token
-    r = await fetchWithTimeout(`${BASE}/api/v1/auth/me`,{headers:{'Authorization':'Bearer '+rd.access_token}});
+    r = await fetchWithTimeout(`${BASE}/api/v1/auth/me`, {
+      credentials:'include',
+      headers: rd.access_token ? {'Authorization':'Bearer '+rd.access_token} : {},
+    });
     if(r.ok){ _onAuthed(await r.json()); return; }
     _saveTokens('','');
   }catch(e){
@@ -522,21 +536,25 @@ function copyLink(inputId){
 }
 
 function hdr(){
-  return {'Content-Type':'application/json','Authorization':'Bearer '+authToken};
+  const h = {'Content-Type':'application/json'};
+  if(authToken) h.Authorization = 'Bearer '+authToken;
+  return h;
 }
 
 function _getCsrfToken(){
   try{
-    return sessionStorage.getItem('procta_csrf') || localStorage.getItem('procta_csrf') || '';
+    return sessionStorage.getItem('procta_csrf') || '';
   }catch(_){ return ''; }
 }
 
 async function _ensureCsrfToken(force=false){
-  if(!authToken) return '';
   const existing = _getCsrfToken();
   if(existing && !force) return existing;
+  const headers = {};
+  if(authToken) headers.Authorization = 'Bearer '+authToken;
   const r = await fetchWithTimeout(`${BASE}/api/v1/auth/csrf`, {
-    headers:{'Authorization':'Bearer '+authToken},
+    credentials:'include',
+    headers,
   });
   if(!r.ok) return '';
   const d = await r.json().catch(()=>({}));
@@ -544,7 +562,6 @@ async function _ensureCsrfToken(force=false){
   if(csrf){
     try{
       sessionStorage.setItem('procta_csrf', csrf);
-      localStorage.setItem('procta_csrf', csrf);
     }catch(_){}
   }
   return csrf;
@@ -560,7 +577,8 @@ async function _refreshTokens(){
   _refreshInFlight = (async ()=>{
     const rr = await fetchWithTimeout(`${BASE}/api/v1/auth/refresh`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({refresh_token:refreshToken})
+      credentials:'include',
+      body:JSON.stringify(refreshToken ? {refresh_token:refreshToken} : {})
     });
     if(!rr.ok) throw new Error('refresh failed');
     const rd = await rr.json();
@@ -577,19 +595,21 @@ async function _refreshTokens(){
 // that pass {'Content-Type':'application/json'} still get authenticated.
 async function authFetch(url, opts={}){
   opts.headers = {...hdr(), ...(opts.headers||{})};
+  opts.credentials = opts.credentials || 'include';
   if(!opts.method || opts.method==='POST' || opts.method==='PUT' || opts.method==='PATCH' || opts.method==='DELETE'){
     const csrf = await _ensureCsrfToken();
     if(csrf) opts.headers['X-CSRF-Token'] = csrf;
   }
   let r = await fetchWithTimeout(url, opts);
-  if(r.status===401 && refreshToken){
+  if(r.status===401){
     try{
       await _refreshTokens();
     }catch(_){
       doLogout();
       return r;
     }
-    opts.headers = {...hdr(), ...(opts.headers||{}), 'Authorization':'Bearer '+authToken};
+    opts.headers = {...(opts.headers||{}), ...hdr()};
+    if(!authToken) delete opts.headers.Authorization;
     if(!opts.method || opts.method==='POST' || opts.method==='PUT' || opts.method==='PATCH' || opts.method==='DELETE'){
       const csrf = await _ensureCsrfToken();
       if(csrf) opts.headers['X-CSRF-Token'] = csrf;
@@ -609,14 +629,8 @@ _tryAutoLogin();
 // Re-check auth when page is restored from bfcache (back/forward navigation)
 window.addEventListener('pageshow', (e) => {
   if (e.persisted) {
-    // Page was restored from bfcache — re-validate token
-    const stored = localStorage.getItem('procta_token') || '';
-    if (!stored) {
-      document.getElementById('auth-overlay').classList.remove('hidden');
-      toggleAuthForm('login');
-    } else {
-      _tryAutoLogin();
-    }
+    // Page was restored from bfcache — re-validate the HttpOnly cookie.
+    _tryAutoLogin();
   }
 });
 
@@ -971,7 +985,8 @@ function applyOrgRole(org_role){
 
 function _onAuthDone(){
   const payload = decodeJWT(authToken);
-  if(payload && payload.org_role) applyOrgRole(payload.org_role);
+  const role = (payload && payload.org_role) || (currentTeacherProfile && currentTeacherProfile.org_role);
+  if(role) applyOrgRole(role);
 }
 
 // Patch into saveTokens
@@ -1488,8 +1503,11 @@ function _pollRoomCamFrame(){
   const statusEl = document.getElementById('roomcam-status');
   const tsEl = document.getElementById('roomcam-ts');
   const t = Date.now();
+  const headers = {};
+  if(authToken) headers.Authorization = `Bearer ${authToken}`;
   fetchWithTimeout(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_roomCamSid)}/room-cam/frame?t=${t}`, {
-    headers: { 'Authorization': `Bearer ${authToken}` },
+    credentials: 'include',
+    headers,
   }).then(r => {
     if(!r.ok) throw new Error();
     return r.blob();
@@ -4098,11 +4116,10 @@ function chatWsUrl(){
 }
 
 function chatConnect(){
-  if(!authToken) return;
   if(chatWs && (chatWs.readyState===0||chatWs.readyState===1)) return;
   chatIntentionalClose = false;
   try{
-    chatWs = new WebSocket(chatWsUrl(), [authToken]);
+    chatWs = authToken ? new WebSocket(chatWsUrl(), [authToken]) : new WebSocket(chatWsUrl());
   }catch(e){
     console.warn('chat ws ctor failed',e);
     chatScheduleReconnect();
@@ -4110,8 +4127,9 @@ function chatConnect(){
   }
   chatWs.onopen = ()=>{
     chatReconnectDelay = 1000;
-    // Send auth as first message (server expects this)
-    chatWs.send(JSON.stringify({type:'auth', token: authToken}));
+    // Legacy Bearer fallback. Modern dashboard sessions authenticate
+    // the WebSocket handshake with the HttpOnly admin_access cookie.
+    if(authToken) chatWs.send(JSON.stringify({type:'auth', token: authToken}));
     document.getElementById('chat-roster-sub').textContent = 'Connected';
   };
   chatWs.onmessage = (ev)=>{
@@ -4121,7 +4139,7 @@ function chatConnect(){
   chatWs.onclose = (ev)=>{
     document.getElementById('chat-roster-sub').textContent = 'Disconnected';
     if(chatIntentionalClose) return;
-    if(ev.code===4401 && refreshToken){
+    if(ev.code===4401){
       // Token expired — refresh and reconnect
       _refreshTokens().then(()=>chatConnect()).catch(()=>doLogout());
       return;
@@ -5719,12 +5737,14 @@ function _historyCompare(a,b){
 
 function _riskBadge(score){
   if(score==null) return '—';
+  const safeScore = Number(score);
+  if(!Number.isFinite(safeScore)) return '—';
   let color, label;
-  if(score<=15){ color='var(--emerald)'; label='Low'; }
-  else if(score<=40){ color='var(--amber)'; label='Moderate'; }
-  else if(score<=70){ color='var(--red)'; label='High'; }
+  if(safeScore<=15){ color='var(--emerald)'; label='Low'; }
+  else if(safeScore<=40){ color='var(--amber)'; label='Moderate'; }
+  else if(safeScore<=70){ color='var(--red)'; label='High'; }
   else{ color='var(--red)'; label='Critical'; }
-  return `<span style="color:${color};font-weight:600">${score} (${label})</span>`;
+  return `<span style="color:${color};font-weight:600">${safeScore} (${label})</span>`;
 }
 
 async function viewStudentHistory(roll){
@@ -6047,17 +6067,24 @@ function _discardGenPreview(){ _genPreview=[]; _renderGenPreview(); document.get
 function _closeToastParent(){ this.closest('div').parentElement.remove(); }
 function _focusLoginPwd(){ document.getElementById('login-pwd')?.focus(); }
 
+const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt']);
+function _resolveDelegatedAction(name){
+  if(!/^[A-Za-z_$][\w$]*$/.test(name || '') || _BLOCKED_DELEGATED_ACTIONS.has(name)) return null;
+  const fn = window[name];
+  return typeof fn === 'function' ? fn : null;
+}
+
 // ── Delegated listeners replacing inline onclick/onsubmit ────────
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || !el.dataset.action) return;
   if (el.dataset.guardSelf !== undefined && e.target !== el) return;
   if (e.target.closest('a') === el) e.preventDefault();
-  const fn = window[el.dataset.action];
+  const fn = _resolveDelegatedAction(el.dataset.action);
   if (typeof fn !== 'function') return;
   const argsRaw = el.dataset.args || '[]';
   let args = [];
-  try { args = JSON.parse(argsRaw); } catch (_) {}
+  try { args = JSON.parse(argsRaw); } catch (err) { console.warn('[delegated] invalid data-args', err); }
   // fn.call(el, ...args): bind clicked element to `this` (so wrappers
   // like _closeToastParent can use this.closest(...)) without
   // polluting the positional arg list. Matches native inline-onclick
@@ -6069,7 +6096,7 @@ document.addEventListener('submit', (e) => {
   const el = e.target.closest('[data-submit]');
   if (!el || !el.dataset.submit) return;
   e.preventDefault();
-  const fn = window[el.dataset.submit];
+  const fn = _resolveDelegatedAction(el.dataset.submit);
   if (typeof fn === 'function') fn();
 });
 
@@ -6098,9 +6125,10 @@ function _hideSelf(){ this.style.display='none'; }
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-change-action]');
   if (!el || !el.dataset.changeAction) return;
-  const fn = window[el.dataset.changeAction];
+  const fn = _resolveDelegatedAction(el.dataset.changeAction);
   if (typeof fn !== 'function') return;
-  const args = JSON.parse(el.dataset.changeArgs || '[]');
+  let args = [];
+  try { args = JSON.parse(el.dataset.changeArgs || '[]'); } catch (err) { console.warn('[delegated] invalid data-change-args', err); }
   fn.call(el, ...args);
 });
 
@@ -6108,9 +6136,10 @@ document.addEventListener('change', (e) => {
 document.addEventListener('input', (e) => {
   const el = e.target.closest('[data-input-action]');
   if (!el || !el.dataset.inputAction) return;
-  const fn = window[el.dataset.inputAction];
+  const fn = _resolveDelegatedAction(el.dataset.inputAction);
   if (typeof fn !== 'function') return;
-  const args = JSON.parse(el.dataset.inputArgs || '[]');
+  let args = [];
+  try { args = JSON.parse(el.dataset.inputArgs || '[]'); } catch (err) { console.warn('[delegated] invalid data-input-args', err); }
   fn.call(el, ...args);
 });
 
@@ -6120,10 +6149,10 @@ document.addEventListener('keydown', (e) => {
   if (!el || !el.dataset.keydownAction) return;
   const wantKey = el.dataset.keydownKey || '';
   if (wantKey && e.key !== wantKey) return;
-  const fn = window[el.dataset.keydownAction];
+  const fn = _resolveDelegatedAction(el.dataset.keydownAction);
   if (typeof fn !== 'function') return;
   let args = [];
-  try { args = JSON.parse(el.dataset.keydownArgs || '[]'); } catch (_) {}
+  try { args = JSON.parse(el.dataset.keydownArgs || '[]'); } catch (err) { console.warn('[delegated] invalid data-keydown-args', err); }
   fn.call(el, ...args);
 });
 
@@ -6135,7 +6164,7 @@ document.addEventListener('keydown', (e) => {
     if(el.__errorBound) return;
     el.__errorBound = true;
     el.addEventListener('error', function(){
-      var fn = window[this.dataset.errorAction];
+      var fn = _resolveDelegatedAction(this.dataset.errorAction);
       if(typeof fn === 'function') fn.call(this);
     });
   }

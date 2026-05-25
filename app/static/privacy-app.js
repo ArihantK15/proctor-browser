@@ -1,12 +1,11 @@
-const TOKEN = localStorage.getItem('procta_token') || localStorage.getItem('procta_student_token') || '';
 const BASE = '';
 
 function _getCsrf() {
-  try { return sessionStorage.getItem('procta_csrf') || localStorage.getItem('procta_csrf') || ''; }
+  try { return sessionStorage.getItem('procta_csrf') || ''; }
   catch(e) { return ''; }
 }
 function _esc(s){ var d=document.createElement('div'); d.appendChild(document.createTextNode(s||'')); return d.innerHTML; }
-const headers = {'Authorization':'Bearer '+TOKEN, 'Content-Type':'application/json'};
+const headers = {'Content-Type':'application/json'};
 
 function fetchWithTimeout(url, opts={}, timeoutMs=30000){
   const ctrl = new AbortController();
@@ -17,24 +16,23 @@ function fetchWithTimeout(url, opts={}, timeoutMs=30000){
 async function authFetch(url, opts){
   const method = ((opts && opts.method) || 'GET').toUpperCase();
   const nextHeaders = {...headers,...(opts?.headers||{})};
+  let csrf = _getCsrf();
   if (!['GET','HEAD','OPTIONS'].includes(method)) {
-    let csrf = '';
-    if (TOKEN) {
-      const r = await fetchWithTimeout(BASE + '/api/v1/auth/csrf', {headers:{'Authorization':'Bearer '+TOKEN}});
+    if (!csrf) {
+      const r = await fetchWithTimeout(BASE + '/api/v1/auth/csrf', {credentials:'include'});
       if (r.ok) {
         const d = await r.json().catch(()=>({}));
         csrf = d.csrf_token || '';
         if (csrf) {
           try {
             sessionStorage.setItem('procta_csrf', csrf);
-            localStorage.setItem('procta_csrf', csrf);
           } catch(e) {}
         }
       }
     }
     if (csrf) nextHeaders['X-CSRF-Token'] = csrf;
   }
-  return fetchWithTimeout(BASE+url, {...opts, headers:nextHeaders});
+  return fetchWithTimeout(BASE+url, {...opts, credentials:'include', headers:nextHeaders});
 }
 
 // Consent list
@@ -107,14 +105,21 @@ async function confirmDelete(){
 }
 
 function _parseDataArgs(raw) {
-  try { return JSON.parse(raw || '[]'); } catch (_) { return []; }
+  try { return JSON.parse(raw || '[]'); } catch (err) { console.warn('[delegated] invalid data-args', err); return []; }
+}
+
+const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt']);
+function _resolveDelegatedAction(name) {
+  if (!/^[A-Za-z_$][\w$]*$/.test(name || '') || _BLOCKED_DELEGATED_ACTIONS.has(name)) return null;
+  const fn = window[name];
+  return typeof fn === 'function' ? fn : null;
 }
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || !el.dataset.action) return;
   if (e.target.closest('a') === el) e.preventDefault();
-  const fn = window[el.dataset.action];
+  const fn = _resolveDelegatedAction(el.dataset.action);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.args));
 });

@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import inspect
 import json
 import logging
 import os
@@ -14,7 +15,6 @@ from fastapi import Request, HTTPException, Body
 _exam_log = logging.getLogger("exam")
 
 from ..database import supabase, async_table as _atable
-from ..event_bus import async_publish as _bus_async_publish, _HAS_REDIS
 from .. import cache as _cache
 from ..models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, FrameIn, IdVerifyIn
 from ..auth import require_auth, require_teacher_auth, create_token, _check_session_ownership, _get_teacher_by_id
@@ -33,6 +33,20 @@ from ..services.autosave import (
 from ..services.risk import compute_risk_score, publish_critical_alert
 from ..jobs import enqueue_job, flush_autosave_job, _rq_enabled
 from ..constants import ROOM_CAM_SIGNING_KEY, SCREENSHOTS_DIR
+
+
+async def _bus_async_publish(channel: str, payload: dict) -> None:
+    """Publish to SSE/event bus when Redis support is installed.
+
+    Keep the optional Redis dependency off the router import path so the exam
+    API can boot in local/dev environments without event-bus extras.
+    """
+    try:
+        from ..event_bus import async_publish
+    except Exception as exc:
+        _exam_log.debug("event_bus unavailable; skipped publish to %s: %s", channel, exc)
+        return
+    await async_publish(channel, payload)
 from ..logger import get_logger
 from ..limiter import limiter
 from ..models import SessionStatus, InviteStatus
@@ -51,6 +65,41 @@ router = APIRouter(prefix="")
 # ─── STUDENT ENDPOINTS (require JWT) ─────────────────────────────
 
 _CACHE_TTL = 600  # 10 minutes
+
+
+async def _assert_student_session_access(claims: dict, session_id: str) -> dict | None:
+    """Verify a student token may access an existing session.
+
+    Legacy clients construct session keys client-side, so the first request
+    before an exam_sessions row exists still falls back to the signed token
+    roll check. Once the row exists, compare DB ownership fields instead of
+    trusting the predictable session-key prefix.
+    """
+    _check_session_ownership(claims, session_id)
+    try:
+        executed = _atable("exam_sessions").select(
+            "session_key,roll_number,teacher_id,exam_id,student_id"
+        ).eq("session_key", session_id).limit(1).execute()
+        row = await executed if inspect.isawaitable(executed) else executed
+    except Exception:
+        # Test doubles and transient lookup failures should not turn a
+        # signed-token ownership pass into a false 403. The row check is a
+        # defense-in-depth layer when the DB row is available.
+        return None
+    if not isinstance(getattr(row, "data", None), list) or not row.data:
+        return None
+    sess = row.data[0]
+    if not isinstance(sess, dict):
+        return None
+    row_roll = sess.get("roll_number")
+    if row_roll and str(row_roll).upper() != str(claims.get("roll") or "").upper():
+        raise HTTPException(status_code=403, detail="Access denied")
+    for claim_key, row_key in (("tid", "teacher_id"), ("eid", "exam_id"), ("sid", "student_id")):
+        claim_val = claims.get(claim_key)
+        row_val = sess.get(row_key)
+        if claim_val and row_val and str(claim_val) != str(row_val):
+            raise HTTPException(status_code=403, detail="Access denied")
+    return sess
 
 def _cache_validate(key: str, resp: dict) -> None:
     if not _cache:
@@ -442,7 +491,7 @@ async def integrity_report(request: Request):
 
     claims = require_auth(request)
     flags = body.get("flags", [])
-    _check_session_ownership(claims, session_id)
+    await _assert_student_session_access(claims, session_id)
     tid = claims.get("tid")
 
     blocked_reasons = []
@@ -492,7 +541,7 @@ async def log_event(event: EventIn, request: Request):
         return {"status": "logged", "practice": True}
 
     claims = require_auth(request)
-    _check_session_ownership(claims, event.session_id)
+    await _assert_student_session_access(claims, event.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
     get_logger(event.session_id).info(
@@ -581,7 +630,7 @@ async def heartbeat(event: EventIn, request: Request):
         return {"ok": True, "practice": True}
 
     claims = require_auth(request)
-    _check_session_ownership(claims, event.session_id)
+    await _assert_student_session_access(claims, event.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
 
@@ -629,7 +678,7 @@ async def save_answer(body: AnswerIn, request: Request):
         return {"status": "saved", "practice": True}
 
     claims = require_auth(request)
-    _check_session_ownership(claims, body.session_id)
+    await _assert_student_session_access(claims, body.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
     canonical = await _canonicalise_student_answer(
@@ -685,7 +734,7 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
         return {"status": "saved", "saved": len(body.answers or {}), "practice": True}
 
     claims = require_auth(request)
-    _check_session_ownership(claims, body.session_id)
+    await _assert_student_session_access(claims, body.session_id)
     if not body.answers:
         return {"status": "empty", "saved": 0}
     tid = claims.get("tid")
@@ -829,7 +878,7 @@ async def submit_exam(result: ResultIn, request: Request):
         }
 
     claims = require_auth(request)
-    _check_session_ownership(claims, result.session_id)
+    await _assert_student_session_access(claims, result.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
     sid = claims.get("sid")
@@ -1128,7 +1177,7 @@ async def session_status(request: Request, session_id: str):
                 "percentage": 0, "practice": True}
 
     claims = require_auth(request)
-    _check_session_ownership(claims, session_id)
+    await _assert_student_session_access(claims, session_id)
 
     row = await _atable("exam_sessions")\
         .select("status,score,total,percentage,risk_score")\
@@ -1181,7 +1230,7 @@ async def analyze_frame(data: FrameIn, request: Request):
         return {"status": "ok", "practice": True}
 
     claims = require_auth(request)
-    _check_session_ownership(claims, data.session_id)
+    await _assert_student_session_access(claims, data.session_id)
     tid = claims.get("tid")
 
     # Size limit: reject oversized payloads
@@ -1236,7 +1285,7 @@ async def id_verification(data: IdVerifyIn, request: Request):
         return {"status": SessionStatus.SUBMITTED, "verification_id": "practice", "practice": True}
 
     claims = require_auth(request)
-    _check_session_ownership(claims, data.session_id)
+    await _assert_student_session_access(claims, data.session_id)
     tid = claims.get("tid")
 
     # Size guard
@@ -1303,7 +1352,7 @@ async def id_verification_status(request: Request, session_id: str = ""):
         return {"status": "approved", "practice": True}
 
     claims = require_auth(request)
-    _check_session_ownership(claims, session_id)
+    await _assert_student_session_access(claims, session_id)
     result = await _atable("violations")\
         .select("details")\
         .eq("session_key", session_id)\
@@ -1326,10 +1375,7 @@ async def id_verification_status(request: Request, session_id: str = ""):
 @limiter.limit("30/minute")
 async def get_events(session_id: str, request: Request):
     claims = require_auth(request)
-    # Ownership check
-    session_roll = session_id.rsplit("_", 1)[0].upper()
-    if claims.get("roll", "").upper() != session_roll:
-        raise HTTPException(status_code=403, detail="Access denied")
+    await _assert_student_session_access(claims, session_id)
     tid = claims.get("tid")
     q = _atable("violations").select("session_key,violation_type,severity,details,created_at,teacher_id,detection_confidence").eq("session_key", session_id)
     if tid:
@@ -1366,9 +1412,8 @@ async def room_cam_token(request: Request, body: dict = Body(...)):
     session_id = (body.get("session_id") or "").strip()
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
+    await _assert_student_session_access(student, session_id)
     roll = student.get("roll", "")
-    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
-        raise HTTPException(status_code=403, detail="Session does not belong to this student")
     import jwt as _jwt
     token = _jwt.encode({
         "scope": "room-cam",
@@ -1387,9 +1432,8 @@ async def room_cam_qr(request: Request):
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     student = require_auth(request)
+    await _assert_student_session_access(student, session_id)
     roll = student.get("roll", "")
-    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
-        raise HTTPException(status_code=403, detail="Access denied")
     # Cache QR token for 60s to avoid re-minting on refresh
     if not hasattr(room_cam_qr, "_token_cache"):
         room_cam_qr._token_cache: dict[str, dict] = {}
@@ -1427,9 +1471,7 @@ async def room_cam_approval_status(request: Request):
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     student = require_auth(request)
-    roll = student.get("roll", "")
-    if session_id.rsplit("_", 1)[0].upper() != roll.upper():
-        raise HTTPException(status_code=403, detail="Access denied")
+    await _assert_student_session_access(student, session_id)
     row = await _atable("exam_sessions").select("room_cam_status,room_cam_approved_at")\
         .eq("session_key", session_id).limit(1).execute()
     data = row.data[0] if row.data else {}

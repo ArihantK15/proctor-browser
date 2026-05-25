@@ -206,14 +206,11 @@ async function doRegister(){
         try {
           const r3 = await fetchWithTimeout('/api/v1/student/auth/login', {
             method: 'POST',
+            credentials: 'include',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({email:email, password:pwd})
           });
-          if(r3.ok){
-            const d3 = await r3.json();
-            localStorage.setItem('procta_student_token', d3.access_token);
-            localStorage.setItem('procta_student_refresh', d3.refresh_token);
-          }
+          if(r3.ok) await r3.json().catch(()=>({}));
         } catch(loginErr) {
           console.warn('Auto-login failed:', loginErr);
         }
@@ -275,7 +272,7 @@ function isStrongPassword(password) {
 })();
 
 function _parseDataArgs(raw) {
-  try { return JSON.parse(raw || '[]'); } catch (_) { return []; }
+  try { return JSON.parse(raw || '[]'); } catch (err) { console.warn('[delegated] invalid data-args', err); return []; }
 }
 function _uppercaseTrimInput(){ this.value = this.value.toUpperCase().trim(); }
 function _uppercaseTrimAndClearErr(){
@@ -283,11 +280,18 @@ function _uppercaseTrimAndClearErr(){
   clearErr();
 }
 
+const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt']);
+function _resolveDelegatedAction(name) {
+  if (!/^[A-Za-z_$][\w$]*$/.test(name || '') || _BLOCKED_DELEGATED_ACTIONS.has(name)) return null;
+  const fn = window[name];
+  return typeof fn === 'function' ? fn : null;
+}
+
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || !el.dataset.action) return;
   if (e.target.closest('a') === el) e.preventDefault();
-  const fn = window[el.dataset.action];
+  const fn = _resolveDelegatedAction(el.dataset.action);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.args));
 });
@@ -295,7 +299,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('input', (e) => {
   const el = e.target.closest('[data-input-action]');
   if (!el || !el.dataset.inputAction) return;
-  const fn = window[el.dataset.inputAction];
+  const fn = _resolveDelegatedAction(el.dataset.inputAction);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.inputArgs));
 });
@@ -305,7 +309,7 @@ document.addEventListener('keydown', (e) => {
   if (!el || !el.dataset.keydownAction) return;
   const wantKey = el.dataset.keydownKey || '';
   if (wantKey && e.key !== wantKey) return;
-  const fn = window[el.dataset.keydownAction];
+  const fn = _resolveDelegatedAction(el.dataset.keydownAction);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.keydownArgs));
 });
@@ -313,7 +317,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('focusout', (e) => {
   const el = e.target.closest('[data-blur-action]');
   if (!el || !el.dataset.blurAction) return;
-  const fn = window[el.dataset.blurAction];
+  const fn = _resolveDelegatedAction(el.dataset.blurAction);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.blurArgs));
 });

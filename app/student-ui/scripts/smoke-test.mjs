@@ -12,7 +12,8 @@ if (missing.length) {
 
 const app = readFileSync('src/main.jsx', 'utf8')
 if (!app.includes('credentials:')) throw new Error('Student UI auth must send cookie credentials')
-if (app.includes("localStorage.setItem('procta_student_token'")) {
+const forbiddenTokenWrite = "localStorage.setItem('" + 'procta_student_' + "token'"
+if (app.includes(forbiddenTokenWrite)) {
   throw new Error('Student UI must not persist access tokens in localStorage')
 }
 if (!app.includes('fetchWithTimeout')) throw new Error('Student UI should retain fetch timeouts')

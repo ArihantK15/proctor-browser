@@ -20,8 +20,9 @@ function fetchWithTimeout(url, opts={}, timeoutMs=30000) {
 
 // ─── state ────────────────────────────────────────────────────
 let authMode = 'login';
-let authToken   = localStorage.getItem('procta_student_token')    || '';
-let refreshTok  = localStorage.getItem('procta_student_refresh')  || '';
+let authToken   = '';
+let refreshTok  = '';
+let studentAuthed = false;
 let refreshInFlight = null;
 let _turnstileToken = null;
 let _turnstileSiteKey = '';
@@ -182,6 +183,7 @@ async function doAuth() {
       if (_turnstileToken) signupBody.captcha_token = _turnstileToken;
       const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/signup'), {
         method: 'POST',
+        credentials: 'include',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(signupBody),
       });
@@ -196,6 +198,7 @@ async function doAuth() {
     if (_turnstileToken) loginBody.captcha_token = _turnstileToken;
     const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/login'), {
       method: 'POST',
+      credentials: 'include',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(loginBody),
     });
@@ -204,10 +207,9 @@ async function doAuth() {
       throw new Error((await r.json().catch(()=>({}))).detail || 'Login failed');
     }
     const d = await r.json();
-    authToken  = d.access_token;
-    refreshTok = d.refresh_token;
-    localStorage.setItem('procta_student_token',    authToken);
-    localStorage.setItem('procta_student_refresh',  refreshTok);
+    authToken  = d.access_token || '';
+    refreshTok = d.refresh_token || '';
+    studentAuthed = true;
     await ensureStudentCsrf(true);
     await showDashboard(d.account);
     // If this sign-in was triggered by a procta://invite/<token>
@@ -225,24 +227,22 @@ async function doAuth() {
 
 async function doLogout() {
   try {
-    if (authToken) {
-      await fetchWithTimeout(apiUrl('/api/v1/student/auth/logout'), {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + authToken,
-          'X-CSRF-Token': await ensureStudentCsrf(),
-        },
-      });
-    }
+    const headers = {};
+    if (authToken) headers.Authorization = 'Bearer ' + authToken;
+    const csrf = await ensureStudentCsrf();
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+    await fetchWithTimeout(apiUrl('/api/v1/student/auth/logout'), {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+    });
   } catch(e) {}
-  localStorage.removeItem('procta_student_token');
-  localStorage.removeItem('procta_student_refresh');
   try {
     sessionStorage.removeItem('procta_student_csrf');
-    localStorage.removeItem('procta_student_csrf');
   } catch(e) {}
   authToken = '';
   refreshTok = '';
+  studentAuthed = false;
   location.reload();
 }
 
@@ -258,18 +258,20 @@ function isStrongPassword(password) {
 // ─── fetch wrapper with single-flight refresh ─────────────────
 function getStudentCsrf() {
   try {
-    return sessionStorage.getItem('procta_student_csrf') || localStorage.getItem('procta_student_csrf') || '';
+    return sessionStorage.getItem('procta_student_csrf') || '';
   } catch(e) {
     return '';
   }
 }
 
 async function ensureStudentCsrf(force = false) {
-  if (!authToken) return '';
   const existing = getStudentCsrf();
   if (existing && !force) return existing;
+  const headers = {};
+  if (authToken) headers.Authorization = 'Bearer ' + authToken;
   const r = await fetchWithTimeout(apiUrl('/api/v1/auth/csrf'), {
-    headers: {'Authorization': 'Bearer ' + authToken},
+    credentials: 'include',
+    headers,
   });
   if (!r.ok) return '';
   const d = await r.json().catch(()=>({}));
@@ -277,7 +279,6 @@ async function ensureStudentCsrf(force = false) {
   if (csrf) {
     try {
       sessionStorage.setItem('procta_student_csrf', csrf);
-      localStorage.setItem('procta_student_csrf', csrf);
     } catch(e) {}
   }
   return csrf;
@@ -285,19 +286,20 @@ async function ensureStudentCsrf(force = false) {
 
 async function authed(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
-  opts.headers = Object.assign({}, opts.headers, {
-    'Authorization': 'Bearer ' + authToken,
-  });
+  opts.credentials = opts.credentials || 'include';
+  opts.headers = Object.assign({}, opts.headers);
+  if (authToken) opts.headers.Authorization = 'Bearer ' + authToken;
   if (!['GET','HEAD','OPTIONS'].includes(method)) {
     const csrf = await ensureStudentCsrf();
     if (csrf) opts.headers['X-CSRF-Token'] = csrf;
   }
   const url = apiUrl(path);
   let r = await fetchWithTimeout(url, opts);
-  if (r.status === 401 && refreshTok) {
+  if (r.status === 401) {
     const ok = await tryRefresh();
     if (ok) {
-      opts.headers['Authorization'] = 'Bearer ' + authToken;
+      if (authToken) opts.headers.Authorization = 'Bearer ' + authToken;
+      else delete opts.headers.Authorization;
       if (!['GET','HEAD','OPTIONS'].includes(method)) {
         const csrf = await ensureStudentCsrf();
         if (csrf) opts.headers['X-CSRF-Token'] = csrf;
@@ -314,15 +316,15 @@ async function tryRefresh() {
     try {
       const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/refresh'), {
         method: 'POST',
+        credentials: 'include',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({refresh_token: refreshTok}),
+        body: JSON.stringify(refreshTok ? {refresh_token: refreshTok} : {}),
       });
       if (!r.ok) return false;
       const d = await r.json();
-      authToken = d.access_token;
-      refreshTok = d.refresh_token;
-      localStorage.setItem('procta_student_token',    authToken);
-      localStorage.setItem('procta_student_refresh',  refreshTok);
+      authToken = d.access_token || '';
+      refreshTok = d.refresh_token || '';
+      studentAuthed = true;
       await ensureStudentCsrf(true);
       return true;
     } catch { return false; }
@@ -333,6 +335,7 @@ async function tryRefresh() {
 
 // ─── dashboard ────────────────────────────────────────────────
 async function showDashboard(account) {
+  studentAuthed = true;
   document.getElementById('auth-view').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('me-name').textContent = account.full_name || account.email;
@@ -612,9 +615,9 @@ async function submitAppeal() {
   btn.disabled = true;
   err.textContent = '';
   try {
-    const r = await fetchWithTimeout(apiUrl('/api/v1/student/appeal'), {
+    const r = await authed('/api/v1/student/appeal', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_key: _appealSessionKey, appeal_type: type, description: desc }),
     });
     const d = await r.json();
@@ -886,7 +889,7 @@ function _applyInvitePrefill(){
   if (!_pendingInvite) return;
   // If we already have a live session, don't override — just try
   // acceptance immediately.
-  if (authToken) { _acceptPendingInvite(); return; }
+  if (studentAuthed) { _acceptPendingInvite(); return; }
   // Pre-fill the email and lock it so the student can't accidentally
   // type a different address (which would fail server-side anyway).
   const em = document.getElementById('inp-email');
@@ -911,7 +914,7 @@ function _applyInvitePrefill(){
   if (nm && _pendingInvite.full_name) nm.value = _pendingInvite.full_name;
 }
 async function _acceptPendingInvite(){
-  if (!_pendingInvite || !authToken) return;
+  if (!_pendingInvite || !studentAuthed) return;
   const token = _pendingInvite.token;
   _pendingInvite = null; // one-shot
   try {
@@ -961,9 +964,8 @@ async function _acceptPendingInvite(){
     }
   } catch(e) { console.error('[invite] wire-up failed', e); }
 
-  if (!authToken) return;
   try {
-    const r = await authed('/api/student/auth/me');
+    const r = await authed('/api/v1/student/auth/me');
     if (r.ok) {
       const me = await r.json();
       await ensureStudentCsrf(true);
@@ -981,9 +983,11 @@ async function _acceptPendingInvite(){
 // Re-check auth when page is restored from bfcache (back/forward navigation)
 window.addEventListener('pageshow', (e) => {
   if (e.persisted) {
-    const stored = localStorage.getItem('procta_student_token') || '';
-    if (!stored && !document.getElementById('web-landing')?.style.display?.includes('flex')) {
-      document.getElementById('auth-view').style.display = '';
+    if (!document.getElementById('web-landing')?.style.display?.includes('flex')) {
+      authed('/api/v1/student/auth/me').then(async (r) => {
+        if (r.ok) await showDashboard(await r.json());
+        else document.getElementById('auth-view').style.display = '';
+      }).catch(() => { document.getElementById('auth-view').style.display = ''; });
     }
   }
 });
@@ -1002,7 +1006,7 @@ window.addEventListener('pageshow', (e) => {
 // spinner during testing.
 const EXAMS_STALE_MS = 60_000;
 function _shouldRefetchExams() {
-  if (!authToken) return false;
+  if (!studentAuthed) return false;
   if (document.getElementById('dashboard').style.display !== 'block') return false;
   return (Date.now() - _lastExamsFetch) > EXAMS_STALE_MS;
 }
@@ -1046,7 +1050,14 @@ function closeModal(){
 }
 
 function _parseDataArgs(raw) {
-  try { return JSON.parse(raw || '[]'); } catch (_) { return []; }
+  try { return JSON.parse(raw || '[]'); } catch (err) { console.warn('[delegated] invalid data-args', err); return []; }
+}
+
+const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt']);
+function _resolveDelegatedAction(name) {
+  if (!/^[A-Za-z_$][\w$]*$/.test(name || '') || _BLOCKED_DELEGATED_ACTIONS.has(name)) return null;
+  const fn = window[name];
+  return typeof fn === 'function' ? fn : null;
 }
 
 document.addEventListener('click', (e) => {
@@ -1054,7 +1065,7 @@ document.addEventListener('click', (e) => {
   if (!el || !el.dataset.action) return;
   if (el.dataset.guardSelf !== undefined && e.target !== el) return;
   if (e.target.closest('a') === el) e.preventDefault();
-  const fn = window[el.dataset.action];
+  const fn = _resolveDelegatedAction(el.dataset.action);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.args));
 });
@@ -1062,7 +1073,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-change-action]');
   if (!el || !el.dataset.changeAction) return;
-  const fn = window[el.dataset.changeAction];
+  const fn = _resolveDelegatedAction(el.dataset.changeAction);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.changeArgs));
 });
@@ -1070,7 +1081,7 @@ document.addEventListener('change', (e) => {
 document.addEventListener('input', (e) => {
   const el = e.target.closest('[data-input-action]');
   if (!el || !el.dataset.inputAction) return;
-  const fn = window[el.dataset.inputAction];
+  const fn = _resolveDelegatedAction(el.dataset.inputAction);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.inputArgs));
 });
@@ -1080,7 +1091,7 @@ document.addEventListener('keydown', (e) => {
   if (!el || !el.dataset.keydownAction) return;
   const wantKey = el.dataset.keydownKey || '';
   if (wantKey && e.key !== wantKey) return;
-  const fn = window[el.dataset.keydownAction];
+  const fn = _resolveDelegatedAction(el.dataset.keydownAction);
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.keydownArgs));
 });

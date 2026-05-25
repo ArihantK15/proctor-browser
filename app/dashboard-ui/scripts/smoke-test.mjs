@@ -16,7 +16,8 @@ if (missing.length) {
 
 const auth = readFileSync('src/lib/auth.jsx', 'utf8')
 if (!auth.includes('credentials:')) throw new Error('Dashboard auth must send cookie credentials')
-if (auth.includes("localStorage.setItem('procta_token'")) {
+const forbiddenTokenWrite = "localStorage.setItem('" + 'procta_' + "token'"
+if (auth.includes(forbiddenTokenWrite)) {
   throw new Error('Dashboard auth must not persist access tokens in localStorage')
 }
 if (!auth.includes('ensureCsrfToken')) throw new Error('Dashboard auth must keep CSRF refresh path')

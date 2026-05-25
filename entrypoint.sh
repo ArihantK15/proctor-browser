@@ -33,6 +33,7 @@ fi
 
 UVICORN_WORKERS="${UVICORN_WORKERS:-${WEB_CONCURRENCY:-2}}"
 UVICORN_KEEPALIVE="${UVICORN_KEEPALIVE:-15}"
+UVICORN_GRACEFUL_SHUTDOWN="${UVICORN_GRACEFUL_SHUTDOWN:-30}"
 
 set -- uvicorn app.main:app \
   --host 0.0.0.0 \
@@ -40,6 +41,7 @@ set -- uvicorn app.main:app \
   --workers "$UVICORN_WORKERS" \
   --loop uvloop \
   --timeout-keep-alive "$UVICORN_KEEPALIVE" \
+  --timeout-graceful-shutdown "$UVICORN_GRACEFUL_SHUTDOWN" \
   --log-level warning \
   --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-*}"
 

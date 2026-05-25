@@ -1,5 +1,4 @@
 """WebSocket chat endpoints: student and teacher chat connections."""
-import asyncio
 import json
 import logging
 
@@ -48,8 +47,6 @@ async def ws_chat_student(ws: WebSocket):
     sp = ws.headers.get("sec-websocket-protocol", "")
     token = sp.split(",")[0].strip() if sp else ""
 
-    await ws.accept(subprotocol=token or None)
-
     client_ip = _ws_client_ip(ws)
     if not await ws_rate_limiter.check_and_increment(client_ip):
         await ws.close(code=4400, reason="rate_limited")
@@ -72,6 +69,8 @@ async def ws_chat_student(ws: WebSocket):
         sess_row = await _chat_verify_session_owned(session_id, tid, roll)
         if not sess_row:
             await ws.close(code=4403); return
+
+        await ws.accept(subprotocol=token or None)
 
         student_result = await _atable("students") \
             .select("full_name") \
@@ -134,18 +133,12 @@ async def ws_chat_student(ws: WebSocket):
 @router.websocket("/ws/chat/teacher")
 async def ws_chat_teacher(ws: WebSocket):
     """Teacher end of the chat.  Auth via Sec-WebSocket-Protocol subprotocol
-    header (set by `new WebSocket(url, [token])`) or as first message:
-    {"type": "auth", "token": "..."}.  Query params deprecated.
+    header (set by `new WebSocket(url, [token])`) or HttpOnly cookie.
+    First-message and query-param auth are intentionally not accepted; auth
+    must be proven before the WebSocket upgrade is accepted.
     """
-    # CRITICAL: must echo the Sec-WebSocket-Protocol value back on .accept().
-    # When the client opens `new WebSocket(url, [authToken])`, the browser
-    # treats the connection as failed if the server's 101 response omits a
-    # matching Sec-WebSocket-Protocol header. (Student endpoint at line 51
-    # already does this — teacher endpoint was missing it, which broke every
-    # teacher chat WS connection on the dashboard.)
     sp = ws.headers.get("sec-websocket-protocol", "")
     subproto_first = sp.split(",")[0].strip() if sp else ""
-    await ws.accept(subprotocol=subproto_first or None)
 
     client_ip = _ws_client_ip(ws)
     if not await ws_rate_limiter.check_and_increment(client_ip):
@@ -155,8 +148,6 @@ async def ws_chat_teacher(ws: WebSocket):
     teacher_id = None
     teacher = None
     try:
-        # 1. Check Sec-WebSocket-Protocol subprotocol header.
-        # `subproto_first` was extracted before .accept() above.
         subproto = subproto_first
         if subproto and not subproto.startswith("websocket"):
             try:
@@ -170,26 +161,11 @@ async def ws_chat_teacher(ws: WebSocket):
                     teacher = await verify_admin_token(cookie_token)
                 except HTTPException:
                     pass
-        # 2. If not authenticated, try auth as first message
-        if not teacher:
-            auth_msg = await asyncio.wait_for(ws.receive_text(), timeout=10)
-            try:
-                data = json.loads(auth_msg)
-                if data.get("type") == "auth":
-                    token = data.get("token", "")
-                    teacher = await verify_admin_token(token)
-                else:
-                    # Backward compat: treat as JWT directly
-                    teacher = await verify_admin_token(auth_msg.strip())
-            except (json.JSONDecodeError, HTTPException):
-                # Final backward compat: try query param
-                token = ws.query_params.get("token") or ""
-                if token:
-                    teacher = await verify_admin_token(token)
         if not teacher:
             await ws.close(code=4401); return
         teacher_id = str(teacher["id"])
 
+        await ws.accept(subprotocol=subproto_first or None)
         await chat_hub.register_teacher(teacher_id, ws)
 
         while True:

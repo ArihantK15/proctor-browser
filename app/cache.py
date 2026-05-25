@@ -14,6 +14,10 @@ _log = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 _LIVEFRAME_MAX = int(os.environ.get("LIVEFRAME_MAX_SESSIONS", "50"))
+LIVEFRAME_PREFIX = "liveframe:"
+ROOMFRAME_PREFIX = "roomframe:"
+ROOMCAM_PREFIX = "roomcam:"
+LIVEFRAME_INDEX_KEY = f"{LIVEFRAME_PREFIX}_index"
 
 _r: redis.Redis | None = None
 _r_healthy: bool = False  # tracks whether _r has been successfully pinged
@@ -33,8 +37,12 @@ def _client() -> redis.Redis | None:
                                    socket_timeout=2)
         _r.ping()
         _r_healthy = True
-    except Exception:
+    except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _log.warning("Redis connection failed", exc_info=True)
+        _r = None
+        _r_healthy = False
+    except Exception:
+        _log.exception("Unexpected Redis client initialisation failure")
         _r = None
         _r_healthy = False
     return _r
@@ -51,8 +59,12 @@ def _binary_client() -> redis.Redis | None:
                                     socket_timeout=2)
         _br.ping()
         _br_healthy = True
-    except Exception:
+    except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _log.warning("Redis binary connection failed", exc_info=True)
+        _br = None
+        _br_healthy = False
+    except Exception:
+        _log.exception("Unexpected Redis binary client initialisation failure")
         _br = None
         _br_healthy = False
     return _br
@@ -63,7 +75,7 @@ def get(key: str) -> dict | list | None:
     global _r_healthy
     try:
         # liveframe/roomframe keys use raw binary storage (no base64 overhead)
-        if key.startswith("liveframe:") or key.startswith("roomframe:"):
+        if key.startswith(LIVEFRAME_PREFIX) or key.startswith(ROOMFRAME_PREFIX):
             br = _binary_client()
             if br is None:
                 return None
@@ -76,11 +88,13 @@ def get(key: str) -> dict | list | None:
             try:
                 r = _client()
                 if r:
-                    score = r.zscore("liveframe:_index", session_id)
+                    score = r.zscore(LIVEFRAME_INDEX_KEY, session_id)
                     if score is not None:
                         ts = float(score)
+            except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
+                _r_healthy = False
             except Exception:
-                pass
+                _log.exception("Cache liveframe timestamp lookup failed for key=%s", key)
             return {"jpeg_bytes": raw_bytes, "at": ts}
         r = _client()
         if r is None:
@@ -88,12 +102,22 @@ def get(key: str) -> dict | list | None:
         raw = r.get(key)
         if raw is None:
             return None
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            _log.warning("Cache value is corrupt JSON for key=%s; deleting", key)
+            try:
+                r.delete(key)
+            except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
+                _r_healthy = False
+            except Exception:
+                _log.exception("Failed to delete corrupt cache key=%s", key)
+            return None
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
         return None
     except Exception:
-        _log.warning("Cache get failed for key=%s", key, exc_info=True)
+        _log.exception("Unexpected cache get failure for key=%s", key)
         return None
 
 
@@ -110,7 +134,7 @@ def set(key: str, value, ttl: int = 300) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
-        _log.debug("Cache set failed for key=%s", key, exc_info=True)
+        _log.exception("Unexpected cache set failure for key=%s", key)
 
 
 def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
@@ -131,23 +155,23 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
         if r is None:
             return
 
-        key = f"liveframe:{session_id}"
+        key = f"{LIVEFRAME_PREFIX}{session_id}"
         now = time.time()
         br.setex(key, ttl, jpeg_bytes)
 
         # Track in sorted set for LRU eviction (text client)
-        r.zadd("liveframe:_index", {session_id: now})
-        r.expire("liveframe:_index", ttl + 5)
+        r.zadd(LIVEFRAME_INDEX_KEY, {session_id: now})
+        r.expire(LIVEFRAME_INDEX_KEY, ttl + 5)
 
         # Evict oldest if over cap
-        total = r.zcard("liveframe:_index")
+        total = r.zcard(LIVEFRAME_INDEX_KEY)
         if total > _LIVEFRAME_MAX:
             to_remove = total - _LIVEFRAME_MAX
-            oldest = r.zrange("liveframe:_index", 0, to_remove - 1)
+            oldest = r.zrange(LIVEFRAME_INDEX_KEY, 0, to_remove - 1)
             if oldest:
-                oldest_keys = [f"liveframe:{s.decode()}" if isinstance(s, bytes) else f"liveframe:{s}" for s in oldest]
+                oldest_keys = [f"{LIVEFRAME_PREFIX}{s.decode()}" if isinstance(s, bytes) else f"{LIVEFRAME_PREFIX}{s}" for s in oldest]
                 br.delete(*oldest_keys)
-                r.zrem("liveframe:_index", *oldest)
+                r.zrem(LIVEFRAME_INDEX_KEY, *oldest)
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
@@ -167,7 +191,7 @@ def set_room_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
         br = _binary_client()
         if br is None:
             return
-        br.setex(f"roomframe:{session_id}", ttl, jpeg_bytes)
+        br.setex(f"{ROOMFRAME_PREFIX}{session_id}", ttl, jpeg_bytes)
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
@@ -232,6 +256,11 @@ async def adelete(key: str) -> None:
     await _asyncio.get_event_loop().run_in_executor(None, delete, key)
 
 
+async def adelete_pattern(pattern: str) -> None:
+    """Async-safe version of delete_pattern()."""
+    await _asyncio.get_event_loop().run_in_executor(None, delete_pattern, pattern)
+
+
 def cleanup_room_frames() -> None:
     """Delete all roomframe:* keys (belt-and-suspenders — Redis TTL handles daily expiry).
     
@@ -239,7 +268,12 @@ def cleanup_room_frames() -> None:
     room camera frames persist beyond their intended lifetime.
     """
     try:
-        delete_pattern("roomframe:*")
+        delete_pattern(f"{ROOMFRAME_PREFIX}*")
         _log.info("Room frame cache cleaned")
     except Exception:
         _log.warning("Room frame cleanup failed", exc_info=True)
+
+
+async def acleanup_room_frames() -> None:
+    """Async-safe version of cleanup_room_frames()."""
+    await _asyncio.get_event_loop().run_in_executor(None, cleanup_room_frames)

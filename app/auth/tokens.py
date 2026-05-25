@@ -118,8 +118,6 @@ def issue_csrf_token(claims: dict) -> str:
         _cache.set(key, token, ttl=_CSRF_TTL_SECONDS)
     except Exception:
         _CSRF_MEMORY[key] = (token, time.time() + _CSRF_TTL_SECONDS)
-    else:
-        _CSRF_MEMORY[key] = (token, time.time() + _CSRF_TTL_SECONDS)
     return token
 
 

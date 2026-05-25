@@ -48,7 +48,6 @@ _STATUS_PAGE_HTML = """\
 <p class="sub" id="ts">Loading...</p>
 <div class="grid" id="grid"></div>
 <script>
-const TOKEN = localStorage.getItem('procta_token') || '';
 const STATUS_URL = '/api/v1/admin/status';
 const CHECK_ORDER = [
   ['supabase','Supabase Database'],
@@ -65,8 +64,8 @@ async function load(){
   const ts=document.getElementById('ts');
   const grid=document.getElementById('grid');
   try{
-    const r=await fetch(STATUS_URL,{headers:{Authorization:'Bearer '+TOKEN}});
-    if(!r.ok){grid.innerHTML='<p style="color:red">Failed to load status (HTTP '+r.status+'). Check auth token.</p>';return}
+    const r=await fetch(STATUS_URL,{credentials:'include'});
+    if(!r.ok){grid.innerHTML='<p style="color:red">Failed to load status (HTTP '+r.status+'). Check your admin session.</p>';return}
     const d=await r.json();
     ts.textContent='Last updated: '+new Date().toLocaleString()+'  •  Uptime: '+d.uptime_sec+'s  •  '+d.health_checks+' checks';
     let html='';

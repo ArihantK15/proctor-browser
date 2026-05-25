@@ -25,13 +25,8 @@ export default function LiveSessionsPanel({ currentExamId }) {
   }, [])
 
   const connectSSE = async () => {
-    const token = localStorage.getItem('procta_token')
-    if (!token) return
     try {
-      const ctr = await fetchWithTimeout(`${API_BASE}/sse/connect-token`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const ctr = await authFetch(`${API_BASE}/sse/connect-token`, { method: 'POST' })
       if (!ctr.ok) {
         setStreamStatus(`Live updates unavailable (${ctr.status}). Use Refresh for current data.`)
         return
@@ -91,7 +86,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
       const poll = setInterval(async () => {
         try {
           const r = await fetchWithTimeout(`${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-frame?t=${Date.now()}`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('procta_token')}` },
+            credentials: 'include',
           })
           if (r.ok) {
             const blob = await r.blob()

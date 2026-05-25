@@ -2,17 +2,19 @@
   "name": "proctor-browser",
   "version": "2.2.1",
   "description": "AI Proctored Exam Browser",
+  "author": "Procta",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "build": "electron-builder --dir",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
     "bundle-python": "node bundle-python.js",
     "lint": "eslint main.js preload.js lobby_preload.js setup-preload.js lib/",
     "lint:fix": "eslint --fix main.js preload.js lobby_preload.js setup-preload.js lib/",
     "lint:py": "pip-audit -r requirements.txt 2>/dev/null; echo '---'; python3 -c \"import ast,os,sys;bad=[]; [bad.append(f'{p}:{e.lineno}:{e.msg}') for root,_,files in os.walk('app') if '__pycache__' not in root for f in files if f.endswith('.py') for p in [os.path.join(root,f)] for c in [open(p).read()] for e in [ast.parse(c)] if type(e)==SyntaxError]; [print(b) for b in bad]; sys.exit(1) if bad else print('Python clean')\"",
-    "type-check": "echo 'No TypeScript in the Electron shell — skipping' && exit 0",
-    "test": "echo 'No Electron shell tests yet — placeholder' && exit 0"
+    "type-check": "npm run lint",
+    "test": "node scripts/electron-smoke-test.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"

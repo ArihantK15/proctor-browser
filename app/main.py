@@ -565,13 +565,26 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if os.environ.get("PYTEST_CURRENT_TEST"):
             return await call_next(request)
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            # Auth token can arrive via Authorization: Bearer ... (legacy native
+            # clients) OR via HttpOnly cookie (browser sessions). Cookie auth is
+            # the exact path CSRF defense exists for — never skip the check just
+            # because the Authorization header is absent.
+            token = ""
             auth = request.headers.get("Authorization", "")
             if auth.startswith("Bearer "):
+                token = auth[7:]
+            else:
+                token = (
+                    request.cookies.get("procta_access")
+                    or request.cookies.get("procta_student_access")
+                    or ""
+                )
+            if token:
                 try:
                     import jwt
                     from .constants import ALL_SIGNING_KEYS
                     from .auth.tokens import _decode_token, csrf_required_for_claims
-                    claims = _decode_token(auth[7:], ALL_SIGNING_KEYS)
+                    claims = _decode_token(token, ALL_SIGNING_KEYS)
                     if csrf_required_for_claims(claims):
                         from .auth.tokens import verify_csrf
                         csrf_header = request.headers.get("x-csrf-token", "")

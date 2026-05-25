@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useAuth } from '../lib/auth'
 import { API_BASE } from '../config'
 
 const WS_RECONNECT_BASE_MS = 1000
 const WS_RECONNECT_MAX_MS = 30000
 
 export default function ChatPanel() {
-  const { authFetch } = useAuth()
   const [students, setStudents] = useState([])
   const [activeSid, setActiveSid] = useState(null)
   const [messages, setMessages] = useState([])
@@ -35,12 +33,10 @@ export default function ChatPanel() {
 
   const connectWS = useCallback(async () => {
     if (unmountedRef.current) return
-    const token = localStorage.getItem('procta_token')
-    if (!token) return
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = location.host
     try {
-      const ws = new WebSocket(`${proto}//${host}/ws/chat/teacher`, [token])
+      const ws = new WebSocket(`${proto}//${host}/ws/chat/teacher`)
       ws.onopen = () => {
         if (unmountedRef.current) { ws.close(); return }
         setConnected(true)

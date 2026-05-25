@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 import json
 import logging
+import os
 import re
 _auth_log = logging.getLogger("auth")
 import uuid as _uuid
@@ -49,6 +50,65 @@ from ..jobs import enqueue_job, send_new_account_notification_job
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
+
+
+def _secure_cookie_enabled() -> bool:
+    explicit = os.environ.get("COOKIE_SECURE", "").strip().lower()
+    if explicit in {"0", "false", "no", "off"}:
+        return False
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    env = (os.environ.get("APP_ENV") or os.environ.get("ENV") or "").lower()
+    if env in {"prod", "production"}:
+        return True
+    public_url = (
+        os.environ.get("APP_URL")
+        or os.environ.get("INVITE_BASE_URL")
+        or os.environ.get("PUBLIC_URL")
+        or ""
+    ).lower()
+    return public_url.startswith("https://")
+
+
+def _set_auth_cookie(response: JSONResponse, name: str, value: str, max_age_seconds: int) -> None:
+    response.set_cookie(
+        name,
+        value,
+        max_age=max_age_seconds,
+        httponly=True,
+        secure=_secure_cookie_enabled(),
+        samesite="lax",
+        path="/",
+    )
+
+
+def _set_teacher_cookies(response: JSONResponse, access_token: str, refresh_token: str) -> None:
+    from ..constants import ADMIN_TOKEN_TTL_MINUTES
+    _set_auth_cookie(response, "procta_access", access_token, ADMIN_TOKEN_TTL_MINUTES * 60)
+    _set_auth_cookie(response, "procta_refresh", refresh_token, 30 * 24 * 60 * 60)
+
+
+def _set_student_cookies(response: JSONResponse, access_token: str, refresh_token: str) -> None:
+    from ..constants import STUDENT_AUTH_TTL_MINUTES
+    _set_auth_cookie(response, "procta_student_access", access_token, STUDENT_AUTH_TTL_MINUTES * 60)
+    _set_auth_cookie(response, "procta_student_refresh", refresh_token, 30 * 24 * 60 * 60)
+
+
+def _clear_teacher_cookies(response: JSONResponse) -> None:
+    response.delete_cookie("procta_access", path="/")
+    response.delete_cookie("procta_refresh", path="/")
+
+
+def _clear_student_cookies(response: JSONResponse) -> None:
+    response.delete_cookie("procta_student_access", path="/")
+    response.delete_cookie("procta_student_refresh", path="/")
+
+
+def _access_token_from_request(request: Request, cookie_name: str) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return request.cookies.get(cookie_name, "")
 
 
 def _slugify(text: str) -> str:
@@ -659,7 +719,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     # just need to surface the resolved values to the client. Without these
     # fields, the React dashboard (App.jsx) defaults role to 'teacher' and
     # admins/superadmins see the wrong tab matrix.
-    return {
+    response = JSONResponse({
         "access_token": access_token,
         "refresh_token": refresh_tok,
         "teacher": {
@@ -670,7 +730,9 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             "org_role": teacher.get("org_role", "teacher"),
             "email_verified_at": teacher.get("email_verified_at"),
         },
-    }
+    })
+    _set_teacher_cookies(response, access_token, refresh_tok)
+    return response
 
 
 @router.get("/api/v1/auth/me")
@@ -695,11 +757,11 @@ async def teacher_me(request: Request):
 @limiter.limit("60/minute")
 async def issue_csrf(request: Request):
     """Issue an independent server-side CSRF token for browser mutations."""
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    token = _access_token_from_request(request, "procta_access") or request.cookies.get("procta_student_access", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing auth token")
     try:
-        claims = _decode_token(auth[7:], ALL_SIGNING_KEYS)
+        claims = _decode_token(token, ALL_SIGNING_KEYS)
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     if not csrf_required_for_claims(claims):
@@ -712,7 +774,7 @@ async def issue_csrf(request: Request):
 
 @router.post("/api/v1/auth/refresh")
 @limiter.limit("20/minute")
-async def teacher_refresh(body: RefreshIn, request: Request):
+async def teacher_refresh(request: Request, body: RefreshIn | None = None):
     """Refresh an expired teacher access token via Supabase refresh token.
 
     The Supabase refresh token is the only credential the client retains
@@ -721,16 +783,22 @@ async def teacher_refresh(body: RefreshIn, request: Request):
     """
     # All auth paths now issue our own persisted refresh tokens, so always
     # use the rotation logic (revocation table + replay detection).
+    refresh_token = (body.refresh_token if body else "") or request.cookies.get("procta_refresh", "")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
     teacher_id, new_refresh = await _verify_and_rotate_refresh_token(
-        body.refresh_token, "teacher", request
+        refresh_token, "teacher", request
     )
     teacher = await _get_teacher_by_id(teacher_id)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
-    return {
-        "access_token": issue_admin_token(teacher),
+    access_token = issue_admin_token(teacher)
+    response = JSONResponse({
+        "access_token": access_token,
         "refresh_token": new_refresh,
-    }
+    })
+    _set_teacher_cookies(response, access_token, new_refresh)
+    return response
 
 
 @router.post("/api/v1/auth/password-reset")
@@ -1166,7 +1234,7 @@ async def student_login(body: StudentLoginIn, request: Request):
 
     # Always issue our own persisted refresh token (revocable, replay-protected).
     refresh_tok = await _issue_and_persist_refresh_token(account["id"], "student", request)
-    return {
+    response = JSONResponse({
         "access_token":  access_token,
         "refresh_token": refresh_tok,
         "account": {
@@ -1174,7 +1242,9 @@ async def student_login(body: StudentLoginIn, request: Request):
             "email":     account["email"],
             "full_name": account["full_name"],
         },
-    }
+    })
+    _set_student_cookies(response, access_token, refresh_tok)
+    return response
 
 
 @router.get("/api/v1/student/auth/me")
@@ -1190,18 +1260,24 @@ async def student_me(request: Request):
 
 @router.post("/api/v1/student/auth/refresh")
 @limiter.limit("20/minute")
-async def student_refresh(body: RefreshIn, request: Request):
+async def student_refresh(request: Request, body: RefreshIn | None = None):
     # All auth paths now issue our own persisted refresh tokens.
+    refresh_token = (body.refresh_token if body else "") or request.cookies.get("procta_student_refresh", "")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
     account_id, new_refresh = await _verify_and_rotate_refresh_token(
-        body.refresh_token, "student", request
+        refresh_token, "student", request
     )
     account = await _get_student_account_by_id(account_id)
     if not account:
         raise HTTPException(status_code=403, detail="Student account not found")
-    return {
-        "access_token": issue_student_auth_token(account),
+    access_token = issue_student_auth_token(account)
+    response = JSONResponse({
+        "access_token": access_token,
         "refresh_token": new_refresh,
-    }
+    })
+    _set_student_cookies(response, access_token, new_refresh)
+    return response
 
 
 @router.post("/api/v1/student/auth/logout")
@@ -1211,11 +1287,12 @@ async def student_logout(request: Request):
     account = await require_student_account(request)
     account_id = str(account["id"])
     auth = request.headers.get("Authorization", "")
+    access_token = _access_token_from_request(request, "procta_student_access")
     current_jti = ""
-    if auth.startswith("Bearer "):
+    if access_token:
         try:
             from ..constants import STUDENT_SIGNING_KEYS
-            claims = _decode_token(auth[7:], STUDENT_SIGNING_KEYS)
+            claims = _decode_token(access_token, STUDENT_SIGNING_KEYS)
             current_jti = claims.get("jti", "")
         except Exception:
             current_jti = ""
@@ -1236,7 +1313,9 @@ async def student_logout(request: Request):
             pass
     await _revoke_refresh_tokens_for_user(account_id, "student")
     await record_auth_event("logout", request, "student_account", account_id, account.get("email", ""))
-    return {"ok": True}
+    response = JSONResponse({"ok": True})
+    _clear_student_cookies(response)
+    return response
 
 
 @router.get("/api/student/exams")
@@ -1731,12 +1810,12 @@ async def logout(request: Request):
     """Revoke the current access-session JTI and local refresh tokens."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
-    auth = request.headers.get("Authorization", "")
+    access_token = _access_token_from_request(request, "procta_access")
     current_jti = ""
-    if auth.startswith("Bearer "):
+    if access_token:
         try:
             from ..constants import ADMIN_SIGNING_KEYS
-            claims = _decode_token(auth[7:], ADMIN_SIGNING_KEYS)
+            claims = _decode_token(access_token, ADMIN_SIGNING_KEYS)
             current_jti = claims.get("jti", "")
         except Exception:
             current_jti = ""
@@ -1760,7 +1839,9 @@ async def logout(request: Request):
     except (AttributeError, Exception):
         pass
     await record_auth_event("logout", request, "teacher", tid)
-    return {"ok": True}
+    response = JSONResponse({"ok": True})
+    _clear_teacher_cookies(response)
+    return response
 
 
 @router.post("/api/v1/auth/sessions/revoke-others")

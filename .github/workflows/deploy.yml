@@ -62,6 +62,9 @@ jobs:
             export IMAGE_TAG="local"
             docker compose build api worker autosave-worker
 
+            echo "==> preflight migrations"
+            docker compose run --rm --no-deps --entrypoint sh api -c 'if [ "${DATABASE_BACKEND:-supabase}" = "postgres" ]; then python scripts/run_postgres_migrations.py; else python scripts/run_migrations.py; fi'
+
             echo "==> restarting api + workers"
             docker compose up -d --no-deps api worker autosave-worker
 

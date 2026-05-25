@@ -193,10 +193,13 @@ def _decode_token(token: str, keys: list[str]) -> dict:
 
 def require_auth(request: Request, allowed_roles: list[str] | None = None) -> dict:
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not token:
+        token = request.cookies.get("procta_access") or request.cookies.get("procta_student_access") or ""
+    if not token:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     try:
-        claims = _decode_token(auth[7:], ALL_SIGNING_KEYS)
+        claims = _decode_token(token, ALL_SIGNING_KEYS)
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     if allowed_roles and claims.get("role") not in allowed_roles:

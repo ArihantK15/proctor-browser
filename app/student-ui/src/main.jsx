@@ -13,51 +13,41 @@ function fetchWithTimeout(url, opts = {}, timeoutMs = 30000) {
 function useAuth() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const token = localStorage.getItem('procta_student_token') || ''
 
   useEffect(() => {
-    if (!token) { setLoading(false); return }
-    fetchWithTimeout(`${API_BASE}/student/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+    fetchWithTimeout(`${API_BASE}/student/auth/me`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setUser(d) })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [token])
+  }, [])
 
   const login = async (email, password, captchaToken = null) => {
-    // P1.2: backend's /student/auth/login calls verify_or_403
-    // (auth.py:1040) when TURNSTILE_SECRET_KEY is set. Pass through
-    // when the LoginForm has a token; backend's sandbox path accepts
-    // null when no site key configured.
     const body = { email, password }
     if (captchaToken) body.captcha_token = captchaToken
     const r = await fetchWithTimeout(`${API_BASE}/student/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(body),
     })
     if (!r.ok) throw new Error((await r.json()).detail || 'Login failed')
     const d = await r.json()
-    localStorage.setItem('procta_student_token', d.access_token)
-    setUser(d.student || d.user)
+    setUser(d.account || d.student || d.user)
     return d
   }
 
   const logout = async () => {
     try {
-      const currentToken = localStorage.getItem('procta_student_token')
-      if (currentToken) {
-        await fetchWithTimeout(`${API_BASE}/student/auth/logout`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${currentToken}` },
-        })
-      }
+      await fetchWithTimeout(`${API_BASE}/student/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
     } catch (_) {}
-    localStorage.removeItem('procta_student_token')
     setUser(null)
   }
 
-  return { user, loading, login, logout, token }
+  return { user, loading, login, logout }
 }
 
 function LoginForm({ onLogin }) {
@@ -69,14 +59,16 @@ function LoginForm({ onLogin }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setError(''); setBusy(true)
+    setError('')
+    setBusy(true)
     try {
       await onLogin(email, password, turnstile.token)
     } catch (e) {
       turnstile.refresh()
       setError(e.message)
+    } finally {
+      setBusy(false)
     }
-    finally { setBusy(false) }
   }
 
   return (
@@ -88,8 +80,6 @@ function LoginForm({ onLogin }) {
           <div className="fg"><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus /></div>
           <div className="fg"><label>Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} required /></div>
           {error && <div className="err">{error}</div>}
-          {/* P1.2 Cloudflare Turnstile (Managed mode invisible). Backend
-              /student/auth/login requires captcha_token in production. */}
           <div ref={turnstile.ref} style={{ marginTop: 8 }} />
           <button className="btn btn-primary" type="submit" disabled={busy} style={{ width: '100%', marginTop: 12 }}>{busy ? 'Logging in...' : 'Log in'}</button>
         </form>
@@ -99,24 +89,24 @@ function LoginForm({ onLogin }) {
   )
 }
 
-function StudentDashboard({ token, onLogout }) {
+function StudentDashboard({ onLogout }) {
   const [exams, setExams] = useState([])
   const [loading, setLoading] = useState(true)
-  // P2.6: distinguish error / empty / loading states. The old
-  // `.then(r => r.ok ? r.json() : [])` swallowed API failures into
-  // "no upcoming exams" — students thought their teacher hadn't
-  // assigned anything when the API was down.
   const [loadError, setLoadError] = useState(null)
 
-  const authFetch = (url, opts = {}) => fetchWithTimeout(url, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${token}` } })
+  const authFetch = (url, opts = {}) => fetchWithTimeout(url, { ...opts, credentials: 'include' })
 
   const loadExams = () => {
-    setLoading(true); setLoadError(null)
+    setLoading(true)
+    setLoadError(null)
     authFetch('/api/student/exams')
       .then(async (r) => {
         if (!r.ok) {
           let detail = `Could not load your exams (${r.status})`
-          try { const b = await r.json(); detail = b.detail || b.message || detail } catch (_) {}
+          try {
+            const b = await r.json()
+            detail = b.detail || b.message || detail
+          } catch (_) {}
           const requestId = r.headers.get('X-Request-ID') || null
           throw Object.assign(new Error(detail), { requestId })
         }
@@ -127,7 +117,7 @@ function StudentDashboard({ token, onLogout }) {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { loadExams() }, [token])
+  useEffect(() => { loadExams() }, [])
 
   return (
     <div className="app-shell">
@@ -180,7 +170,7 @@ function App() {
   const { user, loading, login, logout } = useAuth()
   if (loading) return null
   if (!user) return <LoginForm onLogin={login} />
-  return <StudentDashboard token={localStorage.getItem('procta_student_token')} onLogout={logout} />
+  return <StudentDashboard onLogout={logout} />
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />)

@@ -30,6 +30,13 @@ def _decode_with_keys(token: str, keys: list[str], **kwargs) -> dict:
             last_err = e
     raise last_err or JWTError("Token could not be decoded with any key")
 
+
+def _bearer_or_cookie(request: Request, cookie_name: str) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return request.cookies.get(cookie_name, "")
+
 # ─── Teacher lookup cache ─────────────────────────────────────────
 _teacher_cache: OrderedDict = OrderedDict()
 _teacher_cache_ttl: dict[str, float] = {}
@@ -112,10 +119,10 @@ async def verify_admin_token(token: str) -> dict:
 
 
 async def require_admin(request: Request) -> dict:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    token = _bearer_or_cookie(request, "procta_access")
+    if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
-    teacher = await verify_admin_token(auth[7:])
+    teacher = await verify_admin_token(token)
     if teacher.get("email", "").lower() == SUPER_ADMIN_EMAIL:
         teacher["org_role"] = "superadmin"
     return teacher
@@ -191,7 +198,7 @@ async def verify_student_auth_token(token: str) -> dict:
 
 
 async def require_student_account(request: Request) -> dict:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    token = _bearer_or_cookie(request, "procta_student_access")
+    if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return await verify_student_auth_token(auth[7:])
+    return await verify_student_auth_token(token)

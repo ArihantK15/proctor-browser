@@ -29,7 +29,7 @@ class TeacherLoginIn(BaseModel):
 
 class RefreshIn(BaseModel):
     model_config = ConfigDict(strict=True)
-    refresh_token: str
+    refresh_token: str = ""
 
 
 class PasswordResetIn(BaseModel):

@@ -163,6 +163,13 @@ async def ws_chat_teacher(ws: WebSocket):
                 teacher = await verify_admin_token(subproto)
             except HTTPException:
                 pass
+        if not teacher:
+            cookie_token = ws.cookies.get("procta_access", "")
+            if cookie_token:
+                try:
+                    teacher = await verify_admin_token(cookie_token)
+                except HTTPException:
+                    pass
         # 2. If not authenticated, try auth as first message
         if not teacher:
             auth_msg = await asyncio.wait_for(ws.receive_text(), timeout=10)

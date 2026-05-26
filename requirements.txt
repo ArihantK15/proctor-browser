@@ -7,7 +7,7 @@ python-multipart
 reportlab
 slowapi>=0.1.9
 psutil>=5.9
-aiofiles>=23.0
+aiofiles>=25.1.0
 redis>=5.0.0
 rq>=1.16.0
 razorpay>=1.4.0

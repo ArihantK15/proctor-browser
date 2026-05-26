@@ -33,6 +33,32 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # numpy 2.0 had real breaking changes (dtype semantics, removed
+      # legacy aliases). onnxruntime + uniface ship their own ABI
+      # against specific numpy ranges. Pin to 1.x until we re-validate
+      # the gaze + head-pose pipelines end-to-end.
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major"]
+      # uniface 1.x -> 3.x is a multi-major bump (skips 2.x entirely
+      # in their release feed). Public API likely renamed.
+      - dependency-name: "uniface"
+        update-types: ["version-update:semver-major"]
+      # onnxruntime 1.15 -> 1.26 isn't semver-major numerically but
+      # each minor adds/removes ops the ONNX model graph depends on.
+      # Reviewing per-bump rather than chasing the latest.
+      - dependency-name: "onnxruntime"
+        versions: [">=1.20.0"]
+      # cryptography major bumps occasionally drop cipher support
+      # we still rely on (e.g. ed25519 path changes). Manual review
+      # each major.
+      - dependency-name: "cryptography"
+        update-types: ["version-update:semver-major"]
+      # fastapi already pinned <0.136.3 in requirements.txt because
+      # of the MAL-2026-4750 supply-chain attack — re-state here so
+      # Dependabot doesn't try to push it past the safe range.
+      - dependency-name: "fastapi"
+        versions: ["0.136.3"]
 
   # ── Root npm (Electron client + build/lint tooling) ─────────────
   - package-ecosystem: "npm"
@@ -54,6 +80,14 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # eslint 9+ requires flat-config migration (eslint.config.js
+      # instead of .eslintrc). Big rewrite that wasn't on the audit
+      # plan; pin to 8.x until we explicitly choose to migrate.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
 
   # ── Marketing site (Vite + React) ───────────────────────────────
   - package-ecosystem: "npm"
@@ -74,6 +108,12 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Same eslint-9-flat-config story as the root npm block.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
 
   # ── Dashboard SPA (admin React app) ─────────────────────────────
   - package-ecosystem: "npm"
@@ -94,6 +134,18 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      # vite 7+ requires Node 20.19+ and changes plugin API; bumping
+      # also breaks @vitejs/plugin-react in lockstep. Pin to vite 6
+      # until we plan the migration.
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
 
   # ── Student SPA ─────────────────────────────────────────────────
   - package-ecosystem: "npm"
@@ -114,6 +166,15 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
 
   # ── GitHub Actions versions ─────────────────────────────────────
   - package-ecosystem: "github-actions"

@@ -231,12 +231,15 @@ function _assertMainFrame(event, name) {
     // WebFrameMain instance for child frames, so a strict null check
     // is what isolates "main page" from "any iframe".
     if (f.parent) {
-      console.warn(`[IPC] rejected ${name} from sub-frame:`, f.url);
+      // `name` is one of ~15 hardcoded IPC channel strings; no user input.
+      // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+      console.warn('[IPC] rejected handler from sub-frame', { handler: name, url: f.url });
       return false;
     }
     return true;
   } catch (e) {
-    console.warn(`[IPC] senderFrame check threw on ${name}:`, e.message);
+    // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+    console.warn('[IPC] senderFrame check threw', { handler: name, error: e.message });
     return false;
   }
 }

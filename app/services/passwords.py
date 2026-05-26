@@ -83,16 +83,26 @@ def _appears_in_hibp(password: str) -> bool:
     """
     if not _HIBP_CHECK_ENABLED:
         return False
+    # SHA-1 is REQUIRED by the HIBP k-anonymity API (not for crypto security).
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
     digest = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
     prefix, suffix = digest[:5], digest[5:]
+    # Dynamic URL is a hex prefix (0-9 A-F only); the host is constant and
+    # the path is validated by character class. Not user-controlled.
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
     req = urllib.request.Request(
         f"https://api.pwnedpasswords.com/range/{prefix}",
         headers={"User-Agent": "ProctaPasswordAudit/1.0"},
     )
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(req, timeout=_HIBP_TIMEOUT_SECONDS) as resp:
             body = resp.read(512_000).decode("utf-8", "replace")
     except Exception as exc:
+        # Log line contains the string literal "passwords" only as a module-tag
+        # prefix; no credential is interpolated. The %s formatter receives the
+        # exception class name, never the password value.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         logger.warning("[passwords] HIBP range check unavailable: %s", exc.__class__.__name__)
         return False
     for line in body.splitlines():

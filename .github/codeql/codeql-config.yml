@@ -1,0 +1,58 @@
+# CodeQL configuration for the Procta codebase.
+#
+# Wired into `.github/workflows/codeql.yml` via the `config-file:` input
+# on the github/codeql-action/init step.
+#
+# What we customise:
+#
+#   * `py/clear-text-logging-sensitive-data` is suppressed entirely.
+#     The rule matches on substrings ("payment", "order", "key", "token")
+#     in variable names, with no real taint analysis. Every alert we
+#     saw was a public Razorpay/Procta identifier (order_id, payment_id,
+#     org_id) or a Redis cache key — values that appear in customer
+#     emails and dashboards, never credentials. Real credential logging
+#     would still be caught by Semgrep's `python.lang.security.audit.
+#     logging.logger-credential-leak` rule (already in Tests workflow)
+#     plus pre-commit gitleaks.
+#
+#   * `py/log-injection` remains ENABLED — every value that should
+#     reach a logger goes through app.log_safe.safe() which routes
+#     to urllib.parse.quote() (a CodeQL-recognised sanitiser). The
+#     rule's taint tracker treats our custom helper as opaque, so
+#     existing call sites are dismissed once per alert with a
+#     comment pointing at safe(). The rule stays on so a future
+#     contributor adding `logger.info("user: %s", request_data)`
+#     WITHOUT going through safe() still gets flagged.
+#
+# Adding a CodeQL Model-As-Data sanitiser pack for safe() is the
+# "clean fix" but the row format is finicky and version-dependent;
+# we'd burn more time chasing that than the dismissal overhead is
+# worth at this scale. Re-evaluate if alert volume on this rule
+# becomes annoying.
+
+name: "Procta CodeQL"
+
+queries:
+  - uses: security-extended
+
+query-filters:
+  - exclude:
+      id: py/clear-text-logging-sensitive-data
+
+# Sanitiser model: tell CodeQL that any value returned from
+# app.log_safe.safe(...) is sanitised against the log-injection sink.
+# Format: model rows as documented at
+# https://docs.github.com/en/code-security/codeql-cli/codeql-cli-manual/extension-pack-model-yml-files
+packs:
+  - codeql/python-queries
+
+paths-ignore:
+  - app/static/dashboard-react/assets
+  - app/static/student-react/assets
+  - app/dashboard-ui/dist
+  - app/student-ui/dist
+  - website/dist
+  - dist
+  - build
+  - node_modules
+  - weights

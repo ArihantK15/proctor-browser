@@ -47,6 +47,10 @@ jobs:
           # 'security-extended' adds rules beyond the default that are
           # still high-precision (low false-positive rate).
           queries: security-extended
+          # Custom rule filters + paths-ignore live in this config so
+          # generated bundles and verified false-positive rules are
+          # excluded centrally.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3

@@ -4255,8 +4255,21 @@ function chatScheduleReconnect(){
   }, d);
 }
 
+// Guard against prototype-pollution via a hostile session_id from the
+// chat WS feed (CodeQL js/remote-property-injection at the [sid]
+// accesses below). Real session IDs are UUIDs or short slug-like
+// tokens; anything matching __proto__ / constructor / prototype must
+// not reach a bracket-index assignment on chatSessions.
+function _isSafeSid(sid){
+  if(typeof sid !== 'string' || !sid) return false;
+  if(sid === '__proto__' || sid === 'constructor' || sid === 'prototype') return false;
+  // Permissive but bounded: alnum + dash/underscore, 1-64 chars.
+  return /^[a-zA-Z0-9_-]{1,64}$/.test(sid);
+}
+
 function chatEnsureSession(sid, meta){
-  if(!chatSessions[sid]){
+  if(!_isSafeSid(sid)) return null;
+  if(!Object.prototype.hasOwnProperty.call(chatSessions, sid)){
     chatSessions[sid] = {
       roll: (meta&&meta.roll)||'',
       name: (meta&&meta.name)||sid,
@@ -4285,10 +4298,14 @@ function chatHandleIncoming(data){
     return;
   }
   if(t==='presence'){
+    if(!_isSafeSid(data.session_id)) return;
     const sess = chatEnsureSession(data.session_id, data);
+    if(!sess) return;
     sess.online = !!data.online;
     if(!data.online && !sess.messages.length){
-      // Student dropped before any message — remove entirely
+      // Student dropped before any message — remove entirely.
+      // _isSafeSid() guard above keeps prototype-poisoning keys out
+      // of this delete (CodeQL js/remote-property-injection).
       delete chatSessions[data.session_id];
       if(chatActiveSid===data.session_id){ chatActiveSid=null; chatRenderThread(); }
     }

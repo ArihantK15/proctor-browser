@@ -1,0 +1,41 @@
+# Codecov configuration.
+# Docs: https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  status:
+    # Don't fail PRs on the project-level coverage gate while we're
+    # establishing a baseline. Once we have ~2 weeks of data we can
+    # flip these to enforce.
+    project:
+      default:
+        target: auto      # require parity with main, not a hard %
+        threshold: 1%     # allow 1% drop without failure
+        informational: true
+    patch:
+      default:
+        # The PR-only patch coverage check. 70% on changed lines is a
+        # sensible "you wrote some tests for the new code" gate.
+        target: 70%
+        informational: true
+
+# Quiet down the bot. PR comments only when coverage actually moves.
+comment:
+  layout: "diff, files"
+  behavior: default
+  require_changes: true
+  require_base: false
+  require_head: true
+
+# What to exclude from coverage entirely.
+ignore:
+  - "tests/**"
+  - "app/static/**"           # built React bundles
+  - "app/dashboard-ui/**"     # JS source, not Python
+  - "app/student-ui/**"
+  - "website/**"
+  - "weights/**"
+  - "dist/**"
+  - "build/**"
+  - "node_modules/**"
+  - "renderer/**"
+  - "**/__init__.py"          # mostly empty re-exports

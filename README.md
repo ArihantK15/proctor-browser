@@ -75,6 +75,7 @@
 <p align="center">
   <a href="https://github.com/ArihantK15/proctor-browser/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/ArihantK15/proctor-browser/actions/workflows/test.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/ArihantK15/proctor-browser/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/ArihantK15/proctor-browser/actions/workflows/codeql.yml/badge.svg?branch=main"></a>
+  <a href="https://codecov.io/gh/ArihantK15/proctor-browser"><img alt="Coverage" src="https://codecov.io/gh/ArihantK15/proctor-browser/branch/main/graph/badge.svg"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/ArihantK15/proctor-browser?color=blue"></a>
   <a href="SECURITY.md"><img alt="Security policy" src="https://img.shields.io/badge/security-policy-orange"></a>
   <a href="CONTRIBUTING.md"><img alt="Contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen"></a>

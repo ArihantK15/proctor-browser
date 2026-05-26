@@ -680,10 +680,6 @@ function _escHtml(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-function _escGrp(s) {
-  return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-}
-
 let student=null, sessionId=null, currentRoll=null, questions=[], answers={};
 let studentToken=null;
 // Practice sandbox: set when the validate-student response carries

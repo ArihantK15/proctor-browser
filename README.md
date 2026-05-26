@@ -72,6 +72,22 @@
 
 </div>
 
+<p align="center">
+  <a href="https://github.com/ArihantK15/proctor-browser/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/ArihantK15/proctor-browser/actions/workflows/test.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/ArihantK15/proctor-browser/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/ArihantK15/proctor-browser/actions/workflows/codeql.yml/badge.svg?branch=main"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/ArihantK15/proctor-browser?color=blue"></a>
+  <a href="SECURITY.md"><img alt="Security policy" src="https://img.shields.io/badge/security-policy-orange"></a>
+  <a href="CONTRIBUTING.md"><img alt="Contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen"></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11-3776ab?logo=python&logoColor=white">
+  <img alt="Node" src="https://img.shields.io/badge/node-20%2B-339933?logo=node.js&logoColor=white">
+</p>
+
+<p align="center">
+  <a href="CONTRIBUTING.md"><strong>Contribute</strong></a> ·
+  <a href="SECURITY.md"><strong>Report a vulnerability</strong></a> ·
+  <a href="#-faq"><strong>FAQ</strong></a>
+</p>
+
 ## 📋 Table of Contents
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:32px">
@@ -86,6 +102,7 @@
 - [📦 Tech Stack](#-tech-stack)
 - [📊 Project Status](#-project-status)
 - [🚀 Getting Started](#-getting-started)
+- [❓ FAQ](#-faq)
 - [📜 License](#-license)
 
 </div>
@@ -539,6 +556,116 @@ Resend (transactional email)
 </div>
 
 </div>
+
+---
+
+## ❓ FAQ
+
+### What is the difference between teacher, admin, and superadmin?
+
+Three role tiers in one teacher account:
+
+- **Teacher** — owns their own exams, students, and results. Sees
+  only their data.
+- **Admin** — manages an organisation. Can see every teacher and
+  every student in their org, invite new teachers, configure billing,
+  set org-wide security policies. Cannot reach outside their org.
+- **Superadmin** — promoted automatically when the account email
+  matches the `SUPER_ADMIN_EMAIL` env var. Cross-org visibility, can
+  triage issues, see all flags. Used by the Procta team only.
+
+Tab visibility follows the role (see `app/dashboard-ui/src/App.jsx`).
+
+### How does the proctoring camera work?
+
+Two streams during an exam:
+
+1. The **primary webcam** on the kiosk machine runs through the
+   ONNX gaze + head-pose models locally (no frames leave the machine
+   except as low-rate JPEG snapshots for the teacher's live view).
+2. An optional **phone camera** acts as a second angle for room-scan
+   and over-the-shoulder coverage. The student opens
+   `https://app.procta.net/phone-cam?session=…` on their phone and
+   streams JPEGs over a separate WebSocket.
+
+Violation detection runs entirely in the renderer; only events
+("face out of frame for 4s", "secondary face detected") are sent to
+the server. Raw frames are dropped after a few seconds unless a
+violation is logged.
+
+### Why Electron and not a pure web app?
+
+Two reasons the browser alone can't cover:
+
+- **Kiosk lockdown** — Electron lets us own the window, suppress
+  alt-tab, disable copy/paste, and detect process-level interference.
+  Browser fullscreen API gives up much of this.
+- **Process monitor** — we scan for screen-recorders, remote-desktop
+  agents, and AI screen-sharing helpers using OS-level enumeration.
+  Browsers don't expose that surface (correctly so).
+
+The marketing site, dashboards, and student onboarding **are** web —
+only the live exam-runtime is Electron-bound.
+
+### Can I self-host Procta?
+
+Technically yes — the docker-compose stack works on any 4-core /
+8 GB box with Postgres + Redis. Practically, we're not currently
+distributing the proprietary licence terms that would let you do
+this in production. If you're interested, open a discussion.
+
+### What student data does Procta collect, and where does it live?
+
+- **PII** (name, email, roll number): Supabase Postgres,
+  RLS-isolated per organisation.
+- **Exam answers**: same DB, encrypted at rest.
+- **Camera / room-scan snapshots**: short-lived JPEGs in Redis
+  (TTL ≤ 10s for live frames), longer-lived only when a violation is
+  flagged — then stored in the screenshots cache for review and
+  purged after 30 days unless an appeal is open.
+- **Audio**: we do not record audio. Mic permission is requested for
+  device-presence checks only.
+- **Device fingerprints**: hardware ID + screen geometry, kept for
+  the exam window only.
+
+Full data-protection breakdown is in [`docs/PRIVACY.md`](docs/PRIVACY.md)
+and the public privacy policy at <https://procta.net/privacy>.
+
+### How is billing handled?
+
+Razorpay Standard Checkout (one-off Orders, not recurring
+subscriptions yet). Pricing tiers are in `app/constants.py` (`PLANS`).
+Overage above plan capacity is billed at a per-student rate
+(`overage_price_inr`, currently ₹80/student).
+
+### My camera permission was denied. How do I re-enable?
+
+- **Chrome / Edge**: click the lock icon in the address bar → Site
+  settings → reset Camera + Microphone to "Ask".
+- **Electron kiosk**: quit the app, restart, and accept the system
+  prompt the first time. If macOS still blocks, System Settings →
+  Privacy & Security → Camera → enable Procta.
+- **iOS / Android (phone-cam)**: Settings → Apps → Browser → Site
+  settings → Camera → Allow.
+
+If permission is still blocked, you can't take a proctored exam
+— Procta requires camera consent.
+
+### My organisation invite link says "expired".
+
+Org invites are valid for 7 days. Ask your admin to re-send from
+the Members panel; the old link is invalidated automatically when
+a fresh one is issued.
+
+### How do I report a security issue?
+
+See [`SECURITY.md`](SECURITY.md). **Please do not open public
+issues** for security bugs.
+
+### How do I contribute code?
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) — local setup, test
+commands, commit style, signing, and PR expectations all live there.
 
 ---
 

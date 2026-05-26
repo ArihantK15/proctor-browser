@@ -1,0 +1,130 @@
+version: 2
+# Weekly dependency + GitHub Actions update PRs.
+#
+# We deliberately do NOT enable auto-merge: every bump needs a human
+# look. The CI roundtrip is ~10 minutes per push and we'd rather
+# discover that a minor pydantic bump broke validation in review
+# than at 2am on prod.
+#
+# Critical CVEs are still caught earlier by `pip-audit` (Tests workflow)
+# and gitleaks (pre-commit). Dependabot is the proactive layer that
+# tells us when a fix exists upstream before we get hit.
+
+updates:
+  # ── Backend (FastAPI / asyncpg / supabase-py / razorpay) ────────
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "deps(py)"
+      include: "scope"
+    assignees:
+      - "ArihantK15"
+    groups:
+      # Bundle minor + patch updates so we don't get 20 separate PRs
+      # for a routine weekly bump. Major bumps still open individually.
+      python-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── Root npm (Electron client + build/lint tooling) ─────────────
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "deps(npm)"
+      include: "scope"
+    assignees:
+      - "ArihantK15"
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── Marketing site (Vite + React) ───────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 3
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "deps(website)"
+      include: "scope"
+    assignees:
+      - "ArihantK15"
+    groups:
+      website-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── Dashboard SPA (admin React app) ─────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/app/dashboard-ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 3
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "deps(dashboard)"
+      include: "scope"
+    assignees:
+      - "ArihantK15"
+    groups:
+      dashboard-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── Student SPA ─────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/app/student-ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 3
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "deps(student-ui)"
+      include: "scope"
+    assignees:
+      - "ArihantK15"
+    groups:
+      student-ui-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── GitHub Actions versions ─────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(actions)"
+      include: "scope"
+    assignees:
+      - "ArihantK15"

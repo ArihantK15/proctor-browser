@@ -353,9 +353,17 @@ class InputValidationMiddleware(BaseHTTPMiddleware):
         except ValueError:
             return Response(status_code=400, content='Invalid Content-Length')
         if request.method in ("POST", "PUT", "PATCH"):
-            body_bytes = await request.body()
-            if len(body_bytes) > _MAX_BODY_BYTES:
-                return Response(status_code=413, content='Payload too large')
+            # Stream-and-count rather than `await request.body()` so an
+            # attacker who omits / spoofs Content-Length cannot push
+            # arbitrary bytes into RAM before the size check fires.
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > _MAX_BODY_BYTES:
+                    return Response(status_code=413, content='Payload too large')
+                chunks.append(chunk)
+            body_bytes = b"".join(chunks)
             # Re-inject the already-consumed body so downstream handlers can read it.
             request.state.body_bytes = body_bytes
             request._body = body_bytes

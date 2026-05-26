@@ -146,11 +146,14 @@ if (!app.isDefaultProtocolClient('procta')) {
 // This cuts ~80-150MB of GPU process memory on Windows.
 app.disableHardwareAcceleration();
 
-// Disable GPU sandbox — saves another ~30MB on the GPU process.
-app.commandLine.appendSwitch('disable-gpu-sandbox');
-
-// Disable Site Isolation (saves ~40MB per renderer on low-end devices).
-app.commandLine.appendSwitch('disable-site-isolation-trial');
+// NOTE: previously also set `disable-gpu-sandbox` and
+// `disable-site-isolation-trial` here to shave ~70 MB on low-end
+// kiosks. Both were dropped after a security audit: Site Isolation
+// is the Chromium primitive that contains Spectre-class cross-origin
+// data leaks (renderer reads exam answers + camera frames), and
+// the GPU sandbox is the only thing between a driver bug and full
+// host compromise. The memory win wasn't worth the attack surface
+// — the kiosk runs one origin and a few hundred MB of headroom.
 
 // Reduce the renderer process idle time before it releases memory.
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
@@ -216,6 +219,28 @@ app.on('window-all-closed', () => {
 });
 
 // ── IPC HANDLERS ──────────────────────────────────────────────────
+// All state-changing or data-returning handlers must validate that the
+// invoking frame is the **top** frame of a window we created. Without
+// this, a compromised renderer (XSS in a question prompt, a malicious
+// embed) could call privileged handlers from a nested iframe.
+function _assertMainFrame(event, name) {
+  try {
+    const f = event && event.senderFrame;
+    if (!f) return false;
+    // `parent === null` ⇒ top-level frame. Electron sets parent to a
+    // WebFrameMain instance for child frames, so a strict null check
+    // is what isolates "main page" from "any iframe".
+    if (f.parent) {
+      console.warn(`[IPC] rejected ${name} from sub-frame:`, f.url);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn(`[IPC] senderFrame check threw on ${name}:`, e.message);
+    return false;
+  }
+}
+
 ipcMain.handle('get-integrity-flags', async () => {
   const ready = getIntegrityReady();
   if (ready) { try { await ready; } catch(e) { console.error('[Integrity] check failed:', e.message); } }
@@ -225,7 +250,8 @@ ipcMain.handle('get-integrity-flags', async () => {
   }));
 });
 
-ipcMain.handle('validate-student', async (_, roll, accessCode) => {
+ipcMain.handle('validate-student', async (event, roll, accessCode) => {
+  if (!_assertMainFrame(event, 'validate-student')) throw new Error('Frame not allowed');
   const body = { roll_number: roll, access_code: accessCode || '' };
   if (getExamContext() && getExamContext().examId) body.exam_id = getExamContext().examId;
   const r = await fetchWithTimeout(`${SERVER_URL}/api/validate-student`, {
@@ -238,7 +264,8 @@ ipcMain.handle('validate-student', async (_, roll, accessCode) => {
   return data;
 });
 
-ipcMain.handle('get-questions', async (_, sessionId) => {
+ipcMain.handle('get-questions', async (event, sessionId) => {
+  if (!_assertMainFrame(event, 'get-questions')) throw new Error('Frame not allowed');
   const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
   const r = await fetchWithTimeout(`${SERVER_URL}/api/questions${qs}`,
     { headers: authHeaders(getStudentToken()) }, 30000);
@@ -246,7 +273,8 @@ ipcMain.handle('get-questions', async (_, sessionId) => {
   return r.json();
 });
 
-ipcMain.handle('log-event', async (_, data) => {
+ipcMain.handle('log-event', async (event, data) => {
+  if (!_assertMainFrame(event, 'log-event')) throw new Error('Frame not allowed');
   try {
     await fetchWithTimeout(`${SERVER_URL}/event`, {
       method: 'POST', headers: authHeaders(getStudentToken()),
@@ -255,7 +283,8 @@ ipcMain.handle('log-event', async (_, data) => {
   } catch(e) { console.error('[log-event]', e.message); }
 });
 
-ipcMain.handle('submit-exam', async (_, data) => {
+ipcMain.handle('submit-exam', async (event, data) => {
+  if (!_assertMainFrame(event, 'submit-exam')) throw new Error('Frame not allowed');
   const r = await fetchWithTimeout(`${SERVER_URL}/api/submit-exam`, {
     method: 'POST', headers: authHeaders(getStudentToken()),
     body: JSON.stringify(data),
@@ -268,21 +297,24 @@ ipcMain.handle('submit-exam', async (_, data) => {
   return r.json();
 });
 
-ipcMain.handle('get-events', async (_, sessionId) => {
+ipcMain.handle('get-events', async (event, sessionId) => {
+  if (!_assertMainFrame(event, 'get-events')) throw new Error('Frame not allowed');
   const r = await fetchWithTimeout(`${SERVER_URL}/events/${sessionId}`,
     { headers: authHeaders(getStudentToken()) }, 15000);
   if (!r.ok) return { events: [] };
   return r.json();
 });
 
-ipcMain.handle('start-calibration', async (_, data) => {
+ipcMain.handle('start-calibration', async (event, data) => {
+  if (!_assertMainFrame(event, 'start-calibration')) throw new Error('Frame not allowed');
   const sessionId = data && data.sessionId;
   if (sessionId) setCurrentSessionId(sessionId);
   await startCalibration(sessionId, SERVER_URL, getStudentToken(), getMainWindow());
   return { started: true };
 });
 
-ipcMain.handle('stop-calibration', (_, data) => {
+ipcMain.handle('stop-calibration', (event, data) => {
+  if (!_assertMainFrame(event, 'stop-calibration')) throw new Error('Frame not allowed');
   const biases = data && data.biases;
   if (biases) {
     setCalBiases(biases);
@@ -292,14 +324,16 @@ ipcMain.handle('stop-calibration', (_, data) => {
   return { stopped: true };
 });
 
-ipcMain.handle('start-proctor', async (_, data) => {
+ipcMain.handle('start-proctor', async (event, data) => {
+  if (!_assertMainFrame(event, 'start-proctor')) throw new Error('Frame not allowed');
   const sessionId = data && data.sessionId;
   if (sessionId) setCurrentSessionId(sessionId);
   await startPython(sessionId, SERVER_URL, getStudentToken(), getCalBiases());
   return { started: true };
 });
 
-ipcMain.handle('start-polling', (_, data) => {
+ipcMain.handle('start-polling', (event, data) => {
+  if (!_assertMainFrame(event, 'start-polling')) throw new Error('Frame not allowed');
   const sessionId = data && data.sessionId;
   if (sessionId) setCurrentSessionId(sessionId);
   startPolling(sessionId, getMainWindow(), getStudentToken(),
@@ -315,7 +349,8 @@ ipcMain.handle('start-polling', (_, data) => {
   return { polling: true };
 });
 
-ipcMain.handle('stop-proctor', () => {
+ipcMain.handle('stop-proctor', (event) => {
+  if (!_assertMainFrame(event, 'stop-proctor')) throw new Error('Frame not allowed');
   stopPython();
   stopPolling();
   return { stopped: true };
@@ -327,7 +362,8 @@ ipcMain.handle('get-exam-context', () => getExamContext());
 
 ipcMain.handle('get-server-url', () => SERVER_URL);
 
-ipcMain.handle('lobby-launch-exam', async (_, ctx) => {
+ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
+  if (!_assertMainFrame(event, 'lobby-launch-exam')) throw new Error('Frame not allowed');
   if (!ctx || !ctx.rollNumber) return { ok: false, error: 'Missing roll number' };
   setExamContext({
     rollNumber: String(ctx.rollNumber).trim().toUpperCase(),
@@ -344,17 +380,20 @@ ipcMain.handle('lobby-launch-exam', async (_, ctx) => {
   return { ok: true };
 });
 
-ipcMain.handle('panic-unlock', async (_, payload) => {
+ipcMain.handle('panic-unlock', async (event, payload) => {
+  if (!_assertMainFrame(event, 'panic-unlock')) throw new Error('Frame not allowed');
   await handlePanicUnlock((payload && payload.reason) || 'renderer-triggered');
   return { ok: true };
 });
 
-ipcMain.handle('exit-exam-to-lobby', () => {
+ipcMain.handle('exit-exam-to-lobby', (event) => {
+  if (!_assertMainFrame(event, 'exit-exam-to-lobby')) throw new Error('Frame not allowed');
   releaseKiosk({ reopenLobby: true });
   return { ok: true };
 });
 
-ipcMain.handle('admin-exit', (_, code) => {
+ipcMain.handle('admin-exit', (event, code) => {
+  if (!_assertMainFrame(event, 'admin-exit')) throw new Error('Frame not allowed');
   if (code === 'AUTO_CLOSE') {
     console.log('[admin-exit] AUTO_CLOSE received');
     const winRef = getMainWindow();

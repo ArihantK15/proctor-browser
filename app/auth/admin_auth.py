@@ -10,9 +10,27 @@ from jwt.exceptions import InvalidTokenError as JWTError
 from ..constants import (
     ADMIN_SIGNING_KEYS,
     STUDENT_SIGNING_KEYS,
+    SUPER_ADMIN_EMAIL,
     _TEACHER_CACHE_MAX,
     _STUDENT_ACCT_CACHE_MAX,
 )
+
+
+def _maybe_promote_super_admin(teacher: dict | None) -> dict | None:
+    """Stamp org_role='superadmin' on the master account.
+
+    SUPER_ADMIN_EMAIL is an env-controlled escape hatch — a teacher row
+    whose email matches it is treated as superadmin regardless of the
+    DB-side org_role. Centralised here so every teacher-loading path
+    (require_admin, /auth/me, teacher_login, scope resolution) sees
+    the same promoted role. Reverting the inline promotion in
+    require_admin() that was removed in 04cd262.
+    """
+    if not teacher:
+        return teacher
+    if SUPER_ADMIN_EMAIL and str(teacher.get("email", "")).strip().lower() == SUPER_ADMIN_EMAIL:
+        teacher["org_role"] = "superadmin"
+    return teacher
 from ..database import async_table as _atable
 try:
     from .. import cache as _cache
@@ -58,7 +76,7 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
     result = (await _atable("teachers").select("id,email,full_name,org_id,org_role,supabase_uid").eq("id", str(teacher_id)).execute()).data
     if not result:
         return None
-    teacher = result[0]
+    teacher = _maybe_promote_super_admin(result[0])
     if _cache:
         _cache.set(f"teacher:{teacher_id}", teacher, ttl=60)
     else:
@@ -80,7 +98,7 @@ async def _get_teacher_by_uid(uid: str) -> dict | None:
     result = (await _atable("teachers").select("id,email,full_name,org_id,org_role,email_verified_at,status,email_2fa_enabled_at").eq("supabase_uid", str(uid)).execute()).data
     if not result:
         return None
-    return result[0]
+    return _maybe_promote_super_admin(result[0])
 
 
 async def verify_admin_token(token: str) -> dict:

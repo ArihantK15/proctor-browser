@@ -222,7 +222,14 @@ async def _get_teacher_by_email_for_auth(email: str) -> dict | None:
     result = await _atable("teachers").select(
         "id,email,full_name,org_id,org_role,password_hash,email_verified_at,password_changed_at,status,email_2fa_enabled_at"
     ).eq("email", email).limit(1).execute()
-    return result.data[0] if result.data else None
+    if not result.data:
+        return None
+    # Centralised super-admin promotion — the master account becomes
+    # org_role=superadmin regardless of DB-side role. Matches the helper
+    # in app/auth/admin_auth.py so /login, /auth/me, require_admin, and
+    # scope.resolve_scope() all see the same elevated role.
+    from ..auth.admin_auth import _maybe_promote_super_admin
+    return _maybe_promote_super_admin(result.data[0])
 
 
 async def _get_student_by_email_for_auth(email: str) -> dict | None:
@@ -957,7 +964,7 @@ async def get_org_invite_page(token: str, request: Request):
 @router.post("/api/v1/auth/accept-org-invite")
 @limiter.limit("5/hour")
 async def accept_org_invite(body: dict, request: Request):
-    """Accept an org invite: create teacher account and join org."""
+    """Accept an org invite and defer org membership until email verification."""
     token = (body.get("token") or "").strip()
     full_name = (body.get("full_name") or "").strip()
     password = (body.get("password") or "").strip()
@@ -972,9 +979,7 @@ async def accept_org_invite(body: dict, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
     # Hash-then-lookup (audit M13) so a DB compromise can't surface
-    # usable invite links. The plaintext `token` column is still
-    # populated by admin_org.py during the transition; a future
-    # migration drops it once we're confident the hash path is stable.
+    # usable invite links.
     import hashlib as _hl
     token_hash = _hl.sha256(token.encode("utf-8")).hexdigest()
     result = await _atable("org_invites").select("*").eq("token_hash", token_hash).eq("status", "pending").limit(1).execute()
@@ -999,9 +1004,15 @@ async def accept_org_invite(body: dict, request: Request):
         teacher = existing.data[0]
         if teacher.get("org_id"):
             raise HTTPException(status_code=409, detail="This email is already part of an organization")
-        await _atable("teachers").update({"org_id": org_id, "org_role": "teacher"}).eq("id", teacher["id"]).execute()
-        teacher["org_id"] = org_id
-        teacher["org_role"] = "teacher"
+        update_fields = {"full_name": full_name, "status": "pending_verification"}
+        if local_password_auth_enabled() and not teacher.get("email_verified_at"):
+            update_fields.update({
+                "password_hash": await hash_password(password),
+                "auth_provider": "local",
+                "password_changed_at": now_ist().isoformat(),
+            })
+        await _atable("teachers").update(update_fields).eq("id", teacher["id"]).execute()
+        teacher.update(update_fields)
     else:
         password_hash = None
         auth_provider = "supabase"
@@ -1028,8 +1039,8 @@ async def accept_org_invite(body: dict, request: Request):
             "email": email,
             "full_name": full_name,
             "supabase_uid": str(supabase_uid),
-            "org_id": org_id,
             "org_role": "teacher",
+            "status": "pending_verification",
         }
         if local_password_auth_enabled():
             teacher_row.update({
@@ -1041,24 +1052,24 @@ async def accept_org_invite(body: dict, request: Request):
         teacher = teacher_result.data[0]
 
     resolved_name = teacher.get("full_name") or body.get("full_name", full_name)
-    await _atable("org_invites").update({"status": "accepted", "accepted_at": datetime.now(timezone.utc).isoformat()}).eq("id", invite["id"]).execute()
+    await _atable("org_invites").update({"status": "pending_verification"}).eq("id", invite["id"]).execute()
 
     vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
     from ..emailer import send_email_verification
     from ..invites import _get_invite_base_url
     base = _get_invite_base_url()
     send_email_verification(email, resolved_name, f"{base}/verify-email?token={vtoken}")
-    _auth_log.info("[AcceptInvite] %s <%s> joined org %s", resolved_name, email, org_id)
+    _auth_log.info("[AcceptInvite] %s <%s> pending verification for org %s", resolved_name, email, org_id)
     enqueue_job(send_new_account_notification_job, account_type="teacher", name=resolved_name, email=email)
 
     return {
         "teacher_id": teacher["id"],
         "email": email,
         "full_name": resolved_name,
-        "org_id": org_id,
+        "org_id": None,
         "org_role": "teacher",
         "email_verification_required": True,
-        "message": "Invitation accepted. Check your email to verify before signing in.",
+        "message": "Invitation accepted. Check your email to verify before the account is added to the organization.",
     }
 
 
@@ -1637,9 +1648,47 @@ async def verify_email(request: Request, token: str = ""):
     kind = claims.get("kind", "teacher")
     table = "teachers" if kind == "teacher" else "student_accounts"
 
-    await _atable(table).update({
-        "email_verified_at": now_ist().isoformat(),
-    }).eq("id", user_id).execute()
+    await _atable(table).update({"email_verified_at": now_ist().isoformat()}).eq("id", user_id).execute()
+
+    if kind == "teacher":
+        email = str(claims.get("email") or "").strip().lower()
+        pending = await (
+            _atable("org_invites")
+            .select("id,org_id,expires_at")
+            .eq("email", email)
+            .eq("status", "pending_verification")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if pending.data:
+            invite = pending.data[0]
+            expired = False
+            if invite.get("expires_at"):
+                try:
+                    expires = datetime.fromisoformat(str(invite["expires_at"]).replace("Z", "+00:00"))
+                    expired = datetime.now(timezone.utc) > expires
+                except Exception:
+                    expired = False
+            if not expired:
+                teacher_res = await _atable("teachers").select("org_id").eq("id", user_id).limit(1).execute()
+                teacher = teacher_res.data[0] if teacher_res.data else {}
+                if not teacher.get("org_id"):
+                    await _atable("teachers").update({
+                        "org_id": str(invite["org_id"]),
+                        "org_role": "teacher",
+                        "status": "active",
+                    }).eq("id", user_id).execute()
+                    await _atable("org_invites").update({
+                        "status": "accepted",
+                        "accepted_at": datetime.now(timezone.utc).isoformat(),
+                    }).eq("id", invite["id"]).execute()
+                else:
+                    await _atable("teachers").update({"status": "active"}).eq("id", user_id).execute()
+            else:
+                await _atable("org_invites").update({"status": "expired"}).eq("id", invite["id"]).execute()
+        else:
+            await _atable("teachers").update({"status": "active"}).eq("id", user_id).execute()
 
     await record_auth_event("email_verified", request, kind, user_id, claims.get("email"))
 

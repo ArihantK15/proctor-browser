@@ -83,7 +83,14 @@ async def invite_member(body: OrgInviteIn, request: Request):
         raise HTTPException(status_code=409, detail="This user is already a member of your organization")
 
     # Check if already invited
-    pending = await _atable("org_invites").select("id").eq("email", email).eq("org_id", str(org_id)).eq("status", "pending").execute()
+    pending = await (
+        _atable("org_invites")
+        .select("id")
+        .eq("email", email)
+        .eq("org_id", str(org_id))
+        .in_("status", ["pending", "pending_verification"])
+        .execute()
+    )
     if pending.data:
         raise HTTPException(status_code=409, detail="An invitation has already been sent to this email")
 

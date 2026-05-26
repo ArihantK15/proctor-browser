@@ -389,11 +389,11 @@ async function confirmDeleteExam(){
   if(examsList.length <= 1){ showModal('Cannot delete the only exam.'); return; }
   const ex = examsList.find(e=>e.exam_id===currentExamId);
   const name = ex ? ex.exam_title : 'this exam';
-  // Two-step confirm — bare confirm() is too easy to muscle-memory-OK
+  // Two-step deletion check — a single click is too easy to muscle-memory-OK
   // for an action that wipes every question on the exam. Type-to-confirm
   // forces the teacher to read the exam name back.
-  if(!confirm(`Delete "${name}"? This removes ALL its questions. Session history is preserved.`)) return;
-  const typed = prompt(`To confirm, type the exam name exactly:\n\n${name}`, '');
+  if(!(await appConfirm(`Delete "${name}"? This removes ALL its questions. Session history is preserved.`, 'Delete exam', {okText:'Delete'}))) return;
+  const typed = await appPrompt(`To confirm, type the exam name exactly:\n\n${name}`, '', {title:'Type exam name', okText:'Delete'});
   if(typed === null) return; // cancelled
   if((typed || '').trim() !== (name || '').trim()){
     showModal('Names do not match — delete cancelled.');
@@ -417,13 +417,14 @@ async function duplicateCurrentExam(){
   const ex = examsList.find(e => e.exam_id === currentExamId);
   const srcTitle = ex ? ex.exam_title : 'this exam';
   const defaultTitle = `${srcTitle} (copy)`;
-  const newTitle = prompt(
+  const newTitle = await appPrompt(
     `Duplicate "${srcTitle}"?\n\n` +
     `A new exam will be created with the same questions, duration, and\n` +
     `shuffle settings. The schedule and access code will be cleared so\n` +
     `you can set them fresh.\n\n` +
     `Title for the new exam:`,
-    defaultTitle
+    defaultTitle,
+    {title:'Duplicate exam', okText:'Duplicate'}
   );
   if (newTitle === null) return; // cancelled
   try {
@@ -1184,7 +1185,7 @@ async function load2FAStatus(){
 // password and exchanges it for a 5-minute reauth_token. Centralised
 // here so both flows use identical logic.
 async function _get2FAReauthToken(action){
-  const password = prompt(`Enter your password to ${action} two-factor authentication:`);
+  const password = await appPrompt(`Enter your password to ${action}:`, '', {title:'Re-authentication required', okText:'Continue', inputType:'password'});
   if(!password) return null;
   const rr = await authFetch(`${BASE}/api/v1/auth/reauth`, {
     method:'POST',
@@ -1260,7 +1261,7 @@ async function loadSessions(){
 }
 
 async function revokeSession(jti){
-  if(!confirm('Revoke this session? The device will be signed out immediately.')) return;
+  if(!(await appConfirm('Revoke this session? The device will be signed out immediately.', 'Revoke session', {okText:'Revoke'}))) return;
   try{
     const r = await authFetch(`${BASE}/api/v1/auth/sessions/${encodeURIComponent(jti)}/revoke`, {method:'POST'});
     if(!r.ok) throw new Error();
@@ -1269,7 +1270,7 @@ async function revokeSession(jti){
 }
 
 async function revokeOtherSessions(){
-  if(!confirm('Sign out all other devices? You will stay signed in on this device.')) return;
+  if(!(await appConfirm('Sign out all other devices? You will stay signed in on this device.', 'Sign out other devices', {okText:'Sign out'}))) return;
   const resultEl = document.getElementById('security-sessions-result');
   resultEl.textContent = 'Revoking...';
   try{
@@ -1427,7 +1428,7 @@ async function gradeBulkReject(){
   const status = document.getElementById('grade-summary');
   const eid = currentExamId;
   if(!eid){ status.textContent = 'Select an exam first.'; return; }
-  if(!confirm('Set ALL unconfirmed short-answer scores to 0? This can be reverted by re-grading.')) return;
+  if(!(await appConfirm('Set ALL unconfirmed short-answer scores to 0? This can be reverted by re-grading.', 'Reject pending scores', {okText:'Set to 0'}))) return;
   status.textContent = 'Rejecting all...';
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm-bulk`,{
@@ -2031,11 +2032,12 @@ async function doInviteTeacher(){
 async function emailAllScorecards(){
   const eid = currentExamId;
   if(!eid){ showModal('Select an exam first.'); return; }
-  const msg = prompt(
+  const msg = await appPrompt(
     "Email scorecards to all completed students?\n\n" +
     "Students who have already been emailed will be skipped.\n" +
     "Optionally add a short note (shown in every email), or leave blank:",
-    ""
+    "",
+    {title:'Email scorecards', okText:'Send emails', multiline:true}
   );
   if (msg === null) return;  // user cancelled
   const body = { custom_message: (msg || "").trim() };
@@ -2636,7 +2638,7 @@ async function connectGoogle(){
 }
 
 async function disconnectGoogle(){
-  if(!confirm('Disconnect Google Classroom? Linked courses will be unlinked.')) return;
+  if(!(await appConfirm('Disconnect Google Classroom? Linked courses will be unlinked.', 'Disconnect Google Classroom', {okText:'Disconnect'}))) return;
   const resultEl = document.getElementById('google-result');
   resultEl.textContent = 'Disconnecting...';
   try{
@@ -2907,7 +2909,7 @@ async function loadFailedCount(){
 }
 
 async function forceSubmit(sid){
-  if(!confirm(`Force-submit session ${sid}?`)) return;
+  if(!(await appConfirm(`Force-submit session ${sid}?`, 'Force submit session', {okText:'Force submit'}))) return;
   try{
     const reauth_token = await _get2FAReauthToken('force-submit this session');
     if(!reauth_token) return;
@@ -3493,13 +3495,88 @@ function escJs(s){
   return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/`/g,'\\`').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/</g,'\\x3c');
 }
 
-function showModal(title, message){
-  document.getElementById('modal-title').textContent = title;
-  document.getElementById('modal-body').textContent = message;
-  document.getElementById('modal-overlay').style.display = 'flex';
+let _appDialogResolve = null;
+let _appDialogMode = 'alert';
+
+function _appModalEls(){
+  return {
+    overlay: document.getElementById('app-modal-overlay'),
+    title: document.getElementById('app-modal-title'),
+    body: document.getElementById('app-modal-body'),
+    ok: document.getElementById('app-modal-ok'),
+    cancel: document.getElementById('app-modal-cancel'),
+  };
 }
-function closeModal(){
-  document.getElementById('modal-overlay').style.display = 'none';
+
+function _openAppDialog({title='Procta', body='', mode='alert', defaultValue='', multiline=false, inputType='text', okText='OK', cancelText='Cancel'} = {}){
+  const els = _appModalEls();
+  if(!els.overlay || !els.title || !els.body || !els.ok || !els.cancel){
+    return Promise.resolve(mode === 'confirm' ? false : null);
+  }
+  if(_appDialogResolve) _appDialogResolve(mode === 'confirm' ? false : null);
+  _appDialogMode = mode;
+  els.title.textContent = title;
+  els.body.innerHTML = '';
+  const msg = document.createElement('div');
+  msg.textContent = body || '';
+  els.body.appendChild(msg);
+  if(mode === 'prompt'){
+    const input = multiline ? document.createElement('textarea') : document.createElement('input');
+    input.id = 'app-modal-prompt';
+    if(!multiline) input.type = inputType || 'text';
+    input.value = defaultValue || '';
+    input.style.cssText = 'width:100%;margin-top:12px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:10px 12px;font-size:13px;outline:none;box-sizing:border-box';
+    if(multiline){
+      input.rows = 4;
+      input.style.resize = 'vertical';
+    }
+    els.body.appendChild(input);
+    setTimeout(()=>input.focus(), 0);
+  }
+  els.ok.textContent = okText || 'OK';
+  els.cancel.textContent = cancelText || 'Cancel';
+  els.cancel.style.display = mode === 'alert' ? 'none' : '';
+  els.overlay.style.display = 'flex';
+  return new Promise(resolve => { _appDialogResolve = resolve; });
+}
+
+function _resolveAppDialog(value){
+  const els = _appModalEls();
+  if(els.overlay) els.overlay.style.display = 'none';
+  const resolve = _appDialogResolve;
+  _appDialogResolve = null;
+  if(resolve) resolve(value);
+}
+
+function confirmAppModal(){
+  if(_appDialogMode === 'prompt'){
+    const input = document.getElementById('app-modal-prompt');
+    _resolveAppDialog(input ? input.value : '');
+    return;
+  }
+  _resolveAppDialog(true);
+}
+
+function cancelAppModal(){
+  _resolveAppDialog(_appDialogMode === 'confirm' ? false : null);
+}
+
+function closeAppModal(){
+  cancelAppModal();
+}
+
+function showModal(title, message){
+  const finalTitle = message === undefined ? 'Procta' : title;
+  const finalMessage = message === undefined ? title : message;
+  return _openAppDialog({title: finalTitle, body: finalMessage, mode:'alert'});
+}
+
+function appConfirm(message, title='Please confirm', opts={}){
+  return _openAppDialog({title, body: message, mode:'confirm', okText: opts.okText || 'Confirm', cancelText: opts.cancelText || 'Cancel'});
+}
+
+function appPrompt(message, defaultValue='', opts={}){
+  return _openAppDialog({title: opts.title || 'Procta', body: message, mode:'prompt', defaultValue, multiline: !!opts.multiline, inputType: opts.inputType || 'text', okText: opts.okText || 'OK'});
 }
 
 function setCorrect(idx,key){
@@ -3535,8 +3612,8 @@ function removeOpt(idx,key){
   renderQEditor();
 }
 
-function deleteQ(idx){
-  if(!confirm(`Delete question ${idx+1}?`)) return;
+async function deleteQ(idx){
+  if(!(await appConfirm(`Delete question ${idx+1}?`, 'Delete question', {okText:'Delete'}))) return;
   qData.splice(idx,1);
   // Re-number IDs
   qData.forEach((q,i)=>q.id=i+1);
@@ -5052,11 +5129,12 @@ async function saveQuestionToBank(idx){
     }
   }catch(_){/* offline or no LLM — fall through to manual entry */}
 
-  const tagsRaw = prompt(
+  const tagsRaw = await appPrompt(
     suggested
       ? 'Tags (AI-suggested — edit if needed, or clear for none):'
       : 'Add tags (comma-separated). Example: easy, algebra, grade-10',
-    suggested
+    suggested,
+    {title:'Question tags', okText:'Save'}
   );
   if(tagsRaw === null) return; // cancelled
   const tags = tagsRaw.split(',').map(t=>t.trim()).filter(Boolean);
@@ -5080,17 +5158,16 @@ async function saveQuestionToBank(idx){
 
 // Edit a question already in the bank. The PUT endpoint accepts a
 // partial fields dict, so we only ship what changed. We use simple
-// prompts rather than a modal — bank edits are rare (typo fixes,
-// tag corrections) and a modal here would mean ~80 lines of HTML for
-// something teachers will use once a month.
+// Uses the shared app prompt helper so dashboard edits never fall back
+// to blocking native browser dialogs.
 async function editBankQ(qid){
   const q = _bankData.find(x=>x.id===qid);
   if(!q) return;
-  const newQ = prompt('Edit question text:', q.question);
+  const newQ = await appPrompt('Edit question text:', q.question, {title:'Edit bank question', okText:'Next', multiline:true});
   if(newQ === null) return;
-  const newCorrect = prompt('Correct answer (e.g. A or A,B for multi):', q.correct || '');
+  const newCorrect = await appPrompt('Correct answer (e.g. A or A,B for multi):', q.correct || '', {title:'Edit correct answer', okText:'Next'});
   if(newCorrect === null) return;
-  const tagsRaw = prompt('Tags (comma-separated):', (q.tags||[]).join(', '));
+  const tagsRaw = await appPrompt('Tags (comma-separated):', (q.tags||[]).join(', '), {title:'Edit tags', okText:'Save'});
   if(tagsRaw === null) return;
   const fields = {
     question: newQ.trim(),
@@ -5150,7 +5227,7 @@ async function createGroup(){
 }
 
 async function deleteGroup(gid){
-  if(!confirm('Delete this group? Members and exam assignments will also be removed.')) return;
+  if(!(await appConfirm('Delete this group? Members and exam assignments will also be removed.', 'Delete group', {okText:'Delete'}))) return;
   await authFetch(`${BASE}/api/v1/admin/groups/${gid}`,{method:'DELETE'});
   if(_activeGroupId===gid) closeGroupDetail();
   loadGroups();
@@ -5205,7 +5282,7 @@ async function removeGroupMember(gid, roll){
 
 async function removeOrgMember(memberId){
   if(!memberId) return;
-  if(!confirm('Remove this teacher from the organization? They will lose access immediately.')) return;
+  if(!(await appConfirm('Remove this teacher from the organization? They will lose access immediately.', 'Remove member', {okText:'Remove'}))) return;
   const r = await authFetch(`${BASE}/api/v1/org/members/${encodeURIComponent(memberId)}`,
     {method:'DELETE'});
   if(!r.ok){
@@ -5344,9 +5421,9 @@ async function sendInvites(){
   if(!rows.length){ showModal('Add at least one recipient as: name, email, roll'); return; }
   const st = document.getElementById('invite-result');
   if(bad.length){
-    if(!confirm(`${bad.length} row(s) are malformed and will be skipped. Continue with ${rows.length} valid row(s)?`)) return;
+    if(!(await appConfirm(`${bad.length} row(s) are malformed and will be skipped. Continue with ${rows.length} valid row(s)?`, 'Send invites', {okText:'Continue'}))) return;
   }else{
-    if(!confirm(`Send invite emails to ${rows.length} student(s) for this exam?`)) return;
+    if(!(await appConfirm(`Send invite emails to ${rows.length} student(s) for this exam?`, 'Send invites', {okText:'Send'}))) return;
   }
   const btn = document.getElementById('btn-invite-send');
   btn.disabled = true;
@@ -5501,7 +5578,7 @@ function _copyInviteLink(url){
 }
 
 async function resendInvite(id){
-  if(!confirm('Resend this invite? A fresh token will be generated and the old link will stop working.')) return;
+  if(!(await appConfirm('Resend this invite? A fresh token will be generated and the old link will stop working.', 'Resend invite', {okText:'Resend'}))) return;
   const st = document.getElementById('invite-result');
   st.style.color='var(--muted)'; st.textContent='Resending…';
   try{
@@ -5514,7 +5591,7 @@ async function resendInvite(id){
 }
 
 async function revokeInvite(id){
-  if(!confirm('Revoke this invite? The student will no longer be able to join using this link.')) return;
+  if(!(await appConfirm('Revoke this invite? The student will no longer be able to join using this link.', 'Revoke invite', {okText:'Revoke'}))) return;
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/invites/${id}`, {method:'DELETE'});
     if(!r.ok){ const d=await r.json(); showModal(d.detail||'Failed'); return; }
@@ -5523,7 +5600,7 @@ async function revokeInvite(id){
 }
 
 async function resendBouncedInvites(){
-  if(!confirm('Resend all invites that bounced or failed for this exam?')) return;
+  if(!(await appConfirm('Resend all invites that bounced or failed for this exam?', 'Resend failed invites', {okText:'Resend'}))) return;
   const eid = currentExamId;
   const st = document.getElementById('invite-result');
   st.style.color='var(--muted)'; st.textContent='Resending bounced invites…';
@@ -5959,7 +6036,7 @@ async function createExamFromTemplate(templateId){
 }
 
 async function deleteTemplate(templateId){
-  if(!confirm('Delete this template? Exams already created from it will not be affected.')) return;
+  if(!(await appConfirm('Delete this template? Exams already created from it will not be affected.', 'Delete template', {okText:'Delete'}))) return;
   const resultEl = document.getElementById('template-result');
   resultEl.textContent = 'Deleting…';
   try{

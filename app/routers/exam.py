@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 import os
+import secrets
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -310,7 +311,9 @@ async def _validate_access_code(provided_code: str, student_tid: str, student: d
     current_code = await _get_access_code(student_tid, exam_id=exam_id)
     if not current_code:
         return None
-    shared_ok = bool(provided_code) and provided_code == current_code
+    shared_ok = bool(provided_code) and secrets.compare_digest(
+        str(provided_code), str(current_code)
+    )
     if shared_ok:
         return None
     if not provided_code or not student_tid:
@@ -320,7 +323,7 @@ async def _validate_access_code(provided_code: str, student_tid: str, student: d
         inv_q.eq("exam_id", exam_id)
     for inv in ((await inv_q.execute()).data or []):
         code = (inv.get("access_code") or "").upper()
-        if not code or code != provided_code:
+        if not code or not secrets.compare_digest(str(code), str(provided_code)):
             continue
         if (inv.get("status") or "") == InviteStatus.REVOKED:
             continue

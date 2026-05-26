@@ -298,9 +298,14 @@ async def _verify_and_rotate_refresh_token(
     rec = row.data[0]
     if rec.get("revoked_at"):
         # Replay attempt — the token was previously used and rotated.
-        # Best-practice response is to ALSO revoke any descendant in
-        # this user's active set (stolen-token defence). For now we
-        # just reject and let the user log in fresh.
+        # A replay means the refresh-token family may be compromised:
+        # revoke active descendants and access sessions for this user.
+        now_iso = now_ist().isoformat()
+        await _revoke_refresh_tokens_for_user(user_id, expected_kind)
+        session_kind = "teacher" if expected_kind == "teacher" else "student"
+        await _atable("auth_sessions").update({"revoked_at": now_iso})\
+            .eq("user_id", str(user_id)).eq("user_kind", session_kind)\
+            .is_("revoked_at", "null").execute()
         raise HTTPException(status_code=401, detail="Refresh token has been revoked")
     if str(rec.get("user_id")) != str(user_id) or rec.get("kind") != expected_kind:
         # Claim/DB mismatch — should not happen unless someone is
@@ -1567,6 +1572,7 @@ h2{color:#e2e8f0;margin-bottom:8px}p{color:#94a3b8;font-size:14px;line-height:1.
 
 
 @router.get("/verify-email")
+@limiter.limit("5/minute")
 async def verify_email(request: Request, token: str = ""):
     """Verify email address via token from verification email."""
     claims = verify_email_token(token)

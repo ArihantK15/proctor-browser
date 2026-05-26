@@ -845,7 +845,7 @@ document.addEventListener('DOMContentLoaded', () => {
   var _hashTab = window.location.hash.match(/^#tab-(.+)$/);
   if (_hashTab) {
     var _tabName = _hashTab[1];
-    if (document.querySelector('.tab[data-tab="' + _tabName + '"]')) {
+    if (_tabButtonForName(_tabName)) {
       switchTab(_tabName);
     }
   }
@@ -856,13 +856,18 @@ window.addEventListener('hashchange', function(){
   var m = window.location.hash.match(/^#tab-(.+)$/);
   if (m) {
     var t = m[1];
-    if (document.querySelector('.tab[data-tab="' + t + '"]')) {
+    if (_tabButtonForName(t)) {
       switchTab(t);
     }
   }
 });
 
 // ── TABS ────────────────────────────────────────────────────────
+function _tabButtonForName(tab){
+  if(!/^[a-z0-9-]+$/i.test(tab || '')) return null;
+  return document.querySelector('.tab[data-tab="' + tab + '"]');
+}
+
 function switchTab(tab){
   // Update both the visual active state and the ARIA state in lockstep
   // so screen readers announce the change. Without aria-selected,
@@ -1118,7 +1123,7 @@ async function loadMembers(){
         <td>${escHtml(m.email)}</td>
         <td>${escHtml(m.org_role)}</td>
         <td>${m.created_at||'--'}</td>
-        <td>${m.org_role==='teacher' ? '<button class="btn btn-secondary btn-sm" style="color:var(--red);font-size:11px;padding:4px 8px" data-action="removeOrgMember" data-args=${_jsonArgsForAttr(m.id)}>Remove</button>' : ''}</td>
+        <td>${m.org_role==='teacher' ? `<button class="btn btn-secondary btn-sm" style="color:var(--red);font-size:11px;padding:4px 8px" data-action="removeOrgMember" data-args='${_jsonArgsForAttr(m.id)}'>Remove</button>` : ''}</td>
       </tr>
     `).join('');
   }catch(_){}
@@ -1255,7 +1260,7 @@ async function loadSessions(){
       <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
         <div style="font-size:12px;color:var(--text)">${escHtml(s.user_agent||'Unknown browser')}</div>
         <div style="font-size:11px;color:var(--muted);font-family:monospace">${s.ip||''}</div>
-        <button class="btn btn-ghost btn-sm" data-action="revokeSession" data-args=${_jsonArgsForAttr(s.jti)} style="font-size:10px;color:var(--red);padding:2px 6px">Revoke</button>
+        <button class="btn btn-ghost btn-sm" data-action="revokeSession" data-args='${_jsonArgsForAttr(s.jti)}' style="font-size:10px;color:var(--red);padding:2px 6px">Revoke</button>
       </div>
     `).join('');
   }catch(_){}
@@ -1713,7 +1718,7 @@ function renderLive(){
     const sid = s.session_id || s.session_key || '';
     const risk = s.risk_score == null ? '--' : String(s.risk_score);
     const state = s.submitted ? 'Submitted' : (s.live_state || 'Active');
-    return `<tr data-action="openTimelineForSession" data-args=${_jsonArgsForAttr(sid)} style="cursor:pointer">
+    return `<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
       <td><span style="font-family:var(--font-mono);font-size:11px">${_escHtml(sid)}</span></td>
       <td>${_escHtml((s.last_event || '--').replace(/_/g,' '))}</td>
       <td><span class="sev ${escAttr(String(s.last_severity || 'low').toLowerCase())}">${_escHtml(s.last_severity || '--')}</span></td>
@@ -1722,8 +1727,8 @@ function renderLive(){
       <td>${_escHtml(s.last_seen || (s.heartbeat_age_sec != null ? `${s.heartbeat_age_sec}s ago` : '--'))}</td>
       <td>${_escHtml(state)}</td>
       <td>
-        <button class="btn btn-secondary btn-sm" data-action="openTriage" data-args=${_jsonArgsForAttr(sid)}>Insight</button>
-        <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args=${_jsonArgsForAttr(sid)}>Timeline</button>
+        <button class="btn btn-secondary btn-sm" data-action="openTriage" data-args='${_jsonArgsForAttr(sid)}'>Insight</button>
+        <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
       </td>
     </tr>`;
   }).join('');
@@ -1773,7 +1778,7 @@ function renderResults(){
   }
   body.innerHTML = rows.map(r => {
     const sid = r.session_id || r.session_key || '';
-    return `<tr data-action="openTimelineForSession" data-args=${_jsonArgsForAttr(sid)} style="cursor:pointer">
+    return `<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
       <td>${_escHtml(r.roll_number || '--')}</td>
       <td>${_escHtml(r.full_name || '--')}</td>
       <td>${_escHtml(r.score ?? '--')} / ${_escHtml(r.total ?? '--')}</td>
@@ -1784,8 +1789,8 @@ function renderResults(){
       <td>${_fmtDuration(r.time_taken_secs || 0)}</td>
       <td>${_escHtml(r.submitted_at || '--')}</td>
       <td>
-        <button class="btn btn-secondary btn-sm" data-action="dlScorecard" data-args=${_jsonArgsForAttr(sid)}>Scorecard</button>
-        <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args=${_jsonArgsForAttr(sid)}>Timeline</button>
+        <button class="btn btn-secondary btn-sm" data-action="dlScorecard" data-args='${_jsonArgsForAttr(sid)}'>Scorecard</button>
+        <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
       </td>
     </tr>`;
   }).join('');
@@ -1813,9 +1818,9 @@ async function refreshIdReviews(){
             <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${_escHtml(v.session_key || '')}</div>
           </div>
           <div style="display:flex;gap:6px">
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args=${_jsonArgsForAttr(v.id,v.session_key,'approved')}>Approve</button>
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args=${_jsonArgsForAttr(v.id,v.session_key,'retake')}>Retake</button>
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args=${_jsonArgsForAttr(v.id,v.session_key,'rejected')} style="color:var(--red)">Reject</button>
+            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,'approved')}'>Approve</button>
+            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,'retake')}'>Retake</button>
+            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,'rejected')}' style="color:var(--red)">Reject</button>
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
@@ -2286,7 +2291,7 @@ function renderIssuesTable(){
   }
   body.innerHTML = issuesData.map(i => {
     const desc = (i.description || '').length > 60 ? `${i.description.slice(0,60)}...` : (i.description || '');
-    return `<tr class="issue-row ${currentIssueId===i.id?'active':''}" data-action="openIssueDetail" data-args=${_jsonArgsForAttr(i.id)}>
+    return `<tr class="issue-row ${currentIssueId===i.id?'active':''}" data-action="openIssueDetail" data-args='${_jsonArgsForAttr(i.id)}'>
       <td><span class="issue-badge status-${escAttr(i.status)}">${_escHtml(_issueLabel(i.status))}</span></td>
       <td><span class="issue-badge severity-${escAttr(i.severity)}">${_escHtml(_issueLabel(i.severity))}</span></td>
       <td>${_escHtml(i.org_name || i.org_id || '—')}</td>
@@ -2887,7 +2892,7 @@ async function loadFailed(){
       el.innerHTML=d.failed_sessions.map(s=>`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           <span style="font-size:12px;color:var(--text)">${esc(s)}</span>
-          <button class="btn btn-secondary btn-sm" data-action="forceSubmit" data-args=${_jsonArgsForAttr(s)} style="padding:2px 8px;font-size:11px">Force Submit</button>
+          <button class="btn btn-secondary btn-sm" data-action="forceSubmit" data-args='${_jsonArgsForAttr(s)}' style="padding:2px 8px;font-size:11px">Force Submit</button>
         </div>
       `).join('');
     }
@@ -3947,7 +3952,7 @@ function renderTimeline(){
     const icCls=`ic-${e.severity}`;
     const timeStr=extractTime(e.timestamp);
     const thumbHtml=e.screenshot
-      ?`<img class="tl-thumb" data-src="${escAttr(e.screenshot)}" data-action="_showLightbox" data-args=${_jsonArgsForAttr(e.screenshot,e.type,timeStr)} data-error-action="_hideSelf">`
+      ?`<img class="tl-thumb" data-src="${escAttr(e.screenshot)}" data-action="_showLightbox" data-args='${_jsonArgsForAttr(e.screenshot,e.type,timeStr)}' data-error-action="_hideSelf">`
       :'';
     return `<div class="tl-event sev-${e.severity}${e.is_violation?' is-violation':''}" id="tl-evt-${i}">
       <div class="tl-time">${timeStr}</div>
@@ -4258,7 +4263,7 @@ function chatRenderRoster(){
     const unread = (s.unread||0) > 0 ? `<span class="unread">${s.unread}</span>` : '';
     const safeName = chatEscape(s.name || sid);
     const safeRoll = chatEscape(s.roll || '');
-    return `<div class="chat-row${active}" data-action="chatSelect" data-args=${_jsonArgsForAttr(sid)}>
+    return `<div class="chat-row${active}" data-action="chatSelect" data-args='${_jsonArgsForAttr(sid)}'>
       <span class="dot${dotCls}"></span>
       <div class="meta">
         <div class="name">${safeName}</div>
@@ -4597,9 +4602,9 @@ function renderBank(data){
         </div>
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0">
-        <button class="btn btn-secondary btn-sm" data-action="saveBankToExamSingle" data-args=${_jsonArgsForAttr(q.id)} style="padding:2px 8px;font-size:10px" title="Add to current exam">+Exam</button>
-        <button class="btn btn-secondary btn-sm" data-action="editBankQ" data-args=${_jsonArgsForAttr(q.id)} style="padding:2px 8px;font-size:10px" title="Edit question">Edit</button>
-        <button class="btn btn-secondary btn-sm" data-action="deleteBankQ" data-args=${_jsonArgsForAttr(q.id)} style="padding:2px 8px;font-size:10px;color:var(--red)" title="Delete">&times;</button>
+        <button class="btn btn-secondary btn-sm" data-action="saveBankToExamSingle" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px" title="Add to current exam">+Exam</button>
+        <button class="btn btn-secondary btn-sm" data-action="editBankQ" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px" title="Edit question">Edit</button>
+        <button class="btn btn-secondary btn-sm" data-action="deleteBankQ" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px;color:var(--red)" title="Delete">&times;</button>
       </div>
     </div>`;
   }).join('');
@@ -4774,8 +4779,8 @@ function _renderGenPreview(){
   preview.innerHTML = `
     ${rows}
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="btn btn-primary btn-sm" data-action="commitGenPreview" data-args=${_jsonArgsForAttr('exam')} title="Save to bank AND add to the currently selected exam">+ ${_genPreview.length} → Exam</button>
-      <button class="btn btn-secondary btn-sm" data-action="commitGenPreview" data-args=${_jsonArgsForAttr('bank')} title="Save to question bank only (use Bank tab to add to an exam later)">+ ${_genPreview.length} → Bank</button>
+      <button class="btn btn-primary btn-sm" data-action="commitGenPreview" data-args='${_jsonArgsForAttr('exam')}' title="Save to bank AND add to the currently selected exam">+ ${_genPreview.length} → Exam</button>
+      <button class="btn btn-secondary btn-sm" data-action="commitGenPreview" data-args='${_jsonArgsForAttr('bank')}' title="Save to question bank only (use Bank tab to add to an exam later)">+ ${_genPreview.length} → Bank</button>
       <button class="btn btn-secondary btn-sm" data-action="_discardGenPreview">Discard</button>
     </div>`;
 }
@@ -5120,10 +5125,10 @@ function renderGroups(){
   empty.style.display='none';
   list.innerHTML = _groupsData.map(g=>`
     <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;cursor:pointer"
-         data-action="openGroupDetail" data-args=${_jsonArgsForAttr(g.id,g.group_name)}>
+         data-action="openGroupDetail" data-args='${_jsonArgsForAttr(g.id,g.group_name)}'>
       <span style="flex:1;font-size:13px;color:var(--text)">${_escHtml(g.group_name)}</span>
       <span style="font-size:11px;color:var(--muted)">${g.member_count||0} members</span>
-      <button class="btn btn-secondary btn-sm" data-action="deleteGroup" data-args=${_jsonArgsForAttr(g.id)} style="padding:2px 8px;font-size:10px;color:var(--red)">Delete</button>
+      <button class="btn btn-secondary btn-sm" data-action="deleteGroup" data-args='${_jsonArgsForAttr(g.id)}' style="padding:2px 8px;font-size:10px;color:var(--red)">Delete</button>
     </div>`).join('');
 }
 
@@ -5162,7 +5167,7 @@ async function openGroupDetail(gid, name){
   list.innerHTML = members.map(m=>`
     <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(61,217,168,.1);border:1px solid rgba(61,217,168,.2);border-radius:14px;padding:3px 10px;margin:3px 3px;font-size:12px;color:var(--accent-light)">
       ${_escHtml(m.roll_number)}
-      <span data-action="removeGroupMember" data-args=${_jsonArgsForAttr(gid,m.roll_number)} style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
+      <span data-action="removeGroupMember" data-args='${_jsonArgsForAttr(gid,m.roll_number)}' style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
     </span>`).join('');
 }
 
@@ -5227,7 +5232,7 @@ async function loadExamGroups(){
   list.innerHTML = groups.map(g=>`
     <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:14px;padding:3px 10px;margin:3px 3px;font-size:12px;color:var(--emerald)">
       ${_escHtml(g.group_name)}
-      <span data-action="unassignGroup" data-args=${_jsonArgsForAttr(g.id)} style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
+      <span data-action="unassignGroup" data-args='${_jsonArgsForAttr(g.id)}' style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
     </span>`).join('');
 }
 
@@ -5456,9 +5461,9 @@ function _renderInvites(){
       ? `<span style="color:var(--emerald)">${_fmtTime(i.started_at)}</span>`
       : '<span style="color:var(--muted)">—</span>';
     const actions = [
-      i.invite_url ? `<button class="btn btn-secondary btn-sm" data-action="_copyInviteLink" data-args=${_jsonArgsForAttr(i.invite_url)} style="padding:2px 8px;font-size:10px">Copy</button>` : '',
-      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="btn btn-secondary btn-sm" data-action="resendInvite" data-args=${_jsonArgsForAttr(i.id)} style="padding:2px 8px;font-size:10px">Resend</button>` : '',
-      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="btn btn-secondary btn-sm" data-action="revokeInvite" data-args=${_jsonArgsForAttr(i.id)} style="padding:2px 8px;font-size:10px;color:var(--red)">Revoke</button>` : '',
+      i.invite_url ? `<button class="btn btn-secondary btn-sm" data-action="_copyInviteLink" data-args='${_jsonArgsForAttr(i.invite_url)}' style="padding:2px 8px;font-size:10px">Copy</button>` : '',
+      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="btn btn-secondary btn-sm" data-action="resendInvite" data-args='${_jsonArgsForAttr(i.id)}' style="padding:2px 8px;font-size:10px">Resend</button>` : '',
+      (i.status!=='accepted' && i.status!=='revoked') ? `<button class="btn btn-secondary btn-sm" data-action="revokeInvite" data-args='${_jsonArgsForAttr(i.id)}' style="padding:2px 8px;font-size:10px;color:var(--red)">Revoke</button>` : '',
     ].filter(Boolean).join(' ');
     return `<tr>
       <td style="padding:6px 8px;font-size:12px">${_escHtml(i.full_name||'')}</td>
@@ -5713,7 +5718,7 @@ function renderHistoryList(){
       <td>${s.avg_percentage != null ? s.avg_percentage+'%' : '—'}</td>
       <td>${riskBadge}</td>
       <td style="font-size:13px;color:var(--muted)">${_escHtml(s.last_exam_date || '—')}</td>
-      <td><button class="btn btn-primary btn-sm" data-action="viewStudentHistory" data-args=${_jsonArgsForAttr(s.roll_number)}>View History</button></td>
+      <td><button class="btn btn-primary btn-sm" data-action="viewStudentHistory" data-args='${_jsonArgsForAttr(s.roll_number)}'>View History</button></td>
     </tr>`;
   }).join('');
 }
@@ -5802,8 +5807,8 @@ function renderHistoryDetail(){
       <td style="font-size:13px">${_fmtDuration(h.time_taken_secs)}</td>
       <td style="font-size:13px;color:var(--muted)">${_escHtml(h.submitted_at)}</td>
       <td>
-        ${highlights.length?`<button class="btn btn-secondary btn-sm" data-action="toggleHistorySummary" data-args=${_jsonArgsForAttr(h.session_id)} id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
-        <button class="btn btn-secondary btn-sm" data-action="viewSessionTimeline" data-args=${_jsonArgsForAttr(h.session_id)}>Timeline</button>
+        ${highlights.length?`<button class="btn btn-secondary btn-sm" data-action="toggleHistorySummary" data-args='${_jsonArgsForAttr(h.session_id)}' id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
+        <button class="btn btn-secondary btn-sm" data-action="viewSessionTimeline" data-args='${_jsonArgsForAttr(h.session_id)}'>Timeline</button>
       </td>
     </tr>`;
   }).join('');
@@ -5898,8 +5903,8 @@ function renderTemplates(){
         <div style="font-weight:600;font-size:13px">${_escHtml(t.template_name)}</div>
         <div style="font-size:11px;color:var(--muted)">${_escHtml(t.exam_title)} · ${t.duration_minutes} min · ${t.questions_count} questions · Created ${_escHtml(t.created_at)}</div>
       </div>
-      <button class="btn btn-primary btn-sm" data-action="createExamFromTemplate" data-args=${_jsonArgsForAttr(t.id)} style="white-space:nowrap;font-size:12px;padding:6px 12px">Create Exam</button>
-      <button class="btn btn-secondary btn-sm" data-action="deleteTemplate" data-args=${_jsonArgsForAttr(t.id)} style="white-space:nowrap;font-size:12px;padding:6px 12px;color:var(--red)">Delete</button>
+      <button class="btn btn-primary btn-sm" data-action="createExamFromTemplate" data-args='${_jsonArgsForAttr(t.id)}' style="white-space:nowrap;font-size:12px;padding:6px 12px">Create Exam</button>
+      <button class="btn btn-secondary btn-sm" data-action="deleteTemplate" data-args='${_jsonArgsForAttr(t.id)}' style="white-space:nowrap;font-size:12px;padding:6px 12px;color:var(--red)">Delete</button>
     </div>
   `).join('');
 }
@@ -6024,7 +6029,7 @@ function handleRealtimeAlert(a){
     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${violationType}</div>
     ${details?'<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+_escHtml(detailsPreview)+'</div>':''}
     <div style="display:flex;gap:6px">
-      <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" data-action="viewSession" data-args=${_jsonArgsForAttr(safeSessionId)}>View Timeline</button>
+      <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" data-action="viewSession" data-args='${_jsonArgsForAttr(safeSessionId)}'>View Timeline</button>
     </div>
   `;
   container.appendChild(toast);
@@ -6067,7 +6072,7 @@ function _discardGenPreview(){ _genPreview=[]; _renderGenPreview(); document.get
 function _closeToastParent(){ this.closest('div').parentElement.remove(); }
 function _focusLoginPwd(){ document.getElementById('login-pwd')?.focus(); }
 
-const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt']);
+const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt', 'eval', 'Function', 'fetch']);
 function _resolveDelegatedAction(name){
   if(!/^[A-Za-z_$][\w$]*$/.test(name || '') || _BLOCKED_DELEGATED_ACTIONS.has(name)) return null;
   const fn = window[name];

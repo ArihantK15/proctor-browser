@@ -120,15 +120,16 @@ async def list_invites(request: Request, exam_id: Optional[str] = None):
 
     invites = []
     for row in result.data or []:
+        token = row.get("token") or ""
         invites.append({
             "id": row.get("id"),
             "email": row.get("email"),
             "full_name": row.get("full_name"),
             "roll_number": row.get("roll_number"),
             "exam_id": row.get("exam_id"),
-            "token": row.get("token"),
+            "token_prefix": token[:8] if token else "",
             "status": row.get("status"),
-            "invite_url": f"{base_url}/invite/{row.get('token', '')}",
+            "invite_url": f"{base_url}/invite/{token}" if token else "",
             "sent_at": row.get("sent_at"),
             "opened_at": row.get("opened_at"),
             "bounced_at": row.get("bounced_at"),

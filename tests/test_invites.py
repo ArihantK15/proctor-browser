@@ -475,5 +475,6 @@ class TestListInvites:
         d = r.json()
         assert len(d["invites"]) == 2
         for row in d["invites"]:
-            assert row["invite_url"].endswith(row["token"])
+            assert "token" not in row
+            assert row["token_prefix"] == row["invite_url"].rsplit("/", 1)[-1][:8]
             assert row["invite_url"].startswith("https://")

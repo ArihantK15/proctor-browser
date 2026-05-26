@@ -1,5 +1,6 @@
 """Billing router — Razorpay subscription management."""
 
+from ..log_safe import safe
 import hashlib
 import hmac
 import json
@@ -198,7 +199,7 @@ async def create_checkout_order(body: dict, request: Request):
             "payment_capture": 1,
         })
     except Exception as e:
-        logger.exception("Failed to create Razorpay order for org=%s plan=%s", org_id, plan_id)
+        logger.exception("Failed to create Razorpay order for org=%s plan=%s", safe(org_id), safe(plan_id))
         raise HTTPException(status_code=502, detail="Could not create Razorpay order. Please try again.") from e
 
     return {
@@ -245,7 +246,7 @@ async def verify_checkout_payment(body: dict, request: Request):
     ).hexdigest()
     if not hmac.compare_digest(expected, signature):
         logger.warning("Invalid Razorpay signature for org=%s order=%s payment=%s",
-                       caller_org_id, order_id, payment_id)
+                       safe(caller_org_id), safe(order_id), safe(payment_id))
         raise HTTPException(status_code=400, detail="Invalid payment signature.")
 
     # Re-fetch the order from Razorpay so we trust SERVER-PINNED notes
@@ -257,7 +258,7 @@ async def verify_checkout_payment(body: dict, request: Request):
         order = client.order.fetch(order_id)
     except Exception as e:
         logger.exception("Razorpay order fetch failed during verify org=%s order=%s",
-                         caller_org_id, order_id)
+                         safe(caller_org_id), safe(order_id))
         raise HTTPException(status_code=502, detail="Could not confirm order with Razorpay.") from e
 
     notes = order.get("notes") or {}
@@ -266,12 +267,12 @@ async def verify_checkout_payment(body: dict, request: Request):
 
     if notes_org_id != caller_org_id:
         logger.warning("Cross-org checkout verify: caller org=%s order notes org=%s order=%s",
-                       caller_org_id, notes_org_id, order_id)
+                       safe(caller_org_id), safe(notes_org_id), safe(order_id))
         raise HTTPException(status_code=403, detail="This order does not belong to your organization.")
 
     if notes_plan_id not in PLANS:
         logger.error("Razorpay order missing/invalid plan_id in notes: order=%s notes=%s",
-                     order_id, notes)
+                     safe(order_id), safe(notes))
         raise HTTPException(status_code=500, detail="Order plan binding missing — contact support.")
     plan = _validate_paid_plan(notes_plan_id)
 
@@ -279,7 +280,7 @@ async def verify_checkout_payment(body: dict, request: Request):
     expected_amount = int(plan["price_inr"]) * 100
     if int(order.get("amount") or 0) != expected_amount:
         logger.error("Razorpay order amount mismatch: order=%s amount=%s expected=%s plan=%s",
-                     order_id, order.get("amount"), expected_amount, notes_plan_id)
+                     safe(order_id), order.get("amount"), expected_amount, safe(notes_plan_id))
         raise HTTPException(status_code=400, detail="Order amount does not match plan price.")
 
     # Status check is informational — auto-capture means the order should
@@ -287,20 +288,20 @@ async def verify_checkout_payment(body: dict, request: Request):
     # the webhook (or the user's next refresh) will eventually reconcile.
     if (order.get("status") or "").lower() not in ("paid", "attempted"):
         logger.warning("Razorpay order verify with unexpected status: order=%s status=%s",
-                       order_id, order.get("status"))
+                       safe(order_id), order.get("status"))
 
     try:
         await _activate_org_plan(caller_org_id, notes_plan_id, order_id)
     except Exception as e:
         logger.error("Payment verified but DB activation failed for org=%s order=%s: %s",
-                     caller_org_id, order_id, e)
+                     safe(caller_org_id), safe(order_id), safe(e))
         raise HTTPException(
             status_code=500,
             detail="Payment verified, but plan activation failed. Please contact support.",
         ) from e
 
     logger.info("Razorpay payment verified and plan activated org=%s plan=%s order=%s payment=%s",
-                caller_org_id, notes_plan_id, order_id, payment_id)
+                safe(caller_org_id), safe(notes_plan_id), safe(order_id), safe(payment_id))
     return {"ok": True, "plan_id": notes_plan_id, "order_id": order_id, "payment_id": payment_id}
 
 
@@ -354,19 +355,19 @@ async def razorpay_webhook(request: Request):
                     order_id_for_log = entity["order_id"]
             except Exception as e:
                 logger.warning("Webhook order-notes lookup failed for %s: %s",
-                               entity.get("order_id"), e)
+                               safe(entity.get("order_id")), safe(e))
 
         if not notes_org_id or notes_plan_id not in PLANS:
             logger.info("Webhook %s ignored — missing org_id/plan_id in notes (event_id=%s)",
-                        event_type, event.get("id", ""))
+                        safe(event_type), safe(event.get("id", "")))
             return {"status": "ignored"}
         try:
             await _activate_org_plan(notes_org_id, notes_plan_id, order_id_for_log)
             logger.info("Webhook %s reconciled org=%s plan=%s order=%s",
-                        event_type, notes_org_id, notes_plan_id, order_id_for_log)
+                        safe(event_type), safe(notes_org_id), safe(notes_plan_id), safe(order_id_for_log))
         except Exception as e:
             logger.error("Webhook %s activation failed for org=%s order=%s: %s",
-                         event_type, notes_org_id, order_id_for_log, e)
+                         safe(event_type), safe(notes_org_id), safe(order_id_for_log), safe(e))
             raise HTTPException(status_code=500, detail="Webhook reconciliation failed — will retry")
         return {"status": "ok"}
 
@@ -381,7 +382,7 @@ async def razorpay_webhook(request: Request):
     # Find the subscription in our DB
     db_sub = await _atable("subscriptions").select("id,org_id").eq("razorpay_subscription_id", sub_id).limit(1).execute()
     if not db_sub.data:
-        logger.warning("Unknown Razorpay subscription: %s", sub_id)
+        logger.warning("Unknown Razorpay subscription: %s", safe(sub_id))
         return {"status": "ignored"}
     org_id = db_sub.data[0]["org_id"]
 
@@ -422,7 +423,7 @@ async def razorpay_webhook(request: Request):
             logger.info("Subscription cancelled for org=%s", org_id)
 
         elif event_type == "payment.failed":
-            logger.warning("Payment failed for org=%s sub=%s", org_id, sub_id)
+            logger.warning("Payment failed for org=%s sub=%s", safe(org_id), safe(sub_id))
             result = await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
             if not result.data:
                 raise RuntimeError("payment.failed DB write returned no data")
@@ -444,7 +445,7 @@ async def razorpay_webhook(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Webhook DB write failed for event=%s org=%s: %s", event_type, org_id, e)
+        logger.error("Webhook DB write failed for event=%s org=%s: %s", safe(event_type), safe(org_id), safe(e))
         # Return 500 so Razorpay retries this webhook delivery.
         raise HTTPException(status_code=500, detail="Webhook processing failed — will retry")
 
@@ -498,7 +499,7 @@ async def cancel_subscription(request: Request):
 @limiter.limit("10/minute")
 async def list_invoices(request: Request):
     """Return invoice history for the org's Razorpay subscription.
-    
+
     In sandbox mode, returns sample invoices.
     """
     teacher = await require_admin(request)

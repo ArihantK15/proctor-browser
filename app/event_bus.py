@@ -4,6 +4,7 @@ Channels:
   sessions:{teacher_id}  — dashboard live updates (violations, heartbeats, submissions)
   events:{teacher_id}:{session_id} — per-student violation/force-submit feed
 """
+from .log_safe import safe
 import asyncio
 import json
 import logging
@@ -106,10 +107,10 @@ async def async_publish(channel: str, payload: dict) -> None:
         r = await _get_async()
         await r.publish(channel, json.dumps(payload, default=str))
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
-        _event_log.warning("[EventBus] async publish connection lost on %s, reconnecting", channel)
+        _event_log.warning("[EventBus] async publish connection lost on %s, reconnecting", safe(channel))
         await _reconnect_async()
     except Exception as e:
-        _event_log.error("[EventBus] async publish error on %s: %s", channel, e)
+        _event_log.error("[EventBus] async publish error on %s: %s", safe(channel), safe(e))
 
 
 async def subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dict, None]:

@@ -1,4 +1,5 @@
 """ID verification router — pending verifications and decisions."""
+from ..log_safe import safe
 import json
 import logging
 
@@ -11,7 +12,6 @@ from ..limiter import limiter
 from .. import cache as _cache
 from ..models import SessionStatus, VerificationStatus
 from ..models import IdDecisionIn
-
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ async def id_decision(data: IdDecisionIn, request: Request):
     try:
         obj = json.loads(row.get("details", "{}"))
     except Exception:
-        logger.warning("id-decision: malformed details JSON on violation %s", data.violation_id)
+        logger.warning("id-decision: malformed details JSON on violation %s", safe(data.violation_id))
         obj = {}
     obj["status"] = data.decision
     obj["decided_by"] = teacher.get("full_name", teacher.get("email", ""))

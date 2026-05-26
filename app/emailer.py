@@ -27,6 +27,7 @@ with the key present.
 """
 from __future__ import annotations
 
+from .log_safe import safe
 import base64
 import hashlib
 import hmac
@@ -881,7 +882,7 @@ class _SmtpBackend(_Backend):
 class _NoopBackend(_Backend):
     def send(self, *, to_email: str, to_name: str, subject: str,
              html: str, text: str, attachments=None) -> SendResult:
-        log.info("[noop-email] to=%s subject=%r", to_email, subject)
+        log.info("[noop-email] to=%s subject=%r", safe(to_email), safe(subject))
         return SendResult(ok=True, provider_msg_id="noop")
 
 

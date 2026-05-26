@@ -3,6 +3,7 @@
 Extracted from app/dependencies.py.
 """
 
+from ..log_safe import safe
 import hashlib
 import logging
 import random
@@ -84,7 +85,7 @@ async def translate_student_answer(session_id: str, teacher_id: str, question_id
             return student_label
         return qmap.get(str(student_label), student_label)
     except Exception as e:
-        logger.debug("[Shuffle] translate failed q=%s s=%s: %s", question_id, student_label, e)
+        logger.debug("[Shuffle] translate failed q=%s s=%s: %s", safe(question_id), safe(student_label), safe(e))
         return student_label
 
 
@@ -108,7 +109,6 @@ async def canonicalise_student_answer(session_id: str, teacher_id: str, question
 async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None, exam_id: str = None) -> tuple[int, int]:
     import asyncio
     from ..database import async_table as _atable
-
     last_err = None
     for attempt in range(2):
         try:

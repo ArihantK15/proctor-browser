@@ -1,5 +1,6 @@
 """Student exam flow endpoints."""
 
+from ..log_safe import safe
 import asyncio
 import base64
 import inspect
@@ -221,7 +222,7 @@ async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str) ->
         pre_check = await _atable("students").select("teacher_id").eq("roll_number", roll_upper).limit(2).execute()
         if pre_check.data:
             if len(pre_check.data) > 1:
-                logger.warning("[validate_student] roll %s matched %d teachers — ambiguous, denying", roll_upper, len(pre_check.data))
+                logger.warning("[validate_student] roll %s matched %d teachers — ambiguous, denying", safe(roll_upper), len(pre_check.data))
                 raise HTTPException(status_code=403, detail="Roll number is ambiguous. Use the access code from your exam invite.")
             pre_tid = pre_check.data[0].get("teacher_id")
 
@@ -229,7 +230,7 @@ async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str) ->
         inv_pre = await _atable("student_invites").select("teacher_id,exam_id").eq("roll_number", roll_upper).limit(2).execute()
         if inv_pre.data:
             if len(inv_pre.data) > 1:
-                logger.warning("[validate_student] roll %s matched %d invites across teachers — ambiguous", roll_upper, len(inv_pre.data))
+                logger.warning("[validate_student] roll %s matched %d invites across teachers — ambiguous", safe(roll_upper), len(inv_pre.data))
                 raise HTTPException(status_code=403, detail="Roll number is ambiguous. Use the access code from your exam invite.")
             pre_tid = inv_pre.data[0].get("teacher_id")
 
@@ -560,7 +561,7 @@ async def log_event(event: EventIn, request: Request):
     tid = claims.get("tid")
     eid = claims.get("eid")
     get_logger(event.session_id).info(
-        f"[{event.severity.upper()}] {event.event_type} | {event.details}")
+        f"[{safe(event.severity).upper()}] {safe(event.event_type)} | {safe(event.details)}")
 
     # When exam starts, create in-progress session record
     if event.event_type == "exam_started":
@@ -581,7 +582,7 @@ async def log_event(event: EventIn, request: Request):
 
     # Alert on submission failure
     if event.event_type == "submit_failed":
-        _exam_log.error("[ALERT] SUBMIT FAILED for session %s — use /api/v1/admin-submit/%s to recover", event.session_id, event.session_id)
+        _exam_log.error("[ALERT] SUBMIT FAILED for session %s — use /api/v1/admin-submit/%s to recover", safe(event.session_id), safe(event.session_id))
 
     viol_row = {
         "session_key":    event.session_id,
@@ -737,7 +738,7 @@ def _enqueue_autosave_flush(session_id: str, *, delete_after: bool = False) -> b
         )
         return True
     except Exception as e:
-        _exam_log.warning("[autosave] queue failed for %s: %s", session_id, e)
+        _exam_log.warning("[autosave] queue failed for %s: %s", safe(session_id), safe(e))
         return False
 
 
@@ -995,7 +996,7 @@ async def submit_exam(result: ResultIn, request: Request):
             )
 
             _exam_log.info("[SUBMIT-ASYNC] %s queued for scoring (roll=%s)",
-                           result.session_id, trusted_roll)
+                           safe(result.session_id), safe(trusted_roll))
             return {
                 "status": SessionStatus.SUBMITTED,
                 "scoring": "pending",
@@ -1007,7 +1008,7 @@ async def submit_exam(result: ResultIn, request: Request):
             # rather than 500-ing — this is the rollback-safety we want.
             _exam_log.error("[SUBMIT-ASYNC] fast-path failed for %s, "
                             "falling back to inline scoring: %s",
-                            result.session_id, e)
+                            safe(result.session_id), safe(e))
 
     # Phase 1: Score + config in parallel
     score_fut = _recalculate_score(result.session_id, final_answers, teacher_id=tid, exam_id=eid)
@@ -1015,12 +1016,12 @@ async def submit_exam(result: ResultIn, request: Request):
     try:
         (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
     except RuntimeError as e:
-        _exam_log.warning("[SUBMIT] Score calculation failed for %s: %s", result.session_id, e)
+        _exam_log.warning("[SUBMIT] Score calculation failed for %s: %s", safe(result.session_id), safe(e))
         raise HTTPException(status_code=503,
                             detail="Score calculation temporarily unavailable. Please retry.")
 
     if server_score == 0 and server_total == 0:
-        _exam_log.warning("[SUBMIT] Score recalculation returned 0/0 for %s", result.session_id)
+        _exam_log.warning("[SUBMIT] Score recalculation returned 0/0 for %s", safe(result.session_id))
 
     pct = round((server_score / max(server_total, 1)) * 100, 1)
 
@@ -1048,7 +1049,7 @@ async def submit_exam(result: ResultIn, request: Request):
                 exam_id=eid,
             )
     except Exception as e:
-        _exam_log.error("[SUBMIT] final answer flush failed for %s: %s", result.session_id, e)
+        _exam_log.error("[SUBMIT] final answer flush failed for %s: %s", safe(result.session_id), safe(e))
         raise HTTPException(status_code=500,
                             detail="Failed to save final answers. Please retry.")
 
@@ -1119,7 +1120,7 @@ async def submit_exam(result: ResultIn, request: Request):
     audit_warnings = []
     for i, r in enumerate(results):
         if isinstance(r, Exception):
-            _exam_log.error("[SUBMIT] Phase 3 op %d failed for %s: %s", i, result.session_id, r)
+            _exam_log.error("[SUBMIT] Phase 3 op %d failed for %s: %s", i, safe(result.session_id), safe(r))
             if i == 0:
                 raise HTTPException(status_code=500,
                                     detail="Failed to save exam submission. Please retry.")
@@ -1128,7 +1129,7 @@ async def submit_exam(result: ResultIn, request: Request):
     # TOCTOU check: if the update affected no rows, the session was already COMPLETED
     update_result = results[0] if not isinstance(results[0], BaseException) else None
     if update_result is not None and not update_result.data:
-        _exam_log.warning("[SUBMIT] TOCTOU: session %s already completed by another request", result.session_id)
+        _exam_log.warning("[SUBMIT] TOCTOU: session %s already completed by another request", safe(result.session_id))
         raise HTTPException(status_code=409, detail="Exam already submitted")
 
     # Phase 4: Risk score (non-fatal — submission already saved)
@@ -1143,7 +1144,7 @@ async def submit_exam(result: ResultIn, request: Request):
             upd = upd.eq("teacher_id", str(tid))
         await upd.update({"risk_score": risk_score_val}).execute()
     except Exception as e:
-        _exam_log.warning("[SUBMIT] risk score failed for %s: %s", result.session_id, e)
+        _exam_log.warning("[SUBMIT] risk score failed for %s: %s", safe(result.session_id), safe(e))
 
     get_logger(result.session_id).info(
         f"[SUBMIT] {trusted_roll} score:{server_score}/{server_total} "
@@ -1273,7 +1274,7 @@ async def analyze_frame(data: FrameIn, request: Request):
     try:
         await asyncio.to_thread(_save_frame, student_dir, data)
     except Exception as e:
-        _exam_log.error("[Frame] Error saving frame for %s: %s", data.session_id, e)
+        _exam_log.error("[Frame] Error saving frame for %s: %s", safe(data.session_id), safe(e))
         raise HTTPException(status_code=500, detail="Failed to save frame")
     return {"status": "received"}
 
@@ -1382,7 +1383,7 @@ async def id_verification_status(request: Request, session_id: str = ""):
         obj = json.loads(raw)
         return {"status": obj.get("status", "pending")}
     except Exception:
-        _exam_log.warning("id_verification_status: malformed JSON for session %s", session_id)
+        _exam_log.warning("id_verification_status: malformed JSON for session %s", safe(session_id))
         return {"status": "pending"}
 
 
@@ -1479,7 +1480,7 @@ async def room_cam_qr(request: Request):
 @limiter.limit("30/minute")
 async def room_cam_approval_status(request: Request):
     """Return the room camera approval status for the current session.
-    
+
     The renderer polls this to know when the teacher has approved.
     """
     session_id = (request.query_params.get("session_id") or "").strip()

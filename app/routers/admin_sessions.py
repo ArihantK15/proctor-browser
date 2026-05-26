@@ -1,4 +1,5 @@
 """Session management router — sessions list, results, clear, force-submit, recalibration, triage."""
+from ..log_safe import safe
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -431,7 +432,7 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
                 .eq("session_key", session_id).eq("teacher_id", tid)
                 .limit(1).execute()).data or []
     except Exception as e:
-        _admin_log.warning("[triage] session lookup failed sid=%s: %s", session_id, e)
+        _admin_log.warning("[triage] session lookup failed sid=%s: %s", safe(session_id), safe(e))
         sess = []
     sess_row = sess[0] if sess else {}
 

@@ -1,4 +1,5 @@
 """Grading endpoints: pending grades, AI grade suggestions, teacher grade confirmation."""
+from ..log_safe import safe
 import json
 import logging
 import time
@@ -440,7 +441,7 @@ async def grade_confirm_bulk(body: dict, request: Request):
                         "graded_at": a["graded_at"],
                     }).eq("id", a["id"]).eq("teacher_id", tid).execute()
                 except Exception as e2:
-                    _grading_log.warning("[grade-confirm-bulk] fallback update failed for %s: %s", a["id"], e2)
+                    _grading_log.warning("[grade-confirm-bulk] fallback update failed for %s: %s", safe(a["id"]), safe(e2))
 
     # Batch insert audit rows (one call instead of N)
     if audit_rows:
@@ -464,7 +465,7 @@ async def grade_confirm_bulk(body: dict, request: Request):
             _grading_log.warning("[grade-confirm-bulk] rollup failed for %s: %s", sk, e)
 
     _grading_log.info("[audit] teacher=%s bulk %s exam=%s confirmed=%d skipped=%d sessions=%d",
-                      tid, action, exam_id, confirmed, skipped, recompiled)
+                      safe(tid), safe(action), safe(exam_id), confirmed, skipped, recompiled)
 
     resp = {
         "action": action,

@@ -6,6 +6,7 @@ This module handles:
   3. Session creation — issues our own JWT and redirects the student to the exam
 """
 
+from ..log_safe import safe
 import json
 import logging
 import secrets
@@ -292,7 +293,7 @@ async def validate_id_token(id_token: str, state: str) -> dict:
             },
         )
     except Exception as e:
-        logger.warning("lti: JWT verification failed for iss=%s: %s", iss, e)
+        logger.warning("lti: JWT verification failed for iss=%s: %s", safe(iss), safe(e))
         raise ValueError(f"JWT verification failed: {e}")
 
     # 6. Verify nonce (replay protection)
@@ -532,7 +533,6 @@ def issue_lti_session_token(user: dict, target_link_uri: str) -> str:
     """Issue a short-lived JWT for the user to access the exam/dashboard."""
     from ..auth.tokens import issue_admin_token, issue_student_auth_token
     from ..auth import create_token
-
     if user.get("role") == "teacher":
         return issue_admin_token(user)
     else:

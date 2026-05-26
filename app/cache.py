@@ -3,6 +3,7 @@
 Falls back to a no-op when Redis is unavailable so the app still works
 without Redis (just slower).
 """
+from .log_safe import safe
 import json
 import os
 import time
@@ -94,7 +95,7 @@ def get(key: str) -> dict | list | None:
             except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
                 _r_healthy = False
             except Exception:
-                _log.exception("Cache liveframe timestamp lookup failed for key=%s", key)
+                _log.exception("Cache liveframe timestamp lookup failed for key=%s", safe(key))
             return {"jpeg_bytes": raw_bytes, "at": ts}
         r = _client()
         if r is None:
@@ -105,19 +106,19 @@ def get(key: str) -> dict | list | None:
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
-            _log.warning("Cache value is corrupt JSON for key=%s; deleting", key)
+            _log.warning("Cache value is corrupt JSON for key=%s; deleting", safe(key))
             try:
                 r.delete(key)
             except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
                 _r_healthy = False
             except Exception:
-                _log.exception("Failed to delete corrupt cache key=%s", key)
+                _log.exception("Failed to delete corrupt cache key=%s", safe(key))
             return None
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
         return None
     except Exception:
-        _log.exception("Unexpected cache get failure for key=%s", key)
+        _log.exception("Unexpected cache get failure for key=%s", safe(key))
         return None
 
 
@@ -134,7 +135,7 @@ def set(key: str, value, ttl: int = 300) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
-        _log.exception("Unexpected cache set failure for key=%s", key)
+        _log.exception("Unexpected cache set failure for key=%s", safe(key))
 
 
 def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
@@ -195,7 +196,7 @@ def set_room_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
-        _log.debug("Cache set_room_frame failed for session=%s", session_id, exc_info=True)
+        _log.debug("Cache set_room_frame failed for session=%s", safe(session_id), exc_info=True)
 
 
 def delete(key: str) -> None:
@@ -209,7 +210,7 @@ def delete(key: str) -> None:
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         _r_healthy = False
     except Exception:
-        _log.debug("Cache delete failed for key=%s", key, exc_info=True)
+        _log.debug("Cache delete failed for key=%s", safe(key), exc_info=True)
 
 
 def delete_pattern(pattern: str) -> None:
@@ -239,8 +240,6 @@ def delete_pattern(pattern: str) -> None:
 # executor so async route handlers stay non-blocking.
 
 import asyncio as _asyncio
-
-
 async def aget(key: str):
     """Async-safe version of get()."""
     return await _asyncio.get_event_loop().run_in_executor(None, get, key)
@@ -263,7 +262,7 @@ async def adelete_pattern(pattern: str) -> None:
 
 def cleanup_room_frames() -> None:
     """Delete all roomframe:* keys (belt-and-suspenders — Redis TTL handles daily expiry).
-    
+
     Intended to be called as a daily cron or on startup to ensure no
     room camera frames persist beyond their intended lifetime.
     """

@@ -10,6 +10,7 @@ LTI launch in the ``https://purl.imsglobal.org/spec/lti-ags/claim/endpoint``
 claim.
 """
 
+from ..log_safe import safe
 import json
 import logging
 import time
@@ -19,7 +20,6 @@ import httpx
 
 from .key import sign_jwt_payload, get_private_key, get_kid
 from .registration import find_registration
-
 logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = 15
@@ -137,7 +137,7 @@ async def post_score(
             resp.raise_for_status()
             logger.info(
                 "AGS score posted: userId=%s scoreGiven=%s scoreMaximum=%s",
-                user_id, score_given, score_maximum,
+                safe(user_id), score_given, score_maximum,
             )
             return True
     except Exception as e:

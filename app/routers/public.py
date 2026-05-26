@@ -1,3 +1,4 @@
+from ..log_safe import safe
 from pathlib import Path
 import json
 import logging
@@ -700,7 +701,7 @@ async def email_webhook(request: Request):
                 .update({"opened_at": now_iso})\
                 .eq("provider_msg_id", msg_id).is_("opened_at", "null").execute()
         except Exception as e:
-            _pub_log.error("[webhook] opened update failed msg_id=%s: %s", msg_id, e)
+            _pub_log.error("[webhook] opened update failed msg_id=%s: %s", safe(msg_id), safe(e))
             raise HTTPException(status_code=500, detail="Webhook processing failed — will retry")
     elif evt == "email.clicked":
         try:
@@ -717,11 +718,11 @@ async def email_webhook(request: Request):
                 await _atable("student_invites").update({"status": InviteStatus.CLICKED})\
                     .eq("id", row["id"]).in_("status", [InviteStatus.SENT, InviteStatus.OPENED]).execute()
         except Exception as e:
-            _pub_log.error("[webhook] clicked update failed msg_id=%s: %s", msg_id, e)
+            _pub_log.error("[webhook] clicked update failed msg_id=%s: %s", safe(msg_id), safe(e))
             raise HTTPException(status_code=500, detail="Webhook processing failed — will retry")
     elif evt == "email.delivered":
         pass
-    _pub_log.info("[webhook] %s msg_id=%s", evt, msg_id)
+    _pub_log.info("[webhook] %s msg_id=%s", safe(evt), safe(msg_id))
     return {"ok": True, "event": evt}
 
 
@@ -747,7 +748,7 @@ async def submit_demo_request(req: DemoRequest, request: Request):
         _pub_log.error("[DemoRequest] Failed to store: %s", e)
         raise HTTPException(status_code=500, detail="Failed to store request")
 
-    _pub_log.info("[DemoRequest] %s <%s> from %s", req.name, req.email, req.institution)
+    _pub_log.info("[DemoRequest] %s <%s> from %s", safe(req.name), safe(req.email), safe(req.institution))
 
     # Notify super admin (fire-and-forget — the form response should
     # not depend on the email provider being available).

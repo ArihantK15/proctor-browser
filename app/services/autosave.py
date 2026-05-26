@@ -1,6 +1,7 @@
 """Redis-first autosave snapshots and durable answer flushing."""
 from __future__ import annotations
 
+from ..log_safe import safe
 import json
 import logging
 import os
@@ -12,7 +13,6 @@ import redis
 from .. import cache as _cache
 from ..database import async_table as _atable
 from .scoring import canonicalise_student_answer
-
 log = logging.getLogger(__name__)
 
 AUTOSAVE_TTL_SECONDS = int(os.environ.get("AUTOSAVE_TTL_SECONDS", str(6 * 60 * 60)))
@@ -80,7 +80,7 @@ def cache_autosave_snapshot(
     except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
         return False, False
     except Exception:
-        log.warning("Failed to cache autosave snapshot session=%s", session_id, exc_info=True)
+        log.warning("Failed to cache autosave snapshot session=%s", safe(session_id), exc_info=True)
         return False, False
 
 
@@ -156,7 +156,7 @@ async def flush_answers_to_db(
             if client is not None:
                 client.delete(_snapshot_key(session_id), _flush_lock_key(session_id), _final_flush_key(session_id))
         except Exception:
-            log.debug("Failed to delete autosave snapshot session=%s student_id=%s", session_id, student_id, exc_info=True)
+            log.debug("Failed to delete autosave snapshot session=%s student_id=%s", safe(session_id), safe(student_id), exc_info=True)
     return len(records)
 
 

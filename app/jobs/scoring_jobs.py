@@ -14,6 +14,7 @@ no-op. That matters because RQ retries failed jobs.
 """
 from __future__ import annotations
 
+from ..log_safe import safe
 import logging
 from typing import Optional
 
@@ -48,11 +49,11 @@ async def _score_submission_async(
         .select("status,score,total,percentage,risk_score,started_at,full_name,email")\
         .eq("session_key", session_id).limit(1).execute()
     if not existing.data:
-        logger.warning("[score_job] session %s not found, bailing", session_id)
+        logger.warning("[score_job] session %s not found, bailing", safe(session_id))
         return {"status": "not_found"}
     sess = existing.data[0]
     if sess.get("status") == SessionStatus.COMPLETED:
-        logger.info("[score_job] session %s already completed, skipping", session_id)
+        logger.info("[score_job] session %s already completed, skipping", safe(session_id))
         return {"status": "already_completed", "score": sess.get("score"),
                 "total": sess.get("total"), "percentage": sess.get("percentage")}
 
@@ -68,7 +69,7 @@ async def _score_submission_async(
     try:
         (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
     except Exception as e:
-        logger.error("[score_job] scoring failed for %s: %s", session_id, e)
+        logger.error("[score_job] scoring failed for %s: %s", safe(session_id), safe(e))
         raise
 
     pct = round((server_score / max(server_total, 1)) * 100, 1)
@@ -81,7 +82,7 @@ async def _score_submission_async(
         risk_score_val = risk["risk_score"]
         risk_label = risk["label"]
     except Exception as e:
-        logger.warning("[score_job] risk score failed for %s: %s", session_id, e)
+        logger.warning("[score_job] risk score failed for %s: %s", safe(session_id), safe(e))
 
     # 4. Final session write — flip to COMPLETED with final numbers
     now = now_ist()
@@ -109,7 +110,7 @@ async def _score_submission_async(
     upd_q = upd_q.neq("status", SessionStatus.COMPLETED)
     upd_result = await upd_q.execute()
     if not upd_result.data:
-        logger.info("[score_job] session %s already COMPLETED by another path", session_id)
+        logger.info("[score_job] session %s already COMPLETED by another path", safe(session_id))
         return {"status": "race_condition", "score": server_score, "total": server_total}
 
     # 5. Submission violation log (audit row — same as inline path wrote).
@@ -133,7 +134,7 @@ async def _score_submission_async(
                 viol["teacher_id"] = teacher_id
             await _atable("violations").insert(viol).execute()
     except Exception as e:
-        logger.warning("[score_job] audit insert failed for %s: %s", session_id, e)
+        logger.warning("[score_job] audit insert failed for %s: %s", safe(session_id), safe(e))
 
     # 6. Time-exceeded violation (if applicable, idempotent like step 5).
     # Use server-computed elapsed time (started_at → submitted_at) — the
@@ -167,7 +168,7 @@ async def _score_submission_async(
                     time_viol["teacher_id"] = teacher_id
                 await _atable("violations").insert(time_viol).execute()
         except Exception as e:
-            logger.warning("[score_job] time-exceeded audit failed for %s: %s", session_id, e)
+            logger.warning("[score_job] time-exceeded audit failed for %s: %s", safe(session_id), safe(e))
 
     # 7. Publish to dashboard SSE (best-effort)
     if teacher_id:
@@ -179,7 +180,7 @@ async def _score_submission_async(
                 "total": server_total,
             })
         except Exception as e:
-            logger.warning("[score_job] SSE publish failed for %s: %s", session_id, e)
+            logger.warning("[score_job] SSE publish failed for %s: %s", safe(session_id), safe(e))
 
     # 8. LMS grade passback (best-effort)
     if roll_number and server_total > 0:
@@ -187,10 +188,10 @@ async def _score_submission_async(
             from ..routers.exam import _try_ags_grade_passback
             await _try_ags_grade_passback(roll_number, server_score, server_total, pct)
         except Exception as e:
-            logger.warning("[score_job] AGS passback failed for %s: %s", session_id, e)
+            logger.warning("[score_job] AGS passback failed for %s: %s", safe(session_id), safe(e))
 
     logger.info("[score_job] %s scored: %d/%d (%s%%) risk=%d",
-                session_id, server_score, server_total, pct, risk_score_val)
+                safe(session_id), server_score, server_total, pct, risk_score_val)
 
     return {
         "status": "completed",

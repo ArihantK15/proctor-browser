@@ -29,6 +29,8 @@ on the email send.
 
 from __future__ import annotations
 
+from ..log_safe import safe
+
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -147,4 +149,4 @@ async def check_and_notify(
     except Exception as e:
         # Never raise — a failed suspicious-login email shouldn't
         # affect the user's actual login flow.
-        logger.warning("[suspicious_login] check failed for %s: %s", user_email, e)
+        logger.warning("[suspicious_login] check failed for %s: %s", safe(user_email), safe(e))

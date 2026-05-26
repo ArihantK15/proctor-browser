@@ -18,7 +18,7 @@
 uniface>=1.1.0
 onnxruntime>=1.15.0
 opencv-python>=4.8.0
-numpy>=1.24.0
+numpy>=2.4.6
 ultralytics>=8.0.0
 insightface>=0.7.3
 sounddevice>=0.4.6

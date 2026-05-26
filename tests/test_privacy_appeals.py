@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.auth.tokens import issue_reauth_token
 
 client = TestClient(app)
 
@@ -67,13 +68,15 @@ class TestPrivacyDelete:
         assert r.status_code == 401
 
     def test_delete_teacher(self, admin_headers, mock_teacher):
-        r = client.post("/api/v1/privacy/delete", headers=admin_headers)
+        r = client.post("/api/v1/privacy/delete", headers=admin_headers,
+                        json={"reauth_token": issue_reauth_token("teacher-1")})
         assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
         d = r.json()
         assert d.get("status") in ("deleted", "partial")
 
     def test_delete_student(self, student_headers, mock_student_account):
-        r = client.post("/api/v1/privacy/delete", headers=student_headers)
+        r = client.post("/api/v1/privacy/delete", headers=student_headers,
+                        json={"reauth_token": issue_reauth_token("student-1")})
         assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
         d = r.json()
         assert d.get("status") in ("deleted", "partial")

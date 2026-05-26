@@ -19,7 +19,7 @@ from ..limiter import limiter
 from .. import cache as _cache
 from ..models import RegisterIn, SessionStatus, InviteStatus, VerificationStatus
 from ..utils import fmt_ist, now_ist
-from ..constants import SUPER_ADMIN_EMAIL, DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN
+from ..constants import DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..invites import _get_invite_base_url
 from ..services.invite_landing import _render_invite_error, _render_invite_landing
@@ -764,9 +764,9 @@ async def submit_demo_request(req: DemoRequest, request: Request):
 
 @router.get("/api/v1/admin/demo-requests")
 async def list_demo_requests(request: Request):
-    """List all demo requests — restricted to the configured super-admin."""
+    """List all demo requests — restricted to DB-backed super-admins."""
     teacher = await require_admin(request)
-    if not SUPER_ADMIN_EMAIL or teacher.get("email", "").lower() != SUPER_ADMIN_EMAIL:
+    if teacher.get("org_role") != "superadmin":
         raise HTTPException(status_code=403, detail="Forbidden")
     result = await _atable("demo_requests").select("*").order("created_at", desc=True).execute()
     return {"requests": result.data, "count": len(result.data)}

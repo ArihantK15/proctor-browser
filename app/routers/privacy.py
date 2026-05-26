@@ -6,10 +6,11 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Body
 from pydantic import BaseModel, ConfigDict
 
 from ..auth import require_admin, require_student_account
+from ..auth.tokens import verify_reauth_token
 from ..database import async_table as _atable
 from ..limiter import limiter
 
@@ -134,7 +135,7 @@ async def export_data(request: Request):
 
 @router.post("/delete")
 @limiter.limit("2/hour")
-async def delete_account(request: Request):
+async def delete_account(request: Request, body: dict = Body(default_factory=dict)):
     """Delete or anonymize all personal data for the authenticated user."""
     user_type = None
     user_id = None
@@ -154,6 +155,14 @@ async def delete_account(request: Request):
             supabase_uid = student.get("supabase_uid")
         except HTTPException:
             raise HTTPException(status_code=401, detail="Authentication required")
+
+    reauth_token = (body or {}).get("reauth_token", "").strip()
+    if user_type == "teacher":
+        if not reauth_token or not verify_reauth_token(reauth_token, user_id):
+            raise HTTPException(status_code=403, detail="Fresh re-authentication required")
+    elif user_type == "student":
+        if not reauth_token or not verify_reauth_token(reauth_token, user_id):
+            raise HTTPException(status_code=403, detail="Fresh re-authentication required")
 
     errors = []
     anon = f"deleted_user_{user_id[:8]}"

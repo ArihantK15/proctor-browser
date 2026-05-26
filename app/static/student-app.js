@@ -27,6 +27,7 @@ let refreshInFlight = null;
 let _turnstileToken = null;
 let _turnstileSiteKey = '';
 let _turnstileWidgetId = null;
+let _studentCsrfMemory = '';
 
 async function _loadPublicConfig() {
   try {
@@ -237,9 +238,7 @@ async function doLogout() {
       headers,
     });
   } catch(e) {}
-  try {
-    sessionStorage.removeItem('procta_student_csrf');
-  } catch(e) {}
+  _studentCsrfMemory = '';
   authToken = '';
   refreshTok = '';
   studentAuthed = false;
@@ -257,11 +256,7 @@ function isStrongPassword(password) {
 
 // ─── fetch wrapper with single-flight refresh ─────────────────
 function getStudentCsrf() {
-  try {
-    return sessionStorage.getItem('procta_student_csrf') || '';
-  } catch(e) {
-    return '';
-  }
+  return _studentCsrfMemory || '';
 }
 
 async function ensureStudentCsrf(force = false) {
@@ -276,11 +271,7 @@ async function ensureStudentCsrf(force = false) {
   if (!r.ok) return '';
   const d = await r.json().catch(()=>({}));
   const csrf = d.csrf_token || '';
-  if (csrf) {
-    try {
-      sessionStorage.setItem('procta_student_csrf', csrf);
-    } catch(e) {}
-  }
+  if (csrf) _studentCsrfMemory = csrf;
   return csrf;
 }
 

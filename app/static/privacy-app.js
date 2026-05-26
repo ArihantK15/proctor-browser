@@ -1,8 +1,8 @@
 const BASE = '';
+let _csrfMemory = '';
 
 function _getCsrf() {
-  try { return sessionStorage.getItem('procta_csrf') || ''; }
-  catch(e) { return ''; }
+  return _csrfMemory || '';
 }
 function _esc(s){ var d=document.createElement('div'); d.appendChild(document.createTextNode(s||'')); return d.innerHTML; }
 const headers = {'Content-Type':'application/json'};
@@ -23,11 +23,7 @@ async function authFetch(url, opts){
       if (r.ok) {
         const d = await r.json().catch(()=>({}));
         csrf = d.csrf_token || '';
-        if (csrf) {
-          try {
-            sessionStorage.setItem('procta_csrf', csrf);
-          } catch(e) {}
-        }
+        if (csrf) _csrfMemory = csrf;
       }
     }
     if (csrf) nextHeaders['X-CSRF-Token'] = csrf;
@@ -84,13 +80,32 @@ function closeDeleteConfirm(){
   document.getElementById('delete-modal').classList.remove('active');
   document.getElementById('delete-modal-err').textContent = '';
 }
+async function _getPrivacyReauthToken(){
+  const password = window.prompt('Enter your password to delete this account:');
+  if(!password) return '';
+  const body = JSON.stringify({password});
+  for(const path of ['/api/v1/auth/reauth', '/api/v1/student/auth/reauth']){
+    const r = await authFetch(path, {method:'POST', body});
+    if(r.ok){
+      const d = await r.json().catch(()=>({}));
+      return d.reauth_token || '';
+    }
+    if(r.status !== 401 && r.status !== 403) break;
+  }
+  throw new Error('Password verification failed.');
+}
 async function confirmDelete(){
   const btn = document.querySelector('#delete-modal .btn-danger');
   const err = document.getElementById('delete-modal-err');
   btn.disabled = true;
   err.textContent = '';
   try{
-    const r = await authFetch('/api/v1/privacy/delete', {method:'POST'});
+    const reauth_token = await _getPrivacyReauthToken();
+    if(!reauth_token) throw new Error('Password verification is required.');
+    const r = await authFetch('/api/v1/privacy/delete', {
+      method:'POST',
+      body:JSON.stringify({reauth_token}),
+    });
     const d = await r.json();
     if(r.ok){
       err.innerHTML = '<span style="color:#16a34a">Account deletion initiated. You will be redirected.</span>';

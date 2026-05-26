@@ -7,10 +7,10 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException
 
 from ..auth import require_admin
+from ..auth.tokens import verify_reauth_token
 from ..database import async_table as _atable
 from ..limiter import limiter
 from ..utils import now_ist, fmt_ist
-from ..constants import SUPER_ADMIN_EMAIL
 from ..services.sessions import get_org_subscription, PLAN_LIMITS
 from ..invites import _get_invite_base_url
 from ..models import OrgInviteIn
@@ -159,6 +159,9 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
     valid_roles = {"admin", "teacher", "viewer"}
     if role not in valid_roles:
         raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(sorted(valid_roles))}")
+    reauth_token = (body or {}).get("reauth_token", "").strip()
+    if not reauth_token or not verify_reauth_token(reauth_token, str(teacher["id"])):
+        raise HTTPException(status_code=403, detail="Fresh re-authentication required")
 
     target = await _atable("teachers").select("id,org_role").eq("id", teacher_id).eq("org_id", str(org_id)).limit(1).execute()
     if not target.data:
@@ -223,7 +226,7 @@ async def get_billing(request: Request):
 async def list_all_orgs(request: Request):
     """Superadmin: list all organizations."""
     teacher = await require_admin(request)
-    if teacher.get("email", "").lower() != SUPER_ADMIN_EMAIL:
+    if teacher.get("org_role") != "superadmin":
         raise HTTPException(status_code=403, detail="Super admin access required")
 
     orgs = await _atable("organizations").select("id,name,slug,max_students,created_at").execute()

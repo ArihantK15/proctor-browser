@@ -61,6 +61,7 @@ class ClearSessionsIn(BaseModel):
     exam_id: str = ""
     token: str = ""
     ack: str = ""
+    reauth_token: str = ""
 
 
 class EmailScorecardsIn(BaseModel):

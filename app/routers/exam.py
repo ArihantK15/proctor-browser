@@ -45,7 +45,9 @@ async def _bus_async_publish(channel: str, payload: dict) -> None:
     try:
         from ..event_bus import async_publish
     except Exception as exc:
-        _exam_log.debug("event_bus unavailable; skipped publish to %s: %s", channel, exc)
+        if not getattr(_bus_async_publish, "_warned", False):
+            _exam_log.warning("event_bus unavailable; live SSE publishes disabled: %s", exc.__class__.__name__)
+            setattr(_bus_async_publish, "_warned", True)
         return
     await async_publish(channel, payload)
 from ..logger import get_logger
@@ -131,15 +133,25 @@ async def validate_student(request: Request, body: ValidateIn):
     except Exception:
         pass
 
-    # Resolve teacher + student
+    # Resolve teacher + student. Exam window errors are intentionally
+    # user-facing; identity/access-code failures below are deliberately
+    # collapsed to avoid roll-number enumeration.
     pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code)
     config = await _load_exam_config(pre_tid, exam_id=exam_id)
     _check_exam_time_window(config)
-    student, student_tid, matched_invite_id = await _find_or_enroll_student(
-        roll_upper, pre_tid, pre_exam_id)
-    await _validate_access_code(provided_code, student_tid, student, exam_id)
-    await _check_group_restrictions(student, student_tid, exam_id)
-    existing_key = await _check_existing_session(student, student_tid, exam_id)
+    try:
+        student, student_tid, matched_invite_id = await _find_or_enroll_student(
+            roll_upper, pre_tid, pre_exam_id)
+        await _validate_access_code(provided_code, student_tid, student, exam_id)
+        await _check_group_restrictions(student, student_tid, exam_id)
+        existing_key = await _check_existing_session(student, student_tid, exam_id)
+    except HTTPException as exc:
+        if exc.status_code in (403, 404):
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid student details, invite status, or access code.",
+            ) from exc
+        raise
     if existing_key:
         resp = _build_validate_response(student, student_tid, exam_id, existing_key)
         _cache_validate(cache_key, resp)

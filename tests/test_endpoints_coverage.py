@@ -25,6 +25,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-long!!")
 
 from tests.conftest import make_admin_token, make_student_token, shared_supabase_mock
+from app.auth.tokens import issue_reauth_token
 
 
 TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T"}
@@ -32,6 +33,10 @@ TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T"}
 
 def _admin_headers():
     return {"Authorization": f"Bearer {make_admin_token(teacher_id='teacher-1', email='prof@test.com')}"}
+
+
+def _reauth_body():
+    return {"reauth_token": issue_reauth_token("teacher-1")}
 
 
 def _student_headers(roll="STU001"):
@@ -365,6 +370,7 @@ class TestAdminSubmit:
             resp = client.post(
                 "/api/v1/admin-submit/sess-1",
                 headers=_admin_headers(),
+                json=_reauth_body(),
             )
         assert resp.status_code == 200
         body = resp.json()
@@ -382,6 +388,7 @@ class TestAdminSubmit:
             resp = client.post(
                 "/api/v1/admin-submit/sess-1",
                 headers=_admin_headers(),
+                json=_reauth_body(),
             )
         assert resp.status_code == 200
         assert resp.json()["status"] == "already_submitted"
@@ -395,6 +402,7 @@ class TestAdminSubmit:
             resp = client.post(
                 "/api/v1/admin-submit/sess-999",
                 headers=_admin_headers(),
+                json=_reauth_body(),
             )
         assert resp.status_code in (403, 404)
 
@@ -408,6 +416,7 @@ class TestAdminSubmit:
             resp = client.post(
                 "/api/v1/admin-submit/sess-1",
                 headers=_admin_headers(),
+                json=_reauth_body(),
             )
         assert resp.status_code == 404
 

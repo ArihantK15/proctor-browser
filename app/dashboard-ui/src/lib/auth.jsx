@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import { API_BASE } from '../config'
 
 const AuthContext = createContext(null)
+let csrfMemory = ''
 
 export async function fetchWithTimeout(url, opts = {}, timeoutMs = 30000) {
   const ctrl = new AbortController()
@@ -14,11 +15,11 @@ export async function fetchWithTimeout(url, opts = {}, timeoutMs = 30000) {
 }
 
 function getCsrfToken() {
-  return sessionStorage.getItem('procta_csrf') || ''
+  return csrfMemory
 }
 
 function clearCsrfToken() {
-  sessionStorage.removeItem('procta_csrf')
+  csrfMemory = ''
 }
 
 async function ensureCsrfToken(force = false) {
@@ -30,7 +31,7 @@ async function ensureCsrfToken(force = false) {
   if (!r.ok) return ''
   const d = await r.json()
   const csrf = d.csrf_token || ''
-  if (csrf) sessionStorage.setItem('procta_csrf', csrf)
+  if (csrf) csrfMemory = csrf
   return csrf
 }
 

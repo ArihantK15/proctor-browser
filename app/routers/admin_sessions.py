@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Body
 
 from ..auth import require_admin
+from ..auth.tokens import verify_reauth_token
 from ..repositories.sessions import (
     assert_session_owned as _assert_session_owned,
     fetch_all_results as _fetch_all_results,
@@ -110,6 +111,8 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
         return await _clear_request_preview(
             tid, body.include_active, body.include_completed, exam_id_scope)
     if step == "confirm":
+        if not body.reauth_token or not verify_reauth_token(body.reauth_token, tid):
+            raise HTTPException(status_code=403, detail="Fresh re-authentication required")
         return await _clear_confirm_execute(tid, body, exam_id_scope)
 
     raise HTTPException(status_code=400,
@@ -237,9 +240,12 @@ async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
 
 @router.post("/api/v1/admin-submit/{session_id}")
 @limiter.limit("10/minute")
-async def admin_submit(session_id: str, request: Request):
+async def admin_submit(session_id: str, request: Request, body: dict = Body(default_factory=dict)):
     teacher = await require_admin(request)
     tid = teacher["id"]
+    reauth_token = (body or {}).get("reauth_token", "").strip()
+    if not reauth_token or not verify_reauth_token(reauth_token, str(tid)):
+        raise HTTPException(status_code=403, detail="Fresh re-authentication required")
 
     existing_session = await _assert_session_owned(session_id, tid)
     if existing_session.get("status") == SessionStatus.COMPLETED:

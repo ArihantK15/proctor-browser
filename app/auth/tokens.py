@@ -4,7 +4,6 @@ import hashlib
 import os
 import re
 import secrets
-import time
 import uuid
 from dataclasses import dataclass
 from typing import Optional
@@ -73,9 +72,6 @@ _CSRF_TTL_SECONDS = int(os.environ.get("CSRF_TOKEN_TTL_SECONDS", str(max(
     ADMIN_TOKEN_TTL_MINUTES,
     STUDENT_AUTH_TTL_MINUTES,
 ) * 60)))
-_CSRF_MEMORY: dict[str, tuple[str, float]] = {}
-
-
 def _gen_csrf() -> str:
     """Generate an independent CSRF secret."""
     return secrets.token_urlsafe(32)
@@ -116,8 +112,13 @@ def issue_csrf_token(claims: dict) -> str:
     try:
         from .. import cache as _cache
         _cache.set(key, token, ttl=_CSRF_TTL_SECONDS)
+        if _cache.get(key) != token:
+            raise RuntimeError("CSRF token was not persisted")
     except Exception:
-        _CSRF_MEMORY[key] = (token, time.time() + _CSRF_TTL_SECONDS)
+        raise HTTPException(
+            status_code=503,
+            detail="CSRF storage unavailable. Try again shortly.",
+        )
     return token
 
 
@@ -125,7 +126,6 @@ def clear_csrf_token(claims: dict) -> None:
     key = _csrf_key(claims)
     if not key:
         return
-    _CSRF_MEMORY.pop(key, None)
     try:
         from .. import cache as _cache
         _cache.delete(key)
@@ -149,14 +149,6 @@ def verify_csrf(claims: dict, header_value: str) -> bool:
         expected = _cache.get(key)
     except Exception:
         expected = None
-    if expected is None:
-        fallback = _CSRF_MEMORY.get(key)
-        if fallback:
-            value, expires_at = fallback
-            if expires_at >= time.time():
-                expected = value
-            else:
-                _CSRF_MEMORY.pop(key, None)
     if not isinstance(expected, str) or not expected:
         return False
     return secrets.compare_digest(header_value, expected)
@@ -267,6 +259,14 @@ def issue_reauth_token(user_id: str) -> str:
         "scope": "reauth", "uid": user_id,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
     }, REAUTH_SIGNING_KEY, algorithm="HS256")
+
+
+def verify_reauth_token(token: str, user_id: str) -> bool:
+    try:
+        claims = _decode_token(token, REAUTH_SIGNING_KEYS)
+        return claims.get("scope") == "reauth" and str(claims.get("uid")) == str(user_id)
+    except Exception:
+        return False
 
 
 def verify_email_token(token: str) -> dict | None:

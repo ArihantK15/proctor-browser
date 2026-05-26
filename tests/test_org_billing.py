@@ -328,8 +328,6 @@ class TestListAllOrgs:
                 return _chain([{"id": "t1"}, {"id": "t2"}])
             return _chain([])
         with _admin_patch(SUPERADMIN), \
-             patch("app.auth.admin_auth.SUPER_ADMIN_EMAIL", "super@admin.com"), \
-             patch("app.routers.admin_org.SUPER_ADMIN_EMAIL", "super@admin.com"), \
              contextlib.ExitStack() as es:
             for p in [
                 patch("app.routers.admin_org._atable", side_effect=atable_side_effect),

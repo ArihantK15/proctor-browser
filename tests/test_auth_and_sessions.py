@@ -460,7 +460,8 @@ class TestValidateStudent:
              patch("app.routers.exam._load_exam_config", return_value={}):
             resp = client.post("/api/v1/validate-student",
                                json={"roll_number": "UNKNOWN999"})
-            assert resp.status_code == 404
+            assert resp.status_code == 403
+            assert resp.json()["detail"] == "Invalid student details, invite status, or access code."
 
     def test_already_completed(self, client):
         """Student who already submitted should get 403."""

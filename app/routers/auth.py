@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+import asyncio
 import json
 import logging
 import os
 import re
+import time
 _auth_log = logging.getLogger("auth")
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
@@ -71,13 +73,14 @@ def _secure_cookie_enabled() -> bool:
 
 
 def _set_auth_cookie(response: JSONResponse, name: str, value: str, max_age_seconds: int) -> None:
+    same_site = "strict" if name in {"procta_access", "procta_student_access"} else "lax"
     response.set_cookie(
         name,
         value,
         max_age=max_age_seconds,
         httponly=True,
         secure=_secure_cookie_enabled(),
-        samesite="lax",
+        samesite=same_site,
         path="/",
     )
 
@@ -810,33 +813,37 @@ async def teacher_refresh(request: Request, body: RefreshIn | None = None):
 @limiter.limit("3/minute")
 async def teacher_password_reset(body: PasswordResetIn, request: Request):
     """Send a password reset email."""
+    started = time.monotonic()
     # CAPTCHA — password-reset is a common email-bombing vector
     await verify_or_403(request, body.captcha_token)
 
     email = body.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
-    if local_password_auth_enabled():
-        user = await _get_teacher_by_email_for_auth(email)
-        if user:
-            from ..emailer import send_password_reset_email
-            from ..invites import _get_invite_base_url
-            token = issue_password_reset_token(
-                user["id"], email, "teacher",
-                password_changed_at=_stringify_pwc(user.get("password_changed_at")),
-            )
-            base = _get_invite_base_url()
-            send_password_reset_email(
-                email,
-                user.get("full_name", ""),
-                f"{base}/reset-password?token={token}",
-            )
-    else:
-        try:
-            supabase.auth.reset_password_for_email(email)
-        except Exception as e:
-            _auth_log.warning("[PasswordReset] Error for %s: %s", email, e)
-            # Don't reveal whether the email exists or not
+    try:
+        if local_password_auth_enabled():
+            user = await _get_teacher_by_email_for_auth(email)
+            if user:
+                from ..emailer import send_password_reset_email
+                from ..invites import _get_invite_base_url
+                token = issue_password_reset_token(
+                    user["id"], email, "teacher",
+                    password_changed_at=_stringify_pwc(user.get("password_changed_at")),
+                )
+                base = _get_invite_base_url()
+                send_password_reset_email(
+                    email,
+                    user.get("full_name", ""),
+                    f"{base}/reset-password?token={token}",
+                )
+        else:
+            try:
+                supabase.auth.reset_password_for_email(email)
+            except Exception:
+                _auth_log.warning("[PasswordReset] Supabase reset email failed")
+                # Don't reveal whether the email exists or not
+    finally:
+        await asyncio.sleep(max(0.0, 0.35 - (time.monotonic() - started)))
     return {"status": "ok", "message": "If that email is registered, a reset link has been sent."}
 
 
@@ -904,7 +911,11 @@ document.getElementById('acceptForm').addEventListener('submit', async function(
       body:JSON.stringify({token:'{token}',full_name,password})
     });
     if (!r.ok) { const d=await r.json(); errEl.textContent=d.detail||'Failed to accept invite'; errEl.style.display='block'; return; }
-    window.location.href = 'https://app.procta.net/dashboard';
+    const d = await r.json().catch(()=>({}));
+    errEl.style.display='block';
+    errEl.style.background='#ecfdf5';
+    errEl.style.color='#065f46';
+    errEl.textContent=d.message||'Invitation accepted. Check your email to verify before signing in.';
   } catch(e) { errEl.textContent='Network error'; errEl.style.display='block'; }
 });
 </script>
@@ -983,7 +994,7 @@ async def accept_org_invite(body: dict, request: Request):
     org_id = str(invite["org_id"])
 
     # Check if teacher already exists
-    existing = await _atable("teachers").select("id").eq("email", email).execute()
+    existing = await _atable("teachers").select("id,org_id,org_role,full_name,email,email_verified_at").eq("email", email).execute()
     if existing.data:
         teacher = existing.data[0]
         if teacher.get("org_id"):
@@ -1032,17 +1043,22 @@ async def accept_org_invite(body: dict, request: Request):
     resolved_name = teacher.get("full_name") or body.get("full_name", full_name)
     await _atable("org_invites").update({"status": "accepted", "accepted_at": datetime.now(timezone.utc).isoformat()}).eq("id", invite["id"]).execute()
 
-    access_token = issue_admin_token(teacher)
+    vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
+    from ..emailer import send_email_verification
+    from ..invites import _get_invite_base_url
+    base = _get_invite_base_url()
+    send_email_verification(email, resolved_name, f"{base}/verify-email?token={vtoken}")
     _auth_log.info("[AcceptInvite] %s <%s> joined org %s", resolved_name, email, org_id)
     enqueue_job(send_new_account_notification_job, account_type="teacher", name=resolved_name, email=email)
 
     return {
-        "access_token": access_token,
         "teacher_id": teacher["id"],
         "email": email,
         "full_name": resolved_name,
         "org_id": org_id,
         "org_role": "teacher",
+        "email_verification_required": True,
+        "message": "Invitation accepted. Check your email to verify before signing in.",
     }
 
 
@@ -1321,6 +1337,39 @@ async def student_logout(request: Request):
     response = JSONResponse({"ok": True})
     _clear_student_cookies(response)
     return response
+
+
+@router.post("/api/v1/student/auth/reauth")
+@limiter.limit("10/minute")
+async def student_reauth(request: Request):
+    """Issue a short-lived re-auth token for student-account actions."""
+    account = await require_student_account(request)
+    account_id = str(account["id"])
+    body_data = await request.json()
+    password = body_data.get("password", "")
+    if not password:
+        raise HTTPException(status_code=400, detail="Password required")
+
+    email = account.get("email", "")
+    use_supabase_reauth = not local_password_auth_enabled()
+    if local_password_auth_enabled():
+        row = await _get_student_by_email_for_auth(email)
+        if row and row.get("password_hash"):
+            if not await verify_password(password, row.get("password_hash")):
+                raise HTTPException(status_code=403, detail="Invalid password")
+        elif not supabase_auth_fallback_enabled():
+            raise HTTPException(status_code=403, detail="Invalid password")
+        else:
+            use_supabase_reauth = True
+
+    if use_supabase_reauth:
+        try:
+            supabase.auth.sign_in_with_password({"email": email, "password": password})
+        except Exception:
+            raise HTTPException(status_code=403, detail="Invalid password")
+
+    reauth_token = issue_reauth_token(account_id)
+    return {"reauth_token": reauth_token, "expires_in_seconds": 300}
 
 
 @router.get("/api/student/exams")
@@ -1802,8 +1851,9 @@ async def revoke_session(jti: str, request: Request):
     # Invalidate Redis cache
     try:
         from .. import cache as _cache
+        from ..constants import ADMIN_TOKEN_TTL_MINUTES
         if _cache:
-            _cache.set(f"session:{jti}", {"revoked": True}, ttl=60)
+            _cache.set(f"session:{jti}", {"revoked": True}, ttl=ADMIN_TOKEN_TTL_MINUTES * 60)
     except Exception:
         pass
     await record_auth_event("session_revoked", request, "teacher", tid)
@@ -1831,8 +1881,9 @@ async def logout(request: Request):
             .eq("jti", current_jti).eq("user_kind", "teacher").eq("user_id", tid).execute()
         try:
             from .. import cache as _cache
+            from ..constants import ADMIN_TOKEN_TTL_MINUTES
             if _cache:
-                _cache.set(f"session:{current_jti}", {"revoked": True}, ttl=60)
+                _cache.set(f"session:{current_jti}", {"revoked": True}, ttl=ADMIN_TOKEN_TTL_MINUTES * 60)
         except Exception:
             pass
     await _revoke_refresh_tokens_for_user(tid, "teacher")
@@ -1893,32 +1944,36 @@ async def revoke_other_sessions(request: Request):
 @limiter.limit("3/minute")
 async def student_password_reset(body: dict, request: Request):
     """Send a password reset email for student accounts."""
+    started = time.monotonic()
     await verify_or_403(request, (body or {}).get("captcha_token"))
     email = (body.get("email") or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="A valid email is required")
-    if local_password_auth_enabled():
-        user = await _get_student_by_email_for_auth(email)
-        if user:
-            from ..emailer import send_password_reset_email
-            from ..invites import _get_invite_base_url
-            token = issue_password_reset_token(
-                user["id"], email, "student",
-                password_changed_at=_stringify_pwc(user.get("password_changed_at")),
-            )
-            base = _get_invite_base_url()
-            send_password_reset_email(
-                email,
-                user.get("full_name", ""),
-                f"{base}/reset-password?token={token}",
-            )
-        return {"status": "sent"}
     try:
-        supabase.auth.reset_password_for_email(email)
-        return {"status": "sent"}
-    except Exception as e:
-        _auth_log.warning("[StudentPasswordReset] Supabase error: %s", e)
-        return {"status": "sent"}  # Don't reveal whether account exists
+        if local_password_auth_enabled():
+            user = await _get_student_by_email_for_auth(email)
+            if user:
+                from ..emailer import send_password_reset_email
+                from ..invites import _get_invite_base_url
+                token = issue_password_reset_token(
+                    user["id"], email, "student",
+                    password_changed_at=_stringify_pwc(user.get("password_changed_at")),
+                )
+                base = _get_invite_base_url()
+                send_password_reset_email(
+                    email,
+                    user.get("full_name", ""),
+                    f"{base}/reset-password?token={token}",
+                )
+            return {"status": "sent"}
+        try:
+            supabase.auth.reset_password_for_email(email)
+            return {"status": "sent"}
+        except Exception:
+            _auth_log.warning("[StudentPasswordReset] Supabase reset email failed")
+            return {"status": "sent"}  # Don't reveal whether account exists
+    finally:
+        await asyncio.sleep(max(0.0, 0.35 - (time.monotonic() - started)))
 
 
 RESET_PASSWORD_HTML = """<!doctype html>

@@ -10,7 +10,6 @@ from jwt.exceptions import InvalidTokenError as JWTError
 from ..constants import (
     ADMIN_SIGNING_KEYS,
     STUDENT_SIGNING_KEYS,
-    SUPER_ADMIN_EMAIL,
     _TEACHER_CACHE_MAX,
     _STUDENT_ACCT_CACHE_MAX,
 )
@@ -98,7 +97,9 @@ async def verify_admin_token(token: str) -> dict:
     if payload.get("role") != "teacher":
         raise HTTPException(status_code=403, detail="Not a teacher token")
 
-    # Session revocation check (via Redis cache)
+    # Session revocation check. Redis is a fast negative cache, but the
+    # Postgres auth_sessions row is the source of truth so a cache miss,
+    # expiry, or Redis outage cannot resurrect a revoked access token.
     jti = payload.get("jti", "")
     if jti:
         try:
@@ -115,6 +116,12 @@ async def verify_admin_token(token: str) -> dict:
     teacher = await _get_teacher_by_id(tid)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
+    if jti:
+        revoked = await _atable("auth_sessions").select("jti")\
+            .eq("jti", str(jti)).eq("user_kind", "teacher").eq("user_id", str(tid))\
+            .not_.is_("revoked_at", "null").limit(1).execute()
+        if revoked.data:
+            raise HTTPException(status_code=401, detail="Session has been revoked")
     return teacher
 
 
@@ -122,10 +129,7 @@ async def require_admin(request: Request) -> dict:
     token = _bearer_or_cookie(request, "procta_access")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
-    teacher = await verify_admin_token(token)
-    if teacher.get("email", "").lower() == SUPER_ADMIN_EMAIL:
-        teacher["org_role"] = "superadmin"
-    return teacher
+    return await verify_admin_token(token)
 
 
 # ─── Student-account (dashboard) auth ────────────────────────────
@@ -194,6 +198,12 @@ async def verify_student_auth_token(token: str) -> dict:
     account = await _get_student_account_by_id(sid)
     if not account:
         raise HTTPException(status_code=403, detail="Student account not found")
+    if jti:
+        revoked = await _atable("auth_sessions").select("jti")\
+            .eq("jti", str(jti)).eq("user_kind", "student_account").eq("user_id", str(sid))\
+            .not_.is_("revoked_at", "null").limit(1).execute()
+        if revoked.data:
+            raise HTTPException(status_code=401, detail="Session has been revoked")
     return account
 
 

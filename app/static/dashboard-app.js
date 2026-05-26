@@ -37,6 +37,7 @@ let _liveViewLastFrameAt = 0;
 let _liveViewFrameTimer = null;
 let _liveViewKeepaliveTimer = null;
 let _liveViewStaleTimer = null;
+let _csrfTokenMemory = '';
 
 // ── AUTH ─────────────────────────────────────────────────────────
 
@@ -115,9 +116,7 @@ function _saveTokens(access, refresh){
   authToken = access || '';
   refreshToken = refresh || '';
   if(!access){
-    try{
-      sessionStorage.removeItem('procta_csrf');
-    }catch(_){}
+    _csrfTokenMemory = '';
   }
 }
 
@@ -542,9 +541,7 @@ function hdr(){
 }
 
 function _getCsrfToken(){
-  try{
-    return sessionStorage.getItem('procta_csrf') || '';
-  }catch(_){ return ''; }
+  return _csrfTokenMemory || '';
 }
 
 async function _ensureCsrfToken(force=false){
@@ -559,11 +556,7 @@ async function _ensureCsrfToken(force=false){
   if(!r.ok) return '';
   const d = await r.json().catch(()=>({}));
   const csrf = d.csrf_token || '';
-  if(csrf){
-    try{
-      sessionStorage.setItem('procta_csrf', csrf);
-    }catch(_){}
-  }
+  if(csrf) _csrfTokenMemory = csrf;
   return csrf;
 }
 
@@ -2843,6 +2836,8 @@ async function clearLiveSessionsStep(){
     btn.disabled=true;
     btn.textContent='Wiping...';
     try{
+      const reauth_token = await _get2FAReauthToken('clear live sessions');
+      if(!reauth_token) throw new Error('Re-authentication required');
       const r=await authFetch(`${BASE}/api/v1/admin/clear-live-sessions`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -2853,6 +2848,7 @@ async function clearLiveSessionsStep(){
           include_completed:inclComp,
           include_active:inclActive,
           exam_id:examScope,
+          reauth_token,
         })
       });
       if(!r.ok){
@@ -2913,7 +2909,13 @@ async function loadFailedCount(){
 async function forceSubmit(sid){
   if(!confirm(`Force-submit session ${sid}?`)) return;
   try{
-    const r=await authFetch(`${BASE}/api/v1/admin-submit/${encodeURIComponent(sid)}`,{method:'POST'});
+    const reauth_token = await _get2FAReauthToken('force-submit this session');
+    if(!reauth_token) return;
+    const r=await authFetch(`${BASE}/api/v1/admin-submit/${encodeURIComponent(sid)}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({reauth_token})
+    });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     showModal(`Force-submitted! Score: ${d.score}/${d.total}, Risk: ${d.risk_score}/100`);

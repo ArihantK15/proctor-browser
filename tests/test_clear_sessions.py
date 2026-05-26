@@ -32,6 +32,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from app.auth.tokens import issue_reauth_token
 
 from tests.conftest import shared_supabase_mock,  make_admin_token  # noqa: E402
 from app.database import supabase as _supabase
@@ -234,15 +235,16 @@ class TestRequestStepPartitioning:
 
     def test_confirm_requires_correct_ack_and_token(self, client, admin_headers):
         stub = _SupabaseStub()
+        reauth_token = issue_reauth_token("teacher-1")
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.dependencies._cache", None):
             mock_table.side_effect = stub
             r1 = client.post("/api/v1/admin/clear-live-sessions",
                              headers=admin_headers,
-                             json={"step": "confirm", "token": "x", "ack": "YES"})
+                             json={"step": "confirm", "token": "x", "ack": "YES", "reauth_token": reauth_token})
             r2 = client.post("/api/v1/admin/clear-live-sessions",
                              headers=admin_headers,
-                             json={"step": "confirm", "token": "bad-token", "ack": "DELETE"})
+                             json={"step": "confirm", "token": "bad-token", "ack": "DELETE", "reauth_token": reauth_token})
         assert r1.status_code == 400
         assert "DELETE" in r1.json()["detail"]
         assert r2.status_code == 400
@@ -261,7 +263,7 @@ class TestConfirmStepDeletes:
         return client.post("/api/v1/admin/clear-live-sessions",
                            headers=admin_headers,
                            json={"step": "confirm", "token": token,
-                                 "ack": "DELETE", **body_extra})
+                                 "ack": "DELETE", "reauth_token": issue_reauth_token("teacher-1"), **body_extra})
 
     def test_default_confirm_skips_active_sessions(self, client, admin_headers):
         stub = _SupabaseStub(in_progress=[
@@ -352,7 +354,7 @@ class TestPartialFailureReporting:
         return client.post("/api/v1/admin/clear-live-sessions",
                            headers=admin_headers,
                            json={"step": "confirm", "token": token,
-                                 "ack": "DELETE", **body_extra})
+                                 "ack": "DELETE", "reauth_token": issue_reauth_token("teacher-1"), **body_extra})
 
     def test_successful_clear_has_no_failure_fields(self, client, admin_headers):
         stub = _SupabaseStub(in_progress=[

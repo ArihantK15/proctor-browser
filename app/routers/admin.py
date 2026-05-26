@@ -19,7 +19,6 @@ from ..auth.scope import (
     assert_session_accessible,
 )
 from ..utils import fmt_ist, now_ist
-from ..constants import SUPER_ADMIN_EMAIL
 from ..repositories.sessions import assert_session_owned as _assert_session_owned, fetch_all_results as _fetch_all_results
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..services.sessions import collect_session_screenshots as _collect_session_screenshots

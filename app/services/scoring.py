@@ -97,7 +97,7 @@ async def canonicalise_student_answer(session_id: str, teacher_id: str, question
         if qmeta and str(qmeta.get("question_type") or "").lower() == "short_answer":
             return str(raw)
     except Exception:
-        pass
+        logger.debug("scoring: question-type lookup failed", exc_info=True)
     parts = [p.strip() for p in str(raw or "").split(",") if p.strip()]
     if not parts:
         return ""

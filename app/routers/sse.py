@@ -77,7 +77,7 @@ async def _consume_connect_token(token: str) -> str | None:
                 try:
                     _cache.delete(_ct_key(token))
                 except Exception:
-                    pass
+                    logger.debug("sse: connect-token cache delete failed", exc_info=True)
                 return str(tid)
         except Exception as e:
             # nosemgrep: python.lang.security.audit.logging.logger-credential-leak
@@ -164,7 +164,7 @@ async def _store_live_frame(session_id: str, jpeg_bytes: bytes) -> bool:
     try:
         jpeg_bytes = await asyncio.to_thread(_recompress_jpeg, jpeg_bytes)
     except Exception:
-        pass
+        logger.debug("sse: jpeg recompress failed", exc_info=True)
 
     if _cache and hasattr(_cache, 'set_live_frame'):
         await asyncio.to_thread(_cache.set_live_frame, session_id, jpeg_bytes, 10)
@@ -521,7 +521,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
         await _atable("exam_sessions").update({"room_cam_status": "pending"})\
             .eq("session_key", session_id).execute()
     except Exception:
-        pass
+        logger.warning("sse: room_cam_status='pending' update failed", exc_info=True)
 
 
     try:
@@ -540,11 +540,11 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
                         if payload.get("type") == "heartbeat":
                             _last_room_frame[session_id] = time.time()
                     except Exception:
-                        pass
+                        logger.debug("sse: ws heartbeat parse failed", exc_info=True)
             elif msg.get("type") in ("websocket.disconnect",):
                 break
     except Exception:
-        pass
+        logger.debug("sse: ws receive loop terminated", exc_info=True)
     finally:
         await ws_rate_limiter.decrement(client_ip)
         async with _ws_lock:
@@ -563,7 +563,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
             await _atable("exam_sessions").update({"room_cam_status": "offline"})\
                 .eq("session_key", session_id).execute()
         except Exception:
-            pass
+            logger.warning("sse: room_cam_status='offline' update failed", exc_info=True)
 
 
 def _store_room_frame(session_id: str, jpeg_bytes: bytes):
@@ -595,7 +595,7 @@ def _store_room_frame(session_id: str, jpeg_bytes: bytes):
         try:
             _cache.set_room_frame(session_id, jpeg_bytes, ttl=10)
         except Exception:
-            pass
+            logger.debug("sse: set_room_frame cache write failed", exc_info=True)
 
 
 @router.get("/api/v1/proctor/control/{session_id}")
@@ -627,7 +627,7 @@ async def proctor_control(session_id: str, request: Request):
             val = _cache.get(f"liveview:{session_id}")
             active = val is not None
         except Exception:
-            pass
+            logger.debug("sse: liveview cache read failed", exc_info=True)
 
     return {"live_view": active}
 

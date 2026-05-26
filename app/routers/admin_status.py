@@ -121,7 +121,7 @@ async def get_status(request: Request):
         total_req = max(metrics["total_requests"], 1)
         metrics["error_rate_pct"] = round(metrics["total_errors"] / total_req * 100, 2)
     except Exception:
-        pass
+        _log.warning("admin_status: metrics gather failed", exc_info=True)
 
     # Database
     try:
@@ -143,7 +143,7 @@ async def get_status(request: Request):
                 try:
                     metrics["redis_connected_clients"] = int(r.info().get("connected_clients", 0))
                 except Exception:
-                    pass
+                    _log.debug("admin_status: redis info gather failed", exc_info=True)
             else:
                 checks["redis"] = "unavailable"
         else:

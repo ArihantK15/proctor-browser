@@ -105,7 +105,7 @@ async def get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
         if code:
             return str(code).strip().upper()
     except Exception:
-        pass
+        logger.debug("questions: exam-config access-code fallback failed", exc_info=True)
     return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
 
 

@@ -5,6 +5,9 @@ from typing import Optional
 from fastapi import Request, HTTPException
 
 from ..database import async_table as _atable
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 async def generate_api_key(teacher_id: str, name: str) -> tuple[str, str]:
@@ -72,6 +75,6 @@ async def authenticate_api_key(request: Request) -> str:
             "last_used_at": datetime.now(timezone.utc).isoformat()
         }).eq("id", row["id"]).execute()
     except Exception:
-        pass
+        logger.debug("api_auth: last_used_at update failed", exc_info=True)
 
     return str(row["teacher_id"])

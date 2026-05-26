@@ -110,7 +110,7 @@ def _cache_validate(key: str, resp: dict) -> None:
     try:
         _cache.set(key, resp, ttl=_CACHE_TTL)
     except Exception:
-        pass
+        logger.debug("exam: validate-cache write failed", exc_info=True)
 
 
 @router.post("/api/v1/validate-student")
@@ -131,7 +131,7 @@ async def validate_student(request: Request, body: ValidateIn):
         if cached and isinstance(cached, dict) and cached.get("valid"):
             return cached
     except Exception:
-        pass
+        logger.debug("exam: validate-cache read failed", exc_info=True)
 
     # Resolve teacher + student. Exam window errors are intentionally
     # user-facing; identity/access-code failures below are deliberately

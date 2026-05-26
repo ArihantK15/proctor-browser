@@ -41,7 +41,7 @@ def parse_calibration_details(details: str) -> Optional[dict]:
                     "head_pitch":       float(d.get("head_pitch") or 0),
                 }
         except Exception:
-            pass
+            logger.debug("calibration: details parse failed", exc_info=True)
     m_g = re.search(r"range\s+gaze:\s*±\(([\d.\-]+)\s*,\s*([\d.\-]+)\)", s)
     m_h = re.search(r"head:\s*±\(([\d.\-]+)°?\s*,\s*([\d.\-]+)°?\)", s)
     m_b = re.search(r"bias\s+gaze:\(([\d.\-]+)\s*,\s*([\d.\-]+)\)", s)
@@ -100,5 +100,5 @@ async def get_calibration_quality(session_id: str, teacher_id: Optional[str] = N
         try:
             _cache.set(cache_key, out, ex=300)
         except Exception:
-            pass
+            logger.debug("calibration: cache set failed", exc_info=True)
     return out

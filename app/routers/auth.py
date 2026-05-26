@@ -722,7 +722,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
                 "ip": ip, "user_agent": ua,
             }).execute()
     except Exception:
-        pass
+        _auth_log.warning("auth: auth_sessions insert failed on login", exc_info=True)
 
     # Always issue our own persisted refresh token so the revocation table
     # covers both Supabase-auth and local-auth sessions equally.
@@ -954,7 +954,7 @@ async def get_org_invite_page(token: str, request: Request):
             if datetime.now(timezone.utc) > expires:
                 return HTMLResponse("<h1>This invitation has expired</h1>", status_code=410)
         except Exception:
-            pass
+            _auth_log.debug("auth: invite expires parse failed", exc_info=True)
     org_result = await _atable("organizations").select("name").eq("id", str(invite["org_id"])).limit(1).execute()
     org_name = org_result.data[0]["name"] if org_result.data else "an organization"
     page = _INVITE_PAGE.replace("{org_name}", _esc(org_name)).replace("{token}", token)
@@ -993,7 +993,7 @@ async def accept_org_invite(body: dict, request: Request):
             if datetime.now(timezone.utc) > expires:
                 raise HTTPException(status_code=410, detail="Invitation has expired")
         except Exception:
-            pass
+            _auth_log.debug("auth: invite expires parse failed", exc_info=True)
 
     email = invite["email"].strip().lower()
     org_id = str(invite["org_id"])
@@ -1342,7 +1342,7 @@ async def student_logout(request: Request):
                     ttl=max(60, STUDENT_AUTH_TTL_MINUTES * 60),
                 )
         except Exception:
-            pass
+            _auth_log.debug("auth: student session revocation cache write failed", exc_info=True)
     await _revoke_refresh_tokens_for_user(account_id, "student")
     await record_auth_event("logout", request, "student_account", account_id, account.get("email", ""))
     response = JSONResponse({"ok": True})
@@ -1904,7 +1904,7 @@ async def revoke_session(jti: str, request: Request):
         if _cache:
             _cache.set(f"session:{jti}", {"revoked": True}, ttl=ADMIN_TOKEN_TTL_MINUTES * 60)
     except Exception:
-        pass
+        _auth_log.debug("auth: teacher session revocation cache write failed", exc_info=True)
     await record_auth_event("session_revoked", request, "teacher", tid)
     return {"ok": True}
 
@@ -1934,7 +1934,7 @@ async def logout(request: Request):
             if _cache:
                 _cache.set(f"session:{current_jti}", {"revoked": True}, ttl=ADMIN_TOKEN_TTL_MINUTES * 60)
         except Exception:
-            pass
+            _auth_log.debug("auth: teacher session revocation cache write failed", exc_info=True)
     await _revoke_refresh_tokens_for_user(tid, "teacher")
     # Best-effort: invalidate the Supabase session so the user can't
     # re-authenticate via Supabase even if our local tokens are revoked
@@ -1974,7 +1974,7 @@ async def revoke_other_sessions(request: Request):
             claims = _decode_token(auth[7:], ADMIN_SIGNING_KEYS)
             current_jti = claims.get("jti", "")
         except Exception:
-            pass
+            _auth_log.debug("auth: logout JWT decode for jti lookup failed", exc_info=True)
     q = _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
         .eq("user_kind", "teacher").eq("user_id", tid).is_("revoked_at", "null")
     if current_jti:

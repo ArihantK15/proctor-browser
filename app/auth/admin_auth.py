@@ -1,4 +1,5 @@
 """Admin and student-dashboard auth with DB-backed lookups."""
+import logging
 import threading
 import time
 from collections import OrderedDict
@@ -14,6 +15,9 @@ from ..constants import (
     _TEACHER_CACHE_MAX,
     _STUDENT_ACCT_CACHE_MAX,
 )
+from ..database import async_table as _atable
+
+logger = logging.getLogger(__name__)
 
 
 def _maybe_promote_super_admin(teacher: dict | None) -> dict | None:
@@ -31,7 +35,8 @@ def _maybe_promote_super_admin(teacher: dict | None) -> dict | None:
     if SUPER_ADMIN_EMAIL and str(teacher.get("email", "")).strip().lower() == SUPER_ADMIN_EMAIL:
         teacher["org_role"] = "superadmin"
     return teacher
-from ..database import async_table as _atable
+
+
 try:
     from .. import cache as _cache
 except Exception:
@@ -128,7 +133,7 @@ async def verify_admin_token(token: str) -> dict:
         except HTTPException:
             raise
         except Exception:
-            pass
+            logger.debug("admin_auth: revocation cache lookup failed", exc_info=True)
 
     tid = payload.get("tid")
     teacher = await _get_teacher_by_id(tid)
@@ -211,7 +216,7 @@ async def verify_student_auth_token(token: str) -> dict:
         except HTTPException:
             raise
         except Exception:
-            pass
+            logger.debug("admin_auth: revocation cache lookup failed", exc_info=True)
     sid = payload.get("sid")
     account = await _get_student_account_by_id(sid)
     if not account:

@@ -327,7 +327,7 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
         try:
             await mark_idempotent(k, resp)
         except Exception:
-            pass
+            _grading_log.debug("grading: idempotency mark failed", exc_info=True)
 
     return resp
 
@@ -478,7 +478,7 @@ async def grade_confirm_bulk(body: dict, request: Request):
         try:
             await mark_idempotent(_bulk_k, resp)
         except Exception:
-            pass
+            _grading_log.debug("grading: bulk idempotency mark failed", exc_info=True)
 
     return resp
 

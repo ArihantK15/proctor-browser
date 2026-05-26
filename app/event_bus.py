@@ -72,7 +72,7 @@ async def _reconnect_async() -> aioredis.Redis | None:
             try:
                 await _async_pool.close()
             except Exception:
-                pass
+                _event_log.debug("event_bus: async pool close failed", exc_info=True)
             _async_pool = None
         try:
             _async_pool = aioredis.from_url(
@@ -156,4 +156,4 @@ async def subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dic
                     await pubsub.unsubscribe(channel)
                     await pubsub.close()
                 except Exception:
-                    pass
+                    _event_log.debug("event_bus: pubsub teardown failed", exc_info=True)

@@ -236,7 +236,7 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
         try:
             await _atable("api_keys").update({"is_active": False}).eq("teacher_id", user_id).execute()
         except Exception:
-            pass
+            _log.warning("privacy: api_keys deactivate failed during user delete", exc_info=True)
 
     status = "deleted" if not errors else "partial"
     _log.warning("[privacy] account deleted: %s %s (errors=%s)", user_type, user_id, errors)

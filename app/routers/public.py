@@ -564,7 +564,7 @@ async def invite_landing(token: str, request: Request):
                 "status": InviteStatus.OPENED if status in (InviteStatus.SENT, "queued") else status,
             }).eq("token", token).execute()
         except Exception:
-            pass
+            logger.debug("public: invite opened_at update failed", exc_info=True)
 
     exam_cfg = await _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
         if inv.get("exam_id") else {}

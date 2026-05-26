@@ -98,7 +98,7 @@ async def send_invites(body: SendInvitesBody, request: Request):
             from ..services.idempotency import mark_idempotent
             await mark_idempotent(_k, results)
         except Exception:
-            pass
+            logger.debug("admin_invites: idempotency mark failed", exc_info=True)
 
     return results
 

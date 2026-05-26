@@ -20,7 +20,7 @@ async def check_idempotency(key: str) -> Optional[dict]:
         if cached and isinstance(cached, dict):
             return cached
     except Exception:
-        pass
+        log.debug("idempotency: cache get failed", exc_info=True)
     return None
 
 
@@ -32,7 +32,7 @@ async def mark_idempotent(key: str, response: dict) -> None:
         if _cache:
             _cache.set(key, response, ttl=_IDEM_TTL)
     except Exception:
-        pass
+        log.debug("idempotency: cache set failed", exc_info=True)
 
 
 def idempotency_key(prefix: str, teacher_id: str, *parts: str) -> str:

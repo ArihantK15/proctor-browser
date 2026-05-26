@@ -205,7 +205,7 @@ def _batch_risk_scores(viol_by_session: dict[str, list[dict]]) -> dict[str, tupl
                     try:
                         timestamps.append(datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp())
                     except Exception:
-                        pass
+                        logger.debug("risk: timestamp parse failed", exc_info=True)
             timestamps = [t for t in timestamps if t > 0]
             duration_mins = (max(timestamps) - min(timestamps)) / 60.0 if len(timestamps) >= 2 else 1.0
         except Exception:

@@ -693,7 +693,7 @@ Now grade it."""
         if cached and isinstance(cached, dict) and cached.get("score") is not None:
             return cached
     except Exception:
-        pass
+        logger.debug("llm: grade-cache read failed", exc_info=True)
 
     try:
         parsed = await _chat_json(_GRADE_SYSTEM, user, max_tokens=300, temperature=0.2)
@@ -723,6 +723,6 @@ Now grade it."""
         if _cache:
             _cache.set(cache_key, result, ttl=86400)
     except Exception:
-        pass
+        logger.debug("llm: grade-cache write failed", exc_info=True)
 
     return result

@@ -218,7 +218,7 @@ def _pdf_build_violations_table(raw_violations: list):
         try:
             total_conf_vals.append(float(conf_str.strip("%")) / 100)
         except Exception:
-            pass
+            logger.debug("scorecards: confidence float parse failed", exc_info=True)
         ts_part = ""
         if v.get("created_at"):
             _fmted = fmt_ist(v["created_at"])

@@ -271,7 +271,7 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
                     full_name   = parts.split("(")[0].strip()
                     roll_number = parts.split("(")[1].replace(")", "").strip()
             except Exception:
-                pass
+                logger.debug("admin_sessions: student details parse failed", exc_info=True)
 
     try:
         s_result = await _atable("students").select("*")\
@@ -282,7 +282,7 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
             full_name = s_result.data[0].get("full_name", full_name)
             email     = s_result.data[0].get("email", email)
     except Exception:
-        pass
+        logger.warning("admin_sessions: student row fetch failed", exc_info=True)
 
     answers_map: dict = {}
     for e in events:
@@ -295,7 +295,7 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
                 if "q" in parts and "a" in parts:
                     answers_map[parts["q"]] = parts["a"]
             except Exception:
-                pass
+                logger.debug("admin_sessions: answer segment parse failed", exc_info=True)
 
     existing_eid = existing_session.get("exam_id")
     score, total = await _recalculate_score(session_id, answers_map, tid, exam_id=existing_eid)
@@ -404,7 +404,7 @@ async def request_recalibration(session_id: str, request: Request):
         try:
             _cache.delete(f"cal_quality:{session_id}")
         except Exception:
-            pass
+            logger.debug("admin_sessions: cal_quality cache delete failed", exc_info=True)
 
     resp = {"ok": True, "session_id": session_id, "status": "recalibration_requested"}
     if not audit_ok:
@@ -451,7 +451,7 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
             t0 = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
             elapsed_minutes = max(0, int((datetime.now(timezone.utc) - t0).total_seconds() // 60))
         except Exception:
-            pass
+            logger.debug("admin_sessions: started_at parse failed", exc_info=True)
 
     session_meta = {
         "roll_number": sess_row.get("roll_number"),

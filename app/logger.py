@@ -90,7 +90,7 @@ def _evict_lru():
         try:
             h.close()
         except Exception:
-            pass
+            logger.debug("logger: handler close failed during LRU evict", exc_info=True)
         old_logger.removeHandler(h)
     logging.Logger.manager.loggerDict.pop(old_logger.name, None)
 

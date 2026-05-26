@@ -105,7 +105,7 @@ async def _check_subscription_active(org_id: str) -> None:
                 if datetime.now(timezone.utc) <= period_end_dt:
                     return
             except Exception:
-                pass
+                logger.debug("sessions: billing period parse failed", exc_info=True)
         raise HTTPException(
             status_code=403,
             detail="Your subscription has expired. Please upgrade your plan to continue.",

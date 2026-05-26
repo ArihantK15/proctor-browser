@@ -1,6 +1,7 @@
 """JWT issue and verify helpers."""
 from __future__ import annotations
 import hashlib
+import logging
 import os
 import re
 import secrets
@@ -29,6 +30,8 @@ from ..constants import (
     ADMIN_TOKEN_TTL_MINUTES,
     STUDENT_AUTH_TTL_MINUTES,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -130,7 +133,7 @@ def clear_csrf_token(claims: dict) -> None:
         from .. import cache as _cache
         _cache.delete(key)
     except Exception:
-        pass
+        logger.debug("tokens: csrf cache delete failed", exc_info=True)
 
 
 def verify_csrf(claims: dict, header_value: str) -> bool:

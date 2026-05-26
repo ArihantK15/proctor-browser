@@ -1,0 +1,79 @@
+# CodeRabbit configuration.
+# Docs: https://docs.coderabbit.ai/configure-coderabbit
+#
+# Goals:
+#  1. Useful review comments on real human PRs.
+#  2. Quiet pass-through on Dependabot bumps — we already have
+#     pip-audit + CodeQL + Semgrep doing the security work.
+#  3. Don't generate review noise for the React build bundles
+#     (they're minified Vite output, every char looks suspicious).
+
+language: en-US
+early_access: false
+enable_free_tier: true
+
+reviews:
+  profile: chill           # chill = focused on real issues, less style nitpicking
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false              # no, thanks
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+    ignore_title_keywords:
+      # Dependabot opens dozens of these per Monday; CI does the
+      # security work and the diff is just package-lock churn.
+      - "deps("
+      - "chore(deps"
+      - "deps:"
+
+  path_filters:
+    # Don't review generated bundles, lockfiles, or LFS-tracked binaries.
+    - "!app/static/dashboard-react/assets/**"
+    - "!app/static/student-react/assets/**"
+    - "!app/dashboard-ui/dist/**"
+    - "!app/student-ui/dist/**"
+    - "!website/dist/**"
+    - "!dist/**"
+    - "!build/**"
+    - "!node_modules/**"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+    - "!weights/**"
+    - "!docs/**/*.pdf"
+
+  path_instructions:
+    - path: "app/routers/**"
+      instructions: |
+        Flag any new endpoint that doesn't go through require_admin,
+        require_student_account, or require_api_key. Flag any SQL
+        that's not parameterised. Flag any cross-org data access
+        that doesn't use app/auth/scope.py:resolve_scope().
+    - path: "app/auth/**"
+      instructions: |
+        This module is security-critical. Flag any change to JWT
+        signing keys, CSRF helpers, or session revocation paths.
+        Be strict.
+    - path: "main.js"
+      instructions: |
+        Electron main process. Flag any new ipcMain.handle() that
+        doesn't call _assertMainFrame(event). Flag any
+        commandLine.appendSwitch that disables a Chromium security
+        feature.
+    - path: "app/routers/billing.py"
+      instructions: |
+        Razorpay payment verification. Flag any signature check that
+        isn't hmac_sha256 with constant-time compare. Flag any plan
+        lookup that trusts client-supplied IDs over server-pinned
+        notes.plan_id.
+    - path: "**/*.test.py"
+      instructions: |
+        Tests. Don't nitpick style — only flag actual bugs in the
+        test logic.
+
+chat:
+  auto_reply: true

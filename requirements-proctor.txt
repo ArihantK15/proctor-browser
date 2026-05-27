@@ -16,7 +16,7 @@
 # Eye open/closed: OpenCV Haar cascade (ships with opencv-python).
 
 uniface>=1.1.0
-onnxruntime>=1.15.0
+onnxruntime>=1.19.2
 opencv-python>=4.13.0.92
 numpy>=1.24.0
 ultralytics>=8.0.0

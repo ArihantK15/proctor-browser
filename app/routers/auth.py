@@ -941,6 +941,17 @@ async def get_org_invite_page(token: str, request: Request):
     phase69_invite_token_hash.sql + audit M13. The raw token never
     needs to leave the URL; we hash on every request to compare.
     """
+    # Token shape gate — invite tokens are issued by secrets.token_urlsafe
+    # which produces [A-Za-z0-9_-]. Rejecting anything else here:
+    #   (a) defeats reflective-XSS via the {token} substitution in the
+    #       returned HTML (the rendered page embeds the token inside a
+    #       single-quoted JS string literal — a stray quote would break
+    #       out of the literal),
+    #   (b) saves a pointless SHA-256 + DB roundtrip for obviously-bad
+    #       URLs (scanners, malformed pastes).
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9_-]{1,256}", token or ""):
+        return HTMLResponse("<h1>Invalid or expired invitation link</h1>", status_code=404)
     import hashlib as _hl
     token_hash = _hl.sha256(token.encode("utf-8")).hexdigest()
     result = await _atable("org_invites").select("id,org_id,email,full_name,status,expires_at").eq("token_hash", token_hash).limit(1).execute()

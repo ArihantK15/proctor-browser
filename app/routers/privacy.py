@@ -175,7 +175,8 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
                 "email": anon + "@deleted.procta.net",
             }).eq("id", user_id).execute()
         except Exception as e:
-            errors.append(f"teacher update: {e}")
+            _log.exception("[privacy] teacher anonymise failed for %s", user_id)
+            errors.append(f"teacher update: {e.__class__.__name__}")
 
         # Anonymize students
         try:
@@ -184,7 +185,8 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
                 "email": anon + "@deleted.procta.net",
             }).eq("teacher_id", user_id).execute()
         except Exception as e:
-            errors.append(f"students update: {e}")
+            _log.exception("[privacy] students anonymise failed for %s", user_id)
+            errors.append(f"students update: {e.__class__.__name__}")
 
         # Mark exam configs
         try:
@@ -192,7 +194,8 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
                 "exam_title": "Deleted Exam",
             }).eq("teacher_id", user_id).execute()
         except Exception as e:
-            errors.append(f"exam_config update: {e}")
+            _log.exception("[privacy] exam_config anonymise failed for %s", user_id)
+            errors.append(f"exam_config update: {e.__class__.__name__}")
 
     elif user_type == "student":
         # Anonymize student profile
@@ -202,7 +205,8 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
                 "email": anon + "@deleted.procta.net",
             }).eq("id", user_id).execute()
         except Exception as e:
-            errors.append(f"student_account update: {e}")
+            _log.exception("[privacy] student_account anonymise failed for %s", user_id)
+            errors.append(f"student_account update: {e.__class__.__name__}")
 
         # Anonymize student enrollments
         try:
@@ -211,7 +215,8 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
                 "email": anon + "@deleted.procta.net",
             }).eq("account_id", user_id).execute()
         except Exception as e:
-            errors.append(f"students update: {e}")
+            _log.exception("[privacy] students anonymise failed for %s", user_id)
+            errors.append(f"students update: {e.__class__.__name__}")
 
         # Anonymize exam sessions
         try:
@@ -220,7 +225,8 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
                 "email": anon + "@deleted.procta.net",
             }).eq("student_id", user_id).execute()
         except Exception as e:
-            errors.append(f"exam_sessions update: {e}")
+            _log.exception("[privacy] exam_sessions anonymise failed for %s", user_id)
+            errors.append(f"exam_sessions update: {e.__class__.__name__}")
 
     # Delete Supabase auth user (revokes all tokens, prevents login)
     from ..database import is_postgres_backend
@@ -229,7 +235,8 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
             from ..database import supabase
             supabase.auth.admin.delete_user(supabase_uid)
         except Exception as e:
-            errors.append(f"auth delete: {e}")
+            _log.exception("[privacy] supabase auth delete failed for %s", user_id)
+            errors.append(f"auth delete: {e.__class__.__name__}")
 
     # Revoke API keys for teachers
     if user_type == "teacher":

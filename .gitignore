@@ -53,3 +53,8 @@ generate_report.py
 # Stale generated files (should not be tracked)
 app/routers/checkout.py
 website/src/components/RazorpayCheckoutButton.jsx
+
+# Claude Code / agent harness scratch (created at session boundary,
+# not project-relevant; per-machine state).
+skills-lock.json
+.agents/

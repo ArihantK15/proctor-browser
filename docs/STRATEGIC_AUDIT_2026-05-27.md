@@ -268,3 +268,176 @@ engineering and 100% sales:
 The audit work is done. The repo is healthier than 90% of pre-seed startups.
 The remaining 10% gap closes itself when you have revenue to hire help.
 Go sell.
+
+---
+
+## G. Additional Viewpoints From Second-Pass Audit
+
+This section avoids restating the A-F thesis. Treat it as the operational
+addendum: what must be true for Procta to survive a real college launch and
+become fundable after the first live deployments.
+
+### College deployment readiness
+
+The first college launch should not be framed as "software rollout." It should
+be framed as an exam-day operating system.
+
+- **Consent before enforcement**. Every student should see a plain-language
+  consent screen before the first proctored exam: what is recorded, why, how
+  long it is retained, who can see it, and how to appeal. This lowers complaint
+  risk more than any legal PDF buried in the footer.
+- **Faculty onboarding must be scripted**. A teacher should not learn Procta
+  during the live exam. Ship a 30-minute faculty checklist: create exam,
+  import students, run demo session, understand risk scores, export results,
+  handle appeals.
+- **Exam-day rollback needs a named path**. If Electron install fails for 20%
+  of students, the college needs a pre-approved fallback: browser-only mode,
+  reschedule cohort, or offline lab machines. Without this, one failed exam
+  can kill the account.
+- **Support needs a war-room model**. For the first 3-5 deployments, provide
+  a live support channel during the exam window with one owner for students,
+  one for teachers, and one for infra. This is not scalable long-term, but it
+  is how the first references are won.
+- **Evidence retention must be configurable**. Colleges will differ: some
+  need 30 days, some 90 days, some one academic year. Make this an org-level
+  policy because it becomes a procurement checkbox quickly.
+
+### Buyer psychology
+
+Different stakeholders buy different versions of the same product. The current
+pitch mostly sells to technical evaluators; the buying committee is broader.
+
+- **Principal / director** cares about reputation: fewer cheating scandals,
+  credible exam integrity, parent confidence, and no newspaper-worthy failures.
+- **Exam cell** cares about predictability: admit cards, schedules, invigilation
+  load, exports, audit trails, and dispute handling.
+- **IT admin** cares about deployment pain: firewall rules, device support,
+  bandwidth, install instructions, support burden, logs, and uptime.
+- **Teacher** cares about time saved: question reuse, bulk invites, fewer
+  manual reviews, explainable risk scores, and no extra clerical work.
+- **Student** cares about fairness: "Will AI falsely accuse me?" The answer
+  must be visible in the product, not just in a sales call.
+- **Parent** cares about legitimacy: clean scorecards, branded communication,
+  privacy assurances, and confidence that the institute is not experimenting
+  recklessly.
+
+Additional angle: Procta should have a different one-page handout for each
+stakeholder. Same product, different fear.
+
+### Operational playbook
+
+Procta becomes fundable faster if it looks like a repeatable operating model,
+not a founder personally babysitting every deployment.
+
+- **T-minus 7 days**: confirm exam plan, student count, device policy,
+  internet assumptions, retention policy, escalation contacts, and fallback
+  mode.
+- **T-minus 3 days**: run a 20-student pilot with real devices, not staff
+  laptops. Track install failures, camera failures, login confusion, and
+  support tickets.
+- **T-minus 1 day**: freeze exam settings, export student roster, take DB
+  backup, verify worker queues, verify email delivery, verify payment/billing
+  state if the org is paid.
+- **Live exam**: monitor health, queue depth, SSE/WebSocket status, active
+  sessions, failed uploads, and top risk events. Keep teachers focused on
+  decisions, not infrastructure.
+- **Post-exam**: export results, review top-risk packets, resolve appeals,
+  produce an incident summary, and ask for a testimonial while the win is fresh.
+
+This playbook should become a customer-facing "Procta Exam Day Runbook." It
+will sell trust better than another feature list.
+
+### Trust moat
+
+The strongest moat is not "AI detects cheating." Everyone says that. The moat
+is defensible, explainable, fair exam integrity.
+
+- **Explainable risk scoring** should show which events moved the score, by
+  how much, and with evidence. Teachers need confidence before they act.
+- **Human-in-the-loop review** should be central to the brand. Do not position
+  Procta as an automatic punishment machine; position it as decision support.
+- **Appeals are a product feature, not a legal afterthought**. A clean appeal
+  workflow turns angry students into a controlled review process.
+- **Audit logs are procurement ammunition**. Every force-submit, grade change,
+  risk override, invite action, and admin role change should be exportable.
+- **Fairness metrics should be visible internally**: false-positive appeal
+  rate, overturned flags, flags by device type, and flags by network quality.
+
+Additional angle: The investor-grade sentence is: "Procta does not merely
+detect suspicious behavior; it produces reviewable evidence packets with an
+appeal trail." That is a better moat than raw detection accuracy.
+
+### Founder execution risk
+
+The previous sections correctly identify bus-factor risk. The second-pass
+operational detail is: systematize the founder before hiring replaces the
+founder.
+
+- Write SOPs for deployment, support, incident response, backups, key rotation,
+  release rollback, and customer onboarding.
+- Record 5-minute Looms for the top 10 repeated tasks. These become training
+  assets for interns, support contractors, or a future co-founder.
+- Move customer context out of chat memory and into a CRM, even if it is just
+  Notion/Linear/Sheets for now.
+- Create a weekly operating dashboard: leads contacted, demos booked, exams
+  run, students proctored, support tickets, incidents, MRR, churn risk.
+- Define "do not wake founder" thresholds for infra alerts. If every alert
+  requires judgment, the company cannot scale.
+
+### Distribution wedge
+
+The first wedge should be narrow enough that the sales story sounds like it was
+built for one buyer.
+
+- Pick one beachhead: college internal exams, coaching mock tests, or placement
+  assessments. Do not sell all three in the first sales deck.
+- Convert the first successful exam into a case study within 48 hours:
+  student count, completion rate, support tickets, flagged sessions, appeals,
+  and teacher time saved.
+- Ask the buyer for two introductions immediately after the post-exam review.
+  The best viral loop in education is trust transfer between administrators.
+- Package procurement assets: security one-pager, privacy one-pager, DPDP
+  one-pager, sample DPA, exam-day runbook, and sample scorecard.
+- Sell the outcome as "remote exam integrity without enterprise pricing," not
+  "AI proctoring software."
+
+Additional angle: The best early GTM asset is not a polished website; it is a
+credible PDF showing one real exam that did not collapse.
+
+### Product packaging
+
+Pricing transparency is already covered above. Packaging is the missing layer:
+what exactly does the buyer think they are buying?
+
+1. **Exam Platform**: question bank, scheduling, invites, submissions, grading,
+   analytics. For institutes that mainly need online exams.
+2. **Proctoring Add-on**: AI monitoring, phone cam, evidence packets, appeals,
+   risk scoring. For institutes already using another exam platform.
+3. **Managed Exam Day**: Procta software plus live support, preflight rehearsal,
+   war-room monitoring, and post-exam incident report. Higher margin, perfect
+   for first customers who do not trust self-serve yet.
+
+Managed Exam Day is especially important early. It lets you charge more while
+learning the real failure modes, and it converts founder pain into paid
+customer discovery.
+
+### Investment-grade metrics
+
+Before a seed round, the dashboard investors want is not GitHub stars or
+feature count. It is proof that exams run, customers return, and support load
+does not explode.
+
+- **Activation**: time from signup to first exam created; percent of teachers
+  who create an exam within 24 hours.
+- **Exam reliability**: completion rate, failed launch rate, autosave recovery
+  count, average support tickets per 100 students.
+- **Proctoring quality**: percent of sessions flagged, percent reviewed,
+  percent appealed, percent overturned, median evidence review time.
+- **Commercial health**: MRR, paid orgs, students proctored per paid org,
+  gross margin per exam, expansion revenue, churn-risk accounts.
+- **Operational leverage**: founder minutes per 100 students, support minutes
+  per exam, deployment steps completed without founder help.
+
+The fundable target is not perfection. A compelling pre-seed target is:
+three paid institutions, 1,000+ students proctored, >95% completion rate,
+<5 tickets per 100 students, and at least one written testimonial.

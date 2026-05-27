@@ -136,6 +136,46 @@ export default function BillingPanel() {
     }
   }
 
+  // Subscribe — recurring monthly via Razorpay Subscriptions + UPI Autopay.
+  // Backend creates the Subscription via Razorpay API and returns a hosted
+  // checkout URL (`short_url`). Redirecting there lets Razorpay's own page
+  // render the full payment-method matrix including UPI Autopay (NACH-backed
+  // auto-debit), which we can't get from the in-modal Razorpay Standard
+  // Checkout flow.
+  //
+  // Pre-req: each tier needs a `RAZORPAY_PLAN_<TIER>` env var on the
+  // server pointing at a Razorpay-side plan ID; otherwise the endpoint 503s
+  // with a clear "payment credentials not configured" message.
+  const subscribe = async (planId) => {
+    setUpgradeStatus('Creating subscription...')
+    try {
+      const r = await authFetch('/api/v1/billing/create-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: planId }),
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Subscription creation failed (${r.status})`)
+      }
+      const sub = await r.json()
+      if (!sub.short_url) {
+        // Sandbox / mis-configured: surface the state but don't crash.
+        setUpgradeStatus(
+          sub._note ||
+            'Subscription created in sandbox mode. Configure RAZORPAY_PLAN_* env vars on the server to enable live checkout.',
+        )
+        await loadAll()
+        return
+      }
+      setUpgradeStatus('Redirecting to Razorpay checkout for UPI Autopay setup...')
+      // Open in the same tab so the redirect-back lands on the dashboard.
+      window.location.href = sub.short_url
+    } catch (e) {
+      setUpgradeStatus(e.message || 'Subscription creation failed.')
+    }
+  }
+
   const cancelSubscription = async () => {
     if (!confirm('Cancel this subscription at the end of the current billing period?')) return
     setUpgradeStatus('Cancelling...')
@@ -185,14 +225,37 @@ export default function BillingPanel() {
           <div
             key={p.id}
             className="tool-card"
-            style={{ cursor: 'pointer', textAlign: 'center', borderColor: currentPlan === p.id ? 'var(--accent)' : undefined }}
-            onClick={() => upgrade(p.id)}
+            style={{ textAlign: 'center', borderColor: currentPlan === p.id ? 'var(--accent)' : undefined }}
           >
             <div className="tool-card-body">
               <h3>{p.name}</h3>
               <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-high)', margin: '4px 0' }}>{p.price}</p>
               <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.students} students</p>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>{p.desc}</p>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, minHeight: 32 }}>{p.desc}</p>
+              {/* Two CTAs per plan: one-off "Buy" via Razorpay Standard Checkout
+                  for organisations that pay manually each month, and "Subscribe"
+                  via Razorpay Subscriptions for UPI Autopay / NACH recurring.
+                  Both go through `require_admin` + `require_reauth_or_403` on
+                  the server. */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                <button
+                  className="btn-primary"
+                  onClick={() => upgrade(p.id)}
+                  disabled={!!upgradeStatus && upgradeStatus.endsWith('...')}
+                  style={{ fontSize: 12, padding: '6px 10px' }}
+                >
+                  {currentPlan === p.id ? 'Renew (one-off)' : 'Buy (one-off)'}
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => subscribe(p.id)}
+                  disabled={!!upgradeStatus && upgradeStatus.endsWith('...')}
+                  style={{ fontSize: 12, padding: '6px 10px' }}
+                  title="Recurring monthly auto-debit via UPI Autopay / NACH"
+                >
+                  Subscribe · UPI Autopay
+                </button>
+              </div>
             </div>
           </div>
         ))}

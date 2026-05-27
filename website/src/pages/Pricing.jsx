@@ -5,6 +5,12 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import { APP_URL } from '../config'
 
+// IMPORTANT — these tiers MUST stay in sync with the server-side
+// source of truth at app/constants.py:PLANS. If you bump a price
+// here, bump it there too (and vice versa). The /api/v1/billing/usage
+// endpoint reads PLANS at request time, so a drift would surface as
+// "your plan says 30 students but the page advertises 50" UX bugs.
+
 const plans = [
   {
     id: 'starter',
@@ -65,8 +71,29 @@ const plans = [
       'Self-hosted option available',
       'Phone & email support',
     ],
+    cta: 'Start Free Trial',
+    href: '/signup?plan=pro',
+    popular: false,
+  },
+  {
+    id: 'enterprise',
+    name: 'Enterprise',
+    price: 'Custom',
+    period: '',
+    students: '∞',
+    desc: 'For exam boards, govt bodies, large coaching networks',
+    features: [
+      'Unlimited students',
+      'Everything in Pro, plus:',
+      'Dedicated infrastructure',
+      'SLA + 24×7 support',
+      'On-prem / private cloud deployment',
+      'Custom integrations (LMS, ERP, ATS)',
+      'Aadhaar e-KYC + DPDP Act compliance package',
+      'Onboarding + training included',
+    ],
     cta: 'Contact Sales',
-    href: `${APP_URL}/dashboard`,
+    href: 'mailto:arihantkaul@outlook.com?subject=Procta%20Enterprise%20enquiry',
     popular: false,
   },
 ]
@@ -158,17 +185,31 @@ export default function Pricing() {
                   ))}
                 </ul>
 
-                <Link
-                  to={p.href}
-                  className={`flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold no-underline transition-all ${
-                    p.popular
-                      ? 'bg-accent-dark text-white glow-btn hover:bg-accent'
-                      : 'border border-white/10 bg-white/[0.03] text-slate-300 hover:border-accent/30'
-                  }`}
-                >
-                  {p.cta}
-                  <ArrowRight size={16} />
-                </Link>
+                {p.href.startsWith('mailto:') ? (
+                  <a
+                    href={p.href}
+                    className={`flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold no-underline transition-all ${
+                      p.popular
+                        ? 'bg-accent-dark text-white glow-btn hover:bg-accent'
+                        : 'border border-white/10 bg-white/[0.03] text-slate-300 hover:border-accent/30'
+                    }`}
+                  >
+                    {p.cta}
+                    <ArrowRight size={16} />
+                  </a>
+                ) : (
+                  <Link
+                    to={p.href}
+                    className={`flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold no-underline transition-all ${
+                      p.popular
+                        ? 'bg-accent-dark text-white glow-btn hover:bg-accent'
+                        : 'border border-white/10 bg-white/[0.03] text-slate-300 hover:border-accent/30'
+                    }`}
+                  >
+                    {p.cta}
+                    <ArrowRight size={16} />
+                  </Link>
+                )}
               </div>
             ))}
           </div>

@@ -14,7 +14,19 @@ import redis
 _log = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
-_LIVEFRAME_MAX = int(os.environ.get("LIVEFRAME_MAX_SESSIONS", "50"))
+# 3500-student coaching-institute scale: default lifted from 50 -> 5000
+# concurrent sessions in the live-frame cache. JPEGs are recompressed
+# server-side to quality=60 (sse._recompress_jpeg), so a single frame is
+# ~30-80 KB. 5000 sessions × 60 KB ≈ 300 MB Redis memory — comfortably
+# inside the 1 GB default Redis maxmemory budget. Override via env when
+# the box has more memory; consider moving to Redis Cluster + key
+# sharding once this rises past ~10k concurrent sessions or live-frame
+# cache exceeds ~500 MB.
+_LIVEFRAME_MAX = int(os.environ.get("LIVEFRAME_MAX_SESSIONS", "5000"))
+# Per-frame upper bound — silently drops oversized frames instead of
+# letting one misbehaving client thrash the LRU. 1 MB is generous given
+# the recompress target; legitimate frames are 30-80 KB.
+_LIVEFRAME_MAX_FRAME_BYTES = int(os.environ.get("LIVEFRAME_MAX_FRAME_BYTES", str(1024 * 1024)))
 LIVEFRAME_PREFIX = "liveframe:"
 ROOMFRAME_PREFIX = "roomframe:"
 ROOMCAM_PREFIX = "roomcam:"
@@ -139,14 +151,26 @@ def set(key: str, value, ttl: int = 300) -> None:
 
 
 def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
-    """Store a live camera frame with enforced LRU cap.
+    """Store a live camera frame with enforced LRU cap + size cap.
 
     JPEG bytes are stored as raw binary (no base64 overhead) via a
     separate Redis client with decode_responses=False. The timestamp
     is tracked in a sorted-set index (text client) for LRU eviction.
+
+    Oversized frames (> LIVEFRAME_MAX_FRAME_BYTES, default 1 MB) are
+    silently dropped — protects against a misbehaving client thrashing
+    the LRU at 3500-concurrent-session scale. Real frames are 30-80 KB.
     """
     global _r_healthy
     if ttl <= 0:
+        return
+    if not jpeg_bytes:
+        return
+    if len(jpeg_bytes) > _LIVEFRAME_MAX_FRAME_BYTES:
+        _log.warning(
+            "live_frame oversize drop: session=%s bytes=%d max=%d",
+            safe(session_id), len(jpeg_bytes), _LIVEFRAME_MAX_FRAME_BYTES,
+        )
         return
     try:
         br = _binary_client()
@@ -276,3 +300,44 @@ def cleanup_room_frames() -> None:
 async def acleanup_room_frames() -> None:
     """Async-safe version of cleanup_room_frames()."""
     await _asyncio.get_event_loop().run_in_executor(None, cleanup_room_frames)
+
+
+def live_frame_stats() -> dict:
+    """Snapshot of the live-frame cache for observability.
+
+    Returns a dict shaped for the admin /api/v1/admin/live-stats endpoint.
+    Used by ops to monitor the cache under load. Fields:
+      - cached_sessions: count of sessions currently in the LRU sorted set
+      - cap: configured LRU cap (LIVEFRAME_MAX_SESSIONS)
+      - utilisation_pct: cached_sessions / cap × 100
+      - redis_used_bytes: total memory used by the Redis instance
+      - redis_max_bytes: configured Redis maxmemory (0 = unbounded)
+      - healthy: Redis ping ok
+    All fields are best-effort; any failure returns the partial dict.
+    """
+    out = {
+        "cached_sessions": 0,
+        "cap": _LIVEFRAME_MAX,
+        "utilisation_pct": 0.0,
+        "redis_used_bytes": None,
+        "redis_max_bytes": None,
+        "healthy": False,
+    }
+    try:
+        r = _client()
+        if r is None:
+            return out
+        out["healthy"] = bool(_r_healthy)
+        cached = int(r.zcard(LIVEFRAME_INDEX_KEY) or 0)
+        out["cached_sessions"] = cached
+        if _LIVEFRAME_MAX > 0:
+            out["utilisation_pct"] = round(cached / _LIVEFRAME_MAX * 100, 2)
+        try:
+            info = r.info(section="memory") or {}
+            out["redis_used_bytes"] = int(info.get("used_memory") or 0)
+            out["redis_max_bytes"] = int(info.get("maxmemory") or 0)
+        except Exception:
+            _log.debug("live_frame_stats: redis INFO memory failed", exc_info=True)
+    except Exception:
+        _log.debug("live_frame_stats: snapshot failed", exc_info=True)
+    return out

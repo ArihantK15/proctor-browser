@@ -138,7 +138,8 @@ def _build_question_table(questions: list, ans_map: dict):
 async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]:
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
 
     tid = teacher_id
     exam = await _assert_session_owned(session_id, tid)
@@ -204,6 +205,21 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
     story.append(Paragraph(
         f"Generated: {now_ist().strftime('%d %b %Y, %I:%M %p')} IST",
         styles["Normal"]))
+
+    _brand_footer = ParagraphStyle(
+        "BrandFooter",
+        fontName="Helvetica",
+        fontSize=8,
+        textColor=colors.HexColor("#94a3b8"),
+        alignment=1,
+        spaceBefore=24,
+    )
+    story.append(Spacer(1, 24))
+    story.append(Paragraph(
+        "Powered by <b>Procta</b> &nbsp;&middot;&nbsp; "
+        '<font color="#94a3b8">AI-proctored exams &mdash; procta.net</font>',
+        _brand_footer,
+    ))
 
     doc.build(story)
     buf.seek(0)

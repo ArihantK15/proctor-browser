@@ -315,8 +315,10 @@ def send_demo_request_notification(
             <a href="https://app.procta.net/dashboard" style="color:#3b82f6;">admin dashboard</a>.
           </p>
         </td></tr>
-        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
-          Procta — proctored exams, made simple.
+        <tr><td style="padding:24px 0 0;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">
+          Sent via <a href="https://procta.net" style="color:#64748b;text-decoration:none;font-weight:600">Procta</a>
+          &nbsp;·&nbsp;
+          Proctored exams for Indian institutions
         </td></tr>
       </table>
     </td></tr>
@@ -655,8 +657,10 @@ def _render_reminder(**ctx) -> tuple[str, str]:
             teacher will get back to you.
           </p>
         </td></tr>
-        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
-          Procta — proctored exams, made simple.
+        <tr><td style="padding:24px 0 0;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">
+          Sent via <a href="https://procta.net" style="color:#64748b;text-decoration:none;font-weight:600">Procta</a>
+          &nbsp;·&nbsp;
+          Proctored exams for Indian institutions
         </td></tr>
       </table>
     </td></tr>
@@ -781,8 +785,10 @@ def _render_scorecard_email(**ctx) -> tuple[str, str]:
             {_esc(teacher_name)} will get back to you.
           </p>
         </td></tr>
-        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
-          Procta — proctored exams, made simple.
+        <tr><td style="padding:24px 0 0;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">
+          Sent via <a href="https://procta.net" style="color:#64748b;text-decoration:none;font-weight:600">Procta</a>
+          &nbsp;·&nbsp;
+          Proctored exams for Indian institutions
         </td></tr>
       </table>
     </td></tr>
@@ -1021,8 +1027,10 @@ def _render_invite(**ctx) -> tuple[str, str]:
             Questions? Reply to this email and {_esc(teacher_name)} will get back to you.
           </p>
         </td></tr>
-        <tr><td style="background:#f8fafc;padding:14px 32px;color:#94a3b8;font-size:11px;text-align:center;border-top:1px solid #e2e8f0;">
-          Procta — proctored exams, made simple.
+        <tr><td style="padding:24px 0 0;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">
+          Sent via <a href="https://procta.net" style="color:#64748b;text-decoration:none;font-weight:600">Procta</a>
+          &nbsp;·&nbsp;
+          Proctored exams for Indian institutions
         </td></tr>
       </table>
     </td></tr>

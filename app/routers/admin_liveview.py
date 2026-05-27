@@ -202,3 +202,17 @@ async def room_cam_status(session_id: str, request: Request):
     row = await _atable("exam_sessions").select("room_cam_status,room_cam_approved_at").eq("session_key", session_id).limit(1).execute()
     data = row.data[0] if row.data else {}
     return {"status": data.get("room_cam_status", "disabled"), "approved_at": data.get("room_cam_approved_at")}
+
+
+@router.get("/api/v1/admin/live-stats")
+@limiter.limit("60/minute")
+async def live_view_stats(request: Request):
+    """Observability snapshot of the live-frame cache.
+
+    Returns cache utilisation + Redis memory so ops can see whether the
+    3500-student-scale defaults are holding. No PII; admin-only so the
+    cache topology doesn't leak. Format documented at
+    app/cache.py:live_frame_stats.
+    """
+    await require_admin(request)  # gate; ignore the principal
+    return _cache.live_frame_stats()

@@ -6,36 +6,49 @@ import { createPortal } from 'react-dom'
 /**
  * Demo section.
  *
- * Three viewing modes:
- *   1. Idle card with play button (no iframe mounted, no CDN cost)
- *   2. Inline embedded play (click play → iframe mounts in card)
- *   3. Fullscreen modal (click expand → iframe takes viewport, in-page)
+ * Now backed by a real screen-recording (MP4) instead of the old
+ * Babel-in-the-browser fake-animation demo.html. To swap in a new
+ * recording:
+ *   1. Drop the new file at website/public/demo.mp4 (H.264 + AAC,
+ *      faststart so it streams progressively).
+ *   2. Optionally drop a poster frame at website/public/demo-poster.jpg.
+ *   3. No code change needed.
  *
- * The demo is play-once. When it ends it postMessages 'procta-demo-ended'
- * to the parent; we unmount the iframe and return to the idle card so
+ * Three viewing modes (unchanged from the iframe era):
+ *   1. Idle card with play button (no <video> mounted, no bandwidth cost)
+ *   2. Inline embedded play (click play → <video> mounts in card)
+ *   3. Fullscreen modal (click expand → <video> takes viewport, in-page)
+ *
+ * The video is play-once. When it ends, we return to the idle card so
  * the user can click play again to restart.
  *
  * Mobile (<sm): the inline 16:9 card is too small to read text, so phones
  * skip the inline embed and tap straight into the fullscreen modal. The
  * modal additionally requests fullscreen + landscape on mobile so the
- * demo plays edge-to-edge instead of squeezed into a portrait viewport.
+ * video plays edge-to-edge instead of squeezed into a portrait viewport.
  */
+const VIDEO_SRC = '/demo.mp4'
+const VIDEO_POSTER = '/demo-poster.jpg'
 export default function Demo() {
   const [playing, setPlaying] = useState(false)   // inline embed mounted
   const [fullscreen, setFullscreen] = useState(false) // modal open
   const cardRef = useRef(null)
   const modalRef = useRef(null)
+  const inlineVideoRef = useRef(null)
+  const modalVideoRef = useRef(null)
 
-  // Prefetch /demo.html when the card scrolls into view → first click
-  // feels instant (no CDN-fetch penalty waiting for React+Babel).
+  // Prefetch the video file when the card scrolls into view → first click
+  // feels instant (no fresh fetch wait). We use `as=video` so the browser
+  // grants it the right cache + priority, with crossorigin matching the
+  // <video> tag below.
   useEffect(() => {
     if (!cardRef.current) return
     const io = new IntersectionObserver(([e]) => {
       if (e.isIntersecting) {
         const link = document.createElement('link')
         link.rel = 'prefetch'
-        link.href = '/demo.html'
-        link.as = 'document'
+        link.href = VIDEO_SRC
+        link.as = 'video'
         document.head.appendChild(link)
         io.disconnect()
       }
@@ -44,19 +57,10 @@ export default function Demo() {
     return () => io.disconnect()
   }, [])
 
-  // Listen for end-of-demo from the iframe. When fired we unmount both
-  // the inline embed and the modal — user can click again to replay.
-  useEffect(() => {
-    const onMessage = (e) => {
-      // Only accept messages from the same origin (demo iframe is same-origin).
-      if (e.origin !== window.location.origin) return
-      if (e?.data?.type === 'procta-demo-ended') {
-        setPlaying(false)
-        setFullscreen(false)
-      }
-    }
-    window.addEventListener('message', onMessage) // nosemgrep: javascript.browser.security.insufficient-postmessage-origin-validation.insufficient-postmessage-origin-validation
-    return () => window.removeEventListener('message', onMessage)
+  // When the inline video ends, return to idle. Same for the modal.
+  const handleEnded = useCallback(() => {
+    setPlaying(false)
+    setFullscreen(false)
   }, [])
 
   // Body scroll lock + Esc-to-close while modal is open.
@@ -181,16 +185,20 @@ export default function Demo() {
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent/40 to-transparent z-10 pointer-events-none" />
 
             {playing ? (
-              <iframe
-                src="/demo.html"
-                title="Procta product demo"
-                width="100%"
-                height="100%"
-                className="absolute inset-0 block h-full w-full"
-                style={{ border: 0, display: 'block' }}
-                allow="autoplay; fullscreen"
-                scrolling="no"
-              />
+              <video
+                ref={inlineVideoRef}
+                src={VIDEO_SRC}
+                poster={VIDEO_POSTER}
+                controls
+                autoPlay
+                playsInline
+                preload="auto"
+                onEnded={handleEnded}
+                className="absolute inset-0 block h-full w-full bg-black"
+                style={{ objectFit: 'contain' }}
+              >
+                Your browser does not support HTML5 video.
+              </video>
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-dark shadow-lg transition-transform group-hover:scale-110 accent-glow-strong">
@@ -249,16 +257,20 @@ export default function Demo() {
                 className="relative w-full max-h-full aspect-video bg-navy-900 rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.08] shadow-2xl"
                 style={{ maxWidth: 'min(100%, calc((100vh - 6rem) * 16 / 9))' }}
               >
-                <iframe
-                  src="/demo.html"
-                  title="Procta product demo (fullscreen)"
-                  width="100%"
-                  height="100%"
-                  className="absolute inset-0 block h-full w-full"
-                  style={{ border: 0, display: 'block' }}
-                  allow="autoplay; fullscreen"
-                  scrolling="no"
-                />
+                <video
+                  ref={modalVideoRef}
+                  src={VIDEO_SRC}
+                  poster={VIDEO_POSTER}
+                  controls
+                  autoPlay
+                  playsInline
+                  preload="auto"
+                  onEnded={handleEnded}
+                  className="absolute inset-0 block h-full w-full bg-black"
+                  style={{ objectFit: 'contain' }}
+                >
+                  Your browser does not support HTML5 video.
+                </video>
 
                 <button
                   type="button"

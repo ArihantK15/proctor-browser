@@ -4,6 +4,51 @@ import { API_BASE } from '../config'
 
 const PAGE_SIZE = 50
 
+// Notifications API helper for tab-hidden violation alerts.
+// We rate-limit to one notification per session per 60s so a noisy
+// session can't spam the OS notification center.
+const _lastNotifyAt = new Map()
+function _maybeNotifyTabHiddenViolation(evt) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+  const sid = evt?.session_id
+  if (!sid) return
+  const now = Date.now()
+  const last = _lastNotifyAt.get(sid) || 0
+  if (now - last < 60_000) return
+  _lastNotifyAt.set(sid, now)
+  // Trim caches with a hard cap so a long session can't accumulate
+  // thousands of session_id keys in the map.
+  if (_lastNotifyAt.size > 500) {
+    const cutoff = now - 5 * 60_000
+    for (const [k, t] of _lastNotifyAt) {
+      if (t < cutoff) _lastNotifyAt.delete(k)
+    }
+  }
+  try {
+    const title = `Procta — violation flagged`
+    const body = [
+      evt.event_type ? `Type: ${evt.event_type}` : null,
+      evt.full_name || evt.roll_number ? `Student: ${evt.full_name || evt.roll_number}` : null,
+      evt.risk_score != null ? `Risk: ${evt.risk_score}` : null,
+    ].filter(Boolean).join(' · ')
+    const n = new Notification(title, {
+      body: body || 'Open the Live tab for details.',
+      icon: '/favicon-48.png',
+      tag: `procta-violation-${sid}`,  // collapses repeats per session
+      renotify: false,
+      silent: false,
+    })
+    n.onclick = () => {
+      try { window.focus() } catch (_) { /* noop */ }
+      n.close()
+    }
+  } catch (_) {
+    // Notification ctor can throw on Safari mobile / locked-down kiosks.
+    // Silent fall-through is fine — feature is opt-in enhancement.
+  }
+}
+
 export default function LiveSessionsPanel({ currentExamId }) {
   const { authFetch } = useAuth()
   const [sessions, setSessions] = useState([])
@@ -21,6 +66,16 @@ export default function LiveSessionsPanel({ currentExamId }) {
 
   useEffect(() => {
     connectSSE()
+    // Best-effort Notifications API prompt for tab-hidden violation
+    // alerts. Browsers only show the prompt if permission state is
+    // 'default' (never asked before); subsequent visits are silent.
+    // Some browsers (Safari, Firefox in some configs) require a user
+    // gesture and will silently no-op the request here — that's fine,
+    // the user can still grant via the site-settings menu later.
+    if (typeof window !== 'undefined' && 'Notification' in window &&
+        Notification.permission === 'default') {
+      try { Notification.requestPermission().catch(() => {}) } catch (_) { /* noop */ }
+    }
     return () => { if (sseRef.current) sseRef.current.close() }
   }, [])
 
@@ -44,6 +99,15 @@ export default function LiveSessionsPanel({ currentExamId }) {
           const d = JSON.parse(e.data)
           if (d.session_id) {
             setSessions(prev => prev.map(s => s.session_id === d.session_id ? { ...s, ...d } : s))
+          }
+          // Tab-closed alerting: when the dashboard tab is hidden and a
+          // violation arrives, fire a Desktop Notification so the teacher
+          // sees it on the OS-level even if their browser is in a different
+          // tab or behind another window. No bell sound (browsers throttle
+          // notification audio anyway). Permission is requested on first
+          // user gesture in the panel; we no-op silently if denied.
+          if (d.kind === 'violation' && typeof document !== 'undefined' && document.hidden) {
+            _maybeNotifyTabHiddenViolation(d)
           }
         } catch (_) { setStreamStatus('Live update payload was unreadable. Use Refresh for current data.') }
       })

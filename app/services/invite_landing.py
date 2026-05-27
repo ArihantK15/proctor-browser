@@ -96,7 +96,12 @@ min-height:100vh;padding:24px}}
 border:1px solid #334155}}
 h1{{color:#f87171;margin:0 0 16px 0;font-size:24px}}
 p{{color:#94a3b8;line-height:1.6;margin:0}}</style></head>
-<body><div class="card"><h1>Invite unavailable</h1><p>{safe}</p></div></body></html>"""
+<body><div class="card"><h1>Invite unavailable</h1><p>{safe}</p></div>
+<footer style="margin-top:48px;padding:16px 0;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid rgba(255,255,255,0.06)">
+  Powered by <a href="https://procta.net" style="color:#94a3b8;text-decoration:none;font-weight:600">Procta</a>
+  &nbsp;·&nbsp;
+  AI-proctored exams for Indian institutions
+</footer></body></html>"""
 
 
 def _invite_hero(title: str, name: str) -> str:
@@ -199,7 +204,11 @@ def _render_invite_landing(*, token, full_name, exam_title, roll_number, access_
   {creds}
   {dl}
   {steps}
-  <footer>Questions? Reply to the email you got this link from.</footer>
+  <footer style="margin-top:48px;padding:16px 0;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid rgba(255,255,255,0.06)">
+    Powered by <a href="https://procta.net" style="color:#94a3b8;text-decoration:none;font-weight:600">Procta</a>
+    &nbsp;·&nbsp;
+    AI-proctored exams for Indian institutions
+  </footer>
 </div>
 <script>{_INVITE_JS}</script>
 </body></html>"""

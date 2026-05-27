@@ -371,3 +371,59 @@ print(f'{len(r.data)} stale in-progress sessions')
 for s in r.data[:10]: print(s)
 "
 ```
+
+---
+
+## Scaling the live-frame cache (3500+ concurrent sessions)
+
+The teacher live-view caches one JPEG per active student in Redis
+(`liveframe:<session_id>`, 10s TTL, with a sorted-set LRU index).
+Two env vars govern the cap:
+
+```
+LIVEFRAME_MAX_SESSIONS=5000        # default, override per box
+LIVEFRAME_MAX_FRAME_BYTES=1048576  # 1 MB per-frame upper bound
+```
+
+At 5000 sessions × 60 KB/frame ≈ **300 MB** Redis memory. Comfortable
+inside a 1 GB Redis instance.
+
+Observability: `GET /api/v1/admin/live-stats` (admin-only) returns
+`cached_sessions`, `cap`, `utilisation_pct`, `redis_used_bytes`,
+`redis_max_bytes`. Hook into Sentry / Grafana — alert when
+utilisation > 80 % or memory > 800 MB.
+
+### When to move to Redis Cluster
+
+Single-node Redis handles ~100k ops/sec — well above 3500 sessions ×
+1 Hz writes = 3500 ops/sec. Migrate to cluster only when one of:
+
+- `redis_used_bytes` approaches box RAM, OR
+- Concurrent sessions exceed ~10k, OR
+- You need HA failover (single Redis = SPOF).
+
+Setup (when needed): spin up 3+ Redis nodes, run
+`redis-cli --cluster create`, set `REDIS_URL` to a comma-separated
+seed list. `redis-py` auto-detects cluster mode and key
+`liveframe:<sid>` auto-shards by hash slot — no app code change.
+The only hot key is the sorted-set LRU index (`liveframe:_index`);
+if THAT becomes the bottleneck, switch to per-shard indices with
+`{<hash_tag>}` curly-brace forcing.
+
+### When to move to WebRTC
+
+The current pipeline is snapshot-based (~1 Hz JPEG, no audio).
+WebRTC unlocks real-time video + audio but requires:
+
+- Self-hosted SFU (mediasoup / Janus / LiveKit-server) or managed
+  (LiveKit Cloud, Daily, Agora — ₹15-50k/month at our scale)
+- Rewrites of student-side capture + teacher-side player to use
+  `RTCPeerConnection`
+- STUN/TURN ops
+- Egress: 3500 × 200-500 kbps = ~1 Gbps sustained
+
+2-4 week project, not a one-evening task. Justified when customers
+explicitly request live audio verification or you need to beat Mettl
+on the "watch the actual exam" demo bar. For now, snapshot + the
+tab-hidden Notifications API alert covers 99 % of real proctoring
+needs at 3500-student scale.

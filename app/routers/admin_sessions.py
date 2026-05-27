@@ -7,7 +7,6 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Body
 
 from ..auth import require_admin
-from ..auth.tokens import verify_reauth_token
 from ..repositories.sessions import (
     assert_session_owned as _assert_session_owned,
     fetch_all_results as _fetch_all_results,
@@ -112,8 +111,16 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
         return await _clear_request_preview(
             tid, body.include_active, body.include_completed, exam_id_scope)
     if step == "confirm":
-        if not body.reauth_token or not verify_reauth_token(body.reauth_token, tid):
-            raise HTTPException(status_code=403, detail="Fresh re-authentication required")
+        # P1.2 consolidated reauth gate. The Pydantic body model already
+        # makes reauth_token a field, so we hand it through the shared
+        # helper instead of duplicating the verify_reauth_token check
+        # that lived inline here. Same fail-closed semantics.
+        from ..auth.admin_auth import require_reauth_or_403
+        require_reauth_or_403(
+            {"reauth_token": body.reauth_token} if body.reauth_token else None,
+            tid,
+            request=request,
+        )
         return await _clear_confirm_execute(tid, body, exam_id_scope)
 
     raise HTTPException(status_code=400,

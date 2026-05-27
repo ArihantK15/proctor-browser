@@ -7,7 +7,6 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException
 
 from ..auth import require_admin
-from ..auth.tokens import verify_reauth_token
 from ..database import async_table as _atable
 from ..limiter import limiter
 from ..utils import now_ist, fmt_ist
@@ -174,9 +173,11 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
     valid_roles = {"admin", "teacher", "viewer"}
     if role not in valid_roles:
         raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(sorted(valid_roles))}")
-    reauth_token = (body or {}).get("reauth_token", "").strip()
-    if not reauth_token or not verify_reauth_token(reauth_token, str(teacher["id"])):
-        raise HTTPException(status_code=403, detail="Fresh re-authentication required")
+    # P1.2 helper — same fail-closed semantics, accepts body field or
+    # X-Reauth-Token header. Role-change endpoints lose data flow on
+    # mis-issued tokens, hence the gate.
+    from ..auth.admin_auth import require_reauth_or_403
+    require_reauth_or_403(body, str(teacher["id"]), request=request)
 
     target = await _atable("teachers").select("id,org_role").eq("id", teacher_id).eq("org_id", str(org_id)).limit(1).execute()
     if not target.data:

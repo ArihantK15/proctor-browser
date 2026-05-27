@@ -400,7 +400,14 @@ async function confirmDeleteExam(){
     return;
   }
   try{
-    const r = await authFetch(`${BASE}/api/v1/admin/exams/${currentExamId}`,{method:'DELETE'});
+    let reauth_token;
+    try { reauth_token = await _getReauthToken('delete this exam'); }
+    catch(e){ alert(e.message || 'Re-authentication failed'); return; }
+    if(!reauth_token) return;
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${currentExamId}`, {
+      method:'DELETE',
+      headers:{'X-Reauth-Token': reauth_token}
+    });
     if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
     currentExamId = null;
     await loadExams();
@@ -1181,10 +1188,11 @@ async function load2FAStatus(){
   }catch(_){}
 }
 
-// Re-auth helper shared by enable/disable. Prompts for the user's
-// password and exchanges it for a 5-minute reauth_token. Centralised
-// here so both flows use identical logic.
-async function _get2FAReauthToken(action){
+// Re-auth helper shared by 2FA flows and destructive action
+// confirmations. Prompts for the user's password and exchanges it
+// for a 5-minute reauth_token. Centralised here so all callers use
+// identical logic.
+async function _getReauthToken(action){
   const password = await appPrompt(`Enter your password to ${action}:`, '', {title:'Re-authentication required', okText:'Continue', inputType:'password'});
   if(!password) return null;
   const rr = await authFetch(`${BASE}/api/v1/auth/reauth`, {
@@ -1201,7 +1209,7 @@ async function enable2FA(){
   resultEl.style.color = 'var(--text-muted)';
   resultEl.textContent = '';
   try{
-    const reauth_token = await _get2FAReauthToken('enable');
+    const reauth_token = await _getReauthToken('enable');
     if(!reauth_token) return;
     resultEl.textContent = 'Enabling...';
     const r = await authFetch(`${BASE}/api/v1/auth/2fa/enable`, {
@@ -1223,7 +1231,7 @@ async function disable2FA(){
   resultEl.style.color = 'var(--text-muted)';
   resultEl.textContent = '';
   try{
-    const reauth_token = await _get2FAReauthToken('disable');
+    const reauth_token = await _getReauthToken('disable');
     if(!reauth_token) return;
     resultEl.textContent = 'Disabling...';
     const r = await authFetch(`${BASE}/api/v1/auth/2fa/disable`, {
@@ -1273,8 +1281,15 @@ async function revokeOtherSessions(){
   if(!(await appConfirm('Sign out all other devices? You will stay signed in on this device.', 'Sign out other devices', {okText:'Sign out'}))) return;
   const resultEl = document.getElementById('security-sessions-result');
   resultEl.textContent = 'Revoking...';
+  let reauth_token;
+  try { reauth_token = await _getReauthToken('sign out other devices'); }
+  catch(e){ resultEl.textContent = e.message || 'Re-authentication failed'; return; }
+  if(!reauth_token) return;
   try{
-    const r = await authFetch(`${BASE}/api/v1/auth/sessions/revoke-others`, {method:'POST'});
+    const r = await authFetch(`${BASE}/api/v1/auth/sessions/revoke-others`, {
+      method:'POST',
+      body: JSON.stringify({reauth_token})
+    });
     if(!r.ok) throw new Error();
     resultEl.textContent = '✅ Other sessions revoked.';
     loadSessions();
@@ -2838,7 +2853,7 @@ async function clearLiveSessionsStep(){
     btn.disabled=true;
     btn.textContent='Wiping...';
     try{
-      const reauth_token = await _get2FAReauthToken('clear live sessions');
+      const reauth_token = await _getReauthToken('clear live sessions');
       if(!reauth_token) throw new Error('Re-authentication required');
       const r=await authFetch(`${BASE}/api/v1/admin/clear-live-sessions`,{
         method:'POST',
@@ -2911,7 +2926,7 @@ async function loadFailedCount(){
 async function forceSubmit(sid){
   if(!(await appConfirm(`Force-submit session ${sid}?`, 'Force submit session', {okText:'Force submit'}))) return;
   try{
-    const reauth_token = await _get2FAReauthToken('force-submit this session');
+    const reauth_token = await _getReauthToken('force-submit this session');
     if(!reauth_token) return;
     const r=await authFetch(`${BASE}/api/v1/admin-submit/${encodeURIComponent(sid)}`,{
       method:'POST',
@@ -5305,14 +5320,20 @@ async function removeGroupMember(gid, roll){
 async function removeOrgMember(memberId){
   if(!memberId) return;
   if(!(await appConfirm('Remove this teacher from the organization? They will lose access immediately.', 'Remove member', {okText:'Remove'}))) return;
-  const r = await authFetch(`${BASE}/api/v1/org/members/${encodeURIComponent(memberId)}`,
-    {method:'DELETE'});
+  let reauth_token;
+  try { reauth_token = await _getReauthToken('remove this member'); }
+  catch(e){ alert(e.message || 'Re-authentication failed'); return; }
+  if(!reauth_token) return;
+  const r = await authFetch(`${BASE}/api/v1/org/members/${encodeURIComponent(memberId)}`, {
+    method:'DELETE',
+    headers:{'X-Reauth-Token': reauth_token}
+  });
   if(!r.ok){
     const d = await r.json().catch(()=>({}));
     showModal(d.detail || 'Could not remove member');
     return;
   }
-  loadMembers();   // existing loader for the org members table (line ~2451)
+  loadMembers();
 }
 
 function populateGroupSelect(){

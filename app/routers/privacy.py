@@ -10,7 +10,6 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from pydantic import BaseModel, ConfigDict
 
 from ..auth import require_admin, require_student_account
-from ..auth.tokens import verify_reauth_token
 from ..database import async_table as _atable
 from ..limiter import limiter
 
@@ -156,13 +155,12 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
         except HTTPException:
             raise HTTPException(status_code=401, detail="Authentication required")
 
-    reauth_token = (body or {}).get("reauth_token", "").strip()
-    if user_type == "teacher":
-        if not reauth_token or not verify_reauth_token(reauth_token, user_id):
-            raise HTTPException(status_code=403, detail="Fresh re-authentication required")
-    elif user_type == "student":
-        if not reauth_token or not verify_reauth_token(reauth_token, user_id):
-            raise HTTPException(status_code=403, detail="Fresh re-authentication required")
+    # GDPR account-delete is the most destructive thing a logged-in
+    # user can trigger; demand a fresh reauth token regardless of
+    # user_type. Helper accepts body-or-X-Reauth-Token-header so
+    # legacy callers passing the field in the body keep working.
+    from ..auth.admin_auth import require_reauth_or_403
+    require_reauth_or_403(body, user_id, request=request)
 
     errors = []
     anon = f"deleted_user_{user_id[:8]}"

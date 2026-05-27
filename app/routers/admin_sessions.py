@@ -242,11 +242,17 @@ async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
 @router.post("/api/v1/admin-submit/{session_id}")
 @limiter.limit("10/minute")
 async def admin_submit(session_id: str, request: Request, body: dict = Body(default_factory=dict)):
+    """Force-submit a student's exam.
+
+    Reauth gate (P1.2) consolidated to the shared helper from
+    app/auth/admin_auth.py. Previously a 3-line inline check; the
+    helper centralises the body-vs-X-Reauth-Token-header handling so
+    new destructive endpoints can opt in with a single line.
+    """
+    from ..auth.admin_auth import require_reauth_or_403
     teacher = await require_admin(request)
     tid = teacher["id"]
-    reauth_token = (body or {}).get("reauth_token", "").strip()
-    if not reauth_token or not verify_reauth_token(reauth_token, str(tid)):
-        raise HTTPException(status_code=403, detail="Fresh re-authentication required")
+    require_reauth_or_403(body, str(tid), request=request)
 
     existing_session = await _assert_session_owned(session_id, tid)
     if existing_session.get("status") == SessionStatus.COMPLETED:

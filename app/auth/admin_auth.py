@@ -155,6 +155,65 @@ async def require_admin(request: Request) -> dict:
     return await verify_admin_token(token)
 
 
+def require_reauth_or_403(
+    body: dict | None,
+    user_id: str,
+    *,
+    request: Request | None = None,
+) -> None:
+    """Guard for destructive admin actions.
+
+    The caller must already have a valid access token (via require_admin).
+    On top of that we require a short-lived "I just re-typed my password"
+    proof — a `reauth_token` either in the request body field of the
+    same name, or in the ``X-Reauth-Token`` header. The body path keeps
+    backwards compat with the existing email_2fa_enable + admin_submit
+    callers; the header path lets DELETE handlers (where adding a body
+    is awkward) wire up without changing their signature.
+
+    Tokens are obtained by the client from POST /api/v1/auth/reauth
+    (5-minute expiry, scope=reauth).
+
+    Rationale: an attacker who briefly takes over a teacher's session
+    (XSS, stolen access cookie before refresh-rotation kicks in, a
+    forgotten unlocked laptop) shouldn't be able to delete a whole exam,
+    kick a colleague out, or force-submit a student's in-progress exam
+    without re-proving they know the password. Each of those four sinks
+    requires a fresh reauth_token; a 5-minute window lets a real user
+    chain several destructive actions without re-prompting, but a stolen
+    session is locked out the moment the token expires.
+
+    Raises HTTPException(403) on missing / wrong-uid / expired token.
+    Pattern matches the inline check already in app/routers/auth.py's
+    email_2fa_enable; consolidated here so new destructive endpoints
+    can share one line of plumbing.
+    """
+    from .tokens import _decode_token
+    from ..constants import REAUTH_SIGNING_KEYS
+    body = body or {}
+    token = (body.get("reauth_token") or "").strip()
+    if not token and request is not None:
+        token = (request.headers.get("X-Reauth-Token") or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=403,
+            detail="Re-authentication required for this action",
+        )
+    try:
+        claims = _decode_token(token, REAUTH_SIGNING_KEYS)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="Re-authentication token expired or invalid",
+        ) from exc
+    if claims.get("scope") != "reauth":
+        raise HTTPException(status_code=403, detail="Wrong token scope")
+    if str(claims.get("uid")) != str(user_id):
+        raise HTTPException(status_code=403, detail="Re-authentication does not match caller")
+
+
 # ─── Student-account (dashboard) auth ────────────────────────────
 _student_acct_cache: OrderedDict = OrderedDict()
 _student_acct_cache_ttl: dict[str, float] = {}

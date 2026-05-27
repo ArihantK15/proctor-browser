@@ -211,31 +211,50 @@ class TestInviteOrgMember:
 #  DELETE /api/v1/org/members/{teacher_id}
 # ═══════════════════════════════════════════════════════════════════
 class TestRemoveMember:
+    # P1.2 adds a require_reauth_or_403 gate to the destructive endpoint.
+    # Tests below ride that gate by sending the X-Reauth-Token header
+    # alongside the access bearer.
+    @staticmethod
+    def _headers(tid: str = "teacher-1"):
+        from app.auth.tokens import issue_reauth_token
+        h = dict(admin_headers())
+        h["X-Reauth-Token"] = issue_reauth_token(tid)
+        return h
+
     def test_happy_path(self, client):
         data_map = {"teachers": [{"id": "teacher-2", "org_id": "org-1", "org_role": "teacher"}]}
         with _admin_patch(), contextlib.ExitStack() as es:
             for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
-            resp = client.delete("/api/v1/org/members/teacher-2", headers=admin_headers())
+            resp = client.delete("/api/v1/org/members/teacher-2", headers=self._headers())
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
 
     def test_remove_self_400(self, client):
         with _admin_patch():
-            resp = client.delete("/api/v1/org/members/teacher-1", headers=admin_headers())
+            resp = client.delete("/api/v1/org/members/teacher-1", headers=self._headers())
         assert resp.status_code == 400
 
     def test_not_found_404(self, client):
         with _admin_patch(), contextlib.ExitStack() as es:
             for p in _apply_atable_patches({"teachers": []}):
                 es.enter_context(p)
-            resp = client.delete("/api/v1/org/members/unknown", headers=admin_headers())
+            resp = client.delete("/api/v1/org/members/unknown", headers=self._headers())
         assert resp.status_code == 404
 
     def test_non_admin_403(self, client):
         with _admin_patch(NON_ADMIN):
+            # Non-admin org_role is checked BEFORE the reauth gate, so
+            # the missing reauth header doesn't matter here.
             resp = client.delete("/api/v1/org/members/teacher-2", headers=admin_headers())
         assert resp.status_code == 403
+
+    def test_missing_reauth_403(self, client):
+        # New: without a fresh reauth token, even an admin gets rejected.
+        with _admin_patch():
+            resp = client.delete("/api/v1/org/members/teacher-2", headers=admin_headers())
+        assert resp.status_code == 403
+        assert "re-auth" in resp.json()["detail"].lower() or "Re-auth" in resp.json()["detail"]
 
 
 # ═══════════════════════════════════════════════════════════════════

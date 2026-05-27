@@ -125,10 +125,18 @@ async def invite_member(body: OrgInviteIn, request: Request):
 @router.delete("/api/v1/org/members/{teacher_id}")
 @limiter.limit("10/hour")
 async def remove_member(teacher_id: str, request: Request):
-    """Remove a teacher from the org."""
+    """Remove a teacher from the org.
+
+    Requires a fresh reauth_token (P1.2 — X-Reauth-Token header) on top
+    of the admin/superadmin org_role check. Kicking a colleague out is
+    a high-blast-radius action; locking it behind a fresh password
+    prompt closes the stolen-session impersonation path.
+    """
+    from ..auth.admin_auth import require_reauth_or_403
     admin = await require_admin(request)
     if admin.get("org_role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Only admins can remove members")
+    require_reauth_or_403(None, str(admin["id"]), request=request)
     org_id = admin.get("org_id")
     if not org_id:
         raise HTTPException(status_code=403, detail="No organization associated")

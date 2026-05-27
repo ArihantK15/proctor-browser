@@ -121,8 +121,18 @@ async def set_phone_camera_config(body: dict, request: Request):
 @router.delete("/api/v1/admin/exams/{exam_id}")
 @limiter.limit("10/hour")
 async def delete_exam(exam_id: str, request: Request):
+    """Delete an exam and all its questions / sessions / invites.
+
+    Requires a fresh reauth_token (P1.2 — X-Reauth-Token header) on top
+    of the usual access-token + ownership check. Exam deletion cascades
+    into hundreds of rows that can't be recovered short of a backup
+    restore; we want a stolen-session attacker to have to re-prove
+    knowledge of the password before they can drop a teacher's exam.
+    """
+    from ..auth.admin_auth import require_reauth_or_403
     teacher = await require_admin(request)
     tid = str(teacher["id"])
+    require_reauth_or_403(None, tid, request=request)
     check = await _atable("exam_config").select("exam_id")\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     if not check.data:

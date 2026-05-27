@@ -1,5 +1,5 @@
 from ..log_safe import safe
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 import asyncio
 import json
@@ -1964,7 +1964,7 @@ async def logout(request: Request):
 
 @router.post("/api/v1/auth/sessions/revoke-others")
 @limiter.limit("10/minute")
-async def revoke_other_sessions(request: Request):
+async def revoke_other_sessions(request: Request, body: dict = Body(default_factory=dict)):
     """Revoke all sessions except the current one.
 
     Kills both access-session jtis AND every active refresh token for
@@ -1974,9 +1974,15 @@ async def revoke_other_sessions(request: Request):
     expiry; the user will need to log in fresh on this device after
     that. That's the security/UX tradeoff: "panic button" beats
     "convenience".
+
+    Requires a fresh reauth_token (P1.2): a stolen access cookie
+    shouldn't be able to "panic button" the legitimate user's other
+    devices out of the way without re-entering the password.
     """
+    from ..auth.admin_auth import require_reauth_or_403
     teacher = await require_admin(request)
     tid = str(teacher["id"])
+    require_reauth_or_403(body, tid, request=request)
     # Decode current token to get its JTI
     from ..constants import ADMIN_SIGNING_KEYS
     auth = request.headers.get("Authorization", "")

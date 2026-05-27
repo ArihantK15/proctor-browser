@@ -4290,7 +4290,11 @@ function chatHandleIncoming(data){
   if(t==='roster'){
     chatSessions = {};
     (data.sessions||[]).forEach(s=>{
+      // chatEnsureSession() returns null when _isSafeSid() rejects a
+      // hostile session_id (e.g. __proto__). Skip silently — we drop
+      // the row from the roster rather than throw.
       const sess = chatEnsureSession(s.session_id, s);
+      if(!sess) return;
       sess.messages = (s.history||[]).slice();
     });
     chatRenderRoster();
@@ -4318,6 +4322,7 @@ function chatHandleIncoming(data){
     const sess = chatEnsureSession(sid, {
       roll: data.roll, name: data.name,
     });
+    if(!sess) return;  // _isSafeSid rejected — drop hostile session_id
     sess.messages.push(data);
     const isBroadcast = (t==='broadcast');
     const fromStudent = (data.sender==='student');

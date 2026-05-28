@@ -131,10 +131,10 @@ export default function Pricing() {
       <Helmet>
         <title>Pricing — Procta AI Exam Proctoring</title>
         <meta name="description" content="Simple, transparent pricing for AI-powered exam proctoring. Starter ₹2,400/mo, Growth ₹12,000/mo, Pro ₹30,000/mo. Free 7-day trial, no credit card required." />
-        <link rel="canonical" href="https://procta.net/pricing" />
+        <link rel="canonical" href="https://www.procta.net/pricing" />
         <meta property="og:title" content="Pricing — Procta AI Exam Proctoring" />
         <meta property="og:description" content="Affordable AI proctoring for Indian higher education. Plans start at ₹2,400/month. Free 7-day trial." />
-        <meta property="og:url" content="https://procta.net/pricing" />
+        <meta property="og:url" content="https://www.procta.net/pricing" />
       </Helmet>
 
       <Navbar />

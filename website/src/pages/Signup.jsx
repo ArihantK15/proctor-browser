@@ -124,7 +124,7 @@ export default function Signup() {
         <meta property="og:title" content="Sign Up — Procta Browser" />
         <meta property="og:description" content="Create your Procta account and start running AI-proctored exams with instant setup." />
         <meta property="og:type" content="website" />
-        <link rel="canonical" href="https://procta.net/signup" />
+        <link rel="canonical" href="https://www.procta.net/signup" />
       </Helmet>
       <div className="flex min-h-screen items-center justify-center bg-navy-950 px-6">
         <div className="pointer-events-none fixed inset-0 grain-overlay" />
@@ -155,7 +155,7 @@ export default function Signup() {
         <meta property="og:title" content="Sign Up — Procta Browser" />
         <meta property="og:description" content="Create your Procta account and start running AI-proctored exams with instant setup." />
         <meta property="og:type" content="website" />
-        <link rel="canonical" href="https://procta.net/signup" />
+        <link rel="canonical" href="https://www.procta.net/signup" />
       </Helmet>
     <div className="flex min-h-screen items-center justify-center bg-navy-950 px-6 py-12">
       <div className="pointer-events-none fixed inset-0 grain-overlay" />

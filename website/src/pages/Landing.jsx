@@ -24,9 +24,9 @@ export default function Landing() {
         <meta property="og:title" content="Procta — AI Proctored Exams, Secure Browser, Phone Cam & Automated Grading" />
         <meta property="og:description" content="Complete exam workflow: secure browser, on-device AI proctoring, phone cam, live dashboard, AI grading, scorecards, LTI, and 3,500-student architecture headroom." />
         <meta property="og:type" content="website" />
-        <meta property="og:url" content="https://procta.net" />
-        <meta property="og:image" content="https://procta.net/og-image.png" />
-        <link rel="canonical" href="https://procta.net" />
+        <meta property="og:url" content="https://www.procta.net" />
+        <meta property="og:image" content="https://www.procta.net/og-image.png" />
+        <link rel="canonical" href="https://www.procta.net" />
       </Helmet>
       <Navbar />
       <Hero />

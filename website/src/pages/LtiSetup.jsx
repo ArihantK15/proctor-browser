@@ -97,10 +97,10 @@ export default function LtiSetup() {
       <Helmet>
         <title>LTI 1.3 Integration Setup — Procta for Canvas, Moodle &amp; Blackboard</title>
         <meta name="description" content="Step-by-step guide to integrating Procta AI proctoring with Canvas, Moodle, and Blackboard via LTI 1.3. Grade passback, roster sync, and SSO setup." />
-        <link rel="canonical" href="https://procta.net/lti-setup" />
+        <link rel="canonical" href="https://www.procta.net/lti-setup" />
         <meta property="og:title" content="LTI 1.3 Integration Setup — Procta" />
         <meta property="og:description" content="Connect Procta with your LMS in minutes. Supports Canvas, Moodle, and Blackboard via LTI 1.3 Advantage standards." />
-        <meta property="og:url" content="https://procta.net/lti-setup" />
+        <meta property="og:url" content="https://www.procta.net/lti-setup" />
       </Helmet>
 
       <Navbar />

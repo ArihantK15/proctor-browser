@@ -11,10 +11,10 @@ export default function BlogDPDPCompliance() {
       <Helmet>
         <title>DPDP Act Compliance for Online Proctoring: Complete Guide for Indian Universities 2026 | Procta</title>
         <meta name="description" content="Complete guide to DPDP Act 2023 compliance for online exam proctoring in Indian universities. Learn how on-device AI processing, data minimization, and consent management ensure compliance." />
-        <link rel="canonical" href="https://procta.net/blog/dpdp-act-compliance-online-proctoring-indian-universities" />
+        <link rel="canonical" href="https://www.procta.net/blog/dpdp-act-compliance-online-proctoring-indian-universities" />
         <meta property="og:title" content="DPDP Act Compliance for Online Proctoring: Complete Guide for Indian Universities 2026 | Procta" />
         <meta property="og:description" content="Navigate DPDP Act 2023 compliance for online exam proctoring. Guide covers data minimization, consent management, on-device processing, and best practices for Indian higher education institutions." />
-        <meta property="og:url" content="https://procta.net/blog/dpdp-act-compliance-online-proctoring-indian-universities" />
+        <meta property="og:url" content="https://www.procta.net/blog/dpdp-act-compliance-online-proctoring-indian-universities" />
         <meta property="og:type" content="article" />
         <meta name="keywords" content="DPDP Act 2023 online proctoring, DPDP Act compliance universities India, data privacy proctoring, Indian data protection law online exams, DPDP Act student data, biometric data protection India, on-device AI proctoring privacy" />
       </Helmet>

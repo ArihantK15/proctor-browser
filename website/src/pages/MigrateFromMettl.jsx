@@ -23,10 +23,10 @@ export default function MigrateFromMettl() {
       <Helmet>
         <title>Switching from Mercer Mettl? Procta is ₹80/student with phone-cam included | Procta</title>
         <meta name="description" content="Coaching institutes paying ₹500-1,000 per student for Mercer Mettl proctoring. Procta delivers AI proctoring, phone-cam room monitoring, LTI 1.3, and INR billing at ₹80/student. Migrate in under a week." />
-        <link rel="canonical" href="https://procta.net/migrate-from-mettl" />
+        <link rel="canonical" href="https://www.procta.net/migrate-from-mettl" />
         <meta property="og:title" content="Mercer Mettl alternative for Indian coaching institutes — ₹80/student | Procta" />
         <meta property="og:description" content="One-eighth the cost of Mercer Mettl. Phone-cam included. INR + GST invoicing. Deploy in 10 minutes." />
-        <meta property="og:url" content="https://procta.net/migrate-from-mettl" />
+        <meta property="og:url" content="https://www.procta.net/migrate-from-mettl" />
         <meta property="og:type" content="article" />
       </Helmet>
       <Navbar />

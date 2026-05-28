@@ -43,10 +43,10 @@ export default function HowItWorksPage() {
       <Helmet>
         <title>How Procta Works — Complete Secure Exam Workflow | Procta</title>
         <meta name="description" content="See Procta's secure exam workflow: exam setup, Electron browser, phone camera room scan, on-device AI proctoring, live teacher intervention, AI grading, scorecards, and evidence packets." />
-        <link rel="canonical" href="https://procta.net/how-it-works" />
+        <link rel="canonical" href="https://www.procta.net/how-it-works" />
         <meta property="og:title" content="How AI Proctoring Works — 4-Step Exam Flow | Procta" />
         <meta property="og:description" content="Learn how Procta's AI proctoring works: exam creation, secure browser launch, real-time AI monitoring, and automated scoring." />
-        <meta property="og:url" content="https://procta.net/how-it-works" />
+        <meta property="og:url" content="https://www.procta.net/how-it-works" />
       </Helmet>
       <Navbar />
       <section className="pt-32 pb-20 md:pt-44 md:pb-32">

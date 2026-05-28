@@ -11,10 +11,10 @@ export default function BlogAiVsTraditional() {
       <Helmet>
         <title>AI Proctoring vs Traditional Proctoring: A Complete Comparison (2026) | Procta</title>
         <meta name="description" content="Compare AI proctoring vs traditional in-person proctoring across cost, scalability, accuracy, and privacy. Learn why institutions are switching to AI-powered exam monitoring." />
-        <link rel="canonical" href="https://procta.net/blog/ai-proctoring-vs-traditional-proctoring" />
+        <link rel="canonical" href="https://www.procta.net/blog/ai-proctoring-vs-traditional-proctoring" />
         <meta property="og:title" content="AI Proctoring vs Traditional Proctoring: Complete Comparison | Procta" />
         <meta property="og:description" content="Compare AI proctoring vs traditional in-person proctoring across cost, scalability, accuracy, and privacy. Data-backed analysis for institutions." />
-        <meta property="og:url" content="https://procta.net/blog/ai-proctoring-vs-traditional-proctoring" />
+        <meta property="og:url" content="https://www.procta.net/blog/ai-proctoring-vs-traditional-proctoring" />
         <meta property="og:type" content="article" />
       </Helmet>
       <Navbar />

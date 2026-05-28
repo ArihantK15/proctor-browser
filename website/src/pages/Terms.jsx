@@ -12,7 +12,7 @@ export default function Terms() {
         <meta property="og:title" content="Terms of Service — Procta" />
         <meta property="og:description" content="Terms of Service for Procta — AI-powered exam proctoring platform." />
         <meta property="og:type" content="website" />
-        <link rel="canonical" href="https://procta.net/terms" />
+        <link rel="canonical" href="https://www.procta.net/terms" />
       </Helmet>
       <div className="mx-auto max-w-3xl px-6 pt-24 pb-16">
         <Link to="/" className="mb-8 inline-flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-white no-underline">

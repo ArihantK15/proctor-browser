@@ -11,10 +11,10 @@ export default function BlogCheatingPrevention() {
       <Helmet>
         <title>Online Exam Cheating Statistics & Prevention: AI Proctoring Guide 2026 | Procta</title>
         <meta name="description" content="Comprehensive guide to online exam cheating statistics, methods students use, and how AI proctoring with gaze tracking and object detection prevents academic dishonesty in 2026." />
-        <link rel="canonical" href="https://procta.net/blog/online-exam-cheating-prevention-ai-proctoring" />
+        <link rel="canonical" href="https://www.procta.net/blog/online-exam-cheating-prevention-ai-proctoring" />
         <meta property="og:title" content="Online Exam Cheating Statistics & Prevention: AI Proctoring Guide 2026 | Procta" />
         <meta property="og:description" content="Discover the latest online exam cheating statistics, common methods students use, and how AI proctoring technology prevents academic dishonesty in higher education." />
-        <meta property="og:url" content="https://procta.net/blog/online-exam-cheating-prevention-ai-proctoring" />
+        <meta property="og:url" content="https://www.procta.net/blog/online-exam-cheating-prevention-ai-proctoring" />
         <meta property="og:type" content="article" />
         <meta name="keywords" content="online exam cheating, exam cheating prevention, AI proctoring cheating detection, prevent cheating in online exams, academic integrity technology, gaze tracking proctoring, object detection exam monitoring" />
       </Helmet>

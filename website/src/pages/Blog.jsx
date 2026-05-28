@@ -35,10 +35,10 @@ export default function Blog() {
       <Helmet>
         <title>Procta Blog — AI Proctoring Insights & Best Practices</title>
         <meta name="description" content="Articles about AI proctoring, online exam security, academic integrity best practices, and comparisons between proctoring approaches." />
-        <link rel="canonical" href="https://procta.net/blog" />
+        <link rel="canonical" href="https://www.procta.net/blog" />
         <meta property="og:title" content="Procta Blog — AI Proctoring Insights" />
         <meta property="og:description" content="Articles about AI proctoring, online exam security, and academic integrity." />
-        <meta property="og:url" content="https://procta.net/blog" />
+        <meta property="og:url" content="https://www.procta.net/blog" />
       </Helmet>
       <Navbar />
       <section className="pt-32 pb-20 md:pt-44 md:pb-32">

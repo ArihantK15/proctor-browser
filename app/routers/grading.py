@@ -198,25 +198,37 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
     ).eq("teacher_id", tid).in_("question_id", qids).execute()).data or []
     qmap = {str(q["question_id"]): q for q in questions}
 
-    results = []
-    for a in answers:
+    # Parallelise the per-answer LLM calls. Serially this was 50 *
+    # ~500 ms = ~25 s wall-clock for a full batch; bounded-concurrency
+    # asyncio.gather brings that to ~2-4 s. Concurrency cap of 8 keeps
+    # us inside Groq's rate budget (free tier = 30 req/min; at 8
+    # in-flight a 50-answer batch stays under the quota for a single
+    # teacher action).
+    import asyncio
+    _llm_sem = asyncio.Semaphore(8)
+
+    async def _grade_one(a):
         q = qmap.get(str(a["question_id"]))
         if not q:
-            results.append({"answer_id": a["id"], "error": "question not found"})
-            continue
-        try:
-            suggestion = await grade_short_answer(
-                question=q.get("question") or "",
-                reference=q.get("reference_answer") or "",
-                rubric=q.get("rubric") or "",
-                student_answer=a.get("answer") or "",
-                max_score=float(q.get("max_score") or 1.0),
-            )
-        except Exception as e:
-            _grading_log.warning("[grade-suggest] LLM call failed for %s: %s", a['id'], e)
-            results.append({"answer_id": a["id"], "error": f"LLM error: {str(e)[:120]}"})
-            continue
-        results.append({"answer_id": a["id"], **suggestion})
+            return {"answer_id": a["id"], "error": "question not found"}
+        async with _llm_sem:
+            try:
+                suggestion = await grade_short_answer(
+                    question=q.get("question") or "",
+                    reference=q.get("reference_answer") or "",
+                    rubric=q.get("rubric") or "",
+                    student_answer=a.get("answer") or "",
+                    max_score=float(q.get("max_score") or 1.0),
+                )
+            except Exception as e:
+                _grading_log.warning("[grade-suggest] LLM call failed for %s: %s", a['id'], e)
+                return {"answer_id": a["id"], "error": f"LLM error: {str(e)[:120]}"}
+        return {"answer_id": a["id"], **suggestion}
+
+    # gather preserves input order, so the upsert below + the UI's
+    # answer-id -> row mapping continue to work unchanged.
+    results = await asyncio.gather(*(_grade_one(a) for a in answers))
+    results = list(results)
 
     # Bulk update all AI scores in one round-trip
     if results:

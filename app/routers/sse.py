@@ -532,7 +532,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
                     data = msg["bytes"]
                     if len(data) > MAX_ROOM_FRAME_BYTES:
                         continue
-                    _store_room_frame(session_id, data)
+                    await _store_room_frame(session_id, data)
                     _last_room_frame[session_id] = time.time()
                 elif "text" in msg:
                     try:
@@ -566,7 +566,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
             logger.warning("sse: room_cam_status='offline' update failed", exc_info=True)
 
 
-def _store_room_frame(session_id: str, jpeg_bytes: bytes):
+async def _store_room_frame(session_id: str, jpeg_bytes: bytes):
     """Store a room camera frame in the cache (backed by Redis).
 
     Also runs basic validation on the first few frames.
@@ -589,6 +589,17 @@ def _store_room_frame(session_id: str, jpeg_bytes: bytes):
     if now - _store_room_frame._last_ts.get(session_id, 0) < 0.5:
         return
     _store_room_frame._last_ts[session_id] = now
+
+    # Match the live-frame recompress pipeline (perf audit #2): mobile
+    # phone-cam uploads can be 200-500 KB raw; recompressing to JPEG
+    # quality 60 brings them to ~50-80 KB. At 2 FPS × 3500 concurrent
+    # sessions = 7000 frames/s of bandwidth saved over the wire +
+    # ~40 % Redis storage cut per cached frame. Same _recompress_jpeg
+    # helper used for live frames.
+    try:
+        jpeg_bytes = await asyncio.to_thread(_recompress_jpeg, jpeg_bytes)
+    except Exception:
+        logger.debug("sse: room-frame jpeg recompress failed", exc_info=True)
 
     from .. import cache as _cache
     if _cache:

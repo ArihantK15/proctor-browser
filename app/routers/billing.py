@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Request, HTTPException
 from ..auth import require_admin
 from ..database import async_table as _atable
+from ..models import SessionStatus
 from ..limiter import limiter
 from ..services.sessions import PLAN_LIMITS
 from ..constants import PLANS

@@ -1,7 +1,10 @@
 """Students router. Extracted from admin.py."""
 
+import csv
+import io
 import logging
-from fastapi import APIRouter, Request, HTTPException, Body
+from fastapi import APIRouter, Request, HTTPException, Body, UploadFile, File, Form
+from fastapi.responses import PlainTextResponse
 from ..auth import require_admin
 from ..auth.scope import resolve_scope, scope_to_teacher_ids
 from ..database import async_table as _atable
@@ -23,6 +26,144 @@ _BEHAVIORAL_PATTERNS = frozenset({
     "phone_consulting", "collaboration", "answer_memo",
     "note_reading", "sustained_offtask", "nervous_evasion",
 })
+
+# CSV header alias mapping: each canonical key accepts 10+ common
+# spellings so teachers can upload Google-Forms / Excel exports without
+# renaming columns.
+_HEADER_ALIASES: dict[str, set[str]] = {
+    "roll_number": {
+        "roll_number", "roll no", "rollno", "roll", "id",
+        "student_id", "studentid", "roll#", "roll #",
+        "enrollment", "enrollment_number", "enrollment no",
+        "reg_no", "reg number", "reg", "registration",
+    },
+    "full_name": {
+        "full_name", "fullname", "name",
+        "student_name", "student name",
+        "candidate name", "candidate_name",
+        "first name", "first_name", "full name",
+    },
+    "email": {
+        "email", "e-mail", "email address", "email_address",
+        "mail", "student email", "student_email",
+    },
+    "phone": {
+        "phone", "phone_number", "phonenumber",
+        "mobile", "mobile_number", "mobilenumber",
+        "contact", "contact_number", "contact no",
+        "telephone", "phone no", "phone#", "phone #",
+        "cell", "whatsapp",
+    },
+}
+
+
+def _build_column_map(headers: list[str]) -> dict[str, str] | None:
+    """Map CSV header names to canonical fields via _HEADER_ALIASES.
+
+    Returns {canonical_key: actual_header} or None when required columns
+    (roll_number, full_name, email) are missing.
+    """
+    col_map: dict[str, str] = {}
+    for h in headers:
+        hl = h.strip().lower()
+        for canonical, aliases in _HEADER_ALIASES.items():
+            if hl in aliases:
+                col_map[canonical] = h
+                break
+    if "roll_number" not in col_map or "full_name" not in col_map or "email" not in col_map:
+        return None
+    return col_map
+
+
+async def _process_student_rows(teacher: dict, rows: list[dict], dry_run: bool) -> dict:
+    """Shared validation + registration logic used by both JSON and CSV endpoints.
+
+    *rows* is a list of dicts each containing *roll_number*, *full_name*,
+    *email*, and optionally *phone* keys.  Does NOT cap the input — callers
+    are responsible for enforcing the 500-row limit before calling this.
+    """
+    tid = str(teacher["id"])
+    org_id = teacher.get("org_id")
+
+    validated: list[dict] = []
+    invalid: list[dict] = []
+    for s in rows:
+        roll = str(s.get("roll_number", "")).strip().upper()
+        name = str(s.get("full_name", "")).strip()
+        email = str(s.get("email", "")).strip().lower()
+        phone = str(s.get("phone", "")).strip() or None
+        errors: list[str] = []
+        if not roll:
+            errors.append("missing roll_number")
+        if not name:
+            errors.append("missing full_name")
+        elif len(name) > 200:
+            errors.append("full_name exceeds 200 chars")
+        if not email:
+            errors.append("missing email")
+        elif "@" not in email or "." not in email.split("@")[-1]:
+            errors.append("invalid email format")
+        if errors:
+            invalid.append({"roll_number": roll or "(empty)", "errors": errors})
+            continue
+        validated.append({
+            "roll_number": roll,
+            "full_name": name,
+            "email": email,
+            "phone": phone,
+            "teacher_id": tid,
+            "org_id": str(org_id) if org_id else None,
+        })
+
+    from ..services.roll_formats import detect_dominant_format, format_label
+    if validated:
+        dominant_format, format_counts = detect_dominant_format(r["roll_number"] for r in validated)
+    else:
+        dominant_format, format_counts = "unknown", {}
+
+    dominant_format_label = format_label(dominant_format) if dominant_format != "unknown" else "Unknown"
+
+    if dry_run:
+        result: dict = {
+            "dry_run": True,
+            "would_register": len(validated),
+            "total": len(rows),
+            "dominant_format": dominant_format,
+            "dominant_format_label": dominant_format_label,
+            "format_counts": format_counts,
+        }
+        if invalid:
+            result["invalid"] = invalid
+        return result
+
+    if not validated:
+        raise HTTPException(status_code=400, detail={"message": "No valid students in payload", "invalid": invalid})
+
+    await check_org_limits(teacher, delta=len(validated))
+
+    registered = 0
+    skipped = 0
+    for row in validated:
+        try:
+            result = await _atable("students").upsert(row, on_conflict="roll_number").execute()
+            if result.data:
+                registered += 1
+            else:
+                skipped += 1
+        except Exception:
+            skipped += 1
+
+    result = {
+        "registered": registered,
+        "skipped": skipped,
+        "total": len(validated),
+        "dominant_format": dominant_format,
+        "dominant_format_label": dominant_format_label,
+        "format_counts": format_counts,
+    }
+    if invalid:
+        result["invalid"] = invalid
+    return result
 
 
 @router.get("/api/v1/admin/student-history")
@@ -314,104 +455,79 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
 @limiter.limit("10/minute")
 async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    org_id = teacher.get("org_id")
     students = body.students
     if not students or not isinstance(students, list):
         raise HTTPException(status_code=400, detail="'students' must be a non-empty list")
     if len(students) > 500:
         raise HTTPException(status_code=400, detail="Max 500 students per batch")
+    return await _process_student_rows(teacher, students, body.dry_run)
 
-    rows = []
-    invalid = []
-    for s in students:
-        roll = str(s.get("roll_number", "")).strip().upper()
-        name = str(s.get("full_name", "")).strip()
-        email = str(s.get("email", "")).strip().lower()
-        phone = str(s.get("phone", "")).strip() or None
-        # Validate required fields and format
-        errors = []
-        if not roll:
-            errors.append("missing roll_number")
-        if not name:
-            errors.append("missing full_name")
-        elif len(name) > 200:
-            errors.append("full_name exceeds 200 chars")
-        if not email:
-            errors.append("missing email")
-        elif "@" not in email or "." not in email.split("@")[-1]:
-            errors.append("invalid email format")
-        if errors:
-            invalid.append({"roll_number": roll or "(empty)", "errors": errors})
-            continue
-        rows.append({
-            "roll_number": roll,
-            "full_name": name,
-            "email": email,
-            "phone": phone,
-            "teacher_id": tid,
-            "org_id": str(org_id) if org_id else None,
-        })
 
-    # Roll-format classification (audit #7 — bulk-import preview). Always
-    # computed so the dry-run preview AND the real run return the same
-    # shape; UIs can show the breakdown either way.
-    from ..services.roll_formats import detect_dominant_format, format_label
-    dominant_format, format_counts = detect_dominant_format(r["roll_number"] for r in rows)
+@router.post("/api/v1/admin/students/import-csv")
+@limiter.limit("10/minute")
+async def import_students_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    dry_run: bool = Form(True),
+):
+    teacher = await require_admin(request)
 
-    # Dry-run: validate + classify but do not touch the DB. Lets the
-    # wizard show a confirm-step preview before the actual import.
-    if body.dry_run:
-        result = {
-            "dry_run": True,
-            "would_register": len(rows),
-            "total": len(rows),
-            "dominant_format": dominant_format,
-            "dominant_format_label": format_label(dominant_format),
-            "format_counts": format_counts,
-        }
-        if invalid:
-            result["invalid"] = invalid
-        return result
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files accepted")
 
-    if not rows:
-        raise HTTPException(status_code=400, detail={"message": "No valid students in payload", "invalid": invalid})
+    raw = await file.read()
+    if len(raw) > 1_048_576:  # 1 MB
+        raise HTTPException(status_code=413, detail="File too large (max 1 MB)")
 
-    await check_org_limits(teacher, delta=len(rows))
+    text = raw.decode("utf-8-sig")
 
-    # Use upsert with ON CONFLICT to make this idempotent at the DB
-    # layer — previously, re-running the same registration (common in
-    # load testing and admin re-import flows) generated one Postgres
-    # ERROR per duplicate row, all caught silently by the except
-    # block below. With ON CONFLICT (roll_number), duplicates are a
-    # no-op: the existing row keeps its data, the new row is
-    # discarded, no error logged.
-    registered = 0
-    skipped = 0
-    for row in rows:
-        try:
-            result = await _atable("students").upsert(row, on_conflict="roll_number").execute()
-            if result.data:
-                registered += 1
-            else:
-                skipped += 1
-        except Exception:
-            # Defensive: ON CONFLICT should prevent duplicate errors,
-            # but anything else (FK violation, NOT NULL, etc.) lands
-            # here. Count as skipped rather than failing the whole batch.
-            skipped += 1
+    try:
+        dialect = csv.Sniffer().sniff(text[:4096])
+    except csv.Error:
+        dialect = csv.excel
 
-    result = {
-        "registered": registered,
-        "skipped": skipped,
-        "total": len(rows),
-        "dominant_format": dominant_format,
-        "dominant_format_label": format_label(dominant_format),
-        "format_counts": format_counts,
-    }
-    if invalid:
-        result["invalid"] = invalid
-    return result
+    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV appears empty or has no header row")
+
+    col_map = _build_column_map(reader.fieldnames)
+    if col_map is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV must have at least roll_number, full_name, email columns. "
+                   f"Found: {', '.join(reader.fieldnames)}",
+        )
+
+    students: list[dict[str, str]] = []
+    for row in reader:
+        student = {}
+        for canonical, header in col_map.items():
+            student[canonical] = row.get(header, "")
+        students.append(student)
+
+    if len(students) > 500:
+        raise HTTPException(status_code=400, detail="Max 500 students per CSV")
+    if not students:
+        raise HTTPException(status_code=400, detail="CSV has no data rows")
+
+    return await _process_student_rows(teacher, students, dry_run)
+
+
+@router.get("/api/v1/admin/students/csv-template")
+@limiter.limit("60/minute")
+async def csv_template(request: Request):
+    teacher = await require_admin(request)
+
+    sample = (
+        "roll_number,full_name,email,phone\n"
+        "STU001,Alice Johnson,alice@example.com,9876543210\n"
+        "STU002,Bob Smith,bob@example.com,9876543211\n"
+    )
+    return PlainTextResponse(
+        content=sample,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=student_import_template.csv"},
+    )
 
 
 @router.get("/api/v1/admin/access-code")

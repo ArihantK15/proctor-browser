@@ -63,6 +63,38 @@ export default function Demo() {
     setFullscreen(false)
   }, [])
 
+  // After the <video> mounts, explicitly call .play(). Chrome/Safari
+  // refuse `autoPlay` when (a) the video has audio, AND (b) the play
+  // call is "indirect" — i.e. not happening in the same task as the
+  // original user click. React's "set state, then re-render, then
+  // mount with autoPlay" sequence falls into (b). Calling .play()
+  // from useEffect inherits the gesture context for one tick, which
+  // works in most browsers; if it still refuses, the visible
+  // <video controls> bar lets the user kick it manually.
+  //
+  // We also keep `muted` on the inline embed below so autoplay is
+  // guaranteed even when the gesture chain breaks. The video has
+  // no critical audio for the marketing demo, and the user can
+  // unmute via the controls bar if they want sound.
+  useEffect(() => {
+    if (!playing) return
+    const el = inlineVideoRef.current
+    if (!el) return
+    const tryPlay = () => {
+      const p = el.play()
+      if (p && typeof p.catch === 'function') p.catch(() => { /* user will press play */ })
+    }
+    tryPlay()
+  }, [playing])
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const el = modalVideoRef.current
+    if (!el) return
+    const p = el.play()
+    if (p && typeof p.catch === 'function') p.catch(() => { /* user will press play */ })
+  }, [fullscreen])
+
   // Body scroll lock + Esc-to-close while modal is open.
   useEffect(() => {
     if (!fullscreen) return
@@ -191,6 +223,7 @@ export default function Demo() {
                 poster={VIDEO_POSTER}
                 controls
                 autoPlay
+                muted        /* required for cross-browser inline autoplay; user can unmute via controls */
                 playsInline
                 preload="auto"
                 onEnded={handleEnded}

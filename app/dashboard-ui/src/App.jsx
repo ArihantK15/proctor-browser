@@ -7,6 +7,7 @@ const OrgPanel = lazy(() => import('./panels/OrgPanel'))
 const BillingPanel = lazy(() => import('./panels/BillingPanel'))
 const SecurityPanel = lazy(() => import('./panels/SecurityPanel'))
 const MembersPanel = lazy(() => import('./panels/MembersPanel'))
+const BulkImportPanel = lazy(() => import('./panels/BulkImportPanel'))
 const ResultsPanel = lazy(() => import('./panels/ResultsPanel'))
 const AllOrgsPanel = lazy(() => import('./panels/AllOrgsPanel'))
 const HistoryPanel = lazy(() => import('./panels/HistoryPanel'))
@@ -40,6 +41,7 @@ const TABS = [
   // Admin + super-admin org management
   { id: 'org',          label: 'Org Overview',   roles: ['admin', 'superadmin'] },
   { id: 'members',      label: 'Members',        roles: ['admin', 'superadmin'] },
+  { id: 'bulk-import',  label: 'Import Students', roles: ['admin', 'superadmin'] },
   { id: 'billing',      label: 'Billing',        roles: ['admin', 'superadmin'] },
   { id: 'security',     label: 'Security',       roles: ['admin', 'superadmin'] },
   { id: 'org-settings', label: 'Org Settings',   roles: ['admin', 'superadmin'] },
@@ -215,6 +217,7 @@ function DashboardShell() {
     questions: QuestionsPanel,
     org: OrgPanel,
     members: MembersPanel,
+    'bulk-import': BulkImportPanel,
     billing: BillingPanel,
     security: SecurityPanel,
     'all-orgs': AllOrgsPanel,

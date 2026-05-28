@@ -193,7 +193,15 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
 @router.patch("/api/v1/org")
 @limiter.limit("10/hour")
 async def update_org(body: dict, request: Request):
-    """Update org settings (name)."""
+    """Update org settings (name, logo).
+
+    `logo_url` (optional): HTTPS URL to the org's logo, max 1024 chars.
+    Used by the PDF scorecard generator + branded email templates.
+    Setting it flips the customer experience from Procta-branded to
+    their-brand-with-"Powered by Procta" footer. Cleared by passing
+    an empty string. Hosted by the customer (their own CDN / S3 /
+    Cloudinary); Procta never holds the bytes.
+    """
     teacher = await require_admin(request)
     if teacher.get("org_role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Only admins can update org settings")
@@ -205,10 +213,32 @@ async def update_org(body: dict, request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="Organization name is required")
 
+    update_fields: dict = {}
     import re
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:64]
-    await _atable("organizations").update({"name": name, "slug": slug}).eq("id", str(org_id)).execute()
-    return {"ok": True, "name": name, "slug": slug}
+    update_fields["name"] = name
+    update_fields["slug"] = slug
+
+    # logo_url is optional; absent key means "don't touch it".
+    if "logo_url" in body:
+        raw_logo = (body.get("logo_url") or "").strip()
+        if raw_logo:
+            # Validate scheme + length here rather than at the DB layer
+            # — gives admins a useful error instead of an opaque 400.
+            if len(raw_logo) > 1024:
+                raise HTTPException(status_code=400, detail="Logo URL must be 1024 characters or fewer")
+            if not raw_logo.lower().startswith(("https://", "data:image/")):
+                raise HTTPException(status_code=400, detail="Logo URL must be HTTPS (or a data:image/ URI)")
+            update_fields["logo_url"] = raw_logo
+        else:
+            # Explicit empty string clears the logo.
+            update_fields["logo_url"] = None
+
+    await _atable("organizations").update(update_fields).eq("id", str(org_id)).execute()
+    result: dict = {"ok": True, "name": name, "slug": slug}
+    if "logo_url" in update_fields:
+        result["logo_url"] = update_fields["logo_url"]
+    return result
 
 
 @router.get("/api/v1/org/billing")

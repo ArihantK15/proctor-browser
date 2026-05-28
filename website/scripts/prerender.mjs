@@ -48,15 +48,21 @@ async function prerender() {
     process.exit(1)
   }
 
+  let browser
+  try {
+    const { default: puppeteer } = await import('puppeteer')
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    })
+  } catch (err) {
+    console.error(`    ✗ Puppeteer unavailable, skipping prerender: ${err.message}`)
+    return
+  }
+
   const port = 8765
   console.log(`Starting static server on :${port}...`)
   const server = await startServer(DIST, port)
-
-  const { default: puppeteer } = await import('puppeteer')
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  })
 
   const base = `http://localhost:${port}`
 
@@ -106,7 +112,4 @@ async function prerender() {
   console.log('\nPrerendering complete.')
 }
 
-prerender().catch((err) => {
-  console.error('Prerender failed:', err)
-  process.exit(1)
-})
+prerender()

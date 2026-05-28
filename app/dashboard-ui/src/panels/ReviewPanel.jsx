@@ -278,6 +278,11 @@ export default function ReviewPanel({ currentExamId }) {
             onClick={() => setMode('audit')}>Audit Trail</button>
           <button className={`btn btn-sm ${mode === 'appeals' ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setMode('appeals')}>Appeals ({pendingAppeals})</button>
+          {/* Cluster mode: groups active violations across the cohort
+              by (violation_type, severity) so a teacher can bulk-
+              dismiss systemic false positives in a single click. */}
+          <button className={`btn btn-sm ${mode === 'clusters' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setMode('clusters')}>Clusters</button>
           {selectedAnswer && (
             <button className={`btn btn-sm ${mode === 'evidence' ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => setMode('evidence')}>Evidence</button>
@@ -335,6 +340,9 @@ export default function ReviewPanel({ currentExamId }) {
           setNotes={setAppealNotes}
           onResolve={resolveAppeal}
         />
+      )}
+      {mode === 'clusters' && (
+        <ClustersView currentExamId={currentExamId} />
       )}
     </div>
   )
@@ -671,5 +679,148 @@ function AuditView({ audit, loading }) {
         </div>
       </div>
     </>
+  )
+}
+
+// ─── Cluster & Batch Review (Phase 73) ──────────────────────────────
+//
+// Lists the largest active-violation buckets across the cohort and
+// lets the teacher bulk-dismiss in one click. Reads from
+// GET  /api/v1/admin/violations/clusters?exam_id=...
+// Writes via
+// POST /api/v1/admin/violations/bulk-dismiss
+//
+// Optimised for "5 % false-positive rate × 3,500 students ≈ 175
+// flagged sessions" — the cluster view collapses those into a handful
+// of bucket rows the teacher actually has time to read.
+function ClustersView({ currentExamId }) {
+  const { authFetch } = useAuth()
+  const [clusters, setClusters] = useState([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [busyKey, setBusyKey] = useState(null)
+  const [reasonByKey, setReasonByKey] = useState({})
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const qs = currentExamId ? `?exam_id=${encodeURIComponent(currentExamId)}` : ''
+      const r = await authFetch(`/api/v1/admin/violations/clusters${qs}`)
+      if (!r.ok) throw new Error(`Failed to load clusters (${r.status})`)
+      const d = await r.json()
+      setClusters(d.clusters || [])
+      setTotal(d.total_active || 0)
+    } catch (e) {
+      setError(e.message || 'Failed to load clusters')
+    } finally { setLoading(false) }
+  }, [authFetch, currentExamId])
+
+  useEffect(() => { load() }, [load])
+
+  const dismiss = async (cluster) => {
+    const key = `${cluster.violation_type}|${cluster.severity || ''}`
+    setBusyKey(key)
+    setError('')
+    try {
+      const body = {
+        violation_type: cluster.violation_type,
+        severity: cluster.severity || undefined,
+        exam_id: currentExamId || undefined,
+        reason: (reasonByKey[key] || '').trim() || undefined,
+      }
+      const r = await authFetch('/api/v1/admin/violations/bulk-dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || `Dismiss failed (${r.status})`)
+      }
+      await load()
+    } catch (e) {
+      setError(e.message || 'Dismiss failed')
+    } finally { setBusyKey(null) }
+  }
+
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Active violation clusters</h3>
+          <p className="panel-sub" style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+            {total > 0 ? `${total} active flagged events in ${clusters.length} bucket${clusters.length === 1 ? '' : 's'}.` : 'No active clusters.'}
+            {currentExamId ? ' Scoped to the selected exam.' : ' Across every exam in your scope.'}
+          </p>
+        </div>
+        <span style={{ flex: 1 }} />
+        <button className="btn btn-sm btn-secondary" disabled={loading} onClick={load}>Refresh</button>
+      </div>
+
+      {error && <div className="auth-err" style={{ marginBottom: 12 }}>{error}</div>}
+      {loading && <div className="loading" style={{ padding: 24 }}>Loading clusters...</div>}
+
+      {!loading && clusters.length === 0 && !error && (
+        <div className="panel-empty" style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
+          Nothing flagged. Either the cohort is clean or every prior cluster has already been dismissed.
+        </div>
+      )}
+
+      {!loading && clusters.length > 0 && (
+        <div className="table-wrap">
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                <th style={{ textAlign: 'left', padding: '10px 12px', color: 'var(--text-muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Type</th>
+                <th style={{ textAlign: 'left', padding: '10px 12px', color: 'var(--text-muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Severity</th>
+                <th style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--text-muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Count</th>
+                <th style={{ textAlign: 'left', padding: '10px 12px', color: 'var(--text-muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Reason (optional)</th>
+                <th style={{ padding: '10px 12px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {clusters.map((c) => {
+                const key = `${c.violation_type}|${c.severity || ''}`
+                const label = EVENT_LABELS[c.violation_type] || c.violation_type.replace(/_/g, ' ')
+                const sevColor = c.severity === 'high' ? 'var(--red)' : c.severity === 'medium' ? 'var(--amber)' : 'var(--text-muted)'
+                return (
+                  <tr key={key} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 12px', fontWeight: 500 }}>{label}</td>
+                    <td style={{ padding: '10px 12px', color: sevColor, fontWeight: 600, textTransform: 'uppercase', fontSize: 11 }}>
+                      {c.severity || '—'}
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                      {c.count}
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <input
+                        className="input"
+                        type="text"
+                        placeholder="e.g. printed diagram on desk"
+                        style={{ width: '100%', fontSize: 12 }}
+                        value={reasonByKey[key] || ''}
+                        onChange={(e) => setReasonByKey((p) => ({ ...p, [key]: e.target.value }))}
+                      />
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        style={{ color: 'var(--red)', borderColor: 'rgba(239,68,68,0.35)' }}
+                        disabled={busyKey === key}
+                        onClick={() => dismiss(c)}
+                      >
+                        {busyKey === key ? 'Dismissing…' : `Dismiss all ${c.count}`}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }

@@ -230,7 +230,8 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
     results = await asyncio.gather(*(_grade_one(a) for a in answers))
     results = list(results)
 
-    # Bulk update all AI scores in one round-trip
+    # Per-row updates: a single failing row no longer rolls back the rest
+    # (previous bulk upsert leaked partial state on error).
     if results:
         updates = []
         for r in results:

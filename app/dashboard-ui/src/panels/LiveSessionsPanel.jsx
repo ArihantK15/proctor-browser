@@ -62,6 +62,14 @@ export default function LiveSessionsPanel({ currentExamId }) {
   const [liveViewFrame, setLiveViewFrame] = useState(null)
   const [liveViewStatus, setLiveViewStatus] = useState('Connecting')
   const [streamStatus, setStreamStatus] = useState('')
+  // Cam-pop-in optimisation (audit #9): when a high-severity violation
+  // arrives, we eagerly fetch the cached low-rate frame and stash it as
+  // an inline thumbnail keyed by session_id. The thumbnail shows in the
+  // row, and clicking the row opens the modal with the frame ALREADY
+  // rendered (no 1-second poll wait). Brings cam-pop-in from ~3 s to
+  // under 1 s when a frame is cached.
+  const [thumbnails, setThumbnails] = useState({})           // { sid: dataUrl }
+  const prewarmedSids = useRef(new Set())                    // dedupe per session
   const sseRef = useRef(null)
 
   useEffect(() => {
@@ -76,7 +84,19 @@ export default function LiveSessionsPanel({ currentExamId }) {
         Notification.permission === 'default') {
       try { Notification.requestPermission().catch(() => {}) } catch (_) { /* noop */ }
     }
-    return () => { if (sseRef.current) sseRef.current.close() }
+    return () => {
+      if (sseRef.current) sseRef.current.close()
+      // Revoke any pre-warmed blob: URLs to avoid leaking memory when
+      // the user navigates away from the Live tab.
+      setThumbnails(prev => {
+        for (const url of Object.values(prev)) {
+          if (typeof url === 'string' && url.startsWith('blob:')) {
+            try { URL.revokeObjectURL(url) } catch (_) { /* noop */ }
+          }
+        }
+        return {}
+      })
+    }
   }, [])
 
   const connectSSE = async () => {
@@ -109,6 +129,15 @@ export default function LiveSessionsPanel({ currentExamId }) {
           if (d.kind === 'violation' && typeof document !== 'undefined' && document.hidden) {
             _maybeNotifyTabHiddenViolation(d)
           }
+          // Cam-pop-in (audit #9): on any violation, eagerly pull the
+          // cached frame so a teacher's first click on the session
+          // row renders instantly instead of waiting on the 1 s poll
+          // cycle. Gated on (sid not already pre-warmed) to avoid
+          // hammering the live-frame endpoint when a single session
+          // floods events.
+          if (d.kind === 'violation' && d.session_id) {
+            prewarmThumbnail(d.session_id, d.risk_score)
+          }
         } catch (_) { setStreamStatus('Live update payload was unreadable. Use Refresh for current data.') }
       })
       es.addEventListener('refresh', () => { loadSessions() })
@@ -140,10 +169,63 @@ export default function LiveSessionsPanel({ currentExamId }) {
     } finally { setLoading(false) }
   }
 
+  // Pre-warm thumbnail for a session that just flagged a violation.
+  // Idempotent + rate-limited per-sid via prewarmedSids set.
+  // No await on the response in callers — fire-and-forget.
+  const prewarmThumbnail = async (sid, riskScore) => {
+    if (!sid || prewarmedSids.current.has(sid)) return
+    prewarmedSids.current.add(sid)
+    // Cap memory: if we've pre-warmed > 500 sids in one session, drop
+    // the oldest half. Stops a multi-hour heavy session leaking refs.
+    if (prewarmedSids.current.size > 500) {
+      const arr = Array.from(prewarmedSids.current).slice(-250)
+      prewarmedSids.current = new Set(arr)
+    }
+    try {
+      // Hit the existing live-frame endpoint — it returns the cached
+      // low-rate frame even when no live-view is active (10 s TTL).
+      // If the cache is empty we get 204 and silently skip.
+      const r = await fetchWithTimeout(
+        `${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-frame?t=${Date.now()}`,
+        { credentials: 'include' },
+      )
+      if (!r.ok || r.status === 204) return
+      const blob = await r.blob()
+      if (!blob || blob.size < 256) return  // empty / corrupt
+      const url = URL.createObjectURL(blob)
+      setThumbnails(prev => {
+        // Revoke any prior URL for this sid to avoid leaking blob handles.
+        const prior = prev[sid]
+        if (prior && prior.startsWith('blob:')) {
+          try { URL.revokeObjectURL(prior) } catch (_) { /* noop */ }
+        }
+        return { ...prev, [sid]: url }
+      })
+      // Auto-pre-warm live-view-start for HIGH-risk violations only
+      // (score > 60). Pushes the student client into high-rate uploads
+      // BEFORE the teacher clicks, so the first frame in the modal is
+      // already current when they open it. Gated by score so a noisy
+      // low-risk session doesn't trigger the entire org's clients into
+      // high-rate mode.
+      if (typeof riskScore === 'number' && riskScore > 60) {
+        try {
+          await authFetch(
+            `${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-view/start`,
+            { method: 'POST' },
+          )
+        } catch (_) { /* best-effort prewarm; ignore */ }
+      }
+    } catch (_) { /* network blip; the next click will refetch */ }
+  }
+
   const openLiveView = async (sid) => {
     setLiveViewSid(sid)
-    setLiveViewFrame(null)
-    setLiveViewStatus('Connecting')
+    // If we pre-warmed a thumbnail, show it instantly while the
+    // full-rate poll spins up. Otherwise fall back to the "Connecting"
+    // state until the first frame arrives.
+    const cached = thumbnails[sid]
+    setLiveViewFrame(cached || null)
+    setLiveViewStatus(cached ? 'Live (pre-warmed)' : 'Connecting')
     try {
       await authFetch(`${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-view/start`, { method: 'POST' })
       setLiveViewStatus('Live')
@@ -251,7 +333,36 @@ export default function LiveSessionsPanel({ currentExamId }) {
                                s.live_state === 'live' && s.last_severity === 'high' ? 'inset 3px 0 0 var(--sev-error-fg)' :
                                s.live_state === 'live' && s.last_severity === 'medium' ? 'inset 3px 0 0 var(--sev-warn-fg)' : undefined,
                   }}>
-                    <td style={{ padding: '10px 12px' }}><strong>{roll}</strong><br /><span style={{ fontSize: 10, color: 'var(--muted)' }}>{sid.substring(0, 36)}</span></td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        {/* Pre-warmed thumbnail (audit #9). When a violation
+                            fires, we pre-fetch the cached frame and render
+                            it here so the teacher gets an at-a-glance view
+                            of what was happening WITHOUT having to click
+                            "Camera". Click the thumbnail to pop into the
+                            full live view in <1 s (frame already cached
+                            and modal opens instant). */}
+                        {thumbnails[sid] && (
+                          <img
+                            src={thumbnails[sid]}
+                            alt={`Live preview of ${roll}`}
+                            onClick={() => openLiveView(sid)}
+                            style={{
+                              width: 56, height: 42, objectFit: 'cover',
+                              borderRadius: 4, cursor: 'pointer',
+                              border: '1px solid var(--border-subtle)',
+                              flexShrink: 0,
+                            }}
+                            title="Click to open full live view"
+                          />
+                        )}
+                        <div>
+                          <strong>{roll}</strong>
+                          <br />
+                          <span style={{ fontSize: 10, color: 'var(--muted)' }}>{sid.substring(0, 36)}</span>
+                        </div>
+                      </div>
+                    </td>
                     <td style={{ padding: '10px 12px' }}>{s.last_event?.replace(/_/g, ' ')}</td>
                     <td style={{ padding: '10px 12px', color: sevColor(s.last_severity), fontWeight: 600 }}>{s.last_severity?.toUpperCase()}</td>
                     <td style={{ padding: '10px 12px', color: s.risk_score > 70 ? 'var(--red)' : s.risk_score > 40 ? 'var(--amber)' : s.risk_score > 15 ? '#58a6ff' : 'var(--emerald)', fontWeight: 600 }}>{s.risk_score != null ? `${s.risk_score}/100` : '—'}</td>

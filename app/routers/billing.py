@@ -641,7 +641,7 @@ async def get_usage(request: Request):
     attempts_q = await _atable("exam_sessions")\
         .select("session_key", count="exact")\
         .eq("teacher_id", str(teacher["id"]))\
-        .in_("status", ("completed", "submitted"))\
+        .in_("status", (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED))\
         .gte("submitted_at", period_start.isoformat())\
         .execute()
     exam_attempts = attempts_q.count or 0

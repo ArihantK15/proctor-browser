@@ -429,7 +429,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
                     <td style={{ padding: '10px 12px', fontSize: 12 }}>{s.last_seen}</td>
                     <td style={{ padding: '10px 12px' }}>
                       <span className={`status-badge ${s.live_state === 'live' ? 'status-live' : s.live_state === 'stale' ? 'status-stale' : ''}`}>
-                        {s.live_state === 'live' ? 'Live' : s.live_state === 'stale' ? 'Stale' : s.live_state === 'submitted' ? 'Submitted' : '—'}
+                        {s.live_state === 'live' ? 'Live' : s.live_state === 'stale' ? 'Stale' : s.live_state === 'submitted' ? 'Submitted' : s.live_state === 'force_submitted' ? 'Force Submitted' : '—'}
                       </span>
                     </td>
                     <td style={{ padding: '10px 12px' }}>

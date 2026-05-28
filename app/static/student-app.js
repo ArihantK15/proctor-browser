@@ -355,7 +355,8 @@ function statusBadge(status) {
     open:        ['badge-emerald', 'Open now'],
     upcoming:    ['badge-accent',  'Upcoming'],
     closed:      ['badge-red',     'Closed'],
-    completed:   ['badge-muted',   'Submitted'],
+    completed:       ['badge-muted', 'Submitted'],
+    force_submitted: ['badge-muted', 'Force Submitted'],
   };
   const [cls, label] = map[status] || ['badge-muted', _escHtml(status)];
   return `<span class="badge ${cls}">${label}</span>`;
@@ -462,6 +463,11 @@ function renderExams(exams) {
       actionHtml = `
         <div class="exam-actions">
           <div class="exam-hint">Submitted ${fmtWhen(e.submitted_at)}</div>
+        </div>`;
+    } else if (e.status === 'force_submitted') {
+      actionHtml = `
+        <div class="exam-actions">
+          <div class="exam-hint">Force-submitted ${fmtWhen(e.submitted_at)}</div>
         </div>`;
     }
 

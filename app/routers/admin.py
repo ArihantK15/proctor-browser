@@ -292,7 +292,7 @@ async def terminate_session(session_id: str, request: Request):
 
     now = now_ist().isoformat()
     await _atable("exam_sessions").update({
-        "status": SessionStatus.COMPLETED,
+        "status": SessionStatus.FORCE_SUBMITTED,
         "submitted_at": now,
     }).eq("session_key", session_id).execute()
 

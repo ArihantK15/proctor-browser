@@ -1686,7 +1686,7 @@ function renderLiveStats(activeRows=[], allRows=[]){
   if(!el) return;
   const all = Array.isArray(allRows) ? allRows : [];
   const active = Array.isArray(activeRows) ? activeRows : [];
-  const submitted = all.filter(s => s.submitted || s.live_state === 'submitted').length;
+  const submitted = all.filter(s => s.submitted || s.live_state === 'submitted' || s.live_state === 'force_submitted').length;
   const stale = all.filter(s => s.live_state === 'stale').length;
   const highRisk = all.filter(s => Number(s.risk_score || 0) > 40).length;
   el.innerHTML = `
@@ -1726,7 +1726,7 @@ function renderLive(){
   body.innerHTML = rows.map(s => {
     const sid = s.session_id || s.session_key || '';
     const risk = s.risk_score == null ? '--' : String(s.risk_score);
-    const state = s.submitted ? 'Submitted' : (s.live_state || 'Active');
+    const state = s.submitted ? 'Submitted' : s.live_state === 'force_submitted' ? 'Force Submitted' : (s.live_state || 'Active');
     return `<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
       <td><span style="font-family:var(--font-mono);font-size:11px">${_escHtml(sid)}</span></td>
       <td>${_escHtml((s.last_event || '--').replace(/_/g,' '))}</td>

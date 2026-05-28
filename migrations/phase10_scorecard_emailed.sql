@@ -24,4 +24,4 @@ alter table exam_sessions
 -- the first few weeks, and we only filter by "not yet emailed".
 create index if not exists idx_sess_scorecard_unemailed
   on exam_sessions(exam_id, teacher_id)
-  where scorecard_emailed_at is null and status = 'completed';
+  where scorecard_emailed_at is null and status in ('completed', 'force_submitted');

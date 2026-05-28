@@ -5,6 +5,7 @@ import TimelineView from '../components/TimelineView'
 const STATE_COLORS = {
   in_progress: 'var(--emerald)',
   completed: 'var(--text-muted)',
+  force_submitted: 'var(--text-muted)',
   terminated: 'var(--red)',
 }
 

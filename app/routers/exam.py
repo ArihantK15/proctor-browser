@@ -105,6 +105,24 @@ async def _assert_student_session_access(claims: dict, session_id: str) -> dict 
             raise HTTPException(status_code=403, detail="Access denied")
     return sess
 
+
+_terminal_statuses = (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
+                      SessionStatus.REJECTED, SessionStatus.ABANDONED)
+
+
+async def _reject_if_terminal(session_id: str) -> None:
+    """Raise 409 if the session is in a terminal state."""
+    try:
+        row = (await _atable("exam_sessions").select("status")
+               .eq("session_key", session_id).limit(1).execute()).data
+        if row and row[0].get("status") in _terminal_statuses:
+            raise HTTPException(status_code=409, detail="Exam already submitted")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+
 def _cache_validate(key: str, resp: dict) -> None:
     if not _cache:
         return
@@ -565,6 +583,11 @@ async def log_event(event: EventIn, request: Request):
 
     # When exam starts, create in-progress session record
     if event.event_type == "exam_started":
+        # Do not resurrect a terminal session
+        existing = await _atable("exam_sessions").select("status")\
+            .eq("session_key", event.session_id).limit(1).execute()
+        if existing.data and existing.data[0].get("status") in _terminal_statuses:
+            return {"status": "blocked"}
         sid = claims.get("sid")
         row = {
             "session_key": event.session_id,

@@ -1525,7 +1525,7 @@ async def student_history(request: Request):
                             "status,started_at,submitted_at,risk_score")
                     .eq("roll_number", roll)
                     .eq("teacher_id", teacher_id)
-                    .eq("status", SessionStatus.COMPLETED)
+                    .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
                     .order("submitted_at", desc=True)
                     .execute()).data or []
 

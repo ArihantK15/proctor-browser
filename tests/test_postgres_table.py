@@ -7,8 +7,10 @@ under DATABASE_BACKEND=postgres matches AsyncTable behaviour under
 the Supabase REST default.
 """
 import pytest
+from datetime import datetime, timezone
+from uuid import UUID
 
-from app.postgres_table import PostgresTable, _SQL, _ident, _select_list
+from app.postgres_table import PostgresTable, _SQL, _PostgresResult, _json_safe, _ident, _select_list
 
 
 # ─── identifier safety ─────────────────────────────────────────────
@@ -55,6 +57,33 @@ def test_where_eq_simple():
     where = t._where(sql)
     assert where == ' WHERE "id" = $1'
     assert sql.params == ["abc-123"]
+
+
+def test_sql_params_normalize_uuid_to_string():
+    """Postgres returns UUIDs natively, while Supabase REST returned strings.
+
+    Binding UUIDs as strings keeps text columns like auth_sessions.user_id and
+    auth_events.user_id working when rows come from the Postgres adapter.
+    """
+    value = UUID("0c9540e9-73e0-14eb-eaa0-0d5a862d1e3a")
+    sql = _SQL()
+    assert sql.add(value) == "$1"
+    assert sql.params == [str(value)]
+
+
+def test_json_safe_matches_supabase_rest_shapes():
+    value = UUID("0c9540e9-73e0-14eb-eaa0-0d5a862d1e3a")
+    ts = datetime(2026, 5, 28, 5, 18, tzinfo=timezone.utc)
+    assert _json_safe({"id": value, "items": [value], "created_at": ts}) == {
+        "id": str(value),
+        "items": [str(value)],
+        "created_at": ts.isoformat(),
+    }
+
+
+def test_postgres_result_preserves_explicit_none_for_single_miss():
+    assert _PostgresResult(data=None).data is None
+    assert _PostgresResult().data == []
 
 
 def test_where_chain_anded():

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
+from datetime import date, datetime
 from typing import Any
 
 import asyncpg
@@ -125,6 +127,8 @@ class _SQL:
         self.params: list[Any] = []
 
     def add(self, value: Any) -> str:
+        if isinstance(value, uuid.UUID):
+            value = str(value)
         # asyncpg's prepared-statement parameter binding rejects ISO 8601
         # strings as values for timestamptz columns — it requires a real
         # datetime instance. The legacy Supabase REST adapter tolerated
@@ -147,6 +151,28 @@ class _SQL:
                 pass  # not an ISO timestamp — leave as-is
         self.params.append(value)
         return f"${len(self.params)}"
+
+
+def _json_safe(value: Any) -> Any:
+    """Return PostgREST-like JSON-safe values from asyncpg rows.
+
+    Supabase REST serializes UUID/date values before the app sees them.
+    The Postgres adapter receives native Python objects from asyncpg, so
+    normalize them here to keep router code backend-agnostic.
+    """
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    return value
+
+
+def _row_dict(row: Any) -> dict:
+    return {k: _json_safe(v) for k, v in dict(row).items()}
 
 
 class _NotFilter:
@@ -393,7 +419,7 @@ class PostgresTable:
                         f"SELECT COUNT(*) FROM {_ident(self._table)}{self._where(count_sql)}",
                         *count_sql.params,
                     )
-                data = [dict(r) for r in rows]
+                data = [_row_dict(r) for r in rows]
                 if self._single:
                     # Match AsyncTable (Supabase REST) semantics: single() returns
                     # the first row as a dict, or None when there is no match.
@@ -414,7 +440,7 @@ class PostgresTable:
                         f"VALUES ({', '.join(placeholders)}) RETURNING *",
                         *sql.params,
                     )
-                    data.append(dict(rec))
+                    data.append(_row_dict(rec))
                 return _PostgresResult(data=data)
 
             if op == "upsert":
@@ -439,7 +465,7 @@ class PostgresTable:
                         f"DO UPDATE SET {updates} RETURNING *",
                         *sql.params,
                     )
-                    data.append(dict(rec))
+                    data.append(_row_dict(rec))
                 return _PostgresResult(data=data)
 
             if op == "update":
@@ -451,7 +477,7 @@ class PostgresTable:
                     f"UPDATE {_ident(self._table)} SET {sets}{self._where(sql)} RETURNING *",
                     *sql.params,
                 )
-                return _PostgresResult(data=[dict(r) for r in rows])
+                return _PostgresResult(data=[_row_dict(r) for r in rows])
 
             if op == "delete":
                 if not self._filters:
@@ -461,14 +487,17 @@ class PostgresTable:
                     f"DELETE FROM {_ident(self._table)}{self._where(sql)} RETURNING *",
                     *sql.params,
                 )
-                return _PostgresResult(data=[dict(r) for r in rows])
+                return _PostgresResult(data=[_row_dict(r) for r in rows])
 
         raise ValueError(f"Unknown operation: {op}")
 
 
+_MISSING = object()
+
+
 class _PostgresResult:
-    def __init__(self, data=None, count=None):
-        self.data = data if data is not None else []
+    def __init__(self, data=_MISSING, count=None):
+        self.data = [] if data is _MISSING else data
         self.count = count
 
 

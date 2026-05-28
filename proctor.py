@@ -36,6 +36,17 @@ import platform
 import tempfile
 import threading
 import requests
+
+# Soft-import psutil so older bundled clients that don't ship it can
+# still run — the thermal/CPU governor below silently no-ops when
+# psutil is unavailable. Fresh installs from requirements-proctor.txt
+# get it.
+try:
+    import psutil as _psutil
+    _PSUTIL_OK = True
+except ImportError:
+    _psutil = None
+    _PSUTIL_OK = False
 import cv2
 import numpy as np
 from collections import deque
@@ -655,6 +666,96 @@ FACE_MIN_SIZE       = 50  # min face height/width px (student too far)
 EAR_EVERY_N         = 5
 EAR_THRESHOLD       = 0.6
 
+# ─── ADAPTIVE HARDWARE GOVERNOR ───────────────────────────────────────────────
+# Budget student laptops thermal-throttle their CPU under sustained ML
+# load. Without adaptation the proctor either pegs the CPU (exam UI
+# lags) or gets killed by the OOM-killer (proctoring goes dark, which
+# looks like cheating). The governor samples CPU every 5 s and:
+#   * CPU > THROTTLE_ENGAGE_PCT for two consecutive samples
+#       -> drop effective FPS to THROTTLE_LOW_FPS (event-only mode)
+#   * CPU < THROTTLE_RELEASE_PCT for two consecutive samples
+#       -> ramp back to TARGET_FPS
+# Transitions are logged exactly once via a `client_throttled` event
+# (severity=info) so teachers can correlate "exam felt slow" with
+# the student's actual hardware state.
+#
+# Tunable via env so a researcher running their own bench can disable
+# the governor entirely (THROTTLE_ENGAGE_PCT=101) without recompiling.
+THROTTLE_ENGAGE_PCT     = float(os.getenv("PROCTOR_THROTTLE_ENGAGE_PCT", "85"))
+THROTTLE_RELEASE_PCT    = float(os.getenv("PROCTOR_THROTTLE_RELEASE_PCT", "60"))
+THROTTLE_LOW_FPS        = float(os.getenv("PROCTOR_THROTTLE_LOW_FPS", "0.5"))   # ≈1 frame / 2 s
+THROTTLE_SAMPLE_SECS    = float(os.getenv("PROCTOR_THROTTLE_SAMPLE_SECS", "5"))
+
+
+class _HardwareGovernor:
+    """Adaptive frame-rate governor based on CPU load.
+
+    Stateful — call `.maybe_update()` once per main-loop iteration; it
+    samples at most once per THROTTLE_SAMPLE_SECS interval so the cost
+    is negligible. Read `.effective_fps` to get the current cap (use
+    in place of TARGET_FPS in the frame-rate limiter).
+
+    No-ops gracefully when psutil isn't bundled (returns TARGET_FPS
+    forever). No-ops gracefully when the configured engage threshold
+    is above 100 (disables the governor).
+    """
+
+    __slots__ = ("effective_fps", "_hi_streak", "_lo_streak",
+                 "_last_sample_at", "_throttled", "_on_transition")
+
+    def __init__(self, on_transition=None):
+        self.effective_fps = float(TARGET_FPS)
+        self._hi_streak = 0
+        self._lo_streak = 0
+        self._last_sample_at = 0.0
+        self._throttled = False
+        # Optional callback fired exactly once per transition. Receives
+        # a dict {"throttled": bool, "cpu_pct": float}. Used by the
+        # main loop to POST a `client_throttled` event back to the
+        # server.
+        self._on_transition = on_transition
+
+    def maybe_update(self):
+        if not _PSUTIL_OK or THROTTLE_ENGAGE_PCT >= 100:
+            return
+        now = time.time()
+        if now - self._last_sample_at < THROTTLE_SAMPLE_SECS:
+            return
+        self._last_sample_at = now
+        try:
+            # interval=None reads since the last call — non-blocking.
+            cpu = _psutil.cpu_percent(interval=None)
+        except Exception:
+            return
+
+        if cpu >= THROTTLE_ENGAGE_PCT:
+            self._hi_streak += 1
+            self._lo_streak = 0
+        elif cpu <= THROTTLE_RELEASE_PCT:
+            self._lo_streak += 1
+            self._hi_streak = 0
+        else:
+            # Hysteresis band — neither escalate nor relax.
+            return
+
+        if not self._throttled and self._hi_streak >= 2:
+            self._throttled = True
+            self.effective_fps = float(THROTTLE_LOW_FPS)
+            self._notify(cpu)
+        elif self._throttled and self._lo_streak >= 2:
+            self._throttled = False
+            self.effective_fps = float(TARGET_FPS)
+            self._notify(cpu)
+
+    def _notify(self, cpu):
+        try:
+            if self._on_transition:
+                self._on_transition({"throttled": self._throttled, "cpu_pct": cpu})
+        except Exception:
+            # Never let a logging hiccup take down the main loop.
+            pass
+
+
 # Smoothing window for gaze readings — averages out per-frame jitter so we
 # don't flag a single noisy frame as "looking away". 5 frames at ~30fps
 # gives a ~150ms low-pass which feels responsive without being twitchy.
@@ -705,23 +806,23 @@ def classify_phone_position(phone_box: Tuple[int, int, int, int],
                             face_bbox: Optional[Tuple[int, int, int, int]],
                             frame_h: int) -> str:
     """Classify phone as 'phone_in_hand' or 'phone_on_desk' based on position.
-    
+
     If the phone's center is above ~50% of the face bottom, the student is
     likely holding it (critical severity). If it's below ~65% of frame height,
     it's resting on the desk (high severity).
     """
     px1, py1, px2, py2 = phone_box
     phone_center_y = (py1 + py2) / 2
-    
+
     if face_bbox is not None:
         _, fy1, _, fy2 = face_bbox
         face_bottom = fy2
         if phone_center_y < face_bottom * PHONE_HAND_RATIO:
             return "phone_in_hand"
-    
+
     if phone_center_y > frame_h * PHONE_DESK_Y_RATIO:
         return "phone_on_desk"
-    
+
     return "phone_on_desk"
 
 # ─── SERVER LOGGING ───────────────────────────────────────────────────────────
@@ -1166,7 +1267,7 @@ def _detect_virtual_camera():
 
 def _detect_screen_share_feed(frame: np.ndarray) -> Optional[str]:
     """Heuristic: detect if camera frame looks like a screen capture.
-    
+
     Screen shares tend to have:
     - High edge density (UI elements, text)
     - Many sharp rectangular boundaries
@@ -1177,11 +1278,11 @@ def _detect_screen_share_feed(frame: np.ndarray) -> Optional[str]:
         # Edge density via Canny
         edges = cv2.Canny(gray, 50, 150)
         edge_ratio = np.sum(edges > 0) / (edges.shape[0] * edges.shape[1])
-        
+
         # Noise level (std of Laplacian — camera feeds have optical noise,
         # screen captures are much cleaner)
         laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-        
+
         # Screen-like: high edge density + very low noise
         if edge_ratio > 0.15 and laplacian_var < 50:
             return f"screen_like (edge:{edge_ratio:.2f} noise:{laplacian_var:.0f})"
@@ -1693,6 +1794,27 @@ def run_proctoring(cap, W, H):
     _fps_history = deque(maxlen=30)
     _fps_warned = False
     _last_face_bbox = None  # (x1, y1, x2, y2) for phone-in-hand classification
+
+    # Adaptive CPU governor — see class docstring at the top of the
+    # file. Logs every throttle transition back to the server as a
+    # `client_throttled` event so teachers can see why a student's
+    # cadence dropped without it being treated as a violation.
+    def _on_throttle_transition(info):
+        state = "throttled" if info.get("throttled") else "recovered"
+        cpu_pct = info.get("cpu_pct")
+        cpu_txt = f"{cpu_pct:.0f}%" if isinstance(cpu_pct, (int, float)) else "n/a"
+        print(f"[PROCTOR] hardware governor {state}: cpu={cpu_txt} "
+              f"-> {governor.effective_fps:.1f} fps")
+        try:
+            # log_event(...) is defined further down in this file —
+            # falls back to print() if the network is unreachable.
+            log_event("client_throttled", "info",
+                      f"CPU {cpu_txt}, effective {governor.effective_fps:.1f} fps "
+                      f"(state={state})")
+        except Exception:
+            pass
+
+    governor = _HardwareGovernor(on_transition=_on_throttle_transition)
 
     # ── Severity escalation tracking ─────────────────────────────────────
     # Tracks (timestamp, original_severity) per violation type. Escalates
@@ -2388,9 +2510,15 @@ def run_proctoring(cap, W, H):
             cv2.imshow("AI Proctor", frame)
             cv2.waitKey(1)
 
-        # Frame rate limiter — cap at TARGET_FPS to save CPU on 30/60fps cameras
+        # Frame rate limiter — cap at the governor's effective FPS so
+        # the proctor backs off when the CPU is heat-throttled. The
+        # governor samples internally at most once every
+        # THROTTLE_SAMPLE_SECS, so calling .maybe_update() per frame
+        # is cheap. When psutil isn't bundled the governor permanently
+        # returns TARGET_FPS, preserving original behaviour.
+        governor.maybe_update()
         _elapsed = time.time() - _loop_start
-        _target = 1.0 / TARGET_FPS
+        _target = 1.0 / max(governor.effective_fps, 0.1)
         if _elapsed < _target:
             time.sleep(_target - _elapsed)
 

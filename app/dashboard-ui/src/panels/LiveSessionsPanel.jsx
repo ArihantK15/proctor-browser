@@ -71,6 +71,14 @@ export default function LiveSessionsPanel({ currentExamId }) {
   const [thumbnails, setThumbnails] = useState({})           // { sid: dataUrl }
   const prewarmedSids = useRef(new Set())                    // dedupe per session
   const sseRef = useRef(null)
+  // Live-view modal polling: holds the setInterval id + the most-recent
+  // blob: URL so the next tick can revoke the prior frame's URL before
+  // creating a new one. Without this the poll leaked one blob: URL
+  // every 1.5 s (3500-session-scale memory ramp = serious).
+  // Also avoids the previous `window._liveViewInterval` antipattern
+  // which made the panel unsafe to mount twice.
+  const livePollRef = useRef(null)
+  const liveBlobUrlRef = useRef(null)
 
   useEffect(() => {
     connectSSE()
@@ -86,6 +94,15 @@ export default function LiveSessionsPanel({ currentExamId }) {
     }
     return () => {
       if (sseRef.current) sseRef.current.close()
+      // Tear down the live-view modal poll if the panel unmounts while
+      // a session is open (teacher navigates away mid-watch). Without
+      // this the setInterval keeps firing forever, leaking both the
+      // interval and a fresh blob URL every 1.5 s.
+      if (livePollRef.current) { clearInterval(livePollRef.current); livePollRef.current = null }
+      if (liveBlobUrlRef.current && liveBlobUrlRef.current.startsWith('blob:')) {
+        try { URL.revokeObjectURL(liveBlobUrlRef.current) } catch (_) { /* noop */ }
+        liveBlobUrlRef.current = null
+      }
       // Revoke any pre-warmed blob: URLs to avoid leaking memory when
       // the user navigates away from the Live tab.
       setThumbnails(prev => {
@@ -229,6 +246,10 @@ export default function LiveSessionsPanel({ currentExamId }) {
     try {
       await authFetch(`${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-view/start`, { method: 'POST' })
       setLiveViewStatus('Live')
+      // Clear any prior interval before starting a new one (e.g. teacher
+      // clicks "Camera" on session A, then on session B without closing
+      // A's modal). Without this we'd leak intervals.
+      if (livePollRef.current) clearInterval(livePollRef.current)
       const poll = setInterval(async () => {
         try {
           const r = await fetchWithTimeout(`${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-frame?t=${Date.now()}`, {
@@ -236,18 +257,32 @@ export default function LiveSessionsPanel({ currentExamId }) {
           })
           if (r.ok) {
             const blob = await r.blob()
-            setLiveViewFrame(URL.createObjectURL(blob))
+            const newUrl = URL.createObjectURL(blob)
+            // Revoke the prior tick's URL before swapping in the new
+            // one. The leak fix: at 1.5 s/tick over a 90 min exam we
+            // were piling up ~3,600 dangling blob handles per teacher
+            // before this commit.
+            const prior = liveBlobUrlRef.current
+            liveBlobUrlRef.current = newUrl
+            setLiveViewFrame(newUrl)
             setLiveViewStatus('Live')
+            if (prior && prior.startsWith('blob:')) {
+              try { URL.revokeObjectURL(prior) } catch (_) { /* noop */ }
+            }
           }
         } catch (_) { setLiveViewStatus('Offline') }
       }, 1500)
-      // Store interval for cleanup
-      window._liveViewInterval = poll
+      livePollRef.current = poll
     } catch (_) { setLiveViewStatus('Failed') }
   }
 
   const closeLiveView = () => {
-    if (window._liveViewInterval) { clearInterval(window._liveViewInterval); window._liveViewInterval = null }
+    if (livePollRef.current) { clearInterval(livePollRef.current); livePollRef.current = null }
+    // Revoke the last frame URL on close to release the final blob.
+    if (liveBlobUrlRef.current && liveBlobUrlRef.current.startsWith('blob:')) {
+      try { URL.revokeObjectURL(liveBlobUrlRef.current) } catch (_) { /* noop */ }
+      liveBlobUrlRef.current = null
+    }
     if (liveViewSid) {
       authFetch(`${API_BASE}/admin/sessions/${encodeURIComponent(liveViewSid)}/live-view/stop`, { method: 'POST' })
         .catch(() => setStreamStatus('Live view stopped locally, but the server stop request failed.'))

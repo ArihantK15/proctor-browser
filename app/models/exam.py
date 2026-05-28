@@ -94,6 +94,15 @@ class BulkRegisterIn(BaseModel):
     model_config = ConfigDict(strict=True)
     exam_id: str | None = None
     students: list[dict[str, str]]
+    # When True the endpoint validates + classifies rows but does NOT
+    # write to the DB. Returns the same shape as a real run plus a
+    # `format_counts` map and `dominant_format` key from
+    # services/roll_formats so the UI can show a confirm-step preview
+    # ("we detected 297 CBSE board rolls and 3 typos — fix typos and
+    # re-submit, or proceed and skip them"). The wizard UI on
+    # /admin/students/import calls dry_run=True first, then dry_run=False
+    # once the teacher confirms.
+    dry_run: bool = False
 
 
 class CreateExamIn(BaseModel):

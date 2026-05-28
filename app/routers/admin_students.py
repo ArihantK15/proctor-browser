@@ -353,6 +353,27 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
             "org_id": str(org_id) if org_id else None,
         })
 
+    # Roll-format classification (audit #7 — bulk-import preview). Always
+    # computed so the dry-run preview AND the real run return the same
+    # shape; UIs can show the breakdown either way.
+    from ..services.roll_formats import detect_dominant_format, format_label
+    dominant_format, format_counts = detect_dominant_format(r["roll_number"] for r in rows)
+
+    # Dry-run: validate + classify but do not touch the DB. Lets the
+    # wizard show a confirm-step preview before the actual import.
+    if body.dry_run:
+        result = {
+            "dry_run": True,
+            "would_register": len(rows),
+            "total": len(rows),
+            "dominant_format": dominant_format,
+            "dominant_format_label": format_label(dominant_format),
+            "format_counts": format_counts,
+        }
+        if invalid:
+            result["invalid"] = invalid
+        return result
+
     if not rows:
         raise HTTPException(status_code=400, detail={"message": "No valid students in payload", "invalid": invalid})
 
@@ -380,7 +401,14 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
             # here. Count as skipped rather than failing the whole batch.
             skipped += 1
 
-    result = {"registered": registered, "skipped": skipped, "total": len(rows)}
+    result = {
+        "registered": registered,
+        "skipped": skipped,
+        "total": len(rows),
+        "dominant_format": dominant_format,
+        "dominant_format_label": format_label(dominant_format),
+        "format_counts": format_counts,
+    }
     if invalid:
         result["invalid"] = invalid
     return result

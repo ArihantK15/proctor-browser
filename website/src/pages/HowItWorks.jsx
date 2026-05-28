@@ -8,7 +8,7 @@ const steps = [
   {
     icon: UserPlus,
     title: '1. Teacher sets up the exam',
-    body: 'Create the exam, set duration and access rules, add MCQ or short-answer questions, import students by CSV, assign groups, duplicate exams across batches, and send invite/reminder emails. Org admins can manage members, billing, security, and support without touching teacher-only exam tools.'
+    body: 'Create the exam, set duration and access rules, add MCQ or short-answer questions, import students by CSV with auto-detection of CBSE, JEE, and NTA roll-number formats, assign groups, duplicate exams across batches, and send invite/reminder emails. Org admins can manage members, billing, security, and support without touching teacher-only exam tools.'
   },
   {
     icon: Monitor,
@@ -23,17 +23,17 @@ const steps = [
   {
     icon: ShieldCheck,
     title: '4. AI monitoring runs during the exam',
-    body: 'Face, gaze, head pose, eye state, object detection, and voice-activity checks run on the student machine. The server receives violation events, confidence, risk score, and low-rate evidence snapshots, while the teacher sees a live dashboard with camera pop-in on flagged sessions.'
+    body: 'Face, gaze, head pose, eye state, object detection, and voice-activity checks run on the student machine. ML inference auto-throttles on hot CPUs so budget laptops stay responsive. The server receives violation events, confidence, risk score, and low-rate evidence snapshots, while the teacher sees a live dashboard with sub-1s camera pop-in on flagged sessions.'
   },
   {
     icon: MessageSquare,
     title: '5. Teachers intervene when needed',
-    body: 'Teachers can broadcast instructions, chat with individual students, inspect the timeline, force-submit stale sessions with re-authentication, and file issue reports from the dashboard. AI flags inform a human decision instead of automatically punishing a student.'
+    body: 'Teachers can broadcast instructions, chat with individual students, triage violation clusters by type and severity for bulk dismissal, inspect the timeline, force-submit stale sessions with re-authentication, and file issue reports from the dashboard. AI flags inform a human decision instead of automatically punishing a student.'
   },
   {
     icon: FileText,
     title: '6. Results, grading, and evidence are ready',
-    body: 'MCQs score immediately. Short-answer AI suggestions are generated in parallel and confirmed by teachers. The institution gets CSV exports, branded PDFs, violation timelines, risk explanations, screenshots, scorecards, and appeal-ready evidence packets.'
+    body: 'MCQs score immediately. Short-answer AI suggestions are generated in parallel and confirmed by teachers. The institution gets CSV exports, branded PDFs, violation timelines, risk explanations, screenshots, scorecards, and appeal-ready evidence packets. Billing runs on Razorpay UPI Autopay subscriptions with INR- and GST-ready plans.'
   },
 ]
 

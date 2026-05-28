@@ -1,10 +1,14 @@
 import {
   Activity,
   BadgeCheck,
+  Brain,
   Camera,
+  Cpu,
+  Database,
   FileSpreadsheet,
   GraduationCap,
   Landmark,
+  Layers,
   MessageSquare,
   ReceiptIndianRupee,
   ServerCog,
@@ -33,6 +37,26 @@ const proofStats = [
     value: '617',
     label: 'backend tests passing',
     detail: 'plus CI security scans and zero open CodeQL alerts',
+  },
+  {
+    value: '<1s',
+    label: 'camera pop-in latency',
+    detail: 'thumbnail pre-warms before teacher clicks — click shows instant frame',
+  },
+  {
+    value: '~25s → ~3s',
+    label: '50-answer batch grading time',
+    detail: 'semaphore-batched asyncio.gather without changing Groq spend',
+  },
+  {
+    value: '24h',
+    label: 'Razorpay webhook dedup window',
+    detail: 'replayed event.id short-circuits to 200 instead of re-processing',
+  },
+  {
+    value: '1/2s',
+    label: 'ML inference rate on hot CPU',
+    detail: 'drops to 1 frame per 2 seconds when CPU exceeds 85%',
   },
 ]
 
@@ -96,6 +120,46 @@ const capabilities = [
     icon: ServerCog,
     title: 'Production operations',
     body: 'Docker deploys, Caddy TLS, Redis/RQ workers, health checks, request IDs, backups, security scans, and rollback-oriented runbooks.',
+  },
+  {
+    icon: Layers,
+    title: 'Cluster & Batch Review',
+    body: 'Teachers triage thousands of flagged events in a single click. Group violations by type and severity across the cohort, bulk-dismiss systemic false positives with one reason note.',
+  },
+  {
+    icon: Cpu,
+    title: 'Adaptive Hardware Governor',
+    body: 'Student client auto-throttles ML cadence on heat-stressed CPUs, sampling psutil every 5s. Drops to 1 frame per 2s on CPU above 85%, ramps back below 60%. Budget laptops stay responsive.',
+  },
+  {
+    icon: Camera,
+    title: 'Sub-1s Cam-pop-in',
+    body: 'Violation in Live tab pre-warms a thumbnail and auto-starts the student high-rate frame upload before the teacher clicks. Click shows instant frame — sub-1s pop-in.',
+  },
+  {
+    icon: ReceiptIndianRupee,
+    title: 'UPI Autopay Subscriptions',
+    body: 'Monthly recurring via Razorpay native UPI Autopay (not one-off Orders). Full INR/GST-ready billing with quota enforcement and overage logic.',
+  },
+  {
+    icon: FileSpreadsheet,
+    title: 'Bulk Student Import',
+    body: 'Drag a CSV roster in — auto-detects CBSE, JEE, and NTA roll-number formats. Dry-run preview shows exactly what will be committed before the import runs.',
+  },
+  {
+    icon: Database,
+    title: 'Live-frame Cache',
+    body: '6,500-session LRU with 1 MB per-frame size cap and admin observability. Sized for 3,500 concurrent students with headroom to spare.',
+  },
+  {
+    icon: Brain,
+    title: 'Parallel LLM Grading',
+    body: 'Semaphore-batched asyncio.gather brings a 50-answer batch from ~25s to ~3s without changing Groq API spend.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Webhook Idempotency',
+    body: 'Razorpay webhooks deduplicate on event.id with 24-hour window. Replayed callbacks short-circuit to 200 instead of re-processing the payment.',
   },
 ]
 

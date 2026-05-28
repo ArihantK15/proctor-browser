@@ -38,6 +38,7 @@ const featureGroups = [
       'Automated scorecard PDFs emailed to each student with question-wise breakdown',
       'AI-generated personalized insight on every scorecard (optional, uses LLM)',
       'Parallel short-answer grading suggestions reduce large review batches from minutes to seconds',
+      'Cluster review — triage thousands of flagged events by type and severity, bulk-dismiss systemic false positives in one click',
       'CSV/Excel export with risk scores, violation counts, and time analytics',
       'Configurable pass thresholds and percentage-based grading',
       'Teacher confirmation before AI-suggested grades become final',
@@ -52,6 +53,7 @@ const featureGroups = [
       'Continuous 60-second auto-save prevents data loss on crash',
       '5-second answer save path with offline resilience for unstable student networks',
       'Automatic submission when the timer expires — no grace period loopholes',
+      'Adaptive hardware governor — auto-reduces ML inference rate on heat-stressed CPUs to keep budget laptops responsive',
       'Offline resilience: answers saved locally if connectivity drops, synced on reconnect',
     ]
   },
@@ -76,6 +78,7 @@ const featureGroups = [
       'AI triage: one-line LLM summary of each session\'s risk posture',
       'Configurable alert thresholds and push notifications',
       'Teacher-student chat, broadcast announcements, force-submit, and stale-session controls',
+      'Sub-1s camera pop-in — violation triggers pre-warmed thumbnail, click shows instant frame',
       '3,500-student architecture target with 6,500 live-frame cache headroom',
     ]
   },

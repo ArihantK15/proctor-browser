@@ -169,19 +169,25 @@ async def violation_clusters(request: Request, exam_id: str | None = None):
     # at 10,000 rows — well above a single exam's expected violation
     # count even at 3,500 students; if a teacher's all-time queue ever
     # exceeds it we surface a `truncated: true` flag.
-    q = (_atable("violations")
-         .select("session_key,violation_type,severity,created_at")
-         .is_("dismissed_at", "null")
-         .order("created_at", desc=True)
-         .limit(10000))
-
-    if tids is not None:
-        if not tids:
-            q = q.eq("teacher_id", "__none__")
-        elif len(tids) == 1:
-            q = q.eq("teacher_id", str(tids[0]))
-        else:
-            q = q.in_("teacher_id", tids)
+    #
+    # IMPORTANT: PostgresTable (and postgrest-py) builders MUTATE
+    # `_filters` in `.in_()` / `.eq()` and return `self` — so a query
+    # builder can be used at most once. We construct a fresh builder
+    # per chunk via this helper.
+    def _new_violations_query():
+        bq = (_atable("violations")
+              .select("session_key,violation_type,severity,created_at")
+              .is_("dismissed_at", "null")
+              .order("created_at", desc=True)
+              .limit(10000))
+        if tids is not None:
+            if not tids:
+                bq = bq.eq("teacher_id", "__none__")
+            elif len(tids) == 1:
+                bq = bq.eq("teacher_id", str(tids[0]))
+            else:
+                bq = bq.in_("teacher_id", tids)
+        return bq
 
     if exam_id:
         # Layer exam scoping via session_key allow-list (no SQL JOIN
@@ -198,10 +204,10 @@ async def violation_clusters(request: Request, exam_id: str | None = None):
         rows = []
         for i in range(0, len(session_keys), 800):
             chunk = session_keys[i:i + 800]
-            r = await q.in_("session_key", chunk).execute()
+            r = await _new_violations_query().in_("session_key", chunk).execute()
             rows.extend(r.data or [])
     else:
-        rows = (await q.execute()).data or []
+        rows = (await _new_violations_query().execute()).data or []
 
     truncated = len(rows) >= 10000
 

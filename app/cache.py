@@ -6,6 +6,7 @@ without Redis (just slower).
 from .log_safe import safe
 import json
 import os
+import threading
 import time
 import logging
 
@@ -33,54 +34,60 @@ ROOMCAM_PREFIX = "roomcam:"
 LIVEFRAME_INDEX_KEY = f"{LIVEFRAME_PREFIX}_index"
 
 _r: redis.Redis | None = None
-_r_healthy: bool = False  # tracks whether _r has been successfully pinged
+_r_healthy: bool = False
+_r_lock: threading.Lock = threading.Lock()
 
-_br: redis.Redis | None = None  # binary client (decode_responses=False) for JPEG frames
+_br: redis.Redis | None = None
 _br_healthy: bool = False
+_br_lock: threading.Lock = threading.Lock()
 
 
 def _client() -> redis.Redis | None:
     global _r, _r_healthy
     if _r is not None and _r_healthy:
         return _r
-    # Either no client yet, or previous client was broken — (re)connect
-    try:
-        _r = redis.Redis.from_url(REDIS_URL, decode_responses=True,
-                                   socket_connect_timeout=2,
-                                   socket_timeout=2)
-        _r.ping()
-        _r_healthy = True
-    except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
-        _log.warning("Redis connection failed", exc_info=True)
-        _r = None
-        _r_healthy = False
-    except Exception:
-        _log.exception("Unexpected Redis client initialisation failure")
-        _r = None
-        _r_healthy = False
-    return _r
+    with _r_lock:
+        if _r is not None and _r_healthy:
+            return _r
+        try:
+            _r = redis.Redis.from_url(REDIS_URL, decode_responses=True,
+                                       socket_connect_timeout=2,
+                                       socket_timeout=2)
+            _r.ping()
+            _r_healthy = True
+        except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
+            _log.warning("Redis connection failed", exc_info=True)
+            _r = None
+            _r_healthy = False
+        except Exception:
+            _log.exception("Unexpected Redis client initialisation failure")
+            _r = None
+            _r_healthy = False
+        return _r
 
 
 def _binary_client() -> redis.Redis | None:
-    """Redis client without decode_responses for raw binary JPEG storage."""
     global _br, _br_healthy
     if _br is not None and _br_healthy:
         return _br
-    try:
-        _br = redis.Redis.from_url(REDIS_URL, decode_responses=False,
-                                    socket_connect_timeout=2,
-                                    socket_timeout=2)
-        _br.ping()
-        _br_healthy = True
-    except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
-        _log.warning("Redis binary connection failed", exc_info=True)
-        _br = None
-        _br_healthy = False
-    except Exception:
-        _log.exception("Unexpected Redis binary client initialisation failure")
-        _br = None
-        _br_healthy = False
-    return _br
+    with _br_lock:
+        if _br is not None and _br_healthy:
+            return _br
+        try:
+            _br = redis.Redis.from_url(REDIS_URL, decode_responses=False,
+                                        socket_connect_timeout=2,
+                                        socket_timeout=2)
+            _br.ping()
+            _br_healthy = True
+        except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
+            _log.warning("Redis binary connection failed", exc_info=True)
+            _br = None
+            _br_healthy = False
+        except Exception:
+            _log.exception("Unexpected Redis binary client initialisation failure")
+            _br = None
+            _br_healthy = False
+        return _br
 
 
 def get(key: str) -> dict | list | None:
@@ -108,6 +115,7 @@ def get(key: str) -> dict | list | None:
                 _r_healthy = False
             except Exception:
                 _log.exception("Cache liveframe timestamp lookup failed for key=%s", safe(key))
+                _r_healthy = False
             return {"jpeg_bytes": raw_bytes, "at": ts}
         r = _client()
         if r is None:

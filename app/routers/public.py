@@ -136,7 +136,6 @@ def robots_txt():
     return Response(content=content, media_type="text/plain")
 
 
-import time
 _health_start = time.time()
 _req_total = 0
 _req_errors = 0
@@ -168,11 +167,12 @@ async def health():
         if not _skip_db:
             ok = False
 
-    # Redis — optional
+    # Redis — optional (reuse module-level client)
     try:
-        import redis as _redis
-        r = _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
-        r.ping()
+        if not hasattr(health, "_redis_client"):
+            import redis as _redis
+            health._redis_client = _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
+        health._redis_client.ping()
         checks["redis"] = "ok"
     except Exception:
         checks["redis"] = "unavailable"  # non-fatal — health check still passes
@@ -214,11 +214,12 @@ async def health():
         checks["storage_write"] = "error"
         ok = False
 
-    # Worker — check last heartbeat via Redis
+    # Worker — check last heartbeat via Redis (reuse module-level client)
     try:
-        import redis as _redis
-        r = _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
-        hb = r.get("worker:last_heartbeat")
+        if not hasattr(health, "_redis_client"):
+            import redis as _redis
+            health._redis_client = _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
+        hb = health._redis_client.get("worker:last_heartbeat")
         if hb:
             age = time.time() - float(hb)
             checks["worker"] = "ok" if age < 60 else "stale"

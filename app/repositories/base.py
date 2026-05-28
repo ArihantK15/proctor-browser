@@ -15,7 +15,7 @@ Usage::
 
 from __future__ import annotations
 from typing import Any, Generic, TypeVar, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ..database import async_table as _atable
 

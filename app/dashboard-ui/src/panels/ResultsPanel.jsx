@@ -46,7 +46,7 @@ export default function ResultsPanel({ currentExamId }) {
   useEffect(() => { loadResults() }, [currentExamId, loadResults])
 
   const filtered = results
-    .filter(r => !search || r.roll_number.toLowerCase().includes(search) || r.full_name.toLowerCase().includes(search) || (r.email || '').toLowerCase().includes(search))
+    .filter(r => !search || (r.roll_number || '').toLowerCase().includes(search) || (r.full_name || '').toLowerCase().includes(search) || (r.email || '').toLowerCase().includes(search))
     .filter(r => {
       if (riskFilter === 'all') return true
       const s = r.risk_score

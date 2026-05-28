@@ -329,8 +329,7 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
     pct        = round((score / max(total, 1)) * 100, 1)
     now        = now_ist()
     violations = [e for e in events
-                  if e["severity"] in ("high", "medium")
-                  and True]
+                  if e["severity"] in ("high", "medium")]
     risk = await compute_risk_score(session_id, teacher_id=tid)
 
     sess_row = {

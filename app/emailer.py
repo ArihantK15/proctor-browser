@@ -1094,3 +1094,76 @@ def send_payment_failed_notification(to_email: str, to_name: str) -> SendResult:
     except Exception as e:
         log.exception("send_payment_failed_notification failed: %s", e)
         return SendResult(ok=False, error=str(e))
+
+
+def send_new_account_notification(*, account_type: str, name: str, email: str) -> SendResult:
+    """Notify internal ops that a new account was created."""
+    subject = f"[Procta] New {account_type} account: {name}"
+    name_esc = _esc(name)
+    html = f"""\
+<!doctype html>
+<html><head><meta charset="utf-8"><title>New account — Procta</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 16px;">
+<table width="480" cellpadding="0" cellspacing="0"
+       style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+<tr><td style="background:#10b981;padding:24px 28px;">
+<div style="font-size:18px;font-weight:700;color:#ffffff;">New signup</div>
+</td></tr>
+<tr><td style="padding:28px;">
+<p style="margin:0 0 12px;font-size:15px;color:#334155;">
+A new <b>{_esc(account_type)}</b> account was created on Procta.
+</p>
+<p style="margin:0 0 4px;font-size:14px;color:#475569;"><b>Name:</b> {name_esc}</p>
+<p style="margin:0 0 4px;font-size:14px;color:#475569;"><b>Email:</b> {_esc(email)}</p>
+</td></tr>
+<tr><td style="padding:14px 28px;font-size:11px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;">
+Procta
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
+    text = f"A new {account_type} account was created on Procta.\n\nName: {name}\nEmail: {email}"
+    try:
+        return _send(email, subject, html, text)
+    except Exception as e:
+        log.exception("send_new_account_notification failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
+def send_org_invite_email(*, to_email: str, invite_url: str, org_name: str, invited_by_name: str) -> SendResult:
+    """Send an org invite email to a new admin."""
+    subject = f"You've been invited to join {org_name} on Procta"
+    name_esc = _esc(invited_by_name)
+    org_esc = _esc(org_name)
+    html = f"""\
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Org invite — Procta</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 16px;">
+<table width="480" cellpadding="0" cellspacing="0"
+       style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+<tr><td style="background:linear-gradient(135deg,#3dd9a8,#3b82f6);padding:24px 28px;">
+<div style="font-size:18px;font-weight:700;color:#ffffff;">Organization invite</div>
+</td></tr>
+<tr><td style="padding:28px;">
+<p style="margin:0 0 16px;font-size:15px;color:#334155;">
+{name_esc} has invited you to join <b>{org_esc}</b> on Procta.
+</p>
+<a href="{_esc(invite_url)}"
+   style="display:inline-block;background:#10b981;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">
+Accept invite
+</a>
+</td></tr>
+<tr><td style="padding:14px 28px;font-size:11px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;">
+Procta — proctored exams for Indian institutions
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
+    text = f"{invited_by_name} has invited you to join {org_name} on Procta.\n\nAccept your invite: {invite_url}"
+    try:
+        return _send(to_email, subject, html, text)
+    except Exception as e:
+        log.exception("send_org_invite_email failed: %s", e)
+        return SendResult(ok=False, error=str(e))

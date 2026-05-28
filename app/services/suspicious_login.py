@@ -33,7 +33,6 @@ from ..log_safe import safe
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from ..database import async_table as _atable
 

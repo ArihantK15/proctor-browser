@@ -3,13 +3,12 @@
 Extracted from app/dependencies.py.
 """
 
-import asyncio
 import logging
-import threading
 import time
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import threading
 from typing import Optional
 
 from fastapi import HTTPException
@@ -290,9 +289,10 @@ def clear_token_consume(token: str, teacher_id: str) -> bool:
             return False
         _cache.delete(f"clear_token:{token}")
         return True
-    rec = _CLEAR_TOKENS.pop(token, None)
-    if not rec or rec["teacher_id"] != str(teacher_id) or rec["expires"] < time.time():
-        return False
+    with _CLEAR_TOKENS_LOCK:
+        rec = _CLEAR_TOKENS.pop(token, None)
+        if not rec or rec["teacher_id"] != str(teacher_id) or rec["expires"] < time.time():
+            return False
     return True
 
 
@@ -423,8 +423,6 @@ def cleanup_screenshots(stop_event=None):
     while True:
         if stop_event and stop_event.wait(3600):
             break
-        else:
-            time.sleep(3600)
         try:
             cutoff = now_ist() - timedelta(hours=48)
             for student_dir in Path(SCREENSHOTS_DIR).iterdir():

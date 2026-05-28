@@ -46,7 +46,7 @@ async def submit_appeal(body: AppealIn, request: Request):
     if not session.data:
         raise HTTPException(status_code=404, detail="Session not found")
     s = session.data[0]
-    if str(s.get("student_id", "")).upper() != student_id.upper() and \
+    if str(s.get("student_id", "")).upper() != student_id.upper() or \
        str(s.get("email", "")).lower() != student_email.lower():
         raise HTTPException(status_code=403, detail="Session does not belong to you")
 

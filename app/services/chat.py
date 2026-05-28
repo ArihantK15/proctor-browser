@@ -127,19 +127,18 @@ class ChatHub:
                 meta["teacher_id"], session_id, online=False)
 
     async def student_send(self, session_id: str, text: str) -> dict | None:
-        meta = self.student_meta.get(session_id)
-        if not meta:
-            return None
-        meta["last_seen"] = datetime.now(timezone.utc).isoformat()
-        msg = self._make_msg(sender="student", session_id=session_id, text=text)
-        msg["roll"] = meta["roll"]
-        msg["name"] = meta["name"]
-        self._thread(meta["teacher_id"], session_id).append(msg)
-
-        student_ws = self.student_conns.get(session_id)
+        async with self._lock:
+            meta = self.student_meta.get(session_id)
+            if not meta:
+                return None
+            meta["last_seen"] = datetime.now(timezone.utc).isoformat()
+            msg = self._make_msg(sender="student", session_id=session_id, text=text)
+            msg["roll"] = meta["roll"]
+            msg["name"] = meta["name"]
+            self._thread(meta["teacher_id"], session_id).append(msg)
+            student_ws = self.student_conns.get(session_id)
         if student_ws is not None:
             await self._safe_send(student_ws, msg)
-
         await self._fanout_teachers(meta["teacher_id"], msg)
         return msg
 
@@ -218,16 +217,15 @@ class ChatHub:
 
     async def teacher_send(self, teacher_id: str, session_id: str,
                            text: str) -> dict | None:
-        meta = self.student_meta.get(session_id)
-        if not meta or meta.get("teacher_id") != teacher_id:
-            return None
-        msg = self._make_msg(sender="teacher", session_id=session_id, text=text)
-        self._thread(teacher_id, session_id).append(msg)
-
-        student_ws = self.student_conns.get(session_id)
+        async with self._lock:
+            meta = self.student_meta.get(session_id)
+            if not meta or meta.get("teacher_id") != teacher_id:
+                return None
+            msg = self._make_msg(sender="teacher", session_id=session_id, text=text)
+            self._thread(teacher_id, session_id).append(msg)
+            student_ws = self.student_conns.get(session_id)
         if student_ws is not None:
             await self._safe_send(student_ws, msg)
-
         await self._fanout_teachers(teacher_id, msg)
         return msg
 
@@ -258,9 +256,13 @@ class ChatHub:
 
     async def _fanout_teachers(self, teacher_id: str, payload: dict) -> None:
         dead: list[WebSocket] = []
-        conns = list(self.teacher_conns.get(teacher_id, ()))
+        async with self._lock:
+            conns = list(self.teacher_conns.get(teacher_id, ()))
+            for ws in conns:
+                by_sock = self.teacher_last_seen.get(teacher_id)
+                if by_sock is not None:
+                    by_sock[ws] = time.monotonic()
         for ws in conns:
-            self._update_teacher_activity(teacher_id, ws)
             if not await self._safe_send(ws, payload):
                 dead.append(ws)
         if dead:
@@ -297,8 +299,9 @@ class ChatHub:
         if by_sock is not None:
             by_sock[ws] = time.monotonic()
 
-    def record_pong(self, ws: WebSocket) -> None:
-        self._last_pong[ws] = time.monotonic()
+    async def record_pong(self, ws: WebSocket) -> None:
+        async with self._lock:
+            self._last_pong[ws] = time.monotonic()
 
     def _start_cleanup(self) -> None:
         if self._cleanup_task is not None:

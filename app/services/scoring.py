@@ -4,6 +4,7 @@ Extracted from app/dependencies.py.
 """
 
 from ..log_safe import safe
+import asyncio
 import hashlib
 import logging
 import random
@@ -107,7 +108,6 @@ async def canonicalise_student_answer(session_id: str, teacher_id: str, question
 
 
 async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None, exam_id: str = None) -> tuple[int, int]:
-    import asyncio
     from ..database import async_table as _atable
     last_err = None
     for attempt in range(2):

@@ -54,7 +54,7 @@ async def upload_question_image(request: Request, body: UploadQuestionImageIn = 
     else:
         raise HTTPException(status_code=400, detail="Unsupported image format (PNG/JPEG/GIF/WebP only)")
 
-    digest = hashlib.sha1(blob, usedforsecurity=False).hexdigest()[:24]  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
+    digest = hashlib.sha256(blob, usedforsecurity=False).hexdigest()[:24]
     filename = f"{digest}.{ext}"
     tdir = Path(QUESTION_IMG_DIR) / tid
     tdir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +79,7 @@ async def get_question_image(tid: str, filename: str, request: Request, exam_id:
     auth = request.headers.get("Authorization", "")
     allowed = False
     is_student = False
+    payload = None
     if auth.startswith("Bearer "):
         tok = auth[7:]
         try:
@@ -101,7 +102,7 @@ async def get_question_image(tid: str, filename: str, request: Request, exam_id:
         raise HTTPException(status_code=401, detail="Authentication required")
 
     # For student tokens, if an exam_id is provided verify it matches the JWT
-    if is_student and exam_id and exam_id != str(payload.get("eid") or ""):
+    if is_student and exam_id and payload and exam_id != str(payload.get("eid") or ""):
         raise HTTPException(status_code=403, detail="Not authorized for this exam")
 
     safe_teacher_id = _safe_path_component(tid)

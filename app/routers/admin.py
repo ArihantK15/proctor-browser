@@ -30,7 +30,6 @@ from ..database import supabase, async_table as _atable
 from ..limiter import limiter
 from ..constants import SCREENSHOTS_DIR
 from ..models import SessionStatus
-from ..models import IdDecisionIn
 
 from .admin_settings import router as settings_router
 from .admin_invites import router as invites_router

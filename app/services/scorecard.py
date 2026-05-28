@@ -5,7 +5,6 @@ Extracted from app/routers/admin.py to reduce the god module.
 
 import io
 import logging
-from datetime import datetime
 
 from ..repositories.sessions import assert_session_owned as _assert_session_owned
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config

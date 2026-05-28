@@ -117,7 +117,7 @@ def _run_coro_in_sync(coro) -> Any:
         # No running loop → submit to the persistent background loop.
         loop = _get_persistent_loop()
         future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result()
+        return future.result(timeout=60)
 
     # Running loop exists → spawn a fresh thread + loop for this call.
     result: list = []

@@ -409,11 +409,13 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         auth_provider = "local"
     else:
         try:
-            auth_resp = supabase.auth.admin.create_user({
-                "email": email,
-                "password": body.password,
-                "email_confirm": False,
-            })
+            auth_resp = await asyncio.to_thread(
+                supabase.auth.admin.create_user, {
+                    "email": email,
+                    "password": body.password,
+                    "email_confirm": False,
+                },
+            )
             supabase_uid = auth_resp.user.id
         except Exception as e:
             err_msg = str(e).lower()
@@ -535,7 +537,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         # Rollback: delete Supabase auth user + orphaned org/subscription rows
         if auth_resp is not None:
             try:
-                supabase.auth.admin.delete_user(str(supabase_uid))
+                await asyncio.to_thread(supabase.auth.admin.delete_user, str(supabase_uid))
             except Exception as rollback_err:
                 _auth_log.critical("[TeacherSignup] Rollback (auth user) failed: %s", rollback_err)
         if default_exam_id is not None:
@@ -846,7 +848,7 @@ async def teacher_password_reset(body: PasswordResetIn, request: Request):
                 )
         else:
             try:
-                supabase.auth.reset_password_for_email(email)
+                await asyncio.to_thread(supabase.auth.reset_password_for_email, email)
             except Exception:
                 _auth_log.warning("[PasswordReset] Supabase reset email failed")
                 # Don't reveal whether the email exists or not
@@ -1034,11 +1036,13 @@ async def accept_org_invite(body: dict, request: Request):
             auth_provider = "local"
         else:
             try:
-                auth_resp = supabase.auth.admin.create_user({
-                    "email": email,
-                    "password": password,
-                    "email_confirm": False,
-                })
+                auth_resp = await asyncio.to_thread(
+                    supabase.auth.admin.create_user, {
+                        "email": email,
+                        "password": password,
+                        "email_confirm": False,
+                    },
+                )
                 supabase_uid = auth_resp.user.id
             except Exception as e:
                 err_msg = str(e).lower()
@@ -1139,11 +1143,13 @@ async def student_signup(body: StudentSignupIn, request: Request):
         auth_provider = "local"
     else:
         try:
-            auth_resp = supabase.auth.admin.create_user({
-                "email": email,
-                "password": body.password,
-                "email_confirm": False,
-            })
+            auth_resp = await asyncio.to_thread(
+                supabase.auth.admin.create_user, {
+                    "email": email,
+                    "password": body.password,
+                    "email_confirm": False,
+                },
+            )
             supabase_uid = auth_resp.user.id
         except Exception as e:
             err_msg = str(e).lower()
@@ -1171,7 +1177,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
         # Roll back: delete the orphaned Supabase Auth user
         if auth_resp is not None:
             try:
-                supabase.auth.admin.delete_user(str(supabase_uid))
+                await asyncio.to_thread(supabase.auth.admin.delete_user, str(supabase_uid))
                 _auth_log.info("[StudentSignup] Rolled back Auth user %s", supabase_uid)
             except Exception as rollback_err:
                 _auth_log.critical("[StudentSignup] Failed to rollback Auth user %s: %s", supabase_uid, rollback_err)
@@ -1953,7 +1959,7 @@ async def logout(request: Request):
     supabase_uid = teacher.get("supabase_uid", "")
     try:
         if supabase_uid:
-            supabase.auth.admin.sign_out(supabase_uid)
+            await asyncio.to_thread(supabase.auth.admin.sign_out, supabase_uid)
     except (AttributeError, Exception):
         pass
     await record_auth_event("logout", request, "teacher", tid)
@@ -2034,7 +2040,7 @@ async def student_password_reset(body: dict, request: Request):
                 )
             return {"status": "sent"}
         try:
-            supabase.auth.reset_password_for_email(email)
+            await asyncio.to_thread(supabase.auth.reset_password_for_email, email)
             return {"status": "sent"}
         except Exception:
             _auth_log.warning("[StudentPasswordReset] Supabase reset email failed")

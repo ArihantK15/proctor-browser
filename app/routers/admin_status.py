@@ -132,7 +132,7 @@ async def get_status(request: Request):
         checks["database"] = "error"
         ok = False
 
-    # Redis
+    # Redis (reuse module-level client via cache module)
     try:
         from .. import cache as _cache
         if _cache:

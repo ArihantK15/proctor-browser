@@ -13,7 +13,7 @@ async def record(
     user_kind: str = "",
     user_id: str = "",
     email: str = "",
-    meta: dict = None,
+    meta: Optional[dict] = None,
 ) -> None:
     """Insert an auth event into the audit log. Best-effort — never raises."""
     try:

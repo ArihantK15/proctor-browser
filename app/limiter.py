@@ -5,9 +5,8 @@ import hashlib
 import logging
 
 from fastapi import Request
-import jwt
 from jwt.exceptions import InvalidTokenError as JWTError
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.responses import JSONResponse

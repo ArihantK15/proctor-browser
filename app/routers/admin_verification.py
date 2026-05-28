@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
 
-_import_json = json  # local reference
-
 
 @router.get("/api/v1/admin/pending-verifications")
 @limiter.limit("30/minute")

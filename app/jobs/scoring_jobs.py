@@ -15,7 +15,9 @@ no-op. That matters because RQ retries failed jobs.
 from __future__ import annotations
 
 from ..log_safe import safe
+import asyncio
 import logging
+from datetime import datetime
 from typing import Optional
 
 from .helpers import _run_coro_in_sync
@@ -27,15 +29,15 @@ async def _score_submission_async(
     session_id: str,
     teacher_id: Optional[str],
     exam_id: Optional[str],
-    student_id: Optional[str],
-    roll_number: str,
-    time_taken_secs: int,
+    **kwargs,
 ) -> dict:
     """The actual scoring work — runs inside the RQ worker.
 
     Returns a dict with the computed score so the worker logs are useful.
     Errors are raised so RQ's retry policy fires.
     """
+    time_taken_secs = kwargs.get("time_taken_secs", 0)
+    roll_number = kwargs.get("roll_number", "")
     from ..database import async_table as _atable
     from ..services.scoring import recalculate_score
     from ..services.risk import compute_risk_score
@@ -63,7 +65,6 @@ async def _score_submission_async(
     ans_payload = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
 
     # 2. Score + config in parallel
-    import asyncio
     score_fut = recalculate_score(session_id, ans_payload, teacher_id=teacher_id, exam_id=exam_id)
     config_fut = load_exam_config(teacher_id=teacher_id, exam_id=exam_id)
     try:
@@ -145,7 +146,6 @@ async def _score_submission_async(
     started_at_str = sess.get("started_at")
     if started_at_str:
         try:
-            from datetime import datetime
             started = datetime.fromisoformat(str(started_at_str).replace("Z", "+00:00"))
             server_elapsed = (now - started).total_seconds()
         except (ValueError, TypeError):
@@ -216,7 +216,6 @@ def score_submission_job(
         session_id=session_id,
         teacher_id=teacher_id,
         exam_id=exam_id,
-        student_id=student_id,
         roll_number=roll_number,
         time_taken_secs=time_taken_secs,
     ))

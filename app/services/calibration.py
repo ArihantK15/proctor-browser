@@ -94,7 +94,7 @@ async def get_calibration_quality(session_id: str, teacher_id: Optional[str] = N
     if teacher_id:
         q = q.eq("teacher_id", str(teacher_id))
     rows = (await q.execute()).data or []
-    parsed = parse_calibration_details(rows[0]["details"]) if rows else None
+    parsed = parse_calibration_details(rows[0].get("details")) if rows else None
     out = classify_calibration(parsed)
     if _cache:
         try:

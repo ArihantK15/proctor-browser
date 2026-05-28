@@ -10,7 +10,6 @@ from ..database import async_table as _atable
 from ..models import SessionStatus
 from ..services.risk import _is_violation
 from ..services.calibration import parse_calibration_details, classify_calibration
-from ..utils import now_ist
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +116,11 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
         "roll_number": s["roll_number"],
         "full_name": s["full_name"],
         "email": s.get("email", ""),
-        "score": s.get("score", 0),
-        "total": s.get("total", 0),
-        "percentage": s.get("percentage", 0.0),
-        "time_taken_secs": s.get("time_taken_secs", 0),
-        "submitted_at": fmt_ist(s.get("submitted_at", "")),
+        "score": s.get("score") or 0,
+        "total": s.get("total") or 0,
+        "percentage": s.get("percentage") or 0.0,
+        "time_taken_secs": s.get("time_taken_secs") or 0,
+        "submitted_at": fmt_ist(s.get("submitted_at") or ""),
         "violation_count": vcounts.get(s["session_key"], 0),
         "risk_score": s.get("risk_score"),
         "risk_label": _risk_label(s["risk_score"]) if s.get("risk_score") is not None else None,
@@ -160,11 +159,11 @@ async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_ro
                     s["session_key"],
                     s["roll_number"],
                     s["full_name"],
-                    s.get("email", ""),
-                    s.get("score", 0),
-                    s.get("total", 0),
-                    f"{s.get('percentage', 0.0)}%",
-                    f"{s.get('time_taken_secs', 0)}s",
+                    s.get("email") or "",
+                    s.get("score") or 0,
+                    s.get("total") or 0,
+                    f"{s.get('percentage') or 0.0}%",
+                    f"{s.get('time_taken_secs') or 0}s",
                     vcounts.get(s["session_key"], 0),
                     s.get("risk_score", ""),
                     _risk_label(s["risk_score"]) if s.get("risk_score") is not None else "",

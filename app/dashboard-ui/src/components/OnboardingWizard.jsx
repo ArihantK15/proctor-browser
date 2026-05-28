@@ -23,6 +23,7 @@ export default function OnboardingWizard({ onComplete }) {
   const [importResult, setImportResult] = useState(null)
   const [inviting, setInviting] = useState(false)
   const [inviteResult, setInviteResult] = useState(null)
+  const [students, setStudents] = useState([])
 
   const createExam = async () => {
     setCreating(true)

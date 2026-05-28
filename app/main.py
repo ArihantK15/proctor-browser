@@ -14,9 +14,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 import os
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, StreamingResponse
@@ -25,7 +24,7 @@ from starlette.responses import Response, StreamingResponse
 from .limiter import _rate_limit_key, _custom_rate_limit_handler
 from .services.sessions import cleanup_screenshots as _cleanup_screenshots
 from .reminders import _reminder_loop
-from .constants import SCREENSHOTS_DIR, QUESTION_IMG_DIR, STATIC_DIR, CORS_ALLOWED_ORIGINS
+from .constants import STATIC_DIR, CORS_ALLOWED_ORIGINS
 
 # ── routers ───────────────────────────────────────────────────────
 from .domains.identity import auth_router
@@ -215,17 +214,6 @@ async def lifespan(_app) -> AsyncIterator[None]:
         log.info("[shutdown] Closed Postgres pool")
     except Exception as e:
         log.warning("[shutdown] Failed to close Postgres pool: %s", e)
-
-    # Close the shared httpx async client (Supabase REST hot-path).
-    # Pre-existing; gathered here so we have one shutdown sequence.
-    try:
-        from . import database as _db
-        if _db._async_client is not None:
-            await _db._async_client.aclose()
-            _db._async_client = None
-            log.info("[shutdown] Closed httpx async client")
-    except Exception as e:
-        log.warning("[shutdown] Failed to close httpx client: %s", e)
 
     # Signal and join the screenshot cleanup daemon thread
     if '_cleanup_stop' in dir() and _cleanup_stop is not None:
@@ -478,6 +466,9 @@ class StructuredLogMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             status = response.status_code
+        except HTTPException as exc:
+            status = exc.status_code
+            raise
         except Exception:
             status = 500
             raise

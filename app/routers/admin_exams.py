@@ -8,7 +8,6 @@ from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
 from ..models import SessionStatus
-from ..services.risk import generate_session_summary
 from ..limiter import limiter
 from ..models import (
     CreateExamIn, CreateGroupIn, RenameGroupIn,
@@ -143,11 +142,13 @@ async def delete_exam(exam_id: str, request: Request):
         raise HTTPException(status_code=400, detail="Cannot delete your only exam")
     await _atable("questions").delete()\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    await _atable("exam_config").delete()\
-        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    if _cache:
-        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
-        _cache.delete(f"questions:{tid}:{exam_id or '_'}")
+    try:
+        await _atable("exam_config").delete()\
+            .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    finally:
+        if _cache:
+            _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
+            _cache.delete(f"questions:{tid}:{exam_id or '_'}")
     return {"status": "deleted", "exam_id": exam_id}
 
 

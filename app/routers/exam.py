@@ -1111,9 +1111,8 @@ async def submit_exam(result: ResultIn, request: Request):
         "violation_type": "exam_submitted",
         "severity":       "low",
         "details":        f"Score:{server_score}/{server_total} ({pct}%)",
+        "teacher_id":     tid or "",
     }
-    if tid:
-        submit_viol["teacher_id"] = tid
 
     parallel_ops = [
         _atable("exam_sessions").update(session_row)\
@@ -1141,9 +1140,8 @@ async def submit_exam(result: ResultIn, request: Request):
             "violation_type": "time_exceeded",
             "severity":       "high",
             "details":        f"Submitted {int(server_elapsed - allowed_secs)}s past time limit",
+            "teacher_id":     tid or "",
         }
-        if tid:
-            time_viol["teacher_id"] = tid
         parallel_ops.append(_atable("violations").insert(time_viol).execute())
 
     # Execute parallel ops

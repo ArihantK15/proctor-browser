@@ -3,6 +3,7 @@ import { API_BASE } from '../config'
 
 const AuthContext = createContext(null)
 let csrfMemory = ''
+let _refreshPromise = null
 
 export async function fetchWithTimeout(url, opts = {}, timeoutMs = 30000) {
   const ctrl = new AbortController()
@@ -166,12 +167,15 @@ export function AuthProvider({ children }) {
     const r = await fetchWithTimeout(url, requestOpts)
     if (r.status === 401) {
       try {
-        const rr = await fetchWithTimeout(`${API_BASE}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({}),
-        })
+        if (!_refreshPromise) {
+          _refreshPromise = fetchWithTimeout(`${API_BASE}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({}),
+          }).finally(() => { _refreshPromise = null })
+        }
+        const rr = await _refreshPromise
         if (rr.ok) {
           if (needsCsrf) {
             const retryCsrf = await ensureCsrfToken(true)

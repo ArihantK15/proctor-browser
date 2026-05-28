@@ -3,12 +3,10 @@
 Extracted from app/dependencies.py to reduce the god module.
 """
 
-import asyncio
 import logging
 import math
 from datetime import datetime, timezone
 
-from ..logger import get_logger
 from ..utils import fmt_ist, now_ist
 from ..constants import (
     _SATURATION_K, _BASELINE_DURATION_MINS,

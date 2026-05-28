@@ -243,20 +243,15 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
                 "ai_confidence": r.get("confidence", "medium"),
             })
         if updates:
-            try:
-                await _atable("answers").upsert(updates).execute()
-            except Exception as e:
-                _grading_log.warning("[grade-suggest] bulk upsert failed: %s", e)
-                # Fall back to individual updates
-                for r in (r for r in results if "error" not in r):
-                    try:
-                        await _atable("answers").update({
-                            "ai_score": r.get("score"),
-                            "ai_feedback": r.get("feedback", ""),
-                            "ai_confidence": r.get("confidence", "medium"),
-                        }).eq("id", r["answer_id"]).eq("teacher_id", tid).execute()
-                    except Exception as e2:
-                        _grading_log.warning("[grade-suggest] fallback update failed for %s: %s", r["answer_id"], e2)
+            for r in updates:
+                try:
+                    await _atable("answers").update({
+                        "ai_score": r.get("ai_score"),
+                        "ai_feedback": r.get("ai_feedback", ""),
+                        "ai_confidence": r.get("ai_confidence", "medium"),
+                    }).eq("id", r["id"]).eq("teacher_id", tid).execute()
+                except Exception as e:
+                    _grading_log.warning("[grade-suggest] update failed for %s: %s", r["id"], e)
 
     return {"graded": len(results), "results": results}
 

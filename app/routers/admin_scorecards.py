@@ -2,7 +2,6 @@
 
 import asyncio
 import io
-import csv
 import json
 import logging
 import os
@@ -375,7 +374,7 @@ async def export_pdf(session_id: str, request: Request):
 
         try:
             pdf_questions = await _load_questions(teacher_id=tid, exam_id=exam.get("exam_id"))
-            q_correct = {q["id"]: q["correct"] for q in pdf_questions}
+            q_correct = {str(q["id"]): q["correct"] for q in pdf_questions}
             q_texts = {q["id"]: q.get("question", "")[:50] for q in pdf_questions}
         except Exception as e:
             logger.warning("Failed to load questions for PDF export: %s", e)

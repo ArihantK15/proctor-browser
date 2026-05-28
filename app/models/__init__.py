@@ -21,6 +21,8 @@ from .invites import InviteStatus, InviteRecipient, SendInvitesBody
 from .groups import CreateGroupIn, RenameGroupIn, GroupMembersIn, ExamGroupAssignIn
 from .org import OrgRole, OrgInviteStatus, OrgInviteIn, OrgOut, OrgMemberOut, OrgInviteOut, OrgBillingOut
 from .billing import SubscriptionStatus, PlanTier, SubscriptionOut
+from .api_key import ApiKeyCreate, ApiKeyOut, ApiKeyCreated
+from .lti import LtiRegistrationIn, LtiRegistrationOut
 from .demo_request import *
 
 __all__ = [
@@ -44,4 +46,8 @@ __all__ = [
     "OrgInviteOut", "OrgBillingOut",
     # billing
     "SubscriptionStatus", "PlanTier", "SubscriptionOut",
+    # api_key
+    "ApiKeyCreate", "ApiKeyOut", "ApiKeyCreated",
+    # lti
+    "LtiRegistrationIn", "LtiRegistrationOut",
 ]

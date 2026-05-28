@@ -95,6 +95,7 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
         "starts_at": None, "ends_at": None,
         "shuffle_questions": True, "shuffle_options": True,
         "proctoring_sensitivity": "balanced",
+        "phone_camera_enabled": False,
     }
 
 
@@ -112,6 +113,8 @@ async def get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
 async def set_access_code(code: str, teacher_id: str = None, exam_id: str = None):
     if teacher_id and exam_id:
         await _atable("exam_config").update({"access_code": code}).eq("teacher_id", teacher_id).eq("exam_id", exam_id).execute()
+    elif teacher_id and exam_id is not None:
+        await _atable("exam_config").upsert({"teacher_id": teacher_id, "exam_id": exam_id, "access_code": code}).execute()
     elif teacher_id:
         await _atable("exam_config").upsert({"teacher_id": teacher_id, "access_code": code}).execute()
     else:

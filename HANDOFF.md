@@ -1,8 +1,32 @@
-# Procta — Handoff Notes (2026-05-21)
+# Procta — Handoff Notes (2026-05-28)
 
 A snapshot for a future Claude session (or future-self) to pick up
-without re-deriving context. Last updated mid-conversation, while a
-1000-VU load test is running.
+without re-deriving context.
+
+> **For a fuller overview** (history, infra costs, features, perf,
+> roadmap) see `docs/PROJECT_OVERVIEW.md`. The strategic-audit lens
+> is `docs/STRATEGIC_AUDIT_2026-05-27.md`. This file is the
+> session-to-session continuity ledger.
+
+## Latest state (2026-05-28)
+
+- **Production**: app.procta.net + procta.net deployed on Hostinger
+  KVM 4 (4 vCPU / 16 GB / 200 GB NVMe). Previous host was a 2 GB
+  DigitalOcean Droplet (April only).
+- **CI**: green across Tests / CodeQL / Deploy API on the latest
+  commit at the time of this note.
+- **Tests**: 614 backend pytest ✅ + 33 skipped.
+- **CodeQL alerts**: 0 open.
+- **Live-frame cache cap**: 6500 concurrent sessions (3500-student
+  headroom + 85 % free space).
+- **Major work this week**: cam-pop-in on violation, parallel LLM
+  grading (~25 s → ~3 s), room-cam JPEG recompress, Razorpay webhook
+  idempotency, bulk-import roll-format classifier + dry-run,
+  /migrate-from-mettl SEO page, real demo video, org logo on PDFs.
+- **Deferred** (with reason in `docs/PROJECT_OVERVIEW.md` §9):
+  auth.py monolith split, full React migration of dashboard-app.js,
+  domains/-vs-routers/ consolidation, WebRTC live audio, Redis
+  Cluster, Aadhaar e-KYC, WhatsApp Business API, Git LFS.
 
 ---
 

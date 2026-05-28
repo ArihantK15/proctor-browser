@@ -147,8 +147,8 @@ async def subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dic
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.warning("[event_bus] subscribe error for %s, reconnecting in %.1fs: %s",
-                           channel, reconnect_delay, e)
+            _event_log.warning("[event_bus] subscribe error for %s, reconnecting in %.1fs: %s",
+                               channel, reconnect_delay, e)
             await asyncio.sleep(reconnect_delay)
             reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
         finally:

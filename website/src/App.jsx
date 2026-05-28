@@ -17,7 +17,7 @@ const BlogAiVsTraditional = lazy(() => import('./pages/BlogAiVsTraditional'))
 const BlogCheatingPrevention = lazy(() => import('./pages/BlogCheatingPrevention'))
 const BlogDPDPCompliance = lazy(() => import('./pages/BlogDPDPCompliance'))
 const Download = lazy(() => import('./pages/Download'))
-const Register = lazy(() => import('./pages/Signup'))
+const Register = lazy(() => import('./pages/Register'))
 const MigrateFromMettl = lazy(() => import('./pages/MigrateFromMettl'))
 
 function RouteFallback() {

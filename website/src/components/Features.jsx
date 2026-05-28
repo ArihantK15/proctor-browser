@@ -1,6 +1,8 @@
 import {
   Lock, MonitorOff, Save, Eye, ScanFace, Box, Volume2,
-  BarChart3, FileText, Activity, Sliders, Download, Users
+  BarChart3, FileText, Activity, Sliders, Download, Users,
+  Smartphone, MessageSquare, GraduationCap, ReceiptIndianRupee,
+  BadgeCheck, ServerCog, UploadCloud, Layers3
 } from 'lucide-react'
 
 const groups = [
@@ -9,7 +11,8 @@ const groups = [
     items: [
       { icon: Lock, name: 'Kiosk Mode', desc: 'Full-screen lockdown prevents alt-tab, screenshots, and app switching' },
       { icon: MonitorOff, name: 'Anti-Tab Switching', desc: 'Detects and logs every attempt to leave the exam window' },
-      { icon: Save, name: 'Auto-Save & Submit', desc: 'Continuous 60-second auto-save with automatic submission at time expiry' },
+      { icon: Save, name: '5-Second Auto-Save', desc: 'Frequent local save plus server sync protects answers during network drops' },
+      { icon: ServerCog, name: 'Process Integrity', desc: 'Detects screen recorders, remote desktop tools, VMs, and suspicious environments' },
     ]
   },
   {
@@ -19,6 +22,7 @@ const groups = [
       { icon: Eye, name: 'Gaze Tracking', desc: 'Detects prolonged off-screen gaze patterns indicating external reference' },
       { icon: Box, name: 'Object Detection', desc: 'YOLOv8n identifies phones, books, and unauthorized items in real-time' },
       { icon: Volume2, name: 'Audio Analysis', desc: 'RMS-based voice detection flags conversations and dictation' },
+      { icon: Smartphone, name: 'Phone Room Camera', desc: 'QR pairing turns a student phone into a second room-scan camera' },
     ]
   },
   {
@@ -26,7 +30,8 @@ const groups = [
     items: [
       { icon: Activity, name: 'Violation Timeline', desc: 'Timestamped log of every detected anomaly during the exam session' },
       { icon: BarChart3, name: 'Risk Scoring', desc: 'Log-saturating 0-100 score normalized by exam duration' },
-      { icon: FileText, name: 'PDF Reports', desc: 'Downloadable reports with violation summaries and risk breakdowns' },
+      { icon: FileText, name: 'Evidence Packets', desc: 'Downloadable PDFs with answers, risk, screenshots, and reviewer notes' },
+      { icon: GraduationCap, name: 'AI Short-Answer Grading', desc: 'Parallel LLM grading suggestions with teacher confirmation before publishing' },
     ]
   },
   {
@@ -34,7 +39,18 @@ const groups = [
     items: [
       { icon: Sliders, name: 'Live Dashboard', desc: 'Real-time monitoring of all active exam sessions in one view' },
       { icon: Download, name: 'CSV Export', desc: 'Export results, scores, and violation data for institutional records' },
-      { icon: Users, name: 'Student Management', desc: 'Pre-registration, scheduling, and access code configuration' },
+      { icon: Users, name: 'Student Management', desc: 'Pre-registration, scheduling, groups, and access code configuration' },
+      { icon: UploadCloud, name: 'Bulk CSV Import', desc: 'Dry-run imports with roll-number format detection for CBSE/JEE/NTA-style rosters' },
+      { icon: MessageSquare, name: 'Student Chat', desc: 'Broadcast or reply to students during the exam without leaving the dashboard' },
+    ]
+  },
+  {
+    label: 'Institution Readiness',
+    items: [
+      { icon: Layers3, name: 'LTI 1.3 + Classroom', desc: 'Canvas/Moodle launch support and Google Classroom sync paths' },
+      { icon: ReceiptIndianRupee, name: 'Razorpay Billing', desc: 'INR plans, UPI Autopay subscription path, quotas, and overage logic' },
+      { icon: BadgeCheck, name: 'Issues & Appeals', desc: 'Teacher issue reports and human-in-the-loop review for fairness' },
+      { icon: ServerCog, name: 'Scale Headroom', desc: '1,500 clean VU run, 3,500-student architecture target, 6,500 live-frame cache cap' },
     ]
   },
 ]

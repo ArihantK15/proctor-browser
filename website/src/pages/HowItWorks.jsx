@@ -1,29 +1,39 @@
 import { Helmet } from 'react-helmet-async'
 import { Link } from 'wouter'
-import { UserPlus, Monitor, ShieldCheck, FileText } from 'lucide-react'
+import { UserPlus, Monitor, ShieldCheck, FileText, Smartphone, MessageSquare } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 
 const steps = [
   {
     icon: UserPlus,
-    title: '1. Teacher Creates Exam & Invites Students',
-    body: 'Teachers log into the Procta dashboard, create an exam with duration, pass percentage, and optional access code. Questions can be MCQs (single/multi-select) or true/false. Students are registered individually or via bulk CSV upload — each receives an email invite with a unique link. The system supports optional exam scheduling with automatic 24-hour and 1-hour email reminders.'
+    title: '1. Teacher sets up the exam',
+    body: 'Create the exam, set duration and access rules, add MCQ or short-answer questions, import students by CSV, assign groups, duplicate exams across batches, and send invite/reminder emails. Org admins can manage members, billing, security, and support without touching teacher-only exam tools.'
   },
   {
     icon: Monitor,
-    title: '2. Student Launches the Proctored Browser',
-    body: 'Students click the invite link, enter their roll number, and download the Procta browser — a custom Electron app that enforces full-screen kiosk mode. The app runs a calibration step (gaze tracking, face detection, and object recognition models load locally). The student\'s webcam activates for identity verification: a selfie and ID card photo are sent to the teacher for manual approval before the exam begins.'
+    title: '2. Student launches the secure browser',
+    body: 'Students install the Electron browser for Windows, macOS, or Linux, enter the exam, complete camera and face calibration, and continue inside a locked-down runtime that watches fullscreen, copy/paste, app switching, remote-desktop tools, VMs, and crashes. Answers autosave locally and sync to the server.'
+  },
+  {
+    icon: Smartphone,
+    title: '3. Optional phone camera pairs by QR',
+    body: 'For higher-stakes exams, the student scans a QR code and uses their phone as a room camera. Teachers get desk and side-device context without forcing the laptop camera to do everything.'
   },
   {
     icon: ShieldCheck,
-    title: '3. AI Monitoring During the Exam',
-    body: 'Throughout the exam, all AI processing runs on the student\'s device — no video is streamed to the cloud. The system tracks gaze direction (flags prolonged off-screen looks), face presence (detects absence or multiple faces), objects (phones, books, earphones via YOLOv8n), and audio (sustained speech patterns). Violations are logged with severity and confidence scores. The teacher sees a live risk dashboard with real-time updates via SSE.'
+    title: '4. AI monitoring runs during the exam',
+    body: 'Face, gaze, head pose, eye state, object detection, and voice-activity checks run on the student machine. The server receives violation events, confidence, risk score, and low-rate evidence snapshots, while the teacher sees a live dashboard with camera pop-in on flagged sessions.'
+  },
+  {
+    icon: MessageSquare,
+    title: '5. Teachers intervene when needed',
+    body: 'Teachers can broadcast instructions, chat with individual students, inspect the timeline, force-submit stale sessions with re-authentication, and file issue reports from the dashboard. AI flags inform a human decision instead of automatically punishing a student.'
   },
   {
     icon: FileText,
-    title: '4. Automated Scoring & Reporting',
-    body: 'When the timer expires or the student submits, answers are graded instantly. Scorecards with question-wise results are generated as PDFs and emailed to each student. Teachers can export CSV/Excel reports with violation counts, risk scores, and time analytics. A forensics timeline provides timestamped evidence for every flagged event, including screenshot attachments for high-severity violations.'
+    title: '6. Results, grading, and evidence are ready',
+    body: 'MCQs score immediately. Short-answer AI suggestions are generated in parallel and confirmed by teachers. The institution gets CSV exports, branded PDFs, violation timelines, risk explanations, screenshots, scorecards, and appeal-ready evidence packets.'
   },
 ]
 
@@ -31,8 +41,8 @@ export default function HowItWorksPage() {
   return (
     <div className="min-h-screen bg-navy-950">
       <Helmet>
-        <title>How AI Proctoring Works — 4-Step Exam Flow | Procta</title>
-        <meta name="description" content="See how Procta's AI proctoring works in 4 steps: exam creation, kiosk-mode browser launch, real-time AI monitoring, and automated scoring. On-device processing ensures privacy." />
+        <title>How Procta Works — Complete Secure Exam Workflow | Procta</title>
+        <meta name="description" content="See Procta's secure exam workflow: exam setup, Electron browser, phone camera room scan, on-device AI proctoring, live teacher intervention, AI grading, scorecards, and evidence packets." />
         <link rel="canonical" href="https://procta.net/how-it-works" />
         <meta property="og:title" content="How AI Proctoring Works — 4-Step Exam Flow | Procta" />
         <meta property="og:description" content="Learn how Procta's AI proctoring works: exam creation, secure browser launch, real-time AI monitoring, and automated scoring." />
@@ -48,7 +58,7 @@ export default function HowItWorksPage() {
               Works
             </h1>
             <p className="mt-6 text-lg leading-relaxed text-slate-400 md:text-xl">
-              From exam creation to automated scorecards — four steps that take the stress out of online exams.
+              From roster import to evidence packets - the full exam-day workflow your faculty, IT team, and students need.
             </p>
           </div>
 

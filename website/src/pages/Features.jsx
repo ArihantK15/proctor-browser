@@ -7,6 +7,17 @@ import Footer from '../components/Footer'
 
 const featureGroups = [
   {
+    title: 'Exam Setup & Operations',
+    desc: 'The administrative layer that makes a real college exam run smoothly before students ever open the browser.',
+    features: [
+      'Create exams with windows, durations, pass marks, access codes, and optional calculator/scratchpad rules',
+      'Bulk CSV roster import with dry-run validation and roll-number format detection',
+      'Student groups, exam cloning, scheduling, reminders, and controlled invite links',
+      'Role-based dashboards for teachers, org admins, and superadmins',
+      'Issue reporting flow for teachers to flag bugs, feature requests, or session problems',
+    ]
+  },
+  {
     title: 'AI-Powered Proctoring',
     desc: 'Real-time detection that runs entirely on the student\'s device — no cloud latency, no privacy exposure.',
     features: [
@@ -15,6 +26,8 @@ const featureGroups = [
       'Object detection (YOLOv8n) identifies phones, books, earphones, and other unauthorized items',
       'Audio analysis flags sustained speech patterns suggesting dictation or collaboration',
       'VM and remote desktop detection prevents proxy-test-taker attacks',
+      'Phone-camera room monitoring via QR pairing for desk and side-device visibility',
+      'Violation-triggered camera pop-in lets teachers inspect a flagged session quickly',
     ]
   },
   {
@@ -24,8 +37,10 @@ const featureGroups = [
       'Instant MCQ/scoring with support for single-choice, multi-choice, and true/false',
       'Automated scorecard PDFs emailed to each student with question-wise breakdown',
       'AI-generated personalized insight on every scorecard (optional, uses LLM)',
+      'Parallel short-answer grading suggestions reduce large review batches from minutes to seconds',
       'CSV/Excel export with risk scores, violation counts, and time analytics',
       'Configurable pass thresholds and percentage-based grading',
+      'Teacher confirmation before AI-suggested grades become final',
     ]
   },
   {
@@ -35,6 +50,7 @@ const featureGroups = [
       'Forces full-screen mode and detects alt-tab, window-switch, and screenshot attempts',
       'Blocks right-click, copy-paste, and keyboard shortcuts during the exam',
       'Continuous 60-second auto-save prevents data loss on crash',
+      '5-second answer save path with offline resilience for unstable student networks',
       'Automatic submission when the timer expires — no grace period loopholes',
       'Offline resilience: answers saved locally if connectivity drops, synced on reconnect',
     ]
@@ -59,6 +75,8 @@ const featureGroups = [
       'Live violation timeline showing every detected anomaly as it happens',
       'AI triage: one-line LLM summary of each session\'s risk posture',
       'Configurable alert thresholds and push notifications',
+      'Teacher-student chat, broadcast announcements, force-submit, and stale-session controls',
+      '3,500-student architecture target with 6,500 live-frame cache headroom',
     ]
   },
   {
@@ -70,6 +88,8 @@ const featureGroups = [
       'Confidence scores for every detection to minimize false positives',
       'Exportable PDF reports with violation summaries and visual evidence',
       'Complete session replay with answers, timing, and proctor events',
+      'Appeal-ready language that separates detector confidence from teacher decision',
+      'Request IDs and audit trails for support and incident reconstruction',
     ]
   },
   {
@@ -83,6 +103,17 @@ const featureGroups = [
       'Student groups for managing access to specific exams',
     ]
   },
+  {
+    title: 'Integrations, Billing & Deployment',
+    desc: 'Everything an institution asks about after the demo: LMS fit, payments, support, and operational reliability.',
+    features: [
+      'LTI 1.3 launch path for Canvas and Moodle',
+      'Google Classroom course sync paths',
+      'Razorpay Checkout and UPI Autopay subscription workflow',
+      'INR + GST-ready plan packaging with quota and overage enforcement',
+      'Docker-based deployment, Caddy TLS, Redis/RQ workers, and CI security gates',
+    ]
+  },
 ]
 
 export default function FeaturesPage() {
@@ -90,7 +121,7 @@ export default function FeaturesPage() {
     <div className="min-h-screen bg-navy-950">
       <Helmet>
         <title>AI Proctoring Features — Gaze Tracking, Object Detection &amp; More | Procta</title>
-        <meta name="description" content="Explore Procta's complete AI proctoring feature set: gaze tracking, face detection, object recognition, kiosk-mode lockdown, automated grading, live dashboard, and forensics audit trail." />
+        <meta name="description" content="Explore Procta's complete exam platform: secure Electron browser, on-device AI proctoring, phone camera room scan, live dashboard, AI grading, evidence packets, LTI, Razorpay billing, and 3,500-student architecture target." />
         <link rel="canonical" href="https://procta.net/features" />
         <meta property="og:title" content="AI Proctoring Features — Gaze Tracking, Object Detection & More | Procta" />
         <meta property="og:description" content="Complete AI proctoring feature set: gaze tracking, face detection, object recognition, kiosk-mode lockdown, automated grading, live monitoring, and forensics." />
@@ -105,8 +136,10 @@ export default function FeaturesPage() {
               <span className="bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent">Secure Online Exams</span>
             </h1>
             <p className="mt-6 text-lg leading-relaxed text-slate-400 md:text-xl">
-              A complete exam integrity platform — not just a webcam plugin. From AI proctoring
-              to automated scorecards, Procta covers every phase of the exam lifecycle.
+              A complete exam integrity platform — not just a webcam plugin. From
+              roster import and secure browser launch to phone-cam monitoring,
+              AI grading, evidence packets, LMS integration, and billing,
+              Procta covers every phase of the exam lifecycle.
             </p>
           </div>
 

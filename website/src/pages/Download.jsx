@@ -16,13 +16,14 @@ export default function Download() {
     { label: 'macOS (Apple Silicon)', key: 'mac_arm', icon: '💻' },
     { label: 'macOS (Intel)', key: 'mac_x64', icon: '💻' },
     { label: 'Windows', key: 'win', icon: '🪟' },
+    { label: 'Linux (AppImage)', key: 'linux', icon: '🐧' },
   ]
 
   return (
     <div className="min-h-screen bg-navy-950 flex items-center justify-center p-6">
       <Helmet>
         <title>Download Procta — Remote exams. Real results.</title>
-        <meta name="description" content="Download the AI-proctored exam desktop app for Windows and macOS." />
+        <meta name="description" content="Download the AI-proctored exam desktop app for Windows, macOS, and Linux." />
         <link rel="canonical" href="https://app.procta.net/download" />
       </Helmet>
       <div style={{ maxWidth: 520, width: '100%', textAlign: 'center' }}>

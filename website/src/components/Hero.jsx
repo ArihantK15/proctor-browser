@@ -18,7 +18,7 @@ export default function Hero() {
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/5 px-4 py-1.5 accent-glow">
             <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
             <span className="label-mono text-accent-light" style={{ fontSize: '11px' }}>
-              Built for institution-grade exam operations
+              Demo-ready for colleges, coaching institutes, and exam cells
             </span>
           </div>
 
@@ -37,20 +37,20 @@ export default function Hero() {
               "automated." word picks up the accent gradient so the eye
               lands on the differentiator instead of generic "Secure". */}
           <h1 className="font-display text-4xl font-bold leading-[1.1] tracking-tight text-white md:text-6xl lg:text-7xl">
-            Cheating reduced.<br />
-            Scoring{' '}
+            Run remote exams.<br />
+            Proctor with{' '}
             <span className="relative">
               <span className="relative z-10 bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent">
-                automated.
+                evidence.
               </span>
             </span><br />
-            Your IT team untouched.
+            Publish results faster.
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400 md:text-xl">
-            Procta is a proctored exam platform built for Indian higher education —
-            AI monitoring, automated scorecards, and a student experience calm enough
-            for 90-minute exams.
+            Procta is the full exam workflow: secure Electron browser, on-device
+            AI proctoring, phone-camera room scan, live teacher dashboard,
+            AI grading suggestions, scorecards, LTI, and Razorpay billing.
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
@@ -71,9 +71,11 @@ export default function Hero() {
           </div>
 
           <div className="mt-14 flex items-center justify-center gap-8 text-sm text-slate-500">
-            <span>Evidence-first reviews</span>
+            <span>1,500 VU clean load test</span>
             <span className="hidden h-4 w-px bg-white/10 sm:block" />
-            <span className="hidden sm:block">No credit card required</span>
+            <span className="hidden sm:block">3,500-student architecture target</span>
+            <span className="hidden h-4 w-px bg-white/10 md:block" />
+            <span className="hidden md:block">617 backend tests</span>
           </div>
         </div>
 
@@ -93,10 +95,10 @@ export default function Hero() {
             <div className="p-6 md:p-8">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 {[
-                  { label: 'Active Students', value: '47', color: 'text-emerald' },
-                  { label: 'Avg Risk Score', value: '12', color: 'text-accent-light' },
-                  { label: 'Violations', value: '3', color: 'text-amber' },
-                  { label: 'Completed', value: '128', color: 'text-slate-300' },
+                  { label: 'Active Students', value: '1.5k', color: 'text-emerald' },
+                  { label: 'Live Cache Cap', value: '6.5k', color: 'text-accent-light' },
+                  { label: 'AI Grades', value: '~3s', color: 'text-amber' },
+                  { label: 'Tests Passing', value: '617', color: 'text-slate-300' },
                 ].map(s => (
                   <div key={s.label} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 card-topline">
                     <div className={`font-display text-2xl font-bold ${s.color}`}>{s.value}</div>

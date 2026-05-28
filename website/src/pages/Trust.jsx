@@ -9,10 +9,10 @@ const sections = [
     items: [
       'TLS for all production traffic',
       'Supabase/Postgres encryption at rest',
-      'JWT authentication with CSRF protection for authenticated mutations',
+      'HttpOnly cookie authentication with server-side CSRF tokens for browser mutations',
       'Rate limits on auth, exam, admin, and API routes',
-      'TOTP 2FA, email verification, OAuth sign-in, and suspicious-login alerts',
-      'Structured JSON logs and Sentry-ready error reporting',
+      'Email-OTP 2FA, email verification, suspicious-login alerts, and re-auth gates for destructive actions',
+      'Structured JSON logs, request IDs, audit events, and CI security scanning',
     ],
   },
   {
@@ -23,6 +23,7 @@ const sections = [
       'Student account privacy export and deletion flows are available for Procta-managed accounts',
       'LTI learners are identity-managed by the LMS; LMS privacy workflows remain the source of truth',
       'Institutions control exam data retention requirements',
+      'Risk scores and AI grading are review aids; teachers make final decisions',
     ],
   },
   {
@@ -33,17 +34,18 @@ const sections = [
       'Background jobs for scorecard and email workflows',
       'Deploy runbook with migration, rollback, smoke-test, and backup steps',
       'CI checks for tests, builds, dependency audits, secret scanning, SAST, and filesystem CVEs',
+      '1,500-student clean load test and 3,500-student architecture target documented for capacity planning',
     ],
   },
   {
     title: 'Subprocessors',
     items: [
-      'Supabase for database, auth, and storage infrastructure',
-      'DigitalOcean for application hosting',
+      'Postgres/Supabase-compatible database infrastructure',
+      'Hostinger KVM for application hosting',
       'Cloudflare Turnstile for bot protection when configured',
       'Razorpay for subscriptions and payment processing',
       'Email provider for transactional delivery',
-      'LMS platforms for LTI-managed learner identity and grade passback',
+      'LMS platforms for LTI-managed learner identity and launch flows',
     ],
   },
 ]
@@ -76,9 +78,9 @@ export default function Trust() {
         </div>
 
         <div className="mt-12 grid gap-4 md:grid-cols-3">
-          <Proof label="Production Controls" value="CI + Docker health" />
-          <Proof label="Authentication" value="2FA + audit logs" />
-          <Proof label="Privacy Boundary" value="Procta + LMS scoped" />
+          <Proof label="Production Controls" value="CI + Docker + health checks" />
+          <Proof label="Authentication" value="HttpOnly + CSRF + 2FA" />
+          <Proof label="Scale Planning" value="3,500-student target" />
         </div>
 
         <div className="mt-12 grid gap-6 md:grid-cols-2">

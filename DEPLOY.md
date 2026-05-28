@@ -381,12 +381,13 @@ The teacher live-view caches one JPEG per active student in Redis
 Two env vars govern the cap:
 
 ```
-LIVEFRAME_MAX_SESSIONS=5000        # default, override per box
+LIVEFRAME_MAX_SESSIONS=6500        # default, override per box
 LIVEFRAME_MAX_FRAME_BYTES=1048576  # 1 MB per-frame upper bound
 ```
 
-At 5000 sessions × 60 KB/frame ≈ **300 MB** Redis memory. Comfortable
-inside a 1 GB Redis instance.
+At 6500 sessions × 60 KB/frame ≈ **390 MB** Redis memory — ~85 %
+headroom over the 3500-student target. Comfortable inside a 1 GB
+Redis instance.
 
 Observability: `GET /api/v1/admin/live-stats` (admin-only) returns
 `cached_sessions`, `cap`, `utilisation_pct`, `redis_used_bytes`,

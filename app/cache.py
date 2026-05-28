@@ -14,15 +14,15 @@ import redis
 _log = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
-# 3500-student coaching-institute scale: default lifted from 50 -> 5000
-# concurrent sessions in the live-frame cache. JPEGs are recompressed
-# server-side to quality=60 (sse._recompress_jpeg), so a single frame is
-# ~30-80 KB. 5000 sessions × 60 KB ≈ 300 MB Redis memory — comfortably
-# inside the 1 GB default Redis maxmemory budget. Override via env when
-# the box has more memory; consider moving to Redis Cluster + key
-# sharding once this rises past ~10k concurrent sessions or live-frame
-# cache exceeds ~500 MB.
-_LIVEFRAME_MAX = int(os.environ.get("LIVEFRAME_MAX_SESSIONS", "5000"))
+# 3500-student coaching-institute scale + ~85% headroom: default
+# lifted from 50 -> 6500 concurrent sessions in the live-frame cache.
+# JPEGs are recompressed server-side to quality=60
+# (sse._recompress_jpeg), so a single frame is ~30-80 KB.
+# 6500 sessions × 60 KB ≈ 390 MB Redis memory — comfortable inside a
+# 1 GB Redis maxmemory budget. Override via env when the box has more
+# memory; consider moving to Redis Cluster + key sharding once this
+# rises past ~10k concurrent sessions or the cache exceeds ~500 MB.
+_LIVEFRAME_MAX = int(os.environ.get("LIVEFRAME_MAX_SESSIONS", "6500"))
 # Per-frame upper bound — silently drops oversized frames instead of
 # letting one misbehaving client thrash the LRU. 1 MB is generous given
 # the recompress target; legitimate frames are 30-80 KB.

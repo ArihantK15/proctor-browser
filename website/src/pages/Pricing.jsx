@@ -269,6 +269,60 @@ export default function Pricing() {
         </div>
       </section>
 
+      {/* How Procta compares to Mettl + Talview — sales-objection killer for
+          coaching-institute IT heads who are doing side-by-side evaluations. */}
+      <section className="py-16">
+        <div className="mx-auto max-w-5xl px-6">
+          <h2 className="font-display text-2xl font-bold text-white text-center md:text-3xl">
+            How we compare
+          </h2>
+          <p className="mt-3 text-center text-slate-400 max-w-2xl mx-auto">
+            We are a fraction of the price of incumbent Indian proctoring vendors.
+            Same AI stack — face, gaze, object, room-camera — at a price coaching
+            institutes can actually afford to ship every month.
+          </p>
+          <div className="table-scroll mt-10 rounded-2xl border border-white/[0.06] overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-white/[0.02]">
+                <tr className="border-b border-white/[0.06]">
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-400">Capability</th>
+                  <th className="px-6 py-4 text-center text-sm font-semibold text-accent-light">Procta</th>
+                  <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">Mercer Mettl</th>
+                  <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">Talview</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['Per-student proctored exam', '₹80', '₹500–1,000', '₹400–800'],
+                  ['Phone-cam room monitoring', '✓ included', 'Premium add-on', 'Premium add-on'],
+                  ['On-device ML (no full-video upload)', '✓', '—', '—'],
+                  ['LLM-graded short answers', '✓ (Growth+)', 'Add-on', '—'],
+                  ['Live teacher webcam view', '✓', '✓', '✓'],
+                  ['In-exam chat with student', '✓', '—', '—'],
+                  ['INR + GST invoicing', '✓ (built-in)', 'Enterprise contracts', 'Enterprise contracts'],
+                  ['UPI Autopay subscription', '✓', '—', '—'],
+                  ['Data residency: Mumbai-first', '✓', 'Multi-region', 'Multi-region'],
+                  ['Self-hosted option', '✓ (Pro / Enterprise)', 'Enterprise only', '—'],
+                  ['Free trial without sales call', '✓ 14-day', '—', '—'],
+                  ['Deploy in 10 minutes', '✓', '2–4 wk onboarding', '2–4 wk onboarding'],
+                ].map((row, i) => (
+                  <tr key={i} className={`border-b border-white/[0.04] ${i % 2 === 0 ? 'bg-white/[0.01]' : ''}`}>
+                    <td className="px-6 py-3.5 text-slate-300">{row[0]}</td>
+                    <td className="px-6 py-3.5 text-center text-accent-light font-medium">{row[1]}</td>
+                    <td className="px-6 py-3.5 text-center text-slate-400">{row[2]}</td>
+                    <td className="px-6 py-3.5 text-center text-slate-400">{row[3]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-slate-500 text-center max-w-2xl mx-auto">
+            Competitor prices are 2025–2026 reported ranges from mid-size Indian institutes; actual
+            contracts vary. <Link to="/migrate-from-mettl" className="text-accent-light hover:text-accent">Detailed Mettl comparison →</Link>
+          </p>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section className="py-16 md:py-20">
         <div className="mx-auto max-w-3xl px-6">

@@ -18,6 +18,7 @@ const BlogCheatingPrevention = lazy(() => import('./pages/BlogCheatingPrevention
 const BlogDPDPCompliance = lazy(() => import('./pages/BlogDPDPCompliance'))
 const Download = lazy(() => import('./pages/Download'))
 const Register = lazy(() => import('./pages/Signup'))
+const MigrateFromMettl = lazy(() => import('./pages/MigrateFromMettl'))
 
 function RouteFallback() {
   return (
@@ -63,6 +64,8 @@ export default function App() {
           <Route path="/blog/dpdp-act-compliance-online-proctoring-indian-universities"><LazyRoute Component={BlogDPDPCompliance} /></Route>
           <Route path="/download"><LazyRoute Component={Download} /></Route>
           <Route path="/register"><LazyRoute Component={Register} /></Route>
+          {/* SEO landing page targeted at "Mettl alternative" search traffic. */}
+          <Route path="/migrate-from-mettl"><LazyRoute Component={MigrateFromMettl} /></Route>
         </Switch>
       </div>
     </>

@@ -312,6 +312,15 @@ async def razorpay_webhook(request: Request):
 
     Expected events: subscription.activated, subscription.completed,
     subscription.paused, payment.failed
+
+    Idempotency: Razorpay retries failed deliveries with exponential
+    backoff for up to 24 hours, and the same `event.id` is reused. Without
+    dedup we'd activate the same plan twice or fire duplicate
+    side effects. We cache event_id -> processed for 24 h after a
+    successful run and short-circuit any later retry to a 200 OK so
+    Razorpay stops retrying. Dedup runs AFTER signature verification —
+    otherwise an unauthenticated caller could enumerate which event-ids
+    we've ever seen.
     """
     raw_body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature", "")
@@ -326,6 +335,46 @@ async def razorpay_webhook(request: Request):
 
     event_type = event.get("event", "")
     payload = event.get("payload", {})
+
+    # Idempotency dedup — keyed on event.id from Razorpay. Missing id
+    # is treated as "process once" with a warning; that's defensive
+    # against malformed deliveries in tests/sandbox.
+    event_id = str(event.get("id") or "").strip()
+    _idem_key = f"webhook:razorpay:{event_id}" if event_id else None
+    if _idem_key:
+        try:
+            prior = _cache.get(_idem_key) if _cache else None
+            if prior:
+                logger.info(
+                    "Razorpay webhook %s already processed for event=%s — short-circuiting to 200",
+                    safe(event_type), safe(event_id),
+                )
+                return {"status": "duplicate", "event_id": event_id}
+        except Exception:
+            # Cache miss/error is safe — we'll process and re-cache.
+            logger.debug("Webhook idempotency cache read failed", exc_info=True)
+    else:
+        logger.warning(
+            "Razorpay webhook missing event.id — dedup skipped (event_type=%s)",
+            safe(event_type),
+        )
+
+    def _mark_done(status: str) -> None:
+        """Persist processed-state for the current event so any Razorpay
+        retry in the next 24 h returns the cached duplicate-200 instead
+        of re-running this handler. No-op when event_id was missing.
+        """
+        if not _idem_key:
+            return
+        try:
+            if _cache:
+                _cache.set(
+                    _idem_key,
+                    {"processed": True, "status": status, "type": event_type},
+                    ttl=86400,  # match Razorpay's max retry horizon
+                )
+        except Exception:
+            logger.debug("Webhook idempotency cache write failed", exc_info=True)
 
     # ── Standard Checkout (one-off Order + Payment) safety-net path ──
     # /checkout/verify already activates the plan synchronously when the
@@ -360,6 +409,7 @@ async def razorpay_webhook(request: Request):
         if not notes_org_id or notes_plan_id not in PLANS:
             logger.info("Webhook %s ignored — missing org_id/plan_id in notes (event_id=%s)",
                         safe(event_type), safe(event.get("id", "")))
+            _mark_done("ignored_missing_notes")
             return {"status": "ignored"}
         try:
             await _activate_org_plan(notes_org_id, notes_plan_id, order_id_for_log)
@@ -368,7 +418,9 @@ async def razorpay_webhook(request: Request):
         except Exception as e:
             logger.error("Webhook %s activation failed for org=%s order=%s: %s",
                          safe(event_type), safe(notes_org_id), safe(order_id_for_log), safe(e))
+            # NB: NOT mark_done — return 500 so Razorpay retries.
             raise HTTPException(status_code=500, detail="Webhook reconciliation failed — will retry")
+        _mark_done("ok")
         return {"status": "ok"}
 
     # ── Legacy subscription-based path (kept for back-compat with any
@@ -377,12 +429,14 @@ async def razorpay_webhook(request: Request):
 
     sub_id = sub_data.get("id")
     if not sub_id:
+        _mark_done("ignored_no_sub_id")
         return {"status": "ignored"}
 
     # Find the subscription in our DB
     db_sub = await _atable("subscriptions").select("id,org_id").eq("razorpay_subscription_id", sub_id).limit(1).execute()
     if not db_sub.data:
         logger.warning("Unknown Razorpay subscription: %s", safe(sub_id))
+        _mark_done("ignored_unknown_sub")
         return {"status": "ignored"}
     org_id = db_sub.data[0]["org_id"]
 
@@ -446,9 +500,10 @@ async def razorpay_webhook(request: Request):
         raise
     except Exception as e:
         logger.error("Webhook DB write failed for event=%s org=%s: %s", safe(event_type), safe(org_id), safe(e))
-        # Return 500 so Razorpay retries this webhook delivery.
+        # NB: NOT mark_done — return 500 so Razorpay retries this delivery.
         raise HTTPException(status_code=500, detail="Webhook processing failed — will retry")
 
+    _mark_done("ok")
     return {"status": "ok"}
 
 

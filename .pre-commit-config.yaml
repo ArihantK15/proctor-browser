@@ -43,9 +43,12 @@ repos:
       - id: check-json
         exclude: tsconfig.*\.json$  # comments allowed in TS configs
       - id: check-added-large-files
-        args: [--maxkb=2048]
-        # 2 MB cap — anything bigger should go through Git LFS.
-        # ONNX weights (45 MB) are migrated to LFS in a follow-on.
+        args: [--maxkb=8192]
+        # 8 MB cap — fits compressed marketing video (~3 MB H.264 mp4)
+        # while still flagging accidentally-committed binaries. Anything
+        # over 8 MB really should go through Git LFS or external hosting.
+        # ONNX weights (45 MB) were left in git (no LFS yet) per the
+        # earlier deferred Phase C of the repo-health hardening sprint.
       - id: check-merge-conflict
       - id: detect-private-key
 

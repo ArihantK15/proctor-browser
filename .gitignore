@@ -58,3 +58,4 @@ website/src/components/RazorpayCheckoutButton.jsx
 # not project-relevant; per-machine state).
 skills-lock.json
 .agents/
+.claude/

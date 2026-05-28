@@ -650,11 +650,14 @@ async def heartbeat(event: EventIn, request: Request):
     tid = claims.get("tid")
     eid = claims.get("eid")
 
-    # Check if session already exists and is completed
+    # Check if session already exists and is in a terminal state
     existing = await _atable("exam_sessions").select("status")\
         .eq("session_key", event.session_id).execute()
 
-    if existing.data and existing.data[0].get("status") == SessionStatus.COMPLETED:
+    if existing.data and existing.data[0].get("status") in (
+        SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
+        SessionStatus.REJECTED, SessionStatus.ABANDONED,
+    ):
         return {"ok": True}
 
     if existing.data:
@@ -695,6 +698,7 @@ async def save_answer(body: AnswerIn, request: Request):
 
     claims = require_auth(request)
     await _assert_student_session_access(claims, body.session_id)
+    await _reject_if_terminal(body.session_id)
     tid = claims.get("tid")
     eid = claims.get("eid")
     canonical = await _canonicalise_student_answer(
@@ -751,6 +755,7 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
 
     claims = require_auth(request)
     await _assert_student_session_access(claims, body.session_id)
+    await _reject_if_terminal(body.session_id)
     if not body.answers:
         return {"status": "empty", "saved": 0}
     tid = claims.get("tid")
@@ -917,7 +922,8 @@ async def submit_exam(result: ResultIn, request: Request):
         .eq("session_key", result.session_id).execute()
     if existing.data:
         current_status = existing.data[0].get("status")
-        if current_status == SessionStatus.COMPLETED:
+        if current_status in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
+                              SessionStatus.REJECTED, SessionStatus.ABANDONED):
             raise HTTPException(status_code=409, detail="Exam already submitted")
         if current_status == SessionStatus.SUBMITTED:
             # Treat as a successful retry — return the same shape the renderer
@@ -979,7 +985,8 @@ async def submit_exam(result: ResultIn, request: Request):
                 interim_row["exam_id"] = eid
             await _atable("exam_sessions").update(interim_row)\
                 .eq("session_key", result.session_id)\
-                .neq("status", SessionStatus.COMPLETED)\
+                .not_.in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
+                                      SessionStatus.REJECTED, SessionStatus.ABANDONED])\
                 .execute()
 
             # Enqueue the scoring job — runs in RQ worker, never blocks this request
@@ -1088,7 +1095,8 @@ async def submit_exam(result: ResultIn, request: Request):
     parallel_ops = [
         _atable("exam_sessions").update(session_row)\
             .eq("session_key", result.session_id)\
-            .neq("status", SessionStatus.COMPLETED)\
+            .not_.in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
+                                  SessionStatus.REJECTED, SessionStatus.ABANDONED])\
             .execute(),
         _atable("violations").insert(submit_viol).execute(),
     ]

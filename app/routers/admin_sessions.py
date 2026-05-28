@@ -82,7 +82,7 @@ async def get_all_results(request: Request, exam_id: str = None, page: int = 1, 
 async def _fetch_completed_sessions(tid: str, exam_id_scope: str | None,
                                     fields: str) -> list[dict]:
     q = _atable("exam_sessions").select(fields)\
-        .eq("teacher_id", tid).eq("status", SessionStatus.COMPLETED)
+        .eq("teacher_id", tid).in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
     if exam_id_scope:
         q = q.eq("exam_id", exam_id_scope)
     return (await q.execute()).data or []
@@ -262,7 +262,7 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
     require_reauth_or_403(body, str(tid), request=request)
 
     existing_session = await _assert_session_owned(session_id, tid)
-    if existing_session.get("status") == SessionStatus.COMPLETED:
+    if existing_session.get("status") in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED):
         return {"status": "already_submitted"}
 
     ev_result = await _atable("violations")\
@@ -298,18 +298,30 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
     except Exception:
         logger.warning("admin_sessions: student row fetch failed", exc_info=True)
 
+    # Prefer answers table — authoritative source; violation parsing
+    # is a lossy fallback used only when answers were never persisted.
     answers_map: dict = {}
-    for e in events:
-        if e["violation_type"] == "answer_selected" and e.get("details"):
-            try:
-                parts = {}
-                for segment in e["details"].split("|"):
-                    k, _, v = segment.partition(":")
-                    parts[k.strip()] = v.strip()
-                if "q" in parts and "a" in parts:
-                    answers_map[parts["q"]] = parts["a"]
-            except Exception:
-                logger.debug("admin_sessions: answer segment parse failed", exc_info=True)
+    try:
+        ans_rows = (await _atable("answers").select("question_id,answer")
+                     .eq("session_key", session_id)
+                     .eq("teacher_id", str(tid)).execute()).data or []
+        for row in ans_rows:
+            answers_map[row["question_id"]] = row["answer"]
+    except Exception:
+        logger.warning("admin_sessions: answers table lookup failed", exc_info=True)
+
+    if not answers_map:
+        for e in events:
+            if e["violation_type"] == "answer_selected" and e.get("details"):
+                try:
+                    parts = {}
+                    for segment in e["details"].split("|"):
+                        k, _, v = segment.partition(":")
+                        parts[k.strip()] = v.strip()
+                    if "q" in parts and "a" in parts:
+                        answers_map[parts["q"]] = parts["a"]
+                except Exception:
+                    logger.debug("admin_sessions: answer segment parse failed", exc_info=True)
 
     existing_eid = existing_session.get("exam_id")
     score, total = await _recalculate_score(session_id, answers_map, tid, exam_id=existing_eid)
@@ -331,7 +343,7 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
         "total":           total,
         "percentage":      pct,
         "time_taken_secs": 0,
-        "status":          SessionStatus.COMPLETED,
+        "status":          SessionStatus.FORCE_SUBMITTED,
         "submitted_at":    now.isoformat(),
         "risk_score":      risk["risk_score"],
     }
@@ -371,9 +383,11 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/request-recalibration")
 @limiter.limit("10/minute")
-async def request_recalibration(session_id: str, request: Request):
+async def request_recalibration(session_id: str, request: Request, body: dict = Body(default_factory=dict)):
+    from ..auth.admin_auth import require_reauth_or_403
     teacher = await require_admin(request)
     tid = teacher["id"]
+    require_reauth_or_403(body, str(tid), request=request)
 
     sess = await _assert_session_owned(session_id, tid)
     status = (sess.get("status") or "").lower()

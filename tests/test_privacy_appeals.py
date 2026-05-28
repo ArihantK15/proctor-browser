@@ -201,6 +201,9 @@ class TestExamSessionsStudentId:
                     m.execute.return_value = MagicMock()
                     m.execute.return_value.data = [{"session_key": sid}]
                     m.insert.return_value = m
+                    not_m = MagicMock()
+                    not_m.in_.return_value = m
+                    m.not_ = not_m
                     def _update(row):
                         if "session_key" in row:
                             _upserted_session.clear()

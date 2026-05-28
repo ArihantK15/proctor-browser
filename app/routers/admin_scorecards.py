@@ -452,7 +452,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
 
         sess_q = _atable("exam_sessions")\
             .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at,submitted_at,exam_id")\
-            .eq("status", SessionStatus.COMPLETED).eq("teacher_id", str(tid))
+            .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED]).eq("teacher_id", str(tid))
         if exam_id:
             sess_q = sess_q.eq("exam_id", exam_id)
         sessions = (await sess_q.execute()).data or []
@@ -578,7 +578,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
 
     sess_q = (await _atable("exam_sessions").select(
         "session_key,roll_number,full_name,exam_id,scorecard_emailed_at"
-    ).eq("teacher_id", tid).eq("status", SessionStatus.COMPLETED).eq("exam_id", exam_id)
+    ).eq("teacher_id", tid).in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED]).eq("exam_id", exam_id)
         .limit(1000))
     sessions = (await sess_q.execute()).data or []
     if not sessions:
@@ -686,7 +686,7 @@ async def failed_sessions(request: Request, exam_id: str = None):
         .execute()
     failed_keys = {r["session_key"] for r in (failed.data or [])}
     sub_query = _atable("exam_sessions").select("session_key")\
-        .eq("status", SessionStatus.COMPLETED)\
+        .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])\
         .eq("teacher_id", tid)\
         .in_("session_key", list(failed_keys) or ["__none__"])
     if exam_id:

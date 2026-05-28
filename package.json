@@ -9,6 +9,7 @@
     "build": "electron-builder --dir",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
     "bundle-python": "node bundle-python.js",
     "lint": "eslint main.js preload.js lobby_preload.js setup-preload.js lib/",
     "lint:fix": "eslint --fix main.js preload.js lobby_preload.js setup-preload.js lib/",
@@ -39,7 +40,9 @@
       "lib/**/*",
       "renderer/**/*",
       "app/static/student.html",
-      "app/static/theme.css"
+      "app/static/theme.css",
+      "app/static/_safe.js",
+      "app/static/student-app.js"
     ],
     "extraResources": [
       {
@@ -90,6 +93,24 @@
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Education",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
           "arch": [
             "x64"
           ]

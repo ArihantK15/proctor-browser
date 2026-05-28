@@ -103,6 +103,9 @@ class _SupabaseStub:
         def _gte(col, val):
             chain._eqs[f"__gte_{col}"] = val
             return chain
+        def _in_(col, vals):
+            chain._eqs[f"__in_{col}"] = vals
+            return chain
         def _order(*a, **k): return chain
         def _limit(*a, **k): return chain
 
@@ -127,7 +130,8 @@ class _SupabaseStub:
                     if eid:
                         rows = [r for r in rows if r.get("exam_id") == eid]
                     return MagicMock(data=rows)
-                if status == "completed":
+                _in_status = chain._eqs.get("__in_status", [])
+                if status == "completed" or "completed" in _in_status or "force_submitted" in _in_status:
                     rows = [r for r in self.completed]
                     if eid:
                         rows = [r for r in rows if r.get("exam_id") == eid]
@@ -145,6 +149,7 @@ class _SupabaseStub:
         chain.eq.side_effect = _eq
         chain.is_.side_effect = _is_
         chain.gte.side_effect = _gte
+        chain.in_.side_effect = _in_
         chain.order.side_effect = _order
         chain.limit.side_effect = _limit
         chain.execute.side_effect = _execute

@@ -52,6 +52,9 @@ _INVITE_JS = """\
   } else if(ua.indexOf('win') !== -1){
     btn.href = '/download/win';
     btn.textContent = 'Download for Windows';
+  } else if(ua.indexOf('linux') !== -1){
+    btn.href = '/download/linux';
+    btn.textContent = 'Download for Linux';
   } else {
     btn.textContent = 'Download installer';
   }
@@ -146,6 +149,7 @@ def _invite_download() -> str:
       <a class="dlbtn alt" href="/download/mac">macOS (Apple Silicon)</a>
       <a class="dlbtn alt" href="/download/mac-x64">macOS (Intel)</a>
       <a class="dlbtn alt" href="/download/win">Windows</a>
+      <a class="dlbtn alt" href="/download/linux">Linux</a>
     </div>
   </div>"""
 

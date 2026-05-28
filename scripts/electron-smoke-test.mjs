@@ -8,6 +8,8 @@ const requiredFiles = [
   'renderer/index.html',
   'app/static/student.html',
   'app/static/theme.css',
+  'app/static/_safe.js',
+  'app/static/student-app.js',
   'proctor.py',
   'behavioral_analysis.py',
 ]
@@ -22,6 +24,10 @@ const files = pkg.build?.files || []
 if (!pkg.build?.appId) throw new Error('Electron build.appId is missing')
 if (!files.includes('renderer/**/*')) throw new Error('Electron build.files must include renderer/**/*')
 if (!files.includes('app/static/student.html')) throw new Error('Electron build.files must include the student shell')
-if (!pkg.build?.mac || !pkg.build?.win) throw new Error('Electron mac/win build targets are missing')
+if (!files.includes('app/static/_safe.js')) throw new Error('Electron build.files must include _safe.js for the lobby')
+if (!files.includes('app/static/student-app.js')) throw new Error('Electron build.files must include student-app.js for the lobby')
+if (!pkg.build?.mac || !pkg.build?.win || !pkg.build?.linux) {
+  throw new Error('Electron mac/win/linux build targets are missing')
+}
 
 console.log('Electron smoke test passed')

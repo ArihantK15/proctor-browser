@@ -9,7 +9,7 @@ from ..constants import RELEASE_REPO, RELEASE_TTL_SEC, GITHUB_TOKEN
 
 logger = logging.getLogger(__name__)
 
-_RELEASE_CACHE: dict = {"mac_arm": "", "mac_x64": "", "win": "", "tag": ""}
+_RELEASE_CACHE: dict = {"mac_arm": "", "mac_x64": "", "win": "", "linux": "", "tag": ""}
 _RELEASE_CACHE_EXPIRES: float = 0.0
 _RELEASE_CACHE_LOCK = asyncio.Lock()
 
@@ -26,6 +26,11 @@ def _match_mac_x64(name: str) -> bool:
 def _match_win(name: str) -> bool:
     n = name.lower()
     return n.endswith(".exe") and "setup" in n
+
+
+def _match_linux(name: str) -> bool:
+    n = name.lower()
+    return n.endswith(".appimage") or n.endswith("_amd64.deb") or n.endswith("-amd64.deb")
 
 
 async def _refresh_release_cache() -> None:
@@ -48,7 +53,7 @@ async def _refresh_release_cache() -> None:
         return
     assets = data.get("assets", []) or []
     tag = data.get("tag_name", "")
-    found = {"mac_arm": "", "mac_x64": "", "win": ""}
+    found = {"mac_arm": "", "mac_x64": "", "win": "", "linux": ""}
     for a in assets:
         name = a.get("name", "") or ""
         url_ = a.get("browser_download_url", "") or ""
@@ -60,9 +65,18 @@ async def _refresh_release_cache() -> None:
             found["mac_x64"] = url_
         elif not found["win"] and _match_win(name):
             found["win"] = url_
+        elif not found["linux"] and _match_linux(name):
+            found["linux"] = url_
     _RELEASE_CACHE = {**found, "tag": tag}
     _RELEASE_CACHE_EXPIRES = time.time() + RELEASE_TTL_SEC
-    logger.info("[Release] Auto-discovered %s: mac_arm=%s mac_x64=%s win=%s", tag, '✓' if found['mac_arm'] else '✗', '✓' if found['mac_x64'] else '✗', '✓' if found['win'] else '✗')
+    logger.info(
+        "[Release] Auto-discovered %s: mac_arm=%s mac_x64=%s win=%s linux=%s",
+        tag,
+        '✓' if found['mac_arm'] else '✗',
+        '✓' if found['mac_x64'] else '✗',
+        '✓' if found['win'] else '✗',
+        '✓' if found['linux'] else '✗',
+    )
 
 
 async def _resolve_release_asset(key: str) -> str:

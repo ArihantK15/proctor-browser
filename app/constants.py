@@ -176,6 +176,7 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 DOWNLOAD_MAC_ARM = os.getenv("DOWNLOAD_MAC_ARM", "")
 DOWNLOAD_MAC_X64 = os.getenv("DOWNLOAD_MAC_X64", "")
 DOWNLOAD_WIN = os.getenv("DOWNLOAD_WIN", "")
+DOWNLOAD_LINUX = os.getenv("DOWNLOAD_LINUX", "")
 
 # ─── Cache limits ─────────────────────────────────────────────────
 _TEACHER_CACHE_MAX = 5000

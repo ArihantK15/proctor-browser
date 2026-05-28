@@ -176,7 +176,7 @@ def heartbeat_age_seconds(hb) -> float | None:
 
 def derive_live_state(meta: dict) -> tuple[str, int | None]:
     status = (meta.get("status") or "").lower()
-    if status in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED) or meta.get("submitted_at"):
+    if status in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED) or meta.get("submitted_at"):
         return "submitted", None
     age = heartbeat_age_seconds(meta.get("last_heartbeat"))
     if age is not None and age <= _CLEAR_ACTIVE_WINDOW:
@@ -333,7 +333,7 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
     sess_meta = {r["session_key"]: r for r in (sess_result.data or [])}
     submitted = {
         sk for sk, m in sess_meta.items()
-        if (m.get("status") or "").lower() in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED) or m.get("submitted_at")
+        if (m.get("status") or "").lower() in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED) or m.get("submitted_at")
     }
 
     viol_by_session: dict[str, list[dict]] = {}

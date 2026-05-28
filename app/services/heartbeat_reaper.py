@@ -20,6 +20,8 @@ import logging
 import os
 from datetime import datetime, timezone, timedelta
 
+from ..models import SessionStatus
+
 logger = logging.getLogger(__name__)
 
 HEARTBEAT_TIMEOUT_SECS = int(os.environ.get("HEARTBEAT_TIMEOUT_SECS", "300"))   # 5 min
@@ -54,7 +56,7 @@ async def _reap_once() -> None:
         result = await _atable("exam_sessions").select(
             "session_key,roll_number,teacher_id,exam_id,student_id,last_heartbeat"
         ).in_(
-            "status", ["active", "in_progress"]
+            "status", [SessionStatus.IN_PROGRESS]
         ).not_.is_(
             "last_heartbeat", "null"
         ).lt(
@@ -80,8 +82,6 @@ async def _reap_once() -> None:
 
 async def _mark_abandoned(row: dict, _atable) -> None:
     """Mark a single session ABANDONED and attempt to score saved answers."""
-    from ..models import SessionStatus
-
     sid       = row.get("session_key")
     teacher_id = str(row.get("teacher_id") or "")
     exam_id    = row.get("exam_id")
@@ -89,6 +89,20 @@ async def _mark_abandoned(row: dict, _atable) -> None:
     roll      = row.get("roll_number", "unknown")
     if not sid:
         return
+
+    # Guard: skip if session already progressed to a terminal state since SELECT
+    try:
+        cur = await _atable("exam_sessions").select("status")\
+            .eq("session_key", sid).limit(1).execute()
+        if cur.data and cur.data[0].get("status") in (
+            SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
+            SessionStatus.SUBMITTED, SessionStatus.REJECTED,
+        ):
+            logger.info("[reaper] session %s already terminal (%s), skipping",
+                        sid, cur.data[0].get("status"))
+            return
+    except Exception as e:
+        logger.warning("[reaper] status re-check failed for %s: %s", sid, e)
 
     # 1. Mark ABANDONED
     await _atable("exam_sessions").update({

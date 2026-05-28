@@ -20,27 +20,27 @@
     :root{
       --bg-base:#06080d;           /* page bg */
       --bg-subtle:#0a0d12;
-      --bg-inset:var(--bg-inset);
-      --surface-1:var(--surface-1);         /* cards, headers */
-      --surface-2:var(--surface-2);         /* hover, sidebar */
-      --surface-3:var(--border-default);
-      --border-subtle:var(--surface-2);
-      --border-default:var(--border-default);
-      --border-strong:var(--border-strong);
-      --text-high:var(--text-high);
-      --text-mid:var(--text-mid);
-      --text-muted:var(--text-muted);
+      --bg-inset:#0e1219;
+      --surface-1:#131823;         /* cards, headers */
+      --surface-2:#1a1f2e;         /* hover, sidebar */
+      --surface-3:#2a2f3a;
+      --border-subtle:#1a1f2e;
+      --border-default:#2a2f3a;
+      --border-strong:#3d4352;
+      --text-high:#f0f6fc;
+      --text-mid:#c8d1dc;
+      --text-muted:#8b949e;
       --text-disabled:#6b7681;
       --accent:#5b8af0;            /* periwinkle blue */
       --accent-hover:#7ba1f5;
       --accent-active:#4a78dc;
       --accent-subtle:rgba(91,138,240,0.12);
       --accent-border:rgba(91,138,240,0.35);
-      --sev-success-fg:var(--sev-success-fg);
+      --sev-success-fg:#3fb950;
       --sev-success-bg:rgba(63,185,80,0.12);
-      --sev-warn-fg:var(--sev-warn-fg);
+      --sev-warn-fg:#e3b341;
       --sev-warn-bg:rgba(227,179,65,0.14);
-      --sev-error-fg:var(--sev-error-fg);
+      --sev-error-fg:#ff7b72;
       --sev-error-bg:rgba(255,123,114,0.14);
       --radius-sm:6px;
       --radius-md:8px;
@@ -54,6 +54,17 @@
       --space-6:24px;
       --space-8:32px;
       --space-10:40px;
+      --text-xs:0.6875rem;
+      --text-sm:0.75rem;
+      --text-base:0.875rem;
+      --text-md:1rem;
+      --text-lg:1.125rem;
+      --text-xl:1.25rem;
+      --text-2xl:1.5rem;
+      --muted:var(--text-muted);
+      --border:var(--border-default);
+      --red:var(--sev-error-fg);
+      --text-secondary:#94a3b8;
     }
     *{margin:0;padding:0;box-sizing:border-box;user-select:none}
     body{font-family:'IBM Plex Sans',system-ui,sans-serif;
@@ -945,7 +956,7 @@ async function reportIntegrityFlags(){
 
     // Send full report to server in one call
     try{
-      const r = await fetch(`${SERVER}/api/integrity-report`, {
+      const r = await fetch(`${SERVER}/api/v1/integrity-report`, {
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentToken},
         body:JSON.stringify({ session_id:sessionId, flags })
@@ -1092,7 +1103,7 @@ async function doLogin(){
     currentRoll = normalizedRoll;
     let existing = null;
     try{
-      const cr = await fetch(`${SERVER}/api/check-session/${encodeURIComponent(normalizedRoll)}`,
+      const cr = await fetch(`${SERVER}/api/v1/check-session/${encodeURIComponent(normalizedRoll)}`,
         {headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentToken}});
       if(cr.ok){
         const cd = await cr.json();
@@ -1235,7 +1246,7 @@ async function idNextStep() {
   try {
     const hdr = { 'Content-Type': 'application/json',
                   ...(studentToken ? { 'Authorization': 'Bearer ' + studentToken } : {}) };
-    const res = await fetch(`${SERVER}/api/id-verification`, {
+    const res = await fetch(`${SERVER}/api/v1/id-verification`, {
       method: 'POST', headers: hdr,
       body: JSON.stringify({
         session_id: sessionId,
@@ -1280,7 +1291,7 @@ function _startIdPoll() {
     try {
       const hdr = studentToken ? { 'Authorization': 'Bearer ' + studentToken } : {};
       const r = await fetch(
-        `${SERVER}/api/id-verification/status?session_id=${encodeURIComponent(sessionId)}`,
+        `${SERVER}/api/v1/id-verification/status?session_id=${encodeURIComponent(sessionId)}`,
         { headers: hdr });
       if (!r.ok) return;
       const d = await r.json();
@@ -1647,7 +1658,7 @@ async function showPhoneCamScreen(){
   showScreen('phone-cam');
   try{
     // Issue room-cam token
-    const tr = await fetch(`${SERVER}/api/room-cam-token`, {
+    const tr = await fetch(`${SERVER}/api/v1/room-cam-token`, {
       method: 'POST', headers: hdr(),
       body: JSON.stringify({ session_id: sessionId }),
     });
@@ -1657,7 +1668,7 @@ async function showPhoneCamScreen(){
 
     // Load QR code
     const qrDiv = document.getElementById('phone-cam-qr');
-    qrDiv.innerHTML = `<img src="${SERVER}/api/room-cam-qr?session_id=${encodeURIComponent(sessionId)}&t=${Date.now()}" alt="QR code" style="width:200px;height:200px">`;
+    qrDiv.innerHTML = `<img src="${SERVER}/api/v1/room-cam-qr?session_id=${encodeURIComponent(sessionId)}&t=${Date.now()}" alt="QR code" style="width:200px;height:200px">`;
 
     // Poll for approval
     const statusMsg = document.getElementById('phone-cam-status-msg');
@@ -1667,7 +1678,7 @@ async function showPhoneCamScreen(){
     await new Promise((resolve) => {
       const poll = setInterval(async () => {
         try{
-          const r = await fetch(`${SERVER}/api/room-cam-approval-status?session_id=${encodeURIComponent(sessionId)}`, { headers: hdr() });
+          const r = await fetch(`${SERVER}/api/v1/room-cam-approval-status?session_id=${encodeURIComponent(sessionId)}`, { headers: hdr() });
           if(!r.ok) return;
           const d = await r.json();
           if(d.status === 'approved'){
@@ -2046,7 +2057,7 @@ async function doBulkSave(){
     for(const [qid, ans] of Object.entries(answers)){
       payload.answers[String(qid)] = String(ans);
     }
-    const r = await fetch(`${SERVER}/api/save-answers-bulk`, {
+    const r = await fetch(`${SERVER}/api/v1/save-answers-bulk`, {
       method: 'POST',
       headers: authHdr(),
       body: JSON.stringify(payload),
@@ -2145,6 +2156,7 @@ function authHdr(){
   return {'Content-Type':'application/json',
           ...(studentToken?{'Authorization':'Bearer '+studentToken}:{})};
 }
+const hdr = authHdr;
 
 async function _doSubmit(payload){
   // Try IPC first (Electron main process), then direct fetch, up to 3 attempts
@@ -2165,7 +2177,7 @@ async function _doSubmit(payload){
     }catch(e){
       console.warn(`[Submit] IPC attempt ${attempt} failed:`,e.message);
       try{
-        const r=await fetch(`${SERVER}/api/submit-exam`,{
+        const r=await fetch(`${SERVER}/api/v1/submit-exam`,{
           method:'POST', headers:authHdr(), body:JSON.stringify(payload)
         });
         if(r.ok) return r.json();
@@ -2221,7 +2233,7 @@ async function submitExam(timeUp=false){
   if(!result){
     // Notify server so admin can force-submit
     try{
-      await fetch(`${SERVER}/event`,{
+      await fetch(`${SERVER}/api/v1/event`,{
         method:'POST', headers:authHdr(),
         body:JSON.stringify({
           session_id:sessionId, event_type:'submit_failed',

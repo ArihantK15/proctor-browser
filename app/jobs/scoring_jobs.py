@@ -52,8 +52,8 @@ async def _score_submission_async(
         logger.warning("[score_job] session %s not found, bailing", safe(session_id))
         return {"status": "not_found"}
     sess = existing.data[0]
-    if sess.get("status") == SessionStatus.COMPLETED:
-        logger.info("[score_job] session %s already completed, skipping", safe(session_id))
+    if sess.get("status") in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED):
+        logger.info("[score_job] session %s already completed/force-submitted, skipping", safe(session_id))
         return {"status": "already_completed", "score": sess.get("score"),
                 "total": sess.get("total"), "percentage": sess.get("percentage")}
 
@@ -107,7 +107,7 @@ async def _score_submission_async(
     if teacher_id:
         upd_q = upd_q.eq("teacher_id", str(teacher_id))
     # Guard against double-completion with .neq() — same TOCTOU defence as submit
-    upd_q = upd_q.neq("status", SessionStatus.COMPLETED)
+    upd_q = upd_q.neq("status", SessionStatus.COMPLETED).neq("status", SessionStatus.FORCE_SUBMITTED)
     upd_result = await upd_q.execute()
     if not upd_result.data:
         logger.info("[score_job] session %s already COMPLETED by another path", safe(session_id))

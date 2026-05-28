@@ -188,7 +188,7 @@ async def list_student_history(request: Request, exam_id: str = None,
               .select("session_key,roll_number,full_name,email,exam_id,"
                       "score,total,percentage,time_taken_secs,"
                       "submitted_at,risk_score,teacher_id")
-              .eq("status", SessionStatus.COMPLETED)
+              .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
               .order("submitted_at", desc=True))
     if tids is not None:
         if not tids:
@@ -285,7 +285,7 @@ async def get_student_history(
                       "status,started_at,submitted_at,risk_score")
               .eq("roll_number", roll)
               .eq("teacher_id", scoped_tid)
-              .eq("status", SessionStatus.COMPLETED)
+              .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
               .order("submitted_at", desc=True))
     if exam_id:
         sess_q = sess_q.eq("exam_id", exam_id)
@@ -410,7 +410,7 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
 
     all_sessions = (await _atable("exam_sessions")
                     .select("roll_number,session_key,percentage,risk_score,submitted_at,status,teacher_id")
-                    .eq("status", SessionStatus.COMPLETED)
+                    .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
                     .in_("roll_number", roll_numbers)
                     .order("submitted_at", desc=True)
                     .execute()).data or []

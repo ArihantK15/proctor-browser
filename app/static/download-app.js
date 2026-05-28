@@ -77,12 +77,13 @@
     mainBtn.style.display = 'inline-flex';
   } else if (os === 'linux') {
     osEl.textContent = 'Linux';
-    detailEl.textContent = 'Linux is not currently supported. Please use a Mac or Windows PC.';
-    unavail.style.display = 'block';
-    unavail.textContent = 'Linux builds are not available. Use a Windows or Mac machine.';
+    detailEl.textContent = 'Detected: Linux desktop';
+    mainBtn.href = '/download/linux';
+    dlText.textContent = 'Download for Linux';
+    mainBtn.style.display = 'inline-flex';
   } else if (os === 'mobile') {
     osEl.textContent = 'Mobile Device Detected';
-    detailEl.textContent = 'The Procta app requires a desktop computer (Mac or Windows). Please switch to a laptop or desktop to download and run the exam.';
+    detailEl.textContent = 'The Procta app requires a desktop computer (Windows, macOS, or Linux). Please switch to a laptop or desktop to download and run the exam.';
     unavail.style.display = 'block';
     unavail.textContent = 'Mobile and tablet devices are not supported.';
   } else {
@@ -109,6 +110,7 @@
   checkLink('dl-mac-arm', '/download/mac');
   checkLink('dl-mac-x64', '/download/mac-x64');
   checkLink('dl-win', '/download/win');
+  checkLink('dl-linux', '/download/linux');
 
   fetchWithTimeout('/api/v1/exam-schedule').then(r=>r.json()).then(d=>{
     if(!d.starts_at && !d.ends_at) return;

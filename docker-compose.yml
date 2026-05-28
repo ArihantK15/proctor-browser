@@ -24,6 +24,7 @@ services:
       # submit wave, properly using the box.
       - UVICORN_WORKERS=${UVICORN_WORKERS:-4}
       - UVICORN_LIMIT_CONCURRENCY=${UVICORN_LIMIT_CONCURRENCY:-}
+      - RQ_ENABLED=1
     depends_on:
       - redis
     volumes:

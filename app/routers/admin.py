@@ -188,7 +188,7 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
     teacher = await require_admin(request)
     tid = teacher["id"]
     query = _atable("exam_sessions").select("session_key")\
-        .eq("status", SessionStatus.COMPLETED)\
+        .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])\
         .eq("teacher_id", str(tid))
     if exam_id:
         query = query.eq("exam_id", exam_id)

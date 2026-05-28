@@ -261,7 +261,7 @@ async def get_analytics(request: Request):
 
     sess_q = _atable("exam_sessions")\
         .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at")\
-        .eq("status", SessionStatus.COMPLETED)
+        .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
     if tids is not None:
         # Collapse to .eq() for the single-teacher case (test stubs only mock .eq()).
         if not tids:

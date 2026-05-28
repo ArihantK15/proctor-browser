@@ -35,7 +35,7 @@ async def _chat_verify_session_owned(session_id: str, teacher_id: str, roll: str
         return None
     if (row.get("roll_number") or "").upper() != (roll or "").upper():
         return None
-    if row.get("status") == SessionStatus.COMPLETED:
+    if row.get("status") in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED):
         return None
     return row
 

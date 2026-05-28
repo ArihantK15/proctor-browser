@@ -52,7 +52,7 @@ async function _scanProcesses() {
   for (const { rx, label, type } of THREATS) {
     if (rx.test(lower)) {
       if (getCurrentSessionId() && getStudentToken()) {
-        fetchWithTimeout(`${SERVER_URL}/event`, {
+        fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {
           method: 'POST', headers: authHeaders(getStudentToken()),
           body: JSON.stringify({ session_id: getCurrentSessionId(),
             event_type: type, severity: 'high',
@@ -72,7 +72,7 @@ async function _scanProcesses() {
     const { screen } = require('electron');
     const displays = screen.getAllDisplays();
     if (displays.length > 1 && getCurrentSessionId() && getStudentToken()) {
-      fetchWithTimeout(`${SERVER_URL}/event`, {
+      fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {
         method: 'POST', headers: authHeaders(getStudentToken()),
         body: JSON.stringify({ session_id: getCurrentSessionId(),
           event_type: 'multiple_monitors', severity: 'medium',
@@ -257,7 +257,7 @@ ipcMain.handle('validate-student', async (event, roll, accessCode) => {
   if (!_assertMainFrame(event, 'validate-student')) throw new Error('Frame not allowed');
   const body = { roll_number: roll, access_code: accessCode || '' };
   if (getExamContext() && getExamContext().examId) body.exam_id = getExamContext().examId;
-  const r = await fetchWithTimeout(`${SERVER_URL}/api/validate-student`, {
+  const r = await fetchWithTimeout(`${SERVER_URL}/api/v1/validate-student`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }, 30000);
@@ -270,7 +270,7 @@ ipcMain.handle('validate-student', async (event, roll, accessCode) => {
 ipcMain.handle('get-questions', async (event, sessionId) => {
   if (!_assertMainFrame(event, 'get-questions')) throw new Error('Frame not allowed');
   const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
-  const r = await fetchWithTimeout(`${SERVER_URL}/api/questions${qs}`,
+  const r = await fetchWithTimeout(`${SERVER_URL}/api/v1/questions${qs}`,
     { headers: authHeaders(getStudentToken()) }, 30000);
   if (!r.ok) throw new Error('Could not load questions');
   return r.json();
@@ -279,7 +279,7 @@ ipcMain.handle('get-questions', async (event, sessionId) => {
 ipcMain.handle('log-event', async (event, data) => {
   if (!_assertMainFrame(event, 'log-event')) throw new Error('Frame not allowed');
   try {
-    await fetchWithTimeout(`${SERVER_URL}/event`, {
+    await fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {
       method: 'POST', headers: authHeaders(getStudentToken()),
       body: JSON.stringify(data),
     }, 10000);
@@ -288,7 +288,7 @@ ipcMain.handle('log-event', async (event, data) => {
 
 ipcMain.handle('submit-exam', async (event, data) => {
   if (!_assertMainFrame(event, 'submit-exam')) throw new Error('Frame not allowed');
-  const r = await fetchWithTimeout(`${SERVER_URL}/api/submit-exam`, {
+  const r = await fetchWithTimeout(`${SERVER_URL}/api/v1/submit-exam`, {
     method: 'POST', headers: authHeaders(getStudentToken()),
     body: JSON.stringify(data),
   }, 60000);
@@ -302,7 +302,7 @@ ipcMain.handle('submit-exam', async (event, data) => {
 
 ipcMain.handle('get-events', async (event, sessionId) => {
   if (!_assertMainFrame(event, 'get-events')) throw new Error('Frame not allowed');
-  const r = await fetchWithTimeout(`${SERVER_URL}/events/${sessionId}`,
+  const r = await fetchWithTimeout(`${SERVER_URL}/api/v1/events/${sessionId}`,
     { headers: authHeaders(getStudentToken()) }, 15000);
   if (!r.ok) return { events: [] };
   return r.json();

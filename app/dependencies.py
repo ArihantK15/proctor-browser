@@ -43,7 +43,7 @@ from .logger import get_logger
 # ─── Constants ─────────────────────────────────────────────────────
 from .constants import (
     IST, SECRET_KEY, SUPER_ADMIN_EMAIL, SCREENSHOTS_DIR, QUESTION_IMG_DIR,
-    STATIC_DIR, DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN,
+    STATIC_DIR, DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN, DOWNLOAD_LINUX,
     CORS_ALLOWED_ORIGINS, RELEASE_REPO, RELEASE_TTL_SEC, GITHUB_TOKEN,
     TOKEN_TTL_HOURS, ADMIN_TOKEN_TTL_HOURS, STUDENT_AUTH_TTL_HOURS,
     _LOADTEST_SECRET, PRACTICE_PREFIX, _CAL_TIGHT_GAZE, _CAL_LOOSE_GAZE,
@@ -177,7 +177,7 @@ from .reminders import _reminder_tick, _reminder_loop, _send_reminder_for_invite
 # ─── Download/release cache ────────────────────────────────────────
 from .services.release import (
     _RELEASE_CACHE, _RELEASE_CACHE_EXPIRES, _RELEASE_CACHE_LOCK,
-    _match_mac_arm64, _match_mac_x64, _match_win,
+    _match_mac_arm64, _match_mac_x64, _match_win, _match_linux,
     _refresh_release_cache, _resolve_release_asset, _download_redirect,
 )
 

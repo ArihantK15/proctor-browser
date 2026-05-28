@@ -276,6 +276,30 @@ export default function LiveSessionsPanel({ currentExamId }) {
     } catch (_) { setLiveViewStatus('Failed') }
   }
 
+  const forceSubmitSession = async (sid) => {
+    if (!confirm(`Force-submit session ${sid.substring(0, 20)}…? This will end the student's exam.`)) return
+    const password = prompt('Enter your password to confirm force-submit:')
+    if (!password) return
+    try {
+      const reauthR = await authFetch(`${API_BASE}/auth/reauth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+      if (!reauthR.ok) { alert('Reauthentication failed — wrong password?'); return }
+      const { reauth_token } = await reauthR.json()
+      const r = await authFetch(`${API_BASE}/admin-submit/${encodeURIComponent(sid)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reauth_token }),
+      })
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${r.status}`) }
+      const d = await r.json()
+      alert(`Force-submitted! Score: ${d.score}/${d.total}, Risk: ${d.risk_score}/100`)
+      loadSessions()
+    } catch (e) { alert(`Force submit failed: ${e.message}`) }
+  }
+
   const closeLiveView = () => {
     if (livePollRef.current) { clearInterval(livePollRef.current); livePollRef.current = null }
     // Revoke the last frame URL on close to release the final blob.
@@ -411,6 +435,9 @@ export default function LiveSessionsPanel({ currentExamId }) {
                     <td style={{ padding: '10px 12px' }}>
                       {s.live_state === 'live' && (
                         <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px', fontSize: 10 }} onClick={() => openLiveView(sid)}>Camera</button>
+                      )}
+                      {s.live_state === 'stale' && (
+                        <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 10, color: 'var(--red)' }} onClick={() => forceSubmitSession(sid)}>Force Submit</button>
                       )}
                     </td>
                   </tr>

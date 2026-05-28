@@ -22,6 +22,7 @@ export default function DownloadPage() {
           { label: 'macOS (Apple Silicon)', key: 'mac_arm', icon: '💻' },
           { label: 'macOS (Intel)', key: 'mac_x64', icon: '💻' },
           { label: 'Windows', key: 'win', icon: '🪟' },
+          { label: 'Linux (AppImage)', key: 'linux', icon: '🐧' },
         ].map(dl => (
           <a key={dl.key} href={releases?.[dl.key] || '#'}
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '14px 20px', marginBottom: 10, borderRadius: 10, background: 'var(--surface-1)', border: '1px solid var(--border)', color: 'var(--text)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>

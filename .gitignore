@@ -50,6 +50,10 @@ loadtest/reports/
 Procta_Development_Report.pdf
 generate_report.py
 
+# Build outputs — generated during Docker build
+app/static/dashboard-react/
+app/static/student-react/
+
 # Stale generated files (should not be tracked)
 app/routers/checkout.py
 website/src/components/RazorpayCheckoutButton.jsx

@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { Helmet } from 'react-helmet-async'
 import { Link } from 'wouter'
 import { CheckCircle } from 'lucide-react'
@@ -129,11 +130,15 @@ export default function FeaturesPage() {
         <meta property="og:title" content="AI Proctoring Features — Gaze Tracking, Object Detection & More | Procta" />
         <meta property="og:description" content="Complete AI proctoring feature set: gaze tracking, face detection, object recognition, kiosk-mode lockdown, automated grading, live monitoring, and forensics." />
         <meta property="og:url" content="https://www.procta.net/features" />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://www.procta.net/og-image.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <Navbar />
       <section className="pt-32 pb-20 md:pt-44 md:pb-32">
         <div className="mx-auto max-w-7xl px-6">
-          <div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-3xl text-center">
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-3xl text-center">
             <h1 className="font-display text-4xl font-bold text-white md:text-5xl lg:text-6xl">
               Everything You Need for{' '}
               <span className="bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent">Secure Online Exams</span>
@@ -144,7 +149,7 @@ export default function FeaturesPage() {
               AI grading, evidence packets, LMS integration, and billing,
               Procta covers every phase of the exam lifecycle.
             </p>
-          </div>
+          </motion.div>
 
           <div className="mt-20 space-y-24">
             {featureGroups.map((group) => (

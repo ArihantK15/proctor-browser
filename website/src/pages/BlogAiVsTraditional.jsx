@@ -16,6 +16,8 @@ export default function BlogAiVsTraditional() {
         <meta property="og:description" content="Compare AI proctoring vs traditional in-person proctoring across cost, scalability, accuracy, and privacy. Data-backed analysis for institutions." />
         <meta property="og:url" content="https://www.procta.net/blog/ai-proctoring-vs-traditional-proctoring" />
         <meta property="og:type" content="article" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <Navbar />
       <article className="pt-32 pb-20 md:pt-44 md:pb-32">

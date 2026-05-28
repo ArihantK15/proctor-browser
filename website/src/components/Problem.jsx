@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { AlertTriangle, Users, IndianRupee } from 'lucide-react'
 
 const fadeUp = {
@@ -11,7 +12,7 @@ export default function Problem() {
   return (
     <section className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
-        <div {...fadeUp} className="mx-auto max-w-2xl text-center">
+        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
           <h2 className="font-display text-3xl font-bold text-white md:text-4xl">
             The Problem with Remote Exams
           </h2>
@@ -19,7 +20,7 @@ export default function Problem() {
             Institutions lose credibility when exam integrity cannot be guaranteed.
             Manual proctoring is expensive, inconsistent, and doesn't scale.
           </p>
-        </div>
+        </motion.div>
 
         <div className="mt-16 grid gap-6 md:grid-cols-3">
           {[

@@ -12,6 +12,8 @@ export default function Privacy() {
         <meta property="og:title" content="Privacy Policy — Procta" />
         <meta property="og:description" content="We collect minimal data, never record video, and never share student data with third parties." />
         <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://www.procta.net/privacy" />
+        <meta name="twitter:card" content="summary_large_image" />
         <link rel="canonical" href="https://www.procta.net/privacy" />
       </Helmet>
       <div className="mx-auto max-w-3xl px-6 pt-24 pb-16">

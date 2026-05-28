@@ -1,4 +1,5 @@
 #!/bin/sh
+set -euo pipefail
 # Startup entrypoint: screenshot disk guard + uvicorn
 # Deletes screenshots older than 90 days to prevent droplet disk-fill.
 

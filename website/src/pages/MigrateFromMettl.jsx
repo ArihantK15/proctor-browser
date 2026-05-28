@@ -28,6 +28,8 @@ export default function MigrateFromMettl() {
         <meta property="og:description" content="One-eighth the cost of Mercer Mettl. Phone-cam included. INR + GST invoicing. Deploy in 10 minutes." />
         <meta property="og:url" content="https://www.procta.net/migrate-from-mettl" />
         <meta property="og:type" content="article" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <Navbar />
 

@@ -1,4 +1,5 @@
 import { useState, useId } from 'react'
+import { motion } from 'framer-motion'
 import { ChevronDown } from 'lucide-react'
 
 const faqs = [
@@ -54,7 +55,7 @@ function FAQItem({ item }) {
           className={`shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-180 text-accent-light' : ''}`}
         />
       </button>
-      
+
         {open && (
           <div
             id={id}
@@ -65,7 +66,7 @@ function FAQItem({ item }) {
             <p className="px-6 pb-5 text-sm leading-relaxed text-slate-400 border-l-2 border-accent/30 ml-6 pl-4">{item.a}</p>
           </div>
         )}
-      
+
     </div>
   )
 }
@@ -74,7 +75,7 @@ export default function FAQ() {
   return (
     <section id="faq" className="relative py-24 md:py-32">
       <div className="mx-auto max-w-3xl px-6">
-        <div
+        <motion.div
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
@@ -85,9 +86,9 @@ export default function FAQ() {
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Common Questions
           </h2>
-        </div>
+        </motion.div>
 
-        <div
+        <motion.div
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-40px' }}
@@ -97,7 +98,7 @@ export default function FAQ() {
           {faqs.map(item => (
             <FAQItem key={item.q} item={item} />
           ))}
-        </div>
+        </motion.div>
       </div>
     </section>
   )

@@ -17,6 +17,8 @@ export default function BlogCheatingPrevention() {
         <meta property="og:url" content="https://www.procta.net/blog/online-exam-cheating-prevention-ai-proctoring" />
         <meta property="og:type" content="article" />
         <meta name="keywords" content="online exam cheating, exam cheating prevention, AI proctoring cheating detection, prevent cheating in online exams, academic integrity technology, gaze tracking proctoring, object detection exam monitoring" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <Navbar />
       <article className="pt-32 pb-20 md:pt-44 md:pb-32">

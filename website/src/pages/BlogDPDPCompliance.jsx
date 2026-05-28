@@ -17,6 +17,8 @@ export default function BlogDPDPCompliance() {
         <meta property="og:url" content="https://www.procta.net/blog/dpdp-act-compliance-online-proctoring-indian-universities" />
         <meta property="og:type" content="article" />
         <meta name="keywords" content="DPDP Act 2023 online proctoring, DPDP Act compliance universities India, data privacy proctoring, Indian data protection law online exams, DPDP Act student data, biometric data protection India, on-device AI proctoring privacy" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <Navbar />
       <article className="pt-32 pb-20 md:pt-44 md:pb-32">

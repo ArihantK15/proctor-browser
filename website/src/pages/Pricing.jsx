@@ -135,6 +135,10 @@ export default function Pricing() {
         <meta property="og:title" content="Pricing — Procta AI Exam Proctoring" />
         <meta property="og:description" content="Affordable AI proctoring for Indian higher education. Plans start at ₹2,400/month. Free 7-day trial." />
         <meta property="og:url" content="https://www.procta.net/pricing" />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://www.procta.net/og-image.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
 
       <Navbar />

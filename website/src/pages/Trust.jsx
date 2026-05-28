@@ -57,6 +57,13 @@ export default function Trust() {
         <title>Trust Center — Procta</title>
         <meta name="description" content="Security, privacy, subprocessors, retention, and operational controls for Procta AI exam proctoring." />
         <link rel="canonical" href="https://www.procta.net/trust" />
+        <meta property="og:title" content="Trust Center — Procta" />
+        <meta property="og:description" content="Security, privacy, subprocessors, retention, and operational controls for Procta AI exam proctoring." />
+        <meta property="og:url" content="https://www.procta.net/trust" />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://www.procta.net/og-image.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
 
       <main className="mx-auto max-w-5xl px-6 pt-24 pb-16">

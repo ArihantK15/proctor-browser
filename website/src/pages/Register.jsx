@@ -50,8 +50,15 @@ export default function Register() {
       <Helmet>
         <title>Student Registration — Procta</title>
         <meta name="description" content="Register as a student for an AI-proctored exam." />
-        <link rel="canonical" href="https://app.procta.net/register" />
+        <link rel="canonical" href="https://www.procta.net/register" />
         <meta name="robots" content="noindex, nofollow" />
+        <meta property="og:title" content="Student Registration — Procta" />
+        <meta property="og:description" content="Register as a student for an AI-proctored exam." />
+        <meta property="og:url" content="https://www.procta.net/register" />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://www.procta.net/og-image.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <div style={{ maxWidth: 480, width: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>

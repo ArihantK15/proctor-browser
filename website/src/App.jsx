@@ -19,6 +19,7 @@ const BlogDPDPCompliance = lazy(() => import('./pages/BlogDPDPCompliance'))
 const Download = lazy(() => import('./pages/Download'))
 const Register = lazy(() => import('./pages/Register'))
 const MigrateFromMettl = lazy(() => import('./pages/MigrateFromMettl'))
+const NotFound = lazy(() => import('./pages/NotFound'))
 
 function RouteFallback() {
   return (
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="/register"><LazyRoute Component={Register} /></Route>
           {/* SEO landing page targeted at "Mettl alternative" search traffic. */}
           <Route path="/migrate-from-mettl"><LazyRoute Component={MigrateFromMettl} /></Route>
+          <Route><LazyRoute Component={NotFound} /></Route>
         </Switch>
       </div>
     </>

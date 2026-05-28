@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { writeFileSync, mkdirSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import http from 'http'
@@ -28,7 +28,7 @@ const ROUTES = [
   '/blog/dpdp-act-compliance-online-proctoring-indian-universities',
 ]
 
-async function startServer(dir, port) {
+async function startServer(dir) {
   const server = http.createServer((req, res) => {
     try {
       handler(req, res, { public: dir })
@@ -38,7 +38,7 @@ async function startServer(dir, port) {
     }
   })
   return new Promise((resolve) => {
-    server.listen(port, () => resolve(server))
+    server.listen(0, () => resolve(server))
   })
 }
 
@@ -60,9 +60,9 @@ async function prerender() {
     return
   }
 
-  const port = 8765
+  const server = await startServer(DIST)
+  const port = server.address().port
   console.log(`Starting static server on :${port}...`)
-  const server = await startServer(DIST, port)
 
   const base = `http://localhost:${port}`
 
@@ -106,10 +106,11 @@ async function prerender() {
     }
   } finally {
     await browser.close()
-    server.close()
+    await new Promise(resolve => server.close(resolve))
   }
 
   console.log('\nPrerendering complete.')
+  process.exit(0)
 }
 
 prerender()

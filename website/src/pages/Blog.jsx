@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { Helmet } from 'react-helmet-async'
 
 import { Link } from 'wouter'
@@ -39,6 +40,8 @@ export default function Blog() {
         <meta property="og:title" content="Procta Blog — AI Proctoring Insights" />
         <meta property="og:description" content="Articles about AI proctoring, online exam security, and academic integrity." />
         <meta property="og:url" content="https://www.procta.net/blog" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <Navbar />
       <section className="pt-32 pb-20 md:pt-44 md:pb-32">
@@ -54,7 +57,7 @@ export default function Blog() {
 
           <div className="mt-12 space-y-6">
             {posts.map((post, i) => (
-              <div
+              <motion.div
                 key={post.slug}
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -74,7 +77,7 @@ export default function Blog() {
                     Read more <ArrowRight size={14} />
                   </div>
                 </Link>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>

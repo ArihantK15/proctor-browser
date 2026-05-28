@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { Helmet } from 'react-helmet-async'
 import { Link } from 'wouter'
 import { UserPlus, Monitor, ShieldCheck, FileText, Smartphone, MessageSquare } from 'lucide-react'
@@ -47,11 +48,15 @@ export default function HowItWorksPage() {
         <meta property="og:title" content="How AI Proctoring Works — 4-Step Exam Flow | Procta" />
         <meta property="og:description" content="Learn how Procta's AI proctoring works: exam creation, secure browser launch, real-time AI monitoring, and automated scoring." />
         <meta property="og:url" content="https://www.procta.net/how-it-works" />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://www.procta.net/og-image.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <Navbar />
       <section className="pt-32 pb-20 md:pt-44 md:pb-32">
         <div className="mx-auto max-w-7xl px-6">
-          <div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-3xl text-center">
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mx-auto max-w-3xl text-center">
             <h1 className="font-display text-4xl font-bold text-white md:text-5xl lg:text-6xl">
               How{' '}
               <span className="bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent">AI Proctoring</span>{' '}
@@ -60,7 +65,7 @@ export default function HowItWorksPage() {
             <p className="mt-6 text-lg leading-relaxed text-slate-400 md:text-xl">
               From roster import to evidence packets - the full exam-day workflow your faculty, IT team, and students need.
             </p>
-          </div>
+          </motion.div>
 
           <div className="mt-20 space-y-16">
             {steps.map((step) => (

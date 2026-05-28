@@ -24,7 +24,14 @@ export default function Download() {
       <Helmet>
         <title>Download Procta — Remote exams. Real results.</title>
         <meta name="description" content="Download the AI-proctored exam desktop app for Windows, macOS, and Linux." />
-        <link rel="canonical" href="https://app.procta.net/download" />
+        <link rel="canonical" href="https://www.procta.net/download" />
+        <meta property="og:title" content="Download Procta — Remote exams. Real results." />
+        <meta property="og:description" content="Download the AI-proctored exam desktop app for Windows, macOS, and Linux." />
+        <meta property="og:url" content="https://www.procta.net/download" />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://www.procta.net/og-image.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
       <div style={{ maxWidth: 520, width: '100%', textAlign: 'center' }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: 'white', margin: '16px 0 8px' }}>Download Procta</h1>

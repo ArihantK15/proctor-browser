@@ -101,6 +101,8 @@ export default function LtiSetup() {
         <meta property="og:title" content="LTI 1.3 Integration Setup — Procta" />
         <meta property="og:description" content="Connect Procta with your LMS in minutes. Supports Canvas, Moodle, and Blackboard via LTI 1.3 Advantage standards." />
         <meta property="og:url" content="https://www.procta.net/lti-setup" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://www.procta.net/og-image.png" />
       </Helmet>
 
       <Navbar />

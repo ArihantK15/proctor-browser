@@ -1,4 +1,8 @@
-#!/bin/sh
+#!/bin/bash
+# Must be bash, not sh: `set -o pipefail` is a bash/ksh extension.
+# python:3.12-slim is Debian-based where /bin/sh -> dash, which errors
+# on `pipefail` and exits before the script even starts. Verified with
+# `/bin/dash -c 'set -euo pipefail'` → "Illegal option -o pipefail".
 set -euo pipefail
 # Startup entrypoint: screenshot disk guard + uvicorn
 # Deletes screenshots older than 90 days to prevent droplet disk-fill.

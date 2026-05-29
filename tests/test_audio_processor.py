@@ -87,9 +87,22 @@ class TestTwoClusterSilhouette:
         assert score < ap.VOICE_COUNT_SILHOUETTE_THRESHOLD
 
     def test_two_voices_separable_clusters(self):
-        """Two well-separated MFCC means → silhouette > threshold."""
-        cluster_a = [[10.0, 0.0, 0.0] for _ in range(6)]
-        cluster_b = [[0.0, 0.0, 10.0] for _ in range(6)]
+        """Two well-separated MFCC means → silhouette > threshold.
+
+        Use slightly different vectors WITHIN each cluster so the
+        algorithm's argmax tie-breaking doesn't pick a degenerate seed
+        pair. Real MFCCs always have intra-cluster noise; orthogonal-
+        unit-vectors-with-zero-noise was hitting a numpy edge case in
+        CI even though the silhouette math is correct.
+        """
+        import random
+        random.seed(7)
+        cluster_a = [[10.0 + random.uniform(-0.1, 0.1),
+                      random.uniform(-0.1, 0.1),
+                      random.uniform(-0.1, 0.1)] for _ in range(6)]
+        cluster_b = [[random.uniform(-0.1, 0.1),
+                      random.uniform(-0.1, 0.1),
+                      10.0 + random.uniform(-0.1, 0.1)] for _ in range(6)]
         n, score = ap._twocluster_silhouette(cluster_a + cluster_b)
         assert n == 2
         assert score >= ap.VOICE_COUNT_SILHOUETTE_THRESHOLD

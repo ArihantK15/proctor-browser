@@ -95,14 +95,18 @@ class TestTwoClusterSilhouette:
         unit-vectors-with-zero-noise was hitting a numpy edge case in
         CI even though the silhouette math is correct.
         """
+        # Use opposite-direction vectors (cosine sim ≈ -1, distance ≈ 2)
+        # rather than orthogonal ones (sim ≈ 0, distance ≈ 1). The
+        # bigger gap removes any BLAS-rounding ambiguity in argmax
+        # tie-breaking which was tripping CI's numpy build.
         import random
         random.seed(7)
-        cluster_a = [[10.0 + random.uniform(-0.1, 0.1),
-                      random.uniform(-0.1, 0.1),
-                      random.uniform(-0.1, 0.1)] for _ in range(6)]
-        cluster_b = [[random.uniform(-0.1, 0.1),
-                      random.uniform(-0.1, 0.1),
-                      10.0 + random.uniform(-0.1, 0.1)] for _ in range(6)]
+        cluster_a = [[ 1.0 + random.uniform(-0.05, 0.05),
+                       random.uniform(-0.05, 0.05),
+                       random.uniform(-0.05, 0.05)] for _ in range(6)]
+        cluster_b = [[-1.0 + random.uniform(-0.05, 0.05),
+                       random.uniform(-0.05, 0.05),
+                       random.uniform(-0.05, 0.05)] for _ in range(6)]
         n, score = ap._twocluster_silhouette(cluster_a + cluster_b)
         assert n == 2
         assert score >= ap.VOICE_COUNT_SILHOUETTE_THRESHOLD

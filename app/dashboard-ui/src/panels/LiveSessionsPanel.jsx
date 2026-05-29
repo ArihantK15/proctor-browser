@@ -129,7 +129,8 @@ export default function LiveSessionsPanel({ currentExamId }) {
         try {
           const d = JSON.parse(e.data)
           setSessions(d.sessions || [])
-        } catch (_) { setStreamStatus('Live update payload was unreadable. Use Refresh for current data.') }
+          setLoading(false)
+        } catch (_) { setStreamStatus('Live update payload was unreadable. Use Refresh for current data.'); setLoading(false) }
       })
       es.addEventListener('update', (e) => {
         try {

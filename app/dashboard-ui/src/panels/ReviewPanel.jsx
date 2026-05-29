@@ -170,12 +170,18 @@ export default function ReviewPanel({ currentExamId }) {
     setBusy((p) => ({ ...p, [appealId]: true }))
     try {
       const teacherNote = (appealNotes[appealId] || '').trim()
-      await authFetch(`/api/v1/admin/appeals/${appealId}/resolve`, {
+      const r = await authFetch(`/api/v1/admin/appeals/${appealId}/resolve`, {
         method: 'POST',
         body: JSON.stringify({ status, teacher_note: teacherNote }),
         headers: { 'Content-Type': 'application/json' },
       })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(d.detail || 'Failed to resolve appeal')
+      }
       setAppeals((prev) => prev.map((a) => (a.id === appealId ? { ...a, status, teacher_note: teacherNote || a.teacher_note } : a)))
+    } catch (e) {
+      setError(e.message || 'Failed to resolve appeal')
     } finally {
       setBusy((p) => ({ ...p, [appealId]: false }))
     }
@@ -717,7 +723,7 @@ function ClustersView({ currentExamId }) {
     } finally { setLoading(false) }
   }, [authFetch, currentExamId])
 
-  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [load])
 
   const dismiss = async (cluster) => {
     const key = `${cluster.violation_type}|${cluster.severity || ''}`

@@ -533,7 +533,7 @@ function renderHistory(items){
           <div>Submitted<strong>${_escHtml(h.submitted_at)}</strong></div>
         </div>
         <div style="margin-top:8px">
-          <button class="btn btn-sm btn-secondary" data-action="openAppeal" data-args='["${_escHtml(h.session_key)}"]'>Appeal</button>
+          <button class="btn btn-sm btn-secondary" data-action="openAppeal" data-args='${_escHtml(JSON.stringify([h.session_key]))}'>Appeal</button>
         </div>
       </div>`;
   }).join('');
@@ -686,8 +686,10 @@ function closePreflight() {
 }
 
 function launchAfterPreflight() {
+  const exam = _pendingExam;
+  const code = _pendingAccessCode;
   closePreflight();
-  launchExam(_pendingExam, _pendingAccessCode);
+  launchExam(exam, code);
 }
 
 function _setPfStatus(check, icon, status, color) {
@@ -799,7 +801,6 @@ function openCodeModal() {
 
 function closeCodeModal() {
   document.getElementById('code-modal').classList.remove('active');
-  _pendingExam = null;
 }
 
 async function confirmStartExam() {

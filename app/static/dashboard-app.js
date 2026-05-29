@@ -286,6 +286,14 @@ async function _connectSSE(){
   }catch(e){
     console.warn('[SSE] not available, using polling');
     _sseFallbackTimer = setInterval(()=>{ refreshLive(); refreshIdReviews(); }, 5000);
+    // Retry SSE after 30s
+    setTimeout(()=>{
+      if(_sseFallbackTimer){
+        clearInterval(_sseFallbackTimer);
+        _sseFallbackTimer=null;
+        _connectSSE();
+      }
+    }, 30000);
   }
 }
 
@@ -812,7 +820,7 @@ function _onboardMaybeShow(){
         clearInterval(probe);
         return;
       }
-      if(!auth.classList.contains('hidden')){
+      if(auth.classList.contains('hidden')){
         clearInterval(probe);
         onboardOpen();
       }
@@ -1120,9 +1128,9 @@ async function loadMembers(){
     if(countEl) countEl.textContent = String(members.length);
     tbody.innerHTML = members.map(m => `
       <tr>
-        <td>${escHtml(m.full_name||'--')}</td>
-        <td>${escHtml(m.email)}</td>
-        <td>${escHtml(m.org_role)}</td>
+        <td>${_escHtml(m.full_name||'--')}</td>
+        <td>${_escHtml(m.email)}</td>
+        <td>${_escHtml(m.org_role)}</td>
         <td>${m.created_at||'--'}</td>
         <td>${m.org_role==='teacher' ? `<button class="btn btn-secondary btn-sm" style="color:var(--red);font-size:11px;padding:4px 8px" data-action="removeOrgMember" data-args='${_jsonArgsForAttr(m.id)}'>Remove</button>` : ''}</td>
       </tr>
@@ -1260,7 +1268,7 @@ async function loadSessions(){
     }
     el.innerHTML = (d.sessions||[]).map(s => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
-        <div style="font-size:12px;color:var(--text)">${escHtml(s.user_agent||'Unknown browser')}</div>
+        <div style="font-size:12px;color:var(--text)">${_escHtml(s.user_agent||'Unknown browser')}</div>
         <div style="font-size:11px;color:var(--muted);font-family:monospace">${s.ip||''}</div>
         <button class="btn btn-ghost btn-sm" data-action="revokeSession" data-args='${_jsonArgsForAttr(s.jti)}' style="font-size:10px;color:var(--red);padding:2px 6px">Revoke</button>
       </div>
@@ -2716,7 +2724,7 @@ async function loadGoogleClassroom(){
       return;
     }
     connectBtn.style.display = 'none';
-    statusEl.textContent = `Connected as ${escHtml(d.email)}`;
+    statusEl.textContent = `Connected as ${_escHtml(d.email)}`;
     if(d.error){
       statusEl.textContent += ' (' + d.error + ')';
       connectBtn.style.display = '';
@@ -2728,7 +2736,7 @@ async function loadGoogleClassroom(){
     listEl.innerHTML = (d.courses||[]).map(c => `
       <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-subtle);cursor:pointer" data-cid="${escAttr(c.id)}">
         <input type="checkbox" ${c.linked?'checked':''} data-change-action="_toggleGoogleCourseWrap" data-course-id='${escAttr(c.id)}'>
-        <span style="font-size:12px;color:${c.linked?'var(--accent-light)':'var(--text-secondary)'}">${escHtml(c.name)} ${c.section?'('+escHtml(c.section)+')':''}</span>
+        <span style="font-size:12px;color:${c.linked?'var(--accent-light)':'var(--text-secondary)'}">${_escHtml(c.name)} ${c.section?'('+_escHtml(c.section)+')':''}</span>
       </label>
     `).join('');
     // Populate exam select
@@ -2738,7 +2746,7 @@ async function loadGoogleClassroom(){
       const curr = sel.value;
       sel.innerHTML = '<option value="">Select exam…</option>';
       document.querySelectorAll('#exam-select option').forEach(o => {
-        if(o.value) sel.innerHTML += `<option value="${escAttr(o.value)}">${escHtml(o.text)}</option>`;
+        if(o.value) sel.innerHTML += `<option value="${escAttr(o.value)}">${_escHtml(o.text)}</option>`;
       });
       if(curr) sel.value = curr;
     }

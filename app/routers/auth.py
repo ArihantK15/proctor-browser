@@ -2,7 +2,6 @@ from ..log_safe import safe
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 import asyncio
-import json
 import logging
 import os
 import re
@@ -10,7 +9,6 @@ import time
 _auth_log = logging.getLogger("auth")
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlencode
 
 from ..database import supabase, async_table as _atable, is_postgres_backend
 from ..limiter import limiter
@@ -698,9 +696,8 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     # a new device/location vs the user's last 30 days. Fire-and-forget
     # so we never delay the login response on auth_events lookup + SMTP.
     try:
-        import asyncio as _asyncio
         from ..services.suspicious_login import check_and_notify as _sus_check
-        _asyncio.create_task(_sus_check(
+        asyncio.create_task(_sus_check(
             user_kind="teacher",
             user_id=teacher["id"],
             user_email=email,
@@ -1336,7 +1333,6 @@ async def student_logout(request: Request):
     """Revoke the current student access-session and refresh tokens."""
     account = await require_student_account(request)
     account_id = str(account["id"])
-    auth = request.headers.get("Authorization", "")
     access_token = _access_token_from_request(request, "procta_student_access")
     current_jti = ""
     if access_token:
@@ -1924,6 +1920,7 @@ async def revoke_session(jti: str, request: Request):
     except Exception:
         _auth_log.debug("auth: teacher session revocation cache write failed", exc_info=True)
     await record_auth_event("session_revoked", request, "teacher", tid)
+    await _revoke_refresh_tokens_for_user(tid, "teacher")
     return {"ok": True}
 
 
@@ -2004,11 +2001,7 @@ async def revoke_other_sessions(request: Request, body: dict = Body(default_fact
     if current_jti:
         q = q.neq("jti", current_jti)
     await q.execute()
-    if local_password_auth_enabled():
-        # No FK from auth_sessions.jti to refresh_tokens.jti, so we
-        # can't preserve the "current device's" refresh. Safer to nuke
-        # all — see docstring.
-        await _revoke_refresh_tokens_for_user(tid, "teacher")
+    await _revoke_refresh_tokens_for_user(tid, "teacher")
     await record_auth_event("session_revoked", request, "teacher", tid, meta={"scope": "others"})
     return {"ok": True}
 
@@ -2033,20 +2026,22 @@ async def student_password_reset(body: dict, request: Request):
                     password_changed_at=_stringify_pwc(user.get("password_changed_at")),
                 )
                 base = _get_invite_base_url()
-                send_password_reset_email(
-                    email,
-                    user.get("full_name", ""),
-                    f"{base}/reset-password?token={token}",
-                )
-            return {"status": "sent"}
-        try:
-            await asyncio.to_thread(supabase.auth.reset_password_for_email, email)
-            return {"status": "sent"}
-        except Exception:
-            _auth_log.warning("[StudentPasswordReset] Supabase reset email failed")
-            return {"status": "sent"}  # Don't reveal whether account exists
+                try:
+                    send_password_reset_email(
+                        email,
+                        user.get("full_name", ""),
+                        f"{base}/reset-password?token={token}",
+                    )
+                except Exception:
+                    _auth_log.warning("[StudentPasswordReset] Email send failed")
+        else:
+            try:
+                await asyncio.to_thread(supabase.auth.reset_password_for_email, email)
+            except Exception:
+                _auth_log.warning("[StudentPasswordReset] Supabase reset email failed")
     finally:
         await asyncio.sleep(max(0.0, 0.35 - (time.monotonic() - started)))
+    return {"status": "sent"}
 
 
 RESET_PASSWORD_HTML = """<!doctype html>

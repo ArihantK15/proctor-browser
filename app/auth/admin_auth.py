@@ -112,10 +112,9 @@ async def verify_admin_token(token: str) -> dict:
     try:
         payload = _decode_with_keys(token, ADMIN_SIGNING_KEYS,
                                     options={"require": ["exp", "tid"]})
-    except JWTError as e:
-        msg = str(e).lower()
-        if "expired" in msg:
-            raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
     if payload.get("role") != "teacher":
         raise HTTPException(status_code=403, detail="Not a teacher token")
@@ -126,7 +125,6 @@ async def verify_admin_token(token: str) -> dict:
     jti = payload.get("jti", "")
     if jti:
         try:
-            from .. import cache as _cache
             cached = _cache.get(f"session:{jti}") if _cache else None
             if cached and isinstance(cached, dict) and cached.get("revoked"):
                 raise HTTPException(status_code=401, detail="Session has been revoked")
@@ -258,17 +256,15 @@ async def verify_student_auth_token(token: str) -> dict:
     try:
         payload = _decode_with_keys(token, STUDENT_SIGNING_KEYS,
                                     options={"verify_aud": False, "require": ["exp", "sid"]})
-    except JWTError as e:
-        msg = str(e).lower()
-        if "expired" in msg:
-            raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
     if payload.get("role") != "student_account":
         raise HTTPException(status_code=403, detail="Not a student token")
     jti = payload.get("jti", "")
     if jti:
         try:
-            from .. import cache as _cache
             cached = _cache.get(f"session:{jti}") if _cache else None
             if cached and isinstance(cached, dict) and cached.get("revoked"):
                 raise HTTPException(status_code=401, detail="Session has been revoked")

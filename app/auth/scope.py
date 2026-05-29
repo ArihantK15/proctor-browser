@@ -138,9 +138,11 @@ async def assert_session_accessible(session_id: str, scope: dict) -> dict:
                        .select("teacher_id")
                        .eq("session_key", session_id)
                        .limit(1).execute()).data
-            if not v_other:
-                return sess
-        # Cross-tenant — pretend the row doesn't exist.
+            if v_other:
+                v_tid = str(v_other[0].get("teacher_id") or "")
+                if v_tid and not await _verify_teacher_in_org(v_tid, scope["org_id"]):
+                    raise HTTPException(status_code=404, detail="Session not found")
+            return sess
         raise HTTPException(status_code=404, detail="Session not found")
 
     # No row — synthesise from violations only if at least one violation's

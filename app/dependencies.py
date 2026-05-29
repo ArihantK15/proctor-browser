@@ -85,6 +85,7 @@ except Exception as _e:
     _boot_log.warning("event_bus import failed (%s) — falling back to in-memory pub/sub.", _e)
     def _bus_publish(*a, **kw): pass
     async def _bus_async_publish(*a, **kw): pass
+    async def _bus_subscribe(*a, **kw): pass
 
 try:
     from . import cache as _cache

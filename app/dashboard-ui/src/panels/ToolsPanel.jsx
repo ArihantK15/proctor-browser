@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function ToolsPanel({ currentExamId }) {
-  const { authFetch } = useAuth()
+  const { authFetch, user } = useAuth()
   const [accessCode, setAccessCode] = useState('')
   const [scheduleStart, setScheduleStart] = useState('')
   const [scheduleEnd, setScheduleEnd] = useState('')
@@ -139,7 +139,8 @@ export default function ToolsPanel({ currentExamId }) {
   if (!currentExamId) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Select an exam to access tools.</div>
 
   const appUrl = import.meta.env.VITE_APP_URL || 'https://app.procta.net'
-  const shareUrl = `${appUrl}/register?teacher_id=`
+  const teacherId = (user && (user.id || user.teacher_id || user.sub)) || ''
+  const shareUrl = `${appUrl}/register?teacher_id=${encodeURIComponent(teacherId)}`
   const downloadUrl = `${appUrl}/download`
 
   return (

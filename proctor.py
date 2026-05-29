@@ -498,12 +498,14 @@ SESSION_ID   = os.getenv("PROCTOR_SESSION_ID",  "test-session")
 SERVER_URL   = os.getenv("PROCTOR_SERVER_URL",  "http://localhost:8000/event")
 EVIDENCE_DIR = os.getenv("PROCTOR_EVIDENCE_DIR", os.path.join(tempfile.gettempdir(), "procta_evidence"))
 JWT_TOKEN    = os.getenv("PROCTOR_JWT_TOKEN",   "")
+if not JWT_TOKEN:
+    print("[PROCTOR] ⚠ No JWT token — server requests will be unauthenticated")
 
-# Derive the analyze-frame endpoint from SERVER_URL. Same host, same auth.
-# This is what makes evidence screenshots show up in the teacher's forensics
-# timeline — without it the only screenshot the server ever sees is the
-# single reference frame the renderer uploads during enrollment.
-EVIDENCE_UPLOAD_URL = SERVER_URL.replace("/event", "/api/v1/analyze-frame")
+# Derive the analyze-frame endpoint from SERVER_URL. Use urljoin so the
+# path replacement works regardless of whether /event is at the end,
+# middle, or absent in SERVER_URL.
+SERVER_BASE = SERVER_URL.rstrip("/event").rstrip("/")
+EVIDENCE_UPLOAD_URL = f"{SERVER_BASE}/api/v1/analyze-frame"
 HEADLESS          = platform.system() == "Windows" or \
                     os.environ.get("PROCTOR_HEADLESS","0") == "1"
 SKIP_ENROLLMENT   = os.environ.get("PROCTOR_SKIP_ENROLLMENT","0") == "1"
@@ -834,7 +836,14 @@ HEADERS = {
     **({"Authorization": f"Bearer {JWT_TOKEN}"} if JWT_TOKEN else {}),
 }
 
-HEARTBEAT_URL = SERVER_URL.replace("/event", "/heartbeat")
+HEARTBEAT_URL = f"{SERVER_BASE}/heartbeat"
+
+# ─── REUSABLE HTTP SESSION ───────────────────────────────────────────────────
+# Single requests.Session() reuses TCP connections across all HTTP calls,
+# cutting per-request overhead by ~10ms. Must be created before _heartbeat_loop
+# starts, otherwise the thread races to use _http before it exists.
+_http = requests.Session()
+_http.headers.update(HEADERS)
 
 def _heartbeat_loop():
     while True:
@@ -850,13 +859,6 @@ def _heartbeat_loop():
             pass
 
 threading.Thread(target=_heartbeat_loop, daemon=True).start()
-
-# ─── REUSABLE HTTP SESSION ───────────────────────────────────────────────────
-# Single requests.Session() reuses TCP connections across all HTTP calls,
-# cutting per-request overhead by ~10ms. Created after HEADERS so the auth
-# headers can be attached at the session level.
-_http = requests.Session()
-_http.headers.update(HEADERS)
 
 # ─── ON-DEMAND LIVE CAMERA STREAM ─────────────────────────────────────────────
 # When a teacher clicks "View camera" on the dashboard, the server flips a
@@ -1364,7 +1366,7 @@ if _vm_name:
 # Runs before the proctoring loop to verify all subsystems are functional.
 # Results are POSTed to the server so the teacher dashboard can show readiness.
 
-SYSTEM_CHECK_URL = SERVER_URL.replace("/event", "/api/v1/proctor/system-check")
+SYSTEM_CHECK_URL = f"{SERVER_BASE}/api/v1/proctor/system-check"
 
 def run_system_check() -> dict:
     """Verify camera, audio, network, and detection models."""
@@ -1407,6 +1409,8 @@ def run_system_check() -> dict:
         results["overall"] = "fail"
         if test_cap:
             test_cap.release()
+    # Allow camera driver to settle before main() opens it again
+    time.sleep(0.3)
 
     # 3. Audio
     results["checks"]["microphone"] = {
@@ -1936,7 +1940,7 @@ def run_proctoring(cap, W, H):
         # ── CALIBRATION TIMEOUT ──────────────────────────────────────────────
         # Hard-freeze calibration if we've waited too long.
         if not calibrated and frame_count >= CALIBRATION_MAX_WAIT:
-            _freeze_calibration_bias("⚠ timed out after {frame_count} frames")
+            _freeze_calibration_bias(f"⚠ timed out after {frame_count} frames")
             log_event("calibration_timeout", "low",
                       f"samples:{len(cal_head_yaw)}")
 
@@ -2184,7 +2188,7 @@ def run_proctoring(cap, W, H):
             # around during calibration that's fine — the average still
             # reflects "their" centred position better than 0.
             if not calibrated and len(cal_head_yaw) >= CALIBRATION_FRAMES:
-                _freeze_calibration_bias("✅ baseline frozen after {len(cal_head_yaw)} frames")
+                _freeze_calibration_bias(f"✅ baseline frozen after {len(cal_head_yaw)} frames")
                 log_event("calibration_complete", "low",
                           f"gaze yaw:{gaze_yaw_bias:+.2f}rad "
                           f"pitch:{gaze_pitch_bias:+.2f}rad | "
@@ -2545,10 +2549,10 @@ def main():
     if not cap.isOpened():
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) \
               if platform.system() == "Windows" \
-              else cv2.VideoCapture(1)
-    if not cap.isOpened():
+              else None
+    if cap is None or not cap.isOpened():
         cap = cv2.VideoCapture(1)
-    if not cap.isOpened():
+    if cap is None or not cap.isOpened():
         try:
             _http.post(SERVER_URL, json=dict(
                 session_id = SESSION_ID,

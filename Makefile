@@ -30,13 +30,13 @@ export COMPOSE_PROFILES = postgres
 .PHONY: up scale logs health down restart pull
 
 up:
-	docker compose up -d --scale worker=$(WORKER_REPLICAS) --scale autosave-worker=$(AUTOSAVE_WORKER_REPLICAS)
+	docker compose --compatibility up -d --scale worker=$(WORKER_REPLICAS) --scale autosave-worker=$(AUTOSAVE_WORKER_REPLICAS)
 	@echo ""
 	@echo "✓ Stack up with $(WORKER_REPLICAS) scoring workers + $(AUTOSAVE_WORKER_REPLICAS) autosave workers"
 	@docker compose ps | grep -E "NAME|worker|api|postgres|pgbouncer" | head -25
 
 scale:
-	docker compose up -d --no-recreate --scale worker=$(WORKER_REPLICAS) --scale autosave-worker=$(AUTOSAVE_WORKER_REPLICAS)
+	docker compose --compatibility up -d --no-recreate --scale worker=$(WORKER_REPLICAS) --scale autosave-worker=$(AUTOSAVE_WORKER_REPLICAS)
 
 logs:
 	docker compose logs -f --tail=50 api worker
@@ -100,15 +100,15 @@ pgbouncer-verify:
 	  'case "$$DATABASE_USE_PGBOUNCER" in 1|true|yes) echo "  asyncpg statement_cache → disabled ✓";; *) echo "  asyncpg statement_cache → ENABLED ✗ (set DATABASE_USE_PGBOUNCER=1 or you will see prepared-statement errors)";; esac'
 
 restart:
-	docker compose restart api caddy
+	docker compose --compatibility restart api caddy
 	@echo "✓ api + caddy restarted (workers + postgres untouched)"
 
 down:
-	docker compose down
+	docker compose --compatibility down
 
 pull:
 	cd $(shell pwd) && git pull --rebase=false
-	docker compose pull
+	docker compose --compatibility pull
 	@echo "✓ pulled latest code + images"
 
 # Distributed load test — convenience wrapper. Most users won't use

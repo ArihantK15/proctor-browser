@@ -1,9 +1,9 @@
-const { app, ipcMain, powerSaveBlocker, globalShortcut } = require('electron');
+const { app, ipcMain, powerSaveBlocker, globalShortcut, screen } = require('electron');
 const path = require('path');
 const {
-  SERVER_URL, ADMIN_CODE, INVITE_REGEX, BLOCKING_TYPES,
+  SERVER_URL, ADMIN_CODE, INVITE_REGEX, BLOCKING_TYPES, THREATS,
 } = require('./config');
-const { extractInviteToken, authHeaders, fetchWithTimeout } = require('./lib/utils');
+const { extractInviteToken, authHeaders, fetchWithTimeout, _exec } = require('./lib/utils');
 const { initAutoUpdater } = require('./lib/auto-update');
 const { runIntegrityChecks } = require('./lib/integrity');
 const {
@@ -43,8 +43,6 @@ const { startProcessMonitor, stopProcessMonitor } = (() => {
 })();
 
 async function _scanProcesses() {
-  const { THREATS } = require('./config');
-  const { _exec } = require('./lib/utils');
   const isWin = process.platform === 'win32';
   const output = await _exec(isWin ? 'tasklist /fo csv /nh' : 'ps -eo comm', 8000);
   if (!output) return;
@@ -69,7 +67,6 @@ async function _scanProcesses() {
     }
   }
   try {
-    const { screen } = require('electron');
     const displays = screen.getAllDisplays();
     if (displays.length > 1 && getCurrentSessionId() && getStudentToken()) {
       fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {

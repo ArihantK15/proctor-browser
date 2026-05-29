@@ -148,17 +148,35 @@ function StudentDashboard({ onLogout }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {exams.map(exam => (
-              <div key={exam.id} className="card" style={{ padding: 20 }}>
-                <h3 style={{ marginBottom: 4 }}>{exam.title || 'Exam'}</h3>
+            {exams.map(exam => {
+              const examId = exam.exam_id || exam.id;
+              const title = exam.exam_title || exam.title || 'Exam';
+              const duration = exam.duration_minutes || exam.duration || 60;
+              const handleStart = () => {
+                if (window.procta_native && window.procta_native.launchExam) {
+                  window.procta_native.launchExam({
+                    rollNumber: '',
+                    accessCode: '',
+                    examTitle: title,
+                    teacherId: exam.teacher_id || '',
+                    examId,
+                  });
+                } else {
+                  window.open(`/exam?exam_id=${encodeURIComponent(examId)}`, '_blank');
+                }
+              };
+              return (
+              <div key={examId} className="card" style={{ padding: 20 }}>
+                <h3 style={{ marginBottom: 4 }}>{title}</h3>
                 <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>{exam.teacher_name || ''}</p>
                 <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
                   <span>Starts: {exam.starts_at ? new Date(exam.starts_at).toLocaleString() : '—'}</span>
-                  <span>Duration: {exam.duration || 60} min</span>
+                  <span>Duration: {duration} min</span>
                 </div>
-                <button className="btn btn-primary btn-sm" onClick={() => window.open('/student', '_blank')}>Start Exam</button>
+                <button className="btn btn-primary btn-sm" onClick={handleStart}>Start Exam</button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

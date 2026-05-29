@@ -609,9 +609,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                         if not verify_csrf(claims, csrf_header):
                             return Response(status_code=403, content="CSRF validation failed")
                 except jwt.ExpiredSignatureError:
-                    pass  # Expired JWT — let normal auth return 401
+                    token = None  # Expired JWT — treat as unauthenticated
                 except jwt.InvalidTokenError:
-                    pass  # Malformed JWT — let normal auth handle it
+                    token = None  # Malformed JWT — treat as unauthenticated
         return await call_next(request)
 
 

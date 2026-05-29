@@ -48,7 +48,8 @@ def _get_sync() -> redis.Redis:
     if _sync is None:
         _sync = redis.Redis.from_url(
             REDIS_URL, decode_responses=True,
-            socket_connect_timeout=3, socket_timeout=5)
+            socket_connect_timeout=3, socket_timeout=5,
+            max_connections=10)
     return _sync
 
 

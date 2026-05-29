@@ -60,16 +60,16 @@ jobs:
             export GIT_SHA="${{ github.sha }}"
             export APP_VERSION="${{ github.ref_name }}"
             export IMAGE_TAG="local"
-            docker compose build api worker autosave-worker
+            docker compose --compatibility build api worker autosave-worker
 
             echo "==> preflight migrations"
-            docker compose run --rm --no-deps --entrypoint sh api -c 'if [ "${DATABASE_BACKEND:-supabase}" = "postgres" ]; then python scripts/run_postgres_migrations.py; else python scripts/run_migrations.py; fi'
+            docker compose --compatibility run --rm --no-deps --entrypoint sh api -c 'if [ "${DATABASE_BACKEND:-supabase}" = "postgres" ]; then python scripts/run_postgres_migrations.py; else python scripts/run_migrations.py; fi'
 
             echo "==> restarting api + workers"
-            docker compose up -d --no-deps api worker autosave-worker
+            docker compose --compatibility up -d --no-deps api worker autosave-worker
 
             echo "==> ensuring caddy is running + applying Caddyfile"
-            docker compose up -d caddy
+            docker compose --compatibility up -d caddy
             # `caddy reload` (which we used to call here) was reporting
             # success but the new routing tree wasn't actually applied
             # — /dashboard kept hitting the old file_server route after
@@ -77,7 +77,7 @@ jobs:
             # Caddy comes back in <1s and the reverse_proxy upstream
             # (api:8000) is on the same docker network so no cold-start
             # to the user. Negligible downtime, guaranteed config swap.
-            docker compose restart caddy
+            docker compose --compatibility restart caddy
             # Give Caddy a beat to bind ports before the healthcheck.
             sleep 2
 
@@ -92,7 +92,7 @@ jobs:
             done
 
             echo "ERROR: API did not become healthy within 90s"
-            docker compose logs --tail=50 api
+            docker compose --compatibility logs --tail=50 api
             exit 1
 
       - name: Prune old images

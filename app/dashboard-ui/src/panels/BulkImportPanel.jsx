@@ -164,7 +164,7 @@ export default function BulkImportPanel() {
               {busy ? 'Uploading...' : 'Preview'}
             </button>
             <a
-              href={`${API_BASE}/api/v1/admin/students/csv-template`}
+              href={`${API_BASE}/admin/students/csv-template`}
               className="btn btn-ghost btn-sm"
               style={{ textDecoration: 'none' }}
               download

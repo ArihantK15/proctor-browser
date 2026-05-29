@@ -21,6 +21,16 @@ else
   python scripts/run_migrations.py
 fi
 
+# ── Cleanup trap ───────────────────────────────────────────────────
+# On SIGTERM/SIGINT, kill all child processes so they don't become
+# orphaned when uvicorn exits or the container stops.
+_cleanup() {
+  echo "[entrypoint] Shutting down background processes..."
+  kill $(jobs -p) 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+trap _cleanup SIGTERM SIGINT SIGQUIT EXIT
+
 # Background cleanup: run every 6 hours
 (
   while true; do
@@ -32,8 +42,7 @@ fi
 # Start RQ worker in background when enabled
 if [ "${RQ_ENABLED:-0}" = "1" ]; then
   python worker.py &
-  _worker_pid=$!
-  echo "[entrypoint] RQ worker started (PID=$_worker_pid)"
+  echo "[entrypoint] RQ worker started (PID=$!)"
 fi
 
 UVICORN_WORKERS="${UVICORN_WORKERS:-${WEB_CONCURRENCY:-2}}"
@@ -62,5 +71,6 @@ if [ -n "${UVICORN_LIMIT_CONCURRENCY:-}" ]; then
   set -- "$@" --limit-concurrency "$UVICORN_LIMIT_CONCURRENCY"
 fi
 
-# Replace shell with uvicorn (signal passthrough)
-exec "$@"
+# Run uvicorn in foreground so signals reach child processes via trap
+"$@" &
+wait $!

@@ -116,7 +116,8 @@ def verify_webhook(raw_body: bytes, headers) -> bool:
 
     secret = os.environ.get("RESEND_WEBHOOK_SECRET", "")
     if not secret:
-        return bool(svix_sig)
+        _log.warning("RESEND_WEBHOOK_SECRET not configured — webhook verification disabled")
+        return False
     if not svix_id or not svix_ts:
         return False
     try:

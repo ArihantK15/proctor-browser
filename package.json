@@ -27,8 +27,8 @@
     "https-proxy-agent": "^9.0.0"
   },
   "build": {
-    "appId": "com.proctor.browser",
-    "productName": "Procta Browser",
+    "appId": "net.procta.browser",
+    "productName": "Procta",
     "asar": true,
     "files": [
       "main.js",
@@ -38,6 +38,8 @@
       "setup-preload.js",
       "lib/**/*",
       "renderer/**/*",
+      "build/icon.png",
+      "build/icon.ico",
       "app/static/student.html",
       "app/static/theme.css",
       "app/static/_safe.js",

@@ -151,7 +151,7 @@ function extractAndReceive(args, source) {
       }
     }
   } catch(e) {
-    console.error(`[Invite] ${source} parse error:`, e.message);
+    console.error('[Invite] %s parse error:', source, e.message);
   }
   return false;
 }

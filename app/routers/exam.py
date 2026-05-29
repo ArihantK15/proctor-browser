@@ -1410,10 +1410,10 @@ async def id_verification_status(request: Request, session_id: str = ""):
     raw = result.data[0].get("details", "")
     try:
         obj = json.loads(raw)
-        # Surface the reason fields so the student's retake/rejected
-        # screens can render "Your examiner determined: <reason>"
-        # instead of the generic copy. Empty strings if the teacher
-        # didn't pick a chip or type a note.
+        # Surface reason fields so the student's retake / rejected screens
+        # can show "Your examiner determined: <reason>" instead of the
+        # generic copy. Empty strings on legacy rows (no migration), which
+        # the renderer's _idReasonInline() short-circuits cleanly.
         return {
             "status":      obj.get("status", "pending"),
             "reason_code": obj.get("reason_code", "") or "",

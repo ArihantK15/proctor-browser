@@ -555,9 +555,9 @@
     </div>
     <h1 style="color:#ff7b72;margin-bottom:10px">Identity Mismatch</h1>
     <p style="margin-bottom:14px">Your examiner has closed this exam session.</p>
-    <!-- Reason block: populated by the poll handler if the teacher
-         provided a chip or free-text note. Hidden when both fields
-         are empty. -->
+    <!-- Reason block: populated by the poll handler when the teacher
+         picked a chip or typed a note. Hidden when both fields are
+         empty so a back-compat row falls through to the generic copy. -->
     <div id="id-reject-reason" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);border-radius:8px;padding:12px 14px;margin-bottom:16px;text-align:left;color:#fca5a5;font-size:13px;line-height:1.5">
       <div style="font-size:11px;color:#ff7b72;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px">Reason</div>
       <div id="id-reject-reason-body"></div>
@@ -1256,10 +1256,9 @@ const _ID_REASON_LABELS = {
 function _idReasonLabel(code) {
   return _ID_REASON_LABELS[code || ''] || '';
 }
-// Compose the "<lead><sep><label> — <note>" string used in both the
-// retake status line and the rejected card. Returns the empty string
-// when the teacher submitted no chip + no note (back-compat: student
-// sees the generic copy).
+// Compose "<label> — <note>" or whichever side exists. Returns the
+// empty string when the teacher submitted no chip + no note so the
+// caller's back-compat branch fires.
 function _idReasonInline(code, text) {
   const label = _idReasonLabel(code);
   const note  = (text || '').trim();
@@ -1379,14 +1378,15 @@ function _startIdPoll() {
         const reasonBlock = document.getElementById('id-reject-reason');
         const reasonBody  = document.getElementById('id-reject-reason-body');
         const reasonStr   = _idReasonInline(d.reason_code, d.reason_text);
-        if (reasonStr) {
-          reasonBody.textContent = reasonStr;
-          reasonBlock.style.display = '';
-        } else {
-          reasonBlock.style.display = 'none';
+        if (reasonBlock && reasonBody) {
+          if (reasonStr) {
+            reasonBody.textContent = reasonStr;
+            reasonBlock.style.display = '';
+          } else {
+            reasonBlock.style.display = 'none';
+          }
         }
-        // Bumped from 8s to 15s so a student who's reading a reason
-        // actually has time to read it before the window closes.
+        // Bumped 8s → 15s so a student reading a reason has time to.
         let secs = 15;
         const cdEl = document.getElementById('id-reject-countdown');
         cdEl.textContent = `Closing in ${secs} seconds...`;

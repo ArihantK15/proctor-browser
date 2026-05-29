@@ -76,10 +76,10 @@ async def id_decision(data: IdDecisionIn, request: Request):
     tid = teacher["id"]
     if data.decision not in ("approved", "retake", "rejected"):
         raise HTTPException(status_code=400, detail="Invalid decision")
-    # Reason validation. Both fields are optional, but if reason_code is
-    # supplied it must be a known value so the student-side label lookup
-    # doesn't fall through to "unknown". Cap the free-text at 500 chars
-    # to bound DB row growth + render width.
+    # Reason validation. Both fields are optional. reason_code must be in
+    # the allowlist so the student-side label lookup never falls through
+    # to "unknown"; reason_text is capped at 500 chars to bound DB row
+    # growth and render width.
     reason_code = (data.reason_code or "").strip()
     if reason_code and reason_code not in ID_REJECT_REASON_CODES:
         raise HTTPException(status_code=400, detail="Invalid reason_code")
@@ -109,10 +109,10 @@ async def id_decision(data: IdDecisionIn, request: Request):
         .execute()
 
     if data.decision == "rejected":
-        # Embed the reason in the audit-trail violation so a later
-        # timeline replay shows WHY the session was closed, not just
-        # that it was. Keep the leading sentence so back-compat parsers
-        # / search continue to match "Teacher rejected student identity".
+        # Embed the reason in the audit-trail violation so a timeline
+        # replay shows WHY the session was closed. Keep the leading
+        # sentence so back-compat parsers continue to match
+        # "Teacher rejected student identity".
         audit_detail = (
             f"Teacher rejected student identity — decided by "
             f"{obj['decided_by']}"

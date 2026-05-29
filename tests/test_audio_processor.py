@@ -27,6 +27,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import audio_processor as ap  # noqa: E402
 
 
+def _has_numpy() -> bool:
+    try:
+        import numpy  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 class TestNormaliseText:
     def test_lowercase_and_strip_punct(self):
         assert ap._normalise_text("Option C, the Answer!") == "option c the answer"
@@ -76,6 +84,17 @@ class TestLoadKeywords:
 
 
 class TestTwoClusterSilhouette:
+    # _twocluster_silhouette soft-imports numpy and returns (1, 0.0) on
+    # ImportError. requirements.lock (the lightweight CI install) does
+    # NOT include numpy, so without this skipif the test_two_voices...
+    # case would fail with a misleading "1 == 2" assertion. Local dev
+    # machines + the proctor production install both have numpy, so
+    # the test still runs there.
+    pytestmark = pytest.mark.skipif(
+        not _has_numpy(),
+        reason="numpy not installed (requirements.lock minimal install)"
+    )
+
     def test_one_voice_below_min_cluster_size(self):
         """Below 2 * MIN_CLUSTER_SIZE total → can't form two clusters."""
         n, score = ap._twocluster_silhouette([[1.0, 2.0, 3.0]] * 4)

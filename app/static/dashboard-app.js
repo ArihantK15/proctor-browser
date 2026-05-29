@@ -1876,13 +1876,20 @@ async function openInterventionWarn(sid){
 }
 
 async function confirmPauseSession(sid){
-  const ok = await appConfirm(
-    'Pause this exam? The student\'s clock will stop and their screen will be locked until you resume.',
-    'Pause exam', {okText:'Pause'});
-  if(!ok) return;
+  // Confirm + optional one-line note via appPrompt's multiline mode.
+  // Empty note submits cleanly — note is purely additive UX. The
+  // confirm framing happens inside the prompt body so we don't make
+  // the teacher click through two dialogs.
+  const note = await appPrompt(
+    'Pause this exam? The student\'s clock stops and their screen locks until you resume.\n\n'
+    + 'Add an optional one-line note for the student (shown in the pause overlay). Leave blank to send no note.',
+    '',
+    {title:'Pause exam', okText:'Pause', multiline:true});
+  if(note === null) return;  // teacher cancelled
   try{
     const resp = await authFetch(`${BASE}/api/v1/admin/session/${encodeURIComponent(sid)}/pause`, {
-      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}',
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({note: (note || '').slice(0, 200)}),
     });
     if(!resp.ok){
       const d = await resp.json().catch(()=>({}));

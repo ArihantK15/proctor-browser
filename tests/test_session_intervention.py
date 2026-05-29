@@ -197,6 +197,41 @@ class TestSessionPause:
         assert resp.json()["status"] == "already_paused"
         assert "exam_sessions_update" not in captured
 
+    def test_pause_with_note_persists_in_audit_row(self, client):
+        captured: dict = {}
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+                "teachers":      [TEACHER],
+                "exam_sessions": [_session_row(status="in_progress")],
+                "violations":    [],
+             }, captured)):
+            resp = client.post(
+                "/api/v1/admin/session/S1/pause",
+                headers=_admin_headers(),
+                json={"note": "Checking your camera angle, 30s"},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["note"] == "Checking your camera angle, 30s"
+        # Audit row mentions the note
+        inserts = captured.get("violations_inserts", [])
+        assert any("camera angle" in (r.get("details") or "") for r in inserts), inserts
+
+    def test_pause_note_capped_at_200_chars(self, client):
+        captured: dict = {}
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+                "teachers":      [TEACHER],
+                "exam_sessions": [_session_row(status="in_progress")],
+                "violations":    [],
+             }, captured)):
+            resp = client.post(
+                "/api/v1/admin/session/S1/pause",
+                headers=_admin_headers(),
+                json={"note": "x" * 500},
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()["note"]) == 200
+
     def test_pause_terminal_session_returns_409(self, client):
         captured: dict = {}
         sm = shared_supabase_mock()

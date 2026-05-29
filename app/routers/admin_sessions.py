@@ -519,6 +519,10 @@ async def session_pause(session_id: str, request: Request,
     full-screen overlay. Idempotent: if the session is already paused,
     returns 200 without re-stamping.
 
+    Optional body.note (≤ 200 chars) is shown to the student inside
+    the pause overlay so a single click communicates WHY they're
+    paused without forcing a separate Warn click first.
+
     No reauth gate — pause is recoverable. The teacher can resume,
     and even a wrong pause only costs the student a few seconds (the
     timer is also stopped).
@@ -533,18 +537,23 @@ async def session_pause(session_id: str, request: Request,
         raise HTTPException(status_code=409,
                             detail=f"Cannot pause a session in status '{status}'")
 
+    note = (body.get("note") or "").strip()[:200]
     now = now_ist()
     await _atable("exam_sessions").update({
         "status":    SessionStatus.PAUSED,
         "paused_at": now.isoformat(),
     }).eq("session_key", session_id).eq("teacher_id", str(tid)).execute()
 
+    decided_by = teacher.get('full_name') or teacher.get('email') or tid
+    audit_detail = f"Paused by {decided_by}"
+    if note:
+        audit_detail += f" — note: {note}"
     await _atable("violations").insert({
         "session_key":    session_id,
         "teacher_id":     str(tid),
         "violation_type": "session_paused",
         "severity":       "low",
-        "details":        f"Paused by {teacher.get('full_name') or teacher.get('email') or tid}",
+        "details":        audit_detail,
     }).execute()
 
     try:
@@ -553,13 +562,13 @@ async def session_pause(session_id: str, request: Request,
             str(tid), session_id,
             text="Your examiner has paused your exam. Please wait — your clock has stopped.",
             kind="pause_directive",
-            extra={},
+            extra={"note": note},
         )
     except Exception:
         logger.debug("session_pause: WS push failed", exc_info=True)
 
-    _admin_log.info("[Pause] %s by:%s", session_id, tid)
-    return {"status": SessionStatus.PAUSED, "paused_at": now.isoformat()}
+    _admin_log.info("[Pause] %s by:%s note:%s", session_id, tid, "y" if note else "-")
+    return {"status": SessionStatus.PAUSED, "paused_at": now.isoformat(), "note": note}
 
 
 @router.post("/api/v1/admin/session/{session_id:path}/resume")

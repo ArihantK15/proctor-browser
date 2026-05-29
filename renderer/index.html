@@ -260,7 +260,7 @@
     #chat-fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;
       border-radius:50%;background:#4a78dc;color:#fff;display:none;
       align-items:center;justify-content:center;cursor:pointer;
-      box-shadow:0 4px 18px rgba(91,138,240,0.35);z-index:9998;
+      box-shadow:0 4px 18px rgba(91,138,240,0.35);z-index:10001;
       border:none;transition:transform .15s, box-shadow .15s}
     #chat-fab:hover{transform:translateY(-2px);
       box-shadow:0 6px 22px rgba(91,138,240,0.50)}
@@ -271,10 +271,15 @@
       font-size:11px;font-weight:700;display:none;align-items:center;
       justify-content:center;padding:0 6px;border:2px solid var(--bg-inset)}
     #chat-fab.unread .badge{display:flex}
+    /* Phase 74 — chat panel + FAB must sit ABOVE the pause overlay
+       (z-index 10000) so the teacher can keep talking to the student
+       while paused. Otherwise the chat disappears the moment we
+       pause, defeating the whole "pause + chat + resume or end"
+       workflow. */
     #chat-panel{position:fixed;bottom:24px;right:24px;width:340px;height:440px;
       background:var(--surface-1);border:1px solid var(--border-default);border-radius:12px;
       box-shadow:0 12px 40px rgba(0,0,0,0.5);display:none;flex-direction:column;
-      z-index:9999;overflow:hidden;font-family:'IBM Plex Sans',system-ui,sans-serif}
+      z-index:10001;overflow:hidden;font-family:'IBM Plex Sans',system-ui,sans-serif}
     #chat-panel.open{display:flex}
     .chat-head{padding:12px 16px;background:var(--bg-inset);border-bottom:1px solid var(--border-default);
       display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -2688,17 +2693,32 @@ function showInterventionWarning(data){
 function showPauseOverlay(data){
   let ov = document.getElementById('intervention-pause-overlay');
   if(ov) return;
+  // Optional one-line note the teacher typed into the pause modal.
+  // Cap at 200 chars for layout. Empty stays empty (no extra UI).
+  const note = (data && typeof data.note === 'string' ? data.note : '').trim().slice(0, 200);
   ov = document.createElement('div');
   ov.id = 'intervention-pause-overlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(13,17,23,.96);z-index:10000;' +
     'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
     'color:#c9d1d9;font-family:inherit;pointer-events:all';
-  ov.innerHTML =
+  let html =
     '<div style="font-size:64px;margin-bottom:18px">⏸</div>' +
     '<h1 style="font-size:28px;margin:0 0 12px 0;color:#fff">Exam paused by your examiner</h1>' +
     '<p style="font-size:15px;color:#8b949e;max-width:420px;text-align:center;line-height:1.5;margin:0 0 6px 0">' +
-    'Your clock is stopped. The exam will resume when your examiner lets you continue.</p>' +
-    '<p style="font-size:13px;color:#6b7b8f;margin-top:8px">Camera + proctoring continue while paused.</p>';
+    'Your clock is stopped. The exam will resume when your examiner lets you continue.</p>';
+  if(note){
+    html += '<div style="margin-top:18px;background:rgba(245,158,11,.10);' +
+      'border:1px solid rgba(245,158,11,.45);border-radius:10px;' +
+      'padding:14px 18px;max-width:460px;color:#fde68a;font-size:14px;line-height:1.5">' +
+      '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#fbbf24;' +
+      'font-weight:600;margin-bottom:6px">From your examiner</div>' +
+      _escHtml(note) +
+      '</div>';
+  }
+  html += '<p style="font-size:13px;color:#6b7b8f;margin-top:18px">' +
+    'Use the chat (bottom right) if you need to reply. Camera + proctoring continue while paused.' +
+    '</p>';
+  ov.innerHTML = html;
   document.body.appendChild(ov);
   // Pause the exam timer if there's an active interval. examTimer is
   // declared higher up; setIntervalId is tracked there for the
@@ -2708,6 +2728,16 @@ function showPauseOverlay(data){
     clearInterval(window._examTimerInterval);
     window._examTimerWasPaused = true;
   }
+  // Auto-open the chat panel so the student sees teacher messages
+  // without having to remember to click the FAB. If chat infra isn't
+  // ready yet (cold start before the chat WS connects), the FAB will
+  // pop in within a second and chatTogglePanel is safe to call again.
+  try {
+    const panel = document.getElementById('chat-panel');
+    if(panel && !panel.classList.contains('open') && typeof chatTogglePanel === 'function'){
+      chatTogglePanel();
+    }
+  } catch(e) { console.warn('[pause] chat auto-open failed', e); }
   _playChime();
 }
 

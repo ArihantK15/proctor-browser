@@ -4425,6 +4425,8 @@ const TL_ICONS = {
   // Phase 74 — live teacher intervention audit-trail markers
   teacher_warning:'&#9888;&#65039;', session_paused:'&#9208;&#65039;',
   session_resumed:'&#9654;&#65039;',
+  // Phase 75 — on-device audio detection
+  keyword_uttered:'&#128172;', multiple_voices_detected:'&#128101;',
   phone_consulting:'&#128242;', collaboration:'&#128101;&#8205;&#128172;',
   answer_memo:'&#129504;', note_reading:'&#128214;',
   sustained_offtask:'&#9203;', nervous_evasion:'&#128064;&#65039;',

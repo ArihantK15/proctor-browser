@@ -29,6 +29,9 @@ const REASON_MAP = {
   teacher_warning: 'Teacher sent the student a warning via the chat.',
   session_paused:  'Teacher paused the exam — the student\'s clock was stopped.',
   session_resumed: 'Teacher resumed the exam after a pause.',
+  // Phase 75 — on-device audio detection
+  keyword_uttered: 'Student spoke a flagged keyword aloud during the exam.',
+  multiple_voices_detected: 'More than one voice detected near the student\'s microphone.',
 }
 
 function _reasonHint(violationType, details) {

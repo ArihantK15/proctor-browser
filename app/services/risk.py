@@ -46,6 +46,13 @@ VIOLATION_WEIGHTS: dict[str, float] = {
     # weight (they're audit-trail rows). The corresponding events
     # still show up on the timeline + analytics CSV.
     "teacher_warning": 0, "session_paused": 0, "session_resumed": 0,
+    # Phase 75 — on-device audio detection. keyword_uttered is a
+    # direct cheat signal (student spoke a flagged phrase like
+    # "option C is correct"); multiple_voices_detected catches
+    # someone else helping in the room. Both stack with the existing
+    # RMS-only voice_detected which stays as the lower-signal
+    # generic "audio activity" flag.
+    "keyword_uttered": 15, "multiple_voices_detected": 18,
 }
 
 _SEVERITY_MULTIPLIER = {"high": 1.0, "medium": 0.4, "low": 0.1}

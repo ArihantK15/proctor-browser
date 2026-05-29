@@ -14,6 +14,11 @@ export default function ToolsPanel({ currentExamId }) {
   const [sensitivity, setSensitivity] = useState('balanced')
   const [sensitivityLoaded, setSensitivityLoaded] = useState(false)
   const [sensitivityResult, setSensitivityResult] = useState('')
+  // Phase 75 — per-exam audio keyword list + language
+  const [audioKeywordsText, setAudioKeywordsText] = useState('')  // one phrase per line
+  const [audioLang, setAudioLang] = useState('en')
+  const [audioLoaded, setAudioLoaded] = useState(false)
+  const [audioResult, setAudioResult] = useState('')
   const [scheduleResult, setScheduleResult] = useState('')
   const [shuffleResult, setShuffleResult] = useState('')
   const [copyResult, setCopyResult] = useState('')
@@ -31,11 +36,12 @@ export default function ToolsPanel({ currentExamId }) {
     if (!currentExamId) return
     setLoadError('')
     try {
-      const [configR, schedR, accessR, sensR] = await Promise.all([
+      const [configR, schedR, accessR, sensR, audioR] = await Promise.all([
         authFetch(`/api/v1/admin/shuffle-config?exam_id=${encodeURIComponent(currentExamId)}`),
         authFetch(`/api/v1/admin/exam-schedule?exam_id=${encodeURIComponent(currentExamId)}`),
         authFetch(`/api/v1/admin/access-code?exam_id=${encodeURIComponent(currentExamId)}`),
         authFetch(`/api/v1/admin/proctoring-sensitivity?exam_id=${encodeURIComponent(currentExamId)}`),
+        authFetch(`/api/v1/admin/audio-keywords?exam_id=${encodeURIComponent(currentExamId)}`),
       ])
       const failures = []
       if (configR.ok) { const d = await configR.json(); setShuffleQ(!!d.shuffle_questions); setShuffleO(!!d.shuffle_options) }
@@ -46,6 +52,12 @@ export default function ToolsPanel({ currentExamId }) {
       else failures.push(`access code ${accessR.status}`)
       if (sensR.ok) { const d = await sensR.json(); setSensitivity(d.proctoring_sensitivity || 'balanced'); setSensitivityLoaded(true) }
       else failures.push(`sensitivity ${sensR.status}`)
+      if (audioR.ok) {
+        const d = await audioR.json()
+        setAudioKeywordsText((d.audio_keywords || []).join('\n'))
+        setAudioLang(d.audio_keywords_language || 'en')
+        setAudioLoaded(true)
+      } else failures.push(`audio keywords ${audioR.status}`)
       if (failures.length) setLoadError(`Some exam settings could not load: ${failures.join(', ')}`)
     } catch (e) {
       setLoadError(e.message || 'Failed to load exam settings')
@@ -208,6 +220,49 @@ export default function ToolsPanel({ currentExamId }) {
                 setSensitivityResult(err.message || 'Failed')
               }
             }}>Save Sensitivity</button>
+          </div>
+        ) : <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</div>}
+      </ToolCard>
+
+      {/* Phase 75 — Audio keyword detection */}
+      <ToolCard title="Audio Keyword Detection" desc="On-device speech recognition flags when the student says one of these phrases. Built-in defaults cover common cheat patterns (e.g. 'the answer is', 'option C'). Add exam-specific phrases below — one per line, 2–80 chars each, max 50 entries.">
+        {audioLoaded ? (
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase' }}>Language</label>
+            <select className="input" style={{ width: '100%', marginBottom: 10 }} value={audioLang} onChange={(e) => setAudioLang(e.target.value)}>
+              <option value="en">English (en-IN)</option>
+              <option value="hi">Hindi (hi-IN)</option>
+              <option value="en+hi">English + Hindi</option>
+            </select>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase' }}>Custom keywords (optional)</label>
+            <textarea
+              className="input"
+              style={{ width: '100%', minHeight: 100, resize: 'vertical', marginBottom: 8, fontSize: 12, fontFamily: 'monospace' }}
+              placeholder={'periodic table\nkrebs cycle\nbalance the equation'}
+              value={audioKeywordsText}
+              onChange={(e) => setAudioKeywordsText(e.target.value)}
+            />
+            {audioResult && <div style={{ fontSize: 12, marginBottom: 6 }}>{audioResult}</div>}
+            <button className="btn btn-primary btn-sm" onClick={async () => {
+              try {
+                const list = audioKeywordsText.split('\n').map(s => s.trim()).filter(Boolean)
+                const r = await authFetch('/api/v1/admin/audio-keywords', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    exam_id: currentExamId,
+                    audio_keywords: list,
+                    audio_keywords_language: audioLang,
+                  }),
+                })
+                if (!r.ok) throw await responseError(r, 'Failed to save audio keywords')
+                const d = await r.json()
+                setAudioResult(`✅ Saved (${(d.audio_keywords || []).length} keyword${(d.audio_keywords || []).length === 1 ? '' : 's'})`)
+                // Re-render text in case the server normalised/deduped.
+                setAudioKeywordsText((d.audio_keywords || []).join('\n'))
+              } catch (err) {
+                setAudioResult(err.message || 'Failed')
+              }
+            }}>Save Keywords</button>
           </div>
         ) : <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</div>}
       </ToolCard>

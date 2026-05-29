@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 _EXAM_CONFIG_COLUMNS = (
     "id,exam_id,teacher_id,exam_title,duration_minutes,access_code,"
     "starts_at,ends_at,shuffle_questions,shuffle_options,"
-    "phone_camera_enabled,proctoring_sensitivity,created_at"
+    "phone_camera_enabled,proctoring_sensitivity,"
+    "audio_keywords,audio_keywords_language,created_at"
 )
 
 try:
@@ -96,6 +97,8 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
         "shuffle_questions": True, "shuffle_options": True,
         "proctoring_sensitivity": "balanced",
         "phone_camera_enabled": False,
+        "audio_keywords": None,
+        "audio_keywords_language": "en",
     }
 
 

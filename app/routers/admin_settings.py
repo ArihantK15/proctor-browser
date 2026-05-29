@@ -133,4 +133,118 @@ async def admin_set_sensitivity(request: Request, body: SensitivityIn = Body(...
     }
 
 
+# ─── Audio keyword detection (phase 75) ──────────────────────────────
+#
+# Per-exam keyword list extending the built-in defaults shipped with
+# the proctor daemon. Built-in defaults cover common cheat phrases
+# ("option a", "the answer is", etc.); teachers can add exam-specific
+# phrases ("periodic table", "newton's third law", etc.). Capped at 50
+# entries × 80 chars each to bound storage + DB row size.
+
+_AUDIO_LANGS = ("en", "hi", "en+hi")
+_MAX_KEYWORDS = 50
+_MAX_KEYWORD_LEN = 80
+_MIN_KEYWORD_LEN = 2
+
+
+class AudioKeywordsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id:                  str
+    audio_keywords:           Optional[list[str]] = None  # None = clear back to defaults
+    audio_keywords_language:  Optional[str] = None        # one of _AUDIO_LANGS
+
+
+def _normalise_keywords(raw) -> list[str]:
+    """Strip, dedupe (case-insensitive), drop too-short / too-long, cap
+    at _MAX_KEYWORDS. Returns the cleaned list; raises HTTPException
+    when an individual entry is rejected so the teacher gets a useful
+    error instead of silent truncation."""
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400,
+                            detail="audio_keywords must be a list of strings")
+    seen: set[str] = set()
+    out: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, str):
+            raise HTTPException(status_code=400,
+                                detail="Each keyword must be a string")
+        s = entry.strip()
+        if not s:
+            continue
+        if len(s) < _MIN_KEYWORD_LEN:
+            raise HTTPException(status_code=400,
+                                detail=f"Keyword '{s}' is too short (min {_MIN_KEYWORD_LEN} chars)")
+        if len(s) > _MAX_KEYWORD_LEN:
+            raise HTTPException(status_code=400,
+                                detail=f"Keyword too long (max {_MAX_KEYWORD_LEN} chars)")
+        lower = s.lower()
+        if lower in seen:
+            continue
+        seen.add(lower)
+        out.append(s)
+        if len(out) > _MAX_KEYWORDS:
+            raise HTTPException(status_code=400,
+                                detail=f"Too many keywords (max {_MAX_KEYWORDS})")
+    return out
+
+
+@router.get("/api/v1/admin/audio-keywords")
+@limiter.limit("60/minute")
+async def admin_get_audio_keywords(request: Request):
+    teacher = await require_admin(request)
+    exam_id = request.query_params.get("exam_id")
+    config = await _load_exam_config(teacher["id"], exam_id=exam_id)
+    raw = config.get("audio_keywords")
+    keywords: list[str] = []
+    if raw:
+        try:
+            import json as _json
+            parsed = _json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, list):
+                keywords = [str(k) for k in parsed]
+        except (ValueError, TypeError):
+            keywords = []
+    lang = (config.get("audio_keywords_language") or "en").strip()
+    if lang not in _AUDIO_LANGS:
+        lang = "en"
+    return {
+        "audio_keywords":          keywords,
+        "audio_keywords_language": lang,
+        "supported_languages":     list(_AUDIO_LANGS),
+        "max_keywords":            _MAX_KEYWORDS,
+        "max_keyword_length":      _MAX_KEYWORD_LEN,
+    }
+
+
+@router.post("/api/v1/admin/audio-keywords")
+@limiter.limit("20/minute")
+async def admin_set_audio_keywords(request: Request, body: AudioKeywordsIn = Body(...)):
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    exam_id = body.exam_id
+    # Language
+    lang = (body.audio_keywords_language or "en").strip()
+    if lang not in _AUDIO_LANGS:
+        raise HTTPException(status_code=400,
+                            detail=f"audio_keywords_language must be one of: {', '.join(_AUDIO_LANGS)}")
+    # Keywords — None / empty means "clear back to defaults"
+    cleaned = _normalise_keywords(body.audio_keywords) if body.audio_keywords else []
+    import json as _json
+    update = {
+        "audio_keywords":          _json.dumps(cleaned) if cleaned else None,
+        "audio_keywords_language": lang,
+    }
+    await _atable("exam_config").update(update)\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id}")
+    return {
+        "status":                  "updated",
+        "audio_keywords":          cleaned,
+        "audio_keywords_language": lang,
+    }
+
+
 __all__ = ["router"]

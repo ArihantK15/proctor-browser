@@ -69,7 +69,13 @@ async def main_async() -> int:
     last_exc: Exception | None = None
     for attempt in range(1, 16):
         try:
-            conn = await asyncpg.connect(_database_url())
+            # statement_cache_size=0 → asyncpg doesn't reuse prepared
+            # statements between calls. Required when the DATABASE_URL
+            # points at pgbouncer in transaction-pooling mode (our
+            # current prod setup): pgbouncer drops prepared statements
+            # at transaction boundaries, so reuse blows up with
+            # "prepared statement __asyncpg_stmt_N__ does not exist".
+            conn = await asyncpg.connect(_database_url(), statement_cache_size=0)
             break
         except Exception as exc:
             last_exc = exc

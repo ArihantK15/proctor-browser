@@ -173,8 +173,15 @@ def _twocluster_silhouette(mfcc_vectors):
     sim = Xn @ Xn.T
     dist = 1.0 - sim
     np.fill_diagonal(dist, 0.0)
-    # Seed: the two most-distant vectors
-    i, j = np.unravel_index(np.argmax(dist), dist.shape)
+    # Seed selection: anchor at row 0, pick the most-distant row as
+    # the second seed. Then re-pick row-0-replacement as the most-
+    # distant row from the chosen seed. Deterministic + avoids the
+    # numpy argmax tie-breaking that bit us in CI when many distances
+    # tied at the global max.
+    j = int(np.argmax(dist[0, :]))
+    if j == 0:
+        return (1, 0.0)
+    i = int(np.argmax(dist[:, j]))
     if i == j:
         return (1, 0.0)
     # Absolute-distance guard: if even the FURTHEST pair of MFCC means

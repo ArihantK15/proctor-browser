@@ -85,6 +85,24 @@
     <priority>0.5</priority>
   </url>
   <url>
+    <loc>https://www.procta.net/compare/talview-vs-procta</loc>
+    <lastmod>2026-05-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.procta.net/compare/proctortrack-vs-procta</loc>
+    <lastmod>2026-05-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.procta.net/compare/honorlock-vs-procta</loc>
+    <lastmod>2026-05-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://www.procta.net/privacy</loc>
     <lastmod>2026-04-13</lastmod>
     <changefreq>yearly</changefreq>

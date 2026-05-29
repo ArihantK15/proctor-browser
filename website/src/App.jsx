@@ -19,6 +19,9 @@ const BlogDPDPCompliance = lazy(() => import('./pages/BlogDPDPCompliance'))
 const Download = lazy(() => import('./pages/Download'))
 const Register = lazy(() => import('./pages/Register'))
 const MigrateFromMettl = lazy(() => import('./pages/MigrateFromMettl'))
+const CompareTalview = lazy(() => import('./pages/CompareTalview'))
+const CompareProctortrack = lazy(() => import('./pages/CompareProctortrack'))
+const CompareHonorlock = lazy(() => import('./pages/CompareHonorlock'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
 function RouteFallback() {
@@ -65,8 +68,11 @@ export default function App() {
           <Route path="/blog/dpdp-act-compliance-online-proctoring-indian-universities"><LazyRoute Component={BlogDPDPCompliance} /></Route>
           <Route path="/download"><LazyRoute Component={Download} /></Route>
           <Route path="/register"><LazyRoute Component={Register} /></Route>
-          {/* SEO landing page targeted at "Mettl alternative" search traffic. */}
+          {/* SEO landing pages targeted at "X alternative" / "X vs Procta" search traffic. */}
           <Route path="/migrate-from-mettl"><LazyRoute Component={MigrateFromMettl} /></Route>
+          <Route path="/compare/talview-vs-procta"><LazyRoute Component={CompareTalview} /></Route>
+          <Route path="/compare/proctortrack-vs-procta"><LazyRoute Component={CompareProctortrack} /></Route>
+          <Route path="/compare/honorlock-vs-procta"><LazyRoute Component={CompareHonorlock} /></Route>
           <Route><LazyRoute Component={NotFound} /></Route>
         </Switch>
       </div>

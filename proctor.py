@@ -515,7 +515,7 @@ CALIBRATION_MODE  = os.environ.get("PROCTOR_CALIBRATION_MODE","0") == "1"
 _INITIAL_GAZE_YAW_BIAS  = os.environ.get("PROCTOR_GAZE_YAW_BIAS")
 _INITIAL_GAZE_PITCH_BIAS = os.environ.get("PROCTOR_GAZE_PITCH_BIAS")
 _INITIAL_HEAD_YAW_BIAS  = os.environ.get("PROCTOR_HEAD_YAW_BIAS")
-_PRESET_HEAD_PITCH_BIAS = os.environ.get("PROCTOR_HEAD_PITCH_BIAS")
+_INITIAL_HEAD_PITCH_BIAS = os.environ.get("PROCTOR_HEAD_PITCH_BIAS")
 
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
@@ -2238,28 +2238,6 @@ def run_proctoring(cap, W, H):
             severity = base_severity
         return severity, repeat_count
 
-    def escalate_severity(etype: str, base_severity: str) -> Tuple[str, int]:
-        now = time.time()
-        cutoff = now - ESCALATION_WINDOW_SECS
-        history = state["_violation_history"].get(etype, [])
-        history = [(t, s) for t, s in history if t > cutoff]
-        repeat_count = len(history) + 1
-        if repeat_count >= 3:
-            severity = "critical"
-        elif repeat_count == 2:
-            severity = ESCALATION_TIERS.get(base_severity, base_severity)
-        else:
-            severity = base_severity
-        history.append((now, base_severity))
-        state["_violation_history"][etype] = history
-        return severity, repeat_count
-
-    def log_with_escalation(etype: str, base_severity: str, details: str):
-        severity, repeat = escalate_severity(etype, base_severity)
-        if repeat > 1:
-            details = f"[{repeat}x repeat] {details}"
-        log_event(etype, severity, details)
-
     def log_if_allowed(etype: str, base_severity: str, details: str) -> bool:
         _track_violation(etype)
         now = time.time()
@@ -2357,6 +2335,7 @@ def run_proctoring(cap, W, H):
             state["_last_face_bbox"] = None
             multi_face_count = 0
             gaze_away_count    = max(0, gaze_away_count - 1)
+            gaze_extreme_count = max(0, gaze_extreme_count - 2)
             eyes_closed_count  = max(0, eyes_closed_count - 1)
             head_away_count    = max(0, head_away_count - 1)
             head_extreme_count = max(0, head_extreme_count - 2)

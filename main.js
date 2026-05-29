@@ -1,4 +1,4 @@
-const { app, ipcMain, powerSaveBlocker, globalShortcut, screen } = require('electron');
+const { app, ipcMain, globalShortcut, screen } = require('electron');
 const path = require('path');
 const {
   SERVER_URL, ADMIN_CODE, INVITE_REGEX, BLOCKING_TYPES, THREATS,

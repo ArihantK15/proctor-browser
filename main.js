@@ -13,10 +13,6 @@ const {
 } = require('./lib/python-manager');
 const { startPolling, stopPolling } = require('./lib/polling');
 
-// Enable sandbox on Windows/macOS; only disable when forced by Linux CI (no --display)
-if (process.platform === 'linux' && !process.env.DISPLAY) {
-  app.commandLine.appendSwitch('no-sandbox');
-}
 const {
   createLobbyWindow, createExamWindow, releaseKiosk, handlePanicUnlock,
   receiveInviteToken, consumeInviteToken, getPendingInviteToken,

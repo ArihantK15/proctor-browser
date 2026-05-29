@@ -33,6 +33,7 @@ import sys
 import time
 import base64
 import platform
+import signal
 import tempfile
 import threading
 import requests
@@ -55,11 +56,7 @@ from queue import Queue, Empty
 from typing import Optional, Tuple
 
 # ─── BEHAVIORAL ANALYSIS (multi-signal correlation) ────────────────────────────
-from behavioral_analysis import (
-    BehavioralEngine,
-    PATTERN_SEVERITY,
-    PATTERN_CONFIDENCE,
-)
+from behavioral_analysis import BehavioralEngine
 _behavioral = BehavioralEngine(check_interval=15)
 
 # ─── OPTIONAL DETECTORS ───────────────────────────────────────────────────────
@@ -352,7 +349,9 @@ class SahiYoloWorker:
                     pass
 
 sahi_worker = SahiYoloWorker()
-SAHI_AVAILABLE = YOLO_AVAILABLE
+def _sahi_available() -> bool:
+    """Check whether SAHI tiled detection is usable (YOLO must be loaded)."""
+    return YOLO_AVAILABLE and not SKIP_ENROLLMENT
 
 # ─── EAR-CROP CLASSIFIER (earphone/earbud detection) ──────────────────────────
 # Uses face landmarks from RetinaFace to crop the ear regions, then runs
@@ -845,8 +844,10 @@ HEARTBEAT_URL = f"{SERVER_BASE}/heartbeat"
 # starts, otherwise the thread races to use _http before it exists.
 _http = requests.Session()
 _http.headers.update(HEADERS)
+_violation_lock = threading.Lock()
 
 def _heartbeat_loop():
+    hb_failures = 0
     while True:
         time.sleep(30)
         try:
@@ -856,8 +857,12 @@ def _heartbeat_loop():
                       "severity": "low", "details": "alive"},
                 timeout=5
             )
+            hb_failures = 0
         except Exception:
-            pass
+            hb_failures += 1
+            hb_backoff = min(60, 2 ** min(hb_failures, 5))
+            print(f"[Heartbeat Error] backoff: {hb_backoff}s")
+            time.sleep(hb_backoff)
 
 threading.Thread(target=_heartbeat_loop, daemon=True).start()
 
@@ -882,6 +887,8 @@ def _derive_ws_url():
     if url.startswith("https://"):
         return "wss://" + url[len("https://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
     if url.startswith("http://"):
+        if not os.environ.get("PROCTOR_ALLOW_WS", "").strip().lower() in {"1", "true"}:
+            print("[LiveFeed] ⚠ WebSocket URL uses ws:// — JWT sent in cleartext! Set PROCTOR_ALLOW_WS=1 to proceed.")
         return "ws://" + url[len("http://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
     return url + f"/ws/v1/live-frame/{SESSION_ID}"
 
@@ -1002,7 +1009,8 @@ def log_event(etype, severity, details):
     conf = CONFIDENCE.get(etype, 0.75)
     full_details = f"{details} | confidence:{int(conf*100)}%"
     if severity in ("high", "medium"):
-        violation_count += 1
+        with _violation_lock:
+            violation_count += 1
     try:
         _http.post(SERVER_URL, json=dict(
             session_id = SESSION_ID,
@@ -1015,16 +1023,18 @@ def log_event(etype, severity, details):
         print(f"[Server Error] {e}")
 
 def save_evidence(frame, label):
+    if not JWT_TOKEN and not os.environ.get("SAVE_EVIDENCE_LOCAL", "").strip().lower() in {"1", "true"}:
+        return
     try:
         ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         path = os.path.join(EVIDENCE_DIR, f"{label}_{ts}.jpg")
-        cv2.imwrite(path, frame)
+        ok = cv2.imwrite(path, frame)
+        if not ok:
+            print(f"[Evidence Error] Write failed: {path}")
+            return
         print(f"[Evidence] → {path}")
     except Exception as e:
         print(f"[Evidence Error] {e}")
-        return
-
-    if not JWT_TOKEN:
         return
     try:
         ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
@@ -1044,7 +1054,6 @@ def _evidence_upload_loop():
         try:
             b64, label = _evidence_q.get(timeout=1)
         except Empty:
-            consecutive_failures = 0  # reset backoff on idle
             continue
         try:
             _http.post(
@@ -1065,6 +1074,20 @@ def _evidence_upload_loop():
             time.sleep(backoff)
 
 threading.Thread(target=_evidence_upload_loop, daemon=True, name="evidence-uploader").start()
+
+def _cleanup_evidence_dir(max_age_days: int = 7):
+    """Remove evidence files older than max_age_days to prevent disk leaks."""
+    if not os.path.isdir(EVIDENCE_DIR):
+        return
+    now = time.time()
+    cutoff = now - max_age_days * 86400
+    try:
+        for fname in os.listdir(EVIDENCE_DIR):
+            fpath = os.path.join(EVIDENCE_DIR, fname)
+            if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                os.remove(fpath)
+    except Exception as _exc:
+        print(f"[Evidence Cleanup] Error: {_exc}")
 
 # ─── GAZE ESTIMATOR (ONNX) ────────────────────────────────────────────────────
 # Wraps the ResNet18 gaze model. Input: a tight crop of the face. Output:
@@ -1264,8 +1287,8 @@ def _detect_virtual_camera():
                 for keyword in VIRTUAL_CAM_KEYWORDS:
                     if keyword.lower() in result.stdout.lower():
                         return keyword
-    except Exception:
-        pass
+    except Exception as _exc:
+        print(f"[VIRTUAL CAM] Detection error: {_exc}")
     return None
 
 def _detect_screen_share_feed(frame: np.ndarray) -> Optional[str]:
@@ -1312,7 +1335,7 @@ def _detect_vm() -> Optional[str]:
         if system == "Darwin":
             import subprocess
             result = subprocess.run(
-                ["sysctl", "-a"], capture_output=True,
+                ["sysctl", "-n", "hw.model"], capture_output=True,
                 text=True, timeout=5)
             if result.returncode == 0:
                 for indicator in VM_INDICATORS:
@@ -1349,8 +1372,8 @@ def _detect_vm() -> Optional[str]:
                 for indicator in VM_INDICATORS:
                     if indicator in result.stdout.lower():
                         return indicator
-    except Exception:
-        pass
+    except Exception as _exc:
+        print(f"[VM DETECT] Detection error: {_exc}")
     return None
 
 # Deferred to main() so subprocess calls don't block module import
@@ -1710,7 +1733,7 @@ def run_proctoring(cap, W, H):
     # once loading succeeds (typically 1-2 seconds). Until then the main
     # loop skips submission harmlessly.
     yolo_worker.start()
-    if SAHI_AVAILABLE:
+    if _sahi_available():
         sahi_worker.start()
 
     # We mutate _LAST_LIVE_FRAME_TS from inside the capture loop to
@@ -2250,10 +2273,10 @@ def run_proctoring(cap, W, H):
         # Runs every SAHI_EVERY_N frames to catch small earbuds and hidden
         # objects that full-frame YOLO misses. Shares object_history with YOLO
         # so both detectors contribute to the same cooldown threshold.
-        if SAHI_AVAILABLE and frame_count % SAHI_EVERY_N == 0:
+        if _sahi_available() and frame_count % SAHI_EVERY_N == 0:
             sahi_worker.submit(frame, frame_count)
 
-        if SAHI_AVAILABLE:
+        if _sahi_available():
             sahi_result = sahi_worker.get_result(frame_count)
             if sahi_result is not None:
                 _last_sahi_result = sahi_result  # cache for behavioral push
@@ -2452,7 +2475,7 @@ def run_proctoring(cap, W, H):
                     phone_type = classify_phone_position(phone_box, _last_face_bbox, H)
                     phone_in_hand = (phone_type == "phone_in_hand")
                     break
-        if not phone_in_hand and SAHI_AVAILABLE and _last_sahi_result and _last_sahi_result.get("detections"):
+        if not phone_in_hand and _sahi_available() and _last_sahi_result and _last_sahi_result.get("detections"):
             for det in _last_sahi_result["detections"]:
                 if det[0] == "Phone" and len(det) >= 6:
                     phone_box = (det[2], det[3], det[4], det[5])
@@ -2632,17 +2655,29 @@ def main():
         run_proctoring(cap, W, H)
     except KeyboardInterrupt:
         print("\n[PROCTOR] Stopped by signal")
+    except SystemExit:
+        print("\n[PROCTOR] Stopped by SIGTERM")
     finally:
         yolo_worker.stop()
-        if SAHI_AVAILABLE:
+        if _sahi_available():
             sahi_worker.stop()
         duration = int(time.time() - session_start)
         log_event("session_ended", "low",
                   f"violations:{violation_count} | duration:{duration}s")
         cap.release()
+        _http.close()
+        _cleanup_evidence_dir()
         if not HEADLESS:
-            cv2.destroyAllWindows()
+            try:
+                cv2.destroyAllWindows()
+            except Exception:
+                pass
         print("[PROCTOR] ✅ Session ended")
 
+def _handle_sigterm(signum, frame):
+    print("\n[PROCTOR] SIGTERM received — shutting down")
+    sys.exit(0)
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _handle_sigterm)
     main()

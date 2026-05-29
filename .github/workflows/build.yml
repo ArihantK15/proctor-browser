@@ -25,8 +25,6 @@ jobs:
             target: mac
           - os: windows-latest
             target: win
-          - os: ubuntu-latest
-            target: linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -76,12 +74,6 @@ jobs:
           # Without a cert, unsigned EXEs trigger SmartScreen on first-run.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-
-      - name: Build & publish (Linux)
-        if: matrix.target == 'linux'
-        run: npx electron-builder --linux --x64 --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Show dist contents
         shell: bash

@@ -27,7 +27,7 @@ export default function USPs() {
       icon: Server,
       title: 'Zero IT involvement for students',
       desc: "Students download a 12 MB desktop app — no VPN, no browser extension, no custom firewall rules. Runs on a ₹30,000 Lenovo IdeaPad as well as a MacBook Pro.",
-      proof: 'Windows, macOS, and Linux builds',
+      proof: 'Windows and macOS builds',
     },
     {
       icon: Users,

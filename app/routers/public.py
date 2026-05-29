@@ -20,7 +20,7 @@ from ..limiter import limiter
 from .. import cache as _cache
 from ..models import RegisterIn, SessionStatus, InviteStatus, VerificationStatus
 from ..utils import fmt_ist, now_ist
-from ..constants import DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN, DOWNLOAD_LINUX
+from ..constants import DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..invites import _get_invite_base_url
 from ..services.invite_landing import _render_invite_error, _render_invite_landing
@@ -507,12 +507,6 @@ async def download_win():
         "/app/downloads/ProctorBrowser-Setup.exe", "ProctorBrowser-Setup.exe")
 
 
-@router.get("/download/linux")
-async def download_linux():
-    return await _download_redirect(DOWNLOAD_LINUX, "linux",
-        "/app/downloads/Procta-Browser-x86_64.AppImage", "Procta-Browser-x86_64.AppImage")
-
-
 @router.get("/download/latest-info")
 async def download_latest_info():
     """Debug / health endpoint — shows what the server currently resolves
@@ -523,13 +517,11 @@ async def download_latest_info():
         "mac_arm":   _RELEASE_CACHE.get("mac_arm", ""),
         "mac_x64":   _RELEASE_CACHE.get("mac_x64", ""),
         "win":       _RELEASE_CACHE.get("win", ""),
-        "linux":     _RELEASE_CACHE.get("linux", ""),
         "cache_expires_in_sec": max(0, int(_RELEASE_CACHE_EXPIRES - time.time())),
         "env_overrides": {
             "DOWNLOAD_MAC_ARM": bool(DOWNLOAD_MAC_ARM),
             "DOWNLOAD_MAC_X64": bool(DOWNLOAD_MAC_X64),
             "DOWNLOAD_WIN":     bool(DOWNLOAD_WIN),
-            "DOWNLOAD_LINUX":   bool(DOWNLOAD_LINUX),
         },
     }
 

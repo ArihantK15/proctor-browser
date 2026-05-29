@@ -14,7 +14,7 @@ const steps = [
   {
     icon: Monitor,
     title: '2. Student launches the secure browser',
-    body: 'Students install the Electron browser for Windows, macOS, or Linux, enter the exam, complete camera and face calibration, and continue inside a locked-down runtime that watches fullscreen, copy/paste, app switching, remote-desktop tools, VMs, and crashes. Answers autosave locally and sync to the server.'
+    body: 'Students install the Electron browser for Windows or macOS, enter the exam, complete camera and face calibration, and continue inside a locked-down runtime that watches fullscreen, copy/paste, app switching, remote-desktop tools, VMs, and crashes. Answers autosave locally and sync to the server.'
   },
   {
     icon: Smartphone,

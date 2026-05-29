@@ -66,7 +66,7 @@ class SignalBuffer:
 # Result dict: {"pattern": str, "confidence": float, "detail": str}
 # Confidence is 0.0–1.0.
 
-def match_phone_consulting(buffer: SignalBuffer, lookback_secs: float = 5.0):
+def match_phone_consulting(buffer: SignalBuffer, lookback_secs: float = 5.0, fps: float = 15.0):
     """Phone consulting: gaze down + phone in hand simultaneously.
 
     Both signals must be present in the same frame for this to fire.
@@ -83,7 +83,7 @@ def match_phone_consulting(buffer: SignalBuffer, lookback_secs: float = 5.0):
     return None
 
 
-def match_note_reading(buffer: SignalBuffer, lookback_secs: float = 10.0):
+def match_note_reading(buffer: SignalBuffer, lookback_secs: float = 10.0, fps: float = 15.0):
     """Note reading: sustained gaze away + head turned + no voice.
 
     The student looks off-screen for an extended period while remaining silent —
@@ -105,7 +105,7 @@ def match_note_reading(buffer: SignalBuffer, lookback_secs: float = 10.0):
             consecutive_offtask = 0
 
         if consecutive_offtask >= 15:
-            dur = consecutive_offtask / 15.0
+            dur = consecutive_offtask / fps
             conf = min(1.0, 0.6 + dur * 0.05)
             return {
                 "pattern": "note_reading",
@@ -115,7 +115,7 @@ def match_note_reading(buffer: SignalBuffer, lookback_secs: float = 10.0):
     return None
 
 
-def match_collaboration(buffer: SignalBuffer, lookback_secs: float = 8.0):
+def match_collaboration(buffer: SignalBuffer, lookback_secs: float = 8.0, fps: float = 15.0):
     """Collaboration: voice detected + face away + multiple faces.
 
     The student is talking while looking away, and another face is detected —
@@ -138,7 +138,7 @@ def match_collaboration(buffer: SignalBuffer, lookback_secs: float = 8.0):
     return None
 
 
-def match_answer_memo(buffer: SignalBuffer, lookback_secs: float = 12.0):
+def match_answer_memo(buffer: SignalBuffer, lookback_secs: float = 12.0, fps: float = 15.0):
     """Answer memo: gaze away → look down → look up sequence.
 
     Classic cheat pattern: read answer off-screen, memorize it, look back
@@ -181,7 +181,7 @@ def match_answer_memo(buffer: SignalBuffer, lookback_secs: float = 12.0):
     return None
 
 
-def match_nervous_evasion(buffer: SignalBuffer, lookback_secs: float = 60.0):
+def match_nervous_evasion(buffer: SignalBuffer, lookback_secs: float = 60.0, fps: float = 15.0):
     """Nervous evasion: 5+ micro-glances (<2s each) in 60s.
 
     Repeated quick glances away from screen — could indicate hidden material
@@ -210,7 +210,8 @@ def match_nervous_evasion(buffer: SignalBuffer, lookback_secs: float = 60.0):
                     micro_glance_count += 1
 
     if in_glance and glance_start is not None:
-        glance_dur = time.time() - glance_start
+        last_entry_t = entries[-1]["t"] if entries else glance_start
+        glance_dur = last_entry_t - glance_start
         if glance_dur < 2.0:
             micro_glance_count += 1
 
@@ -224,7 +225,7 @@ def match_nervous_evasion(buffer: SignalBuffer, lookback_secs: float = 60.0):
     return None
 
 
-def match_sustained_offtask(buffer: SignalBuffer, lookback_secs: float = 60.0):
+def match_sustained_offtask(buffer: SignalBuffer, lookback_secs: float = 60.0, fps: float = 15.0):
     """Sustained offtask: cumulative gaze away > 15s in 60s window.
 
     The student has spent a significant fraction of the last minute looking
@@ -239,7 +240,7 @@ def match_sustained_offtask(buffer: SignalBuffer, lookback_secs: float = 60.0):
         if entry.get("gaze_away", False) or entry.get("head_turned", False):
             offtask_frames += 1
 
-    cumulative_secs = offtask_frames / 15.0
+    cumulative_secs = offtask_frames / fps
     threshold = 15.0
 
     if cumulative_secs >= threshold:
@@ -288,9 +289,10 @@ PATTERN_CONFIDENCE = {
 class BehavioralEngine:
     """High-level interface: push signals, detect patterns, return matches."""
 
-    def __init__(self, check_interval: int = 15):
+    def __init__(self, check_interval: int = 15, fps: float = 15.0):
         self.buffer = SignalBuffer()
         self.check_interval = check_interval
+        self._fps = fps
         self._frame_count = 0
         self._last_match = {}
         self._cooldown = 30.0
@@ -308,7 +310,7 @@ class BehavioralEngine:
         now = time.time()
         matches = []
         for matcher in PATTERN_MATCHERS:
-            result = matcher(self.buffer)
+            result = matcher(self.buffer, fps=self._fps)
             if result:
                 pattern = result["pattern"]
                 last_time = self._last_match.get(pattern, 0)

@@ -86,23 +86,24 @@ class TestPhonePositionClassification:
         assert result == "phone_on_desk"
 
     def test_no_face_and_mid_frame_defaults_to_on_desk(self):
-        # No face bbox, phone center in middle of frame → default on_desk
+        # No face bbox, phone center in middle of frame → phone_detected
+        # (ambiguous — can't tell if held or on desk)
         result = self._classify(
             phone_box=(100, 200, 140, 240),   # center_y = 220
             face_bbox=None,
             frame_h=480,
         )
-        assert result == "phone_on_desk"
+        assert result == "phone_detected"
 
     def test_phone_at_edge_of_hand_threshold(self):
         # Phone center exactly at face_bottom * 0.50 → not < so falls through
-        # to on_desk check: 150 < 480*0.65=312 → on_desk
+        # to on_desk check: 150 < 480*0.65=312 → phone_detected (not below desk line)
         result = self._classify(
             phone_box=(100, 130, 140, 170),   # center_y = 150
             face_bbox=(80, 100, 200, 300),    # face_bottom = 300
             frame_h=480,
         )
-        assert result == "phone_on_desk"
+        assert result == "phone_detected"
 
     def test_phone_slightly_above_hand_threshold(self):
         # 149 < 300 * 0.50 = 150 → in_hand

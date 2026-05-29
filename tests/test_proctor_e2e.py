@@ -175,8 +175,8 @@ class TestPhoneClassificationIntegration:
         # Phone in middle of frame with no face
         phone_box = (200, 200, 280, 260)  # center_y = 230
         result = classify_phone_position(phone_box, face_bbox=None, frame_h=480)
-        # 230 < 480 * 0.65 = 312 → not on_desk → default on_desk
-        assert result == "phone_on_desk"
+        # 230 < 480 * 0.65 = 312 → not below desk line → phone_detected
+        assert result == "phone_detected"
 
 
 class TestSAHIWorkerTileCoordinates:

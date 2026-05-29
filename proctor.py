@@ -807,11 +807,12 @@ CHEAT_IDS = {
 def classify_phone_position(phone_box: Tuple[int, int, int, int],
                             face_bbox: Optional[Tuple[int, int, int, int]],
                             frame_h: int) -> str:
-    """Classify phone as 'phone_in_hand' or 'phone_on_desk' based on position.
+    """Classify phone position: 'phone_in_hand', 'phone_on_desk', or 'phone_detected'.
 
     If the phone's center is above ~50% of the face bottom, the student is
     likely holding it (critical severity). If it's below ~65% of frame height,
-    it's resting on the desk (high severity).
+    it's resting on the desk (high severity). Otherwise returns 'phone_detected'
+    (ambiguous — no face visible or phone mid-frame).
     """
     px1, py1, px2, py2 = phone_box
     phone_center_y = (py1 + py2) / 2
@@ -825,7 +826,7 @@ def classify_phone_position(phone_box: Tuple[int, int, int, int],
     if phone_center_y > frame_h * PHONE_DESK_Y_RATIO:
         return "phone_on_desk"
 
-    return "phone_on_desk"
+    return "phone_detected"
 
 # ─── SERVER LOGGING ───────────────────────────────────────────────────────────
 session_start = time.time()
@@ -1292,13 +1293,8 @@ def _detect_screen_share_feed(frame: np.ndarray) -> Optional[str]:
         pass
     return None
 
-_virtual_camera_name = _detect_virtual_camera()
-if _virtual_camera_name:
-    print(f"[VIRTUAL CAM] ⚠ Virtual camera detected: '{_virtual_camera_name}'")
-    log_event("virtual_camera_detected", "critical",
-              f"Virtual webcam: {_virtual_camera_name}")
-else:
-    print("[VIRTUAL CAM] ✅ Physical webcam confirmed")
+# Deferred to main() so subprocess calls don't block module import
+_virtual_camera_name = None
 
 # ─── VM / SANDBOX DETECTION ──────────────────────────────────────────────────
 # Checks for common virtual machine and sandbox indicators. Students running
@@ -1357,10 +1353,8 @@ def _detect_vm() -> Optional[str]:
         pass
     return None
 
-_vm_name = _detect_vm()
-if _vm_name:
-    print(f"[VM DETECT] ⚠ Virtual machine indicator found: '{_vm_name}'")
-    log_event("vm_detected", "high", f"VM indicator: {_vm_name}")
+# Deferred to main() so subprocess calls don't block module import
+_vm_name = None
 
 # ─── PRE-EXAM SYSTEM CHECK ───────────────────────────────────────────────────
 # Runs before the proctoring loop to verify all subsystems are functional.
@@ -1709,6 +1703,7 @@ def run_calibration(cap, W, H):
 def run_proctoring(cap, W, H):
     print(f"[PROCTOR] 🟢 Monitoring LIVE — Session: {SESSION_ID}")
     _print_tuning_summary()
+    _last_frame_end = time.time()
 
     # Start YOLO background worker for off-thread cheat-object detection.
     # The model loads lazily inside the worker; YOLO_AVAILABLE flips to True
@@ -1993,8 +1988,10 @@ def run_proctoring(cap, W, H):
             # Decay gaze/eyes counters slowly so a brief face loss doesn't
             # erase what we already saw — they'll keep accumulating once the
             # face comes back.
-            gaze_away_count   = max(0, gaze_away_count - 1)
-            eyes_closed_count = max(0, eyes_closed_count - 1)
+            gaze_away_count    = max(0, gaze_away_count - 1)
+            eyes_closed_count  = max(0, eyes_closed_count - 1)
+            head_away_count    = max(0, head_away_count - 1)
+            head_extreme_count = max(0, head_extreme_count - 2)
 
             # Camera startup grace: macOS often returns black frames for the
             # first ~1-2 seconds after VideoCapture opens. Don't even count
@@ -2526,8 +2523,12 @@ def run_proctoring(cap, W, H):
         if _elapsed < _target:
             time.sleep(_target - _elapsed)
 
-        # Track actual FPS and warn if consistently below target
-        _actual_fps = 1.0 / max(time.time() - _loop_start, 1e-6)
+        # Track actual FPS using the previous frame's end time so the
+        # measurement covers the full inter-frame interval, not just
+        # processing time up to this point.
+        _now = time.time()
+        _actual_fps = 1.0 / max(_now - _last_frame_end, 1e-6)
+        _last_frame_end = _now
         _fps_history.append(_actual_fps)
         if frame_count % 60 == 0 and len(_fps_history) >= 15:
             _avg_fps = sum(_fps_history) / len(_fps_history)
@@ -2575,6 +2576,22 @@ def main():
     print(f"[PROCTOR] Camera: {W}x{H}")
 
     # First few frames are often blank, especially on Windows.
+    # ── Lazy VM + virtual camera detection ───────────────────────────
+    # Run after camera open (non-blocking at import time). Results are
+    # logged via normal event pipeline.
+    global _virtual_camera_name, _vm_name
+    _virtual_camera_name = _detect_virtual_camera()
+    if _virtual_camera_name:
+        print(f"[VIRTUAL CAM] ⚠ Virtual camera detected: '{_virtual_camera_name}'")
+        log_event("virtual_camera_detected", "critical",
+                  f"Virtual webcam: {_virtual_camera_name}")
+    else:
+        print("[VIRTUAL CAM] ✅ Physical webcam confirmed")
+    _vm_name = _detect_vm()
+    if _vm_name:
+        print(f"[VM DETECT] ⚠ Virtual machine indicator found: '{_vm_name}'")
+        log_event("vm_detected", "high", f"VM indicator: {_vm_name}")
+
     print("[PROCTOR] Warming up camera...")
     for _ in range(10):
         cap.read()

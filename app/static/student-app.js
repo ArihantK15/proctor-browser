@@ -910,6 +910,24 @@ function _applyInvitePrefill(){
   const nm = document.getElementById('inp-name');
   if (nm && _pendingInvite.full_name) nm.value = _pendingInvite.full_name;
 }
+function _showInviteMalformedBanner(){
+  // Brief amber banner above the auth card so a user who clicked an
+  // old/typo'd procta:// link sees clear feedback. Auto-clears after
+  // 10 s so the lobby returns to a clean state if the next click works.
+  let banner = document.getElementById('invite-malformed-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'invite-malformed-banner';
+    banner.style.cssText = 'background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.35);'
+      + 'border-radius:10px;padding:12px 14px;margin:0 0 14px 0;color:#fbbf24;font-size:13px;line-height:1.5';
+    const card = document.querySelector('.auth-card');
+    if (card) card.insertBefore(banner, card.firstChild.nextSibling);
+  }
+  banner.textContent = "We received a Procta link but couldn't read it. "
+    + "Open your invite email and click the link there again.";
+  setTimeout(() => { if (banner && banner.parentNode) banner.parentNode.removeChild(banner); }, 10000);
+}
+
 async function _acceptPendingInvite(){
   if (!_pendingInvite || !studentAuthed) return;
   const token = _pendingInvite.token;
@@ -954,6 +972,12 @@ async function _acceptPendingInvite(){
   try {
     if (window.procta_native && window.procta_native.onInviteToken) {
       window.procta_native.onInviteToken((tok) => { _handleInviteToken(tok); });
+    }
+    if (window.procta_native && window.procta_native.onInviteTokenMalformed) {
+      // The OS handed us a procta:// URL but it didn't parse. Tell the
+      // student to re-copy the link from their email instead of leaving
+      // them to wonder why their click did nothing.
+      window.procta_native.onInviteTokenMalformed(() => _showInviteMalformedBanner());
     }
     if (window.procta_native && window.procta_native.consumeInviteToken) {
       const tok = await window.procta_native.consumeInviteToken();

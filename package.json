@@ -72,6 +72,13 @@
         ]
       }
     ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "grantFileProtocolExtraPrivileges": false,
+      "onlyLoadAppFromAsar": true
+    },
     "mac": {
       "icon": "build/icon.icns",
       "target": [

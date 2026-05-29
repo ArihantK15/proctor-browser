@@ -97,38 +97,95 @@ setPythonFns(
   stopCalibration
 );
 
-// ── Single-instance lock & protocol (must be before whenReady) ────
+// ── Single-instance lock & protocol handler ───────────────────────
+//
+// Supported deep links:
+//   procta://invite/<token>    open the lobby with an invite token
+//                              pre-filled. Token: 8-128 chars,
+//                              [A-Za-z0-9_-]. Anything else is
+//                              treated as a "saw a procta:// URL we
+//                              couldn't parse" event so we can show
+//                              the user a clear message instead of
+//                              silently dropping it.
+//
+// Entry paths the OS uses to hand us a URL:
+//   - Windows: passed as process.argv on cold start; on warm start
+//     the OS launches a 2nd instance which we intercept via
+//     `second-instance`. Both routed through extractAndReceive().
+//   - macOS:   `open-url` event fires on cold + warm starts.
+//   - Linux:   removed — we no longer support Linux.
+//
+// All three paths log via the same `[Invite]` prefix with the
+// originating source so we can debug failures from a single user's
+// log file.
+
+const PROCTA_SCHEME = 'procta';
+
+/** Iterate args back-to-front (so the last `procta://` wins if more
+ *  than one is passed) and route to receiveInviteToken or emit a
+ *  malformed-URL signal so the lobby can render an error chip. */
+function extractAndReceive(args, source) {
+  try {
+    let sawProctaUrl = false;
+    for (let i = args.length - 1; i >= 0; i--) {
+      const a = String(args[i] || '');
+      if (a.toLowerCase().startsWith(`${PROCTA_SCHEME}://`)) {
+        sawProctaUrl = true;
+        const tok = extractInviteToken(a, INVITE_REGEX);
+        if (tok) {
+          receiveInviteToken(tok, source);
+          return true;
+        }
+      }
+    }
+    if (sawProctaUrl) {
+      // Saw a procta:// URL but no valid invite token in it. Could
+      // be an old format, a typo'd link, or a deliberate bad input.
+      // Log once and notify the lobby so the UI can prompt the user
+      // to re-check their invite email.
+      console.warn(`[Invite] malformed procta:// URL via ${source}`);
+      const lobby = getLobbyWindow();
+      if (lobby && !lobby.isDestroyed()) {
+        try { lobby.webContents.send('invite-token-malformed', { source }); }
+        catch(e) { console.error('[Invite] failed to notify lobby of malformed URL:', e.message); }
+      }
+    }
+  } catch(e) {
+    console.error(`[Invite] ${source} parse error:`, e.message);
+  }
+  return false;
+}
+
 const _gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!_gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', (_evt, argv) => {
-    try {
-      for (let i = argv.length - 1; i >= 0; i--) {
-        const tok = extractInviteToken(argv[i], INVITE_REGEX);
-        if (tok) { receiveInviteToken(tok, 'second-instance'); break; }
-      }
-    } catch(e) { console.error('[Invite] second-instance parse error:', e.message); }
-    if (getLobbyWindow() && !getLobbyWindow().isDestroyed()) {
-      if (getLobbyWindow().isMinimized()) getLobbyWindow().restore();
-      getLobbyWindow().show();
-      getLobbyWindow().focus();
+    extractAndReceive(argv, 'second-instance');
+    const lobby = getLobbyWindow();
+    if (lobby && !lobby.isDestroyed()) {
+      if (lobby.isMinimized()) lobby.restore();
+      lobby.show();
+      lobby.focus();
     }
   });
 }
 
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  const tok = extractInviteToken(url, INVITE_REGEX);
-  if (tok) receiveInviteToken(tok, 'open-url');
+  extractAndReceive([url], 'open-url');
 });
 
-if (!app.isDefaultProtocolClient('procta')) {
+if (!app.isDefaultProtocolClient(PROCTA_SCHEME)) {
   try {
+    // Dev mode: register electron itself + the script path as the
+    // handler so `procta://...` clicks during development reach this
+    // running process instead of trying to launch a packaged app
+    // that doesn't exist yet.
     if (process.defaultApp && process.argv.length >= 2) {
-      app.setAsDefaultProtocolClient('procta', process.execPath, [path.resolve(process.argv[1])]);
+      app.setAsDefaultProtocolClient(PROCTA_SCHEME, process.execPath, [path.resolve(process.argv[1])]);
     } else {
-      app.setAsDefaultProtocolClient('procta');
+      app.setAsDefaultProtocolClient(PROCTA_SCHEME);
     }
   } catch(e) { console.error('[Invite] setAsDefaultProtocolClient failed:', e.message); }
 }
@@ -155,12 +212,9 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
 app.whenReady().then(async () => {
   createLobbyWindow();
 
-  try {
-    for (let i = process.argv.length - 1; i >= 0; i--) {
-      const tok = extractInviteToken(process.argv[i], INVITE_REGEX);
-      if (tok) { receiveInviteToken(tok, 'argv'); break; }
-    }
-  } catch(e) { console.error('[Invite] argv parse error:', e.message); }
+  // Cold-start protocol activation: Windows launches us with the
+  // procta:// URL as process.argv; macOS uses open-url instead.
+  extractAndReceive(process.argv, 'argv');
 
   // Defer auto-updater to avoid blocking startup on slow networks
   setTimeout(() => initAutoUpdater(getLobbyWindow(), getMainWindow), 3000);

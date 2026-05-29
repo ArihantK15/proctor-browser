@@ -26,8 +26,11 @@ if (!files.includes('renderer/**/*')) throw new Error('Electron build.files must
 if (!files.includes('app/static/student.html')) throw new Error('Electron build.files must include the student shell')
 if (!files.includes('app/static/_safe.js')) throw new Error('Electron build.files must include _safe.js for the lobby')
 if (!files.includes('app/static/student-app.js')) throw new Error('Electron build.files must include student-app.js for the lobby')
-if (!pkg.build?.mac || !pkg.build?.win || !pkg.build?.linux) {
-  throw new Error('Electron mac/win/linux build targets are missing')
+if (!pkg.build?.mac || !pkg.build?.win) {
+  throw new Error('Electron mac/win build targets are missing')
+}
+if (!pkg.build?.electronFuses) {
+  throw new Error('Electron fuses block is missing — security hardening regressed')
 }
 
 console.log('Electron smoke test passed')

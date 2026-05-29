@@ -33,4 +33,14 @@ contextBridge.exposeInMainWorld('procta_native', {
       try { cb(token); } catch(e) { console.error('[invite] cb failed', e); }
     });
   },
+  // Surfaced when a procta:// URL was clicked but didn't match the
+  // expected `procta://invite/<token>` format. The lobby UI shows a
+  // brief error chip telling the user to copy the invite link from
+  // their email again, instead of silently swallowing the click.
+  onInviteTokenMalformed: (cb) => {
+    ipcRenderer.removeAllListeners('invite-token-malformed');
+    ipcRenderer.on('invite-token-malformed', (_, info) => {
+      try { cb(info); } catch(e) { console.error('[invite] malformed cb failed', e); }
+    });
+  },
 });

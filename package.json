@@ -55,8 +55,16 @@
         "to": "behavioral_analysis.py"
       },
       {
+        "from": "audio_processor.py",
+        "to": "audio_processor.py"
+      },
+      {
         "from": "weights",
         "to": "weights"
+      },
+      {
+        "from": "scripts/download_audio_models.sh",
+        "to": "scripts/download_audio_models.sh"
       }
     ],
     "publish": {

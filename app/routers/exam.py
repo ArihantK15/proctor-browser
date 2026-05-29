@@ -448,6 +448,38 @@ async def get_questions(request: Request):
     }
 
 
+@router.get("/api/v1/exam/audio-config")
+@limiter.limit("60/minute")
+async def get_audio_config(request: Request):
+    """Return the audio keyword + language config for the JWT-bearer's
+    exam. Called by proctor.py at startup so the AudioProcessor knows
+    which built-in defaults + custom keywords to merge.
+
+    Student-authed. NULL audio_keywords on the exam_config row →
+    empty list (proctor falls back to its compiled-in defaults).
+    """
+    sid = (request.query_params.get("session_id") or "").strip()
+    if is_practice(sid):
+        return {"audio_keywords": [], "audio_keywords_language": "en"}
+    claims = require_auth(request)
+    tid = claims.get("tid")
+    eid = claims.get("eid")
+    config = await _load_exam_config(tid, exam_id=eid)
+    raw = config.get("audio_keywords")
+    keywords: list[str] = []
+    if raw:
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, list):
+                keywords = [str(k) for k in parsed if isinstance(k, str)]
+        except (ValueError, TypeError):
+            keywords = []
+    lang = (config.get("audio_keywords_language") or "en").strip()
+    if lang not in ("en", "hi", "en+hi"):
+        lang = "en"
+    return {"audio_keywords": keywords, "audio_keywords_language": lang}
+
+
 @router.get("/api/v1/check-session/{roll_number}")
 @limiter.limit("30/minute")
 async def check_session(roll_number: str, request: Request):

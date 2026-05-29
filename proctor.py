@@ -1292,18 +1292,40 @@ def _start_audio(*, governor=None):
             return
         # Per-exam keyword list + language from env (set by the
         # Electron python-manager from exam_config). Empty → built-ins.
-        lang = (os.environ.get("PROCTOR_AUDIO_LANG", "en") or "en").strip()
-        if lang not in ("en", "hi", "en+hi"):
-            lang = "en"
+        # Config flow: env vars win (test / override path). Otherwise
+        # fetch from /api/v1/exam/audio-config so a teacher's per-exam
+        # changes are picked up at proctor launch with no Electron
+        # plumbing change. Failures fall back to defaults.
+        lang = (os.environ.get("PROCTOR_AUDIO_LANG") or "").strip()
         custom_json = os.environ.get("PROCTOR_AUDIO_KEYWORDS_JSON", "")
         custom: list = []
-        if custom_json:
+        if not lang or not custom_json:
+            try:
+                from urllib.parse import urljoin as _urljoin
+                cfg_url = _urljoin(SERVER_URL, "/api/v1/exam/audio-config")
+                r = _http.get(cfg_url,
+                              params={"session_id": SESSION_ID},
+                              headers={"Authorization": f"Bearer {JWT_TOKEN}"} if JWT_TOKEN else {},
+                              timeout=5)
+                if r.status_code == 200:
+                    d = r.json()
+                    if not lang:
+                        lang = (d.get("audio_keywords_language") or "en").strip()
+                    if not custom_json:
+                        fetched = d.get("audio_keywords") or []
+                        if isinstance(fetched, list):
+                            custom = [str(k) for k in fetched if isinstance(k, str)]
+            except Exception as e:
+                print(f"[AUDIO] audio-config fetch failed (using defaults): {e}")
+        if custom_json and not custom:
             try:
                 parsed = json.loads(custom_json)
                 if isinstance(parsed, list):
                     custom = [str(k) for k in parsed if isinstance(k, str)]
             except Exception:
                 pass
+        if lang not in ("en", "hi", "en+hi"):
+            lang = "en"
         _audio_ring = _ap.AudioRingBuffer(max_secs=30.0)
 
         def _log_cb(etype, severity, details):

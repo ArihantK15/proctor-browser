@@ -166,7 +166,12 @@ def _twocluster_silhouette(mfcc_vectors):
         return (1, 0.0)
     if len(mfcc_vectors) < 2 * VOICE_COUNT_MIN_CLUSTER_SIZE:
         return (1, 0.0)
-    X = np.array(mfcc_vectors, dtype=np.float32)
+    # float64 (default) instead of float32 — the silhouette score on
+    # the boundary case (orthogonal/opposite clusters) was rounding
+    # just below threshold on some BLAS builds in float32. We're
+    # dealing with O(50) 13-coeff vectors; the bytes saved are
+    # rounding error in the noise floor.
+    X = np.asarray(mfcc_vectors, dtype=np.float64)
     norms = np.linalg.norm(X, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     Xn = X / norms

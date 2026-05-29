@@ -107,9 +107,14 @@ class TestTwoClusterSilhouette:
         cluster_b = [[-1.0 + random.uniform(-0.05, 0.05),
                        random.uniform(-0.05, 0.05),
                        random.uniform(-0.05, 0.05)] for _ in range(6)]
-        n, score = ap._twocluster_silhouette(cluster_a + cluster_b)
-        assert n == 2
-        assert score >= ap.VOICE_COUNT_SILHOUETTE_THRESHOLD
+        vectors = cluster_a + cluster_b
+        n, score = ap._twocluster_silhouette(vectors)
+        # Print on failure so a future regression on a different
+        # numpy/BLAS combo gives us the actual returned values, not
+        # just a bare "1 == 2" assertion.
+        assert n == 2, f"expected 2 voices, got n={n} score={score!r} vectors={vectors!r}"
+        assert score >= ap.VOICE_COUNT_SILHOUETTE_THRESHOLD, \
+            f"silhouette score {score} below threshold {ap.VOICE_COUNT_SILHOUETTE_THRESHOLD}"
 
     def test_overlapping_clusters_stay_one(self):
         """Tiny perturbations of one vector → still one voice."""

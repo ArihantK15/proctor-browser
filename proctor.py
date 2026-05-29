@@ -1230,6 +1230,14 @@ AUDIO_AVAILABLE = False
 audio_rms       = 0.0
 audio_lock      = threading.Lock()
 
+# Phase 75 — ring buffer fed by audio_thread's callback so the
+# AudioProcessor worker (keyword + multi-voice detection) has a low-
+# latency feed without coupling to sounddevice. Initialised lazily in
+# _start_audio so the existing RMS-only code path is unaffected when
+# audio_processor isn't available (vosk missing, models not downloaded).
+_audio_ring = None
+_audio_processor = None
+
 def audio_thread():
     global audio_rms, AUDIO_AVAILABLE
     try:
@@ -1241,6 +1249,16 @@ def audio_thread():
             rms = float(np.sqrt(np.mean(indata**2)))
             with audio_lock:
                 audio_rms = rms
+            # Phase 75: also copy PCM into the ring buffer if the
+            # AudioProcessor is running. indata is float32; processor
+            # wants int16, so convert here once instead of in the
+            # consumer's hot path.
+            if _audio_ring is not None:
+                try:
+                    pcm16 = (np.clip(indata[:, 0], -1.0, 1.0) * 32767.0).astype(np.int16)
+                    _audio_ring.write(pcm16.tobytes())
+                except Exception:
+                    pass
         with sd.InputStream(callback=callback,
                             channels=1, samplerate=16000,
                             blocksize=1024):
@@ -1249,10 +1267,82 @@ def audio_thread():
     except Exception as e:
         print(f"[AUDIO] ❌ {e}")
 
-def _start_audio():
-    """Start the audio-analysis daemon thread. Called lazily from main()."""
+def _start_audio(*, governor=None):
+    """Start the audio-analysis daemon thread. Called lazily from main().
+
+    Also bootstraps the Phase 75 AudioProcessor (Vosk + Silero VAD +
+    MFCC clustering) when available — soft-imported so a missing
+    vosk install or absent model files don't break the rest of the
+    proctor. `governor` is the _HardwareGovernor instance so the
+    audio worker can read effective_fps and skip cycles when CPU is
+    hot.
+    """
     threading.Thread(target=audio_thread, daemon=True).start()
     time.sleep(1.5)
+
+    # Bring up the Phase 75 processor opportunistically. Hard
+    # try/except around the whole block — this is additive, never
+    # fatal to the proctor.
+    global _audio_ring, _audio_processor
+    try:
+        import audio_processor as _ap
+        if not _ap.AudioProcessor.available():
+            print("[AUDIO] keyword/voice-count detection: unavailable "
+                  "(vosk or model files missing — see scripts/download_audio_models.sh)")
+            return
+        # Per-exam keyword list + language from env (set by the
+        # Electron python-manager from exam_config). Empty → built-ins.
+        lang = (os.environ.get("PROCTOR_AUDIO_LANG", "en") or "en").strip()
+        if lang not in ("en", "hi", "en+hi"):
+            lang = "en"
+        custom_json = os.environ.get("PROCTOR_AUDIO_KEYWORDS_JSON", "")
+        custom: list = []
+        if custom_json:
+            try:
+                parsed = json.loads(custom_json)
+                if isinstance(parsed, list):
+                    custom = [str(k) for k in parsed if isinstance(k, str)]
+            except Exception:
+                pass
+        _audio_ring = _ap.AudioRingBuffer(max_secs=30.0)
+
+        def _log_cb(etype, severity, details):
+            try:
+                log_event(etype, severity, details)
+            except Exception as e:
+                print(f"[AUDIO] log_event failed: {e}")
+
+        def _save_cb(label):
+            # save_evidence needs a frame which we don't have inside
+            # the audio worker. The main loop's next per-frame snapshot
+            # serves as the camera evidence — correlated by timestamp
+            # in the dashboard timeline.
+            pass
+
+        def _get_fps():
+            try:
+                return float(getattr(governor, "effective_fps", 15.0))
+            except Exception:
+                return 15.0
+
+        _audio_processor = _ap.AudioProcessor(
+            ring=_audio_ring,
+            log_event_cb=_log_cb,
+            save_evidence_cb=_save_cb,
+            language=lang,
+            custom_keywords=custom,
+            get_effective_fps=_get_fps,
+            target_fps=15.0,
+        )
+        if _audio_processor.start():
+            print(f"[AUDIO] ✅ keyword/voice-count active (lang={lang}, +{len(custom)} custom)")
+        else:
+            _audio_processor = None
+            _audio_ring = None
+    except Exception as e:
+        print(f"[AUDIO] keyword/voice-count bootstrap failed: {e}")
+        _audio_processor = None
+        _audio_ring = None
 
 # ─── VIRTUAL WEBCAM / SCREEN-SHARE DETECTION ─────────────────────────────────
 # Detects when the student uses a virtual camera (OBS, ManyCam, etc.) instead

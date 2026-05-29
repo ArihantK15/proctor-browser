@@ -30,3 +30,19 @@ websocket-client>=1.6.0
 # governor permanently returns TARGET_FPS (i.e. behaves like the old
 # code).
 psutil>=5.9
+
+# ── Phase 75 — on-device audio detection ──────────────────────────
+# Soft-imported in audio_processor.py: if either dep is missing the
+# proctor still runs and the existing RMS-only voice path is
+# unaffected. We log "audio processor unavailable" once and skip
+# the new keyword_uttered / multiple_voices_detected events.
+#
+# vosk          — offline ASR. Models live in ./weights/ and are
+#                 downloaded out-of-band by
+#                 scripts/download_audio_models.sh (~40 MB each for
+#                 en-IN + hi-IN). NOT bundled in git.
+# python_speech_features — MFCC extractor used by the two-cluster
+#                 heuristic for "≥ 2 voices?" detection. Pure Python,
+#                 ~50 KB, no native build.
+vosk>=0.3.45
+python_speech_features>=0.6

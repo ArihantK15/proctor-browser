@@ -11,12 +11,6 @@ from ..constants import CHAT_HISTORY_LIMIT
 
 logger = logging.getLogger(__name__)
 
-try:
-    from .. import cache as _cache
-except Exception:
-    _cache = None
-
-
 class ChatHub:
     MAX_TEACHER_SOCKETS_PER_TENANT = 50
     GLOBAL_MAX_CONNECTIONS = 500
@@ -79,6 +73,7 @@ class ChatHub:
     async def register_student(self, *, session_id: str, teacher_id: str,
                                roll: str, name: str, ws: WebSocket) -> None:
         self._start_cleanup()
+        to_close: list[WebSocket] = []
         async with self._lock:
             if self._global_connection_count() >= self.GLOBAL_MAX_CONNECTIONS:
                 oldest_sid = None
@@ -97,16 +92,10 @@ class ChatHub:
                     old_ws = self.student_conns.pop(oldest_sid, None)
                     self.student_meta.pop(oldest_sid, None)
                     if old_ws:
-                        try:
-                            await old_ws.close(code=4002, reason="global_cap")
-                        except Exception:
-                            logger.debug("[chat] ws exception")
+                        to_close.append(old_ws)
             old = self.student_conns.get(session_id)
             if old is not None and old is not ws:
-                try:
-                    await old.close(code=4000)
-                except Exception:
-                    logger.debug("[chat] ws exception")
+                to_close.append(old)
             self.student_conns[session_id] = ws
             self.student_meta[session_id] = {
                 "roll": roll,
@@ -116,6 +105,11 @@ class ChatHub:
             }
             self._thread(teacher_id, session_id)
 
+        for old_ws in to_close:
+            try:
+                await old_ws.close(code=4000)
+            except Exception:
+                logger.debug("[chat] ws exception")
         await self._notify_teachers_presence(teacher_id, session_id, online=True)
 
     async def unregister_student(self, session_id: str) -> None:
@@ -144,6 +138,7 @@ class ChatHub:
 
     async def register_teacher(self, teacher_id: str, ws: WebSocket) -> None:
         self._start_cleanup()
+        to_close: list[tuple[WebSocket, int, str]] = []
         async with self._lock:
             conns = self.teacher_conns.setdefault(teacher_id, set())
             if len(conns) >= self.MAX_TEACHER_SOCKETS_PER_TENANT:
@@ -152,10 +147,7 @@ class ChatHub:
                 by_sock = self.teacher_last_seen.get(teacher_id)
                 if by_sock is not None:
                     by_sock.pop(oldest, None)
-                try:
-                    await oldest.close(code=4000, reason="too_many_tabs")
-                except Exception:
-                    logger.debug("[chat] ws exception")
+                to_close.append((oldest, 4000, "too_many_tabs"))
             if self._global_connection_count() >= self.GLOBAL_MAX_CONNECTIONS:
                 oldest_tid = None
                 oldest_ws = None
@@ -175,13 +167,16 @@ class ChatHub:
                         by_sock.pop(oldest_ws, None)
                         if not by_sock:
                             self.teacher_last_seen.pop(oldest_tid, None)
-                    try:
-                        await oldest_ws.close(code=4002, reason="global_cap")
-                    except Exception:
-                        logger.debug("[chat] ws exception")
+                    to_close.append((oldest_ws, 4002, "global_cap"))
             conns.add(ws)
             self.teacher_last_seen.setdefault(teacher_id, {})[ws] = time.monotonic()
             self._evict_stale_meta()
+
+        for old_ws, code, reason in to_close:
+            try:
+                await old_ws.close(code=code, reason=reason)
+            except Exception:
+                logger.debug("[chat] ws exception")
 
         roster_sessions = []
         for sid, meta in self.student_meta.items():
@@ -294,11 +289,6 @@ class ChatHub:
     def _global_connection_count(self) -> int:
         return len(self.student_conns) + sum(len(s) for s in self.teacher_conns.values())
 
-    def _update_teacher_activity(self, teacher_id: str, ws: WebSocket) -> None:
-        by_sock = self.teacher_last_seen.get(teacher_id)
-        if by_sock is not None:
-            by_sock[ws] = time.monotonic()
-
     async def record_pong(self, ws: WebSocket) -> None:
         async with self._lock:
             self._last_pong[ws] = time.monotonic()
@@ -320,51 +310,76 @@ class ChatHub:
     async def _send_heartbeats(self) -> None:
         now = time.monotonic()
         deadline = now - self.HEARTBEAT_TIMEOUT
+
+        # Phase 1: collect stale and active under lock
+        stale_students: list[tuple[str, WebSocket]] = []
+        active_students: list[tuple[str, WebSocket]] = []
+        stale_teachers: list[tuple[str, WebSocket]] = []
+        active_teachers: list[tuple[str, WebSocket]] = []
         async with self._lock:
             for sid, ws in list(self.student_conns.items()):
                 last = self._last_pong.get(ws, 0.0)
                 if last < deadline:
-                    try:
-                        await ws.close(code=4001, reason="heartbeat_timeout")
-                    except Exception:
-                        logger.debug("[chat] ws exception")
-                    self.student_conns.pop(sid, None)
-                    self.student_meta.pop(sid, None)
-                    self._last_pong.pop(ws, None)
+                    stale_students.append((sid, ws))
                 else:
-                    if not await self._safe_send(ws, {"type": "ping"}):
-                        self.student_conns.pop(sid, None)
-                        self.student_meta.pop(sid, None)
-                        self._last_pong.pop(ws, None)
-
+                    active_students.append((sid, ws))
             for tid, conns in list(self.teacher_conns.items()):
-                dead: list[WebSocket] = []
                 for ws in list(conns):
                     last = self._last_pong.get(ws, 0.0)
                     if last < deadline:
-                        dead.append(ws)
+                        stale_teachers.append((tid, ws))
                     else:
-                        if not await self._safe_send(ws, {"type": "ping"}):
-                            dead.append(ws)
-                for ws in dead:
-                    try:
-                        await ws.close(code=4001, reason="heartbeat_timeout")
-                    except Exception:
-                        logger.debug("[chat] ws exception")
+                        active_teachers.append((tid, ws))
+
+        # Phase 2: close stale connections (I/O outside lock)
+        for _sid, ws in stale_students:
+            try:
+                await ws.close(code=4001, reason="heartbeat_timeout")
+            except Exception:
+                logger.debug("[chat] ws exception")
+        for _tid, ws in stale_teachers:
+            try:
+                await ws.close(code=4001, reason="heartbeat_timeout")
+            except Exception:
+                logger.debug("[chat] ws exception")
+
+        # Phase 3: ping active connections (I/O outside lock)
+        failed_students: list[tuple[str, WebSocket]] = []
+        failed_teachers: list[tuple[str, WebSocket]] = []
+        for sid, ws in active_students:
+            if not await self._safe_send(ws, {"type": "ping"}):
+                failed_students.append((sid, ws))
+        for tid, ws in active_teachers:
+            if not await self._safe_send(ws, {"type": "ping"}):
+                failed_teachers.append((tid, ws))
+
+        # Phase 4: clean up dicts inside lock
+        async with self._lock:
+            for sid, ws in stale_students + failed_students:
+                self.student_conns.pop(sid, None)
+                self.student_meta.pop(sid, None)
+                self._last_pong.pop(ws, None)
+            for tid, ws in stale_teachers + failed_teachers:
+                conns = self.teacher_conns.get(tid)
+                if conns:
                     conns.discard(ws)
-                    self._last_pong.pop(ws, None)
-                    by_sock = self.teacher_last_seen.get(tid)
-                    if by_sock is not None:
-                        by_sock.pop(ws, None)
-                if not conns:
+                self._last_pong.pop(ws, None)
+                by_sock = self.teacher_last_seen.get(tid)
+                if by_sock is not None:
+                    by_sock.pop(ws, None)
+                    if not by_sock:
+                        self.teacher_last_seen.pop(tid, None)
+                if conns is not None and not conns:
                     self.teacher_conns.pop(tid, None)
-                    self.teacher_last_seen.pop(tid, None)
 
     async def _cleanup_idle(self) -> None:
         now = time.monotonic()
         cutoff = now - self.IDLE_TIMEOUT_SECONDS
+
+        # Phase 1: collect candidates under lock
+        idle_students: list[tuple[str, WebSocket]] = []
+        idle_teachers: list[tuple[str, WebSocket]] = []
         async with self._lock:
-            idle_students = []
             for sid, ws in self.student_conns.items():
                 meta = self.student_meta.get(sid)
                 last_seen = meta.get("last_seen") if meta else None
@@ -376,24 +391,29 @@ class ChatHub:
                     except Exception:
                         logger.warning("chat: bad last_seen for idle check on %s", sid)
                         idle_students.append((sid, ws))
-            for sid, ws in idle_students:
-                try:
-                    await ws.close(code=4001, reason="idle_timeout")
-                except Exception:
-                    logger.debug("[chat] ws exception")
-                self.student_conns.pop(sid, None)
-                self.student_meta.pop(sid, None)
-
-            idle_teachers: list[tuple[str, WebSocket]] = []
             for tid, by_sock in self.teacher_last_seen.items():
                 for ws, last in list(by_sock.items()):
                     if last < cutoff:
                         idle_teachers.append((tid, ws))
+
+        # Phase 2: close idle connections (I/O outside lock)
+        for sid, ws in idle_students:
+            try:
+                await ws.close(code=4001, reason="idle_timeout")
+            except Exception:
+                logger.debug("[chat] ws exception")
+        for tid, ws in idle_teachers:
+            try:
+                await ws.close(code=4001, reason="idle_timeout")
+            except Exception:
+                logger.debug("[chat] ws exception")
+
+        # Phase 3: remove idle entries from dicts under lock
+        async with self._lock:
+            for sid, ws in idle_students:
+                self.student_conns.pop(sid, None)
+                self.student_meta.pop(sid, None)
             for tid, ws in idle_teachers:
-                try:
-                    await ws.close(code=4001, reason="idle_timeout")
-                except Exception:
-                    logger.debug("[chat] ws exception")
                 conns = self.teacher_conns.get(tid)
                 if conns:
                     conns.discard(ws)
@@ -424,11 +444,17 @@ class ChatHub:
 
             candidates.sort(key=lambda x: x[0])
             to_evict = candidates[:over]
+
+        # Phase 4: close evicted connections (I/O outside lock)
+        for _ts, kind, kid, ws in to_evict:
+            try:
+                await ws.close(code=4002, reason="global_cap")
+            except Exception:
+                logger.debug("[chat] ws exception")
+
+        # Phase 5: remove evicted entries from dicts under lock
+        async with self._lock:
             for _ts, kind, kid, ws in to_evict:
-                try:
-                    await ws.close(code=4002, reason="global_cap")
-                except Exception:
-                    logger.debug("[chat] ws exception")
                 if kind == "student":
                     self.student_conns.pop(kid, None)
                     self.student_meta.pop(kid, None)
@@ -441,3 +467,5 @@ class ChatHub:
                         by_sock.pop(ws, None)
                         if not by_sock:
                             self.teacher_last_seen.pop(kid, None)
+                    if conns is not None and not conns:
+                        self.teacher_conns.pop(kid, None)

@@ -56,7 +56,9 @@ _INVITE_JS = """\
     btn.textContent = 'Download installer';
   }
 })();
-function copyVal(v, btn){
+function copyVal(btn){
+  var v = btn.getAttribute('data-val');
+  if(!v) return;
   navigator.clipboard.writeText(v).then(function(){
     var orig = btn.textContent;
     btn.textContent = 'Copied!';
@@ -118,13 +120,13 @@ def _invite_credentials(roll: str, code: str, starts: str, ends: str) -> str:
     parts = f"""<div class="field">
       <div class="lbl">Roll number</div>
       <div class="val"><code>{e(roll)}</code>
-        <button class="copy" onclick="copyVal('{e(roll)}', this)">Copy</button></div>
+        <button class="copy" data-val="{e(roll)}" onclick="copyVal(this)">Copy</button></div>
     </div>"""
     if code:
         parts += f"""<div class="field">
         <div class="lbl">Access code</div>
         <div class="val"><code>{e(code)}</code>
-          <button class="copy" onclick="copyVal('{e(code)}', this)">Copy</button></div>
+          <button class="copy" data-val="{e(code)}" onclick="copyVal(this)">Copy</button></div>
       </div>"""
     if starts:
         parts += f'<div class="meta"><b>Starts:</b> {e(starts)}</div>'

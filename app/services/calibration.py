@@ -42,6 +42,31 @@ def parse_calibration_details(details: str) -> Optional[dict]:
                 }
         except Exception:
             logger.debug("calibration: details parse failed", exc_info=True)
+
+    # Proctor format: "gaze yaw:+0.12rad pitch:-0.05rad | head yaw:+3.0° pitch:+2.0°"
+    m_proctor = re.search(
+        r"gaze yaw:([+-][\d.]+)rad pitch:([+-][\d.]+)rad \| head yaw:([+-][\d.]+)° pitch:([+-][\d.]+)°",
+        s,
+    )
+    if m_proctor:
+        gy, gp, hy, hp = (
+            float(m_proctor.group(1)),
+            float(m_proctor.group(2)),
+            float(m_proctor.group(3)),
+            float(m_proctor.group(4)),
+        )
+        return {
+            "gaze_yaw_range":   abs(gy),
+            "gaze_pitch_range": abs(gp),
+            "head_yaw_range":   abs(hy),
+            "head_pitch_range": abs(hp),
+            "gaze_yaw":         gy,
+            "gaze_pitch":       gp,
+            "head_yaw":         hy,
+            "head_pitch":       hp,
+        }
+
+    # Legacy details format (pre-2025 proctor versions)
     m_g = re.search(r"range\s+gaze:\s*±\(([\d.\-]+)\s*,\s*([\d.\-]+)\)", s)
     m_h = re.search(r"head:\s*±\(([\d.\-]+)°?\s*,\s*([\d.\-]+)°?\)", s)
     m_b = re.search(r"bias\s+gaze:\(([\d.\-]+)\s*,\s*([\d.\-]+)\)", s)

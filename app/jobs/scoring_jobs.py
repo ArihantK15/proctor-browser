@@ -26,7 +26,7 @@ logger = logging.getLogger("scoring_jobs")
 
 
 async def _score_submission_async(
-    session_id: str,
+    session_key: str,
     teacher_id: Optional[str],
     exam_id: Optional[str],
     **kwargs,
@@ -49,28 +49,28 @@ async def _score_submission_async(
     # Idempotency guard — if another retry already completed it, bail.
     existing = await _atable("exam_sessions")\
         .select("status,score,total,percentage,risk_score,started_at,full_name,email")\
-        .eq("session_key", session_id).limit(1).execute()
+        .eq("session_key", session_key).limit(1).execute()
     if not existing.data:
-        logger.warning("[score_job] session %s not found, bailing", safe(session_id))
+        logger.warning("[score_job] session %s not found, bailing", safe(session_key))
         return {"status": "not_found"}
     sess = existing.data[0]
     if sess.get("status") in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED):
-        logger.info("[score_job] session %s already completed/force-submitted, skipping", safe(session_id))
+        logger.info("[score_job] session %s already completed/force-submitted, skipping", safe(session_key))
         return {"status": "already_completed", "score": sess.get("score"),
                 "total": sess.get("total"), "percentage": sess.get("percentage")}
 
     # 1. Load saved answers from DB (the submit handler already persisted them)
     saved = await _atable("answers").select("question_id,answer")\
-        .eq("session_key", session_id).execute()
+        .eq("session_key", session_key).execute()
     ans_payload = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
 
     # 2. Score + config in parallel
-    score_fut = recalculate_score(session_id, ans_payload, teacher_id=teacher_id, exam_id=exam_id)
+    score_fut = recalculate_score(session_key, ans_payload, teacher_id=teacher_id, exam_id=exam_id)
     config_fut = load_exam_config(teacher_id=teacher_id, exam_id=exam_id)
     try:
         (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)
     except Exception as e:
-        logger.error("[score_job] scoring failed for %s: %s", safe(session_id), safe(e))
+        logger.error("[score_job] scoring failed for %s: %s", safe(session_key), safe(e))
         raise
 
     pct = round((server_score / max(server_total, 1)) * 100, 1)
@@ -79,11 +79,11 @@ async def _score_submission_async(
     risk_score_val = 0
     risk_label = "Unknown"
     try:
-        risk = await compute_risk_score(session_id, teacher_id=teacher_id)
+        risk = await compute_risk_score(session_key, teacher_id=teacher_id)
         risk_score_val = risk["risk_score"]
         risk_label = risk["label"]
     except Exception as e:
-        logger.warning("[score_job] risk score failed for %s: %s", safe(session_id), safe(e))
+        logger.warning("[score_job] risk score failed for %s: %s", safe(session_key), safe(e))
 
     # 4. Final session write — flip to COMPLETED with final numbers
     now = now_ist()
@@ -104,14 +104,14 @@ async def _score_submission_async(
     if not sess.get("submitted_at"):
         session_row["submitted_at"] = now
 
-    upd_q = _atable("exam_sessions").update(session_row).eq("session_key", session_id)
+    upd_q = _atable("exam_sessions").update(session_row).eq("session_key", session_key)
     if teacher_id:
         upd_q = upd_q.eq("teacher_id", str(teacher_id))
     # Guard against double-completion with .neq() — same TOCTOU defence as submit
     upd_q = upd_q.neq("status", SessionStatus.COMPLETED).neq("status", SessionStatus.FORCE_SUBMITTED)
     upd_result = await upd_q.execute()
     if not upd_result.data:
-        logger.info("[score_job] session %s already COMPLETED by another path", safe(session_id))
+        logger.info("[score_job] session %s already COMPLETED by another path", safe(session_key))
         return {"status": "race_condition", "score": server_score, "total": server_total}
 
     # 5. Submission violation log (audit row — same as inline path wrote).
@@ -121,12 +121,12 @@ async def _score_submission_async(
     try:
         existing_log = await _atable("violations")\
             .select("id")\
-            .eq("session_key", session_id)\
+            .eq("session_key", session_key)\
             .eq("violation_type", "exam_submitted")\
             .limit(1).execute()
         if not existing_log.data:
             viol = {
-                "session_key":    session_id,
+                "session_key":    session_key,
                 "violation_type": "exam_submitted",
                 "severity":       "low",
                 "details":        f"Score:{server_score}/{server_total} ({pct}%)",
@@ -135,7 +135,7 @@ async def _score_submission_async(
                 viol["teacher_id"] = teacher_id
             await _atable("violations").insert(viol).execute()
     except Exception as e:
-        logger.warning("[score_job] audit insert failed for %s: %s", safe(session_id), safe(e))
+        logger.warning("[score_job] audit insert failed for %s: %s", safe(session_key), safe(e))
 
     # 6. Time-exceeded violation (if applicable, idempotent like step 5).
     # Use server-computed elapsed time (started_at → submitted_at) — the
@@ -154,12 +154,12 @@ async def _score_submission_async(
         try:
             existing_time_log = await _atable("violations")\
                 .select("id")\
-                .eq("session_key", session_id)\
+                .eq("session_key", session_key)\
                 .eq("violation_type", "time_exceeded")\
                 .limit(1).execute()
             if not existing_time_log.data:
                 time_viol = {
-                    "session_key":    session_id,
+                    "session_key":    session_key,
                     "violation_type": "time_exceeded",
                     "severity":       "high",
                     "details":        f"Submitted {int(server_elapsed - allowed_secs)}s past time limit",
@@ -168,19 +168,19 @@ async def _score_submission_async(
                     time_viol["teacher_id"] = teacher_id
                 await _atable("violations").insert(time_viol).execute()
         except Exception as e:
-            logger.warning("[score_job] time-exceeded audit failed for %s: %s", safe(session_id), safe(e))
+            logger.warning("[score_job] time-exceeded audit failed for %s: %s", safe(session_key), safe(e))
 
     # 7. Publish to dashboard SSE (best-effort)
     if teacher_id:
         try:
             await _bus_async_publish(f"sessions:{teacher_id}", {
                 "kind": "submitted",
-                "session_id": session_id,
+                "session_id": session_key,
                 "score": server_score,
                 "total": server_total,
             })
         except Exception as e:
-            logger.warning("[score_job] SSE publish failed for %s: %s", safe(session_id), safe(e))
+            logger.warning("[score_job] SSE publish failed for %s: %s", safe(session_key), safe(e))
 
     # 8. LMS grade passback (best-effort)
     if roll_number and server_total > 0:
@@ -188,10 +188,10 @@ async def _score_submission_async(
             from ..routers.exam import _try_ags_grade_passback
             await _try_ags_grade_passback(roll_number, server_score, server_total, pct)
         except Exception as e:
-            logger.warning("[score_job] AGS passback failed for %s: %s", safe(session_id), safe(e))
+            logger.warning("[score_job] AGS passback failed for %s: %s", safe(session_key), safe(e))
 
     logger.info("[score_job] %s scored: %d/%d (%s%%) risk=%d",
-                safe(session_id), server_score, server_total, pct, risk_score_val)
+                safe(session_key), server_score, server_total, pct, risk_score_val)
 
     return {
         "status": "completed",
@@ -213,9 +213,10 @@ def score_submission_job(
 ) -> dict:
     """Sync wrapper called by the RQ worker process."""
     return _run_coro_in_sync(_score_submission_async(
-        session_id=session_id,
+        session_key=session_id,
         teacher_id=teacher_id,
         exam_id=exam_id,
+        student_id=student_id,
         roll_number=roll_number,
         time_taken_secs=time_taken_secs,
     ))

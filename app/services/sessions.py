@@ -9,7 +9,7 @@ import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import threading
-from typing import Optional
+
 
 from fastapi import HTTPException
 
@@ -129,7 +129,8 @@ async def _check_subscription_active(org_id: str) -> None:
             except HTTPException:
                 raise
             except Exception:
-                pass  # malformed date — don't block; log and continue
+                logger.warning("malformed trial_end date for org %s: %s", org_id, trial_end_raw)
+                pass  # don't block on bad date
 
 
 async def get_org_subscription(org_id: str) -> dict | None:

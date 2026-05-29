@@ -153,10 +153,20 @@ function getScriptPathCandidates() {
 // Lazy require for app (avoid circular deps)
 function appRequires() { return require('electron').app; }
 
+// IMPORTANT: This list MUST be a superset of requirements-proctor.txt.
+// The electron-smoke-test enforces this so a student install never
+// diverges from the documented dev install. When you add a package to
+// requirements-proctor.txt, add it here too (or to the test's known
+// allowlist if it's a transitive-only dep we don't need to spawn pip
+// for separately).
 const PIP_PACKAGES = [
   'opencv-python', 'numpy', 'requests',
   'uniface', 'onnxruntime', 'ultralytics',
   'sounddevice',
+  // Phase 75 — audio detection
+  'vosk', 'python_speech_features',
+  // Previously drifted from requirements-proctor.txt
+  'insightface', 'websocket-client', 'psutil',
 ];
 
 // ── Polling / SSE ─────────────────────────────────────────────────

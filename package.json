@@ -63,8 +63,8 @@
         "to": "weights"
       },
       {
-        "from": "scripts/download_audio_models.sh",
-        "to": "scripts/download_audio_models.sh"
+        "from": "scripts/download_audio_models.py",
+        "to": "scripts/download_audio_models.py"
       }
     ],
     "publish": {

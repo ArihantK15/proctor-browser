@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import useTurnstile from './hooks/useTurnstile'
 
@@ -89,12 +89,33 @@ function LoginForm({ onLogin }) {
   )
 }
 
+let _studentRefreshPromise = null
+
 function StudentDashboard({ onLogout }) {
   const [exams, setExams] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
 
-  const authFetch = (url, opts = {}) => fetchWithTimeout(url, { ...opts, credentials: 'include' })
+  const authFetch = async (url, opts = {}) => {
+    const r = await fetchWithTimeout(url, { ...opts, credentials: 'include' })
+    if (r.status === 401) {
+      try {
+        if (!_studentRefreshPromise) {
+          _studentRefreshPromise = fetchWithTimeout(`${API_BASE}/student/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({}),
+          }).finally(() => { _studentRefreshPromise = null })
+        }
+        const rr = await _studentRefreshPromise
+        if (rr.ok) return fetchWithTimeout(url, { ...opts, credentials: 'include' })
+      } catch (_) {}
+      onLogout()
+      return r
+    }
+    return r
+  }
 
   const loadExams = () => {
     setLoading(true)
@@ -184,6 +205,28 @@ function StudentDashboard({ onLogout }) {
   )
 }
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+  static getDerivedStateFromError(error) { return { error } }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, textAlign: 'center', maxWidth: 480, margin: '80px auto' }}>
+          <h2>Something went wrong</h2>
+          <p style={{ color: 'var(--muted)', marginTop: 12, fontSize: 13 }}>{this.state.error.message}</p>
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 16 }} onClick={() => { this.setState({ error: null }); window.location.reload() }}>
+            Reload
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 function App() {
   const { user, loading, login, logout } = useAuth()
   if (loading) return null
@@ -191,4 +234,8 @@ function App() {
   return <StudentDashboard onLogout={logout} />
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+)

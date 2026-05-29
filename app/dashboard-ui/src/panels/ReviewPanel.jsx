@@ -142,7 +142,7 @@ export default function ReviewPanel({ currentExamId }) {
     if (mode === 'pending') load()
     else if (mode === 'audit') loadAudit()
     else if (mode === 'appeals') loadAppeals()
-  }, [currentExamId, mode, load, loadAudit, loadAppeals])
+  }, [currentExamId, mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const openEvidence = async (answer) => {
     if (!answer?.session_key) {
@@ -717,7 +717,7 @@ function ClustersView({ currentExamId }) {
     } finally { setLoading(false) }
   }, [authFetch, currentExamId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const dismiss = async (cluster) => {
     const key = `${cluster.violation_type}|${cluster.severity || ''}`

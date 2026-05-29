@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function ToolsPanel({ currentExamId }) {
@@ -27,7 +27,7 @@ export default function ToolsPanel({ currentExamId }) {
     return new Error(data.detail || `${fallback} (${response.status})`)
   }
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     if (!currentExamId) return
     setLoadError('')
     try {
@@ -50,9 +50,9 @@ export default function ToolsPanel({ currentExamId }) {
     } catch (e) {
       setLoadError(e.message || 'Failed to load exam settings')
     }
-  }
+  }, [currentExamId, authFetch])
 
-  useEffect(() => { loadAll() }, [currentExamId])
+  useEffect(() => { loadAll() }, [currentExamId, loadAll])
 
   const saveShuffle = async () => {
     try {

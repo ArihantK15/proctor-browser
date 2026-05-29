@@ -46,7 +46,7 @@ export default function QuestionsPanel({ currentExamId }) {
     finally { setBankLoading(false) }
   }, [currentExamId, authFetch])
 
-  useEffect(() => { if (currentExamId) { loadQuestions(); loadBank() } }, [currentExamId, loadQuestions, loadBank])
+  useEffect(() => { if (currentExamId) { loadQuestions(); loadBank() } }, [currentExamId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addQuestion = async () => {
     if (!currentExamId) return

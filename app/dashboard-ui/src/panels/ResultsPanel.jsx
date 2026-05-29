@@ -43,7 +43,7 @@ export default function ResultsPanel({ currentExamId }) {
     } finally { setLoading(false) }
   }, [currentExamId, authFetch])
 
-  useEffect(() => { loadResults() }, [currentExamId, loadResults])
+  useEffect(() => { loadResults() }, [currentExamId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = results
     .filter(r => !search || (r.roll_number || '').toLowerCase().includes(search) || (r.full_name || '').toLowerCase().includes(search) || (r.email || '').toLowerCase().includes(search))

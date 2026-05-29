@@ -4,6 +4,7 @@ import { API_BASE } from '../config'
 const AuthContext = createContext(null)
 let csrfMemory = ''
 let _refreshPromise = null
+let _loggingOut = false
 
 export async function fetchWithTimeout(url, opts = {}, timeoutMs = 30000) {
   const ctrl = new AbortController()
@@ -110,7 +111,7 @@ export function AuthProvider({ children }) {
   const retryOrg = useCallback(() => { loadOrg() }, [loadOrg])
   const retryBilling = useCallback(() => { loadBilling() }, [loadBilling])
 
-  useEffect(() => { checkAuth() }, [checkAuth])
+  useEffect(() => { checkAuth() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (email, password, emailOtpCode = null, captchaToken = null) => {
     const body = { email, password }
@@ -140,6 +141,8 @@ export function AuthProvider({ children }) {
   }
 
   const logout = async () => {
+    if (_loggingOut) return
+    _loggingOut = true
     try {
       const csrf = getCsrfToken() || await ensureCsrfToken()
       const headers = {}
@@ -184,7 +187,7 @@ export function AuthProvider({ children }) {
           return fetchWithTimeout(url, { ...requestOpts, headers })
         }
       } catch (_) {}
-      logout()
+      if (!_loggingOut) logout()
     }
     return r
   }

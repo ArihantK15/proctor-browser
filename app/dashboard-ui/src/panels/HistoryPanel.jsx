@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function HistoryPanel({ currentExamId }) {
@@ -12,9 +12,7 @@ export default function HistoryPanel({ currentExamId }) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
 
-  useEffect(() => { if (currentExamId) loadStudents() }, [currentExamId])
-
-  const loadStudents = async () => {
+  const loadStudents = useCallback(async () => {
     if (!currentExamId) { setLoading(false); return }
     setError('')
     try {
@@ -27,7 +25,9 @@ export default function HistoryPanel({ currentExamId }) {
     } catch (e) {
       setError(e.message || 'Failed to load student history')
     } finally { setLoading(false) }
-  }
+  }, [currentExamId, authFetch])
+
+  useEffect(() => { if (currentExamId) loadStudents() }, [currentExamId, loadStudents])
 
   const viewDetail = async (roll) => {
     setSelectedRoll(roll)

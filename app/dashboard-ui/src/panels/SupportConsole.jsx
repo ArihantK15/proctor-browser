@@ -36,7 +36,7 @@ export default function SupportConsole() {
     } finally { setLoading(false) }
   }, [authFetch])
 
-  useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id) }, [load])
+  useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const terminate = async (sessionId) => {
     if (!window.confirm('Force-terminate this session? The student will be disconnected.')) return

@@ -57,7 +57,7 @@ export default function TimelineView({ sessionId, onClose }) {
     } finally { setLoading(false) }
   }, [sessionId, authFetch])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   if (!sessionId) return null
 
   const handleExport = async () => {

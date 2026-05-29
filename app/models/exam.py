@@ -46,11 +46,35 @@ class IdVerifyIn(BaseModel):
     timestamp:    str = ""
 
 
+# Allowed reason codes for retake / reject. Mirrored verbatim in
+# renderer/index.html#_idReasonLabel and dashboard-app.js#_REASON_LABELS
+# so the student sees the same label the teacher picked. Keep all three
+# in sync when adding a new code.
+ID_REJECT_REASON_CODES: tuple[str, ...] = (
+    # retake-flavoured (recoverable — student fixes and resubmits)
+    "selfie_blurry",
+    "id_not_visible",
+    "lighting_dark",
+    "wrong_angle",
+    # reject-flavoured (closes the session)
+    "face_mismatch",
+    "id_fake_or_edited",
+    "wrong_person",
+    "other",
+)
+
+
 class IdDecisionIn(BaseModel):
     model_config = ConfigDict(strict=True)
     violation_id: int
     session_key:  str
     decision:     str
+    # Optional structured reason. reason_code is one of
+    # ID_REJECT_REASON_CODES (validated in the router); reason_text is
+    # free-text from the teacher, capped at 500 chars. Both stored in
+    # violations.details JSON next to decided_by/decided_at.
+    reason_code:  Optional[str] = None
+    reason_text:  Optional[str] = None
 
 
 class ClearSessionsIn(BaseModel):

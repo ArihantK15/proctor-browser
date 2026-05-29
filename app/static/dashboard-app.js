@@ -1807,6 +1807,10 @@ function renderResults(){
 
 function filterResults(){renderResults();}
 
+// Tracks the prior pending count so we can auto-focus the first card
+// only on the transition from 0 → N. Avoids scroll-jumping every poll.
+let _lastIdReviewCount = 0;
+
 async function refreshIdReviews(){
   const section = document.getElementById('id-reviews-section');
   const list = document.getElementById('id-reviews-list');
@@ -1819,38 +1823,156 @@ async function refreshIdReviews(){
     const rows = d.pending || [];
     count.textContent = rows.length;
     section.style.display = rows.length ? '' : 'none';
-    list.innerHTML = rows.map(v => `
-      <div class="id-review-card">
+    // Render. `tabindex="0"` so the card is keyboard-focusable for
+    // A/R/X shortcuts. Thumbnails open the side-by-side comparison
+    // viewer via _openIdComparisonOverlay.
+    list.innerHTML = rows.map(v => {
+      const safeName   = _escHtml(v.full_name || v.roll_number || 'Student');
+      const safeKey    = _escHtml(v.session_key || '');
+      const selfieAttr = v.selfie_url ? escAttr(v.selfie_url) : '';
+      const idAttr     = v.id_url     ? escAttr(v.id_url)     : '';
+      const compareArgs = _jsonArgsForAttr(selfieAttr, idAttr, v.full_name || v.roll_number || 'Student');
+      return `
+      <div class="id-review-card" tabindex="0"
+           data-violation-id="${v.id}" data-session-key="${escAttr(v.session_key || '')}"
+           data-full-name="${escAttr(v.full_name || v.roll_number || 'Student')}">
         <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
           <div>
-            <div style="font-weight:600;color:var(--text-high)">${_escHtml(v.full_name || v.roll_number || 'Student')}</div>
-            <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${_escHtml(v.session_key || '')}</div>
+            <div style="font-weight:600;color:var(--text-high)">${safeName}</div>
+            <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${safeKey}</div>
           </div>
           <div style="display:flex;gap:6px">
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,'approved')}'>Approve</button>
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,'retake')}'>Retake</button>
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,'rejected')}' style="color:var(--red)">Reject</button>
+            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,v.full_name||'',"approved")}'>Approve</button>
+            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,v.full_name||'',"retake")}'>Retake</button>
+            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,v.full_name||'',"rejected")}' style="color:var(--red)">Reject</button>
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-          ${v.selfie_url ? `<img src="${escAttr(v.selfie_url)}" style="width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">` : ''}
-          ${v.id_url ? `<img src="${escAttr(v.id_url)}" style="width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">` : ''}
+          ${selfieAttr ? `<img src="${selfieAttr}" data-action="openIdComparison" data-args='${compareArgs}' style="width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle);cursor:zoom-in" title="Click to compare side by side">` : ''}
+          ${idAttr     ? `<img src="${idAttr}"     data-action="openIdComparison" data-args='${compareArgs}' style="width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle);cursor:zoom-in" title="Click to compare side by side">` : ''}
           <span style="font-size:11px;color:var(--text-muted);align-self:center">${_escHtml(v.created_at || '')}</span>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
+    // Auto-focus + pulse the first card on the 0→N transition.
+    if(_lastIdReviewCount === 0 && rows.length > 0){
+      const first = list.firstElementChild;
+      if(first){
+        first.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+        first.classList.add('id-review-pulse');
+        setTimeout(() => first.classList.remove('id-review-pulse'), 1100);
+      }
+    }
+    _lastIdReviewCount = rows.length;
   }catch(e){
     console.warn('refreshIdReviews', e);
     section.style.display = 'none';
   }
 }
 
-async function decideIdReview(violationId, sessionKey, decision){
+// Build a copy of the side-by-side overlay each call so multiple
+// open/close cycles don't accumulate stale handlers. No new dep —
+// just absolute-positioned divs over a darkened backdrop.
+function _openIdComparisonOverlay(selfieUrl, idUrl, fullName){
+  // Clean any prior overlay.
+  const prior = document.getElementById('id-compare-overlay');
+  if(prior) prior.remove();
+  const ov = document.createElement('div');
+  ov.id = 'id-compare-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(6,8,13,.92);z-index:9999;'
+    + 'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px';
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if(e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  ov.addEventListener('click', e => { if(e.target === ov) close(); });
+  // Header row with name + zoom controls + swap + close.
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;gap:14px;align-items:center;margin-bottom:14px;color:#c9d1d9;font-size:13px';
+  header.innerHTML = `<div style="font-weight:600">${_escHtml(fullName || 'Student')}</div>`
+    + `<div style="opacity:.6">·</div>`
+    + `<button id="id-compare-zoom-1" class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px">1×</button>`
+    + `<button id="id-compare-zoom-2" class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px">2×</button>`
+    + `<button id="id-compare-zoom-fit" class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px">Fit</button>`
+    + `<button id="id-compare-swap" class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px">Swap</button>`
+    + `<div style="flex:1"></div>`
+    + `<button id="id-compare-close" class="btn btn-secondary btn-sm" style="padding:4px 12px;font-size:11px">Close ✕</button>`;
+  ov.appendChild(header);
+  // Image row. Each pane wraps its image so we can swap by reorder.
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:18px;align-items:stretch;justify-content:center;max-width:100%;'
+    + 'max-height:calc(100vh - 96px);overflow:auto';
+  const makePane = (url, label) => {
+    const pane = document.createElement('div');
+    pane.dataset.label = label;
+    pane.style.cssText = 'display:flex;flex-direction:column;gap:8px;align-items:center';
+    pane.innerHTML = `<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;font-weight:600">${label}</div>`
+      + `<img src="${escAttr(url)}" style="max-width:46vw;max-height:80vh;border-radius:10px;border:1px solid #30363d;transition:transform .2s;transform-origin:center top">`;
+    return pane;
+  };
+  const selfiePane = makePane(selfieUrl || '', 'Selfie');
+  const idPane     = makePane(idUrl     || '', 'ID card');
+  if(selfieUrl) row.appendChild(selfiePane);
+  if(idUrl)     row.appendChild(idPane);
+  ov.appendChild(row);
+  document.body.appendChild(ov);
+  // Wire controls.
+  const setZoom = (factor) => {
+    row.querySelectorAll('img').forEach(img => {
+      img.style.transform = factor === 'fit' ? 'none' : `scale(${factor})`;
+    });
+  };
+  document.getElementById('id-compare-zoom-1').onclick   = () => setZoom(1);
+  document.getElementById('id-compare-zoom-2').onclick   = () => setZoom(2);
+  document.getElementById('id-compare-zoom-fit').onclick = () => setZoom('fit');
+  document.getElementById('id-compare-swap').onclick = () => {
+    if(row.children.length === 2){
+      row.insertBefore(row.children[1], row.children[0]);
+    }
+  };
+  document.getElementById('id-compare-close').onclick = close;
+}
+// Dispatch wrapper so the data-action attribute can invoke it.
+function openIdComparison(selfieUrl, idUrl, fullName){
+  _openIdComparisonOverlay(selfieUrl, idUrl, fullName);
+}
+
+async function decideIdReview(violationId, sessionKey, fullName, decision){
+  // Approve is non-destructive — single-click stays.
+  if(decision === 'approved'){
+    return _submitIdDecision(violationId, sessionKey, decision, '', '');
+  }
+  // Retake + Reject get a confirm modal first to catch misclicks, then
+  // a reason picker so the student sees WHY.
+  const verb = decision === 'rejected' ? 'Reject' : 'Retake';
+  const who  = fullName || 'this student';
+  const confirmMsg = decision === 'rejected'
+    ? `Reject ${who}'s identity? This CLOSES their exam session and cannot be undone.`
+    : `Ask ${who} to retake their photos? They will see your reason on their screen.`;
+  const okText = decision === 'rejected' ? 'Reject' : 'Send retake request';
+  const ok = await appConfirm(confirmMsg, `${verb} identity`, {okText});
+  if(!ok) return;
+  const reason = await _openIdReasonModal({
+    decision,
+    fullName: who,
+    okText: decision === 'rejected' ? 'Reject identity' : 'Send retake',
+  });
+  if(!reason) return; // teacher backed out of the reason picker
+  return _submitIdDecision(violationId, sessionKey, decision, reason.reason_code, reason.reason_text);
+}
+
+async function _submitIdDecision(violationId, sessionKey, decision, reason_code, reason_text){
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/id-decision`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({violation_id: violationId, session_key: sessionKey, decision})
+      body:JSON.stringify({
+        violation_id: violationId,
+        session_key:  sessionKey,
+        decision,
+        reason_code:  reason_code || '',
+        reason_text:  reason_text || '',
+      })
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
@@ -3569,11 +3691,33 @@ function confirmAppModal(){
     _resolveAppDialog(input ? input.value : '');
     return;
   }
+  if(_appDialogMode === 'reason'){
+    const els = _appModalEls();
+    const state = els.body && els.body._reasonState;
+    if(!state){ _resolveAppDialog(null); return; }
+    const code = state.getCode();
+    const text = (state.getText() || '').trim();
+    // If the teacher picked "Other" they MUST type why — otherwise the
+    // student sees "Other (see note)" with no note, which is worse than
+    // showing nothing. Inline-validate instead of resolving.
+    if(code === 'other' && !text){
+      const ta = document.getElementById('app-modal-reason-text');
+      if(ta){
+        ta.style.borderColor = '#ef4444';
+        ta.placeholder = 'Required when "Other" is selected';
+        ta.focus();
+      }
+      return;
+    }
+    _resolveAppDialog({reason_code: code, reason_text: text});
+    return;
+  }
   _resolveAppDialog(true);
 }
 
 function cancelAppModal(){
-  _resolveAppDialog(_appDialogMode === 'confirm' ? false : null);
+  if(_appDialogMode === 'confirm'){ _resolveAppDialog(false); return; }
+  _resolveAppDialog(null);
 }
 
 function closeAppModal(){
@@ -3592,6 +3736,95 @@ function appConfirm(message, title='Please confirm', opts={}){
 
 function appPrompt(message, defaultValue='', opts={}){
   return _openAppDialog({title: opts.title || 'Procta', body: message, mode:'prompt', defaultValue, multiline: !!opts.multiline, inputType: opts.inputType || 'text', okText: opts.okText || 'OK'});
+}
+
+// ─── ID verification reason picker ───────────────────────────────
+//
+// Used by the Retake / Reject flow. After the teacher confirms the
+// destructive action, this modal lets them pick a chip + optionally
+// add a free-text note. Resolves to {reason_code, reason_text} or
+// null on cancel.
+//
+// MUST stay in sync with app/models/exam.py#ID_REJECT_REASON_CODES
+// and renderer/index.html#_ID_REASON_LABELS so the student sees the
+// same label.
+const _ID_REASON_LABELS = {
+  selfie_blurry:     'Selfie too blurry',
+  id_not_visible:    'ID card not clearly visible',
+  lighting_dark:     'Lighting too dark',
+  wrong_angle:       'Wrong angle',
+  face_mismatch:     'Face does not match ID',
+  id_fake_or_edited: 'ID appears fake or edited',
+  wrong_person:      'Wrong person in selfie',
+  other:             'Other (see note)',
+};
+const _ID_REASON_CHIPS = {
+  retake:   ['selfie_blurry', 'id_not_visible', 'lighting_dark', 'wrong_angle'],
+  rejected: ['face_mismatch', 'id_fake_or_edited', 'wrong_person', 'other'],
+};
+function _openIdReasonModal({decision, fullName, okText}){
+  const els = _appModalEls();
+  if(!els.overlay || !els.title || !els.body || !els.ok || !els.cancel){
+    return Promise.resolve(null);
+  }
+  if(_appDialogResolve) _appDialogResolve(null);
+  _appDialogMode = 'reason';
+  const verb = decision === 'rejected' ? 'Reject' : 'Retake';
+  els.title.textContent = `${verb} — pick a reason`;
+  els.body.innerHTML = '';
+  const intro = document.createElement('div');
+  intro.style.cssText = 'color:var(--text-muted);font-size:13px;margin-bottom:10px';
+  intro.textContent = `Why are you asking ${fullName || 'this student'} to `
+    + (decision === 'rejected' ? 'be rejected? ' : 'retake? ')
+    + 'The student will see whichever chip you pick and any note you add.';
+  els.body.appendChild(intro);
+  const chipRow = document.createElement('div');
+  chipRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px';
+  let selectedCode = '';
+  const codes = _ID_REASON_CHIPS[decision] || [];
+  codes.forEach(code => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.dataset.code = code;
+    chip.textContent = _ID_REASON_LABELS[code] || code;
+    chip.style.cssText = 'background:rgba(255,255,255,.04);border:1px solid var(--border);'
+      + 'border-radius:999px;color:var(--text);padding:6px 12px;font-size:12px;cursor:pointer;'
+      + 'transition:background .15s,border-color .15s';
+    chip.onclick = () => {
+      selectedCode = (selectedCode === code) ? '' : code;
+      Array.from(chipRow.children).forEach(c => {
+        const isSel = c.dataset.code === selectedCode;
+        c.style.background = isSel ? 'rgba(91,138,240,.18)' : 'rgba(255,255,255,.04)';
+        c.style.borderColor = isSel ? 'var(--blue, #5b8af0)' : 'var(--border)';
+      });
+    };
+    chipRow.appendChild(chip);
+  });
+  els.body.appendChild(chipRow);
+  const textLabel = document.createElement('div');
+  textLabel.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:4px';
+  textLabel.textContent = 'Add a note (optional, max 500 chars)';
+  els.body.appendChild(textLabel);
+  const textarea = document.createElement('textarea');
+  textarea.id = 'app-modal-reason-text';
+  textarea.rows = 3;
+  textarea.maxLength = 500;
+  textarea.style.cssText = 'width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);'
+    + 'border-radius:10px;color:var(--text);padding:10px 12px;font-size:13px;outline:none;'
+    + 'box-sizing:border-box;resize:vertical';
+  els.body.appendChild(textarea);
+  els.ok.textContent = okText || (decision === 'rejected' ? 'Reject identity' : 'Send retake');
+  els.cancel.textContent = 'Cancel';
+  els.cancel.style.display = '';
+  els.overlay.style.display = 'flex';
+  setTimeout(() => textarea.focus(), 0);
+  // Stash a lookup so confirmAppModal can read the chip + text.
+  els.body._reasonState = {
+    getCode: () => selectedCode,
+    getText: () => textarea.value,
+    decision,
+  };
+  return new Promise(resolve => { _appDialogResolve = resolve; });
 }
 
 function setCorrect(idx,key){
@@ -6225,6 +6458,33 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   const fn = _resolveDelegatedAction(el.dataset.submit);
   if (typeof fn === 'function') fn();
+});
+
+// Keyboard shortcuts for the ID review queue. A focused .id-review-card
+// + A/R/X triggers Approve / Retake / Reject. Skips if an input/textarea
+// is focused (so typing into the reason modal doesn't fire). Skips if
+// the reason picker or any other modal is already open.
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const card = e.target.closest && e.target.closest('.id-review-card');
+  if (!card) return;
+  // Don't hijack typing inside an embedded input/textarea.
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  // Don't fire if a modal is open over the dashboard.
+  const ovEl = document.getElementById('app-modal-overlay');
+  if (ovEl && ovEl.style.display && ovEl.style.display !== 'none') return;
+  if (document.getElementById('id-compare-overlay')) return;
+  const key = e.key.toLowerCase();
+  const map = { a: 'approved', r: 'retake', x: 'rejected' };
+  const decision = map[key];
+  if (!decision) return;
+  e.preventDefault();
+  const vid = parseInt(card.dataset.violationId || '0', 10);
+  const sk  = card.dataset.sessionKey || '';
+  const fn  = card.dataset.fullName || '';
+  if (!vid || !sk) return;
+  decideIdReview(vid, sk, fn, decision);
 });
 
 // ── Wrappers for onchange handlers ────────────────────────────────

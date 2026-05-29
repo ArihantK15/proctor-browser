@@ -554,7 +554,14 @@
       <span class="logo-text">Session Closed</span>
     </div>
     <h1 style="color:#ff7b72;margin-bottom:10px">Identity Mismatch</h1>
-    <p style="margin-bottom:20px">Your examiner has determined that the person does not match the provided ID. This exam session has been closed.</p>
+    <p style="margin-bottom:14px">Your examiner has closed this exam session.</p>
+    <!-- Reason block: populated by the poll handler if the teacher
+         provided a chip or free-text note. Hidden when both fields
+         are empty. -->
+    <div id="id-reject-reason" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);border-radius:8px;padding:12px 14px;margin-bottom:16px;text-align:left;color:#fca5a5;font-size:13px;line-height:1.5">
+      <div style="font-size:11px;color:#ff7b72;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px">Reason</div>
+      <div id="id-reject-reason-body"></div>
+    </div>
     <p style="color:#6b7b8f;font-size:13px">If you believe this is an error, contact your examiner directly.</p>
     <div class="ldr" id="id-reject-countdown" style="margin-top:16px;color:#ff7b72"></div>
   </div>
@@ -1232,6 +1239,41 @@ function retakeCurrentStep() {
   _idShowStep(idStep);
 }
 
+// Reason-code → human label. MUST stay in sync with
+// app/models/exam.py#ID_REJECT_REASON_CODES and
+// app/static/dashboard-app.js#_ID_REASON_LABELS. Update all three when
+// adding a code so the student sees what the teacher picked.
+const _ID_REASON_LABELS = {
+  selfie_blurry:     'Selfie too blurry',
+  id_not_visible:    'ID card not clearly visible',
+  lighting_dark:     'Lighting too dark',
+  wrong_angle:       'Wrong angle',
+  face_mismatch:     'Face does not match ID',
+  id_fake_or_edited: 'ID appears fake or edited',
+  wrong_person:      'Wrong person in selfie',
+  other:             'Other (see note)',
+};
+function _idReasonLabel(code) {
+  return _ID_REASON_LABELS[code || ''] || '';
+}
+// Compose the "<lead><sep><label> — <note>" string used in both the
+// retake status line and the rejected card. Returns the empty string
+// when the teacher submitted no chip + no note (back-compat: student
+// sees the generic copy).
+function _idReasonInline(code, text) {
+  const label = _idReasonLabel(code);
+  const note  = (text || '').trim();
+  if (label && note) return `${label} — ${note}`;
+  if (label)         return label;
+  if (note)          return note;
+  return '';
+}
+function _idReasonMessage(lead, fallback, code, text) {
+  const inline = _idReasonInline(code, text);
+  if (inline) return `${lead}: ${inline}`;
+  return `${lead}. ${fallback}`;
+}
+
 async function idNextStep() {
   if (idStep === 1) {
     _idShowStep(2);
@@ -1315,8 +1357,12 @@ function _startIdPoll() {
         document.getElementById('id-retake-btn').disabled = false;
         selfieB64 = null; idCardB64 = null;
         _idShowStep(1);
-        document.getElementById('id-status').textContent =
-          'Your examiner has requested a retake. Please try again.';
+        const retakeMsg = _idReasonMessage(
+          'Your examiner has requested a retake',
+          'Please try again.',
+          d.reason_code, d.reason_text
+        );
+        document.getElementById('id-status').textContent = retakeMsg;
         document.getElementById('id-status').style.color = '#f59e0b';
 
       } else if (d.status === 'rejected') {
@@ -1327,11 +1373,21 @@ function _startIdPoll() {
           idStream = null;
           document.getElementById('id-cam').srcObject = null;
         }
-        // Show rejection screen
+        // Show rejection screen with the teacher's reason (if any).
         document.getElementById('id-waiting-card').style.display = 'none';
         document.getElementById('id-rejected-card').style.display = '';
-        // Countdown and close
-        let secs = 8;
+        const reasonBlock = document.getElementById('id-reject-reason');
+        const reasonBody  = document.getElementById('id-reject-reason-body');
+        const reasonStr   = _idReasonInline(d.reason_code, d.reason_text);
+        if (reasonStr) {
+          reasonBody.textContent = reasonStr;
+          reasonBlock.style.display = '';
+        } else {
+          reasonBlock.style.display = 'none';
+        }
+        // Bumped from 8s to 15s so a student who's reading a reason
+        // actually has time to read it before the window closes.
+        let secs = 15;
         const cdEl = document.getElementById('id-reject-countdown');
         cdEl.textContent = `Closing in ${secs} seconds...`;
         const cdInt = setInterval(() => {

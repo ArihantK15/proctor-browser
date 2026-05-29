@@ -12,7 +12,7 @@ from ..database import async_table as _atable
 from ..limiter import limiter
 from .. import cache as _cache
 from ..models import SessionStatus, VerificationStatus
-from ..models import IdDecisionIn
+from ..models import IdDecisionIn, ID_REJECT_REASON_CODES
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,14 @@ async def id_decision(data: IdDecisionIn, request: Request):
     tid = teacher["id"]
     if data.decision not in ("approved", "retake", "rejected"):
         raise HTTPException(status_code=400, detail="Invalid decision")
+    # Reason validation. Both fields are optional, but if reason_code is
+    # supplied it must be a known value so the student-side label lookup
+    # doesn't fall through to "unknown". Cap the free-text at 500 chars
+    # to bound DB row growth + render width.
+    reason_code = (data.reason_code or "").strip()
+    if reason_code and reason_code not in ID_REJECT_REASON_CODES:
+        raise HTTPException(status_code=400, detail="Invalid reason_code")
+    reason_text = (data.reason_text or "").strip()[:500]
     result = await _atable("violations")\
         .select("*")\
         .eq("id", data.violation_id)\
@@ -93,18 +101,31 @@ async def id_decision(data: IdDecisionIn, request: Request):
     obj["status"] = data.decision
     obj["decided_by"] = teacher.get("full_name", teacher.get("email", ""))
     obj["decided_at"] = now_ist().isoformat()
+    obj["reason_code"] = reason_code
+    obj["reason_text"] = reason_text
     await _atable("violations")\
         .update({"details": json.dumps(obj)})\
         .eq("id", data.violation_id)\
         .execute()
 
     if data.decision == "rejected":
+        # Embed the reason in the audit-trail violation so a later
+        # timeline replay shows WHY the session was closed, not just
+        # that it was. Keep the leading sentence so back-compat parsers
+        # / search continue to match "Teacher rejected student identity".
+        audit_detail = (
+            f"Teacher rejected student identity — decided by "
+            f"{obj['decided_by']}"
+        )
+        if reason_code or reason_text:
+            audit_detail += f" — reason: {reason_code or 'free-text'}"
+            if reason_text:
+                audit_detail += f" ({reason_text})"
         reject_row = {
             "session_key":    data.session_key,
             "violation_type": "id_rejected",
             "severity":       "high",
-            "details":        f"Teacher rejected student identity — "
-                              f"decided by {obj['decided_by']}",
+            "details":        audit_detail,
         }
         if tid:
             reject_row["teacher_id"] = str(tid)

@@ -1410,10 +1410,18 @@ async def id_verification_status(request: Request, session_id: str = ""):
     raw = result.data[0].get("details", "")
     try:
         obj = json.loads(raw)
-        return {"status": obj.get("status", "pending")}
+        # Surface the reason fields so the student's retake/rejected
+        # screens can render "Your examiner determined: <reason>"
+        # instead of the generic copy. Empty strings if the teacher
+        # didn't pick a chip or type a note.
+        return {
+            "status":      obj.get("status", "pending"),
+            "reason_code": obj.get("reason_code", "") or "",
+            "reason_text": obj.get("reason_text", "") or "",
+        }
     except Exception:
         _exam_log.warning("id_verification_status: malformed JSON for session %s", safe(session_id))
-        return {"status": "pending"}
+        return {"status": "pending", "reason_code": "", "reason_text": ""}
 
 
 @router.get("/api/v1/events/{session_id}")

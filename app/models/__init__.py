@@ -12,7 +12,7 @@ from .student import (
 )
 from .exam import (
     SessionStatus, VerificationStatus,
-    EventIn, FrameIn, IdVerifyIn, IdDecisionIn,
+    EventIn, FrameIn, IdVerifyIn, IdDecisionIn, ID_REJECT_REASON_CODES,
     ClearSessionsIn, EmailScorecardsIn, ScheduleIn, ShuffleIn,
     AccessCodeIn, BulkRegisterIn, CreateExamIn,
     UploadQuestionImageIn, SaveTemplateIn, DuplicateExamIn,
@@ -33,7 +33,7 @@ __all__ = [
     "StudentSignupIn", "StudentLoginIn", "BulkStudentIn",
     # exam
     "SessionStatus", "VerificationStatus",
-    "EventIn", "FrameIn", "IdVerifyIn", "IdDecisionIn",
+    "EventIn", "FrameIn", "IdVerifyIn", "IdDecisionIn", "ID_REJECT_REASON_CODES",
     "ClearSessionsIn", "EmailScorecardsIn", "ScheduleIn", "ShuffleIn",
     "AccessCodeIn", "BulkRegisterIn", "CreateExamIn",
     "UploadQuestionImageIn", "SaveTemplateIn", "DuplicateExamIn",

@@ -28,8 +28,9 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements.lock
 
       - uses: actions/setup-node@v4
         with:
@@ -46,7 +47,7 @@ jobs:
       - name: Install runtime + test deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.lock
           pip install pytest pytest-asyncio pytest-cov
 
       - name: Compile-check Python sources
@@ -216,14 +217,15 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements.lock
 
       - name: Python dependency audit
         run: |
           python -m pip install --upgrade pip
           pip install pip-audit
-          pip-audit -r requirements.txt
+          pip-audit -r requirements.lock
 
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2

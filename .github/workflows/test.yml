@@ -33,7 +33,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22 — puppeteer 25 (used by website postbuild prerender)
+          # requires Node >=22.12; on 20 it warns and may fail at runtime.
+          node-version: 22
           cache: npm
           cache-dependency-path: |
             package-lock.json

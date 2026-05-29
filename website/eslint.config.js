@@ -23,7 +23,11 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // ^[A-Z_] covers PascalCase components (Navbar, Helmet, Link, …).
+      // `motion` is a special-case lowercase namespace from framer-motion
+      // used as <motion.div>; without eslint-plugin-react's jsx-uses-vars
+      // rule ESLint can't see the JSX reference and flags it as unused.
+      'no-unused-vars': ['error', { varsIgnorePattern: '^([A-Z_]|motion$)' }],
     },
   },
 ])

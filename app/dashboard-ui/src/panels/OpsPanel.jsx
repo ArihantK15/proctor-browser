@@ -134,7 +134,7 @@ function StatusCard({ label, value }) {
   )
 }
 
-function metricTone(key, value, checks) {
+function metricTone(key, value, _checks) {
   if (value === null || value === undefined) return 'unavailable'
   if (key === 'queue_failed' && value > 0) return 'bad'
   if (key === 'error_rate_pct') {

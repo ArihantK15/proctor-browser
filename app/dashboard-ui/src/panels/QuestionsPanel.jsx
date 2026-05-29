@@ -62,7 +62,7 @@ export default function QuestionsPanel({ currentExamId }) {
     } catch (err) { setMutationError(err.message || 'Failed to add question') }
   }
 
-  const saveQuestion = async (q, idx) => {
+  const saveQuestion = async (q, _idx) => {
     if (!currentExamId || !q.id) return
     setMutationError('')
     try {

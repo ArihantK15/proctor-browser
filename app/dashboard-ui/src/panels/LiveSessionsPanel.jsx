@@ -54,8 +54,10 @@ export default function LiveSessionsPanel({ currentExamId }) {
   const [sessions, setSessions] = useState([])
   const [search, setSearch] = useState('')
   const [sevFilter, setSevFilter] = useState('all')
-  const [sortKey, setSortKey] = useState('risk_score')
-  const [sortAsc, setSortAsc] = useState(false)
+  // Sort UI is read-only for now — setters live behind a planned
+  // header-click handler. Prefixed with _ to mark the placeholder.
+  const [sortKey, _setSortKey] = useState('risk_score')
+  const [sortAsc, _setSortAsc] = useState(false)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [liveViewSid, setLiveViewSid] = useState(null)

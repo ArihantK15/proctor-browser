@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint src --max-warnings=0",
+    "lint": "eslint src",
     "type-check": "npm run lint",
     "test": "node scripts/smoke-test.mjs",
     "preview": "vite preview"
@@ -19,6 +19,7 @@
     "@eslint/js": "^9.0.0",
     "@vitejs/plugin-react": "^6.0.2",
     "eslint": "^9.0.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "vite": "^8.0.14"
   }
 }

@@ -7,7 +7,7 @@ const STEP_PREVIEW = 2
 const STEP_RESULT = 3
 
 export default function BulkImportPanel() {
-  const { user, authFetch } = useAuth()
+  const { authFetch } = useAuth()
   const fileRef = useRef(null)
   const [step, setStep] = useState(STEP_UPLOAD)
   const [file, setFile] = useState(null)

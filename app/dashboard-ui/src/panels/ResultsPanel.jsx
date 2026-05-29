@@ -13,7 +13,9 @@ export default function ResultsPanel({ currentExamId }) {
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
   const [batchSize, setBatchSize] = useState(50)
-  const [stats, setStats] = useState({ total: 0, avgScore: 0, avgRisk: 0, highRisk: 0 })
+  // Stats UI placeholder — render path not wired yet. Underscore-
+  // prefixed to mark the planned-but-unused state without losing it.
+  const [_stats, _setStats] = useState({ total: 0, avgScore: 0, avgRisk: 0, highRisk: 0 })
   const [timelineSession, setTimelineSession] = useState(null)
 
   const loadResults = useCallback(async () => {

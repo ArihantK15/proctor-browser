@@ -66,10 +66,13 @@ async def api_get_exam(exam_id: str, request: Request, tid: str = Depends(_requi
     return result.data[0]
 
 
+STUDENT_COLS = "roll_number,full_name,email,teacher_id,exam_id,status,created_at,account_id"
+SESSION_COLS = "session_key,exam_id,student_roll_number,student_name,started_at,ended_at,status,score,total,percentage"
+
 @router.get("/exams/{exam_id}/students")
 @limiter.limit("30/minute")
 async def api_exam_students(exam_id: str, request: Request, tid: str = Depends(_require_api)):
-    result = await _atable("students").select("*")\
+    result = await _atable("students").select(STUDENT_COLS)\
         .eq("teacher_id", tid).execute()
     return result.data or []
 
@@ -77,7 +80,7 @@ async def api_exam_students(exam_id: str, request: Request, tid: str = Depends(_
 @router.get("/exams/{exam_id}/sessions")
 @limiter.limit("30/minute")
 async def api_exam_sessions(exam_id: str, request: Request, tid: str = Depends(_require_api)):
-    result = await _atable("exam_sessions").select("*")\
+    result = await _atable("exam_sessions").select(SESSION_COLS)\
         .eq("exam_id", exam_id).eq("teacher_id", tid)\
         .order("started_at", desc=True).execute()
     return result.data or []
@@ -86,7 +89,7 @@ async def api_exam_sessions(exam_id: str, request: Request, tid: str = Depends(_
 @router.get("/exams/{exam_id}/sessions/{session_key}")
 @limiter.limit("30/minute")
 async def api_session_detail(exam_id: str, session_key: str, request: Request, tid: str = Depends(_require_api)):
-    result = await _atable("exam_sessions").select("*")\
+    result = await _atable("exam_sessions").select(SESSION_COLS)\
         .eq("session_key", session_key).eq("teacher_id", tid).limit(1).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -96,7 +99,7 @@ async def api_session_detail(exam_id: str, session_key: str, request: Request, t
 @router.get("/students/{roll_number}")
 @limiter.limit("30/minute")
 async def api_get_student(roll_number: str, request: Request, tid: str = Depends(_require_api)):
-    result = await _atable("students").select("*")\
+    result = await _atable("students").select(STUDENT_COLS)\
         .eq("roll_number", roll_number.strip().upper()).eq("teacher_id", tid).limit(1).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Student not found")

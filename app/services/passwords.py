@@ -1,4 +1,5 @@
 """Password complexity rules and HIBP top-1000 breach check."""
+import asyncio
 import hashlib
 import logging
 import os
@@ -117,6 +118,34 @@ def _appears_in_hibp(password: str) -> bool:
 
 class PasswordError(ValueError):
     pass
+
+
+async def validate_password_async(password: str) -> None:
+    """Async variant — runs HIBP check in executor to avoid blocking the event loop."""
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise PasswordError(
+            f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+        )
+    if REQUIRE_UPPER and not any(c.isupper() for c in password):
+        raise PasswordError("Password must contain at least one uppercase letter.")
+    if REQUIRE_LOWER and not any(c.islower() for c in password):
+        raise PasswordError("Password must contain at least one lowercase letter.")
+    if REQUIRE_DIGIT and not any(c.isdigit() for c in password):
+        raise PasswordError("Password must contain at least one digit.")
+    if REQUIRE_SYMBOL and not any(not c.isalnum() for c in password):
+        raise PasswordError("Password must contain at least one symbol (!@#$ etc.).")
+
+    # Check breached list (case-insensitive)
+    if password.lower() in _get_breached():
+        raise PasswordError(
+            "This password appears in a known data breach. "
+            "Please choose a different password."
+        )
+    if await asyncio.to_thread(_appears_in_hibp, password):
+        raise PasswordError(
+            "This password appears in a known data breach. "
+            "Please choose a different password."
+        )
 
 
 def validate_password(password: str) -> None:

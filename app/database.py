@@ -94,12 +94,23 @@ class _UnavailableSupabase:
 
 _supabase_url = os.environ.get("SUPABASE_URL", "").strip()
 _supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+_supabase_instance = None
 
-if _supabase_url and _supabase_key:
-    from supabase import create_client, Client
-    supabase: Client = create_client(_supabase_url, _supabase_key)
-else:
-    supabase = _UnavailableSupabase()
+def get_supabase():
+    """Lazy-init Supabase client — avoids blocking module import."""
+    global _supabase_instance
+    if _supabase_instance is None:
+        if _supabase_url and _supabase_key:
+            from supabase import create_client, Client
+            _supabase_instance = create_client(_supabase_url, _supabase_key)
+        else:
+            _supabase_instance = _UnavailableSupabase()
+    return _supabase_instance
+
+def __getattr__(name):
+    if name == 'supabase':
+        return get_supabase()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ─── async_table factory ───────────────────────────────────────────

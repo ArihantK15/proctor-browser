@@ -23,7 +23,7 @@ from ..auth import (
 from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus
 from ..constants import ALL_SIGNING_KEYS, PLANS, TRIAL_DAYS
-from ..services.passwords import validate_password, PasswordError
+from ..services.passwords import validate_password, validate_password_async, PasswordError
 from ..services.local_auth import (
     hash_password,
     issue_password_reset_token,
@@ -381,7 +381,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     if not org_name:
         raise HTTPException(status_code=400, detail="Organization name is required")
     try:
-        validate_password(body.password)
+        await validate_password_async(body.password)
     except PasswordError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -988,7 +988,7 @@ async def accept_org_invite(body: dict, request: Request):
     if not full_name:
         raise HTTPException(status_code=400, detail="Full name is required")
     try:
-        validate_password(password)
+        await validate_password_async(password)
     except PasswordError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1126,7 +1126,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="Full name is required")
     try:
-        validate_password(body.password)
+        await validate_password_async(body.password)
     except PasswordError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -2115,7 +2115,7 @@ async def confirm_password_reset(body: dict, request: Request):
     if not claims:
         raise HTTPException(status_code=400, detail="Reset link expired or invalid")
     try:
-        validate_password(password)
+        await validate_password_async(password)
     except PasswordError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from ..auth import require_admin
 from ..database import async_table as _atable
 from .. import cache as _cache
-from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
+from ..repositories.questions import load_questions as _load_questions
 from ..models import SessionStatus
 from ..limiter import limiter
 from ..models import (

@@ -577,7 +577,6 @@ async def list_invoices(request: Request):
         ]}
 
     try:
-        import razorpay
         client = _get_client()
         raw = client.invoice.all({"subscription_id": sub_id})
         # P2.5: Razorpay returns `created_at` as Unix epoch seconds (int).

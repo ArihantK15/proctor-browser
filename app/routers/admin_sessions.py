@@ -2,7 +2,6 @@
 from ..log_safe import safe
 import logging
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, Body
 
@@ -17,7 +16,7 @@ from ..services.sessions import (
     clear_token_issue as _clear_token_issue,
     clear_token_consume as _clear_token_consume,
 )
-from ..constants import _CLEAR_TOKEN_TTL, _CLEAR_ACTIVE_WINDOW, SCREENSHOTS_DIR
+from ..constants import _CLEAR_TOKEN_TTL, _CLEAR_ACTIVE_WINDOW
 from ..database import async_table as _atable
 from ..limiter import limiter
 from .. import cache as _cache

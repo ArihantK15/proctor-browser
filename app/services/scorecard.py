@@ -15,6 +15,17 @@ from ..utils import _safe_filename, fmt_ist, now_ist
 logger = logging.getLogger(__name__)
 
 
+_END_REASON_LABELS = {
+    "academic_dishonesty":  "Suspected academic dishonesty",
+    "identity_fraud":       "Identity could not be re-verified",
+    "environment_issue":    "Unsuitable exam environment",
+    "repeated_violations":  "Repeated proctoring violations",
+    "student_request":      "Student requested termination",
+    "technical_failure":    "Persistent technical failure",
+    "other":                "Other",
+}
+
+
 def _build_info_table(exam: dict, score: float, total: float,
                        pct: float, risk_label: str, passed: bool):
     from reportlab.lib import colors as _c
@@ -30,6 +41,19 @@ def _build_info_table(exam: dict, score: float, total: float,
         ["Time Taken", f"{exam.get('time_taken_secs', 0) // 60}m {exam.get('time_taken_secs', 0) % 60}s"],
         ["Risk Level", risk_label],
     ]
+    # Phase 74: surface termination cause when the session was
+    # force-submitted by a teacher. Two-line cell: human-readable code
+    # label + the optional free-text note. Only renders when the
+    # session was actually terminated (otherwise the row is omitted
+    # entirely, no blank "Termination: -" eyesore).
+    term_code = (exam.get("termination_reason_code") or "").strip()
+    term_text = (exam.get("termination_reason_text") or "").strip()
+    if exam.get("status") == "force_submitted" and (term_code or term_text):
+        label = _END_REASON_LABELS.get(term_code, term_code or "Ended by teacher")
+        line = f"Ended by teacher — {label}"
+        if term_text:
+            line += f"\n\"{term_text}\""
+        info.append(["Termination", line])
     t = Table(info, colWidths=[140, 330])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), _c.HexColor("#1a1a2e")),

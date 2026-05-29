@@ -6,6 +6,13 @@ from pydantic import BaseModel, ConfigDict
 
 class SessionStatus(StrEnum):
     IN_PROGRESS = "in_progress"
+    # PAUSED is non-terminal: the student's UI is locked + their clock
+    # is stopped (paused_at set on the row). Resume flips back to
+    # IN_PROGRESS. Distinct from IN_PROGRESS so the dashboard live-
+    # sessions panel can badge it and the resume endpoint can find
+    # paused sessions cheaply via the idx_exam_sessions_currently_paused
+    # partial index (phase74).
+    PAUSED = "paused"
     COMPLETED = "completed"
     SUBMITTED = "submitted"
     FORCE_SUBMITTED = "force_submitted"
@@ -73,6 +80,57 @@ class IdDecisionIn(BaseModel):
     # ID_REJECT_REASON_CODES (validated in the router); reason_text is
     # free-text from the teacher, capped at 500 chars. Both stored in
     # violations.details JSON next to decided_by/decided_at.
+    reason_code:  Optional[str] = None
+    reason_text:  Optional[str] = None
+
+
+# ─── Live teacher intervention (phase 74) ────────────────────────────
+#
+# Three escalating teacher actions on a live exam session:
+#   Warn     — sends a system_warning chat message (recoverable, no
+#              state change on the session)
+#   Pause    — locks the student UI and stops their timer (recoverable)
+#   Terminate (extend force-submit) — closes the session permanently,
+#              scores the student's answers as-is, records the reason
+
+# Allowlist mirrored in renderer/index.html + dashboard-app.js so the
+# student sees the same human label the teacher picked. Keep all three
+# in sync when adding a code.
+SESSION_END_REASON_CODES: tuple[str, ...] = (
+    "academic_dishonesty",
+    "identity_fraud",
+    "environment_issue",
+    "repeated_violations",
+    "student_request",
+    "technical_failure",
+    "other",  # requires reason_text
+)
+
+# Allowlist for the warn modal's severity chips.
+TEACHER_WARN_CHIP_CODES: tuple[str, ...] = (
+    "eyes_off_screen",
+    "phone_visible",
+    "talking_to_someone",
+    "multiple_tabs",
+    "other",
+)
+
+
+class TeacherWarnIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    # Either chip_code or text (or both) must be present — empty warning
+    # is rejected at the router. Both capped at sane sizes there too.
+    chip_code: Optional[str] = None
+    text:      Optional[str] = None
+
+
+class SessionTerminateIn(BaseModel):
+    """Extends the existing admin-submit body. reauth_token stays
+    required (handled by require_reauth_or_403). reason_code +
+    reason_text are validated against SESSION_END_REASON_CODES at the
+    router and persisted on the exam_sessions row."""
+    model_config = ConfigDict(strict=True)
+    reauth_token: Optional[str] = None
     reason_code:  Optional[str] = None
     reason_text:  Optional[str] = None
 

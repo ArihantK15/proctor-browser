@@ -1734,7 +1734,20 @@ function renderLive(){
   body.innerHTML = rows.map(s => {
     const sid = s.session_id || s.session_key || '';
     const risk = s.risk_score == null ? '--' : String(s.risk_score);
-    const state = s.submitted ? 'Submitted' : s.live_state === 'force_submitted' ? 'Force Submitted' : (s.live_state || 'Active');
+    const isPaused    = s.live_state === 'paused';
+    const isSubmitted = s.submitted || s.live_state === 'force_submitted' || s.live_state === 'completed';
+    const state = s.submitted ? 'Submitted'
+                 : s.live_state === 'force_submitted' ? 'Force Submitted'
+                 : isPaused ? 'PAUSED'
+                 : (s.live_state || 'Active');
+    // Phase 74: Warn / Pause / Resume / End intervention buttons.
+    // Only shown on still-running sessions (not after submit/terminate).
+    const interventionBtns = isSubmitted ? '' : `
+        <button class="btn btn-secondary btn-sm" title="Warn student" data-action="openInterventionWarn" data-args='${_jsonArgsForAttr(sid)}'>⚠️</button>
+        ${isPaused
+          ? `<button class="btn btn-secondary btn-sm" title="Resume exam" data-action="confirmResumeSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--emerald)">▶</button>`
+          : `<button class="btn btn-secondary btn-sm" title="Pause exam"  data-action="confirmPauseSession"  data-args='${_jsonArgsForAttr(sid)}'>⏸</button>`}
+        <button class="btn btn-secondary btn-sm" title="End exam (with reason)" data-action="confirmEndSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--red)">⛔</button>`;
     return `<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
       <td><span style="font-family:var(--font-mono);font-size:11px">${_escHtml(sid)}</span></td>
       <td>${_escHtml((s.last_event || '--').replace(/_/g,' '))}</td>
@@ -1742,13 +1755,215 @@ function renderLive(){
       <td><span class="badge">${_escHtml(risk)}</span></td>
       <td>${_calBadge(s.calibration)}</td>
       <td>${_escHtml(s.last_seen || (s.heartbeat_age_sec != null ? `${s.heartbeat_age_sec}s ago` : '--'))}</td>
-      <td>${_escHtml(state)}</td>
+      <td>${isPaused ? `<span class="badge" style="background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.5)">${_escHtml(state)}</span>` : _escHtml(state)}</td>
       <td>
         <button class="btn btn-secondary btn-sm" data-action="openTriage" data-args='${_jsonArgsForAttr(sid)}'>Insight</button>
         <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
+        ${interventionBtns}
       </td>
     </tr>`;
   }).join('');
+}
+
+// ── Phase 74 — live teacher intervention handlers ────────────────
+
+const _WARN_CHIPS = [
+  ['eyes_off_screen',    'Eyes off screen'],
+  ['phone_visible',      'Phone visible'],
+  ['talking_to_someone', 'Talking to someone'],
+  ['multiple_tabs',      'Multiple tabs'],
+  ['other',              'Other (note required)'],
+];
+
+const _END_REASON_CHIPS = [
+  ['academic_dishonesty', 'Suspected academic dishonesty'],
+  ['identity_fraud',      'Identity could not be re-verified'],
+  ['environment_issue',   'Unsuitable exam environment'],
+  ['repeated_violations', 'Repeated proctoring violations'],
+  ['student_request',     'Student requested termination'],
+  ['technical_failure',   'Persistent technical failure'],
+  ['other',               'Other (note required)'],
+];
+
+// Reuse the chip + textarea modal pattern from _openIdReasonModal,
+// generalised. Returns {chip_code, text} or null on cancel. Set
+// `requireTextOnOther: true` to inline-validate that "Other" picks
+// have a non-empty note before the dialog resolves.
+function _openChipPickerModal({title, intro, chips, okText, requireTextOnOther}){
+  const els = _appModalEls();
+  if(!els.overlay || !els.title || !els.body || !els.ok || !els.cancel){
+    return Promise.resolve(null);
+  }
+  if(_appDialogResolve) _appDialogResolve(null);
+  _appDialogMode = 'chip_picker';
+  els.title.textContent = title;
+  els.body.innerHTML = '';
+  if(intro){
+    const introEl = document.createElement('div');
+    introEl.style.cssText = 'color:var(--text-muted);font-size:13px;margin-bottom:10px';
+    introEl.textContent = intro;
+    els.body.appendChild(introEl);
+  }
+  const chipRow = document.createElement('div');
+  chipRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px';
+  let selectedCode = '';
+  for(const [code, label] of chips){
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.dataset.code = code;
+    chip.textContent = label;
+    chip.style.cssText = 'background:rgba(255,255,255,.04);border:1px solid var(--border);' +
+      'border-radius:999px;color:var(--text);padding:6px 12px;font-size:12px;cursor:pointer;' +
+      'transition:background .15s,border-color .15s';
+    chip.onclick = () => {
+      selectedCode = (selectedCode === code) ? '' : code;
+      Array.from(chipRow.children).forEach(c => {
+        const isSel = c.dataset.code === selectedCode;
+        c.style.background  = isSel ? 'rgba(91,138,240,.18)' : 'rgba(255,255,255,.04)';
+        c.style.borderColor = isSel ? 'var(--blue, #5b8af0)' : 'var(--border)';
+      });
+    };
+    chipRow.appendChild(chip);
+  }
+  els.body.appendChild(chipRow);
+  const textLabel = document.createElement('div');
+  textLabel.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:4px';
+  textLabel.textContent = 'Add a note (optional, max 500 chars)';
+  els.body.appendChild(textLabel);
+  const textarea = document.createElement('textarea');
+  textarea.id = 'app-modal-chip-text';
+  textarea.rows = 3;
+  textarea.maxLength = 500;
+  textarea.style.cssText = 'width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);' +
+    'border-radius:10px;color:var(--text);padding:10px 12px;font-size:13px;outline:none;' +
+    'box-sizing:border-box;resize:vertical';
+  els.body.appendChild(textarea);
+  els.ok.textContent = okText || 'Submit';
+  els.cancel.textContent = 'Cancel';
+  els.cancel.style.display = '';
+  els.overlay.style.display = 'flex';
+  setTimeout(() => textarea.focus(), 0);
+  els.body._chipState = {
+    getCode: () => selectedCode,
+    getText: () => textarea.value,
+    requireTextOnOther: !!requireTextOnOther,
+  };
+  return new Promise(resolve => { _appDialogResolve = resolve; });
+}
+
+async function openInterventionWarn(sid){
+  const r = await _openChipPickerModal({
+    title: 'Warn the student',
+    intro: 'The student will see an amber banner with the chip label and any note you add.',
+    chips: _WARN_CHIPS,
+    okText: 'Send warning',
+    requireTextOnOther: true,
+  });
+  if(!r) return;
+  try{
+    const resp = await authFetch(`${BASE}/api/v1/admin/session/${encodeURIComponent(sid)}/warn`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({chip_code: r.code, text: r.text}),
+    });
+    if(!resp.ok){
+      const d = await resp.json().catch(()=>({}));
+      throw new Error(d.detail || `HTTP ${resp.status}`);
+    }
+  }catch(e){
+    showModal('Warning failed', e.message || 'Could not send warning.');
+  }
+}
+
+async function confirmPauseSession(sid){
+  const ok = await appConfirm(
+    'Pause this exam? The student\'s clock will stop and their screen will be locked until you resume.',
+    'Pause exam', {okText:'Pause'});
+  if(!ok) return;
+  try{
+    const resp = await authFetch(`${BASE}/api/v1/admin/session/${encodeURIComponent(sid)}/pause`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}',
+    });
+    if(!resp.ok){
+      const d = await resp.json().catch(()=>({}));
+      throw new Error(d.detail || `HTTP ${resp.status}`);
+    }
+    await refreshLive();
+  }catch(e){
+    showModal('Pause failed', e.message || 'Could not pause the exam.');
+  }
+}
+
+async function confirmResumeSession(sid){
+  const ok = await appConfirm(
+    'Resume this exam? The student\'s clock will start again from where it stopped.',
+    'Resume exam', {okText:'Resume'});
+  if(!ok) return;
+  try{
+    const resp = await authFetch(`${BASE}/api/v1/admin/session/${encodeURIComponent(sid)}/resume`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}',
+    });
+    if(!resp.ok){
+      const d = await resp.json().catch(()=>({}));
+      throw new Error(d.detail || `HTTP ${resp.status}`);
+    }
+    await refreshLive();
+  }catch(e){
+    showModal('Resume failed', e.message || 'Could not resume the exam.');
+  }
+}
+
+async function confirmEndSession(sid){
+  const ok = await appConfirm(
+    'End this exam? This CLOSES the session and writes a permanent record. The student\'s answers will be scored as-is.',
+    'End exam', {okText:'End exam'});
+  if(!ok) return;
+  // Reauth gate — matches existing forceSubmit pattern.
+  const password = await appPrompt(
+    'Enter your password to end this exam:',
+    '', {title:'Re-authentication required', okText:'Continue', inputType:'password'});
+  if(!password) return;
+  let reauthToken = '';
+  try{
+    const rauth = await authFetch(`${BASE}/api/v1/auth/reauth`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({password}),
+    });
+    if(!rauth.ok){
+      const d = await rauth.json().catch(()=>({}));
+      throw new Error(d.detail || 'Re-auth failed');
+    }
+    const rd = await rauth.json();
+    reauthToken = rd.reauth_token || '';
+  }catch(e){
+    showModal('Re-auth failed', e.message || 'Wrong password.');
+    return;
+  }
+  const r = await _openChipPickerModal({
+    title: 'End exam — pick a reason',
+    intro: 'The reason is shown to the student, embedded in their scorecard PDF, and saved to the audit log.',
+    chips: _END_REASON_CHIPS,
+    okText: 'End exam',
+    requireTextOnOther: true,
+  });
+  if(!r) return;
+  try{
+    const resp = await authFetch(`${BASE}/api/v1/admin-submit/${encodeURIComponent(sid)}`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        reauth_token: reauthToken,
+        reason_code:  r.code,
+        reason_text:  r.text,
+      }),
+    });
+    if(!resp.ok){
+      const d = await resp.json().catch(()=>({}));
+      throw new Error(d.detail || `HTTP ${resp.status}`);
+    }
+    await refreshLive();
+  }catch(e){
+    showModal('End failed', e.message || 'Could not end the exam.');
+  }
 }
 
 function renderResultsStats(){
@@ -3720,6 +3935,27 @@ function confirmAppModal(){
     _resolveAppDialog({reason_code: code, reason_text: text});
     return;
   }
+  if(_appDialogMode === 'chip_picker'){
+    // Phase 74 — Warn / End reason picker. Same shape as 'reason' but
+    // returns {code, text} so the call sites can rename to their own
+    // API field names.
+    const els = _appModalEls();
+    const state = els.body && els.body._chipState;
+    if(!state){ _resolveAppDialog(null); return; }
+    const code = state.getCode();
+    const text = (state.getText() || '').trim();
+    if(state.requireTextOnOther && code === 'other' && !text){
+      const ta = document.getElementById('app-modal-chip-text');
+      if(ta){
+        ta.style.borderColor = '#ef4444';
+        ta.placeholder = 'Required when "Other" is selected';
+        ta.focus();
+      }
+      return;
+    }
+    _resolveAppDialog({code, text});
+    return;
+  }
   _resolveAppDialog(true);
 }
 
@@ -4179,6 +4415,9 @@ const TL_ICONS = {
   enrollment_complete:'&#9989;', face_enrolled:'&#128274;', session_ended:'&#127937;',
   answer_selected:'&#128221;', heartbeat:'&#128147;', submit_failed:'&#10060;',
   proctor_camera_failed:'&#128247;',
+  // Phase 74 — live teacher intervention audit-trail markers
+  teacher_warning:'&#9888;&#65039;', session_paused:'&#9208;&#65039;',
+  session_resumed:'&#9654;&#65039;',
   phone_consulting:'&#128242;', collaboration:'&#128101;&#8205;&#128172;',
   answer_memo:'&#129504;', note_reading:'&#128214;',
   sustained_offtask:'&#9203;', nervous_evasion:'&#128064;&#65039;',

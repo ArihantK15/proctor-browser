@@ -41,6 +41,11 @@ VIOLATION_WEIGHTS: dict[str, float] = {
     "calibration_abort": 35,
     "phone_consulting": 32, "collaboration": 30, "answer_memo": 28,
     "note_reading": 25, "sustained_offtask": 15, "nervous_evasion": 12,
+    # Phase 74 — live teacher intervention. Warnings/pause/resume are
+    # teacher *actions* not cheat signals, so they carry zero risk
+    # weight (they're audit-trail rows). The corresponding events
+    # still show up on the timeline + analytics CSV.
+    "teacher_warning": 0, "session_paused": 0, "session_resumed": 0,
 }
 
 _SEVERITY_MULTIPLIER = {"high": 1.0, "medium": 0.4, "low": 0.1}

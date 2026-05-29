@@ -20,10 +20,10 @@ async def assert_session_owned(session_id: str, teacher_id: str) -> dict:
     if not teacher_id:
         raise HTTPException(status_code=403, detail="Teacher context missing")
     tid_str = str(teacher_id)
-    result = (await _atable("exam_sessions").select("session_key,teacher_id,exam_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()).data
+    result = (await _atable("exam_sessions").select("session_key,teacher_id,exam_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score,time_taken_secs,email,terminated_by,termination_reason_code,termination_reason_text,paused_secs_total,paused_at").eq("session_key", session_id).eq("teacher_id", tid_str).limit(1).execute()).data
     if result:
         return result[0]
-    bare = (await _atable("exam_sessions").select("session_key,teacher_id,exam_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score").eq("session_key", session_id).limit(1).execute()).data
+    bare = (await _atable("exam_sessions").select("session_key,teacher_id,exam_id,roll_number,full_name,status,started_at,submitted_at,score,total,risk_score,time_taken_secs,email,terminated_by,termination_reason_code,termination_reason_text,paused_secs_total,paused_at").eq("session_key", session_id).limit(1).execute()).data
     if bare:
         row = bare[0]
         row_tid = row.get("teacher_id")

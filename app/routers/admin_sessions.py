@@ -25,7 +25,11 @@ from ..repositories.questions import load_exam_config as _load_exam_config
 from ..services.risk import compute_risk_score
 from ..services.scoring import recalculate_score as _recalculate_score
 from ..models import SessionStatus
-from ..models import ClearSessionsIn
+from ..models import (
+    ClearSessionsIn,
+    SESSION_END_REASON_CODES, TEACHER_WARN_CHIP_CODES,
+    TeacherWarnIn, SessionTerminateIn,
+)
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
@@ -254,11 +258,30 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
     app/auth/admin_auth.py. Previously a 3-line inline check; the
     helper centralises the body-vs-X-Reauth-Token-header handling so
     new destructive endpoints can opt in with a single line.
+
+    Phase 74 — also accepts optional reason_code + reason_text. The
+    code is validated against SESSION_END_REASON_CODES (empty allowed
+    for back-compat with single-click force-submit callers; "other"
+    requires non-empty text). Both fields are persisted on the
+    exam_sessions row (terminated_by + termination_reason_code +
+    termination_reason_text) so the scorecard PDF, CSV export and
+    forensic timeline can show WHY the session was closed.
     """
     from ..auth.admin_auth import require_reauth_or_403
     teacher = await require_admin(request)
     tid = teacher["id"]
     require_reauth_or_403(body, str(tid), request=request)
+
+    # Reason validation — same shape as ID-verify reject. Both fields
+    # optional so existing single-click force-submit callers keep
+    # working; new dashboard flow always passes a chip.
+    reason_code = (body.get("reason_code") or "").strip()
+    reason_text = (body.get("reason_text") or "").strip()[:500]
+    if reason_code and reason_code not in SESSION_END_REASON_CODES:
+        raise HTTPException(status_code=400, detail="Invalid reason_code")
+    if reason_code == "other" and not reason_text:
+        raise HTTPException(status_code=400,
+                            detail="reason_text required when reason_code is 'other'")
 
     existing_session = await _assert_session_owned(session_id, tid)
     if existing_session.get("status") in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED):
@@ -331,6 +354,9 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
                   if e["severity"] in ("high", "medium")]
     risk = await compute_risk_score(session_id, teacher_id=tid)
 
+    # Termination metadata (phase 74). Snapshot the teacher's name so a
+    # later teacher account deletion doesn't erase the audit trail.
+    decided_by = teacher.get("full_name") or teacher.get("email") or str(tid)
     sess_row = {
         "session_key":     session_id,
         "teacher_id":      str(tid),
@@ -344,6 +370,9 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
         "status":          SessionStatus.FORCE_SUBMITTED,
         "submitted_at":    now.isoformat(),
         "risk_score":      risk["risk_score"],
+        "terminated_by":   decided_by,
+        "termination_reason_code": reason_code,
+        "termination_reason_text": reason_text,
     }
     if existing_eid:
         sess_row["exam_id"] = existing_eid
@@ -359,15 +388,43 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
             ans_rows.append(row)
         await _atable("answers").upsert(ans_rows).execute()
 
+    # Embed the reason in the audit-trail violation row so a forensic
+    # timeline replay shows WHY the session was force-submitted, not
+    # just that it was. Back-compat leading sentence preserved so
+    # parsers / search continue to match "Admin force-submitted".
+    audit_detail = (f"Admin force-submitted | Violations:{len(violations)} "
+                    f"| Risk:{risk['risk_score']}/100 | by:{decided_by}")
+    if reason_code or reason_text:
+        audit_detail += f" | reason:{reason_code or 'free-text'}"
+        if reason_text:
+            audit_detail += f" ({reason_text})"
     await _atable("violations").insert({
         "session_key":    session_id,
         "teacher_id":     str(tid),
         "violation_type": "exam_submitted",
         "severity":       "low",
-        "details":        f"Admin force-submitted | Violations:{len(violations)} | Risk:{risk['risk_score']}/100",
+        "details":        audit_detail,
     }).execute()
 
-    _admin_log.info("[ForceSubmit] %s score:%d/%d risk:%d/100", session_id, score, total, risk['risk_score'])
+    # Push terminate directive over the chat WS so the student renderer
+    # can drop the terminal screen without waiting for its next poll.
+    # Fire-and-forget — if the student already disconnected (which is
+    # the common case for "ended after a long disengagement"), the
+    # send fails silently and the next reconnect attempt sees the
+    # terminal status. Importing here avoids a top-level import cycle.
+    try:
+        from .chat import chat_hub
+        await chat_hub.teacher_send(
+            str(tid), session_id,
+            text="Your examiner has ended this exam.",
+            kind="terminate_directive",
+            extra={"reason_code": reason_code, "reason_text": reason_text},
+        )
+    except Exception:
+        logger.debug("admin_submit: terminate_directive push failed", exc_info=True)
+
+    _admin_log.info("[ForceSubmit] %s score:%d/%d risk:%d/100 reason:%s",
+                    session_id, score, total, risk['risk_score'], reason_code or "-")
     return {
         "status":          SessionStatus.FORCE_SUBMITTED,
         "session_id":      session_id,
@@ -376,6 +433,195 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
         "violation_count": len(violations),
         "risk_score":      risk["risk_score"],
         "risk_label":      risk["label"],
+        "reason_code":     reason_code,
+        "reason_text":     reason_text,
+    }
+
+
+# ─── Live teacher intervention (phase 74) ────────────────────────────
+#
+# Three new endpoints for the layered teacher response:
+#   /warn     — non-destructive: pushes an amber-bordered system_warning
+#               banner to the student, inserts a low-severity audit row.
+#               No reauth gate (one-click, recoverable).
+#   /pause    — locks the student UI + stops their timer. Recoverable
+#               via /resume. No reauth gate.
+#   /resume   — closes the current pause window, adds the elapsed
+#               seconds to paused_secs_total, sets status back to
+#               IN_PROGRESS.
+#
+# The destructive End action lives at /admin-submit (extended above).
+
+@router.post("/api/v1/admin/session/{session_id:path}/warn")
+@limiter.limit("30/minute")
+async def session_warn(session_id: str, request: Request,
+                       data: TeacherWarnIn):
+    """Send a system warning to the student over the chat WS.
+
+    Validation: at least one of chip_code or text must be present.
+    chip_code (if set) is allowlisted; text is capped at 500 chars.
+    Inserts a `teacher_warning` violation row for the audit trail —
+    zero risk weight (it's a teacher action, not a cheat signal),
+    severity "low".
+    """
+    teacher = await require_admin(request)
+    tid = teacher["id"]
+    await _assert_session_owned(session_id, tid)
+    chip_code = (data.chip_code or "").strip()
+    text      = (data.text or "").strip()[:500]
+    if chip_code and chip_code not in TEACHER_WARN_CHIP_CODES:
+        raise HTTPException(status_code=400, detail="Invalid chip_code")
+    if not chip_code and not text:
+        raise HTTPException(status_code=400,
+                            detail="At least one of chip_code or text is required")
+    decided_by = teacher.get("full_name") or teacher.get("email") or str(tid)
+
+    audit_detail = f"Teacher warning by {decided_by}"
+    if chip_code:
+        audit_detail += f" | chip:{chip_code}"
+    if text:
+        audit_detail += f" ({text})"
+    await _atable("violations").insert({
+        "session_key":    session_id,
+        "teacher_id":     str(tid),
+        "violation_type": "teacher_warning",
+        "severity":       "low",
+        "details":        audit_detail,
+    }).execute()
+
+    # Compose the user-visible text. Renderer also receives chip_code
+    # so it can render the human label without depending on this text
+    # staying parseable.
+    visible_text = text or ""
+    try:
+        from .chat import chat_hub
+        await chat_hub.teacher_send(
+            str(tid), session_id,
+            text=visible_text or "Your examiner has flagged something — please re-check the camera.",
+            kind="system_warning",
+            extra={"chip_code": chip_code},
+        )
+    except Exception:
+        logger.debug("session_warn: WS push failed", exc_info=True)
+
+    _admin_log.info("[Warn] %s chip:%s by:%s", session_id, chip_code or "-", decided_by)
+    return {"status": "ok", "chip_code": chip_code, "text": text}
+
+
+@router.post("/api/v1/admin/session/{session_id:path}/pause")
+@limiter.limit("30/minute")
+async def session_pause(session_id: str, request: Request,
+                        body: dict = Body(default_factory=dict)):
+    """Pause an in-progress exam.
+
+    Sets status=PAUSED and paused_at=now() on exam_sessions. Pushes a
+    pause_directive over the chat WS so the student renderer drops the
+    full-screen overlay. Idempotent: if the session is already paused,
+    returns 200 without re-stamping.
+
+    No reauth gate — pause is recoverable. The teacher can resume,
+    and even a wrong pause only costs the student a few seconds (the
+    timer is also stopped).
+    """
+    teacher = await require_admin(request)
+    tid = teacher["id"]
+    sess = await _assert_session_owned(session_id, tid)
+    status = sess.get("status")
+    if status == SessionStatus.PAUSED:
+        return {"status": "already_paused"}
+    if status != SessionStatus.IN_PROGRESS:
+        raise HTTPException(status_code=409,
+                            detail=f"Cannot pause a session in status '{status}'")
+
+    now = now_ist()
+    await _atable("exam_sessions").update({
+        "status":    SessionStatus.PAUSED,
+        "paused_at": now.isoformat(),
+    }).eq("session_key", session_id).eq("teacher_id", str(tid)).execute()
+
+    await _atable("violations").insert({
+        "session_key":    session_id,
+        "teacher_id":     str(tid),
+        "violation_type": "session_paused",
+        "severity":       "low",
+        "details":        f"Paused by {teacher.get('full_name') or teacher.get('email') or tid}",
+    }).execute()
+
+    try:
+        from .chat import chat_hub
+        await chat_hub.teacher_send(
+            str(tid), session_id,
+            text="Your examiner has paused your exam. Please wait — your clock has stopped.",
+            kind="pause_directive",
+            extra={},
+        )
+    except Exception:
+        logger.debug("session_pause: WS push failed", exc_info=True)
+
+    _admin_log.info("[Pause] %s by:%s", session_id, tid)
+    return {"status": SessionStatus.PAUSED, "paused_at": now.isoformat()}
+
+
+@router.post("/api/v1/admin/session/{session_id:path}/resume")
+@limiter.limit("30/minute")
+async def session_resume(session_id: str, request: Request,
+                         body: dict = Body(default_factory=dict)):
+    """Resume a paused exam.
+
+    Computes the current pause window's elapsed seconds, adds to
+    paused_secs_total, sets status back to IN_PROGRESS and nulls
+    paused_at. Pushes resume_directive over chat WS. Idempotent: if
+    the session was not paused, returns "not_paused".
+    """
+    teacher = await require_admin(request)
+    tid = teacher["id"]
+    sess = await _assert_session_owned(session_id, tid)
+    if sess.get("status") != SessionStatus.PAUSED:
+        return {"status": "not_paused", "current_status": sess.get("status")}
+
+    paused_at_raw = sess.get("paused_at")
+    paused_secs_total = int(sess.get("paused_secs_total") or 0)
+    elapsed = 0
+    if paused_at_raw:
+        try:
+            paused_at = datetime.fromisoformat(str(paused_at_raw).replace("Z", "+00:00"))
+            elapsed = max(0, int((datetime.now(timezone.utc) - paused_at).total_seconds()))
+        except (ValueError, TypeError):
+            logger.warning("session_resume: malformed paused_at on %s", safe(session_id))
+
+    new_total = paused_secs_total + elapsed
+    await _atable("exam_sessions").update({
+        "status":            SessionStatus.IN_PROGRESS,
+        "paused_at":         None,
+        "paused_secs_total": new_total,
+    }).eq("session_key", session_id).eq("teacher_id", str(tid)).execute()
+
+    await _atable("violations").insert({
+        "session_key":    session_id,
+        "teacher_id":     str(tid),
+        "violation_type": "session_resumed",
+        "severity":       "low",
+        "details":        f"Resumed by {teacher.get('full_name') or teacher.get('email') or tid} "
+                          f"after {elapsed}s (total paused {new_total}s)",
+    }).execute()
+
+    try:
+        from .chat import chat_hub
+        await chat_hub.teacher_send(
+            str(tid), session_id,
+            text="Your examiner has resumed your exam. You can continue.",
+            kind="resume_directive",
+            extra={"paused_secs_this_window": elapsed},
+        )
+    except Exception:
+        logger.debug("session_resume: WS push failed", exc_info=True)
+
+    _admin_log.info("[Resume] %s elapsed:%ds total:%ds by:%s",
+                    session_id, elapsed, new_total, tid)
+    return {
+        "status":                   SessionStatus.IN_PROGRESS,
+        "paused_secs_this_window":  elapsed,
+        "paused_secs_total":        new_total,
     }
 
 

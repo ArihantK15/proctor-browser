@@ -211,12 +211,34 @@ class ChatHub:
                     self.teacher_last_seen.pop(teacher_id, None)
 
     async def teacher_send(self, teacher_id: str, session_id: str,
-                           text: str) -> dict | None:
+                           text: str, *, kind: str = "msg",
+                           extra: dict | None = None) -> dict | None:
+        """Send a message or directive from a teacher to a single
+        student session.
+
+        kind == "msg"                — normal chat message (default).
+        kind == "system_warning"     — amber-bordered warning banner.
+        kind == "pause_directive"    — student renderer drops the
+                                       pause overlay.
+        kind == "resume_directive"   — student renderer dismisses the
+                                       pause overlay.
+        kind == "terminate_directive" — student renderer shows the
+                                        terminal "exam ended" screen.
+
+        `extra` is a dict merged into the outgoing payload so callers
+        can attach structured fields (chip_code, reason_code, etc.)
+        without breaking the `text` contract used by the chat history.
+        """
         async with self._lock:
             meta = self.student_meta.get(session_id)
             if not meta or meta.get("teacher_id") != teacher_id:
                 return None
-            msg = self._make_msg(sender="teacher", session_id=session_id, text=text)
+            msg = self._make_msg(sender="teacher", session_id=session_id,
+                                 text=text, kind=kind)
+            if extra:
+                for k, v in extra.items():
+                    if k not in msg:  # never let extras overwrite core fields
+                        msg[k] = v
             self._thread(teacher_id, session_id).append(msg)
             student_ws = self.student_conns.get(session_id)
         if student_ws is not None:

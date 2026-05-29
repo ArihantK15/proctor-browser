@@ -2598,6 +2598,190 @@ function chatHandleIncoming(data){
     }
     return;
   }
+  // ── Phase 74: live teacher intervention directives ──────────────
+  if(t==='system_warning'){
+    // Amber-bordered banner over the chat with the chip label + note,
+    // plus a soft browser bell so the student notices. Stays for 30 s
+    // then folds into the normal chat history.
+    showInterventionWarning(data);
+    chatMsgs.push(data);  // keep on the history for visibility
+    chatRender();
+    if(!chatPanelOpen){ chatUnread++; chatUpdateBadge(); }
+    return;
+  }
+  if(t==='pause_directive'){
+    showPauseOverlay(data);
+    return;
+  }
+  if(t==='resume_directive'){
+    hidePauseOverlay();
+    return;
+  }
+  if(t==='terminate_directive'){
+    showTerminationScreen(data);
+    return;
+  }
+}
+
+// ── Phase 74 — intervention UI helpers ──────────────────────────
+
+const _WARN_CHIP_LABELS = {
+  eyes_off_screen:    'Eyes off screen',
+  phone_visible:      'Phone visible',
+  talking_to_someone: 'Talking to someone',
+  multiple_tabs:      'Multiple tabs',
+  other:              'Other',
+};
+const _END_REASON_LABELS = {
+  academic_dishonesty: 'Suspected academic dishonesty',
+  identity_fraud:      'Identity could not be re-verified',
+  environment_issue:   'Unsuitable exam environment',
+  repeated_violations: 'Repeated proctoring violations',
+  student_request:     'Student requested termination',
+  technical_failure:   'Persistent technical failure',
+  other:               'Other',
+};
+
+// One short, base64-encoded sine-wave WAV so we don't need a network
+// fetch or a bundled audio file. ~3 KB.
+const _CHIME_DATA_URI = 'data:audio/wav;base64,UklGRkQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSAAAACAhpClsbvBwbu1q5+UjImLi5KbpK62vsHCwLuyqJyPg3pzcA==';
+
+function _playChime(){
+  try { new Audio(_CHIME_DATA_URI).play().catch(()=>{}); } catch(e) {}
+}
+
+function showInterventionWarning(data){
+  const chip = (data && data.chip_code) || '';
+  const text = (data && data.text) || '';
+  const chipLabel = _WARN_CHIP_LABELS[chip] || '';
+  let banner = document.getElementById('intervention-warn-banner');
+  if(!banner){
+    banner = document.createElement('div');
+    banner.id = 'intervention-warn-banner';
+    banner.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);' +
+      'background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.55);' +
+      'border-radius:10px;padding:14px 20px;color:#fde68a;font-size:14px;line-height:1.5;' +
+      'box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:9000;max-width:480px;' +
+      'animation:warnPulse 0.6s ease-out';
+    document.body.appendChild(banner);
+    const style = document.createElement('style');
+    style.textContent = '@keyframes warnPulse { 0%{transform:translateX(-50%) scale(.9);opacity:0} 100%{transform:translateX(-50%) scale(1);opacity:1} }';
+    document.head.appendChild(style);
+  }
+  const lines = [];
+  lines.push('<div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;color:#fbbf24">⚠️ Warning from your examiner</div>');
+  if(chipLabel) lines.push(`<div style="font-weight:600;margin-bottom:4px">${_escHtml(chipLabel)}</div>`);
+  if(text)      lines.push(`<div>${_escHtml(text)}</div>`);
+  banner.innerHTML = lines.join('');
+  _playChime();
+  // Auto-fade after 30 s so the chat area doesn't stay obscured.
+  if(banner._dismissTimer) clearTimeout(banner._dismissTimer);
+  banner._dismissTimer = setTimeout(() => {
+    if(banner && banner.parentNode){
+      banner.style.transition = 'opacity .4s';
+      banner.style.opacity = '0';
+      setTimeout(() => banner.parentNode && banner.parentNode.removeChild(banner), 500);
+    }
+  }, 30000);
+}
+
+function showPauseOverlay(data){
+  let ov = document.getElementById('intervention-pause-overlay');
+  if(ov) return;
+  ov = document.createElement('div');
+  ov.id = 'intervention-pause-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(13,17,23,.96);z-index:10000;' +
+    'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+    'color:#c9d1d9;font-family:inherit;pointer-events:all';
+  ov.innerHTML =
+    '<div style="font-size:64px;margin-bottom:18px">⏸</div>' +
+    '<h1 style="font-size:28px;margin:0 0 12px 0;color:#fff">Exam paused by your examiner</h1>' +
+    '<p style="font-size:15px;color:#8b949e;max-width:420px;text-align:center;line-height:1.5;margin:0 0 6px 0">' +
+    'Your clock is stopped. The exam will resume when your examiner lets you continue.</p>' +
+    '<p style="font-size:13px;color:#6b7b8f;margin-top:8px">Camera + proctoring continue while paused.</p>';
+  document.body.appendChild(ov);
+  // Pause the exam timer if there's an active interval. examTimer is
+  // declared higher up; setIntervalId is tracked there for the
+  // server-authoritative deadline. We stash both so resume can flip
+  // them back.
+  if(window._examTimerInterval){
+    clearInterval(window._examTimerInterval);
+    window._examTimerWasPaused = true;
+  }
+  _playChime();
+}
+
+function hidePauseOverlay(){
+  const ov = document.getElementById('intervention-pause-overlay');
+  if(ov && ov.parentNode) ov.parentNode.removeChild(ov);
+  // Restart the timer interval if it was running before pause.
+  if(window._examTimerWasPaused && typeof startExamTimer === 'function'){
+    try { startExamTimer(); } catch(e) { console.warn('[resume] timer restart failed', e); }
+    window._examTimerWasPaused = false;
+  }
+  _playChime();
+}
+
+function showTerminationScreen(data){
+  // Hide everything else, show a terminal card. Reuses the visual
+  // weight of the ID-verify rejected card.
+  const reasonCode = (data && data.reason_code) || '';
+  const reasonText = (data && data.reason_text) || '';
+  const reasonLabel = _END_REASON_LABELS[reasonCode] || '';
+  const reasonLine = (reasonLabel && reasonText) ? `${reasonLabel} — ${reasonText}`
+                  : (reasonLabel || reasonText || '');
+  document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
+  let card = document.getElementById('intervention-terminate-card');
+  if(!card){
+    card = document.createElement('div');
+    card.id = 'intervention-terminate-card';
+    card.className = 'screen';
+    card.style.cssText = 'display:flex;align-items:center;justify-content:center;' +
+      'min-height:100vh;background:#0d1117;padding:24px';
+    card.innerHTML =
+      '<div class="card" style="max-width:520px;text-align:center;padding:36px">' +
+        '<div style="font-size:56px;margin-bottom:16px">⛔</div>' +
+        '<h1 style="color:#ff7b72;margin-bottom:10px">Exam ended</h1>' +
+        '<p style="margin-bottom:14px">Your examiner has ended this exam session.</p>' +
+        '<div id="terminate-reason" style="display:none;background:rgba(239,68,68,.08);' +
+          'border:1px solid rgba(239,68,68,.35);border-radius:8px;padding:12px 14px;' +
+          'margin-bottom:16px;text-align:left;color:#fca5a5;font-size:13px;line-height:1.5">' +
+          '<div style="font-size:11px;color:#ff7b72;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px">Reason</div>' +
+          '<div id="terminate-reason-body"></div>' +
+        '</div>' +
+        '<p style="color:#6b7b8f;font-size:13px;margin-bottom:14px">Your answers have been recorded. If you believe this is an error, contact your examiner directly.</p>' +
+        '<div class="ldr" id="terminate-countdown" style="margin-top:16px;color:#ff7b72"></div>' +
+      '</div>';
+    document.body.appendChild(card);
+  }
+  card.style.display = 'flex';
+  const reasonBlock = card.querySelector('#terminate-reason');
+  const reasonBody  = card.querySelector('#terminate-reason-body');
+  if(reasonLine){
+    reasonBody.textContent = reasonLine;
+    reasonBlock.style.display = '';
+  } else {
+    reasonBlock.style.display = 'none';
+  }
+  // 15-second countdown then close — matches the ID-verify reject UX.
+  let secs = 15;
+  const cdEl = card.querySelector('#terminate-countdown');
+  cdEl.textContent = `Closing in ${secs} seconds…`;
+  const cdInt = setInterval(() => {
+    secs--;
+    cdEl.textContent = `Closing in ${secs} seconds…`;
+    if(secs <= 0){
+      clearInterval(cdInt);
+      if(window.proctor && window.proctor.exitToLobby) window.proctor.exitToLobby();
+    }
+  }, 1000);
+  // Release the camera since the exam is over.
+  try {
+    if(typeof idStream !== 'undefined' && idStream){
+      idStream.getTracks().forEach(t => t.stop());
+    }
+  } catch(e) {}
+  _playChime();
 }
 
 function chatRender(){

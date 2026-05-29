@@ -941,7 +941,7 @@ async def submit_exam(result: ResultIn, request: Request):
     # click would enqueue two scoring jobs and double-insert violations /
     # SSE publishes / LMS passbacks. Catching SUBMITTED here keeps the
     # async flow strictly idempotent at the API edge.
-    existing = await _atable("exam_sessions").select("status,started_at,full_name,email,submitted_at,score,total,percentage,risk_score")\
+    existing = await _atable("exam_sessions").select("status,started_at,full_name,email,submitted_at,score,total,percentage,risk_score,paused_secs_total")\
         .eq("session_key", result.session_id).execute()
     if existing.data:
         current_status = existing.data[0].get("status")
@@ -1123,7 +1123,9 @@ async def submit_exam(result: ResultIn, request: Request):
         _atable("violations").insert(submit_viol).execute(),
     ]
 
-    # Time exceeded check — use server-computed elapsed time (H44)
+    # Time exceeded check — use server-computed elapsed time (H44).
+    # Phase 74: subtract paused_secs_total so teacher-pause windows
+    # don't count against the student's clock.
     allowed_secs = config.get("duration_minutes", 60) * 60
     started_at_str = existing_session.get("started_at")
     if started_at_str:
@@ -1134,6 +1136,9 @@ async def submit_exam(result: ResultIn, request: Request):
             server_elapsed = result.time_taken_secs
     else:
         server_elapsed = result.time_taken_secs
+    paused_secs_total = int(existing_session.get("paused_secs_total") or 0)
+    if paused_secs_total:
+        server_elapsed = max(0, server_elapsed - paused_secs_total)
     if server_elapsed > allowed_secs + 120:
         time_viol = {
             "session_key":    result.session_id,

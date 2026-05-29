@@ -48,7 +48,7 @@ async def _score_submission_async(
 
     # Idempotency guard — if another retry already completed it, bail.
     existing = await _atable("exam_sessions")\
-        .select("status,score,total,percentage,risk_score,started_at,full_name,email")\
+        .select("status,score,total,percentage,risk_score,started_at,full_name,email,paused_secs_total")\
         .eq("session_key", session_key).limit(1).execute()
     if not existing.data:
         logger.warning("[score_job] session %s not found, bailing", safe(session_key))
@@ -141,6 +141,11 @@ async def _score_submission_async(
     # Use server-computed elapsed time (started_at → submitted_at) — the
     # client-supplied time_taken_secs is just an upper-bound fallback,
     # mirroring the security check in the inline path (H44).
+    #
+    # Phase 74: subtract any teacher-pause window(s) from server_elapsed.
+    # The student's clock was stopped while paused; that time should not
+    # count toward their allowed_secs budget. paused_secs_total
+    # accumulates across multiple pause/resume cycles.
     allowed_secs = config.get("duration_minutes", 60) * 60
     server_elapsed = time_taken_secs
     started_at_str = sess.get("started_at")
@@ -150,6 +155,9 @@ async def _score_submission_async(
             server_elapsed = (now - started).total_seconds()
         except (ValueError, TypeError):
             pass  # fall back to client-supplied value
+    paused_secs_total = int(sess.get("paused_secs_total") or 0)
+    if paused_secs_total:
+        server_elapsed = max(0, server_elapsed - paused_secs_total)
     if server_elapsed and server_elapsed > allowed_secs + 120:
         try:
             existing_time_log = await _atable("violations")\

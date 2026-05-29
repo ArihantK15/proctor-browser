@@ -25,6 +25,10 @@ const REASON_MAP = {
   proxy_detected: 'Proxy server detected.',
   calibration_abort: 'Gaze calibration was interrupted or aborted.',
   cheating_device: 'Unauthorized device detected.',
+  // Phase 74 — live teacher intervention audit-trail markers
+  teacher_warning: 'Teacher sent the student a warning via the chat.',
+  session_paused:  'Teacher paused the exam — the student\'s clock was stopped.',
+  session_resumed: 'Teacher resumed the exam after a pause.',
 }
 
 function _reasonHint(violationType, details) {

@@ -13,6 +13,8 @@ from .student import (
 from .exam import (
     SessionStatus, VerificationStatus,
     EventIn, FrameIn, IdVerifyIn, IdDecisionIn, ID_REJECT_REASON_CODES,
+    SESSION_END_REASON_CODES, TEACHER_WARN_CHIP_CODES,
+    TeacherWarnIn, SessionTerminateIn,
     ClearSessionsIn, EmailScorecardsIn, ScheduleIn, ShuffleIn,
     AccessCodeIn, BulkRegisterIn, CreateExamIn,
     UploadQuestionImageIn, SaveTemplateIn, DuplicateExamIn,
@@ -34,6 +36,8 @@ __all__ = [
     # exam
     "SessionStatus", "VerificationStatus",
     "EventIn", "FrameIn", "IdVerifyIn", "IdDecisionIn", "ID_REJECT_REASON_CODES",
+    "SESSION_END_REASON_CODES", "TEACHER_WARN_CHIP_CODES",
+    "TeacherWarnIn", "SessionTerminateIn",
     "ClearSessionsIn", "EmailScorecardsIn", "ScheduleIn", "ShuffleIn",
     "AccessCodeIn", "BulkRegisterIn", "CreateExamIn",
     "UploadQuestionImageIn", "SaveTemplateIn", "DuplicateExamIn",

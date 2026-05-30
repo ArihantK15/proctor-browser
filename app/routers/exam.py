@@ -599,7 +599,17 @@ async def integrity_report(request: Request):
             "flags_received": len(flags)}
 
 
+# Legacy alias for desktop clients (v2.x.x and earlier) whose proctor.py
+# was wired with PROCTOR_SERVER_URL=<base>/event before the API got the
+# /api/v1 prefix. Without this alias every AI-detection event from the
+# Python subprocess (face_lost, gaze_off_screen, multiple_voices_detected,
+# keyword_uttered, etc.) silently 404s and never reaches the dashboard,
+# because proctor.py wraps the POST in try/except. The renderer-side
+# events still work because they call /api/v1/event directly. Both the
+# desktop client and proctor.py will move to /api/v1/event in a follow-up,
+# but the alias unblocks every already-installed client today.
 @router.post("/api/v1/event")
+@router.post("/event")
 @limiter.limit("120/minute")
 async def log_event(event: EventIn, request: Request):
     # Practice sandbox: log to stdout only
@@ -693,7 +703,12 @@ async def log_event(event: EventIn, request: Request):
     return {"status": "logged"}
 
 
+# Legacy /heartbeat alias for the same reason as /event above —
+# proctor.py's _heartbeat_loop POSTs to f"{SERVER_BASE}/heartbeat",
+# which derived to /heartbeat (no /api/v1 prefix) on every desktop
+# client shipped before today's fix lands.
 @router.post("/api/v1/heartbeat")
+@router.post("/heartbeat")
 @limiter.limit("30/minute")
 async def heartbeat(event: EventIn, request: Request):
     # Practice sandbox: don't track heartbeats

@@ -329,9 +329,14 @@
     <input type="text" id="new-exam-title" placeholder="e.g. Midterm Mathematics" maxlength="200">
     <label>Duration (minutes)</label>
     <input type="number" id="new-exam-duration" value="60" min="5" max="600">
-    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
+    <!-- Checkbox label needs to escape the .modal-card label cascade
+         (uppercase + mono + 10px) which mangles sentence-case prose.
+         The .modal-checkbox-row class resets those properties scoped
+         to this row. CSS lives next to the other modal rules in
+         dashboard.css. -->
+    <label class="modal-checkbox-row">
       <input type="checkbox" id="new-exam-phone-cam">
-      <span style="font-size:13px">Require room camera (student scans QR with phone)</span>
+      <span>Require room camera (student scans QR with phone)</span>
     </label>
     <div id="create-exam-err" style="color:var(--red);font-size:12px;min-height:18px;margin-bottom:8px"></div>
     <div class="modal-actions">

@@ -102,6 +102,26 @@ body{min-width:0}
 .modal-card input:focus{outline:none;border-color:var(--accent);
   box-shadow:0 0 0 3px var(--accent-glow)}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+/* Inline checkbox rows inside a modal-card. The generic .modal-card label
+   cascade above forces all-caps mono 10px on every label — fine for
+   form-field captions ("EXAM TITLE", "DURATION (MINUTES)") but mangles
+   sentence-case prose next to a checkbox. This class resets those
+   properties so "Require room camera (student scans QR with phone)"
+   renders as natural body text. */
+.modal-card label.modal-checkbox-row{
+  display:flex;align-items:center;gap:10px;
+  margin:12px 0 16px;cursor:pointer;
+  font-size:13px;font-weight:400;
+  color:var(--text);
+  text-transform:none;letter-spacing:normal;
+  font-family:var(--font-body);
+}
+.modal-card label.modal-checkbox-row input[type=checkbox]{
+  width:auto;margin:0;
+  accent-color:var(--accent);
+  flex-shrink:0;
+}
+.modal-card label.modal-checkbox-row span{flex:1;line-height:1.4}
 
 /* ── Layout ───────────────────────────────────────────────────── */
 .topbar{background:var(--card);border-bottom:1px solid var(--border);

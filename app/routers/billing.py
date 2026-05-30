@@ -594,7 +594,7 @@ async def list_invoices(request: Request):
              "status": inv["status"], "created_at": _to_iso(inv.get("created_at")),
              "pdf_url": inv.get("invoice_url") or None,
              "description": inv.get("description", "")}
-            for inv in (raw.get("items", []) if isinstance(raw, dict) else raw.get("items", []))
+            for inv in raw.get("items", [])
         ]
         return {"invoices": invoices}
     except Exception as e:
@@ -627,8 +627,7 @@ async def get_usage(request: Request):
 
     # Count current period usage
     now_utc = datetime.now(timezone.utc)
-    from ..utils import now_ist as _now_ist
-    period_start = _now_ist().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    period_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     # Count distinct students who submitted this month
     student_count_q = await _atable("exam_sessions")\
         .select("student_id", count="exact", distinct="student_id")\

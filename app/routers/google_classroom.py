@@ -203,8 +203,6 @@ async def google_sync_roster(body: dict, request: Request):
                 "email": email,
                 "teacher_id": tid,
             }
-            if exam_id:
-                row["exam_id"] = exam_id
             await _atable("students").insert(row).execute()
             imported += 1
         except Exception as e:

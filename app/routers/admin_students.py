@@ -145,7 +145,7 @@ async def _process_student_rows(teacher: dict, rows: list[dict], dry_run: bool) 
     skipped = 0
     for row in validated:
         try:
-            result = await _atable("students").upsert(row, on_conflict="roll_number").execute()
+            result = await _atable("students").upsert(row, on_conflict="roll_number,teacher_id").execute()
             if result.data:
                 registered += 1
             else:

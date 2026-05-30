@@ -293,8 +293,6 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
         .eq("teacher_id", str(tid))\
         .order("created_at").execute()
     events = ev_result.data or []
-    if not events:
-        raise HTTPException(status_code=404, detail="Session not found")
 
     roll_number = existing_session.get("roll_number") or session_id.rsplit("_", 1)[0]
     full_name   = existing_session.get("full_name") or "Unknown"

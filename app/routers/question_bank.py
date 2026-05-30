@@ -389,7 +389,7 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
                 .eq("exam_id", exam_id).limit(1).execute()
             ).data
             if not own_via_questions:
-                pass
+                raise HTTPException(status_code=404, detail="Exam not found")
 
         res = await (
             _atable("question_bank").select("*")

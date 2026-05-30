@@ -12,10 +12,19 @@ export default function Download() {
       .catch(() => setError(true))
   }, [])
 
+  // Each key maps to BOTH the latest-info JSON key (for the direct
+  // signed GitHub URL when available) AND the server-side redirect
+  // path used as a fallback when latest-info comes back empty. The
+  // backend latest-info handler shares a per-worker GitHub release
+  // cache that gets cleared by anonymous GitHub API rate limits;
+  // when that happens the JSON returns empty strings but the
+  // redirect endpoints still work because they have their own
+  // resolution path with a local-file fallback. Falling back here
+  // means the Download page never has a dead button.
   const downloads = [
-    { label: 'macOS (Apple Silicon)', key: 'mac_arm', icon: '💻' },
-    { label: 'macOS (Intel)', key: 'mac_x64', icon: '💻' },
-    { label: 'Windows', key: 'win', icon: '🪟' },
+    { label: 'macOS (Apple Silicon)', key: 'mac_arm', fallback: '/download/mac',    icon: '💻' },
+    { label: 'macOS (Intel)',         key: 'mac_x64', fallback: '/download/mac-x64', icon: '💻' },
+    { label: 'Windows',               key: 'win',     fallback: '/download/win',    icon: '🪟' },
   ]
 
   return (
@@ -37,16 +46,16 @@ export default function Download() {
         <p style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.6, marginBottom: 32 }}>
           The locked-down exam browser with AI proctoring. Download for your platform, install, and you're ready.
         </p>
-        {error ? (
-          <p style={{ color: 'var(--danger, #ef4444)', fontSize: 14, marginBottom: 16 }}>
-            Could not load downloads. Please try reloading the page or visit{' '}
-            <a href="/dashboard" style={{ color: 'var(--accent, #6366f1)', textDecoration: 'underline' }}>the dashboard</a>.
+        {error && (
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
+            Using fallback download endpoints — release info temporarily unavailable.
           </p>
-        ) : (
+        )}
+        {(
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {downloads.map(dl => (
               <a key={dl.key}
-                href={releases?.[dl.key] || '#'}
+                href={releases?.[dl.key] || dl.fallback}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
                   padding: '14px 24px', borderRadius: 12, background: 'rgba(99,102,241,.1)',
@@ -58,13 +67,12 @@ export default function Download() {
               >
                 <span>{dl.icon}</span>
                 <span>{dl.label}</span>
-                {releases?.[dl.key] ? '' : <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>}
               </a>
             ))}
           </div>
         )}
         <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 24, lineHeight: 1.6 }}>
-          Version {releases?.tag || '...'} &middot; Free 7-day trial &middot; No credit card required
+          {releases?.tag ? `Version ${releases.tag} · ` : ''}Free 7-day trial · No credit card required
         </p>
       </div>
     </div>

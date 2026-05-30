@@ -111,16 +111,27 @@ async def add_bank_questions(request: Request, body: BankQuestionIn = Body(...))
         raise HTTPException(status_code=400, detail="No questions provided")
     rows = []
     for q in questions:
+        raw_tags = q.get("tags", []) or []
+        tags = ([str(t).strip() for t in raw_tags if t is not None and str(t).strip()]
+                if isinstance(raw_tags, list) else [])
         rows.append({
             "teacher_id": tid,
-            "question": q.get("question", ""),
-            "question_type": q.get("question_type", "mcq_single"),
-            "options": q.get("options", {}),
+            "question": str(q.get("question", "") or ""),
+            "question_type": str(q.get("question_type", "mcq_single") or "mcq_single"),
+            # JSONB column — explicit json.dumps for asyncpg/Postgres
+            # compatibility. See 9ce75f4 for the same pattern.
+            "options": json.dumps(q.get("options", {}) or {}),
             "correct": str(q.get("correct", "")),
-            "image_url": q.get("image_url", ""),
-            "tags": q.get("tags", []),
+            "image_url": str(q.get("image_url", "") or ""),
+            "tags": tags,
         })
-    result = await _atable("question_bank").insert(rows).execute()
+    try:
+        result = await _atable("question_bank").insert(rows).execute()
+    except Exception as e:
+        _qbank_log.error("[bank.add] insert failed for tid=%s rows=%d: %s",
+                         tid, len(rows), e, exc_info=True)
+        raise HTTPException(status_code=500,
+            detail=f"Failed to save question(s): {type(e).__name__}")
     return result.data or []
 
 
@@ -178,17 +189,35 @@ async def import_bank_questions(request: Request, body: ImportQuestionsIn = Body
             val = item.get(f"option_{letter}")
             if val is not None:
                 options[letter] = val
+        # Normalise tags to a clean list[str] — asyncpg's text[] binder
+        # rejects Nones and non-strings.
+        raw_tags = item.get("tags", [])
+        if isinstance(raw_tags, list):
+            tags = [str(t).strip() for t in raw_tags if t is not None and str(t).strip()]
+        else:
+            tags = [t.strip() for t in str(raw_tags).split(",") if t.strip()]
         rows.append({
             "teacher_id": tid,
-            "question": item.get("question", ""),
-            "question_type": item.get("type", item.get("question_type", "mcq_single")),
-            "options": options,
+            "question": str(item.get("question", "") or ""),
+            "question_type": str(item.get("type", item.get("question_type", "mcq_single")) or "mcq_single"),
+            # JSONB column — asyncpg won't auto-encode a Python dict for
+            # JSONB binding (same root cause as 9ce75f4 fix for the
+            # regular questions table). Explicit json.dumps works on
+            # both the asyncpg/Postgres backend and Supabase REST
+            # (which re-decodes the string on write).
+            "options": json.dumps(options),
             "correct": str(item.get("correct", "")),
-            "image_url": item.get("image_url", ""),
-            "tags": item.get("tags", []) if isinstance(item.get("tags"), list)
-                    else [t.strip() for t in str(item.get("tags", "")).split(",") if t.strip()],
+            "image_url": str(item.get("image_url", "") or ""),
+            "tags": tags,
         })
-    result = await _atable("question_bank").insert(rows).execute()
+    try:
+        result = await _atable("question_bank").insert(rows).execute()
+    except Exception as e:
+        _qbank_log.error("[bank.import] insert failed for tid=%s rows=%d: %s",
+                         tid, len(rows), e, exc_info=True)
+        raise HTTPException(status_code=500,
+            detail=f"Failed to import questions: {type(e).__name__}. "
+                   f"Check server logs (request_id in response headers).")
     inserted = result.data or []
     return {
         "imported": len(inserted),
@@ -414,13 +443,19 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
                     f"correct={'OK' if correct else 'MISSING'}, "
                     f"options={'OK' if opts else 'MISSING'}"})
                 continue
+            # `questions.options` is TEXT on the legacy schema (per 9ce75f4)
+            # so asyncpg needs an explicit json.dumps. opts here comes
+            # back as a dict from question_bank (JSONB) — re-encode for
+            # the destination column. Defensive: if it's already a string
+            # leave it as-is.
+            opts_for_insert = opts if isinstance(opts, str) else json.dumps(opts)
             new_rows.append({
                 "teacher_id": tid,
                 "exam_id": exam_id,
                 "question_id": i,
                 "question": q_text,
                 "question_type": bq.get("question_type", "mcq_single"),
-                "options": opts,
+                "options": opts_for_insert,
                 "correct": correct,
                 "image_url": bq.get("image_url") or "",
             })

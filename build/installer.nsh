@@ -1,54 +1,65 @@
 ; ─────────────────────────────────────────────────────────────────────
 ; Custom NSIS install script for Procta.
 ;
-; Why this exists:
-;   The productName field in package.json has drifted twice over the
-;   project's life — "Proctor Browser" → "Procta Browser" → "Procta".
-;   On top of that, some early oneClick builds installed under the
-;   package.json `name` field ("proctor-browser") instead of
-;   productName. When a user installs a current build (productName
-;   "Procta") on top of any of these legacy installs, NSIS sometimes
-;   updates-in-place at the legacy path instead of relocating to
-;   $LOCALAPPDATA\Programs\Procta. The legacy app.asar then sits
-;   side-by-side with the new main.js, and main.js looks for files
-;   the legacy asar doesn't contain (e.g. app/static/student.html,
-;   which was only added April 2026). Lobby fails to open with
-;   ERR_FILE_NOT_FOUND — exactly the bug reported during demo prep.
+; v2.3.3 attempted: wipe legacy install dirs before extraction.
+; v2.3.4 hardens that with two additions discovered after v2.3.3
+; shipped and the user's machine STILL re-installed back into
+; $LOCALAPPDATA\Programs\proctor-browser\:
 ;
-; The fix: in customInit (runs BEFORE the new files extract), force
-; a hard wipe of every known legacy install directory. The user's
-; userData ($APPDATA\Procta) is preserved so logins and any local
-; autosave aren't blown away. Only the on-disk app payload is reset.
+;   1. Force INSTDIR to the canonical Procta path in customInit.
+;      NSIS oneClick installers read InstallLocation from the
+;      registry uninstall entry of any prior install — if that
+;      points to a legacy dir like proctor-browser\, the new
+;      installer extracts THERE instead of relocating. Setting
+;      $INSTDIR explicitly overrides that.
+;   2. Delete the legacy Uninstall registry entries so NSIS can't
+;      resurrect them on subsequent installs.
 ;
-; Safe to no-op when the directories don't exist (RMDir /r is silent
-; on missing paths).
+; Preserves $APPDATA\Procta (canonical userData — logins / cached
+; tokens). Wipes legacy userData dirs from the same rename history.
 ; ─────────────────────────────────────────────────────────────────────
 
 !macro customInit
   DetailPrint "Procta: cleaning legacy install directories…"
 
-  ; Old install layouts the rename + electron-builder version drift
-  ; left behind. We do NOT delete $LOCALAPPDATA\Programs\Procta here
-  ; because that's our CURRENT install dir — let NSIS upgrade that
-  ; in place normally.
+  ; ── 1. Force canonical install dir ─────────────────────────────
+  ; This is the critical line. Without it, NSIS reads the existing
+  ; UninstallString from registry and re-installs to whatever path
+  ; the old uninstaller was registered at (proctor-browser\ for
+  ; any user whose first install predates the productName rename).
+  StrCpy $INSTDIR "$LOCALAPPDATA\Programs\Procta"
+
+  ; ── 2. Wipe legacy install directories ─────────────────────────
   RMDir /r "$LOCALAPPDATA\Programs\proctor-browser"
   RMDir /r "$LOCALAPPDATA\Programs\Procta Browser"
   RMDir /r "$LOCALAPPDATA\Programs\Proctor Browser"
 
-  ; Stale userData directories from the same rename history. We keep
-  ; the current $APPDATA\Procta dir alone (preserves logins / cached
-  ; tokens) but wipe the legacy ones so they don't keep firing
-  ; auto-update checks or holding orphan caches.
+  ; ── 3. Wipe legacy userData dirs (keep canonical $APPDATA\Procta) ─
   RMDir /r "$APPDATA\proctor-browser"
   RMDir /r "$APPDATA\Procta Browser"
   RMDir /r "$APPDATA\Proctor Browser"
 
-  ; Stale procta:// URL handler registrations. New install will
-  ; re-register correctly; legacy entries can route deeplinks at the
-  ; old (now-deleted) binary path and silently fail.
+  ; ── 4. Wipe legacy Uninstall registry entries so NSIS can't
+  ;       resurrect the legacy install dir on the next reinstall.
+  ;       electron-builder writes these under:
+  ;         HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<appId>
+  ;       Old appId was com.proctor.browser, new is net.procta.browser.
+  ;       We also try by display name patterns and the package.name
+  ;       fallback (proctor-browser) some early builds used as the key.
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.proctor.browser"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Proctor Browser"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Procta Browser"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\proctor-browser"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.proctor.browser"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Proctor Browser"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Procta Browser"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\proctor-browser"
+
+  ; ── 5. Stale procta:// URL handler. New install re-registers ────
   DeleteRegKey HKCU "Software\Classes\procta"
 
-  ; Stale Start Menu shortcuts pointing at the old install dir.
+  ; ── 6. Stale Start Menu / Desktop shortcuts pointing at the old
+  ;       binary that no longer exists after step 2.
   Delete "$SMPROGRAMS\proctor-browser.lnk"
   Delete "$SMPROGRAMS\Procta Browser.lnk"
   Delete "$SMPROGRAMS\Proctor Browser.lnk"

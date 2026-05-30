@@ -406,19 +406,32 @@ class TestAdminSubmit:
             )
         assert resp.status_code in (403, 404)
 
-    def test_submit_no_events_returns_404(self, client):
+    def test_submit_no_events_force_submits(self, client):
+        # A real session with zero violations is still a real session —
+        # force-submit must succeed (score=0, no events to parse). The
+        # earlier "404 on no events" guard was removed in 291ceca because
+        # it conflated "session missing" with "session has no violations
+        # yet," which broke legitimate force-submits where answers were
+        # persisted via the answers table and no violations had fired.
         sm = shared_supabase_mock()
         with patch.object(sm, "table", side_effect=_table_side_effect({
             "teachers": [TEACHER],
             "exam_sessions": [self.SESSION],
             "violations": [],
-        })):
+            "questions": [],
+            "answers": [],
+            "students": [{"roll_number": "R001", "full_name": "Alice",
+                          "email": "alice@test.com", "teacher_id": "teacher-1"}],
+        })), \
+            patch("app.routers.admin_sessions.compute_risk_score") as mock_risk:
+            mock_risk.return_value = {"risk_score": 0, "label": "Low", "risk_level": "low"}
             resp = client.post(
                 "/api/v1/admin-submit/sess-1",
                 headers=_admin_headers(),
                 json=_reauth_body(),
             )
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert resp.json().get("status") == "force_submitted"
 
     def test_submit_requires_auth(self, client):
         resp = client.post("/api/v1/admin-submit/sess-1")

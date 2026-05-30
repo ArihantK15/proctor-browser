@@ -494,16 +494,41 @@ except Exception as _ie:
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 SESSION_ID   = os.getenv("PROCTOR_SESSION_ID",  "test-session")
-SERVER_URL   = os.getenv("PROCTOR_SERVER_URL",  "http://localhost:8000/event")
 EVIDENCE_DIR = os.getenv("PROCTOR_EVIDENCE_DIR", os.path.join(tempfile.gettempdir(), "procta_evidence"))
 JWT_TOKEN    = os.getenv("PROCTOR_JWT_TOKEN",   "")
 if not JWT_TOKEN:
     print("[PROCTOR] ⚠ No JWT token — server requests will be unauthenticated")
 
-# Derive the analyze-frame endpoint from SERVER_URL. Use urljoin so the
-# path replacement works regardless of whether /event is at the end,
-# middle, or absent in SERVER_URL.
-SERVER_BASE = SERVER_URL.rstrip("/event").rstrip("/")
+# ── SERVER_URL normalisation ───────────────────────────────────────
+# PROCTOR_SERVER_URL has had three historical shapes. We accept all
+# three and normalise to a single, correct event POST target.
+#
+#   (1) "https://app.procta.net"               base only (preferred)
+#   (2) "https://app.procta.net/event"         legacy — pre-/api/v1
+#                                              prefix, what every
+#                                              desktop client shipped
+#                                              before v2.3.1 sets
+#   (3) "https://app.procta.net/api/v1/event"  canonical
+#
+# All three resolve to SERVER_BASE = "https://app.procta.net" and
+# SERVER_URL = "https://app.procta.net/api/v1/event". This unblocks
+# every already-installed desktop client without needing a rebuild,
+# AND fixes a long-standing bug in the previous code:
+#
+#   SERVER_BASE = SERVER_URL.rstrip("/event").rstrip("/")
+#
+# `str.rstrip` strips any of the characters in its argument, not the
+# literal suffix. So for SERVER_URL = "https://app.procta.net/event"
+# it stripped characters from the set {'/', 'e', 'v', 'n', 't'} and
+# produced "https://app.procta." — eating into ".net". Every URL
+# derived from SERVER_BASE (heartbeat, system-check) then targeted a
+# nonexistent host and the requests silently DNS-failed inside the
+# try/except wrappers. urlsplit gives us the right base every time.
+from urllib.parse import urlsplit as _urlsplit_init, urlunsplit as _urlunsplit_init
+_raw_server_url = os.getenv("PROCTOR_SERVER_URL", "http://localhost:8000/api/v1/event")
+_parsed_server = _urlsplit_init(_raw_server_url)
+SERVER_BASE = _urlunsplit_init((_parsed_server.scheme, _parsed_server.netloc, "", "", ""))
+SERVER_URL  = f"{SERVER_BASE}/api/v1/event"
 EVIDENCE_UPLOAD_URL = f"{SERVER_BASE}/api/v1/analyze-frame"
 HEADLESS          = platform.system() == "Windows" or \
                     os.environ.get("PROCTOR_HEADLESS","0") == "1"
@@ -837,7 +862,7 @@ HEADERS = {
     **({"Authorization": f"Bearer {JWT_TOKEN}"} if JWT_TOKEN else {}),
 }
 
-HEARTBEAT_URL = f"{SERVER_BASE}/heartbeat"
+HEARTBEAT_URL = f"{SERVER_BASE}/api/v1/heartbeat"
 
 # ─── REUSABLE HTTP SESSION ───────────────────────────────────────────────────
 # Single requests.Session() reuses TCP connections across all HTTP calls,
@@ -876,22 +901,21 @@ threading.Thread(target=_heartbeat_loop, daemon=True).start()
 # we stop uploading. No persistent storage, no continuous streaming —
 # this is strictly opt-in surveillance with a hard kill-switch.
 
-CONTROL_URL    = SERVER_URL.replace("/event", f"/api/v1/proctor/control/{SESSION_ID}")
-LIVE_FRAME_URL = SERVER_URL.replace("/event", "/api/v1/proctor/live-frame")
+CONTROL_URL    = f"{SERVER_BASE}/api/v1/proctor/control/{SESSION_ID}"
+LIVE_FRAME_URL = f"{SERVER_BASE}/api/v1/proctor/live-frame"
 _LIVE_VIEW_ACTIVE = False
 _LIVE_VIEW_LOCK = threading.Lock()
 
 # ─── WebSocket live-feed (preferred) with HTTP fallback ───────
 def _derive_ws_url():
-    """Convert http(s)://host[:port]/path → ws(s)://host[:port]/ws/live-frame/{sid}."""
-    url = SERVER_URL.replace("/event", "")
-    if url.startswith("https://"):
-        return "wss://" + url[len("https://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
-    if url.startswith("http://"):
+    """Convert SERVER_BASE → ws(s) URL for live-frame streaming."""
+    if SERVER_BASE.startswith("https://"):
+        return "wss://" + SERVER_BASE[len("https://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
+    if SERVER_BASE.startswith("http://"):
         if not os.environ.get("PROCTOR_ALLOW_WS", "").strip().lower() in {"1", "true"}:
             print("[LiveFeed] ⚠ WebSocket URL uses ws:// — JWT sent in cleartext! Set PROCTOR_ALLOW_WS=1 to proceed.")
-        return "ws://" + url[len("http://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
-    return url + f"/ws/v1/live-frame/{SESSION_ID}"
+        return "ws://" + SERVER_BASE[len("http://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
+    return SERVER_BASE + f"/ws/v1/live-frame/{SESSION_ID}"
 
 WS_LIVE_URL = _derive_ws_url()
 
@@ -1537,7 +1561,7 @@ def run_system_check(cap: Optional[cv2.VideoCapture] = None) -> dict:
 
     # 1. Network connectivity
     try:
-        _http.get(SERVER_URL.replace("/event", "/health"), timeout=5)
+        _http.get(f"{SERVER_BASE}/health", timeout=5)
         results["checks"]["network"] = {"status": "pass", "detail": "Server reachable"}
     except Exception as e:
         results["checks"]["network"] = {"status": "fail", "detail": str(e)}

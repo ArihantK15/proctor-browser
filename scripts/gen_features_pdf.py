@@ -138,9 +138,23 @@ def build():
          "Phone, headphones, earbuds (custom ear-crop classifier). "
          "Slicing-aided inference for objects partially out of frame. "
          "GPU auto-detect: CUDA → MPS → CPU."),
-        ("Audio anomaly",
-         "Sustained voice / second-speaker detection via sounddevice RMS. "
-         "Tuned to ignore typing and ambient noise."),
+        ("Audio anomaly (RMS)",
+         "Sustained voice / conversation-pattern detection via "
+         "sounddevice RMS. Tuned to ignore typing and ambient noise. "
+         "Three event types: voice_detected, sustained_voice, "
+         "conversation_detected."),
+        ("On-device speech-to-text keyword detection",
+         "Vosk (en-IN + hi-IN) runs on the student's CPU and matches "
+         "transcripts against a built-in cheat-phrase list plus per-exam "
+         "teacher-added keywords. Fires keyword_uttered on match with the "
+         "matched phrase and a ~5 s transcript snippet. Audio never leaves "
+         "the device."),
+        ("Multi-voice detection",
+         "Silero VAD gates voice-active segments; python_speech_features "
+         "MFCC vectors clustered over a rolling 60 s window via a numpy-"
+         "only 2-cluster silhouette check. Two distinct voices in the "
+         "buffer fires multiple_voices_detected. Catches an off-camera "
+         "helper that RMS alone would miss."),
         ("Behavioural correlation engine",
          "Multi-signal fusion: gaze + audio + face-pose patterns scored "
          "together to surface coordinated cheating (e.g. consistent gaze "
@@ -218,6 +232,24 @@ def build():
          "Bidirectional WebSocket chat. Teacher broadcast or 1:1. "
          "Chat hub bounded with eviction (50 sockets/tenant, 4 h "
          "metadata TTL)."),
+        ("Live teacher intervention (Warn / Pause / Resume / End)",
+         "Three escalating actions on each live-session row. Warn pushes "
+         "an amber banner + chime to the student with a chip-coded reason "
+         "(eyes_off_screen / phone_visible / talking_to_someone / "
+         "multiple_tabs / other). Pause locks the student UI with a "
+         "full-screen overlay AND stops the exam timer; resume credits "
+         "the paused interval back. End requires re-authentication and "
+         "a chip-coded reason (academic_dishonesty / identity_fraud / "
+         "environment_issue / repeated_violations / student_request / "
+         "technical_failure / other); the reason persists on the session "
+         "row, embeds in the audit-trail violation, and surfaces in the "
+         "scorecard PDF + CSV export."),
+        ("Cluster review (bulk false-positive triage)",
+         "Groups not-yet-dismissed violations by (exam, type, severity) "
+         "across an entire cohort. One-click bulk dismiss with a reason "
+         "stamps dismissed_at + dismissed_reason on every row in scope. "
+         "Critical at 3,500-student exam scale where per-session review "
+         "doesn't fit a teacher's afternoon."),
         ("Onboarding wizard",
          "5-step intro for first-time teachers. Persists "
          "<i>procta_onboarded</i> in localStorage; ? button re-opens."),
@@ -277,7 +309,10 @@ def build():
         ("Per-student scorecard PDF",
          "Header, score summary, per-question table (student answer "
          "vs reference, correct/incorrect), violation summary, "
-         "calibration tier."),
+         "calibration tier. When the session was force-submitted by a "
+         "teacher, a Termination row surfaces the reason chip + the "
+         "free-text note so the document is defensible in a later "
+         "grade-challenge or DPDP review."),
         ("Bulk scorecard ZIP",
          "Streams scorecards for an entire exam as a ZIP via "
          "BytesIO. Doesn't load all PDFs into memory."),
@@ -300,6 +335,21 @@ def build():
          "All hot-path endpoints async via <code>_atable</code>; "
          "supabase client wraps run in a worker thread for sync calls. "
          "300+ concurrent students target on $6 droplet."),
+        ("Hardware governor (CPU-adaptive proctor cadence)",
+         "Reads CPU% via psutil every 5 s on the student machine. "
+         "When CPU > 85% for two consecutive samples, ML inference "
+         "drops to 1 frame per 2 s (event-only mode) and the audio "
+         "worker skips every other ASR pass; rampback when CPU < 60%. "
+         "Keeps the exam UI responsive on Rs. 30,000 budget Lenovo "
+         "IdeaPad-class laptops instead of freezing under thermal "
+         "throttling. Logs client_throttled (info severity) so "
+         "teachers can correlate 'student exam felt slow' with hardware."),
+        ("On-device model download bootstrap",
+         "scripts/download_audio_models.py invoked from Electron after "
+         "pip install completes. Pulls Vosk en-IN + hi-IN + Silero VAD "
+         "into ./weights/ with SHA-256 verification. Idempotent; cached "
+         "after first run. Falls through to the existing RMS-only voice "
+         "path if a download fails so the proctor never blocks on it."),
         ("Router decomposition",
          "8 domain routers: auth / exam / admin / question_bank / "
          "grading / public / sse / chat. Single 7,000-line main.py "
@@ -385,9 +435,24 @@ def build():
          "encryption."),
         ("HTTPS-only + HSTS",
          "Caddy auto-provisions Let's Encrypt; HSTS preload-eligible."),
-        ("Auto-delete face evidence (planned)",
-         "Phase-13 task: auto-purge face-detection screenshots at "
-         "exam_end + 90 days for DPDP / FERPA / GDPR compliance."),
+        ("Zero raw-video storage",
+         "Camera frames are processed on the student's device by the "
+         "on-device ML stack. Only JPEG snapshots of flagged moments "
+         "are uploaded as evidence; no continuous video reaches "
+         "Procta servers. Materially reduces both the DPDP-aligned "
+         "consent surface and the operating cost of storage."),
+        ("Zero raw-audio storage",
+         "Microphone capture is analysed by the on-device Vosk + "
+         "Silero VAD + MFCC pipeline. Only event metadata "
+         "(keyword_uttered with the matched phrase, "
+         "multiple_voices_detected with a confidence score) and the "
+         "synchronously-captured camera JPEG are uploaded. Raw audio "
+         "never leaves the student's machine."),
+        ("Auto-delete evidence retention",
+         "Cron in entrypoint.sh auto-purges evidence JPEGs older than "
+         "SCREENSHOT_RETENTION_DAYS (default 90). Aligned with DPDP "
+         "storage limitation and the common 90-day exam-record "
+         "retention norm in Indian higher education."),
     ])
 
     # ── 9. What's next ──
@@ -445,12 +510,14 @@ def build():
          "balanced 40-question exam tagged by Bloom's level + "
          "difficulty. Teacher tweaks → publish. Saves the 2-hour exam "
          "authoring session that's currently every teacher's worst job."),
-        ("Voice-stream proctoring",
-         "Real-time speech-to-text on the audio feed. Flags when "
-         "spoken keywords overlap with question text (collaborator "
-         "reading aloud) or when prolonged conversational speech "
-         "appears. Uses Whisper-small WASM for client-side transcription "
-         "— no server-side audio storage."),
+        ("On-device speaker identification (deferred)",
+         "Today's multi-voice detection answers \"two voices yes/no\" "
+         "via MFCC clustering. Speaker identification would add a "
+         "stable label per voice (\"voice A\" / \"voice B\") and "
+         "track when each appears. Requires either a pyannote ONNX "
+         "export (~30 MB additional model) or a custom siamese-network "
+         "fingerprint head. Worth doing only if customer feedback shows "
+         "the yes/no signal is leaving evidence on the table."),
         ("Native mobile apps (iOS + Android)",
          "React Native shell wrapping the same proctoring engine "
          "compiled for ARM. Position as the primary tool for "

@@ -45,35 +45,62 @@ jobs:
 
       # Build BOTH mac archs in a single invocation so latest-mac.yml
       # references both DMGs. Separate runs would overwrite the manifest.
+      #
+      # Signing path is gated on the CSC_LINK secret being non-empty.
+      # When the secret is unset, an empty-string CSC_LINK gets handed
+      # to electron-builder, which interprets it as a cert path and dies
+      # with a misleading "<workdir> not a file" error AFTER fuses. So
+      # we branch in the shell: with a cert we sign + notarize; without
+      # we explicitly pass -c.mac.identity=null to skip signing cleanly.
       - name: Build & publish (macOS)
         if: matrix.target == 'mac'
-        run: npx electron-builder --mac --arm64 --x64 --publish always
+        shell: bash
+        run: |
+          if [ -n "$CSC_LINK_SECRET" ]; then
+            echo "Signing enabled — CSC_LINK provided."
+            export CSC_LINK="$CSC_LINK_SECRET"
+            export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
+            export APPLE_ID="$APPLE_ID_SECRET"
+            export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
+            export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
+            export CSC_IDENTITY_AUTO_DISCOVERY=true
+            npx electron-builder --mac --arm64 --x64 --publish always
+          else
+            echo "No CSC_LINK secret — building UNSIGNED with identity=null."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            npx electron-builder --mac --arm64 --x64 --publish always \
+              -c.mac.identity=null
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code signing + notarization:
-          #   CSC_LINK = base64-encoded .p12 cert (from Apple Developer Program)
-          #   CSC_KEY_PASSWORD = cert password
-          #   APPLE_ID = Apple ID email (for notarization)
-          #   APPLE_APP_SPECIFIC_PASSWORD = app-specific password (appleid.apple.com)
-          #   APPLE_TEAM_ID = Team ID from developer.apple.com/account
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Pass secrets in via *_SECRET names; the step above only exports
+          # the electron-builder-recognized names when the secret is present.
+          CSC_LINK_SECRET: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD_SECRET: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
 
+      # Same defensive pattern for Windows. Without a cert the EXE is
+      # unsigned and triggers SmartScreen on first-run, but the build
+      # itself must not abort.
       - name: Build & publish (Windows)
         if: matrix.target == 'win'
-        run: npx electron-builder --win --x64 --publish always
+        shell: bash
+        run: |
+          if [ -n "$CSC_LINK_SECRET" ]; then
+            echo "Signing enabled — CSC_LINK provided."
+            export CSC_LINK="$CSC_LINK_SECRET"
+            export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
+            npx electron-builder --win --x64 --publish always
+          else
+            echo "No CSC_LINK secret — building UNSIGNED."
+            npx electron-builder --win --x64 --publish always
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Windows code signing via Azure Trusted Signing:
-          #   CSC_LINK = .pfx cert path or base64
-          #   CSC_KEY_PASSWORD = cert password
-          # Without a cert, unsigned EXEs trigger SmartScreen on first-run.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_LINK_SECRET: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD_SECRET: ${{ secrets.CSC_KEY_PASSWORD }}
 
       - name: Show dist contents
         shell: bash

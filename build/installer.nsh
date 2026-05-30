@@ -30,9 +30,18 @@
   StrCpy $INSTDIR "$LOCALAPPDATA\Programs\Procta"
 
   ; ── 2. Wipe legacy install directories ─────────────────────────
+  ; AND the canonical Procta\ directory. v2.3.4 left Procta\ alone on
+  ; the theory of "let NSIS upgrade in-place"; in practice that left a
+  ; partial / stale asar from an earlier interrupted install at the
+  ; canonical path, causing the lobby to still fail with
+  ; ERR_FILE_NOT_FOUND despite the install going to the right dir.
+  ; Wiping Procta\ here too forces a clean extraction. The dir is
+  ; immediately re-created by NSIS during file extraction. userData
+  ; ($APPDATA\Procta) is NOT touched — logins survive.
   RMDir /r "$LOCALAPPDATA\Programs\proctor-browser"
   RMDir /r "$LOCALAPPDATA\Programs\Procta Browser"
   RMDir /r "$LOCALAPPDATA\Programs\Proctor Browser"
+  RMDir /r "$LOCALAPPDATA\Programs\Procta"
 
   ; ── 3. Wipe legacy userData dirs (keep canonical $APPDATA\Procta) ─
   RMDir /r "$APPDATA\proctor-browser"

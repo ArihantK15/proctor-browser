@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function AnalyticsPanel({ currentExamId }) {
@@ -7,9 +7,7 @@ export default function AnalyticsPanel({ currentExamId }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => { if (currentExamId) loadAnalytics() }, [currentExamId])
-
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     if (!currentExamId) { setLoading(false); return }
     setError('')
     try {
@@ -22,7 +20,9 @@ export default function AnalyticsPanel({ currentExamId }) {
     } catch (e) {
       setError(e.message || 'Failed to load analytics')
     } finally { setLoading(false) }
-  }
+  }, [authFetch, currentExamId])
+
+  useEffect(() => { if (currentExamId) loadAnalytics() }, [currentExamId, loadAnalytics])
 
   if (!currentExamId) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Select an exam to view analytics.</div>
   if (loading) return <div className="loading" style={{ textAlign: 'center', padding: 60 }}>Loading analytics...</div>

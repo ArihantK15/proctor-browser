@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import ReactDOM from 'react-dom/client'
 import useTurnstile from './hooks/useTurnstile'
 
@@ -117,7 +117,7 @@ function StudentDashboard({ onLogout }) {
     return r
   }
 
-  const loadExams = () => {
+  const loadExams = useCallback(() => {
     setLoading(true)
     setLoadError(null)
     authFetch('/api/student/exams')
@@ -136,9 +136,14 @@ function StudentDashboard({ onLogout }) {
       .then(d => setExams(d.exams || d.active || []))
       .catch(err => setLoadError({ message: err.message, requestId: err.requestId }))
       .finally(() => setLoading(false))
-  }
+    // authFetch is a fresh closure each render but we don't want
+    // re-running this loader to refetch on every parent re-render —
+    // the mount-only behaviour is intentional. eslint-disable to
+    // pin that intent rather than carry authFetch in the deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  useEffect(() => { loadExams() }, [])
+  useEffect(() => { loadExams() }, [loadExams])
 
   return (
     <div className="app-shell">

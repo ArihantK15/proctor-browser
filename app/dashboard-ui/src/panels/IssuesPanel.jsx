@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 /**
@@ -27,7 +27,7 @@ export default function IssuesPanel() {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
 
-  const loadIssues = async () => {
+  const loadIssues = useCallback(async () => {
     setLoading(true)
     setLoadError('')
     try {
@@ -48,9 +48,9 @@ export default function IssuesPanel() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [authFetch, statusFilter, categoryFilter, orgFilter])
 
-  useEffect(() => { loadIssues() }, [statusFilter, categoryFilter, orgFilter])
+  useEffect(() => { loadIssues() }, [loadIssues])
 
   const onSelect = (issue) => {
     setSelected(issue)

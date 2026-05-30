@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 // Email-OTP 2FA (replaced TOTP/Google Authenticator on 2026-05-23).
@@ -13,16 +13,16 @@ export default function SecurityPanel() {
   const [sessionsMsg, setSessionsMsg] = useState('')
   const [loadError, setLoadError] = useState('')
 
-  const loadTfaStatus = async () => {
+  const loadTfaStatus = useCallback(async () => {
     const r = await authFetch('/api/v1/auth/2fa/status')
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
       throw new Error(d.detail || `Failed to load 2FA status (${r.status})`)
     }
     setTfaStatus(await r.json())
-  }
+  }, [authFetch])
 
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     const r = await authFetch('/api/v1/auth/sessions')
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
@@ -30,18 +30,18 @@ export default function SecurityPanel() {
     }
     const d = await r.json()
     setSessions(d.sessions || [])
-  }
+  }, [authFetch])
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setLoadError('')
     try {
       await Promise.all([loadTfaStatus(), loadSessions()])
     } catch (e) {
       setLoadError(e.message || 'Failed to load security settings')
     }
-  }
+  }, [loadTfaStatus, loadSessions])
 
-  useEffect(() => { loadAll() }, [])
+  useEffect(() => { loadAll() }, [loadAll])
 
   // Re-auth helper — exchanges the user's password for a 5-minute
   // reauth_token. Both enable and disable need one.

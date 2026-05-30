@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 const PLANS = [
@@ -39,9 +39,7 @@ export default function BillingPanel() {
   const [auxError, setAuxError] = useState('')
   const [upgradeStatus, setUpgradeStatus] = useState('')
 
-  useEffect(() => { loadAll() }, [])
-
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setError('')
     setAuxError('')
     try {
@@ -62,7 +60,9 @@ export default function BillingPanel() {
     } catch (e) {
       setError(e.message || 'Failed to load billing')
     } finally { setLoading(false) }
-  }
+  }, [authFetch])
+
+  useEffect(() => { loadAll() }, [loadAll])
 
   const upgrade = async (planId) => {
     setUpgradeStatus('Opening secure checkout...')

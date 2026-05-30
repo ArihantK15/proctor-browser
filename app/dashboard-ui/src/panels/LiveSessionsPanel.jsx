@@ -116,6 +116,11 @@ export default function LiveSessionsPanel({ currentExamId }) {
         return {}
       })
     }
+    // connectSSE is intentionally NOT in the dep array — the SSE
+    // connection is mount/unmount-scoped and re-running this effect
+    // would tear down + re-establish the EventSource on every
+    // parent re-render, which is exactly what we don't want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const connectSSE = async () => {

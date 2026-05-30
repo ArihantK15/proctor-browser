@@ -25,6 +25,11 @@ export default function ChatPanel() {
       clearTimeout(reconnectTimerRef.current)
       if (wsRef.current) wsRef.current.close()
     }
+    // connectWS is intentionally NOT in the dep array: it's stable
+    // across renders (its own deps already capture the things it
+    // closes over), and re-running this effect would tear down and
+    // re-establish the WebSocket on every parent re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function OrgPanel() {
@@ -9,7 +9,7 @@ export default function OrgPanel() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setError('')
     try {
       const [orgR, billingR, membersR] = await Promise.all([
@@ -26,9 +26,9 @@ export default function OrgPanel() {
     } catch (e) {
       setError(e.message || 'Failed to load org data')
     } finally { setLoading(false) }
-  }
+  }, [authFetch])
 
-  useEffect(() => { loadAll() }, [])
+  useEffect(() => { loadAll() }, [loadAll])
 
   if (loading) return <div className="loading">Loading org data...</div>
   if (error) return <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>

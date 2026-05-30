@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 const CHECK_LABELS = {
@@ -32,7 +32,7 @@ export default function OpsPanel() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setError('')
     try {
       const r = await authFetch('/api/v1/admin/status')
@@ -46,13 +46,13 @@ export default function OpsPanel() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [authFetch])
 
   useEffect(() => {
     load()
     const id = setInterval(load, 30000)
     return () => clearInterval(id)
-  }, [])
+  }, [load])
 
   if (loading) return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Loading operations status...</div>
   if (error) return <div className="auth-err" style={{ margin: 20 }}>{error}</div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function MembersPanel() {
@@ -16,9 +16,7 @@ export default function MembersPanel() {
     return new Error(data.detail || `${fallback} (${response.status})`)
   }
 
-  useEffect(() => { loadMembers() }, [])
-
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     setLoadError('')
     try {
       const r = await authFetch('/api/v1/org/members')
@@ -30,7 +28,9 @@ export default function MembersPanel() {
     } catch (e) {
       setLoadError(e.message || 'Failed to load members')
     } finally { setLoading(false) }
-  }
+  }, [authFetch])
+
+  useEffect(() => { loadMembers() }, [loadMembers])
 
   const inviteTeacher = async () => {
     if (!inviteEmail || !inviteEmail.includes('@')) { setStatus('Valid email required'); return }

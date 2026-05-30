@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function OrgSettingsPanel() {
@@ -9,9 +9,7 @@ export default function OrgSettingsPanel() {
 
   const [loadError, setLoadError] = useState('')
 
-  useEffect(() => { loadOrg() }, [])
-
-  const loadOrg = async () => {
+  const loadOrg = useCallback(async () => {
     setLoadError('')
     try {
       const r = await authFetch('/api/v1/org')
@@ -24,7 +22,9 @@ export default function OrgSettingsPanel() {
     } catch (e) {
       setLoadError(e.message || 'Failed to load org settings')
     }
-  }
+  }, [authFetch])
+
+  useEffect(() => { loadOrg() }, [loadOrg])
 
   const save = async () => {
     if (!orgName.trim()) { setMsg('Name is required'); return }

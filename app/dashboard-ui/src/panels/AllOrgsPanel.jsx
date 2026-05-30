@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../lib/auth'
 
 export default function AllOrgsPanel() {
@@ -7,9 +7,7 @@ export default function AllOrgsPanel() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => { loadOrgs() }, [])
-
-  const loadOrgs = async () => {
+  const loadOrgs = useCallback(async () => {
     setError('')
     try {
       const r = await authFetch('/api/v1/admin/all-orgs')
@@ -22,7 +20,9 @@ export default function AllOrgsPanel() {
     } catch (e) {
       setError(e.message || 'Failed to load organizations')
     } finally { setLoading(false) }
-  }
+  }, [authFetch])
+
+  useEffect(() => { loadOrgs() }, [loadOrgs])
 
   if (loading) return <div className="loading">Loading organizations...</div>
   if (error) return <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadOrgs} style={{ marginLeft: 8 }}>Retry</button></div>

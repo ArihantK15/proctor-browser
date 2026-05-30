@@ -1,6 +1,6 @@
 {
   "name": "proctor-browser",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "description": "AI Proctored Exam Browser",
   "author": "Procta",
   "main": "main.js",
@@ -118,7 +118,10 @@
     "nsis": {
       "oneClick": true,
       "createDesktopShortcut": true,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false
     }
   }
 }

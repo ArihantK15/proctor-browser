@@ -37,7 +37,7 @@ const proofStats = [
     detail: 'env-tunable cap for camera thumbnails and pop-in review',
   },
   {
-    value: '617',
+    value: '628',
     label: 'backend tests passing',
     detail: 'plus CI security scans and zero open CodeQL alerts',
   },
@@ -181,7 +181,7 @@ const capabilities = [
   },
 ]
 
-const demoFlow = [
+const examDayWorkflow = [
   'Faculty creates exam and imports students',
   'Students install secure browser and pair phone cam',
   'Teacher monitors live risk and evidence',
@@ -194,14 +194,15 @@ export default function CapabilityProof() {
       <div className="pointer-events-none absolute inset-0 grain-overlay" />
       <div className="relative mx-auto max-w-7xl px-6">
         <div className="mx-auto max-w-3xl text-center">
-          <span className="label-mono text-accent">Demo-ready proof</span>
+          <span className="label-mono text-accent">Production capability</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Not a webcam plugin. A full exam operating system.
           </h2>
           <p className="mt-4 text-lg leading-relaxed text-slate-400">
-            The product already covers the workflow your professor will ask about:
-            exam setup, secure student runtime, live proctoring, grading,
-            reporting, billing, integrations, and operational reliability.
+            Procta covers the full institutional workflow: exam setup, secure
+            student runtime, live proctoring, AI-assisted grading, reporting,
+            billing, LMS integrations, and operational reliability — shipped
+            and running today.
           </p>
         </div>
 
@@ -230,7 +231,7 @@ export default function CapabilityProof() {
         <div className="mt-14 rounded-2xl border border-accent/20 bg-accent/[0.04] p-6 md:p-8">
           <div className="label-mono text-accent-light">Exam-day workflow</div>
           <div className="mt-5 grid gap-3 md:grid-cols-4">
-            {demoFlow.map((step, i) => (
+            {examDayWorkflow.map((step, i) => (
               <div key={step} className="rounded-xl border border-white/[0.06] bg-navy-950/60 p-4">
                 <div className="font-mono text-xs text-accent">0{i + 1}</div>
                 <p className="mt-2 text-sm font-medium leading-relaxed text-slate-200">{step}</p>

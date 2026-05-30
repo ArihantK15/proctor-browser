@@ -18,7 +18,7 @@ export default function Hero() {
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/5 px-4 py-1.5 accent-glow">
             <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
             <span className="label-mono text-accent-light" style={{ fontSize: '11px' }}>
-              Demo-ready for colleges, coaching institutes, and exam cells
+              Built for Indian colleges, coaching institutes, and exam cells
             </span>
           </div>
 
@@ -75,7 +75,7 @@ export default function Hero() {
             <span className="hidden h-4 w-px bg-white/10 sm:block" />
             <span className="hidden sm:block">3,500-student architecture target</span>
             <span className="hidden h-4 w-px bg-white/10 md:block" />
-            <span className="hidden md:block">617 backend tests</span>
+            <span className="hidden md:block">628 backend tests</span>
           </div>
         </div>
 
@@ -98,7 +98,7 @@ export default function Hero() {
                   { label: 'Active Students', value: '1.5k', color: 'text-emerald' },
                   { label: 'Live Cache Cap', value: '6.5k', color: 'text-accent-light' },
                   { label: 'AI Grades', value: '~3s', color: 'text-amber' },
-                  { label: 'Tests Passing', value: '617', color: 'text-slate-300' },
+                  { label: 'Tests Passing', value: '628', color: 'text-slate-300' },
                 ].map(s => (
                   <div key={s.label} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 card-topline">
                     <div className={`font-display text-2xl font-bold ${s.color}`}>{s.value}</div>

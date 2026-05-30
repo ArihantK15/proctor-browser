@@ -39,12 +39,16 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
         rows = result.data or []
     except Exception as e:
         logger.warning("[Questions] select(*) failed, falling back: %s", e)
-        query = _atable("questions").select("question_id,question,options,correct")
-        if teacher_id:
-            query = query.eq("teacher_id", teacher_id)
-        if exam_id:
-            query = query.eq("exam_id", exam_id)
-        rows = (await query.order("question_id").execute()).data or []
+        try:
+            query = _atable("questions").select("question_id,question,options,correct")
+            if teacher_id:
+                query = query.eq("teacher_id", teacher_id)
+            if exam_id:
+                query = query.eq("exam_id", exam_id)
+            rows = (await query.order("question_id").execute()).data or []
+        except Exception as e2:
+            logger.warning("[Questions] fallback also failed: %s", e2)
+            rows = []
     out = []
     for q in rows:
         qtype = (q.get("question_type") or "mcq_single").strip().lower()
@@ -103,6 +107,8 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
 
 
 async def get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
+    if not teacher_id and not exam_id:
+        return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
     try:
         config = await load_exam_config(teacher_id, exam_id=exam_id)
         code = config.get("access_code", "")
@@ -115,8 +121,6 @@ async def get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
 
 async def set_access_code(code: str, teacher_id: str = None, exam_id: str = None):
     if teacher_id and exam_id:
-        await _atable("exam_config").update({"access_code": code}).eq("teacher_id", teacher_id).eq("exam_id", exam_id).execute()
-    elif teacher_id and exam_id is not None:
         await _atable("exam_config").upsert({"teacher_id": teacher_id, "exam_id": exam_id, "access_code": code}).execute()
     elif teacher_id:
         await _atable("exam_config").upsert({"teacher_id": teacher_id, "access_code": code}).execute()

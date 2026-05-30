@@ -28,6 +28,7 @@ let _turnstileToken = null;
 let _turnstileSiteKey = '';
 let _turnstileWidgetId = null;
 let _studentCsrfMemory = '';
+let _inviteMalformedTimer = null;
 
 async function _loadPublicConfig() {
   try {
@@ -188,7 +189,7 @@ async function doAuth() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(signupBody),
       });
-      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Signup failed');
+      if (!r.ok) { _resetTurnstile(); throw new Error((await r.json().catch(()=>({}))).detail || 'Signup failed'); }
       // fall through to login
     }
 
@@ -801,6 +802,8 @@ function openCodeModal() {
 
 function closeCodeModal() {
   document.getElementById('code-modal').classList.remove('active');
+  _pendingExam = null;
+  _pendingAccessCode = '';
 }
 
 async function confirmStartExam() {
@@ -912,9 +915,7 @@ function _applyInvitePrefill(){
   if (nm && _pendingInvite.full_name) nm.value = _pendingInvite.full_name;
 }
 function _showInviteMalformedBanner(){
-  // Brief amber banner above the auth card so a user who clicked an
-  // old/typo'd procta:// link sees clear feedback. Auto-clears after
-  // 10 s so the lobby returns to a clean state if the next click works.
+  if (_inviteMalformedTimer) clearTimeout(_inviteMalformedTimer);
   let banner = document.getElementById('invite-malformed-banner');
   if (!banner) {
     banner = document.createElement('div');
@@ -926,7 +927,10 @@ function _showInviteMalformedBanner(){
   }
   banner.textContent = "We received a Procta link but couldn't read it. "
     + "Open your invite email and click the link there again.";
-  setTimeout(() => { if (banner && banner.parentNode) banner.parentNode.removeChild(banner); }, 10000);
+  _inviteMalformedTimer = setTimeout(() => {
+    _inviteMalformedTimer = null;
+    if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+  }, 10000);
 }
 
 async function _acceptPendingInvite(){
@@ -934,7 +938,7 @@ async function _acceptPendingInvite(){
   const token = _pendingInvite.token;
   _pendingInvite = null; // one-shot
   try {
-    const r = await authed('/api/invite/' + encodeURIComponent(token) + '/accept', {
+    const r = await authed('/api/v1/invite/' + encodeURIComponent(token) + '/accept', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: '{}',
@@ -947,7 +951,9 @@ async function _acceptPendingInvite(){
     // The invite is now linked to this student_account. Upcoming
     // exam list refresh will pick up the exam assignment.
     console.log('[invite] accepted, refreshing exam list');
-    try { await loadExams({ silent: false }); } catch(e){}
+    _examsInflight = false;
+    _lastExamsFetch = 0;
+    try { await loadExams({ silent: true }); } catch(e){}
   } catch(e) {
     console.error('[invite] accept error:', e);
   }
@@ -1007,8 +1013,12 @@ window.addEventListener('pageshow', (e) => {
   if (e.persisted) {
     if (!document.getElementById('web-landing')?.style.display?.includes('flex')) {
       authed('/api/v1/student/auth/me').then(async (r) => {
-        if (r.ok) await showDashboard(await r.json());
-        else document.getElementById('auth-view').style.display = '';
+        if (r.ok) {
+          await showDashboard(await r.json());
+          if (_pendingInvite) await _acceptPendingInvite();
+        } else {
+          document.getElementById('auth-view').style.display = '';
+        }
       }).catch(() => { document.getElementById('auth-view').style.display = ''; });
     }
   }
@@ -1075,7 +1085,7 @@ function _parseDataArgs(raw) {
   try { return JSON.parse(raw || '[]'); } catch (err) { console.warn('[delegated] invalid data-args', err); return []; }
 }
 
-const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt', 'eval', 'Function', 'fetch']);
+const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt', 'eval', 'Function', 'fetch', 'constructor', 'Proxy', 'postMessage']);
 function _resolveDelegatedAction(name) {
   if (!/^[A-Za-z_$][\w$]*$/.test(name || '') || _BLOCKED_DELEGATED_ACTIONS.has(name)) return null;
   const fn = window[name];

@@ -24,12 +24,12 @@ const steps = [
   {
     icon: ShieldCheck,
     title: '4. AI monitoring runs during the exam',
-    body: 'Face, gaze, head pose, eye state, object detection, and voice-activity checks run on the student machine. ML inference auto-throttles on hot CPUs so budget laptops stay responsive. The server receives violation events, confidence, risk score, and low-rate evidence snapshots, while the teacher sees a live dashboard with sub-1s camera pop-in on flagged sessions.'
+    body: 'Face, gaze, head pose, eye state, object detection, and audio analysis run on the student machine. The audio stack does more than RMS: on-device speech-to-text (Vosk en-IN + hi-IN) flags spoken cheat phrases, and Silero VAD + MFCC clustering catches a second voice in the room. No raw audio or continuous video ever leaves the device. ML and ASR inference auto-throttle on hot CPUs so budget laptops stay responsive. The server receives violation events, confidence, risk score, and low-rate evidence snapshots, while the teacher sees a live dashboard with sub-1s camera pop-in on flagged sessions.'
   },
   {
     icon: MessageSquare,
     title: '5. Teachers intervene when needed',
-    body: 'Teachers can broadcast instructions, chat with individual students, triage violation clusters by type and severity for bulk dismissal, inspect the timeline, force-submit stale sessions with re-authentication, and file issue reports from the dashboard. AI flags inform a human decision instead of automatically punishing a student.'
+    body: 'A three-button intervention bar sits on every live session. Warn pushes an amber banner and chime to the student with a chip-coded reason. Pause locks the student screen and stops their exam timer so a teacher-investigation window does not cost the student exam time; resume credits the paused interval back. End is the destructive action — it requires re-authentication, a chip-coded reason from a fixed allowlist, and persists that reason on the session row, the audit trail, and the scorecard PDF. Teachers can also broadcast instructions, chat with individual students even during a pause, triage violation clusters by type and severity for bulk dismissal, inspect the timeline, and file issue reports from the dashboard. AI flags inform a human decision instead of automatically punishing a student.'
   },
   {
     icon: FileText,

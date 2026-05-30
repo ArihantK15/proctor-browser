@@ -9,11 +9,14 @@ import {
   GraduationCap,
   Landmark,
   Layers,
+  Mic,
   MessageSquare,
+  PauseOctagon,
   ReceiptIndianRupee,
   ServerCog,
   ShieldCheck,
   Smartphone,
+  Users,
   Zap,
 } from 'lucide-react'
 
@@ -120,6 +123,21 @@ const capabilities = [
     icon: ServerCog,
     title: 'Production operations',
     body: 'Docker deploys, Caddy TLS, Redis/RQ workers, health checks, request IDs, backups, security scans, and rollback-oriented runbooks.',
+  },
+  {
+    icon: Mic,
+    title: 'On-device speech-to-text keyword detection',
+    body: 'Vosk en-IN + hi-IN run on the student CPU. Flags spoken cheat phrases ("option C", "the answer is") plus any per-exam keywords the teacher adds. Audio never leaves the device — only the matched phrase + a camera JPEG upload as evidence.',
+  },
+  {
+    icon: Users,
+    title: 'Multi-voice detection (Silero VAD + MFCC)',
+    body: 'Two distinct voices in a rolling 60-second window fires multiple_voices_detected. Catches an off-camera helper that RMS-only voice flagging would miss. Numpy-only 2-cluster silhouette check, no sklearn dependency.',
+  },
+  {
+    icon: PauseOctagon,
+    title: 'Live teacher intervention (Warn / Pause / Resume / End)',
+    body: 'Three escalating actions per session. Pause stops the exam timer and locks the screen — the chat panel stays usable above the overlay so teachers can talk to the student before deciding to resume or end. End requires re-auth + a chip-coded reason that surfaces in the scorecard PDF and the audit trail.',
   },
   {
     icon: Layers,

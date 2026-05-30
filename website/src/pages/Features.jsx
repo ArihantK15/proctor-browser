@@ -23,9 +23,11 @@ const featureGroups = [
     desc: 'Real-time detection that runs entirely on the student\'s device — no cloud latency, no privacy exposure.',
     features: [
       'Gaze tracking detects prolonged off-screen looks that indicate external references',
-      'Face detection with MediaPipe ensures the registered candidate stays present',
+      'Face detection (uniface / RetinaFace ONNX) ensures the registered candidate stays present',
       'Object detection (YOLOv8n) identifies phones, books, earphones, and other unauthorized items',
-      'Audio analysis flags sustained speech patterns suggesting dictation or collaboration',
+      'On-device speech-to-text keyword detection (Vosk en-IN + hi-IN) flags spoken cheat phrases like "the answer is" or per-exam custom keywords — raw audio never leaves the device',
+      'Multi-voice detection via Silero VAD + MFCC clustering catches a second person helping in the room without storing any audio',
+      'RMS audio anomaly detection covers sustained voice, conversation patterns, and dictation-style speech',
       'VM and remote desktop detection prevents proxy-test-taker attacks',
       'Phone-camera room monitoring via QR pairing for desk and side-device visibility',
       'Violation-triggered camera pop-in lets teachers inspect a flagged session quickly',
@@ -79,6 +81,8 @@ const featureGroups = [
       'AI triage: one-line LLM summary of each session\'s risk posture',
       'Configurable alert thresholds and push notifications',
       'Teacher-student chat, broadcast announcements, force-submit, and stale-session controls',
+      'Live intervention controls per session — Warn (chip-coded amber banner + chime), Pause (locks the student screen and stops the exam timer), Resume (credits the paused interval back), and End with a chip-coded reason that surfaces in the scorecard PDF',
+      'Chat panel stays available during a paused exam so the teacher can talk to the student before deciding to resume or end',
       'Sub-1s camera pop-in — violation triggers pre-warmed thumbnail, click shows instant frame',
       '3,500-student architecture target with 6,500 live-frame cache headroom',
     ]

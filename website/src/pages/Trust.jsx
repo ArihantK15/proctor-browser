@@ -18,8 +18,9 @@ const sections = [
   {
     title: 'Privacy & Retention',
     items: [
-      'Camera/audio are used for proctoring analysis during exams',
-      'Room-camera frames are short-lived operational evidence with retention controls',
+      'Zero raw-video storage by default — camera frames are analysed on the student device and discarded; only JPEG snapshots of flagged moments are uploaded as evidence',
+      'Zero raw-audio storage — the on-device speech-to-text and multi-voice detection pipelines run client-side; only event metadata (matched keyword, confidence score) and a synchronously-captured camera JPEG ever leave the device',
+      'Room-camera frames are short-lived operational evidence with retention controls (SCREENSHOT_RETENTION_DAYS, default 90)',
       'Student account privacy export and deletion flows are available for Procta-managed accounts',
       'LTI learners are identity-managed by the LMS; LMS privacy workflows remain the source of truth',
       'Institutions control exam data retention requirements',

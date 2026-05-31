@@ -20,6 +20,8 @@ font-size:15px;color:#10b981;font-weight:600;border:1px solid #334155}
 cursor:pointer;font-size:12px;font-weight:600}
 .copy:hover{background:#475569}
 .copy.ok{background:#10b981}
+.launch-msg{color:#94a3b8;font-size:12px;margin:10px 0 0 0;line-height:1.5}
+.launch-msg.err{color:#fca5a5}
 .meta{font-size:13px;color:#94a3b8;margin:6px 0}
 .dlbtn{display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:14px 28px;
 border-radius:10px;font-weight:600;margin:8px 4px 8px 0;transition:transform .1s}
@@ -86,13 +88,13 @@ def _invite_credentials(roll: str, code: str, starts: str, ends: str) -> str:
     parts = f"""<div class="field">
       <div class="lbl">Roll number</div>
       <div class="val"><code>{e(roll)}</code>
-        <button class="copy" data-val="{e(roll)}" onclick="copyVal(this)">Copy</button></div>
+        <button class="copy" data-val="{e(roll)}" type="button">Copy</button></div>
     </div>"""
     if code:
         parts += f"""<div class="field">
         <div class="lbl">Access code</div>
         <div class="val"><code>{e(code)}</code>
-          <button class="copy" data-val="{e(code)}" onclick="copyVal(this)">Copy</button></div>
+          <button class="copy" data-val="{e(code)}" type="button">Copy</button></div>
       </div>"""
     if starts:
         parts += f'<div class="meta"><b>Starts:</b> {e(starts)}</div>'
@@ -159,12 +161,12 @@ def _render_invite_landing(*, token, full_name, exam_title, roll_number, access_
     <p style="color:#94a3b8;font-size:13px;margin:0 0 14px 0">
       Skip the download — open this invite directly in your installed app.
     </p>
-    <a id="open-in-app" class="dlbtn" href="#"
-       onclick="openInApp(event); return false;"
+    <a id="open-in-app" class="dlbtn" href="procta://invite/{e(token)}"
        data-token="{e(token)}"
        style="background:#1e293b;border:1px solid #334155;color:#e2e8f0">
       Open in Procta app
     </a>
+    <p id="open-in-app-msg" class="launch-msg" aria-live="polite"></p>
     <p style="color:#64748b;font-size:11px;margin:14px 0 0 0;line-height:1.5">
       Don't have it installed? Skip this and use the download buttons below.
     </p>

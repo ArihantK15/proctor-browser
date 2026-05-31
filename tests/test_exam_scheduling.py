@@ -429,3 +429,69 @@ class TestWindowStatus:
             resp = client.get("/api/student/exams", headers=_student_headers())
         assert resp.status_code == 200, resp.text
         assert resp.json().get("exams")
+
+    def test_session_status_is_scoped_to_enrolled_exam_id(self, client):
+        """A completed attempt in Exam A must not mark Exam B submitted."""
+
+        class _Chain:
+            def __init__(self, rows):
+                self.rows = list(rows)
+                self.eqs = {}
+                self._limit = None
+                self._order_col = None
+                self._order_desc = False
+
+            def select(self, *a, **kw): return self
+            def eq(self, col, val):
+                self.eqs[col] = val
+                return self
+            def order(self, col, desc=False, **kw):
+                self._order_col = col
+                self._order_desc = bool(desc)
+                return self
+            def limit(self, n):
+                self._limit = n
+                return self
+            async def execute(self):
+                rows = []
+                for row in self.rows:
+                    if all(str(row.get(k) or "") == str(v or "") for k, v in self.eqs.items()):
+                        rows.append(row)
+                if self._order_col:
+                    rows.sort(key=lambda r: str(r.get(self._order_col) or ""), reverse=self._order_desc)
+                if self._limit is not None:
+                    rows = rows[:self._limit]
+                return MagicMock(data=rows)
+
+        rows = {
+            "student_accounts": [STUDENT_ACCOUNT],
+            "students": [{
+                "roll_number": "ALICE001",
+                "teacher_id": "teacher-1",
+                "exam_id": "exam-2",
+                "email": "alice@test.com",
+            }],
+            "teachers": [TEACHER],
+            "exam_config": [
+                {**EXAM_CONFIG, "exam_id": "exam-1", "exam_title": "Old Exam"},
+                {**EXAM_CONFIG, "exam_id": "exam-2", "exam_title": "Demo Exam"},
+            ],
+            "exam_sessions": [{
+                "status": "completed",
+                "submitted_at": _PAST,
+                "teacher_id": "teacher-1",
+                "roll_number": "ALICE001",
+                "exam_id": "exam-1",
+            }],
+        }
+
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=lambda name: _Chain(rows.get(name, []))):
+            resp = client.get("/api/student/exams", headers=_student_headers())
+
+        assert resp.status_code == 200, resp.text
+        exams = resp.json().get("exams", [])
+        assert len(exams) == 1
+        assert exams[0]["exam_id"] == "exam-2"
+        assert exams[0]["exam_title"] == "Demo Exam"
+        assert exams[0]["status"] == "open"

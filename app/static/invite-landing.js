@@ -25,11 +25,12 @@
   }
 })();
 
-// The button calls copyVal(this) from its onclick handler, so the
-// function must live in the global scope.
-window.copyVal = function (btn) {
+function copyVal(btn) {
   var v = btn.getAttribute('data-val');
   if (!v) return;
+  if (!navigator.clipboard || !navigator.clipboard.writeText) {
+    return;
+  }
   navigator.clipboard.writeText(v).then(function () {
     var orig = btn.textContent;
     btn.textContent = 'Copied!';
@@ -39,25 +40,46 @@ window.copyVal = function (btn) {
       btn.classList.remove('ok');
     }, 1500);
   });
-};
+}
 
-// Triggers the procta:// deeplink via an invisible iframe so the OS
-// hands off to the installed Electron app. Falling-back gracefully
-// when the scheme isn't registered: the iframe just no-ops.
-window.openInApp = function (e) {
+document.addEventListener('click', function (e) {
+  var copyBtn = e.target && e.target.closest ? e.target.closest('.copy[data-val]') : null;
+  if (copyBtn) {
+    e.preventDefault();
+    copyVal(copyBtn);
+    return;
+  }
+
+  var launch = e.target && e.target.closest ? e.target.closest('#open-in-app') : null;
+  if (!launch) return;
+  openInApp(e);
+});
+
+// Triggers the procta:// deeplink through a direct user-click navigation.
+// The old iframe launch path was unreliable in modern browsers and could
+// surface "failed to launch external protocol" style errors.
+function openInApp(e) {
+  if (e && e.preventDefault) e.preventDefault();
   var btn = document.getElementById('open-in-app');
   var token = btn ? btn.getAttribute('data-token') : '';
   if (!token) return;
-  window.addEventListener('blur', function () {}, { once: true });
-  document.addEventListener('visibilitychange', function () {}, { once: true });
+  var msg = document.getElementById('open-in-app-msg');
   var url = 'procta://invite/' + encodeURIComponent(token);
+  if (msg) {
+    msg.className = 'launch-msg';
+    msg.textContent = 'Opening Procta... If nothing happens, install the app first and click again.';
+  }
   try {
-    var f = document.createElement('iframe');
-    f.style.display = 'none';
-    f.src = url;
-    document.body.appendChild(f);
+    window.location.href = url;
     setTimeout(function () {
-      try { f.remove(); } catch (_) {}
-    }, 2000);
-  } catch (_) {}
-};
+      if (msg && !document.hidden) {
+        msg.textContent = 'Still here? Install Procta with the download button below, then click Open in Procta app again.';
+      }
+    }, 1800);
+  } catch (err) {
+    if (msg) {
+      msg.className = 'launch-msg err';
+      msg.textContent = 'Could not open Procta from this browser. Install the app, then reopen this invite.';
+    }
+  }
+}

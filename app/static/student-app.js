@@ -1112,10 +1112,13 @@ function openCodeModal() {
   setTimeout(() => document.getElementById('modal-code').focus(), 50);
 }
 
-function closeCodeModal() {
+function closeCodeModal(opts) {
+  const preservePending = !!(opts && opts.preservePending);
   document.getElementById('code-modal').classList.remove('active');
-  _pendingExam = null;
-  _pendingAccessCode = '';
+  if (!preservePending) {
+    _pendingExam = null;
+    _pendingAccessCode = '';
+  }
 }
 
 async function confirmStartExam() {
@@ -1127,7 +1130,7 @@ async function confirmStartExam() {
   }
   document.getElementById('modal-err').textContent = '';
   _pendingAccessCode = code;
-  closeCodeModal();
+  closeCodeModal({ preservePending: true });
   showPreflight();
 }
 
@@ -1136,7 +1139,7 @@ async function launchExam(exam, accessCode) {
     showModal('Open this page inside the Procta app to start your exam.');
     return;
   }
-  const btn = document.getElementById('modal-start-btn');
+  const btn = document.getElementById('preflight-start-btn') || document.getElementById('modal-start-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
   try {
     await window.procta_native.launchExam({

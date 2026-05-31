@@ -304,6 +304,8 @@ async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: st
         "phone": inv.get("phone") or None,
         "teacher_id": str(inv["teacher_id"]),
     }
+    if inv.get("exam_id"):
+        student_row["exam_id"] = inv.get("exam_id")
     try:
         enroll_result = await _atable("students").insert(student_row).execute()
         if enroll_result.data:

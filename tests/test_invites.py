@@ -379,6 +379,9 @@ class TestInviteLanding:
         assert "Alice" in r.text
         assert "ALICE01" in r.text
         assert "HAPPY1" in r.text, "per-invite access code must appear on the landing page"
+        assert 'href="procta://invite/tok-open-1"' in r.text
+        assert "onclick=" not in r.text
+        assert '<script src="/static/invite-landing.js" defer></script>' in r.text
         # opened_at stamped
         assert stub.invites[0]["opened_at"] is not None
         assert stub.invites[0]["status"] == "opened"
@@ -410,6 +413,40 @@ class TestInviteLanding:
             r = client.get("/invite/tok-expired")
         assert r.status_code == 410
         assert "expired" in r.text.lower()
+
+
+class TestInviteExamLaunch:
+
+    def test_validate_student_preserves_invite_exam_id_on_auto_enroll(self, client):
+        """Invite-only launch must roster the student into the invited exam."""
+        stub = _InviteStub(
+            invites=[{
+                "id": "i-launch", "token": "tok-launch",
+                "teacher_id": "teacher-1", "roll_number": "LAUNCH1",
+                "email": "launch@school.edu", "full_name": "Launch Student",
+                "exam_id": "exam-demo", "status": "sent",
+                "access_code": "DEMO1",
+                "expires_at": _iso(datetime.now(timezone.utc) + timedelta(days=1)),
+            }],
+            exam_configs=[{
+                "teacher_id": "teacher-1",
+                "exam_id": "exam-demo",
+                "access_code": "",
+                "starts_at": _iso(datetime.now(timezone.utc) - timedelta(minutes=5)),
+                "ends_at": _iso(datetime.now(timezone.utc) + timedelta(hours=2)),
+                "duration_minutes": 60,
+            }],
+        )
+        patches = _patch(stub)
+        with patches[0] as mock_table, patches[1], \
+             patch("app.routers.exam._atable", side_effect=_atable_async_stub(stub)):
+            mock_table.side_effect = stub
+            r = client.post("/api/v1/validate-student",
+                            json={"roll_number": "LAUNCH1", "access_code": "DEMO1"})
+
+        assert r.status_code == 200, r.text
+        assert stub.students
+        assert stub.students[0]["exam_id"] == "exam-demo"
 
 
 class TestWebhook:

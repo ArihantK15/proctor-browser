@@ -1511,30 +1511,38 @@ async def student_exams(request: Request):
         ends_at = cfg.get("ends_at")
         duration = cfg.get("duration_minutes")
 
-        # Check for existing session — query by roll_number + teacher_id
-        # + status instead of constructing session_key (the renderer uses
-        # a timestamp-based key, so we can't match on that).
-        session_result = await _atable("exam_sessions").select(
+        # Check for existing session. Scope by exam_id when available so a
+        # completed/in-progress attempt in one exam cannot hide or relabel
+        # another exam for the same teacher + roll number.
+        session_q = _atable("exam_sessions").select(
             "status", "submitted_at"
         ).eq("teacher_id", teacher_id).eq(
             "roll_number", enr["roll_number"]
-        ).eq("status", SessionStatus.IN_PROGRESS).limit(1).execute()
+        ).eq("status", SessionStatus.IN_PROGRESS)
+        if exam_id:
+            session_q = session_q.eq("exam_id", exam_id)
+        session_result = await session_q.limit(1).execute()
         session = session_result.data[0] if session_result.data else None
 
         # If no in_progress session, check for a completed one
         if not session:
-            done_result = await _atable("exam_sessions").select(
+            done_q = _atable("exam_sessions").select(
                 "status", "submitted_at"
             ).eq("teacher_id", teacher_id).eq(
                 "roll_number", enr["roll_number"]
-            ).order("submitted_at", desc=True).limit(1).execute()
+            )
+            if exam_id:
+                done_q = done_q.eq("exam_id", exam_id)
+            done_result = await done_q.order("submitted_at", desc=True).limit(1).execute()
             if done_result.data:
                 session = done_result.data[0]
 
         # Compute status
         if session:
             st = (session.get("status") or "").lower()
-            if st in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED,
+            if st == SessionStatus.IN_PROGRESS:
+                status = "in_progress"
+            elif st in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED,
                       SessionStatus.FORCE_SUBMITTED):
                 status = "completed"
             else:

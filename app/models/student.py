@@ -10,6 +10,12 @@ class RegisterIn(BaseModel):
     email:       str
     phone:       Optional[str] = None
     teacher_id:  Optional[str] = None
+    # Optional exam-scoping: when present, the registration link
+    # encoded a specific exam (?t=<tid>&e=<eid>) and the row is
+    # stored with exam_id set so the student sees that specific
+    # exam in their lobby rather than whatever exam_config happens
+    # to be first for the teacher.
+    exam_id:     Optional[str] = None
 
 
 class ValidateIn(BaseModel):

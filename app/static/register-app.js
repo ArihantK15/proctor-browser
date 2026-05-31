@@ -1,4 +1,9 @@
 let _teacherId = new URLSearchParams(location.search).get('t') || null;
+// Optional exam scoping. When the teacher's share-link includes
+// &e=<exam_id>, we forward it on registration so the resulting
+// students row gets exam_id set — student lobby then surfaces THAT
+// specific exam instead of "the teacher's first exam_config."
+let _examId = new URLSearchParams(location.search).get('e') || null;
 let _teacherName = '';
 
 // If no teacher_id in URL, show the lookup fallback
@@ -174,7 +179,7 @@ async function doRegister(){
     const r1 = await fetchWithTimeout('/api/v1/register-student', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, teacher_id:_teacherId})
+      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, teacher_id:_teacherId, exam_id:_examId||null})
     });
     if(!r1.ok){
       const err = await r1.json().catch(()=>({detail:'Registration failed'}));

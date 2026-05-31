@@ -1421,22 +1421,34 @@ async def student_exams(request: Request):
     email = (email_raw or "").strip().lower()
 
     try:
-        # Find all enrollment rows matching this email.
-        # The `students` table has: roll_number, teacher_id (no exam_id column
-        # in the legacy schema — each teacher typically has one exam_config).
+        # Find all enrollment rows matching this email. The `students`
+        # table has roll_number, teacher_id, and (since the schema was
+        # updated) exam_id. exam_id is read so the lobby can show the
+        # SPECIFIC exam the student registered for, not just whatever
+        # exam_config happens to be first for the teacher.
+        # Optional-column retry handles the legacy schema gracefully.
+        async def _read_enrollments(filter_col: str, filter_val: str):
+            try:
+                r = await _atable("students").select(
+                    "roll_number", "teacher_id", "exam_id"
+                ).eq(filter_col, filter_val).execute()
+                return r.data or []
+            except Exception as e:
+                msg = str(e).lower()
+                if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
+                    r = await _atable("students").select(
+                        "roll_number", "teacher_id"
+                    ).eq(filter_col, filter_val).execute()
+                    return r.data or []
+                raise
+
         enrollments = []
         if email:
-            enroll_result = await _atable("students").select(
-                "roll_number", "teacher_id"
-            ).eq("email", email).execute()
-            enrollments = enroll_result.data or []
+            enrollments = await _read_enrollments("email", email)
         if not enrollments and account.get("id"):
             # Fallback to account_id linkage for invite-accepted /
             # teacher-imported rows with blank or differently-cased email.
-            enroll_result = await _atable("students").select(
-                "roll_number", "teacher_id"
-            ).eq("account_id", str(account["id"])).execute()
-            enrollments = enroll_result.data or []
+            enrollments = await _read_enrollments("account_id", str(account["id"]))
         if not enrollments:
             return {"exams": []}
     except Exception as e:
@@ -1456,12 +1468,17 @@ async def student_exams(request: Request):
             continue
         teacher_id = str(teacher_id)
 
-        # Get exam config — filter by teacher_id only.  Most deployments
-        # have one config per teacher; if there are multiple we pick the
-        # first one (the teacher's primary exam).
-        config_result = await _atable("exam_config").select("*").eq(
-            "teacher_id", teacher_id
-        ).limit(1).execute()
+        # Get exam config. If the enrollment row carries an exam_id
+        # (the student registered via a teacher_id+exam_id share link
+        # or was added to a specific exam's roster), filter by THAT
+        # exam_id so we surface the right exam — not whichever happens
+        # to be first for the teacher. Falls back to teacher-only
+        # lookup when the enrollment is teacher-scoped only.
+        enrolled_exam_id = (enr.get("exam_id") or "").strip() if isinstance(enr, dict) else ""
+        cfg_q = _atable("exam_config").select("*").eq("teacher_id", teacher_id)
+        if enrolled_exam_id:
+            cfg_q = cfg_q.eq("exam_id", enrolled_exam_id)
+        config_result = await cfg_q.limit(1).execute()
         if not config_result.data:
             continue
         cfg = config_result.data[0]

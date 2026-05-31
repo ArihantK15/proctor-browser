@@ -224,6 +224,7 @@ async function _onAuthed(teacher){
   }
   if(teacher && teacher.id){
     currentTeacherId = teacher.id;
+    _shareLinkTeacherId = teacher.id;  // cache for exam-switch refresh
     _populateShareLinks(teacher.id);
   }
   await loadExams();
@@ -355,6 +356,10 @@ function onExamSwitch(examId){
   try{ localStorage.setItem('procta_current_exam', examId || ''); }catch(_){}
   document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
   document.getElementById('duplicate-exam-btn').style.display = currentExamId ? '' : 'none';
+  // Refresh the Share-link so /register?t=...&e=<new-exam> stays in
+  // sync with the selected exam. Otherwise a student clicking the
+  // link gets enrolled for the wrong exam.
+  if (_shareLinkTeacherId) _populateShareLinks(_shareLinkTeacherId);
   // Reset data and reload everything for the new exam
   liveData = []; resultsData = []; qData = [];
   refreshAll();
@@ -562,11 +567,30 @@ async function doLogout(){
   toggleAuthForm('login');
 }
 
+// The share-link is teacher_id + (when an exam is selected) exam_id.
+// Without the exam_id, students who register via the link get added
+// to the teacher's roster but with NO exam association — the lobby
+// then picks "the teacher's first exam_config" which may be the
+// wrong one. User reported this on demo prep: registration succeeded
+// but the wrong exam (or none) showed up in the student dashboard.
+// Re-call this on every currentExamId change (exam-bar selector) so
+// the displayed link always matches the currently-selected exam.
 function _populateShareLinks(teacherId){
   const base = location.origin;
-  document.getElementById('share-register-link').value = `${base}/register?t=${teacherId}`;
-  document.getElementById('share-download-link').value = `${base}/download`;
+  let url = `${base}/register?t=${teacherId}`;
+  if (typeof currentExamId !== 'undefined' && currentExamId) {
+    url += `&e=${encodeURIComponent(currentExamId)}`;
+  }
+  const el = document.getElementById('share-register-link');
+  if (el) el.value = url;
+  const dl = document.getElementById('share-download-link');
+  if (dl) dl.value = `${base}/download`;
 }
+
+// Capture the current teacher_id once it's known so we can refresh
+// the share-link whenever the selected exam changes — without forcing
+// callers to thread teacher_id through every selector change handler.
+let _shareLinkTeacherId = '';
 
 function copyLink(inputId){
   const inp = document.getElementById(inputId);

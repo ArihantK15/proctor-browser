@@ -318,18 +318,48 @@ async def register_student(request: Request, body: RegisterIn):
         "phone":       phone,
         "teacher_id":  teacher_id,
     }
+    # exam-scoped registration: when the dashboard's share-link
+    # included &e=<exam_id>, persist that on the row so the student
+    # lobby's /api/student/exams lookup matches the correct exam_config
+    # (vs picking the teacher's "first" exam, which was the bug behind
+    # the user's "registered but no exam visible" demo-prep report).
+    # Falls back to teacher-only enrollment if the column doesn't
+    # exist on the legacy schema — handled by the optional-column retry
+    # below.
+    exam_id_from_body = (body.exam_id or "").strip() if body.exam_id else ""
+    if exam_id_from_body:
+        row["exam_id"] = exam_id_from_body
     try:
         await _atable("students").insert(row).execute()
     except httpx.HTTPStatusError as e:
-        if "duplicate" in str(e).lower() or "unique" in str(e).lower() or e.response.status_code == 409:
+        msg = str(e).lower()
+        if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
+            # Legacy schema without students.exam_id column — retry
+            # without the field so registration still succeeds.
+            row.pop("exam_id", None)
+            try:
+                await _atable("students").insert(row).execute()
+            except Exception:
+                raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+        elif "duplicate" in msg or "unique" in msg or e.response.status_code == 409:
             raise HTTPException(status_code=409, detail="This roll number is already registered.")
-        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+        else:
+            raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
     except Exception as e:
-        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+        msg = str(e).lower()
+        if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
+            row.pop("exam_id", None)
+            try:
+                await _atable("students").insert(row).execute()
+            except Exception:
+                raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+        elif "duplicate" in msg or "unique" in msg:
             raise HTTPException(status_code=409, detail="This roll number is already registered.")
-        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+        else:
+            raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
 
-    return {"status": "registered", "roll_number": roll, "full_name": name}
+    return {"status": "registered", "roll_number": roll, "full_name": name,
+            "exam_id": exam_id_from_body or None}
 
 
 @router.get("/api/v1/exam-schedule")

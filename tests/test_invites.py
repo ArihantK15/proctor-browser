@@ -278,7 +278,16 @@ class TestSendInvites:
             "resend must rotate the token so old links stop working"
         )
 
-    def test_daily_cap_rejects_oversized_batch(self, client, admin_headers):
+    def test_daily_cap_rejects_oversized_batch(self, client, admin_headers, monkeypatch):
+        # invites._claim_and_bump_cap short-circuits to (allow, full)
+        # when EMAIL_PROVIDER=noop OR RESEND_API_KEY is unset, to fix
+        # the prod symptom where dry-runs without a real Resend key
+        # exhausted the local counter while Resend itself stayed at 0.
+        # This test specifically validates the cap-enforcement path so
+        # we force both env vars to the "real send" shape for its
+        # scope; teardown auto-restores via monkeypatch.
+        monkeypatch.setenv("EMAIL_PROVIDER", "resend")
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_dummy")
         stub = _InviteStub(counters=[{
             "teacher_id": "teacher-1",
             "day": datetime.now(timezone.utc).date().isoformat(),

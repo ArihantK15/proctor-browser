@@ -563,4 +563,79 @@ async def registered_count(request: Request):
     return {"count": result.count if result.count is not None else len(result.data or [])}
 
 
+@router.delete("/api/v1/admin/students/roster")
+@limiter.limit("20/minute")
+async def delete_student_from_roster(
+    request: Request,
+    email: str | None = None,
+    roll_number: str | None = None,
+    exam_id: str | None = None,
+):
+    """Teacher-scoped roster removal. Deletes matching rows from the
+    `students` table (the enrollment / roster — NOT the student's
+    auth account, which they keep for re-registration).
+
+    Use cases:
+      - clear a misregistered student (wrong exam_id, wrong roll)
+      - clean up demo prep state so a re-register can happen against
+        the new exam-scoped share-link
+      - bulk-remove a roll-number range that got imported wrong
+
+    Identifier (one of):
+      email       → delete all rows matching this email under MY
+                    teacher_id
+      roll_number → delete the single row matching this roll under
+                    MY teacher_id
+    Optional filter:
+      exam_id     → if set, only rows enrolled in THIS exam are
+                    deleted (lets you keep cross-exam enrollments
+                    intact)
+
+    Returns the number of rows deleted so the UI can confirm.
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    if not email and not roll_number:
+        raise HTTPException(status_code=400,
+            detail="Provide email or roll_number (or both)")
+
+    q = _atable("students").select("id,roll_number,email,exam_id").eq("teacher_id", tid)
+    if email:
+        q = q.eq("email", email.strip().lower())
+    if roll_number:
+        q = q.eq("roll_number", roll_number.strip().upper())
+    if exam_id:
+        q = q.eq("exam_id", exam_id.strip())
+    try:
+        rows = (await q.execute()).data or []
+    except Exception as e:
+        # legacy schema without exam_id column → retry without it
+        if exam_id and "exam_id" in str(e).lower():
+            q2 = _atable("students").select("id,roll_number,email").eq("teacher_id", tid)
+            if email: q2 = q2.eq("email", email.strip().lower())
+            if roll_number: q2 = q2.eq("roll_number", roll_number.strip().upper())
+            rows = (await q2.execute()).data or []
+        else:
+            logger.error("[roster.delete] lookup failed: %s", e, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Lookup failed: {type(e).__name__}")
+
+    if not rows:
+        return {"deleted": 0, "matched": []}
+
+    ids = [r.get("id") for r in rows if r.get("id")]
+    if ids:
+        try:
+            await _atable("students").delete().in_("id", ids).execute()
+        except Exception as e:
+            logger.error("[roster.delete] delete failed: %s", e, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Delete failed: {type(e).__name__}")
+
+    return {
+        "deleted": len(ids),
+        "matched": [{"roll_number": r.get("roll_number"),
+                     "email": r.get("email"),
+                     "exam_id": r.get("exam_id")} for r in rows],
+    }
+
+
 __all__ = ["router"]

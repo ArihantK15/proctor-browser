@@ -261,12 +261,47 @@ app.whenReady().then(async () => {
   }));
 });
 
+// Flag set by auto-update.js right before quitAndInstall() so
+// before-quit knows to show the "Installing update" overlay instead
+// of the silent shutdown that made the user think the app had hung.
+let _quittingForUpdate = false;
+function setQuittingForUpdate() { _quittingForUpdate = true; }
+module.exports._setQuittingForUpdate = setQuittingForUpdate;
+
 app.on('before-quit', () => {
+  // If we're quitting to install an update, paint a clear overlay on
+  // the lobby BEFORE we tear down the subprocesses. Without this the
+  // app window goes blank → "Not responding" → NSIS pops → relaunch:
+  // ~30s of dead screen that looks like a hang.
+  if (_quittingForUpdate) {
+    try {
+      const lw = getLobbyWindow();
+      if (lw && !lw.isDestroyed()) {
+        lw.webContents.executeJavaScript(`(function(){
+          var o=document.createElement('div');
+          o.style.cssText='position:fixed;inset:0;background:#0a0e1a;color:#e2e8f0;'+
+            'display:flex;align-items:center;justify-content:center;'+
+            'flex-direction:column;z-index:999999;font-family:system-ui';
+          o.innerHTML='<div style="width:48px;height:48px;border:3px solid #1e293b;'+
+            'border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;'+
+            'margin-bottom:18px"></div>'+
+            '<div style="font-size:16px;font-weight:600;margin-bottom:6px">Installing update</div>'+
+            '<div style="font-size:13px;color:#94a3b8">This takes about a minute. Please wait.</div>'+
+            '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
+          document.body.appendChild(o);
+        })()`).catch(() => {});
+      }
+    } catch(e) { /* best-effort */ }
+  }
   stopPython();
   stopPolling();
-  if (getLobbyWindow() && !getLobbyWindow().isDestroyed()) {
-    getLobbyWindow().destroy();
+  if (!_quittingForUpdate) {
+    if (getLobbyWindow() && !getLobbyWindow().isDestroyed()) {
+      getLobbyWindow().destroy();
+    }
   }
+  // On _quittingForUpdate we leave the window up showing the overlay
+  // until electron-updater actually replaces the process.
 });
 
 app.on('window-all-closed', () => {

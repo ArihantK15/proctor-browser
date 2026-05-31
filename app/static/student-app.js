@@ -206,7 +206,20 @@ async function doAuth() {
     });
     if (!r.ok) {
       _resetTurnstile && _resetTurnstile();
-      throw new Error((await r.json().catch(()=>({}))).detail || 'Login failed');
+      const body = await r.json().catch(() => ({}));
+      let msg = body.detail || 'Login failed';
+      // After a 401, the backend can't distinguish "no student account
+      // for this email" from "password is wrong" — both return the
+      // same generic message to prevent account-existence enumeration.
+      // A common cause of the user-reported "credentials are correct
+      // but it says invalid" is logging into the STUDENT app with a
+      // TEACHER dashboard account (separate tables, same person).
+      // Surface that as actionable next-step text in the form, while
+      // keeping the server's vague message intact.
+      if (r.status === 401 && authMode === 'login') {
+        msg += '. Check your password using the "Show" button, or click "Sign up" if you don\'t have a STUDENT account yet (teacher dashboard accounts are separate).';
+      }
+      throw new Error(msg);
     }
     const d = await r.json();
     authToken  = d.access_token || '';
@@ -225,6 +238,21 @@ async function doAuth() {
     btn.disabled = false;
     btn.textContent = authMode === 'signup' ? 'Sign up' : 'Log in';
   }
+}
+
+// Wired by data-action="togglePasswordVisible" on the eye button next
+// to the password input. Toggles input type between password and
+// text so a stuck user can verify what they're typing. Helps the
+// "I'm sure my password is right" case where the actual issue is a
+// silent typo (caps lock on, swapped chars on a non-standard keyboard).
+function togglePasswordVisible() {
+  const inp = document.getElementById('inp-password');
+  const btn = document.getElementById('inp-password-toggle');
+  if (!inp || !btn) return;
+  const showing = inp.type === 'text';
+  inp.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'Show' : 'Hide';
+  btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
 }
 
 async function doLogout() {

@@ -570,6 +570,7 @@ async def delete_student_from_roster(
     email: str | None = None,
     roll_number: str | None = None,
     exam_id: str | None = None,
+    confirm_warnings: bool = False,
 ):
     """Teacher-scoped roster removal. Deletes matching rows from the
     `students` table (the enrollment / roster — NOT the student's
@@ -620,7 +621,50 @@ async def delete_student_from_roster(
             raise HTTPException(status_code=500, detail=f"Lookup failed: {type(e).__name__}")
 
     if not rows:
-        return {"deleted": 0, "matched": []}
+        return {"deleted": 0, "matched": [], "warnings": []}
+
+    warnings: list[dict] = []
+    seen_sessions: set[str] = set()
+    for row in rows:
+        roll = (row.get("roll_number") or "").strip().upper()
+        row_exam_id = (row.get("exam_id") or "").strip()
+        if not roll:
+            continue
+        try:
+            sq = _atable("exam_sessions").select(
+                "session_key,roll_number,full_name,email,exam_id,status"
+            ).eq("teacher_id", tid).eq("status", SessionStatus.IN_PROGRESS).eq("roll_number", roll)
+            if row_exam_id:
+                sq = sq.eq("exam_id", row_exam_id)
+            active = (await sq.limit(5).execute()).data or []
+        except Exception as e:
+            logger.warning("[roster.delete] in-progress warning lookup failed: %s", e)
+            active = []
+        for sess in active:
+            key = str(sess.get("session_key") or f"{roll}:{sess.get('exam_id') or ''}")
+            if key in seen_sessions:
+                continue
+            seen_sessions.add(key)
+            warnings.append({
+                "code": "in_progress_session",
+                "message": "This student currently has an in-progress exam session.",
+                "session_key": sess.get("session_key"),
+                "roll_number": sess.get("roll_number") or roll,
+                "full_name": sess.get("full_name"),
+                "email": sess.get("email") or row.get("email"),
+                "exam_id": sess.get("exam_id") or row_exam_id,
+            })
+
+    matched = [{"roll_number": r.get("roll_number"),
+                "email": r.get("email"),
+                "exam_id": r.get("exam_id")} for r in rows]
+    if warnings and not confirm_warnings:
+        return {
+            "deleted": 0,
+            "matched": matched,
+            "warnings": warnings,
+            "needs_confirmation": True,
+        }
 
     ids = [r.get("id") for r in rows if r.get("id")]
     if ids:
@@ -632,9 +676,8 @@ async def delete_student_from_roster(
 
     return {
         "deleted": len(ids),
-        "matched": [{"roll_number": r.get("roll_number"),
-                     "email": r.get("email"),
-                     "exam_id": r.get("exam_id")} for r in rows],
+        "matched": matched,
+        "warnings": warnings,
     }
 
 

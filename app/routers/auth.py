@@ -1160,6 +1160,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
             "email":        email,
             "full_name":    name,
             "supabase_uid": str(supabase_uid),
+            "email_verified_at": None,
         }
         if local_password_auth_enabled():
             account_row.update({
@@ -1191,10 +1192,16 @@ async def student_signup(body: StudentSignupIn, request: Request):
         _auth_log.warning("[StudentSignup] Auto-link warning: %s", e)
 
     _auth_log.info("[StudentSignup] %s <%s> created", safe(name), safe(email))
+    try:
+        await _track_a_issue_signup_otp(account, email)
+    except Exception:
+        _auth_log.warning("[StudentSignup] signup OTP send failed", exc_info=True)
     return {
         "account_id": account["id"],
         "email":      email,
         "full_name":  name,
+        "verify_required": True,
+        "expires_in": 600,
     }
 
 
@@ -1247,6 +1254,17 @@ async def student_login(body: StudentLoginIn, request: Request):
             raise HTTPException(
                 status_code=403,
                 detail="No student account found for this login. Please sign up first.")
+
+    account = await _track_a_hydrate_student_account(account)
+    if "email_verified_at" in account and not account.get("email_verified_at"):
+        await record_auth_event("login_failed", request, "student_account", str(account.get("id") or ""), email, {"reason": "email_unverified"})
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "EMAIL_VERIFICATION_REQUIRED",
+                "message": "Check your email for a 6-digit verification code before logging in.",
+            },
+        )
 
     await clear_failures("student", email)
 
@@ -2203,6 +2221,428 @@ async def confirm_password_reset(body: dict, request: Request):
     }).eq("id", user_id).execute()
     await record_auth_event("password_reset_completed", request, kind, user_id, claims.get("email"))
     return {"ok": True}
+
+
+# ─────── TRACK A: signup verify + account delete ───────
+
+async def _track_a_hydrate_student_account(account: dict) -> dict:
+    if account.get("email_verified_at") is not None and account.get("supabase_uid") is not None:
+        return account
+    account_id = str(account.get("id") or "")
+    if not account_id:
+        return account
+    row = await _atable("student_accounts").select(
+        "id,email,full_name,supabase_uid,email_verified_at"
+    ).eq("id", account_id).limit(1).execute()
+    return row.data[0] if row.data else account
+
+
+async def _track_a_issue_signup_otp(account: dict, email: str | None = None) -> None:
+    from ..services import email_otp
+    from ..emailer import send_2fa_otp_email
+
+    account_id = str(account.get("id") or "")
+    to_email = (email or account.get("email") or "").strip().lower()
+    if not account_id or not to_email:
+        return
+    code = await email_otp.issue("student", account_id, "signup_verify")
+    send_2fa_otp_email(to_email, account.get("full_name") or "", code)
+
+
+@router.post("/api/v1/student/auth/verify-signup-otp")
+@limiter.limit("10/hour")
+async def student_verify_signup_otp(body: dict, request: Request):
+    from ..services import email_otp
+
+    email = ((body or {}).get("email") or "").strip().lower()
+    code = re.sub(r"\D", "", str((body or {}).get("code") or ""))
+    if not _looks_like_email(email) or len(code) != 6:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    account = await _get_student_by_email_for_auth(email)
+    if not account:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    if account.get("email_verified_at"):
+        return {"ok": True, "already_verified": True}
+    ok = await email_otp.verify("student", str(account["id"]), "signup_verify", code)
+    if not ok:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    await _atable("student_accounts").update({
+        "email_verified_at": now_ist().isoformat(),
+    }).eq("id", str(account["id"])).execute()
+    await record_auth_event("email_verified", request, "student_account", str(account["id"]), email, {"method": "otp"})
+    return {"ok": True}
+
+
+@router.post("/api/v1/student/auth/resend-signup-otp")
+@limiter.limit("5/hour")
+async def student_resend_signup_otp(body: dict, request: Request):
+    started = time.monotonic()
+    email = ((body or {}).get("email") or "").strip().lower()
+    if not _looks_like_email(email):
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    try:
+        account = await _get_student_by_email_for_auth(email)
+        if account and not account.get("email_verified_at"):
+            await _track_a_issue_signup_otp(account, email)
+    finally:
+        await asyncio.sleep(max(0.0, 0.35 - (time.monotonic() - started)))
+    return {"sent": True, "expires_in": 600}
+
+
+async def _track_a_recent_teacher_for_student(account: dict) -> tuple[dict | None, dict | None]:
+    account_id = str(account.get("id") or "")
+    email = (account.get("email") or "").strip().lower()
+    candidates: list[dict] = []
+    if account_id:
+        rows = await _atable("students").select(
+            "teacher_id,full_name,email,roll_number,created_at"
+        ).eq("account_id", account_id).order("created_at", desc=True).limit(1).execute()
+        candidates.extend(rows.data or [])
+    if not candidates and email:
+        rows = await _atable("students").select(
+            "teacher_id,full_name,email,roll_number,created_at"
+        ).eq("email", email).order("created_at", desc=True).limit(1).execute()
+        candidates.extend(rows.data or [])
+    if not candidates and account_id:
+        rows = await _atable("exam_sessions").select(
+            "teacher_id,full_name,email,roll_number,created_at"
+        ).eq("student_id", account_id).order("created_at", desc=True).limit(1).execute()
+        candidates.extend(rows.data or [])
+    if not candidates and email:
+        rows = await _atable("exam_sessions").select(
+            "teacher_id,full_name,email,roll_number,created_at"
+        ).eq("email", email).order("created_at", desc=True).limit(1).execute()
+        candidates.extend(rows.data or [])
+    ctx = candidates[0] if candidates else None
+    teacher = await _get_teacher_by_id(str(ctx.get("teacher_id"))) if ctx and ctx.get("teacher_id") else None
+    return teacher, ctx
+
+
+async def _track_a_hybrid_delete_student_account(account: dict, request: Request) -> dict:
+    account = await _track_a_hydrate_student_account(account)
+    account_id = str(account.get("id") or "")
+    email = (account.get("email") or "").strip().lower()
+    anon_id = _uuid.uuid4().hex
+    anon_email = f"deleted_user_{anon_id}@deleted.procta.net"
+    anon_roll = f"DEL_{anon_id}"
+    errors: list[str] = []
+
+    teacher, teacher_ctx = await _track_a_recent_teacher_for_student(account)
+    student_name = (teacher_ctx or {}).get("full_name") or account.get("full_name") or "Deleted User"
+    student_roll = (teacher_ctx or {}).get("roll_number") or ""
+    student_email = (teacher_ctx or {}).get("email") or email
+
+    async def _best_effort(label: str, coro):
+        try:
+            await coro
+        except Exception as exc:
+            _auth_log.warning("[StudentDelete] %s failed: %s", label, exc, exc_info=True)
+            errors.append(f"{label}: {type(exc).__name__}")
+
+    await _best_effort("exam_sessions update by account", _atable("exam_sessions").update({
+        "email": anon_email,
+        "full_name": "Deleted User",
+        "roll_number": anon_roll,
+    }).eq("student_id", account_id).execute())
+    if email:
+        await _best_effort("exam_sessions update by email", _atable("exam_sessions").update({
+            "email": anon_email,
+            "full_name": "Deleted User",
+            "roll_number": anon_roll,
+        }).eq("email", email).execute())
+    await _best_effort("appeals anonymise", _atable("appeals").update({
+        "student_id": anon_id,
+        "roll_number": anon_roll,
+    }).eq("student_id", account_id).execute())
+    await _best_effort("students delete by account", _atable("students").delete().eq("account_id", account_id).execute())
+    if email:
+        await _best_effort("students delete by email", _atable("students").delete().eq("email", email).execute())
+        await _best_effort("student_invites delete by email", _atable("student_invites").delete().eq("email", email).execute())
+    await _best_effort("student_invites delete by account", _atable("student_invites").delete().eq("student_id", account_id).execute())
+    await _best_effort("consent_records delete", _atable("consent_records").delete().eq("user_id", account_id).execute())
+    await _best_effort("auth_sessions revoke", _atable("auth_sessions").update({
+        "revoked_at": now_ist().isoformat(),
+    }).eq("user_kind", "student_account").eq("user_id", account_id).execute())
+    await _best_effort("refresh_tokens revoke", _revoke_refresh_tokens_for_user(account_id, "student"))
+
+    supabase_uid = str(account.get("supabase_uid") or "")
+    if supabase_uid and not is_postgres_backend():
+        try:
+            await asyncio.to_thread(supabase.auth.admin.delete_user, supabase_uid)
+        except Exception as exc:
+            _auth_log.warning("[StudentDelete] Supabase user delete failed: %s", exc, exc_info=True)
+            errors.append(f"supabase_user_delete: {type(exc).__name__}")
+    await _best_effort("student_accounts delete", _atable("student_accounts").delete().eq("id", account_id).execute())
+
+    if teacher and teacher.get("email"):
+        try:
+            from ..emailer import send_student_account_deleted_to_teacher
+            send_student_account_deleted_to_teacher(
+                to_email=teacher.get("email"),
+                to_name=teacher.get("full_name") or "",
+                student_name=student_name,
+                student_email=student_email,
+                student_roll=student_roll,
+                deleted_at_str=fmt_ist(now_ist()),
+            )
+        except Exception:
+            _auth_log.warning("[StudentDelete] teacher notification failed", exc_info=True)
+
+    await record_auth_event("account_deleted", request, "student_account", account_id, email, {"anon_id": anon_id})
+    return {"errors": errors, "anon_id": anon_id}
+
+
+@router.post("/api/v1/student/account/delete-request")
+@limiter.limit("3/hour")
+async def student_account_delete_request(request: Request):
+    from ..services import email_otp
+    from ..emailer import send_2fa_otp_email
+
+    account = await require_student_account(request)
+    account_id = str(account["id"])
+    email = (account.get("email") or "").strip().lower()
+    code = await email_otp.issue("student", account_id, "account_delete")
+    send_2fa_otp_email(email, account.get("full_name") or "", code)
+    return {"sent": True, "expires_in": 600}
+
+
+@router.post("/api/v1/student/account/delete-confirm")
+@limiter.limit("6/hour")
+async def student_account_delete_confirm(request: Request, body: dict = Body(default_factory=dict)):
+    from ..services import email_otp
+
+    account = await require_student_account(request)
+    account_id = str(account["id"])
+    code = re.sub(r"\D", "", str((body or {}).get("otp_code") or (body or {}).get("code") or ""))
+    if len(code) != 6:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    ok = await email_otp.verify("student", account_id, "account_delete", code)
+    if not ok:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    result = await _track_a_hybrid_delete_student_account(account, request)
+    response = JSONResponse({
+        "deleted": True,
+        "status": "deleted" if not result["errors"] else "partial",
+        "errors": result["errors"] or None,
+    })
+    _clear_student_cookies(response)
+    return response
+
+
+# ─────── TRACK B: OTP password reset + email change ───────
+
+def _looks_like_email(value: str) -> bool:
+    return bool(value and "@" in value and "." in value.rsplit("@", 1)[-1])
+
+
+async def _track_b_find_user_for_reset(kind: str, email: str) -> dict | None:
+    table = "teachers" if kind == "teacher" else "student_accounts"
+    result = await _atable(table).select(
+        "id,email,full_name,password_hash,password_changed_at,supabase_uid"
+    ).eq("email", email).limit(1).execute()
+    return result.data[0] if result.data else None
+
+
+async def _track_b_set_password(kind: str, user: dict, password: str, request: Request) -> None:
+    table = "teachers" if kind == "teacher" else "student_accounts"
+    user_id = str(user.get("id") or "")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+    payload = {
+        "password_hash": await hash_password(password),
+        "auth_provider": "local",
+        "password_changed_at": now_ist().isoformat(),
+    }
+    await _atable(table).update(payload).eq("id", user_id).execute()
+    supabase_uid = str(user.get("supabase_uid") or "")
+    if supabase_uid and not local_password_auth_enabled():
+        try:
+            await asyncio.to_thread(
+                supabase.auth.admin.update_user_by_id,
+                supabase_uid,
+                {"password": password},
+            )
+        except Exception:
+            _auth_log.warning("[PasswordResetOtp] Supabase password update failed", exc_info=True)
+    await _revoke_refresh_tokens_for_user(user_id, kind)
+    await record_auth_event("password_reset_completed", request, kind, user_id, user.get("email"))
+
+
+async def _track_b_send_password_reset_otp(kind: str, email: str) -> None:
+    from ..services import email_otp
+    from ..emailer import send_2fa_otp_email
+
+    user = await _track_b_find_user_for_reset(kind, email)
+    if not user:
+        return
+    purpose = "teacher_password_reset" if kind == "teacher" else "password_reset"
+    code = await email_otp.issue(kind, str(user["id"]), purpose)
+    send_2fa_otp_email(email, user.get("full_name") or "", code)
+
+
+@router.post("/api/v1/student/auth/reset-request")
+@limiter.limit("3/minute")
+async def student_password_reset_otp_request(body: dict, request: Request):
+    started = time.monotonic()
+    await verify_or_403(request, (body or {}).get("captcha_token"))
+    email = ((body or {}).get("email") or "").strip().lower()
+    if not _looks_like_email(email):
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    try:
+        await _track_b_send_password_reset_otp("student", email)
+    finally:
+        await asyncio.sleep(max(0.0, 0.35 - (time.monotonic() - started)))
+    return {"sent": True, "expires_in": 600}
+
+
+@router.post("/api/v1/student/auth/reset-confirm")
+@limiter.limit("5/minute")
+async def student_password_reset_otp_confirm(body: dict, request: Request):
+    from ..services import email_otp
+    from ..emailer import send_student_password_changed_notification
+
+    email = ((body or {}).get("email") or "").strip().lower()
+    code = re.sub(r"\D", "", str((body or {}).get("code") or ""))
+    password = (body or {}).get("new_password") or (body or {}).get("password") or ""
+    if not _looks_like_email(email) or len(code) != 6:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    try:
+        await validate_password_async(password)
+    except PasswordError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    user = await _track_b_find_user_for_reset("student", email)
+    if not user:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    ok = await email_otp.verify("student", str(user["id"]), "password_reset", code)
+    if not ok:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    await _track_b_set_password("student", user, password, request)
+    try:
+        send_student_password_changed_notification(
+            to_email=email,
+            to_name=user.get("full_name") or "",
+            changed_at_str=fmt_ist(now_ist()),
+            ip=request.client.host if request.client else "",
+        )
+    except Exception:
+        _auth_log.warning("[PasswordResetOtp] password-changed email failed", exc_info=True)
+    return {"ok": True}
+
+
+@router.post("/api/v1/teacher/auth/reset-request")
+@router.post("/api/v1/auth/password-reset/otp-request")
+@limiter.limit("3/minute")
+async def teacher_password_reset_otp_request(body: dict, request: Request):
+    started = time.monotonic()
+    await verify_or_403(request, (body or {}).get("captcha_token"))
+    email = ((body or {}).get("email") or "").strip().lower()
+    if not _looks_like_email(email):
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    try:
+        await _track_b_send_password_reset_otp("teacher", email)
+    finally:
+        await asyncio.sleep(max(0.0, 0.35 - (time.monotonic() - started)))
+    return {"sent": True, "expires_in": 600}
+
+
+@router.post("/api/v1/teacher/auth/reset-confirm")
+@router.post("/api/v1/auth/password-reset/otp-confirm")
+@limiter.limit("5/minute")
+async def teacher_password_reset_otp_confirm(body: dict, request: Request):
+    from ..services import email_otp
+
+    email = ((body or {}).get("email") or "").strip().lower()
+    code = re.sub(r"\D", "", str((body or {}).get("code") or ""))
+    password = (body or {}).get("new_password") or (body or {}).get("password") or ""
+    if not _looks_like_email(email) or len(code) != 6:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    try:
+        await validate_password_async(password)
+    except PasswordError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    user = await _track_b_find_user_for_reset("teacher", email)
+    if not user:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    ok = await email_otp.verify("teacher", str(user["id"]), "teacher_password_reset", code)
+    if not ok:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    await _track_b_set_password("teacher", user, password, request)
+    return {"ok": True}
+
+
+@router.post("/api/v1/student/account/email-change-request")
+@limiter.limit("5/hour")
+async def student_email_change_request(request: Request, body: dict = Body(default_factory=dict)):
+    from ..auth.admin_auth import require_reauth_or_403
+    from ..services import email_otp
+    from ..emailer import send_2fa_otp_email, send_student_email_change_heads_up
+
+    account = await require_student_account(request)
+    account_id = str(account["id"])
+    require_reauth_or_403(body, account_id, request=request)
+    new_email = ((body or {}).get("new_email") or "").strip().lower()
+    if not _looks_like_email(new_email):
+        raise HTTPException(status_code=400, detail="A valid new email is required")
+    old_email = (account.get("email") or "").strip().lower()
+    if new_email == old_email:
+        raise HTTPException(status_code=400, detail="New email must be different")
+    existing = await _atable("student_accounts").select("id").eq("email", new_email).limit(1).execute()
+    if existing.data:
+        raise HTTPException(status_code=409, detail="That email is already in use")
+    code = await email_otp.issue("student", account_id, "email_change")
+    send_2fa_otp_email(new_email, account.get("full_name") or "", code)
+    if old_email:
+        try:
+            send_student_email_change_heads_up(
+                to_email=old_email,
+                to_name=account.get("full_name") or "",
+                new_email=new_email,
+                requested_at_str=fmt_ist(now_ist()),
+                ip=request.client.host if request.client else "",
+            )
+        except Exception:
+            _auth_log.warning("[EmailChange] heads-up email failed", exc_info=True)
+    return {"sent": True, "expires_in": 600}
+
+
+@router.post("/api/v1/student/account/email-change-confirm")
+@limiter.limit("10/hour")
+async def student_email_change_confirm(request: Request, body: dict = Body(default_factory=dict)):
+    from ..services import email_otp
+
+    account = await require_student_account(request)
+    account_id = str(account["id"])
+    new_email = ((body or {}).get("new_email") or "").strip().lower()
+    code = re.sub(r"\D", "", str((body or {}).get("code") or ""))
+    if not _looks_like_email(new_email) or len(code) != 6:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    existing = await _atable("student_accounts").select("id").eq("email", new_email).limit(1).execute()
+    if existing.data and str(existing.data[0].get("id")) != account_id:
+        raise HTTPException(status_code=409, detail="That email is already in use")
+    ok = await email_otp.verify("student", account_id, "email_change", code)
+    if not ok:
+        raise HTTPException(status_code=403, detail="Invalid or expired code")
+    old_email = (account.get("email") or "").strip().lower()
+    await _atable("student_accounts").update({
+        "email": new_email,
+        "updated_at": now_ist().isoformat(),
+    }).eq("id", account_id).execute()
+    await _atable("students").update({"email": new_email}).eq("account_id", account_id).execute()
+    if old_email:
+        await _atable("students").update({"email": new_email}).eq("email", old_email).execute()
+    row = await _atable("student_accounts").select("supabase_uid").eq("id", account_id).limit(1).execute()
+    supabase_uid = str((row.data[0] if row.data else {}).get("supabase_uid") or "")
+    if supabase_uid and not local_password_auth_enabled():
+        try:
+            await asyncio.to_thread(
+                supabase.auth.admin.update_user_by_id,
+                supabase_uid,
+                {"email": new_email, "email_confirm": True},
+            )
+        except Exception:
+            _auth_log.warning("[EmailChange] Supabase email update failed", exc_info=True)
+    await record_auth_event("email_changed", request, "student_account", account_id, new_email, {"old_email": old_email})
+    return {"ok": True, "email": new_email}
 
 
 # ─── OAUTH SIGN-IN — REMOVED 2026-05-23 ──────────────────────────

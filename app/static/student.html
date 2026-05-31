@@ -443,6 +443,23 @@
     <button class="btn btn-primary btn-block" id="auth-btn" data-action="doAuth">Log in</button>
     <div class="auth-err" id="auth-err"></div>
 
+    <!-- TRACK A: signup OTP step -->
+    <div id="signup-otp-view" style="display:none;margin-top:16px">
+      <div class="fg">
+        <label>Verification code</label>
+        <input type="text" id="signup-otp-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456">
+      </div>
+      <button class="btn btn-primary btn-block" id="signup-otp-verify-btn" data-action="verifySignupOtp">Verify email</button>
+      <button class="btn btn-secondary btn-block" style="margin-top:8px" id="signup-otp-resend-btn" data-action="resendSignupOtp">Resend code</button>
+      <div class="auth-err" id="signup-otp-err"></div>
+      <div id="signup-otp-ok" style="display:none;color:var(--emerald,#10b981);font-size:13px;margin-top:8px;text-align:center">
+        Email verified. You can log in now.
+      </div>
+      <p style="text-align:center;margin-top:14px">
+        <a href="#" data-action="cancelSignupOtp" style="color:var(--accent-light,#63dfc4);font-size:12px;text-decoration:none;font-weight:600">Back to login</a>
+      </p>
+    </div>
+
     <!-- Password reset (hidden by default) -->
     <div id="reset-view" style="display:none;margin-top:16px">
       <div class="fg">
@@ -592,6 +609,86 @@
    <h2 class="section-title">My appeals</h2>
    <p class="section-subtitle">Status of disputes you've submitted for teacher review.</p>
    <div id="appeals-container" class="exam-list"></div>
+
+   <h2 class="section-title">Account</h2>
+   <p class="section-subtitle">Manage the email and password you use for Procta.</p>
+   <div class="exam-list">
+    <!-- TRACK B: email change -->
+    <div class="exam-card">
+      <div class="exam-card-head">
+        <div>
+          <div class="exam-title">Change email</div>
+          <div class="exam-teacher">Verify the new inbox with a 6-digit code.</div>
+        </div>
+      </div>
+      <div class="fg">
+        <label>New email</label>
+        <input type="email" id="account-new-email" autocomplete="email" placeholder="new@university.edu">
+      </div>
+      <div class="fg">
+        <label>Current password</label>
+        <input type="password" id="account-email-password" autocomplete="current-password" placeholder="Confirm your password">
+      </div>
+      <div class="modal-actions" style="margin-top:10px">
+        <button class="btn btn-secondary" id="email-change-request-btn" data-action="requestEmailChange">Send code</button>
+      </div>
+      <div class="fg" style="margin-top:12px">
+        <label>Verification code</label>
+        <input type="text" id="account-email-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456">
+      </div>
+      <div class="modal-actions" style="margin-top:10px">
+        <button class="btn btn-primary" id="email-change-confirm-btn" data-action="confirmEmailChange">Confirm email change</button>
+      </div>
+      <div class="modal-err" id="email-change-status"></div>
+    </div>
+
+    <!-- TRACK B: reset OTP -->
+    <div class="exam-card">
+      <div class="exam-card-head">
+        <div>
+          <div class="exam-title">Reset password via code</div>
+          <div class="exam-teacher">A code is sent to your current account email.</div>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:10px">
+        <button class="btn btn-secondary" id="password-reset-otp-request-btn" data-action="requestPasswordResetOtp">Send reset code</button>
+      </div>
+      <div class="fg" style="margin-top:12px">
+        <label>Reset code</label>
+        <input type="text" id="password-reset-otp-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456">
+      </div>
+      <div class="fg">
+        <label>New password</label>
+        <input type="password" id="password-reset-otp-new" autocomplete="new-password" placeholder="Min 10 chars, mixed case, number, symbol">
+      </div>
+      <div class="modal-actions" style="margin-top:10px">
+        <button class="btn btn-primary" id="password-reset-otp-confirm-btn" data-action="confirmPasswordResetOtp">Update password</button>
+      </div>
+      <div class="modal-err" id="password-reset-otp-status"></div>
+    </div>
+
+    <!-- TRACK A: account delete -->
+    <div class="exam-card">
+      <div class="exam-card-head">
+        <div>
+          <div class="exam-title" style="color:var(--red)">Delete my account</div>
+          <div class="exam-teacher">Removes your student account and anonymises past exam evidence.</div>
+        </div>
+      </div>
+      <p class="section-subtitle" style="margin-top:0">This cannot be undone. Your teachers keep anonymous evidence for submitted exams.</p>
+      <div class="modal-actions" style="margin-top:10px">
+        <button class="btn btn-secondary" id="account-delete-request-btn" data-action="deleteMyAccount">Permanently delete my account</button>
+      </div>
+      <div class="fg" style="margin-top:12px;display:none" id="account-delete-code-wrap">
+        <label>Deletion code</label>
+        <input type="text" id="account-delete-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456">
+      </div>
+      <div class="modal-actions" style="margin-top:10px;display:none" id="account-delete-confirm-wrap">
+        <button class="btn btn-primary" id="account-delete-confirm-btn" data-action="confirmDeleteMyAccount">Confirm permanent deletion</button>
+      </div>
+      <div class="modal-err" id="account-delete-status"></div>
+    </div>
+   </div>
 
    <div class="footer-links">
     <a href="https://procta.net">procta.net</a>

@@ -29,6 +29,7 @@ let _turnstileSiteKey = '';
 let _turnstileWidgetId = null;
 let _studentCsrfMemory = '';
 let _inviteMalformedTimer = null;
+let _pendingSignupEmail = '';
 
 async function _loadPublicConfig() {
   try {
@@ -92,6 +93,8 @@ function setAuthMode(mode) {
   document.getElementById('auth-btn').textContent = isSignup ? 'Sign up' : 'Log in';
   document.getElementById('inp-password').autocomplete = isSignup ? 'new-password' : 'current-password';
   document.getElementById('auth-err').textContent = '';
+  const otp = document.getElementById('signup-otp-view');
+  if (otp) otp.style.display = 'none';
 }
 
 function showReset() {
@@ -121,6 +124,33 @@ function cancelReset() {
   document.getElementById('auth-btn').style.display = '';
   document.querySelector('.auth-tabs').style.display = '';
   document.getElementById('forgot-link').style.display = '';
+  setAuthMode('login');
+}
+
+function _showSignupOtp(email) {
+  _pendingSignupEmail = email || _pendingSignupEmail;
+  document.getElementById('fg-name').style.display = 'none';
+  document.getElementById('inp-email').closest('.fg').style.display = 'none';
+  document.getElementById('inp-password').closest('.fg').style.display = 'none';
+  document.getElementById('auth-btn').style.display = 'none';
+  document.querySelector('.auth-tabs').style.display = 'none';
+  document.getElementById('forgot-link').style.display = 'none';
+  document.getElementById('reset-view').style.display = 'none';
+  document.getElementById('signup-otp-view').style.display = 'block';
+  document.getElementById('signup-otp-err').textContent = '';
+  document.getElementById('signup-otp-ok').style.display = 'none';
+  document.getElementById('auth-heading').textContent = 'Check your email';
+  document.getElementById('auth-subheading').textContent = `Enter the 6-digit code sent to ${_pendingSignupEmail}`;
+}
+
+function cancelSignupOtp() {
+  document.getElementById('signup-otp-view').style.display = 'none';
+  document.getElementById('signup-otp-code').value = '';
+  document.getElementById('inp-email').closest('.fg').style.display = '';
+  document.getElementById('inp-password').closest('.fg').style.display = '';
+  document.querySelector('.auth-tabs').style.display = '';
+  document.getElementById('forgot-link').style.display = '';
+  document.getElementById('auth-btn').style.display = '';
   setAuthMode('login');
 }
 
@@ -190,7 +220,12 @@ async function doAuth() {
         body: JSON.stringify(signupBody),
       });
       if (!r.ok) { _resetTurnstile(); throw new Error((await r.json().catch(()=>({}))).detail || 'Signup failed'); }
-      // fall through to login
+      const sd = await r.json().catch(()=>({}));
+      if (sd.verify_required) {
+        _showSignupOtp(email);
+        return;
+      }
+      // fall through to login for legacy servers only
     }
 
     // P1.2: backend's /student/auth/login calls verify_or_403 when
@@ -207,7 +242,14 @@ async function doAuth() {
     if (!r.ok) {
       _resetTurnstile && _resetTurnstile();
       const body = await r.json().catch(() => ({}));
-      let msg = body.detail || 'Login failed';
+      let msg = (typeof body.detail === 'object' && body.detail)
+        ? (body.detail.message || 'Login failed')
+        : (body.detail || 'Login failed');
+      if (body.detail && body.detail.code === 'EMAIL_VERIFICATION_REQUIRED') {
+        _pendingSignupEmail = email;
+        _showSignupOtp(email);
+        throw new Error(msg);
+      }
       // After a 401, the backend can't distinguish "no student account
       // for this email" from "password is wrong" — both return the
       // same generic message to prevent account-existence enumeration.
@@ -268,6 +310,219 @@ async function doLogout() {
     });
   } catch(e) {}
   clearStudentSession();
+}
+
+// ─────── TRACK A: signup verify + account delete ───────
+function _setTrackAStatus(id, msg, ok) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = msg ? 'block' : 'none';
+  el.style.color = ok ? 'var(--emerald)' : 'var(--red)';
+  el.textContent = msg || '';
+}
+
+async function verifySignupOtp() {
+  const btn = document.getElementById('signup-otp-verify-btn');
+  const err = document.getElementById('signup-otp-err');
+  const email = _pendingSignupEmail || document.getElementById('inp-email').value.trim().toLowerCase();
+  const code = (document.getElementById('signup-otp-code')?.value || '').trim();
+  err.textContent = '';
+  if (!/^\d{6}$/.test(code)) { err.textContent = 'Enter the 6-digit code.'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Verifying...'; }
+  try {
+    const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/verify-signup-otp'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, code}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Invalid or expired code');
+    document.getElementById('signup-otp-ok').style.display = 'block';
+    setTimeout(cancelSignupOtp, 700);
+  } catch (e) {
+    err.textContent = e.message || 'Could not verify code';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Verify email'; }
+  }
+}
+
+async function resendSignupOtp() {
+  const btn = document.getElementById('signup-otp-resend-btn');
+  const err = document.getElementById('signup-otp-err');
+  const email = _pendingSignupEmail || document.getElementById('inp-email').value.trim().toLowerCase();
+  err.textContent = '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/resend-signup-otp'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not resend code');
+    err.style.color = 'var(--emerald)';
+    err.textContent = 'Code sent again.';
+  } catch (e) {
+    err.style.color = 'var(--red)';
+    err.textContent = e.message || 'Could not resend code';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Resend code'; }
+  }
+}
+
+async function deleteMyAccount() {
+  const btn = document.getElementById('account-delete-request-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending code...'; }
+  try {
+    const r = await authed('/api/v1/student/account/delete-request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not send deletion code');
+    document.getElementById('account-delete-code-wrap').style.display = '';
+    document.getElementById('account-delete-confirm-wrap').style.display = '';
+    _setTrackAStatus('account-delete-status', 'Deletion code sent to your email. Enter it below only if you are sure.', true);
+  } catch (e) {
+    _setTrackAStatus('account-delete-status', e.message || 'Could not send deletion code', false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Permanently delete my account'; }
+  }
+}
+
+async function confirmDeleteMyAccount() {
+  const btn = document.getElementById('account-delete-confirm-btn');
+  const code = (document.getElementById('account-delete-code')?.value || '').trim();
+  if (!/^\d{6}$/.test(code)) { _setTrackAStatus('account-delete-status', 'Enter the 6-digit deletion code.', false); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting...'; }
+  try {
+    const r = await authed('/api/v1/student/account/delete-confirm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({otp_code: code}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not delete account');
+    clearStudentSession();
+    showModal('Account deleted', 'Your Procta account has been deleted. Past exam evidence is retained without your personal details.');
+  } catch (e) {
+    _setTrackAStatus('account-delete-status', e.message || 'Could not delete account', false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirm permanent deletion'; }
+  }
+}
+
+// ─────── TRACK B: OTP password reset + email change ───────
+let _emailChangeReauthToken = '';
+function _setTrackBStatus(id, msg, ok) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = msg ? 'block' : 'none';
+  el.style.color = ok ? 'var(--emerald)' : 'var(--red)';
+  el.textContent = msg || '';
+}
+
+async function requestPasswordResetOtp() {
+  const btn = document.getElementById('password-reset-otp-request-btn');
+  const email = (_currentAccount && _currentAccount.email) || '';
+  if (!email) { _setTrackBStatus('password-reset-otp-status', 'Log in again before resetting your password.', false); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    const r = await authed('/api/v1/student/auth/reset-request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not send reset code');
+    _setTrackBStatus('password-reset-otp-status', 'Code sent to your account email.', true);
+  } catch (e) {
+    _setTrackBStatus('password-reset-otp-status', e.message || 'Could not send reset code', false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send reset code'; }
+  }
+}
+
+async function confirmPasswordResetOtp() {
+  const btn = document.getElementById('password-reset-otp-confirm-btn');
+  const email = (_currentAccount && _currentAccount.email) || '';
+  const code = (document.getElementById('password-reset-otp-code')?.value || '').trim();
+  const newPassword = document.getElementById('password-reset-otp-new')?.value || '';
+  if (!/^\d{6}$/.test(code)) { _setTrackBStatus('password-reset-otp-status', 'Enter the 6-digit code.', false); return; }
+  if (!isStrongPassword(newPassword)) {
+    _setTrackBStatus('password-reset-otp-status', 'Password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol.', false);
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
+  try {
+    const r = await authed('/api/v1/student/auth/reset-confirm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, code, new_password: newPassword}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not update password');
+    document.getElementById('password-reset-otp-code').value = '';
+    document.getElementById('password-reset-otp-new').value = '';
+    _setTrackBStatus('password-reset-otp-status', 'Password updated.', true);
+  } catch (e) {
+    _setTrackBStatus('password-reset-otp-status', e.message || 'Could not update password', false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Update password'; }
+  }
+}
+
+async function requestEmailChange() {
+  const btn = document.getElementById('email-change-request-btn');
+  const newEmail = (document.getElementById('account-new-email')?.value || '').trim().toLowerCase();
+  const password = document.getElementById('account-email-password')?.value || '';
+  if (!newEmail || !newEmail.includes('@')) { _setTrackBStatus('email-change-status', 'Enter a valid new email.', false); return; }
+  if (!password) { _setTrackBStatus('email-change-status', 'Enter your current password first.', false); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    const rr = await authed('/api/v1/student/auth/reauth', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password}),
+    });
+    if (!rr.ok) throw new Error((await rr.json().catch(()=>({}))).detail || 'Password confirmation failed');
+    const rd = await rr.json();
+    _emailChangeReauthToken = rd.reauth_token || '';
+    const r = await authed('/api/v1/student/account/email-change-request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({new_email: newEmail, reauth_token: _emailChangeReauthToken}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not send verification code');
+    _setTrackBStatus('email-change-status', 'Code sent to the new email. We also notified your old email.', true);
+  } catch (e) {
+    _setTrackBStatus('email-change-status', e.message || 'Could not start email change', false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send code'; }
+  }
+}
+
+async function confirmEmailChange() {
+  const btn = document.getElementById('email-change-confirm-btn');
+  const newEmail = (document.getElementById('account-new-email')?.value || '').trim().toLowerCase();
+  const code = (document.getElementById('account-email-code')?.value || '').trim();
+  if (!/^\d{6}$/.test(code)) { _setTrackBStatus('email-change-status', 'Enter the 6-digit code.', false); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Confirming...'; }
+  try {
+    const r = await authed('/api/v1/student/account/email-change-confirm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({new_email: newEmail, code}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not change email');
+    const d = await r.json();
+    if (_currentAccount) _currentAccount.email = d.email || newEmail;
+    document.getElementById('account-email-code').value = '';
+    document.getElementById('account-email-password').value = '';
+    _emailChangeReauthToken = '';
+    _setTrackBStatus('email-change-status', 'Email changed. Use the new email the next time you sign in.', true);
+  } catch (e) {
+    _setTrackBStatus('email-change-status', e.message || 'Could not change email', false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirm email change'; }
+  }
 }
 
 function clearStudentSession() {

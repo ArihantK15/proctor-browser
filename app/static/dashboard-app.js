@@ -6127,7 +6127,7 @@ async function removeStudentFromRoster(){
     if (email) params.set('email', email);
     if (roll) params.set('roll_number', roll);
     if (scopeToExam && currentExamId) params.set('exam_id', currentExamId);
-    const r = await authFetch(`${BASE}/api/v1/admin/students/roster?${params.toString()}`, {
+    let r = await authFetch(`${BASE}/api/v1/admin/students/roster?${params.toString()}`, {
       method: 'DELETE'
     });
     if (!r.ok) {
@@ -6135,7 +6135,32 @@ async function removeStudentFromRoster(){
       if (status) { status.style.color='var(--red)'; status.textContent = d.detail || `Failed (HTTP ${r.status})`; }
       return;
     }
-    const d = await r.json();
+    let d = await r.json();
+    if (d.needs_confirmation && Array.isArray(d.warnings) && d.warnings.length) {
+      const lines = d.warnings.slice(0, 5).map(w => {
+        const who = [w.full_name, w.roll_number, w.email].filter(Boolean).join(' / ');
+        return `• ${who || 'Matched student'} has an in-progress exam${w.exam_id ? ` (${w.exam_id})` : ''}`;
+      }).join('\n');
+      const ok = await appConfirm(
+        `This removal touches an active exam session:\n\n${lines}\n\nRemoving the roster row will not stop the running exam, but the student can lose future access to this exam/result from their lobby. Continue?`,
+        'Student is mid-exam',
+        {okText:'Remove anyway'}
+      );
+      if (!ok) {
+        if (status) { status.style.color='var(--amber)'; status.textContent = 'Removal cancelled because the student has an active exam session.'; }
+        return;
+      }
+      params.set('confirm_warnings', 'true');
+      r = await authFetch(`${BASE}/api/v1/admin/students/roster?${params.toString()}`, {
+        method: 'DELETE'
+      });
+      if (!r.ok) {
+        const retryBody = await r.json().catch(() => ({}));
+        if (status) { status.style.color='var(--red)'; status.textContent = retryBody.detail || `Failed (HTTP ${r.status})`; }
+        return;
+      }
+      d = await r.json();
+    }
     if (d.deleted === 0) {
       if (status) { status.style.color='var(--amber)'; status.textContent = `No matching roster rows found.`; }
     } else {

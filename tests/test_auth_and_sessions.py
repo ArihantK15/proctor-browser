@@ -221,12 +221,12 @@ class TestSubmitExam:
         """Set up common mocks for submit-exam tests."""
         with patch("app.routers.exam._recalculate_score", return_value=score), \
              patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
-             patch("app.routers.exam.compute_risk_score", return_value={"risk_score": 25, "label": "Low Risk"}), \
+             patch("app.routers.exam.compute_risk_score", new=AsyncMock(return_value={"risk_score": 25, "label": "Low Risk"})), \
              patch("app.routers.exam._atable") as atable_mock:
             atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
-            atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[]))
+            atable_mock.return_value.update.return_value.eq.return_value.not_.in_.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[{"session_key": "ALICE001_123"}]))
             atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             yield atable_mock
@@ -238,8 +238,8 @@ class TestSubmitExam:
             return_value=MagicMock(data=[]))
         atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
         atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
-        atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(
-            return_value=MagicMock(data=[]))
+        atable_mock.return_value.update.return_value.eq.return_value.not_.in_.return_value.execute = AsyncMock(
+            return_value=MagicMock(data=[{"session_key": "ALICE001_123"}]))
         atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
         atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
 
@@ -248,7 +248,7 @@ class TestSubmitExam:
         token = make_student_token(roll="ALICE001")
         with patch("app.routers.exam._recalculate_score", return_value=(3, 10)) as mock_score, \
              patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
-             patch("app.routers.exam.compute_risk_score", return_value={"risk_score": 10, "label": "Low Risk"}), \
+             patch("app.routers.exam.compute_risk_score", new=AsyncMock(return_value={"risk_score": 10, "label": "Low Risk"})), \
              patch("app.routers.exam._atable") as atable_mock:
             self._mock_atable_for_submit(atable_mock)
 
@@ -275,15 +275,15 @@ class TestSubmitExam:
         token = make_student_token(roll="ALICE001")
         with patch("app.routers.exam._recalculate_score", return_value=(5, 10)), \
              patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
-             patch("app.routers.exam.compute_risk_score", return_value={"risk_score": 10, "label": "Low Risk"}), \
+             patch("app.routers.exam.compute_risk_score", new=AsyncMock(return_value={"risk_score": 10, "label": "Low Risk"})), \
              patch("app.routers.exam._atable") as atable_mock:
             # select for re-submission check returns no existing session
             atable_mock.return_value.select.return_value.eq.return_value.execute = AsyncMock(
                 return_value=MagicMock(data=[]))
             atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
-            atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[]))
+            atable_mock.return_value.update.return_value.eq.return_value.not_.in_.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[{"session_key": "ALICE001_123"}]))
             atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
 
@@ -309,7 +309,7 @@ class TestSubmitExam:
         token = make_student_token(roll="ALICE001")
         with patch("app.routers.exam._recalculate_score", return_value=(0, 0)), \
              patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
-             patch("app.routers.exam.compute_risk_score", return_value={"risk_score": 0, "label": "Low Risk"}), \
+             patch("app.routers.exam.compute_risk_score", new=AsyncMock(return_value={"risk_score": 0, "label": "Low Risk"})), \
              patch("app.routers.exam._atable") as atable_mock:
             self._mock_atable_for_submit(atable_mock)
 
@@ -333,7 +333,7 @@ class TestSubmitExam:
         token = make_student_token(roll="ALICE001")
         with patch("app.routers.exam._recalculate_score", return_value=(5, 10)), \
              patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
-             patch("app.routers.exam.compute_risk_score", return_value={"risk_score": 30, "label": "Moderate"}), \
+             patch("app.routers.exam.compute_risk_score", new=AsyncMock(return_value={"risk_score": 30, "label": "Moderate"})), \
              patch("app.routers.exam._atable") as atable_mock:
             insert_calls = []
             def track_insert(data):
@@ -345,8 +345,8 @@ class TestSubmitExam:
             atable_mock.return_value.select.return_value.eq.return_value.execute = AsyncMock(
                 return_value=MagicMock(data=[]))
             atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
-            atable_mock.return_value.update.return_value.eq.return_value.neq.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[]))
+            atable_mock.return_value.update.return_value.eq.return_value.not_.in_.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[{"session_key": "ALICE001_123"}]))
             atable_mock.return_value.insert.side_effect = track_insert
             atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
             atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))

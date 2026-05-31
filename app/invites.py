@@ -122,5 +122,11 @@ async def _claim_and_bump_cap_legacy(teacher_id: str, batch_size: int) -> tuple[
             await _atable("invite_send_counters").insert({"teacher_id": teacher_id, "day": today, "count": batch_size}).execute()
         return (True, max(remaining - batch_size, 0))
     except Exception as e:
-        _dep_log.warning("[invites] legacy cap check failed: %s", e)
-        return (False, 0)
+        # The cap is abuse protection, not a hard product dependency.
+        # If the counter table/RPC migration is missing or temporarily
+        # unavailable, failing closed produces the confusing demo-blocker
+        # state "0 / 5000 used" + "Daily cap exceeded. 0 remaining".
+        # Keep the existing route-level rate limit as the backstop and let
+        # the invite send proceed while logging loudly for ops.
+        _dep_log.error("[invites] legacy cap check failed; allowing send without counter bump: %s", e)
+        return (True, INVITE_DAILY_CAP)

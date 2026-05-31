@@ -19,6 +19,7 @@ Covers:
 The Resend provider is pinned to the noop backend via EMAIL_PROVIDER=noop
 so no network calls happen during tests.
 """
+import asyncio
 import hashlib
 import hmac
 import json
@@ -303,6 +304,29 @@ class TestSendInvites:
                 ], "exam_id": "exam-1"})
         assert r.status_code == 429, r.text
         assert "cap" in r.text.lower()
+
+    def test_cap_counter_storage_failure_fails_open(self, monkeypatch):
+        """Missing invite_send_counters/RPC must not fake a 0-remaining cap."""
+        monkeypatch.setenv("EMAIL_PROVIDER", "resend")
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_dummy")
+
+        class _BrokenCapTable:
+            def select(self, *args, **kwargs):
+                return self
+            def eq(self, *args, **kwargs):
+                return self
+            async def execute(self):
+                raise RuntimeError("relation invite_send_counters does not exist")
+
+        async def _run():
+            from app import invites
+            with patch("app.database.is_postgres_backend", return_value=True), \
+                 patch("app.invites._atable", return_value=_BrokenCapTable()):
+                return await invites._claim_and_bump_cap("teacher-1", 1)
+
+        ok, remaining = asyncio.run(_run())
+        assert ok is True
+        assert remaining >= 1
 
 
 class TestInviteLanding:

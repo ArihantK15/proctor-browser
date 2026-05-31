@@ -1171,23 +1171,17 @@ Procta — proctored exams for Indian institutions
 
 
 # ──────────────────────────────────────────────────────────────────
-# FOUNDATION STUBS — Student Account Lifecycle + OTP-Everywhere
+# STUDENT ACCOUNT LIFECYCLE EMAILS — OTP-Everywhere
 # (plan: the-load-is-running-sparkling-canyon.md)
 #
-# These three function signatures land here in the foundation commit
-# so Track A and Track B can both import them on day-one. Each stub
-# currently logs "TODO" and returns SendResult(ok=True) — Tracks A
-# and B will fill in their assigned bodies in their own commits
-# without touching each other's surface:
+# The foundation commit landed these signatures first so Track A and
+# Track B could wire their endpoints independently. Both tracks are now
+# filled in; keep these templates together because they cover the same
+# account lifecycle surface:
 #
 #   send_student_account_deleted_to_teacher  → Track A
 #   send_student_email_change_heads_up       → Track B
 #   send_student_password_changed_notification → Track B
-#
-# Returning ok=True from the stub means the foundation deploy
-# doesn't break the (not-yet-existing) callers. When Track A or B
-# starts wiring their endpoints, the worst that happens during
-# their development is "no email sent" — not a 500.
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -1200,18 +1194,53 @@ def send_student_account_deleted_to_teacher(
     student_roll: str,
     deleted_at_str: str,
 ) -> SendResult:
-    """Notify the most-recent teacher when a student self-deletes.
+    """Notify the most-recent teacher when a student self-deletes."""
+    teacher_name = to_name or "there"
+    roll = student_roll or "unknown roll"
+    subject = f"[Procta] Student account deleted - {student_name or 'Deleted student'} ({roll})"
+    text = f"""Hello {teacher_name},
 
-    Owned by Track A (account-delete + signup-verify). This stub
-    keeps the import surface stable for the foundation commit so
-    both tracks can begin in parallel; Track A fills the body.
-    """
-    log.info(
-        "[emailer.stub] send_student_account_deleted_to_teacher "
-        "to=%s student=%s (%s) — TODO: Track A fills body",
-        to_email, student_name, student_roll,
-    )
-    return SendResult(ok=True, provider_msg_id=None)
+The following student deleted their Procta account:
+
+  Student: {student_name or 'Unknown'}
+  Roll:    {roll}
+  Email:   {student_email or 'Unknown'}
+  When:    {deleted_at_str}
+
+Their personal details have been removed from your live roster and past exam records. Evidence such as violations, answers, and scorecards is preserved under an anonymous identifier so any open academic-integrity case can still be resolved.
+
+If there is an active appeal or pending discussion requiring this student's identity, review it now with your exam cell.
+
+- The Procta Team
+"""
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Student account deleted - Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
+             style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:560px;">
+        <tr><td style="background:#991b1b;padding:24px 28px;text-align:center;">
+          <div style="color:#ffffff;font-size:18px;font-weight:700;">Student account deleted</div>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0f172a;">
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{_esc(teacher_name)}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">A student who was associated with your Procta roster deleted their account.</p>
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin:0 0 16px;">
+            <div style="font-size:13px;color:#7f1d1d;">Student</div>
+            <div style="font-size:16px;font-weight:700;color:#450a0a;">{_esc(student_name or 'Unknown')} ({_esc(roll)})</div>
+            <div style="font-size:12px;color:#7f1d1d;margin-top:8px;word-break:break-all;">{_esc(student_email or 'Unknown email')}</div>
+            <div style="font-size:12px;color:#7f1d1d;margin-top:4px;">Deleted: {_esc(deleted_at_str)}</div>
+          </div>
+          <p style="margin:0 0 12px;font-size:13px;color:#475569;line-height:1.5;">Their PII has been removed from your roster and past exam records. Evidence such as violations, answers, and scorecards is preserved under an anonymous identifier so open academic-integrity cases can still be resolved.</p>
+          <p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">Re-enrolling this student under a new email creates a fresh account.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    return _send(to_email, subject, html, text)
 
 
 def send_student_email_change_heads_up(
@@ -1222,18 +1251,50 @@ def send_student_email_change_heads_up(
     requested_at_str: str,
     ip: str = "",
 ) -> SendResult:
-    """Heads-up to the OLD email when a student requests email change.
+    """Heads-up to the OLD email when a student requests email change."""
+    display_name = to_name or "there"
+    subject = "Procta account email change requested"
+    ip_line = f"\n  IP address: {ip}" if ip else ""
+    text = f"""Hello {display_name},
 
-    Owned by Track B (password-reset + email-change). Body is filled
-    in Track B's commit. If the receiver didn't initiate the change,
-    they reset their password — that invalidates the in-flight OTP.
-    """
-    log.info(
-        "[emailer.stub] send_student_email_change_heads_up "
-        "to=%s new=%s ip=%s — TODO: Track B fills body",
-        to_email, new_email, ip,
-    )
-    return SendResult(ok=True, provider_msg_id=None)
+Someone requested to change the email address on your Procta student account.
+
+  New email: {new_email}
+  Requested: {requested_at_str}{ip_line}
+
+If this was you, enter the verification code sent to the new email address to finish the change.
+
+If this was NOT you, reset your password immediately and contact your teacher or exam administrator.
+
+- The Procta Security Team
+"""
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Email change requested - Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520"
+             style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:520px;">
+        <tr><td style="background:#2563eb;padding:24px 28px;text-align:center;">
+          <div style="color:#ffffff;font-size:18px;font-weight:700;">Email change requested</div>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0f172a;">
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{_esc(display_name)}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Someone requested to change the email address on your Procta student account.</p>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin:0 0 16px;">
+            <div style="font-size:13px;color:#475569;">New email</div>
+            <div style="font-size:16px;font-weight:700;color:#0f172a;word-break:break-all;">{_esc(new_email)}</div>
+            <div style="font-size:12px;color:#64748b;margin-top:8px;">Requested: {_esc(requested_at_str)}{(' from ' + _esc(ip)) if ip else ''}</div>
+          </div>
+          <p style="margin:0 0 12px;font-size:13px;color:#475569;line-height:1.5;">If this was you, enter the verification code sent to the new address.</p>
+          <p style="margin:0;font-size:13px;color:#991b1b;line-height:1.5;">If this was not you, reset your password immediately and contact your teacher or exam administrator.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    return _send(to_email, subject, html, text)
 
 
 def send_student_password_changed_notification(
@@ -1243,15 +1304,46 @@ def send_student_password_changed_notification(
     changed_at_str: str,
     ip: str = "",
 ) -> SendResult:
-    """Confirm to the student that their password was successfully changed.
+    """Confirm to the student that their password was successfully changed."""
+    display_name = to_name or "there"
+    subject = "Your Procta password was changed"
+    ip_line = f"\n  IP address: {ip}" if ip else ""
+    text = f"""Hello {display_name},
 
-    Owned by Track B (password-reset). Body is filled in Track B's
-    commit. Sent both for OTP-reset flow and any future in-account
-    "change password" path so the surface is consistent.
-    """
-    log.info(
-        "[emailer.stub] send_student_password_changed_notification "
-        "to=%s — TODO: Track B fills body",
-        to_email,
-    )
-    return SendResult(ok=True, provider_msg_id=None)
+Your Procta student account password was changed.
+
+  Changed: {changed_at_str}{ip_line}
+
+If you made this change, no action is needed.
+
+If you did NOT make this change, reset your password immediately and contact your teacher or exam administrator.
+
+- The Procta Security Team
+"""
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Password changed - Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#0f172a;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520"
+             style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:520px;">
+        <tr><td style="background:#16a34a;padding:24px 28px;text-align:center;">
+          <div style="color:#ffffff;font-size:18px;font-weight:700;">Password changed</div>
+        </td></tr>
+        <tr><td style="padding:28px;color:#0f172a;">
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{_esc(display_name)}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Your Procta student account password was changed.</p>
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;margin:0 0 16px;">
+            <div style="font-size:13px;color:#166534;">Changed</div>
+            <div style="font-size:16px;font-weight:700;color:#14532d;">{_esc(changed_at_str)}</div>
+            {f'<div style="font-size:12px;color:#166534;margin-top:8px;">IP: {_esc(ip)}</div>' if ip else ''}
+          </div>
+          <p style="margin:0 0 12px;font-size:13px;color:#475569;line-height:1.5;">If this was you, no action is needed.</p>
+          <p style="margin:0;font-size:13px;color:#991b1b;line-height:1.5;">If this was not you, reset your password immediately and contact your teacher or exam administrator.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    return _send(to_email, subject, html, text)

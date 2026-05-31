@@ -81,8 +81,15 @@ jobs:
             # Give Caddy a beat to bind ports before the healthcheck.
             sleep 2
 
-            echo "==> waiting for API healthcheck (max 90s)..."
-            for i in $(seq 1 18); do
+            # Healthcheck window: bumped from 90s → 180s after multiple
+            # past deploys ran the container to "healthy" in 100-130s but
+            # the runner had already given up. The actual container DID
+            # take over (live API uptime matched the deploy time); we
+            # just kept marking the workflow red. 180s covers the slow
+            # cold-start cases (asyncpg pool warmup + model load) without
+            # hiding genuine failures — anything stuck past 3 min is real.
+            echo "==> waiting for API healthcheck (max 180s)..."
+            for i in $(seq 1 36); do
               STATUS=$(docker inspect --format='{{.State.Health.Status}}' proctor-api 2>/dev/null || echo unknown)
               if [ "$STATUS" = "healthy" ]; then
                 echo "==> API healthy after $((i * 5))s"
@@ -91,8 +98,8 @@ jobs:
               sleep 5
             done
 
-            echo "ERROR: API did not become healthy within 90s"
-            docker compose --compatibility logs --tail=50 api
+            echo "ERROR: API did not become healthy within 180s"
+            docker compose --compatibility logs --tail=80 api
             exit 1
 
       - name: Prune old images

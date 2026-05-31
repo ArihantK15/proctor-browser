@@ -347,10 +347,24 @@ tr:hover td{background:rgba(61,217,168,.04)}
   .modal{padding:16px;width:100%;max-width:100%;border-radius:10px}
   .modal-bg{align-items:flex-end;padding:8px}
   .auth-card{width:90vw;max-width:400px;padding:var(--space-6)}
+  /* Chat tab on phone — stack roster above thread, keep both
+     usable inside the viewport. With the sticky topbar+tabs+exam-bar
+     eating ~140px, the chat thread now sizes to the remaining space
+     instead of an arbitrary 60vh that could overflow on shorter
+     phones (e.g. iPhone SE 1st-gen 568px viewport). */
   .chat-wrap{grid-template-columns:1fr;
-    height:auto;min-height:0}
-  .chat-roster{max-height:220px}
-  .chat-thread{height:60vh}
+    height:auto;min-height:0;gap:var(--space-2)}
+  .chat-roster{max-height:180px;overflow-y:auto;
+    -webkit-overflow-scrolling:touch;border-radius:10px}
+  .chat-roster-body{overflow-y:auto}
+  .chat-thread{height:calc(100dvh - 360px);min-height:340px}
+  .chat-thread-body{padding:12px;gap:10px}
+  .chat-thread-head{padding:10px 14px}
+  .chat-thread-title{font-size:13px}
+  .chat-thread-sub{font-size:11px}
+  .chat-msg{max-width:84%;font-size:13px}
+  /* Composer needs explicit row so the send button is reachable. */
+  .chat-composer{padding:8px;gap:8px}
   .topbar-teacher{padding-left:0;border-left:none}
   .tools-grid{grid-template-columns:1fr}
   .q-opts{grid-template-columns:1fr}

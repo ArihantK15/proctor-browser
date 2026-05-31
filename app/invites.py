@@ -44,6 +44,21 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
     """
     if batch_size <= 0:
         return (True, INVITE_DAILY_CAP)
+    # Skip cap when the emailer backend is noop (RESEND_API_KEY not
+    # configured OR EMAIL_PROVIDER=noop). Without this, every dry-run
+    # without a real Resend key would consume cap quota and eventually
+    # block legitimate sends with a confusing "Daily cap exceeded"
+    # while Resend's own dashboard shows 0 — exactly the symptom the
+    # user hit during demo prep. Always allow when there's no actual
+    # send happening; the cap protects against runaway real sends, not
+    # bookkeeping operations.
+    try:
+        import os as _os
+        if (_os.environ.get("EMAIL_PROVIDER", "resend").lower().strip() == "noop"
+            or not _os.environ.get("RESEND_API_KEY", "").strip()):
+            return (True, INVITE_DAILY_CAP)
+    except Exception:
+        pass
     from .database import is_postgres_backend
     if is_postgres_backend():
         return await _claim_and_bump_cap_legacy(teacher_id, batch_size)

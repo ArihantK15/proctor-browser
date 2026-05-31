@@ -225,7 +225,16 @@ _CRITICAL_TYPES = frozenset({
 })
 
 # ─── Invites ──────────────────────────────────────────────────────
-INVITE_DAILY_CAP = int(os.environ.get("INVITE_DAILY_CAP", "500"))
+# Bumped 500 → 5000 after a demo-prep teacher hit the cap during
+# dry-runs even though Resend itself showed 0 actual sends. Root
+# cause was the cap counter being incremented BEFORE the email
+# backend call, so noop-backend (no RESEND_API_KEY) dry-runs still
+# consumed quota. The defensive skip in invites._claim_and_bump_cap
+# now also short-circuits when the emailer backend is noop, but
+# the higher default is the real safety net: no real teacher sends
+# 5000 invites/day in normal use; abuse cases still need to be
+# rate-limited by the @limiter.limit("5/minute") on the route.
+INVITE_DAILY_CAP = int(os.environ.get("INVITE_DAILY_CAP", "5000"))
 INVITE_URL_TTL = 600  # 10 minutes
 
 # ─── Reminders ────────────────────────────────────────────────────

@@ -250,7 +250,8 @@ async function _connectSSE(){
     if(!ctr.ok) throw new Error('connect-token failed');
     const { connect_token } = await ctr.json();
 
-    _sseSource = new EventSource(`${BASE}/api/v1/sse/sessions?token=${encodeURIComponent(connect_token)}`);
+    const examParam = currentExamId ? `&exam_id=${encodeURIComponent(currentExamId)}` : '';
+    _sseSource = new EventSource(`${BASE}/api/v1/sse/sessions?token=${encodeURIComponent(connect_token)}${examParam}`);
 
     _sseSource.addEventListener('init', (e)=>{
       try{

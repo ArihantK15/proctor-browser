@@ -1236,8 +1236,7 @@ async def submit_exam(result: ResultIn, request: Request):
     # Publish submission to dashboard SSE
     if tid:
         pub_task = asyncio.create_task(_bus_async_publish(f"sessions:{tid}", {"kind": "submitted",
-                     "session_id": result.session_id,
-                     "score": server_score, "total": server_total}))
+                     "session_id": result.session_id}))
         pub_task.add_done_callback(
             lambda t: _exam_log.warning("[submit] SSE publish failed: %s", t.exception())
             if not t.cancelled() and t.exception() else None

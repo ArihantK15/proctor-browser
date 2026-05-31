@@ -184,8 +184,6 @@ async def _score_submission_async(
             await _bus_async_publish(f"sessions:{teacher_id}", {
                 "kind": "submitted",
                 "session_id": session_key,
-                "score": server_score,
-                "total": server_total,
             })
         except Exception as e:
             logger.warning("[score_job] SSE publish failed for %s: %s", safe(session_key), safe(e))

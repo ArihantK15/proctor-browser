@@ -1,5 +1,6 @@
 """Session management router — sessions list, results, clear, force-submit, recalibration, triage."""
 from ..log_safe import safe
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 
@@ -33,6 +34,19 @@ from ..models import (
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
+
+
+async def _bus_async_publish(channel: str, payload: dict) -> None:
+    """Publish to SSE/event bus when Redis support is installed."""
+    try:
+        from ..event_bus import async_publish
+    except Exception as exc:
+        if not getattr(_bus_async_publish, "_warned", False):
+            logger.warning("event_bus unavailable; SSE publishes disabled: %s", exc.__class__.__name__)
+            setattr(_bus_async_publish, "_warned", True)
+        return
+    await async_publish(channel, payload)
+
 
 router = APIRouter(prefix="")
 
@@ -423,6 +437,13 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
 
     _admin_log.info("[ForceSubmit] %s score:%d/%d risk:%d/100 reason:%s",
                     session_id, score, total, risk['risk_score'], reason_code or "-")
+
+    # Publish to dashboard SSE so the teacher sees the update in real-time
+    try:
+        await _bus_async_publish(f"sessions:{tid}", {"kind": "submitted", "session_id": session_id})
+    except Exception:
+        logger.debug("admin_submit: SSE publish failed", exc_info=True)
+
     return {
         "status":          SessionStatus.FORCE_SUBMITTED,
         "session_id":      session_id,

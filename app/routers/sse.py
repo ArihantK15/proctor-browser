@@ -684,6 +684,7 @@ async def sse_sessions(request: Request):
         max_seconds = min(max(int(request.query_params.get("max_seconds", "0")), 0), 300)
     except ValueError:
         max_seconds = 0
+    exam_id = request.query_params.get("exam_id") or None
 
     async def event_stream():
         alert_channel = f"alerts:{teacher_id}"
@@ -692,8 +693,8 @@ async def sse_sessions(request: Request):
 
         # Send initial snapshot
         try:
-            sessions_payload = await _build_sessions_payload(teacher_id)
-            yield f"event: init\ndata: {json.dumps({'sessions': sessions_payload['sessions']})}\n\n"
+            sessions_payload = await _build_sessions_payload(teacher_id, exam_id=exam_id)
+            yield f"event: init\ndata: {json.dumps({'sessions': sessions_payload['sessions'], 'all_sessions': sessions_payload['all_sessions']})}\n\n"
         except Exception as e:
             logger.warning("[sse_sessions] initial snapshot failed: %s", e)
 

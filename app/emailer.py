@@ -1168,3 +1168,90 @@ Procta — proctored exams for Indian institutions
     except Exception as e:
         log.exception("send_org_invite_email failed: %s", e)
         return SendResult(ok=False, error=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────
+# FOUNDATION STUBS — Student Account Lifecycle + OTP-Everywhere
+# (plan: the-load-is-running-sparkling-canyon.md)
+#
+# These three function signatures land here in the foundation commit
+# so Track A and Track B can both import them on day-one. Each stub
+# currently logs "TODO" and returns SendResult(ok=True) — Tracks A
+# and B will fill in their assigned bodies in their own commits
+# without touching each other's surface:
+#
+#   send_student_account_deleted_to_teacher  → Track A
+#   send_student_email_change_heads_up       → Track B
+#   send_student_password_changed_notification → Track B
+#
+# Returning ok=True from the stub means the foundation deploy
+# doesn't break the (not-yet-existing) callers. When Track A or B
+# starts wiring their endpoints, the worst that happens during
+# their development is "no email sent" — not a 500.
+# ──────────────────────────────────────────────────────────────────
+
+
+def send_student_account_deleted_to_teacher(
+    *,
+    to_email: str,
+    to_name: str,
+    student_name: str,
+    student_email: str,
+    student_roll: str,
+    deleted_at_str: str,
+) -> SendResult:
+    """Notify the most-recent teacher when a student self-deletes.
+
+    Owned by Track A (account-delete + signup-verify). This stub
+    keeps the import surface stable for the foundation commit so
+    both tracks can begin in parallel; Track A fills the body.
+    """
+    log.info(
+        "[emailer.stub] send_student_account_deleted_to_teacher "
+        "to=%s student=%s (%s) — TODO: Track A fills body",
+        to_email, student_name, student_roll,
+    )
+    return SendResult(ok=True, provider_msg_id=None)
+
+
+def send_student_email_change_heads_up(
+    *,
+    to_email: str,
+    to_name: str,
+    new_email: str,
+    requested_at_str: str,
+    ip: str = "",
+) -> SendResult:
+    """Heads-up to the OLD email when a student requests email change.
+
+    Owned by Track B (password-reset + email-change). Body is filled
+    in Track B's commit. If the receiver didn't initiate the change,
+    they reset their password — that invalidates the in-flight OTP.
+    """
+    log.info(
+        "[emailer.stub] send_student_email_change_heads_up "
+        "to=%s new=%s ip=%s — TODO: Track B fills body",
+        to_email, new_email, ip,
+    )
+    return SendResult(ok=True, provider_msg_id=None)
+
+
+def send_student_password_changed_notification(
+    *,
+    to_email: str,
+    to_name: str,
+    changed_at_str: str,
+    ip: str = "",
+) -> SendResult:
+    """Confirm to the student that their password was successfully changed.
+
+    Owned by Track B (password-reset). Body is filled in Track B's
+    commit. Sent both for OTP-reset flow and any future in-account
+    "change password" path so the surface is consistent.
+    """
+    log.info(
+        "[emailer.stub] send_student_password_changed_notification "
+        "to=%s — TODO: Track B fills body",
+        to_email,
+    )
+    return SendResult(ok=True, provider_msg_id=None)

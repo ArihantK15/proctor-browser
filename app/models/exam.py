@@ -176,6 +176,16 @@ class BulkRegisterIn(BaseModel):
     model_config = ConfigDict(strict=True)
     exam_id: str | None = None
     students: list[dict[str, str]]
+    # When True (default), the endpoint ALSO mints invite tokens and
+    # enqueues invite emails for every successfully-registered row —
+    # closing the "I added them but they have no way to know" gap.
+    # Set False to roster silently (e.g. test imports, or when invites
+    # will be sent later via the Email Invites tool). Cap-aware:
+    # respects the same daily-cap check the /invites/send route uses,
+    # so a runaway bulk import can't blow through the limit. Idempotent
+    # per (teacher_id, email, exam_id) — re-running an import never
+    # double-sends.
+    send_invites: bool = True
     # When True the endpoint validates + classifies rows but does NOT
     # write to the DB. Returns the same shape as a real run plus a
     # `format_counts` map and `dominant_format` key from

@@ -20,6 +20,144 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="")
 
 
+# ──────────────────────────────────────────────────────────────────
+# Reusable invite-mint + send helper. Called from BOTH:
+#   1. POST /api/v1/admin/invites/send (the explicit "Email Invites"
+#      tool on the dashboard) — wraps a batch and applies the cap.
+#   2. POST /api/v1/admin/register-students-bulk +
+#      POST /api/v1/admin/students/import-csv — the just-registered
+#      student gets an invite right away so they aren't left to
+#      "wait for someone to send them a link." See
+#      _process_student_rows() in admin_students.py.
+#
+# Behaviour mirrors the inline path in send_invites() (line 23ish):
+#   - Upsert the student_invites row scoped to (teacher_id, email,
+#     exam_id) so a re-run is idempotent (token rotates; status
+#     reset; no duplicate).
+#   - Enqueue send_invite_email_job. If the provider returns a real
+#     msg_id, flip status → SENT + record sent_at.
+#   - Returns dict with {ok, status, msg_id, error}.
+#
+# Cap accounting is the caller's responsibility — different callers
+# want different cap semantics (the bulk-register path counts each
+# row against the same daily cap, but doesn't fail-closed on cap
+# overflow — it just skips the email and lets the row land).
+# ──────────────────────────────────────────────────────────────────
+
+
+async def _mint_and_send_invite_for_student(
+    *,
+    teacher: dict,
+    email: str,
+    full_name: str,
+    roll_number: str,
+    exam_id: str,
+    exam_title: str,
+    base_url: str,
+    custom_message: Optional[str] = None,
+) -> dict:
+    """Mint a token + (idempotent) upsert student_invites + enqueue email.
+
+    Returns a dict the caller can aggregate:
+      {ok: bool, status: 'sent'|'failed'|'skipped', msg_id: str|None,
+       error: str|None, invite_url: str}
+    """
+    tid = str(teacher["id"])
+    email = (email or "").strip().lower()
+    roll = (roll_number or "").strip().upper()
+    if not email or not roll:
+        return {"ok": False, "status": "skipped",
+                "error": "missing email or roll", "msg_id": None,
+                "invite_url": ""}
+
+    token = _new_invite_token()
+    invite_url = f"{base_url}/invite/{token}"
+    download_url = f"{base_url}/download"
+
+    invite_row = {
+        "id": _uuid.uuid4(),
+        "teacher_id": tid,
+        "email": email,
+        "full_name": full_name,
+        "roll_number": roll,
+        "exam_id": exam_id,
+        "token": token,
+        "status": InviteStatus.QUEUED,
+        "sent_at": None,
+        "access_code": None,
+        "custom_message": custom_message,
+    }
+
+    # Idempotency: if a row already exists for (teacher_id, email,
+    # exam_id), update it (rotates token + clears bounce state) so
+    # re-running an import never double-rows the same student.
+    try:
+        existing = (await _atable("student_invites")
+                    .select("id")
+                    .eq("teacher_id", tid)
+                    .eq("email", email)
+                    .eq("exam_id", exam_id)
+                    .limit(1)
+                    .execute()).data or []
+    except Exception as e:
+        logger.warning("[InviteHelper] existing-lookup failed for %s/%s: %s",
+                       tid, email, e)
+        existing = []
+
+    try:
+        if existing:
+            update_row = dict(invite_row)
+            update_row.pop("id", None)
+            await (_atable("student_invites")
+                   .update(update_row)
+                   .eq("id", existing[0]["id"])
+                   .execute())
+        else:
+            await _atable("student_invites").insert(invite_row).execute()
+    except Exception as e:
+        logger.warning("[InviteHelper] upsert failed for %s/%s: %s",
+                       tid, email, e)
+        return {"ok": False, "status": "failed",
+                "error": f"row upsert: {type(e).__name__}",
+                "msg_id": None, "invite_url": invite_url}
+
+    send_result = send_invite_email_job(
+        to_email=email,
+        to_name=full_name,
+        exam_title=exam_title,
+        invite_url=invite_url,
+        download_url=download_url,
+        roll_number=roll,
+        teacher_name=teacher.get("email"),
+    )
+    provider_msg_id = (send_result or {}).get("provider_msg_id")
+    if send_result.get("ok") and provider_msg_id and provider_msg_id != "noop":
+        try:
+            await (_atable("student_invites")
+                   .update({
+                       "status": InviteStatus.SENT,
+                       "sent_at": now_ist().isoformat(),
+                       "provider_msg_id": provider_msg_id,
+                   })
+                   .eq("teacher_id", tid).eq("email", email)
+                   .eq("exam_id", exam_id).execute())
+        except Exception as e:
+            logger.warning("[InviteHelper] post-send status update failed: %s", e)
+        return {"ok": True, "status": "sent",
+                "msg_id": provider_msg_id, "error": None,
+                "invite_url": invite_url}
+    if send_result.get("ok"):
+        # noop backend (e.g. dev with RESEND_API_KEY unset) — record
+        # the row but don't claim "sent." Status stays QUEUED.
+        return {"ok": True, "status": "skipped",
+                "msg_id": None, "error": "noop provider",
+                "invite_url": invite_url}
+    return {"ok": False, "status": "failed",
+            "msg_id": None,
+            "error": send_result.get("error") or "send failed",
+            "invite_url": invite_url}
+
+
 @router.post("/api/v1/admin/invites/send")
 @limiter.limit("5/minute")
 async def send_invites(body: SendInvitesBody, request: Request):

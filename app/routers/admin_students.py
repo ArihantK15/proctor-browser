@@ -75,12 +75,28 @@ def _build_column_map(headers: list[str]) -> dict[str, str] | None:
     return col_map
 
 
-async def _process_student_rows(teacher: dict, rows: list[dict], dry_run: bool) -> dict:
+async def _process_student_rows(
+    teacher: dict,
+    rows: list[dict],
+    dry_run: bool,
+    exam_id: str | None = None,
+    send_invites: bool = True,
+) -> dict:
     """Shared validation + registration logic used by both JSON and CSV endpoints.
 
     *rows* is a list of dicts each containing *roll_number*, *full_name*,
     *email*, and optionally *phone* keys.  Does NOT cap the input — callers
     are responsible for enforcing the 500-row limit before calling this.
+
+    *exam_id* + *send_invites*: when send_invites=True (the default) AND
+    an exam_id is resolvable (passed explicitly or auto-detected from the
+    teacher's most-recent exam_config), the function mints invite tokens
+    and enqueues invite emails for each newly-registered row. This was
+    the gap behind the user-reported "I added them from the roster and
+    they don't know they exist on Procta" symptom — Path B silently
+    rostered students without notifying them. Now Path B leads back
+    into Path A automatically. Set send_invites=False for test imports
+    or when invites will be sent later via the Email Invites tool.
     """
     tid = str(teacher["id"])
     org_id = teacher.get("org_id")
@@ -143,15 +159,97 @@ async def _process_student_rows(teacher: dict, rows: list[dict], dry_run: bool) 
 
     registered = 0
     skipped = 0
+    successfully_upserted: list[dict] = []
     for row in validated:
         try:
             result = await _atable("students").upsert(row, on_conflict="roll_number,teacher_id").execute()
             if result.data:
                 registered += 1
+                successfully_upserted.append(row)
             else:
                 skipped += 1
         except Exception:
             skipped += 1
+
+    # ── Path B → Path A: automatic invite send ────────────────────
+    # For every row that just landed in the roster, mint a token +
+    # enqueue an invite email. Best-effort: per-row exceptions log
+    # + skip rather than block the import. Cap-aware: we share the
+    # SAME daily quota as the manual Email Invites tool so a 500-
+    # row bulk import respects the same limit. Idempotency lives in
+    # the helper — re-running the bulk import upserts the existing
+    # student_invites row rather than duplicating.
+    invite_stats = {"sent": 0, "skipped": 0, "failed": 0}
+    invite_send_error = None
+    if send_invites and successfully_upserted:
+        tid = str(teacher["id"])
+        # Resolve exam_id: explicit > teacher's only/most-recent
+        # exam_config. If neither resolves, we can't address an
+        # invite to a specific exam so we skip the invite step
+        # entirely (the row still gets rostered correctly).
+        resolved_exam_id = (exam_id or "").strip() or None
+        if not resolved_exam_id:
+            try:
+                cfgs = (await _atable("exam_config")
+                        .select("exam_id,exam_title,created_at")
+                        .eq("teacher_id", tid)
+                        .order("created_at", desc=True)
+                        .limit(1).execute()).data or []
+                if cfgs:
+                    resolved_exam_id = cfgs[0].get("exam_id")
+            except Exception as e:
+                logger.warning("[BulkRegister] exam_config lookup failed: %s", e)
+        if not resolved_exam_id:
+            invite_send_error = "no exam_id resolvable — students rostered without invite emails"
+            invite_stats["skipped"] = len(successfully_upserted)
+        else:
+            # Fetch exam_title for the email body (falls back to id).
+            try:
+                cfg = (await _atable("exam_config")
+                       .select("exam_title")
+                       .eq("teacher_id", tid)
+                       .eq("exam_id", resolved_exam_id)
+                       .limit(1).execute()).data or []
+                exam_title = (cfg[0].get("exam_title") if cfg else None) or resolved_exam_id
+            except Exception:
+                exam_title = resolved_exam_id
+
+            # Cap: same daily-quota check the manual /invites/send
+            # path uses. If the entire batch would overshoot, we
+            # send what we can and report the rest as skipped —
+            # we DON'T fail the whole import just because invites
+            # ran out. The roster work already succeeded.
+            from ..invites import _claim_and_bump_cap, _get_invite_base_url
+            from .admin_invites import _mint_and_send_invite_for_student
+            cap_ok, cap_remaining = await _claim_and_bump_cap(tid, len(successfully_upserted))
+            base_url = _get_invite_base_url()
+            if not cap_ok:
+                invite_send_error = (
+                    f"daily invite cap reached ({cap_remaining} remaining); "
+                    f"send the rest later from the Email Invites tool"
+                )
+                invite_stats["skipped"] = len(successfully_upserted)
+            else:
+                for row in successfully_upserted:
+                    try:
+                        r = await _mint_and_send_invite_for_student(
+                            teacher=teacher,
+                            email=row.get("email", ""),
+                            full_name=row.get("full_name", ""),
+                            roll_number=row.get("roll_number", ""),
+                            exam_id=resolved_exam_id,
+                            exam_title=exam_title,
+                            base_url=base_url,
+                        )
+                        status = r.get("status") or "failed"
+                        if status in invite_stats:
+                            invite_stats[status] += 1
+                        else:
+                            invite_stats["failed"] += 1
+                    except Exception as e:
+                        logger.warning("[BulkRegister] invite send threw for %s: %s",
+                                       row.get("email"), e)
+                        invite_stats["failed"] += 1
 
     result = {
         "registered": registered,
@@ -160,7 +258,10 @@ async def _process_student_rows(teacher: dict, rows: list[dict], dry_run: bool) 
         "dominant_format": dominant_format,
         "dominant_format_label": dominant_format_label,
         "format_counts": format_counts,
+        "invites": invite_stats,
     }
+    if invite_send_error:
+        result["invite_note"] = invite_send_error
     if invalid:
         result["invalid"] = invalid
     return result
@@ -460,7 +561,11 @@ async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)
         raise HTTPException(status_code=400, detail="'students' must be a non-empty list")
     if len(students) > 500:
         raise HTTPException(status_code=400, detail="Max 500 students per batch")
-    return await _process_student_rows(teacher, students, body.dry_run)
+    return await _process_student_rows(
+        teacher, students, body.dry_run,
+        exam_id=body.exam_id,
+        send_invites=body.send_invites,
+    )
 
 
 @router.post("/api/v1/admin/students/import-csv")
@@ -469,6 +574,11 @@ async def import_students_csv(
     request: Request,
     file: UploadFile = File(...),
     dry_run: bool = Form(True),
+    # Optional exam-scoping + invite-send control. Same defaults +
+    # semantics as the JSON BulkRegisterIn path so the two endpoints
+    # behave consistently from the teacher's point of view.
+    exam_id: str | None = Form(None),
+    send_invites: bool = Form(True),
 ):
     teacher = await require_admin(request)
 
@@ -510,7 +620,11 @@ async def import_students_csv(
     if not students:
         raise HTTPException(status_code=400, detail="CSV has no data rows")
 
-    return await _process_student_rows(teacher, students, dry_run)
+    return await _process_student_rows(
+        teacher, students, dry_run,
+        exam_id=exam_id,
+        send_invites=send_invites,
+    )
 
 
 @router.get("/api/v1/admin/students/csv-template")

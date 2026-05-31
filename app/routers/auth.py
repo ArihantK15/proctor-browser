@@ -1405,33 +1405,52 @@ async def student_exams(request: Request):
     Looks up the student account from the Bearer token, finds matching
     enrollments in the ``students`` table by email, then enriches each
     with exam_config details and session status.
+
+    Hardened post-2026-05-31: previously any unhandled exception
+    bubbled up as an opaque 500 with no diagnostic; user-reported
+    flow had a freshly-logged-in student seeing 500 here right after
+    auto-update which masked whatever the actual cause was. Now we
+    catch + log with the request_id so the next failure leaves a
+    traceable breadcrumb in the server log.
     """
     account = await require_student_account(request)
-    email = account["email"].strip().lower()
+    # Defensive: email can be None on accounts created via the older
+    # Supabase-auth-only path. Empty enrollments query is preferred
+    # over an AttributeError that becomes an opaque 500.
+    email_raw = account.get("email") if isinstance(account, dict) else None
+    email = (email_raw or "").strip().lower()
 
-    # Find all enrollment rows matching this email.
-    # The `students` table has: roll_number, teacher_id (no exam_id column
-    # in the legacy schema — each teacher typically has one exam_config).
-    enroll_result = await _atable("students").select(
-        "roll_number", "teacher_id"
-    ).eq("email", email).execute()
-    enrollments = enroll_result.data or []
-    if not enrollments:
-        # Some roster rows are linked by account_id after invite
-        # acceptance / teacher import, and older rows may have a blank
-        # or differently-cased email. Falling back to account_id keeps a
-        # valid student account from seeing an empty lobby.
-        enroll_result = await _atable("students").select(
-            "roll_number", "teacher_id"
-        ).eq("account_id", str(account["id"])).execute()
-        enrollments = enroll_result.data or []
-    if not enrollments:
-        return {"exams": []}
+    try:
+        # Find all enrollment rows matching this email.
+        # The `students` table has: roll_number, teacher_id (no exam_id column
+        # in the legacy schema — each teacher typically has one exam_config).
+        enrollments = []
+        if email:
+            enroll_result = await _atable("students").select(
+                "roll_number", "teacher_id"
+            ).eq("email", email).execute()
+            enrollments = enroll_result.data or []
+        if not enrollments and account.get("id"):
+            # Fallback to account_id linkage for invite-accepted /
+            # teacher-imported rows with blank or differently-cased email.
+            enroll_result = await _atable("students").select(
+                "roll_number", "teacher_id"
+            ).eq("account_id", str(account["id"])).execute()
+            enrollments = enroll_result.data or []
+        if not enrollments:
+            return {"exams": []}
+    except Exception as e:
+        rid = getattr(request.state, "request_id", "") or "-"
+        _auth_log.error("[student/exams] enrollment lookup failed (rid=%s, email=%s): %s",
+                        rid, email or "<none>", e, exc_info=True)
+        raise HTTPException(status_code=500,
+            detail=f"Failed to load enrollments ({type(e).__name__}). request_id: {rid}")
 
     exams = []
     now = datetime.now(timezone.utc)
 
     for enr in enrollments:
+      try:
         teacher_id = enr.get("teacher_id")
         if not teacher_id:
             continue
@@ -1501,6 +1520,15 @@ async def student_exams(request: Request):
             "status": status,
             "submitted_at": session.get("submitted_at") if session else None,
         })
+      except Exception as e:
+        # One bad enrollment row shouldn't blank out the student's
+        # whole lobby. Log it and skip — the rest of the loop still
+        # populates other exams correctly.
+        rid = getattr(request.state, "request_id", "") or "-"
+        _auth_log.warning(
+            "[student/exams] enrichment failed for enrollment (rid=%s, roll=%s, tid=%s): %s",
+            rid, enr.get("roll_number"), enr.get("teacher_id"), e, exc_info=True)
+        continue
 
     return {"exams": exams}
 

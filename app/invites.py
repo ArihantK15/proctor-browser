@@ -88,12 +88,23 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
                 return (False, 0)
         return (True, remaining)
     except Exception as e:
+        # Fall back to the legacy read-then-write path on ANY RPC error,
+        # not just the "function does not exist" case. The previous
+        # narrow check left a silent fail path where any other Postgres
+        # error (permissions, type mismatch, transient connection issue)
+        # caused the route to return a misleading "Daily cap exceeded.
+        # 0 remaining, 1 requested" — the catch-all was returning
+        # (False, 0) while the actual table sat at count=0. User
+        # screenshotted exactly that: cap-status said "0 / 5000 used"
+        # but send said "0 remaining." Always trying the legacy path
+        # means a real cap exhaustion still blocks (legacy reads the
+        # same counter row), but RPC bugs no longer fake the symptom.
         msg = str(e).lower()
         if "claim_invite_cap" in msg or "pgrst202" in msg or "function" in msg:
             _dep_log.warning("[invites] RPC missing, falling back to RACY check-and-bump. Run migrations/phase15_invite_cap_rpc.sql to fix. (%s)", e)
-            return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
-        _dep_log.error("[invites] atomic cap claim failed: %s", e)
-        return (False, 0)
+        else:
+            _dep_log.error("[invites] RPC errored — falling back to legacy path: %s", e)
+        return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
 
 
 async def _claim_and_bump_cap_legacy(teacher_id: str, batch_size: int) -> tuple[bool, int]:

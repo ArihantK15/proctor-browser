@@ -12,7 +12,7 @@ from ..invites import _get_invite_base_url, _new_invite_token, _claim_and_bump_c
 from ..utils import now_ist, fmt_ist
 from ..models import InviteStatus
 from ..limiter import limiter
-from ..jobs import enqueue_job, send_invite_email_job
+from ..jobs import send_invite_email_job
 from ..models import SendInvitesBody, SaveTemplateIn
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ async def send_invites(body: SendInvitesBody, request: Request):
                 .eq("teacher_id", tid).eq("exam_id", body.exam_id).execute()).data
     exam_title = exam_cfg[0].get("exam_title", body.exam_id) if exam_cfg else body.exam_id
 
-    results = {"sent": 0, "failed": 0, "skipped": 0}
+    results = {"sent": 0, "failed": 0, "skipped": 0, "failures": []}
     for rec in body.recipients:
         email = rec.email.strip().lower()
         token = _new_invite_token()
@@ -63,8 +63,8 @@ async def send_invites(body: SendInvitesBody, request: Request):
             "roll_number": rec.roll_number.strip().upper(),
             "exam_id": body.exam_id,
             "token": token,
-            "status": InviteStatus.SENT,
-            "sent_at": now_ist().isoformat(),
+            "status": InviteStatus.QUEUED,
+            "sent_at": None,
             "access_code": None,
             "custom_message": body.custom_message,
         }
@@ -90,8 +90,7 @@ async def send_invites(body: SendInvitesBody, request: Request):
         else:
             await _atable("student_invites").insert(invite_row).execute()
 
-        send_result = enqueue_job(
-            send_invite_email_job,
+        send_result = send_invite_email_job(
             to_email=rec.email,
             to_name=rec.full_name,
             exam_title=exam_title,
@@ -100,16 +99,32 @@ async def send_invites(body: SendInvitesBody, request: Request):
             roll_number=rec.roll_number,
             teacher_name=teacher.get("email"),
         )
-        if send_result is None:
-            results["sent"] += 1
-        elif send_result.get("ok"):
-            (await _atable("student_invites")
-             .update({"provider_msg_id": send_result["provider_msg_id"]})
-             .eq("teacher_id", tid).eq("email", rec.email.strip().lower())
-             .eq("exam_id", body.exam_id).execute())
+        provider_msg_id = (send_result or {}).get("provider_msg_id")
+        if send_result.get("ok") and provider_msg_id and provider_msg_id != "noop":
+            await (_atable("student_invites")
+                   .update({
+                       "status": InviteStatus.SENT,
+                       "sent_at": now_ist().isoformat(),
+                       "provider_msg_id": provider_msg_id,
+                   })
+                   .eq("teacher_id", tid).eq("email", email)
+                   .eq("exam_id", body.exam_id).execute())
             results["sent"] += 1
         else:
+            reason = send_result.get("error") or (
+                "Email provider is not configured for real delivery"
+                if provider_msg_id == "noop"
+                else "Email provider did not accept the invite"
+            )
+            await (_atable("student_invites")
+                   .update({
+                       "status": InviteStatus.FAILED,
+                       "provider_msg_id": provider_msg_id,
+                   })
+                   .eq("teacher_id", tid).eq("email", email)
+                   .eq("exam_id", body.exam_id).execute())
             results["failed"] += 1
+            results["failures"].append({"email": email, "reason": reason})
 
     if body.idempotency_key and tid:
         try:

@@ -235,7 +235,9 @@ class TestSendInvites:
             "full_name": "Alice", "email": "alice@school.edu",
         }])
         patches = _patch(stub)
-        with patches[0] as mock_table, patches[1]:
+        with patches[0] as mock_table, patches[1], \
+             patch("app.routers.admin_invites.send_invite_email_job",
+                   return_value={"ok": True, "provider_msg_id": "msg-alice-1", "error": None}):
             mock_table.side_effect = stub
             r = client.post("/api/v1/admin/invites/send",
                 headers=admin_headers,
@@ -254,7 +256,7 @@ class TestSendInvites:
         assert len(stub.invites) == 1
         inv = stub.invites[0]
         assert inv["status"] == "sent"
-        assert inv["provider_msg_id"], "noop backend should stamp an id"
+        assert inv["provider_msg_id"] == "msg-alice-1"
         assert inv["custom_message"] == "Good luck!"
         assert inv["email"] == "alice@school.edu"
 
@@ -263,7 +265,9 @@ class TestSendInvites:
         the row count stays at 1 and the token rotates."""
         stub = _InviteStub()
         patches = _patch(stub)
-        with patches[0] as mock_table, patches[1]:
+        with patches[0] as mock_table, patches[1], \
+             patch("app.routers.admin_invites.send_invite_email_job",
+                   return_value={"ok": True, "provider_msg_id": "msg-bob-1", "error": None}):
             mock_table.side_effect = stub
             r1 = client.post("/api/v1/admin/invites/send", headers=admin_headers,
                 json={"recipients": [{"email": "bob@x.com", "full_name": "Bob",
@@ -278,6 +282,23 @@ class TestSendInvites:
         assert stub.invites[0]["token"] != first_token, (
             "resend must rotate the token so old links stop working"
         )
+
+    def test_noop_provider_is_not_reported_as_sent(self, client, admin_headers):
+        stub = _InviteStub()
+        patches = _patch(stub)
+        with patches[0] as mock_table, patches[1], \
+             patch("app.routers.admin_invites.send_invite_email_job",
+                   return_value={"ok": True, "provider_msg_id": "noop", "error": None}):
+            mock_table.side_effect = stub
+            r = client.post("/api/v1/admin/invites/send", headers=admin_headers,
+                json={"recipients": [{"email": "noop@x.com", "full_name": "Noop",
+                      "roll_number": "NOOP1"}], "exam_id": "exam-1"})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["sent"] == 0
+        assert d["failed"] == 1
+        assert d["failures"][0]["email"] == "noop@x.com"
+        assert stub.invites[0]["status"] == "failed"
 
     def test_daily_cap_rejects_oversized_batch(self, client, admin_headers, monkeypatch):
         # invites._claim_and_bump_cap short-circuits to (allow, full)

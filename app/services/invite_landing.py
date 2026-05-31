@@ -41,50 +41,16 @@ font-weight:800;display:flex;align-items:center;justify-content:center;font-size
 .notice .d{color:#fde68a;font-size:13px;line-height:1.55}
 footer{text-align:center;color:#64748b;font-size:12px;margin-top:20px}"""
 
-_INVITE_JS = """\
-(function(){
-  var ua = (navigator.userAgent || '').toLowerCase();
-  var btn = document.getElementById('primary-dl');
-  if(!btn) return;
-  if(ua.indexOf('mac') !== -1){
-    btn.href = '/download/mac';
-    btn.textContent = 'Download for macOS';
-  } else if(ua.indexOf('win') !== -1){
-    btn.href = '/download/win';
-    btn.textContent = 'Download for Windows';
-  } else {
-    btn.textContent = 'Download installer';
-  }
-})();
-function copyVal(btn){
-  var v = btn.getAttribute('data-val');
-  if(!v) return;
-  navigator.clipboard.writeText(v).then(function(){
-    var orig = btn.textContent;
-    btn.textContent = 'Copied!';
-    btn.classList.add('ok');
-    setTimeout(function(){ btn.textContent = orig; btn.classList.remove('ok'); }, 1500);
-  });
-}
-function openInApp(e){
-  var btn = document.getElementById('open-in-app');
-  var token = btn ? btn.getAttribute('data-token') : '';
-  if(!token) return;
-  var launched = false;
-  function markLaunched(){ launched = true; }
-  window.addEventListener('blur', markLaunched, {once:true});
-  document.addEventListener('visibilitychange', function h(){
-    if(document.hidden) markLaunched();
-  }, {once:true});
-  var url = 'procta://invite/' + encodeURIComponent(token);
-  try {
-    var f = document.createElement('iframe');
-    f.style.display = 'none';
-    f.src = url;
-    document.body.appendChild(f);
-    setTimeout(function(){ try { f.remove(); } catch(_){} }, 2000);
-  } catch(_) {}
-}"""
+# The page used to embed an inline <script> here with all three of
+# OS detect, copyVal, and openInApp. That broke silently on the
+# /invite/<token> route because the response carries CSP
+#   script-src 'self' https://challenges.cloudflare.com ...
+# (no 'unsafe-inline'), so the browser refused to execute the inline
+# block and the "Download (detecting OS…)" button never resolved to
+# its platform-specific URL. The same script now lives at
+# /static/invite-landing.js — same-origin path, CSP-allowed —
+# and is referenced from the template body via a <script src="…">
+# tag. The _INVITE_JS variable is gone; nothing else references it.
 
 
 def _render_invite_error(msg: str) -> str:
@@ -212,5 +178,5 @@ def _render_invite_landing(*, token, full_name, exam_title, roll_number, access_
     AI-proctored exams for Indian institutions
   </footer>
 </div>
-<script>{_INVITE_JS}</script>
+<script src="/static/invite-landing.js" defer></script>
 </body></html>"""

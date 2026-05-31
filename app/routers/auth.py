@@ -671,7 +671,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         if not body.email_otp_code:
             code = await otp_issue("teacher", str(teacher["id"]), "2fa_login")
             try:
-                send_2fa_otp_email(email, teacher.get("full_name", ""), code)
+                send_2fa_otp_email(email, teacher.get("full_name", ""), code, purpose="login")
             except Exception as e:
                 # Sending failed — surface a clean error so the user doesn't
                 # sit forever waiting for an email that never comes.
@@ -873,10 +873,10 @@ _INVITE_PAGE = """\
   label{ display:block; font-size:13px; font-weight:600; color:#334155; margin-bottom:4px; }
   input{ width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px;
          font-size:15px; outline:none; transition:border-color .15s; }
-  input:focus{ border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,.15); }
-  button{ width:100%; padding:12px; background:#3b82f6; color:#fff; border:none;
+  input:focus{ border-color:#5b8af0; box-shadow:0 0 0 3px rgba(91,138,240,.15); }
+  button{ width:100%; padding:12px; background:#5b8af0; color:#fff; border:none;
           border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; }
-  button:hover{ background:#2563eb; }
+  button:hover{ background:#4a78dc; }
   .error{ background:#fef2f2; color:#991b1b; padding:12px; border-radius:8px;
           font-size:13px; margin-bottom:16px; display:none; }
   .org-badge{ background:#f1f5f9; border-radius:8px; padding:12px; margin-bottom:24px;
@@ -899,7 +899,7 @@ _INVITE_PAGE = """\
     <button type="submit">Accept &amp; Join</button>
   </form>
   <p style="margin-top:16px;font-size:12px;color:#94a3b8;text-align:center;">
-    Already have an account? <a href="https://app.procta.net/dashboard" style="color:#3b82f6;">Go to dashboard</a>
+    Already have an account? <a href="https://app.procta.net/dashboard" style="color:#5b8af0;">Go to dashboard</a>
   </p>
 </div>
 <script>
@@ -2254,7 +2254,7 @@ async def _track_a_issue_signup_otp(account: dict, email: str | None = None) -> 
     if not account_id or not to_email:
         return
     code = await email_otp.issue("student", account_id, "signup_verify")
-    send_2fa_otp_email(to_email, account.get("full_name") or "", code)
+    send_2fa_otp_email(to_email, account.get("full_name") or "", code, purpose="signup")
 
 
 @router.post("/api/v1/student/auth/verify-signup-otp")
@@ -2410,7 +2410,7 @@ async def student_account_delete_request(request: Request):
     account_id = str(account["id"])
     email = (account.get("email") or "").strip().lower()
     code = await email_otp.issue("student", account_id, "account_delete")
-    send_2fa_otp_email(email, account.get("full_name") or "", code)
+    send_2fa_otp_email(email, account.get("full_name") or "", code, purpose="delete")
     return {"sent": True, "expires_in": 600}
 
 
@@ -2485,7 +2485,7 @@ async def _track_b_send_password_reset_otp(kind: str, email: str) -> None:
         return
     purpose = "teacher_password_reset" if kind == "teacher" else "password_reset"
     code = await email_otp.issue(kind, str(user["id"]), purpose)
-    send_2fa_otp_email(email, user.get("full_name") or "", code)
+    send_2fa_otp_email(email, user.get("full_name") or "", code, purpose="password_reset")
 
 
 @router.post("/api/v1/student/auth/reset-request")

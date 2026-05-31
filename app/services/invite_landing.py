@@ -5,7 +5,7 @@ _INVITE_CSS = """\
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:#0f172a;color:#e2e8f0;min-height:100vh;padding:24px}
 .wrap{max-width:640px;margin:0 auto}
-.hero{background:linear-gradient(135deg,#10b981,#3b82f6);border-radius:20px;padding:36px;margin-bottom:16px}
+.hero{background:linear-gradient(135deg,#5b8af0,#4a78dc);border-radius:20px;padding:36px;margin-bottom:16px}
 .brand{color:#fff;font-size:12px;letter-spacing:2px;font-weight:700;opacity:.9}
 .title{color:#fff;font-size:28px;font-weight:700;margin-top:8px;line-height:1.2}
 .subtitle{color:#e0f2fe;font-size:15px;margin-top:8px}
@@ -15,20 +15,20 @@ h2{margin:0 0 16px 0;font-size:16px;color:#e2e8f0;font-weight:600}
 .lbl{font-size:12px;color:#94a3b8;margin-bottom:4px}
 .val{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 code{background:#0f172a;padding:6px 12px;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-font-size:15px;color:#10b981;font-weight:600;border:1px solid #334155}
+font-size:15px;color:#5b8af0;font-weight:600;border:1px solid #334155}
 .copy{background:#334155;color:#e2e8f0;border:none;padding:6px 10px;border-radius:6px;
 cursor:pointer;font-size:12px;font-weight:600}
 .copy:hover{background:#475569}
-.copy.ok{background:#10b981}
+.copy.ok{background:#5b8af0}
 .launch-msg{color:#94a3b8;font-size:12px;margin:10px 0 0 0;line-height:1.5}
 .launch-msg.err{color:#fca5a5}
 .meta{font-size:13px;color:#94a3b8;margin:6px 0}
-.dlbtn{display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:14px 28px;
+.dlbtn{display:inline-block;background:#5b8af0;color:#fff;text-decoration:none;padding:14px 28px;
 border-radius:10px;font-weight:600;margin:8px 4px 8px 0;transition:transform .1s}
 .dlbtn:hover{transform:translateY(-1px)}
 .dlbtn.alt{background:#475569}
 .step{counter-increment:step;display:flex;gap:12px;align-items:flex-start;margin:14px 0}
-.step::before{content:counter(step);flex:0 0 28px;height:28px;border-radius:50%;background:#10b981;
+.step::before{content:counter(step);flex:0 0 28px;height:28px;border-radius:50%;background:#5b8af0;
 color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
 .steps{counter-reset:step;padding:0}
 .step-body{flex:1}

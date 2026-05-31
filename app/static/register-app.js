@@ -12,7 +12,7 @@ let _turnstileWidgetId = null;
 
 async function _loadPublicConfig() {
   try {
-    const r = await fetch('/api/v1/public-config');
+    const r = await fetchWithTimeout('/api/v1/public-config');
     if (r.ok) {
       const cfg = await r.json();
       _turnstileSiteKey = cfg.turnstile_site_key || '';
@@ -21,17 +21,28 @@ async function _loadPublicConfig() {
 }
 
 function _initTurnstile() {
-  if (!_turnstileSiteKey || !window.turnstile) return;
+  if (!_turnstileSiteKey) return;
   const el = document.getElementById('cf-turnstile-register');
   if (!el || el.dataset.rendered) return;
-  el.dataset.rendered = '1';
-  _turnstileWidgetId = window.turnstile.render(el, {
-    sitekey: _turnstileSiteKey,
-    theme: 'dark',
-    callback: (token) => { _turnstileToken = token; },
-    'expired-callback': () => { _turnstileToken = null; },
-    'error-callback': () => { _turnstileToken = null; },
-  });
+  // Don't render in a hidden container — wait until showRegistrationForm
+  const form = document.getElementById('reg-form');
+  if (form && (form.style.display === 'none' || getComputedStyle(form).display === 'none')) return;
+  const doRender = () => {
+    if (!window.turnstile || el.dataset.rendered) return;
+    el.dataset.rendered = '1';
+    _turnstileWidgetId = window.turnstile.render(el, {
+      sitekey: _turnstileSiteKey,
+      theme: 'dark',
+      callback: (token) => { _turnstileToken = token; },
+      'expired-callback': () => { _turnstileToken = null; },
+      'error-callback': () => { _turnstileToken = null; },
+    });
+  };
+  if (window.turnstile) { doRender(); return; }
+  const check = setInterval(() => {
+    if (window.turnstile) { clearInterval(check); doRender(); }
+  }, 100);
+  setTimeout(() => clearInterval(check), 10000);
 }
 
 function _resetTurnstile() {
@@ -110,6 +121,7 @@ async function lookupByCode(){
 function showRegistrationForm(){
   document.getElementById('teacher-lookup').style.display = 'none';
   document.getElementById('reg-form').style.display = '';
+  _initTurnstile();  // render captcha now that the form is visible
   if(_teacherName){
     document.querySelector('.subtitle').textContent = 'Registering with ' + _teacherName;
   }
@@ -292,7 +304,7 @@ function isStrongPassword(password) {
 }
 
 // Load exam schedule banner
-(function(){
+function loadSchedule(){
   fetchWithTimeout('/api/v1/exam-schedule' + (_teacherId ? '?t=' + encodeURIComponent(_teacherId) : '')).then(r=>r.json()).then(d=>{
     if(!d.starts_at && !d.ends_at) return;
     const banner = document.getElementById('schedule-banner');
@@ -311,7 +323,8 @@ function isStrongPassword(password) {
       document.getElementById('sched-times').textContent += '  |  Duration: ' + d.duration_minutes + ' min';
     }
   }).catch(()=>{});
-})();
+}
+loadSchedule();
 
 function _parseDataArgs(raw) {
   try { return JSON.parse(raw || '[]'); } catch (err) { console.warn('[delegated] invalid data-args', err); return []; }

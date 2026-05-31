@@ -75,6 +75,7 @@ export default function HistoryPanel({ currentExamId }) {
               <input className="search-input" placeholder="Search students…" value={search} onChange={(e) => setSearch(e.target.value.toLowerCase())} />
             </div>
           </div>
+          <div className="table-wrap react-table-wrap history-table-wrap">
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -106,6 +107,7 @@ export default function HistoryPanel({ currentExamId }) {
               )}
             </tbody>
           </table>
+          </div>
           {hasMore && (
             <div style={{ textAlign: 'center', padding: 12 }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => p + 1)}>
@@ -139,6 +141,7 @@ export default function HistoryPanel({ currentExamId }) {
                   </div>
                 ))}
               </div>
+              <div className="table-wrap react-table-wrap history-detail-table-wrap">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 16 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -161,6 +164,7 @@ export default function HistoryPanel({ currentExamId }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </>
           )}
         </div>

@@ -473,6 +473,22 @@ tr:hover td{background:rgba(61,217,168,.04)}
   .panel-lede{font-size:12px}
 }
 
+/* Phone demo hardening for the legacy /dashboard route. Keep the
+   primary controls reachable while the teacher scrolls long tables. */
+@media(max-width:768px){
+  .topbar{position:sticky;top:0;z-index:50}
+  .tabs{position:sticky;top:calc(60px + env(safe-area-inset-top));z-index:45;background:var(--bg)}
+  .exam-bar{position:sticky;top:calc(104px + env(safe-area-inset-top));z-index:40;background:var(--card)}
+  .table-wrap table{min-width:720px}
+  .exam-bar .btn{min-height:42px}
+  .toolbar-right .btn,.table-toolbar .btn{min-height:40px}
+}
+@media(max-width:480px){
+  .tabs{top:calc(92px + env(safe-area-inset-top))}
+  .exam-bar{top:calc(136px + env(safe-area-inset-top))}
+  .table-wrap table{min-width:660px}
+}
+
 html,body{overflow-x:hidden;max-width:100vw}
 
 /* ── Mobile touch targets ──────────────────────────────────────────── */

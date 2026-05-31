@@ -86,22 +86,23 @@ export default function MembersPanel() {
 
       <div className="table-toolbar">
         <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>Team</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="members-invite-row" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
             type="email" placeholder="Email" value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
-            className="input" style={{ width: 200, padding: '6px 10px', fontSize: 12 }}
+            className="input members-invite-input" style={{ width: 200, padding: '6px 10px', fontSize: 12 }}
           />
           <input
             type="text" placeholder="Name (optional)" value={inviteName}
             onChange={(e) => setInviteName(e.target.value)}
-            className="input" style={{ width: 180, padding: '6px 10px', fontSize: 12 }}
+            className="input members-invite-input" style={{ width: 180, padding: '6px 10px', fontSize: 12 }}
           />
           <button className="btn btn-primary btn-sm" onClick={inviteTeacher}>Invite</button>
         </div>
       </div>
       {status && <div style={{ fontSize: 12, color: status.includes('✅') ? 'var(--emerald)' : 'var(--red)', marginBottom: 8 }}>{status}</div>}
 
+      <div className="table-wrap react-table-wrap members-table-wrap">
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -143,6 +144,7 @@ export default function MembersPanel() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

@@ -125,7 +125,7 @@ export default function QuestionsPanel({ currentExamId }) {
   )
 
   return (
-    <div className="qx-shell" style={{ display: 'flex', gap: 16, height: 'calc(100vh - 200px)' }}>
+    <div className="qx-shell question-panel-layout" style={{ display: 'flex', gap: 16, height: 'calc(100vh - 200px)' }}>
       {mutationError && (
         <div className={mutationError === 'Saved.' ? 'auth-ok' : 'auth-err'} style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 50, maxWidth: 360 }}>
           {mutationError}

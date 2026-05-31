@@ -341,7 +341,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
   if (loading) return <div className="loading" style={{ textAlign: 'center', padding: 40 }}>Loading sessions...</div>
 
   return (
-    <div className="live-layout" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 200px)' }}>
+    <div className="live-layout live-panel" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 200px)' }}>
       {error && <div className="auth-err" style={{ marginBottom: 12 }}>{error} <button className="btn-link" onClick={loadSessions} style={{ marginLeft: 8 }}>Retry</button></div>}
       {streamStatus && <div className="auth-err" style={{ marginBottom: 12 }}>{streamStatus}</div>}
       {/* Stats bar */}
@@ -380,7 +380,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
 
       {/* Sessions table */}
       {!loading && (
-        <div className="table-wrap" style={{ flex: 1, overflow: 'auto' }}>
+        <div className="table-wrap react-table-wrap live-table-wrap" style={{ flex: 1, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -400,7 +400,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
                                s.live_state === 'live' && s.last_severity === 'high' ? 'inset 3px 0 0 var(--sev-error-fg)' :
                                s.live_state === 'live' && s.last_severity === 'medium' ? 'inset 3px 0 0 var(--sev-warn-fg)' : undefined,
                   }}>
-                    <td style={{ padding: '10px 12px' }}>
+                    <td className="live-session-cell" style={{ padding: '10px 12px' }}>
                       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                         {/* Pre-warmed thumbnail (audit #9). When a violation
                             fires, we pre-fetch the cached frame and render
@@ -440,7 +440,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
                         {s.live_state === 'live' ? 'Live' : s.live_state === 'stale' ? 'Stale' : s.live_state === 'submitted' ? 'Submitted' : s.live_state === 'force_submitted' ? 'Force Submitted' : '—'}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px' }}>
+                    <td className="row-actions-cell" style={{ padding: '10px 12px' }}>
                       {s.live_state === 'live' && (
                         <button className="btn btn-secondary btn-sm" style={{ padding: '4px 8px', fontSize: 10 }} onClick={() => openLiveView(sid)}>Camera</button>
                       )}

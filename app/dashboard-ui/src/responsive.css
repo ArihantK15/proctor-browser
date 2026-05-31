@@ -1,0 +1,314 @@
+/* React dashboard phone refinements.
+   The shared legacy dashboard.css provides the design system; this file
+   tightens the Vite dashboard panels that rely on inline layouts. */
+
+.dashboard-react-container,
+.app-shell,
+.live-panel,
+.question-panel-layout,
+.security-grid,
+.issues-grid {
+  min-width: 0;
+}
+
+.table-wrap.react-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-wrap.react-table-wrap table {
+  min-width: 720px;
+}
+
+.row-actions-cell {
+  white-space: nowrap;
+}
+
+.row-actions-cell .btn {
+  margin-bottom: 4px;
+}
+
+.members-invite-row {
+  min-width: 0;
+}
+
+.question-panel-layout .q-content,
+.question-panel-layout .q-sidebar,
+.question-panel-layout .q-aipanel {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .question-panel-layout {
+    display: grid !important;
+    grid-template-columns: 1fr;
+    height: auto !important;
+    gap: 12px !important;
+  }
+
+  .question-panel-layout .q-sidebar,
+  .question-panel-layout .q-aipanel,
+  .question-panel-layout .q-content {
+    width: 100% !important;
+  }
+
+  .question-panel-layout .q-list {
+    max-height: 34dvh;
+  }
+
+  .security-grid,
+  .issues-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 768px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding: max(10px, env(safe-area-inset-top)) 12px 10px;
+    gap: 8px;
+  }
+
+  .topbar-brand {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .topbar-actions {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .topbar-teacher {
+    max-width: calc(100vw - 128px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .topbar .btn {
+    min-height: 40px;
+  }
+
+  .tabs {
+    position: sticky;
+    top: 88px;
+    z-index: 25;
+    padding: 0 8px;
+    scroll-snap-type: x proximity;
+    background: var(--bg);
+  }
+
+  .tab {
+    min-height: 44px;
+    padding: 11px 14px;
+    scroll-snap-align: start;
+  }
+
+  .dashboard-react-container {
+    padding: 12px;
+  }
+
+  .auth-card.dashboard-login-card {
+    width: min(100% - 24px, 420px);
+    padding: 24px;
+    margin: 24px auto;
+  }
+
+  .card.activation-banner {
+    padding: 14px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .activation-banner-actions {
+    width: 100%;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px !important;
+  }
+
+  .activation-banner-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 42px;
+  }
+
+  .stats-bar {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .stat-tile {
+    min-width: 108px;
+  }
+
+  .table-toolbar {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+
+  .table-toolbar > * {
+    margin-left: 0 !important;
+  }
+
+  .search-wrap,
+  .filter-select,
+  .search-input,
+  .table-toolbar .input,
+  .table-toolbar input,
+  .table-toolbar select {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .search-input,
+  .filter-select,
+  .input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  .live-panel {
+    height: auto !important;
+    min-height: 0;
+  }
+
+  .live-table-wrap,
+  .results-table-wrap {
+    max-height: none !important;
+  }
+
+  .row-actions-cell {
+    white-space: normal;
+    min-width: 160px;
+  }
+
+  .row-actions-cell .btn {
+    min-height: 36px;
+    margin: 0 4px 6px 0 !important;
+  }
+
+  .live-session-cell > div {
+    align-items: flex-start !important;
+  }
+
+  .members-invite-row {
+    width: 100%;
+    margin-left: 0 !important;
+    display: grid !important;
+    grid-template-columns: 1fr;
+    gap: 8px !important;
+  }
+
+  .members-invite-input {
+    width: 100% !important;
+    font-size: 14px !important;
+  }
+
+  .tools-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .tool-card-actions {
+    align-items: stretch;
+  }
+
+  .tool-card-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .modal-bg,
+  .modal-overlay {
+    align-items: flex-end !important;
+    padding: 8px !important;
+  }
+
+  .modal-bg .modal,
+  .modal-overlay .card,
+  .modal-overlay .modal-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92dvh !important;
+    border-radius: 16px 16px 8px 8px !important;
+    overflow: auto !important;
+  }
+
+  .modal-overlay .card > div:first-child {
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+
+  .modal-overlay .card > div:first-child > div:last-child {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+
+  .tabs {
+    top: 90px;
+  }
+
+  .dashboard-react-container {
+    padding: 10px;
+  }
+
+  .activation-banner-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-title {
+    font-size: 22px;
+  }
+
+  .panel-lede {
+    font-size: 13px;
+  }
+
+  .table-wrap.react-table-wrap table {
+    min-width: 660px;
+  }
+
+  .members-table-wrap table {
+    min-width: 620px;
+  }
+
+  .history-table-wrap table,
+  .history-detail-table-wrap table {
+    min-width: 640px;
+  }
+
+  .question-panel-layout .q-card {
+    padding: 14px !important;
+  }
+
+  .question-panel-layout .q-card div[style*="display: flex"] {
+    flex-wrap: wrap;
+  }
+
+  .question-panel-layout .q-card .btn {
+    min-height: 40px;
+  }
+}

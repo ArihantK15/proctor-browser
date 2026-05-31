@@ -355,7 +355,7 @@ function ActivationBanner({ onDismiss, onQuestions }) {
   }
 
   return (
-    <div className="card" style={{ padding: 18, marginBottom: 18, borderColor: 'rgba(217,119,6,.45)', background: 'linear-gradient(180deg, rgba(217,119,6,.08), rgba(15,23,42,.02))' }}>
+    <div className="card activation-banner" style={{ padding: 18, marginBottom: 18, borderColor: 'rgba(217,119,6,.45)', background: 'linear-gradient(180deg, rgba(217,119,6,.08), rgba(15,23,42,.02))' }}>
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
           <div style={{ fontSize: 11, color: 'var(--amber)', textTransform: 'uppercase', fontWeight: 800, marginBottom: 4 }}>Practice Exam</div>
@@ -364,7 +364,7 @@ function ActivationBanner({ onDismiss, onQuestions }) {
             Validate the student app, camera checks, lockdown flow, and submit path with the practice sandbox.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="activation-banner-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <a className="btn btn-secondary btn-sm" href="/download" target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>Download App</a>
           <button className="btn btn-primary btn-sm" onClick={openPractice}>Run Practice</button>
           <button className="btn btn-secondary btn-sm" onClick={onQuestions}>Add Questions</button>

@@ -140,7 +140,7 @@ export default function ResultsPanel({ currentExamId }) {
               <option value="low">Low (≤15)</option>
             </select>
           </div>
-          <div className="table-wrap" style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 280px)' }}>
+          <div className="table-wrap react-table-wrap results-table-wrap" style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 280px)' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -185,7 +185,7 @@ export default function ResultsPanel({ currentExamId }) {
                       <td style={{ padding: '10px 12px', color: riskColor, fontWeight: 600 }}>{r.risk_score != null ? `${r.risk_score}/100` : 'N/A'}</td>
                       <td style={{ padding: '10px 12px' }}>{mins}m {secs}s</td>
                       <td style={{ padding: '10px 12px', fontSize: 11, color: 'var(--muted)' }}>{r.submitted_at || '—'}</td>
-                      <td style={{ padding: '10px 12px' }}>
+                      <td className="row-actions-cell" style={{ padding: '10px 12px' }}>
                         <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => setTimelineSession(r.session_id)}>Timeline</button>
                         <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11, marginLeft: 4 }} onClick={() => window.open(`/dashboard-react?session=${r.session_id}`, '_blank')}>Detail</button>
                         <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 11, marginLeft: 4 }} onClick={() => downloadPdf(r.session_id)}>PDF</button>

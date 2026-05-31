@@ -128,8 +128,8 @@ export default function IssuesPanel() {
 
       {loadError && <div style={{ color: 'var(--sev-error-fg)', padding: '12px 0', fontSize: 13 }}>{loadError}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 360px' : '1fr', gap: 16, marginTop: 12 }}>
-        <div className="table-wrap">
+      <div className="issues-grid" style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 360px' : '1fr', gap: 16, marginTop: 12 }}>
+        <div className="table-wrap react-table-wrap issues-table-wrap">
           <table>
             <thead>
               <tr>

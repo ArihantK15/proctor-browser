@@ -576,21 +576,14 @@
     </div>
   </div>
 
-  <h2 class="section-title">Practice run</h2>
-  <p class="section-subtitle">Test your camera, fullscreen lockdown, and submit flow before the real exam. No login required, no answers saved.</p>
+  <!-- Practice run section removed from the lobby on 2026-05-31. The
+       feature was launchExam(PRACTICE_*) → mock-server path; user
+       reported the UI as broken / nothing-shown during demo prep and
+       the call is to surface it as "absent" rather than "absent + a
+       broken-looking card on the lobby." JS handler startPracticeExam
+       in student-app.js is left in place so we can re-enable the
+       section once we've root-caused the empty render. -->
 
-   <div class="exam-card" style="border:1px dashed rgba(217,119,6,.4);background:linear-gradient(180deg,rgba(217,119,6,.04),transparent)">
-     <div class="exam-card-header">
-       <h3 class="exam-title" style="color:#fbbf24">Setup test</h3>
-       <span class="badge badge-muted" style="background:rgba(217,119,6,.2);color:#fbbf24;border:1px solid rgba(217,119,6,.4)">2 min</span>
-     </div>
-     <p class="exam-meta" style="color:var(--muted)">
-       Three throwaway questions. Same lockdown stack as a real exam, so if your camera or browser misbehaves you find out now — not 5 minutes into a high-stakes test.
-     </p>
-     <div class="exam-card-actions">
-       <button class="btn btn-primary btn-sm" data-action="startPracticeExam">Start practice exam</button>
-     </div>
-   </div>
 
    <h2 class="section-title">Exam history</h2>
    <p class="section-subtitle">Your completed exams and their results.</p>

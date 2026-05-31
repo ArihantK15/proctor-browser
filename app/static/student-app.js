@@ -367,9 +367,15 @@ async function tryRefresh() {
   return refreshInFlight;
 }
 
+// Captures the currently-logged-in account so other render paths
+// (notably the empty-state exam list) can surface "logged in as
+// <email>" for self-diagnosis when a teacher's roster lookup misses.
+let _currentAccount = null;
+
 // ─── dashboard ────────────────────────────────────────────────
 async function showDashboard(account) {
   studentAuthed = true;
+  _currentAccount = account || null;
   document.getElementById('auth-view').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('me-name').textContent = account.full_name || account.email;
@@ -450,16 +456,22 @@ function renderExams(exams) {
   _examsCache = exams;
   const container = document.getElementById('exams-container');
   if (!exams.length) {
-    // No exams: the wait-for-teacher message is the whole story. The
-    // old "Register for an exam" button pointed at the web /register
-    // page, which makes no sense inside Electron — exam registration
-    // happens automatically when the teacher's roster includes the
-    // student's email, or when the student enters an access code on
-    // an exam they've been added to.
+    // No exams: surface the actual cause + remediation. The previous
+    // "wait for your teacher" framing was correct but left the user
+    // unsure what their teacher needed to do. Now we name the
+    // mechanism: the teacher's roster must contain THIS exact email.
+    const loggedInEmail = (_currentAccount && _currentAccount.email) || '';
+    const emailHint = loggedInEmail
+      ? `<div style="margin-top:10px;font-size:11px;color:var(--muted);font-family:var(--font-mono,monospace);word-break:break-all">Logged in as: <strong style="color:var(--text)">${_escHtml(loggedInEmail)}</strong></div>`
+      : '';
     container.innerHTML = `
       <div class="exams-empty">
         <strong>No exams yet</strong>
-        Once your teacher registers you for an exam with this email, it'll show up here.
+        Your teacher needs to add your email to an exam roster (from
+        their dashboard → Roster → Add Student). Once they do, the
+        exam will appear here the next time you open the app — or
+        immediately if it's already open.
+        ${emailHint}
       </div>`;
     return;
   }

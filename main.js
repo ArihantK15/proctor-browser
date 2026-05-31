@@ -210,13 +210,47 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
 
 // ── APP START ─────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  createLobbyWindow();
-
   // Cold-start protocol activation: Windows launches us with the
   // procta:// URL as process.argv; macOS uses open-url instead.
+  // Captured before we open any window so deeplink-invite tokens
+  // survive the wait for setup.
   extractAndReceive(process.argv, 'argv');
 
-  // Defer auto-updater to avoid blocking startup on slow networks
+  // ── Setup gate ──────────────────────────────────────────────────
+  // Until setup is complete, we DO NOT open the lobby. The user
+  // shouldn't be able to click around (try to sign in, start an
+  // exam, etc.) while pip is still installing torch in the
+  // background. On a fresh install: setup window first → lobby
+  // when done. On a re-launch with packages already there: very
+  // brief "Checking…" splash → lobby. Either way one window at a
+  // time, and the lobby never opens before setup is settled.
+  let needSetup = false;
+  if (process.platform === 'win32') {
+    try {
+      const python = await findPython();
+      needSetup = !(python && await checkPackagesReady(python));
+    } catch(e) { console.error('[Setup] readiness check threw:', e.message); }
+  }
+
+  if (process.platform === 'win32') {
+    createSetupWindow();
+    try {
+      // 10-min ceiling on the whole setup flow. On an already-set-up
+      // install runWindowsSetup short-circuits in ~1s; on a fresh
+      // install it does the bundled pip + audio model download.
+      await Promise.race([
+        runWindowsSetup(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Setup timed out')), 600_000)),
+      ]);
+      await new Promise(r => setTimeout(r, needSetup ? 1500 : 400));
+    } catch(e) { console.error('[Setup] Failed:', e); }
+    if (getSetupWindow() && !getSetupWindow().isDestroyed()) closeSetupWindow();
+  }
+
+  // Setup done (or skipped on non-Windows). Open the lobby now.
+  createLobbyWindow();
+
+  // Defer auto-updater to avoid blocking startup on slow networks.
   setTimeout(() => initAutoUpdater(getLobbyWindow(), getMainWindow), 3000);
 
   setIntegrityReady(runIntegrityChecks().then(flags => {
@@ -225,29 +259,6 @@ app.whenReady().then(async () => {
   }).catch(e => {
     console.error('[Integrity] check failed:', e.message);
   }));
-
-  if (process.platform === 'win32') {
-    setTimeout(async () => {
-      try {
-        const python = await findPython();
-        const packagesOk = python && await checkPackagesReady(python);
-        if (!packagesOk) {
-          createSetupWindow();
-          try {
-            // Timeout the entire setup flow at 10 minutes
-            await Promise.race([
-              runWindowsSetup(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Setup timed out')), 600_000)),
-            ]);
-            await new Promise(r => setTimeout(r, 2000));
-          } catch(e) { console.error('[Setup] Failed:', e); }
-          if (getSetupWindow() && !getSetupWindow().isDestroyed()) closeSetupWindow();
-        } else {
-          console.log('[Setup] Python ready, skipping setup');
-        }
-      } catch(e) { console.error('[Setup] Error:', e); }
-    }, 500);
-  }
 });
 
 app.on('before-quit', () => {

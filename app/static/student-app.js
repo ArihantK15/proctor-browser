@@ -408,13 +408,16 @@ function renderExams(exams) {
   _examsCache = exams;
   const container = document.getElementById('exams-container');
   if (!exams.length) {
+    // No exams: the wait-for-teacher message is the whole story. The
+    // old "Register for an exam" button pointed at the web /register
+    // page, which makes no sense inside Electron — exam registration
+    // happens automatically when the teacher's roster includes the
+    // student's email, or when the student enters an access code on
+    // an exam they've been added to.
     container.innerHTML = `
       <div class="exams-empty">
         <strong>No exams yet</strong>
         Once your teacher registers you for an exam with this email, it'll show up here.
-        <div style="margin-top:14px">
-          <a class="btn btn-secondary btn-sm" href="/register">Register for an exam</a>
-        </div>
       </div>`;
     return;
   }

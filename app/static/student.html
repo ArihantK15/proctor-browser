@@ -446,10 +446,13 @@
       <a href="#" data-action="showReset" style="color:var(--muted,#8b949e);font-size:12px;text-decoration:none">Forgot password?</a>
     </p>
 
-    <div class="footer-links">
-      <a href="/register">Register for an exam</a> &bull;
-      <a href="/download">Download app</a>
-    </div>
+    <!-- Footer links removed for the Electron auth view. "Download app"
+         makes no sense — the user is already in the app. "Register for
+         an exam" was confusing here too: exam-registration is a
+         post-login action and happens automatically when the teacher's
+         roster includes the student or when they enter an access code.
+         Sign-up for a new student account is via the "Sign up" toggle
+         on the form itself. -->
   </div>
 </div>
 
@@ -580,7 +583,6 @@
    <div id="appeals-container" class="exam-list"></div>
 
    <div class="footer-links">
-    <a href="/download">Download app</a> &bull;
     <a href="https://procta.net">procta.net</a>
   </div>
 </div>

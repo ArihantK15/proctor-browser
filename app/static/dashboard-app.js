@@ -6103,6 +6103,52 @@ async function refreshInviteCapStatus(){
   } catch(_) {}
 }
 
+// Removes a single student's roster row (NOT their login account)
+// under the calling teacher. Backed by DELETE /api/v1/admin/students/roster.
+// Confirmation modal first because a typo'd email/roll could remove
+// the wrong student.
+async function removeStudentFromRoster(){
+  const status = document.getElementById('roster-remove-status');
+  const emailEl = document.getElementById('roster-remove-email');
+  const rollEl = document.getElementById('roster-remove-roll');
+  const scopeEl = document.getElementById('roster-remove-scope-exam');
+  const email = (emailEl?.value || '').trim().toLowerCase();
+  const roll = (rollEl?.value || '').trim().toUpperCase();
+  if (!email && !roll) {
+    if (status) { status.style.color='var(--red)'; status.textContent = 'Enter an email or roll number'; }
+    return;
+  }
+  const scopeToExam = !!(scopeEl && scopeEl.checked);
+  const examPart = scopeToExam && currentExamId ? `from THIS exam only` : `from ALL your exams`;
+  const ident = email ? `email "${email}"` : `roll "${roll}"`;
+  if (!await appConfirm(`Remove the student matching ${ident} ${examPart}? Their LOGIN account is preserved; only the roster row is deleted.`, 'Remove from roster', {okText:'Remove'})) return;
+  try {
+    const params = new URLSearchParams();
+    if (email) params.set('email', email);
+    if (roll) params.set('roll_number', roll);
+    if (scopeToExam && currentExamId) params.set('exam_id', currentExamId);
+    const r = await authFetch(`${BASE}/api/v1/admin/students/roster?${params.toString()}`, {
+      method: 'DELETE'
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      if (status) { status.style.color='var(--red)'; status.textContent = d.detail || `Failed (HTTP ${r.status})`; }
+      return;
+    }
+    const d = await r.json();
+    if (d.deleted === 0) {
+      if (status) { status.style.color='var(--amber)'; status.textContent = `No matching roster rows found.`; }
+    } else {
+      const tags = (d.matched || []).map(m => `${m.roll_number || '?'} (${m.email || '—'})`).join(', ');
+      if (status) { status.style.color='var(--emerald)'; status.textContent = `✅ Removed ${d.deleted} row${d.deleted>1?'s':''}: ${tags}`; }
+      if (emailEl) emailEl.value = '';
+      if (rollEl) rollEl.value = '';
+    }
+  } catch(e) {
+    if (status) { status.style.color='var(--red)'; status.textContent = 'Network error'; }
+  }
+}
+
 // Reset today's invite cap for the current teacher. Surgical fix for
 // dry-runs that exhausted the local counter while no real mail left
 // the server. Backend rate-limits to 5/hour.

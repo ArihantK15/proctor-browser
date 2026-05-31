@@ -103,6 +103,62 @@ async def send_invites(body: SendInvitesBody, request: Request):
     return results
 
 
+@router.get("/api/v1/admin/invites/cap-status")
+@limiter.limit("30/minute")
+async def invite_cap_status(request: Request):
+    """Return current daily invite usage + cap for the calling teacher.
+
+    Used by the Email Invites UI to surface "X remaining of Y" and a
+    reset button when the counter is at the cap. Without this the
+    only signal of cap exhaustion was the 429 response after the
+    send attempt — frustrating during demo prep where dry-runs had
+    silently consumed quota.
+    """
+    from datetime import datetime, timezone
+    from ..constants import INVITE_DAILY_CAP
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    today = datetime.now(timezone.utc).date().isoformat()
+    used = 0
+    try:
+        row = (await _atable("invite_send_counters").select("count")
+               .eq("teacher_id", tid).eq("day", today).execute()).data
+        if row:
+            used = int(row[0].get("count") or 0)
+    except Exception:
+        logger.debug("admin_invites: cap-status read failed", exc_info=True)
+    return {
+        "used": used,
+        "cap": INVITE_DAILY_CAP,
+        "remaining": max(INVITE_DAILY_CAP - used, 0),
+        "day_utc": today,
+    }
+
+
+@router.post("/api/v1/admin/invites/cap-reset")
+@limiter.limit("5/hour")
+async def invite_cap_reset(request: Request):
+    """Reset today's invite counter for the calling teacher to 0.
+
+    Surgical fix for the demo-prep symptom where dry-runs against a
+    noop emailer or a flaky Resend setup exhausted the local cap
+    while no real emails left the server. Teacher-scoped (can only
+    reset own row); rate-limited to 5/hour to prevent abuse.
+    """
+    from datetime import datetime, timezone
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    today = datetime.now(timezone.utc).date().isoformat()
+    try:
+        await _atable("invite_send_counters").delete()\
+            .eq("teacher_id", tid).eq("day", today).execute()
+    except Exception as e:
+        logger.warning("admin_invites: cap-reset delete failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to reset cap")
+    from ..constants import INVITE_DAILY_CAP
+    return {"reset": True, "cap": INVITE_DAILY_CAP, "remaining": INVITE_DAILY_CAP}
+
+
 @router.get("/api/v1/admin/invites")
 @limiter.limit("30/minute")
 async def list_invites(request: Request, exam_id: Optional[str] = None):

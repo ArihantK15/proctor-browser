@@ -6059,8 +6059,49 @@ async function sendInvites(){
   finally{ btn.disabled = false; }
 }
 
+// Refreshes the "Daily cap: N / M used today" line in the Email
+// Invites card from the server. Called on tab open, after every send,
+// and after a cap reset so the user always sees the truth.
+async function refreshInviteCapStatus(){
+  const used = document.getElementById('invite-cap-used');
+  const total = document.getElementById('invite-cap-total');
+  const reset = document.getElementById('btn-invite-reset-cap');
+  if (!used || !total) return;
+  try {
+    const r = await authFetch(`${BASE}/api/v1/admin/invites/cap-status`);
+    if (!r.ok) return;
+    const d = await r.json();
+    used.textContent = d.used;
+    total.textContent = d.cap;
+    // Show the reset button only when the counter is actually high
+    // enough to matter — otherwise it's noise on a fresh install.
+    if (reset) reset.style.display = (d.remaining < 10 || d.used > 50) ? '' : 'none';
+  } catch(_) {}
+}
+
+// Reset today's invite cap for the current teacher. Surgical fix for
+// dry-runs that exhausted the local counter while no real mail left
+// the server. Backend rate-limits to 5/hour.
+async function resetInviteCap(){
+  const status = document.getElementById('invite-result');
+  if (!await appConfirm('Reset today\'s invite cap to 0? This only affects YOUR daily counter — not Resend\'s actual usage.', 'Reset daily cap', {okText:'Reset'})) return;
+  try {
+    const r = await authFetch(`${BASE}/api/v1/admin/invites/cap-reset`, {method:'POST'});
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      if (status) { status.style.color='var(--red)'; status.textContent = d.detail || 'Reset failed'; }
+      return;
+    }
+    if (status) { status.style.color='var(--emerald)'; status.textContent = '✅ Daily cap reset. You can send invites again.'; }
+    await refreshInviteCapStatus();
+  } catch(e) {
+    if (status) { status.style.color='var(--red)'; status.textContent = 'Network error'; }
+  }
+}
+
 async function loadInvites(){
   const eid = currentExamId;
+  refreshInviteCapStatus();  // piggy-back the cap refresh on every list reload
   const list = document.getElementById('invite-list');
   const empty = document.getElementById('invite-empty');
   const countEl = document.getElementById('invite-count');

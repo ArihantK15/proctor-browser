@@ -993,7 +993,7 @@
       <div class="tool-card" style="grid-column:1/-1">
         <div class="tool-card-body">
           <h3>Email Invites</h3>
-          <p>Mint one-click join links and mail them to students. Each invite carries a unique token (and optional per-student access code) so teachers never have to read out codes on speaker-phone. Bounces and opens update automatically. Daily cap: 500/day per teacher.</p>
+          <p>Mint one-click join links and mail them to students. Each invite carries a unique token (and optional per-student access code) so teachers never have to read out codes on speaker-phone. Bounces and opens update automatically. <span id="invite-cap-line" style="color:var(--muted)">Daily cap: <span id="invite-cap-used">—</span> / <span id="invite-cap-total">—</span> used today.</span></p>
 
           <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">
             <div style="flex:1;min-width:280px">
@@ -1033,6 +1033,12 @@
           <button class="btn btn-primary btn-sm" id="btn-invite-send" data-action="sendInvites">Send Invites</button>
           <button class="btn btn-secondary btn-sm" data-action="loadInvites">Refresh List</button>
           <button class="btn btn-secondary btn-sm" data-action="resendBouncedInvites" style="color:var(--amber)">Resend Bounced</button>
+          <!-- Reset today's local cap counter when it gets stuck at the
+               daily limit from dry-runs / repeated tests. Teacher-scoped
+               (server side enforces); also rate-limited to 5/hour on the
+               backend so users can't abuse it. -->
+          <button class="btn btn-secondary btn-sm" data-action="resetInviteCap"
+                  id="btn-invite-reset-cap" style="color:var(--amber)">Reset daily cap</button>
         </div>
         <div class="tool-card-result" id="invite-result" style="font-size:12px;min-height:18px"></div>
 

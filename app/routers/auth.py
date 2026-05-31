@@ -1417,6 +1417,15 @@ async def student_exams(request: Request):
     ).eq("email", email).execute()
     enrollments = enroll_result.data or []
     if not enrollments:
+        # Some roster rows are linked by account_id after invite
+        # acceptance / teacher import, and older rows may have a blank
+        # or differently-cased email. Falling back to account_id keeps a
+        # valid student account from seeing an empty lobby.
+        enroll_result = await _atable("students").select(
+            "roll_number", "teacher_id"
+        ).eq("account_id", str(account["id"])).execute()
+        enrollments = enroll_result.data or []
+    if not enrollments:
         return {"exams": []}
 
     exams = []
@@ -1464,7 +1473,7 @@ async def student_exams(request: Request):
                 "status", "submitted_at"
             ).eq("teacher_id", teacher_id).eq(
                 "roll_number", enr["roll_number"]
-            ).order("created_at", desc=True).limit(1).execute()
+            ).order("submitted_at", desc=True).limit(1).execute()
             if done_result.data:
                 session = done_result.data[0]
 
@@ -1488,7 +1497,7 @@ async def student_exams(request: Request):
             "starts_at": starts_at,
             "ends_at": ends_at,
             "duration_minutes": duration,
-            "access_code_required": bool(cfg.get("access_code", "").strip()),
+            "access_code_required": bool(str(cfg.get("access_code") or "").strip()),
             "status": status,
             "submitted_at": session.get("submitted_at") if session else None,
         })

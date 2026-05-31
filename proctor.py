@@ -908,14 +908,16 @@ _LIVE_VIEW_LOCK = threading.Lock()
 
 # ─── WebSocket live-feed (preferred) with HTTP fallback ───────
 def _derive_ws_url():
-    """Convert SERVER_BASE → ws(s) URL for live-frame streaming."""
-    if SERVER_BASE.startswith("https://"):
-        return "wss://" + SERVER_BASE[len("https://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
-    if SERVER_BASE.startswith("http://"):
+    """Convert the current server URL → ws(s) URL for live-frame streaming."""
+    parsed = _urlsplit_init(SERVER_URL or SERVER_BASE)
+    base = _urlunsplit_init((parsed.scheme, parsed.netloc, "", "", "")) if parsed.scheme and parsed.netloc else SERVER_BASE
+    if base.startswith("https://"):
+        return "wss://" + base[len("https://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
+    if base.startswith("http://"):
         if not os.environ.get("PROCTOR_ALLOW_WS", "").strip().lower() in {"1", "true"}:
             print("[LiveFeed] ⚠ WebSocket URL uses ws:// — JWT sent in cleartext! Set PROCTOR_ALLOW_WS=1 to proceed.")
-        return "ws://" + SERVER_BASE[len("http://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
-    return SERVER_BASE + f"/ws/v1/live-frame/{SESSION_ID}"
+        return "ws://" + base[len("http://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
+    return base + f"/ws/v1/live-frame/{SESSION_ID}"
 
 WS_LIVE_URL = _derive_ws_url()
 

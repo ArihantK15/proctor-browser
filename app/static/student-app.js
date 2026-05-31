@@ -267,11 +267,25 @@ async function doLogout() {
       headers,
     });
   } catch(e) {}
+  clearStudentSession();
+}
+
+function clearStudentSession() {
   _studentCsrfMemory = '';
   authToken = '';
   refreshTok = '';
   studentAuthed = false;
-  location.reload();
+  refreshInFlight = null;
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('auth-view').style.display = '';
+  document.getElementById('web-landing').style.display = 'none';
+  const err = document.getElementById('auth-err');
+  if (err) err.textContent = '';
+  const exams = document.getElementById('exams-container');
+  if (exams) exams.innerHTML = '';
+  _examsCache = [];
+  _pendingExam = null;
+  _pendingAccessCode = '';
 }
 
 function isStrongPassword(password) {
@@ -406,7 +420,7 @@ async function loadExams(opts) {
   }
   try {
     const r = await authed('/api/student/exams');
-    if (r.status === 401) { doLogout(); return; }
+    if (r.status === 401) { clearStudentSession(); return; }
     if (!r.ok) throw new Error('Failed to load exams');
     const d = await r.json();
     renderExams(d.exams || []);
@@ -1033,8 +1047,11 @@ async function _acceptPendingInvite(){
       // accept it now against the live session.
       if (_pendingInvite) await _acceptPendingInvite();
     } else if (r.status === 401) {
-      // stored tokens are both expired
-      doLogout();
+      // Stored cookies/tokens are expired or missing. Do not call
+      // doLogout() here: the server will also reject logout when the
+      // access token is gone, and the old reload-on-401 path caused a
+      // tight lobby reload loop that quickly hit /auth/me rate limits.
+      clearStudentSession();
     }
   } catch {}
 })();

@@ -383,3 +383,49 @@ class TestWindowStatus:
         })):
             resp = client.get("/api/student/exams", headers=_student_headers())
         assert resp.status_code == 200, resp.text
+
+    def test_null_access_code_does_not_crash_lobby(self, client):
+        """Exam configs may store NULL access_code; lobby should still render."""
+        config = {**EXAM_CONFIG, "access_code": None}
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+            "teachers": [TEACHER],
+            "student_accounts": [STUDENT_ACCOUNT],
+            "students": [{"roll_number": "ALICE001", "teacher_id": "teacher-1",
+                          "email": "alice@test.com"}],
+            "exam_config": [config],
+            "exam_sessions": [],
+        })):
+            resp = client.get("/api/student/exams", headers=_student_headers())
+        assert resp.status_code == 200, resp.text
+        exams = resp.json().get("exams", [])
+        assert exams
+        assert exams[0]["access_code_required"] is False
+
+    def test_account_id_linked_roster_rows_are_visible(self, client):
+        """A linked account should see exams even if email lookup misses."""
+        sm = shared_supabase_mock()
+        calls = {"students": 0}
+
+        def _side_effect(name):
+            if name == "students":
+                calls["students"] += 1
+                if calls["students"] == 1:
+                    return _table_side_effect({"students": []})("students")
+                return _table_side_effect({"students": [{
+                    "roll_number": "ALICE001",
+                    "teacher_id": "teacher-1",
+                    "account_id": "student-1",
+                    "email": "",
+                }]})("students")
+            return _table_side_effect({
+                "teachers": [TEACHER],
+                "student_accounts": [STUDENT_ACCOUNT],
+                "exam_config": [EXAM_CONFIG],
+                "exam_sessions": [],
+            })(name)
+
+        with patch.object(sm, "table", side_effect=_side_effect):
+            resp = client.get("/api/student/exams", headers=_student_headers())
+        assert resp.status_code == 200, resp.text
+        assert resp.json().get("exams")

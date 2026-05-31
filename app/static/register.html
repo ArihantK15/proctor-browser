@@ -17,6 +17,7 @@
 <link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/components.css">
 <link rel="stylesheet" href="/static/theme.css">
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
   body { display:flex; align-items:center; justify-content:center; padding:24px; min-height:100vh; }
   @media(max-width:768px){body{padding:16px}}
@@ -256,6 +257,8 @@
         Account found for this email — you're all set. Just register and sign in with your existing password in the app.
       </p>
     </div>
+
+    <div id="cf-turnstile-register" style="margin:8px 0"></div>
 
     <button class="submit-btn" id="reg-btn" data-action="doRegister">Register & Create Account</button>
     <div class="err-msg" id="reg-err"></div>

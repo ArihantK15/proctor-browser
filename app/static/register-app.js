@@ -6,6 +6,40 @@ let _teacherId = new URLSearchParams(location.search).get('t') || null;
 let _examId = new URLSearchParams(location.search).get('e') || null;
 let _teacherName = '';
 
+let _turnstileToken = null;
+let _turnstileSiteKey = '';
+let _turnstileWidgetId = null;
+
+async function _loadPublicConfig() {
+  try {
+    const r = await fetch('/api/v1/public-config');
+    if (r.ok) {
+      const cfg = await r.json();
+      _turnstileSiteKey = cfg.turnstile_site_key || '';
+    }
+  } catch(e) {}
+}
+
+function _initTurnstile() {
+  if (!_turnstileSiteKey || !window.turnstile) return;
+  const el = document.getElementById('cf-turnstile-register');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+  _turnstileWidgetId = window.turnstile.render(el, {
+    sitekey: _turnstileSiteKey,
+    theme: 'dark',
+    callback: (token) => { _turnstileToken = token; },
+    'expired-callback': () => { _turnstileToken = null; },
+    'error-callback': () => { _turnstileToken = null; },
+  });
+}
+
+function _resetTurnstile() {
+  _turnstileToken = null;
+  if (!_turnstileSiteKey || !window.turnstile || !_turnstileWidgetId) return;
+  try { window.turnstile.reset(_turnstileWidgetId); } catch(e) {}
+}
+
 // If no teacher_id in URL, show the lookup fallback
 if(!_teacherId){
   document.getElementById('teacher-lookup').style.display = '';
@@ -189,10 +223,12 @@ async function doRegister(){
 
     // Step 2: Create student account (only if password was provided)
     if(_createAccount && pwd){
+      const signupBody = {email:email, password:pwd, full_name:name};
+      if(_turnstileToken) signupBody.captcha_token = _turnstileToken;
       const r2 = await fetchWithTimeout('/api/v1/student/auth/signup', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email:email, password:pwd, full_name:name})
+        body: JSON.stringify(signupBody)
       });
       if(r2.ok){
         accountCreated = true;
@@ -202,7 +238,8 @@ async function doRegister(){
           // Account already exists — not an error, they just didn't know
           accountCreated = true; // existing account counts
         } else {
-          console.warn('Account creation failed:', err2.detail);
+          const msg = typeof err2.detail === 'object' ? (err2.detail.message || err2.detail.error) : err2.detail;
+          throw new Error(msg || 'Account creation failed');
         }
       }
 
@@ -326,3 +363,5 @@ document.addEventListener('focusout', (e) => {
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.blurArgs));
 });
+
+_loadPublicConfig().then(_initTurnstile);

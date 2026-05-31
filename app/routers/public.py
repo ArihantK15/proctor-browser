@@ -358,6 +358,20 @@ async def register_student(request: Request, body: RegisterIn):
         else:
             raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
 
+    # Auto-link: if the student already has a login account, set
+    # account_id immediately — otherwise they'd have to wait until
+    # their next login for the signup/login auto-link to fire.
+    try:
+        acct = await _atable("student_accounts").select("id").eq("email", email).limit(1).execute()
+        if acct.data:
+            await _atable("students")\
+                .update({"account_id": acct.data[0]["id"]})\
+                .eq("roll_number", roll)\
+                .eq("teacher_id", teacher_id)\
+                .execute()
+    except Exception as e:
+        _pub_log.warning("[register_student] auto-link failed: %s", e)
+
     return {"status": "registered", "roll_number": roll, "full_name": name,
             "exam_id": exam_id_from_body or None}
 

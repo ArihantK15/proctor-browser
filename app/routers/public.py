@@ -682,6 +682,23 @@ async def accept_invite(token: str, request: Request):
         "student_id":  str(student["id"]),
     }).eq("token", token).execute()
 
+    try:
+        enroll_row = {
+            "email":       inv.get("email"),
+            "full_name":   inv.get("full_name"),
+            "roll_number": inv.get("roll_number"),
+            "teacher_id":  str(inv["teacher_id"]),
+            "account_id":  str(student["id"]),
+        }
+        if inv.get("exam_id"):
+            enroll_row["exam_id"] = inv.get("exam_id")
+        await _atable("students").upsert(
+            enroll_row,
+            on_conflict="roll_number,teacher_id",
+        ).execute()
+    except Exception as e:
+        _pub_log.warning("[accept_invite] failed to upsert student enrollment: %s", e)
+
     return {
         "ok":          True,
         "exam_id":     inv.get("exam_id"),

@@ -1263,12 +1263,13 @@ async function _acceptPendingInvite(){
       console.warn('[invite] accept failed:', r.status, d.detail || '');
       return;
     }
-    // The invite is now linked to this student_account. Upcoming
-    // exam list refresh will pick up the exam assignment.
-    console.log('[invite] accepted, refreshing exam list');
-    _examsInflight = false;
-    _lastExamsFetch = 0;
-    try { await loadExams({ silent: true }); } catch(e){}
+    // Reload so the dashboard picks up the newly-created students
+    // enrollment row (the backend upserts it during accept) with a
+    // clean auth + exam-list state. A silent loadExams retry here
+    // can mask 500/401 errors that leave "Couldn't load exams" on
+    // screen permanently.
+    console.log('[invite] accepted, reloading dashboard');
+    location.reload();
   } catch(e) {
     console.error('[invite] accept error:', e);
   }

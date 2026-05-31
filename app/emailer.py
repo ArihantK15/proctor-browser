@@ -298,7 +298,7 @@ def send_demo_request_notification(
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
              style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;">
-        <tr><td style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);padding:28px 32px;">
+        <tr><td style="background:linear-gradient(135deg,#5b8af0,#4a78dc);padding:28px 32px;">
           <div style="color:#ffffff;font-size:12px;letter-spacing:2px;font-weight:600;opacity:.9;">PROCTA · DEMO REQUEST</div>
           <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:6px;">New demo request</div>
         </td></tr>
@@ -313,7 +313,7 @@ def send_demo_request_notification(
           {message_block}
           <p style="margin:16px 0 0 0;color:#94a3b8;font-size:12px;">
             View all demo requests in the
-            <a href="https://app.procta.net/dashboard" style="color:#3b82f6;">admin dashboard</a>.
+            <a href="https://app.procta.net/dashboard" style="color:#5b8af0;">admin dashboard</a>.
           </p>
         </td></tr>
         <tr><td style="padding:24px 0 0;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">
@@ -402,16 +402,16 @@ This link expires in 30 minutes. If you did not request this, you can ignore thi
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="480"
              style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:480px;">
-        <tr><td style="background:#3b82f6;padding:24px 28px;text-align:center;">
+        <tr><td style="background:#5b8af0;padding:24px 28px;text-align:center;">
           <div style="color:#ffffff;font-size:18px;font-weight:700;">Reset your password</div>
         </td></tr>
         <tr><td style="padding:28px;color:#0f172a;">
           <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{_esc(display_name)}</strong>,</p>
           <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">We received a request to reset your Procta password. Click the button below to choose a new password.</p>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td align="center" style="padding:8px 0 20px;">
-            <a href="{reset_url}" target="_blank" style="display:inline-block;padding:12px 32px;border-radius:6px;background:#3b82f6;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Reset Password</a>
+            <a href="{reset_url}" target="_blank" style="display:inline-block;padding:12px 32px;border-radius:6px;background:#5b8af0;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Reset Password</a>
           </td></tr></table>
-          <p style="margin:0 0 12px;font-size:13px;color:#555;line-height:1.4;">Or copy this link: <span style="font-size:12px;color:#3b82f6;word-break:break-all;font-family:monospace;">{reset_url}</span></p>
+          <p style="margin:0 0 12px;font-size:13px;color:#555;line-height:1.4;">Or copy this link: <span style="font-size:12px;color:#5b8af0;word-break:break-all;font-family:monospace;">{reset_url}</span></p>
           <p style="margin:0;font-size:12px;color:#999;line-height:1.4;">This link expires in 30 minutes. If you did not request this, please ignore this email.</p>
         </td></tr>
       </table>
@@ -993,7 +993,7 @@ def _render_invite(**ctx) -> tuple[str, str]:
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560"
              style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;">
-        <tr><td style="background:linear-gradient(135deg,#3dd9a8,#3b82f6);padding:28px 32px;">
+        <tr><td style="background:linear-gradient(135deg,#3dd9a8,#5b8af0);padding:28px 32px;">
           <div style="color:#ffffff;font-size:12px;letter-spacing:2px;font-weight:600;opacity:.9;">PROCTA · EXAM INVITE</div>
           <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:6px;">You're invited to take an exam</div>
         </td></tr>
@@ -1144,7 +1144,7 @@ def send_org_invite_email(*, to_email: str, invite_url: str, org_name: str, invi
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 16px;">
 <table width="480" cellpadding="0" cellspacing="0"
        style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
-<tr><td style="background:linear-gradient(135deg,#3dd9a8,#3b82f6);padding:24px 28px;">
+<tr><td style="background:linear-gradient(135deg,#3dd9a8,#5b8af0);padding:24px 28px;">
 <div style="font-size:18px;font-weight:700;color:#ffffff;">Organization invite</div>
 </td></tr>
 <tr><td style="padding:28px;">

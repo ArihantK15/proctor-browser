@@ -49,6 +49,20 @@ async def test_csrf_issue_accepts_account_cookie():
         issue.assert_called_once_with(claims)
 
 
+def test_csrf_stateless_fallback_when_cache_unavailable():
+    from app.auth.tokens import issue_csrf_token, verify_csrf
+
+    claims = {"role": "teacher", "jti": "jti-1"}
+    with patch("app.cache.set", side_effect=RuntimeError("redis down")), \
+         patch("app.cache.get", return_value=None):
+        token = issue_csrf_token(claims)
+
+    assert token
+    assert token != "jti-1"
+    assert verify_csrf(claims, token) is True
+    assert verify_csrf({"role": "teacher", "jti": "other-jti"}, token) is False
+
+
 @pytest.mark.asyncio
 async def test_teacher_refresh_accepts_refresh_cookie_and_sets_cookies():
     from app.routers.auth import teacher_refresh

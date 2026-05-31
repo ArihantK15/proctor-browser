@@ -50,6 +50,7 @@ async def send_invites(body: SendInvitesBody, request: Request):
 
     results = {"sent": 0, "failed": 0, "skipped": 0}
     for rec in body.recipients:
+        email = rec.email.strip().lower()
         token = _new_invite_token()
         invite_url = f"{base_url}/invite/{token}"
         download_url = f"{base_url}/download"
@@ -57,7 +58,7 @@ async def send_invites(body: SendInvitesBody, request: Request):
         invite_row = {
             "id": _uuid.uuid4(),
             "teacher_id": tid,
-            "email": rec.email.strip().lower(),
+            "email": email,
             "full_name": rec.full_name,
             "roll_number": rec.roll_number.strip().upper(),
             "exam_id": body.exam_id,
@@ -68,9 +69,26 @@ async def send_invites(body: SendInvitesBody, request: Request):
             "custom_message": body.custom_message,
         }
 
-        (await _atable("student_invites")
-         .upsert(invite_row, on_conflict="teacher_id,email,exam_id")
-         .execute())
+        # Avoid relying on a deployment-specific UNIQUE constraint for
+        # ON CONFLICT (teacher_id,email,exam_id). Some plain-Postgres
+        # installs predate that constraint, which made invite sends fail
+        # with a 500 even though the logical update is simple.
+        existing = (await _atable("student_invites")
+                    .select("id")
+                    .eq("teacher_id", tid)
+                    .eq("email", email)
+                    .eq("exam_id", body.exam_id)
+                    .limit(1)
+                    .execute()).data or []
+        if existing:
+            update_row = dict(invite_row)
+            update_row.pop("id", None)
+            await (_atable("student_invites")
+                   .update(update_row)
+                   .eq("id", existing[0]["id"])
+                   .execute())
+        else:
+            await _atable("student_invites").insert(invite_row).execute()
 
         send_result = enqueue_job(
             send_invite_email_job,

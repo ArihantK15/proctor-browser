@@ -80,6 +80,36 @@ def _gen_csrf() -> str:
     return secrets.token_urlsafe(32)
 
 
+def _csrf_stateless_token(claims: dict, token: str | None = None) -> str:
+    """Create a signed CSRF fallback tied to the current access-token JTI."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "typ": "csrf",
+        "role": claims.get("role"),
+        "jti": str(claims.get("jti") or ""),
+        "nonce": token or _gen_csrf(),
+        "iat": now,
+        "exp": now + timedelta(seconds=_CSRF_TTL_SECONDS),
+    }
+    return jwt.encode(payload, REAUTH_SIGNING_KEY, algorithm="HS256")
+
+
+def _verify_stateless_csrf(claims: dict, header_value: str) -> bool:
+    """Validate a signed CSRF fallback token against the access-token JTI."""
+    try:
+        payload = jwt.decode(header_value, REAUTH_SIGNING_KEY, algorithms=["HS256"])
+    except JWTError:
+        return False
+    if payload.get("typ") != "csrf":
+        return False
+    if payload.get("role") != claims.get("role"):
+        return False
+    return secrets.compare_digest(
+        str(payload.get("jti") or ""),
+        str(claims.get("jti") or ""),
+    )
+
+
 def _csrf_subject(claims: dict) -> str:
     """Stable server-side CSRF storage subject for browser auth tokens."""
     role = claims.get("role")
@@ -118,10 +148,8 @@ def issue_csrf_token(claims: dict) -> str:
         if _cache.get(key) != token:
             raise RuntimeError("CSRF token was not persisted")
     except Exception:
-        raise HTTPException(
-            status_code=503,
-            detail="CSRF storage unavailable. Try again shortly.",
-        )
+        logger.warning("tokens: csrf cache unavailable; issuing signed stateless fallback", exc_info=True)
+        return _csrf_stateless_token(claims, token)
     return token
 
 
@@ -153,7 +181,7 @@ def verify_csrf(claims: dict, header_value: str) -> bool:
     except Exception:
         expected = None
     if not isinstance(expected, str) or not expected:
-        return False
+        return _verify_stateless_csrf(claims, header_value)
     return secrets.compare_digest(header_value, expected)
 
 

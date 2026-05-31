@@ -500,8 +500,31 @@ html,body{overflow-x:hidden;max-width:100vw}
   .filter-select{min-height:38px;font-size:16px !important}
   .exam-bar select{min-height:38px;font-size:16px !important}
   .modal input,.modal select{min-height:44px;font-size:16px !important}
+  .modal-box input,.modal-box select,.modal-box textarea{min-height:44px;font-size:16px !important}
+  .modal-card input,.modal-card select,.modal-card textarea{min-height:44px;font-size:16px !important}
   .auth-card input{min-height:44px;font-size:16px !important}
   .auth-card button{min-height:44px}
+  /* Live table row → "open this session" tap. The row itself is the
+     hit target; ensure the row has enough vertical room and any
+     in-row mini-buttons (intervention warn/pause/etc, view-cam icon)
+     hit the WCAG-recommended 44x44 minimum. */
+  #panel-live .table-wrap tbody tr{cursor:pointer}
+  #panel-live .table-wrap td{padding-top:12px;padding-bottom:12px}
+  #panel-live .row-btn,#panel-live .row-cam-btn,
+  .intervention-bar .btn,.intervention-bar button{
+    min-height:44px;min-width:44px;padding:8px 12px;font-size:13px
+  }
+  /* Camera pop-in modal — when the teacher taps a flagged student to
+     see their camera, the modal needs to fill the phone viewport
+     comfortably and the close button must be tappable. */
+  #liveview-modal .modal{max-width:96vw;max-height:88dvh;padding:12px}
+  #liveview-modal .modal img,#liveview-modal .modal video{
+    max-width:100%;max-height:60vh;object-fit:contain
+  }
+  /* Chat composer on phone — the send button was a thin row before;
+     bump to proper tap height. */
+  .chat-composer button{min-height:44px;padding:10px 16px}
+  .chat-composer textarea{min-height:44px;font-size:16px !important}
 }
 
 /* ── Print ──────────────────────────────────────────────────────── */

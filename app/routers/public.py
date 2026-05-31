@@ -412,8 +412,7 @@ async def resolve_access_code(request: Request, body: ResolveAccessCodeIn):
         raise HTTPException(status_code=400, detail="Access code is required")
 
     result = await _atable("exam_config").select(
-        "teacher_id", "exam_id", "exam_title", "access_code",
-        "duration_minutes", "starts_at", "ends_at"
+        "teacher_id, exam_id, exam_title, access_code, duration_minutes, starts_at, ends_at"
     ).eq("access_code", code).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Invalid access code")

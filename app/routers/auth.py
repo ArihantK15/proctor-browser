@@ -1448,14 +1448,14 @@ async def student_exams(request: Request):
         async def _read_enrollments(filter_col: str, filter_val: str):
             try:
                 r = await _atable("students").select(
-                    "roll_number", "teacher_id", "exam_id"
+                    "roll_number, teacher_id, exam_id"
                 ).eq(filter_col, filter_val).execute()
                 return r.data or []
             except Exception as e:
                 msg = str(e).lower()
                 if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
                     r = await _atable("students").select(
-                        "roll_number", "teacher_id"
+                        "roll_number, teacher_id"
                     ).eq(filter_col, filter_val).execute()
                     return r.data or []
                 raise
@@ -1515,7 +1515,7 @@ async def student_exams(request: Request):
         # completed/in-progress attempt in one exam cannot hide or relabel
         # another exam for the same teacher + roll number.
         session_q = _atable("exam_sessions").select(
-            "status", "submitted_at"
+            "status, submitted_at"
         ).eq("teacher_id", teacher_id).eq(
             "roll_number", enr["roll_number"]
         ).eq("status", SessionStatus.IN_PROGRESS)
@@ -1527,7 +1527,7 @@ async def student_exams(request: Request):
         # If no in_progress session, check for a completed one
         if not session:
             done_q = _atable("exam_sessions").select(
-                "status", "submitted_at"
+                "status, submitted_at"
             ).eq("teacher_id", teacher_id).eq(
                 "roll_number", enr["roll_number"]
             )

@@ -224,6 +224,7 @@ class PostgresTable:
         self._order_col: str | None = None
         self._order_desc = False
         self._count_mode: str | None = None
+        self._distinct_col: str | None = None
         self._limit_val: int | None = None
         self._offset_val: int | None = None
         self._on_conflict: str | None = None
@@ -235,9 +236,10 @@ class PostgresTable:
     def not_(self) -> _NotFilter:
         return _NotFilter(self)
 
-    def select(self, cols: str = "*", *, count: str | None = None) -> "PostgresTable":
+    def select(self, cols: str = "*", *, count: str | None = None, distinct: str | None = None) -> "PostgresTable":
         self._select_cols = cols
         self._count_mode = count
+        self._distinct_col = distinct
         self._op = "select"
         return self
 
@@ -407,16 +409,20 @@ class PostgresTable:
                     order = f" ORDER BY {_ident(self._order_col)} {'DESC' if self._order_desc else 'ASC'}"
                 limit = f" LIMIT {int(self._limit_val)}" if self._limit_val is not None else ""
                 offset = f" OFFSET {int(self._offset_val)}" if self._offset_val is not None else ""
+                select_expr = _select_list(self._select_cols)
+                if self._distinct_col:
+                    select_expr = f"DISTINCT {select_expr}"
                 rows = await conn.fetch(
-                    f"SELECT {_select_list(self._select_cols)} FROM {_ident(self._table)}"
+                    f"SELECT {select_expr} FROM {_ident(self._table)}"
                     f"{where}{order}{limit}{offset}",
                     *sql.params,
                 )
                 count = None
                 if self._count_mode:
                     count_sql = _SQL()
+                    count_expr = f"COUNT(DISTINCT {_ident(self._distinct_col)})" if self._distinct_col else "COUNT(*)"
                     count = await conn.fetchval(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
-                        f"SELECT COUNT(*) FROM {_ident(self._table)}{self._where(count_sql)}",
+                        f"SELECT {count_expr} FROM {_ident(self._table)}{self._where(count_sql)}",
                         *count_sql.params,
                     )
                 data = [_row_dict(r) for r in rows]

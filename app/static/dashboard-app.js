@@ -13,6 +13,15 @@
 const BASE = location.origin;
 let authToken = window.__proctaFragmentToken || '';
 let refreshToken = '';
+// Set once doLogout() has run so any in-flight calls that come back 401
+// AFTER logout don't try to refresh and recurse forever. Cleared by a
+// fresh login (_saveTokens with a real token). Without this guard, the
+// dashboard hit an infinite loop on session expiry: poll → 401 →
+// refresh-fail → doLogout → logout-call → 401 → refresh → fail →
+// doLogout → ... until the rate limiter kicked in at 429.
+// Declared at top-level so _saveTokens (defined further down) can
+// reference it safely — let-in-TDZ would throw on a typeof check.
+let _loggedOut = false;
 let liveData = [], resultsData = [];
 let liveSortKey = 'last_seen', liveSortAsc = false;
 let resSortKey = 'submitted_at', resSortAsc = false;
@@ -117,6 +126,12 @@ function _saveTokens(access, refresh){
   refreshToken = refresh || '';
   if(!access){
     _csrfTokenMemory = '';
+  } else {
+    // Fresh login / successful refresh — re-arm the auth flow. Without
+    // this, after a previous expiry triggered _loggedOut=true, the next
+    // login would have all its authFetch calls bail out at the
+    // suppression check and the dashboard would look frozen.
+    _loggedOut = false;
   }
 }
 
@@ -501,13 +516,35 @@ async function _tryAutoLogin(){
 }
 
 async function doLogout(){
-  try{
-    await authFetch(`${BASE}/api/v1/auth/logout`, {method:'POST'});
-  }catch(_){}
-  _saveTokens('','');
+  // Idempotent. authFetch's 401-catch can call this for several
+  // racing in-flight requests at once; without the guard we'd fire
+  // a logout POST per failure (the duplicated "logout 401" lines in
+  // the user-reported console were each a separate redundant call).
+  if (_loggedOut) return;
+  // Set the suppression flag FIRST so any in-flight 401 responses that
+  // race in while we're tearing down can't trigger _refreshTokens()
+  // (which would recurse back into doLogout via authFetch's catch).
+  _loggedOut = true;
+  // Cancel periodic pollers BEFORE the logout call so they can't
+  // schedule another auth round-trip mid-teardown.
   if(autoRefreshTimer){ clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
   if(_sseSource){ try{_sseSource.close();}catch(_){} _sseSource=null; }
   if(_sseFallbackTimer){ clearInterval(_sseFallbackTimer); _sseFallbackTimer=null; }
+  // Plain fetch — NOT authFetch. Using authFetch here was the source of
+  // the dashboard's "POST /auth/logout 401 → /auth/refresh 401 → /auth/logout
+  // 401 → … → 429" infinite loop reported on session expiry. Logout
+  // must be fire-and-forget; we don't care if the server says 401 (we're
+  // already logged out from its perspective).
+  try{
+    const headers = {};
+    if(authToken) headers.Authorization = 'Bearer '+authToken;
+    const csrf = _getCsrfToken();
+    if(csrf) headers['X-CSRF-Token'] = csrf;
+    await fetchWithTimeout(`${BASE}/api/v1/auth/logout`, {
+      method:'POST', credentials:'include', headers,
+    });
+  }catch(_){}
+  _saveTokens('','');
   // Wipe in-memory state so a second teacher logging in on the same
   // browser never sees the previous teacher's data even momentarily.
   try{
@@ -581,7 +618,11 @@ async function _ensureCsrfToken(force=false){
 // the slower responses overwrite the newer rotated refresh_token, causing
 // sporadic logouts on the next call.
 let _refreshInFlight = null;
+// _loggedOut is declared higher in the file (near refreshToken) so it's
+// safe to read from _saveTokens without TDZ surprises during the
+// top-level token-restore path.
 async function _refreshTokens(){
+  if(_loggedOut) throw new Error('logged out — refresh suppressed');
   if(_refreshInFlight) return _refreshInFlight;
   _refreshInFlight = (async ()=>{
     const rr = await fetchWithTimeout(`${BASE}/api/v1/auth/refresh`,{
@@ -592,6 +633,7 @@ async function _refreshTokens(){
     if(!rr.ok) throw new Error('refresh failed');
     const rd = await rr.json();
     _saveTokens(rd.access_token, rd.refresh_token);
+    _loggedOut = false;  // re-armed by a successful refresh
     await _ensureCsrfToken(true);
     return rd;
   })();

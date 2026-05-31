@@ -241,8 +241,11 @@ async def revoke_invite(invite_id: str, request: Request):
     if result.data[0].get("teacher_id") != tid:
         raise HTTPException(status_code=403, detail="Not your invite")
 
+    # Keep this compatible with older student_invites schemas. The table's
+    # canonical audit fields are status + timestamps from phase10; some
+    # deployments do not have a revoked_at column yet.
     (await _atable("student_invites")
-     .update({"status": InviteStatus.REVOKED, "revoked_at": now_ist().isoformat()})
+     .update({"status": InviteStatus.REVOKED})
      .eq("id", invite_id).execute())
     return {"ok": True, "invite_id": invite_id}
 

@@ -24,7 +24,7 @@ qrcode>=8.0
 # Structured JSON logging — used in app/logger.py via JsonFormatter.
 # Was missing from this file; container started failing on 2026-05-14
 # with ModuleNotFoundError. Adding here to keep the build reproducible.
-python-json-logger>=2.0.0
+python-json-logger>=4.1.0
 
 google-auth-oauthlib>=1.2.0
 

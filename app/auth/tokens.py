@@ -223,6 +223,18 @@ def require_auth(request: Request, allowed_roles: list[str] | None = None) -> di
         claims = _decode_token(token, ALL_SIGNING_KEYS)
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    # Reject single-purpose tokens that happen to be signed by a key in
+    # ALL_SIGNING_KEYS. The room-cam JWT (scope="room-cam") is signed
+    # with a key in ALL_SIGNING_KEYS because admin_media accepts it for
+    # image fetches, but it must NOT authenticate against session-bearing
+    # endpoints — a stolen QR-code token would otherwise have a 2-hour
+    # window to POST events / save-answer for the bound session. Other
+    # scoped tokens (csrf, reauth, email_verify, refresh) are already
+    # filtered by their keys being absent from ALL_SIGNING_KEYS; this
+    # guard adds explicit defence in case the keyring grows later.
+    _scope = claims.get("scope")
+    if _scope and _scope not in (None, "", "exam"):
+        raise HTTPException(status_code=403, detail="Token scope is not valid here")
     if allowed_roles and claims.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="Insufficient permissions for this endpoint")
     return claims
@@ -314,10 +326,15 @@ def verify_email_token(token: str) -> dict | None:
 def _check_session_ownership(claims: dict, session_id: str) -> None:
     parts = session_id.rsplit("_", 1)
     session_roll = parts[0].upper() if parts else ""
-    if claims.get("roll", "").upper() != session_roll:
+    # `(claims.get("roll") or "")` not `.get("roll", "")`: dict.get only
+    # falls back to the default when the KEY is absent, so a claim that
+    # explicitly carries roll=None (some token shapes) used to raise
+    # AttributeError on None.upper() and 500 the request instead of
+    # returning a clean 403.
+    if (claims.get("roll") or "").upper() != session_roll:
         raise HTTPException(status_code=403, detail="Access denied")
     if len(parts) > 1 and re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', parts[1], re.I):
         session_tid = parts[1]
-        claims_tid = str(claims.get("tid", ""))
+        claims_tid = str(claims.get("tid") or "")
         if session_tid and claims_tid and session_tid != claims_tid:
             raise HTTPException(status_code=403, detail="Access denied")

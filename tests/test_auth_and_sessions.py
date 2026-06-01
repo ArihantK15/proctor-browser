@@ -72,21 +72,56 @@ class TestRequireAuth:
             assert resp.status_code != 401
 
     def test_token_without_roll_claim(self, client):
-        """AUDIT: require_auth doesn't validate presence of 'roll' claim."""
+        """A signed JWT with no 'roll' claim must be cleanly rejected.
+
+        Earlier `_check_session_ownership` did ``claims.get("roll", "").upper()``
+        which crashed (None.upper) when the key existed with value None, and
+        only worked accidentally when the key was absent. The hardened
+        ``(claims.get("roll") or "").upper()`` returns "" in both cases,
+        which fails the ownership compare and 403s. Pin that behaviour.
+        """
         secret = os.environ["SUPABASE_JWT_SECRET"]
         now = datetime.now(timezone.utc)
-        # Token with no 'roll' claim
+        # Token with explicit roll=None (the case the old code crashed on)
         token = jose_jwt.encode({
+            "roll": None,
             "exp": now + timedelta(hours=10),
             "iat": now,
         }, secret, algorithm="HS256")
-        # Should still decode — this tests the audit finding
         resp = client.post("/api/v1/save-answer",
                            json={"session_id": "ANYONE_1", "question_id": "1", "answer": "A"},
                            headers={"Authorization": f"Bearer {token}"})
-        # The token will decode but _check_session_ownership should catch it
-        # because claims.get("roll") is None → None.upper() throws
-        assert resp.status_code in (401, 403, 500)
+        # Must NOT 500 — clean 401/403 either way.
+        assert resp.status_code in (401, 403)
+
+    def test_room_cam_token_rejected_on_session_endpoints(self, client):
+        """A room-cam JWT must not authenticate against session endpoints.
+
+        Room-cam tokens are signed with a key in ALL_SIGNING_KEYS (so
+        admin_media can accept them for image fetches), but they grant a
+        narrow capability — only the phone-camera pairing path. Without
+        the scope guard in require_auth, a stolen QR-code token would
+        get a 2-hour window to POST events, save-answer, etc., for the
+        session it was issued for. This pins the rejection.
+        """
+        from app.constants import ROOM_CAM_SIGNING_KEY
+        now = datetime.now(timezone.utc)
+        room_cam_tok = jose_jwt.encode({
+            "scope": "room-cam",
+            "sid": "ALICE001_abc",
+            "roll": "ALICE001",
+            "exp": now + timedelta(hours=2),
+            "iat": now,
+        }, ROOM_CAM_SIGNING_KEY, algorithm="HS256")
+        resp = client.post("/api/v1/save-answer",
+                           json={"session_id": "ALICE001_abc",
+                                 "question_id": "1", "answer": "A"},
+                           headers={"Authorization": f"Bearer {room_cam_tok}"})
+        assert resp.status_code == 403
+        # Make sure the rejection cites the scope, not generic auth — so
+        # a future refactor that drops the scope check fails this test
+        # loudly instead of letting it slip past as a different 403.
+        assert "scope" in (resp.json().get("detail") or "").lower()
 
 
 class TestCheckSessionOwnership:

@@ -104,10 +104,16 @@ async def _mark_abandoned(row: dict, _atable) -> None:
     except Exception as e:
         logger.warning("[reaper] status re-check failed for %s: %s", sid, e)
 
-    # 1. Mark ABANDONED
-    await _atable("exam_sessions").update({
+    # 1. Mark ABANDONED — atomic with teacher_id filter so a stale UPDATE
+    # cannot bleed across tenants if the session row got reassigned
+    # between our initial SELECT and now. Matches the TOCTOU defence
+    # applied to admin_sessions / admin_org destructive UPDATEs.
+    upd_q = _atable("exam_sessions").update({
         "status": SessionStatus.ABANDONED,
-    }).eq("session_key", sid).execute()
+    }).eq("session_key", sid)
+    if teacher_id:
+        upd_q = upd_q.eq("teacher_id", teacher_id)
+    await upd_q.execute()
 
     logger.info("[reaper] session %s (%s) marked ABANDONED", sid, roll)
 
@@ -130,7 +136,14 @@ async def _mark_abandoned(row: dict, _atable) -> None:
     try:
         from ..services.autosave import load_autosave_snapshot, flush_answers_to_db
         snapshot = await asyncio.to_thread(load_autosave_snapshot, sid) or {}
-        answers = snapshot.get("answers") if isinstance(snapshot.get("answers"), dict) else snapshot
+        # The earlier code did `snapshot.get("answers") if isinstance(...) else snapshot`,
+        # which silently fell back to the WHOLE snapshot dict (session_id,
+        # teacher_id, etc. as keys) when "answers" wasn't a dict —
+        # flush_answers_to_db would then iterate those metadata keys as
+        # if they were question_id/answer pairs and write garbage rows
+        # to the answers table. Take "answers" or nothing.
+        raw_answers = snapshot.get("answers")
+        answers = raw_answers if isinstance(raw_answers, dict) else {}
     except Exception as e:
         logger.warning("[reaper] autosave snapshot load failed for %s: %s", sid, e)
         answers = {}
@@ -151,7 +164,9 @@ async def _mark_abandoned(row: dict, _atable) -> None:
             sid, answers, teacher_id=teacher_id or None, exam_id=exam_id
         )
         pct = round((score / max(total, 1)) * 100, 1)
-        await _atable("exam_sessions").update({
+        # Atomic update with teacher_id filter — defense-in-depth as
+        # above on the ABANDONED transition.
+        final_upd_q = _atable("exam_sessions").update({
             "score":      score,
             "total":      total,
             "percentage": pct,
@@ -161,7 +176,10 @@ async def _mark_abandoned(row: dict, _atable) -> None:
             # (see cutoff above) need a real datetime to satisfy the
             # prepared-statement parameter type check.
             "submitted_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("session_key", sid).execute()
+        }).eq("session_key", sid)
+        if teacher_id:
+            final_upd_q = final_upd_q.eq("teacher_id", teacher_id)
+        await final_upd_q.execute()
         logger.info("[reaper] auto-scored session %s: %d/%d (%.1f%%)", sid, score, total, pct)
     except Exception as e:
         logger.warning("[reaper] auto-score failed for %s: %s", sid, e)

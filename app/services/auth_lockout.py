@@ -89,7 +89,17 @@ async def check_lockout(kind: str, identifier: str) -> tuple[bool, int]:
 
 
 async def record_failure(kind: str, identifier: str) -> int:
-    """Record a failed login attempt. Returns current failure count."""
+    """Record a failed login attempt. Returns current failure count.
+
+    Always re-arms the TTL after INCR — previously EXPIRE was set only
+    on count==1, which meant a failed Redis EXPIRE after the first INCR
+    (network blip, reconfigure, etc.) left the counter without a TTL.
+    A keyless-expiry counter would have permanently locked the user
+    out after 5 failures. Re-arming is idempotent on Redis and gives a
+    sliding 15-minute window — stricter than the original "15 min
+    from first fail" semantics, which is the right trade for an
+    auth-rate-limit gate.
+    """
     key = _key(kind, identifier)
     try:
         from ..cache import _client
@@ -97,8 +107,7 @@ async def record_failure(kind: str, identifier: str) -> int:
         if r is None:
             raise RuntimeError("Redis client unavailable")
         count = r.incr(key)
-        if count == 1:
-            r.expire(key, _LOCKOUT_WINDOW)
+        r.expire(key, _LOCKOUT_WINDOW)
         return count
     except Exception as e:
         logger.warning("[lockout] Redis record failed, using in-memory fallback: %s", e)

@@ -33,9 +33,12 @@ logger = logging.getLogger(__name__)
 # form body.
 _VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
-# Hard 5s ceiling on the siteverify call. If Cloudflare is slow we
-# err on the "let the user through" side — auth-flow latency matters
-# more than 100% bot rejection. Tracked in logs so we can spot trends.
+# Hard 5s ceiling on the siteverify call. Failures (network, timeout,
+# non-200, malformed JSON) are fail-CLOSED — the user sees a 403 and
+# can retry. Reasoning: for an auth gate, a brief inconvenience to
+# legitimate users during a Cloudflare outage is preferable to opening
+# the signup / login / password-reset flows to bots while CF is down.
+# (Tracked in logs so we can spot trends without changing behaviour.)
 _VERIFY_TIMEOUT = 5.0
 
 
@@ -81,7 +84,19 @@ async def verify(token: Optional[str], remote_ip: str = "") -> bool:
         logger.warning("[turnstile] siteverify HTTP %s — denying", resp.status_code)
         return False
 
-    data = resp.json()
+    # resp.json() raises on a non-JSON body (HTML error page from a
+    # misconfigured proxy, an upstream gateway returning text, etc.).
+    # Without this catch the exception bubbled all the way up through
+    # verify_or_403 and 500'd the auth handler — the user saw a server
+    # error instead of a clean "couldn't verify you're human" 403.
+    try:
+        data = resp.json()
+    except Exception as e:
+        logger.warning("[turnstile] siteverify returned non-JSON body — denying: %s", e.__class__.__name__)
+        return False
+    if not isinstance(data, dict):
+        logger.warning("[turnstile] siteverify returned non-dict JSON — denying")
+        return False
     ok = bool(data.get("success"))
     if not ok:
         # error-codes is a list like ["invalid-input-response", "timeout-or-duplicate"]

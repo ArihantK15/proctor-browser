@@ -236,6 +236,12 @@
              autocomplete="tel">
     </div>
 
+    <label class="acct-toggle" id="have-account-row" style="display:flex;align-items:center;gap:10px;margin:4px 0 16px;cursor:pointer;font-size:13px;color:var(--muted);user-select:none">
+      <input type="checkbox" id="have-account" data-action="toggleHaveAccount"
+             style="width:16px;height:16px;accent-color:var(--blue-500,#5b8af0);cursor:pointer">
+      <span>I already have a Procta account &mdash; just enrol me for this exam</span>
+    </label>
+
     <div class="divider" id="pwd-divider"><span>Account password</span></div>
 
     <div id="pwd-section">
@@ -254,7 +260,7 @@
     </div>
     <div id="pwd-skipped" style="display:none;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:8px;padding:12px 16px;margin-bottom:16px">
       <p style="color:var(--emerald);font-size:13px;font-weight:600;margin:0">
-        Account found for this email — you're all set. Just register and sign in with your existing password in the app.
+        No new password needed — we'll enrol you for this exam. Sign in with your existing Procta email and password in the app.
       </p>
     </div>
 

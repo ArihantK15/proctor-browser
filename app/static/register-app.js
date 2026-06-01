@@ -130,7 +130,6 @@ function showRegistrationForm(){
 }
 
 let _createAccount = true;
-let _lastCheckedEmail = '';
 
 function clearErr(){
   document.getElementById('reg-err').textContent='';
@@ -146,18 +145,19 @@ function _setAccountMode(needsAccount){
     ? 'Register & Create Account' : 'Register for Exam';
 }
 
-async function checkExistingAccount(){
-  const email = document.getElementById('inp-email').value.trim().toLowerCase();
-  if(!email || !email.includes('@') || email === _lastCheckedEmail) return;
-  _lastCheckedEmail = email;
-  try {
-    const r = await fetchWithTimeout('/api/v1/student/account-exists?email=' + encodeURIComponent(email));
-    if(!r.ok) return;
-    const d = await r.json();
-    _setAccountMode(!d.exists);
-  } catch(e) {
-    // Network error — default to showing password fields
-  }
+// Account existence can no longer be probed by email (that endpoint is an
+// intentional anti-enumeration stub that always says "false"). Instead the
+// student self-declares via the "I already have an account" checkbox, so a
+// returning student is never forced to invent a new password. Kept as a
+// no-op because the email field still references it via data-blur-action.
+function checkExistingAccount(){}
+
+// Self-declared toggle: checked = student already has a Procta account, so we
+// skip account creation and only enrol them for the exam. `this` is the
+// checkbox (the delegated click dispatcher calls it with el as context).
+function toggleHaveAccount(){
+  const cb = document.getElementById('have-account');
+  _setAccountMode(!(cb && cb.checked));  // have-account ⇒ no new account
 }
 
 async function doRegister(){
@@ -188,16 +188,10 @@ async function doRegister(){
   btn.disabled = true;
   document.getElementById('reg-ldr').textContent = 'Checking...';
 
-  // Re-check account existence in case they never blurred the email field
-  try {
-    const chk = await fetchWithTimeout('/api/v1/student/account-exists?email=' + encodeURIComponent(email));
-    if(chk.ok){
-      const d = await chk.json();
-      _setAccountMode(!d.exists);
-    }
-  } catch(e){}
-
-  // Re-validate password after the check
+  // _createAccount reflects the student's self-declared "I already have an
+  // account" choice (toggleHaveAccount). We no longer re-probe an existence
+  // oracle here — doing so always returned false and silently re-forced
+  // account creation even for returning students.
   if(_createAccount){
     if(!isStrongPassword(pwd)){
       document.getElementById('inp-pwd').classList.add('err-border');

@@ -229,6 +229,7 @@ async function _onAuthed(teacher){
   }
   await loadExams();
   refreshAll();
+  _startRosterAutoRefresh();
   // Try SSE for real-time updates; fall back to polling if unavailable
   _connectSSE();
   chatConnect();
@@ -557,6 +558,7 @@ async function doLogout(){
     if(typeof liveData    !== 'undefined') liveData    = [];
     if(typeof resultsData !== 'undefined') resultsData = [];
     if(typeof currentSessionId !== 'undefined') currentSessionId = null;
+    currentTeacherProfile = null;
     currentExamId = null; examsList = [];
     try{ localStorage.removeItem('procta_current_exam'); }catch(_){}
     document.querySelectorAll('#live-body, #results-body').forEach(el=>el.innerHTML='');
@@ -3412,6 +3414,47 @@ async function loadRegisteredCount(){
   }catch(e){}
 }
 
+// ── TEACHER-SIDE ROSTER REFRESH ────────────────────────────────
+// Student registration happens outside the teacher dashboard, so there is
+// no local click event to trigger a refresh. Keep the roster-facing surfaces
+// fresh without touching heavy live monitoring paths: count always refreshes;
+// History and invite rows refresh only when the teacher is looking at them.
+const ROSTER_REFRESH_MS = 15000;
+let _rosterRefreshInFlight = false;
+
+function _activeTabName(){
+  const active = document.querySelector('.tab.active');
+  return active ? active.dataset.tab : '';
+}
+
+function _startRosterAutoRefresh(){
+  if(autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(()=>refreshRosterSurfaces(), ROSTER_REFRESH_MS);
+}
+
+async function refreshRosterSurfaces(opts = {}){
+  if(!currentTeacherProfile) return;
+  if(_loggedOut || _rosterRefreshInFlight) return;
+  if(document.visibilityState === 'hidden' && !opts.force) return;
+  _rosterRefreshInFlight = true;
+  try{
+    const tab = _activeTabName();
+    const jobs = [loadRegisteredCount()];
+    if(tab === 'history'){
+      // Avoid rerendering the table while the teacher is typing a search term.
+      if(!(document.activeElement && document.activeElement.id === 'history-search')){
+        jobs.push(refreshStudentList());
+      }
+    }
+    if(tab === 'tools'){
+      jobs.push(loadInvites());
+    }
+    await Promise.allSettled(jobs);
+  }finally{
+    _rosterRefreshInFlight = false;
+  }
+}
+
 // ── EXAM SCHEDULE ───────────────────────────────────────────────
 async function loadSchedule(){
   try{
@@ -5094,6 +5137,11 @@ function chatNotify(){
 window.addEventListener('focus', ()=>{
   if(chatTitleFlashTimer){ clearInterval(chatTitleFlashTimer); chatTitleFlashTimer=null; }
   document.title = CHAT_TAB_ORIG_TITLE;
+  refreshRosterSurfaces({force:true});
+});
+
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible') refreshRosterSurfaces({force:true});
 });
 
 // ── Safe escape helpers ─────────────────────────────────────────

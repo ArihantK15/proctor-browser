@@ -32,7 +32,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.lock
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           # Pin the minimum supported Node 22 line explicitly: Vite 8,
           # Puppeteer 25, and the React plugin require Node >=22.12.

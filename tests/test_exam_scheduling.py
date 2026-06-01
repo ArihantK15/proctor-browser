@@ -470,6 +470,7 @@ class TestWindowStatus:
                 "teacher_id": "teacher-1",
                 "exam_id": "exam-2",
                 "email": "alice@test.com",
+                "account_id": "student-1",
             }],
             "teachers": [TEACHER],
             "exam_config": [

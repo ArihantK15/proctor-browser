@@ -1377,7 +1377,68 @@ async def student_me(request: Request):
         "id":        account["id"],
         "email":     account["email"],
         "full_name": account["full_name"],
+        "email_reminders_enabled": await _get_student_email_reminders_enabled(str(account["id"])),
     }
+
+
+async def _get_student_email_reminders_enabled(account_id: str) -> bool:
+    """Read the student reminder preference, defaulting to enabled.
+
+    The default-on fallback keeps legacy schemas and old accounts from losing
+    reminders before the migration has run.
+    """
+    try:
+        row = (await _atable("student_accounts")
+               .select("email_reminders_enabled")
+               .eq("id", account_id)
+               .limit(1)
+               .execute()).data or []
+        if not row:
+            return True
+        val = row[0].get("email_reminders_enabled")
+        return True if val is None else bool(val)
+    except Exception as e:
+        msg = str(e).lower()
+        if "email_reminders_enabled" in msg and ("column" in msg or "schema cache" in msg):
+            return True
+        raise
+
+
+@router.get("/api/v1/student/account/preferences")
+@limiter.limit("30/minute")
+async def student_account_preferences(request: Request):
+    account = await require_student_account(request)
+    enabled = await _get_student_email_reminders_enabled(str(account["id"]))
+    return {"email_reminders_enabled": enabled}
+
+
+@router.patch("/api/v1/student/account/preferences")
+@limiter.limit("20/minute")
+async def update_student_account_preferences(request: Request):
+    account = await require_student_account(request)
+    body = await request.json()
+    if "email_reminders_enabled" not in body:
+        raise HTTPException(status_code=400, detail="email_reminders_enabled is required")
+    enabled = bool(body.get("email_reminders_enabled"))
+    try:
+        await (_atable("student_accounts")
+               .update({"email_reminders_enabled": enabled})
+               .eq("id", str(account["id"]))
+               .execute())
+    except Exception as e:
+        msg = str(e).lower()
+        if "email_reminders_enabled" in msg and ("column" in msg or "schema cache" in msg):
+            raise HTTPException(status_code=503, detail="Reminder preferences are not available until the latest migration is applied.")
+        raise
+    await record_auth_event(
+        "preference_updated",
+        request,
+        "student_account",
+        str(account["id"]),
+        account.get("email", ""),
+        {"email_reminders_enabled": enabled},
+    )
+    return {"email_reminders_enabled": enabled}
 
 
 @router.post("/api/v1/student/auth/refresh")
@@ -1472,14 +1533,59 @@ async def student_reauth(request: Request):
     return {"reauth_token": reauth_token, "expires_in_seconds": 300}
 
 
+async def _student_enrollments_for_account(account: dict, email: str, columns: str) -> list[dict]:
+    """Return only enrollments bound to this authenticated student account.
+
+    We still opportunistically claim unlinked rows with the account's verified
+    email so teacher roster imports made after signup appear without a fresh
+    login. After that, reads are account_id-scoped. This prevents stale rows
+    whose email was later edited or bound to another account from leaking into
+    this student's lobby/history.
+    """
+    account_id = str(account.get("id") or "")
+    if not account_id:
+        return []
+
+    if email:
+        try:
+            await (_atable("students")
+                   .update({"account_id": account_id})
+                   .eq("email", email)
+                   .is_("account_id", "null")
+                   .execute())
+        except Exception:
+            _auth_log.debug("student enrollment auto-link failed", exc_info=True)
+
+    try:
+        r = await (_atable("students")
+                   .select(columns)
+                   .eq("account_id", account_id)
+                   .execute())
+        return r.data or []
+    except Exception as e:
+        msg = str(e).lower()
+        if "account_id" in msg and ("column" in msg or "schema cache" in msg):
+            # Legacy schema fallback. Modern production schema has account_id,
+            # so this should only apply to old dev/test databases.
+            if not email:
+                return []
+            r = await (_atable("students")
+                       .select(columns)
+                       .eq("email", email)
+                       .execute())
+            return r.data or []
+        raise
+
+
 @router.get("/api/student/exams")
 @limiter.limit("30/minute")
 async def student_exams(request: Request):
     """Return all exams the authenticated student is enrolled in.
 
-    Looks up the student account from the Bearer token, finds matching
-    enrollments in the ``students`` table by email, then enriches each
-    with exam_config details and session status.
+    Looks up the student account from the Bearer token, claims any
+    still-unlinked rows for the account's email, then lists only rows
+    bound to that account_id before enriching them with exam_config
+    details and session status.
 
     Hardened post-2026-05-31: previously any unhandled exception
     bubbled up as an opaque 500 with no diagnostic; user-reported
@@ -1496,34 +1602,21 @@ async def student_exams(request: Request):
     email = (email_raw or "").strip().lower()
 
     try:
-        # Find all enrollment rows matching this email. The `students`
-        # table has roll_number, teacher_id, and (since the schema was
-        # updated) exam_id. exam_id is read so the lobby can show the
-        # SPECIFIC exam the student registered for, not just whatever
-        # exam_config happens to be first for the teacher.
-        # Optional-column retry handles the legacy schema gracefully.
-        async def _read_enrollments(filter_col: str, filter_val: str):
-            try:
-                r = await _atable("students").select(
-                    "roll_number, teacher_id, exam_id"
-                ).eq(filter_col, filter_val).execute()
-                return r.data or []
-            except Exception as e:
-                msg = str(e).lower()
-                if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
-                    r = await _atable("students").select(
-                        "roll_number, teacher_id"
-                    ).eq(filter_col, filter_val).execute()
-                    return r.data or []
+        # Read account-bound enrollment rows. This keeps student lobby
+        # visibility tied to the authenticated account instead of a raw
+        # email string that may be stale or reused elsewhere.
+        try:
+            enrollments = await _student_enrollments_for_account(
+                account, email, "roll_number, teacher_id, exam_id",
+            )
+        except Exception as e:
+            msg = str(e).lower()
+            if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
+                enrollments = await _student_enrollments_for_account(
+                    account, email, "roll_number, teacher_id",
+                )
+            else:
                 raise
-
-        enrollments = []
-        if email:
-            enrollments = await _read_enrollments("email", email)
-        if not enrollments and account.get("id"):
-            # Fallback to account_id linkage for invite-accepted /
-            # teacher-imported rows with blank or differently-cased email.
-            enrollments = await _read_enrollments("account_id", str(account["id"]))
         if not enrollments:
             return {"exams": []}
     except Exception as e:
@@ -1644,11 +1737,9 @@ async def student_history(request: Request):
     account = await require_student_account(request)
     email = account["email"].strip().lower()
 
-    # Find all enrollment rows matching this email
-    enrollments = (await _atable("students")
-                   .select("roll_number,teacher_id,full_name")
-                   .eq("email", email)
-                   .execute()).data or []
+    enrollments = await _student_enrollments_for_account(
+        account, email, "roll_number,teacher_id,full_name",
+    )
     if not enrollments:
         return {"history": []}
 

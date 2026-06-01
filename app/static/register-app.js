@@ -129,35 +129,9 @@ function showRegistrationForm(){
   loadSchedule();
 }
 
-let _createAccount = true;
-
 function clearErr(){
   document.getElementById('reg-err').textContent='';
   document.querySelectorAll('.err-border').forEach(e=>e.classList.remove('err-border'));
-}
-
-function _setAccountMode(needsAccount){
-  _createAccount = needsAccount;
-  document.getElementById('pwd-divider').style.display = needsAccount ? '' : 'none';
-  document.getElementById('pwd-section').style.display = needsAccount ? '' : 'none';
-  document.getElementById('pwd-skipped').style.display = needsAccount ? 'none' : '';
-  document.getElementById('reg-btn').textContent = needsAccount
-    ? 'Register & Create Account' : 'Register for Exam';
-}
-
-// Account existence can no longer be probed by email (that endpoint is an
-// intentional anti-enumeration stub that always says "false"). Instead the
-// student self-declares via the "I already have an account" checkbox, so a
-// returning student is never forced to invent a new password. Kept as a
-// no-op because the email field still references it via data-blur-action.
-function checkExistingAccount(){}
-
-// Self-declared toggle: checked = student already has a Procta account, so we
-// skip account creation and only enrol them for the exam. `this` is the
-// checkbox (the delegated click dispatcher calls it with el as context).
-function toggleHaveAccount(){
-  const cb = document.getElementById('have-account');
-  _setAccountMode(!(cb && cb.checked));  // have-account ⇒ no new account
 }
 
 async function doRegister(){
@@ -188,31 +162,29 @@ async function doRegister(){
   btn.disabled = true;
   document.getElementById('reg-ldr').textContent = 'Checking...';
 
-  // _createAccount reflects the student's self-declared "I already have an
-  // account" choice (toggleHaveAccount). We no longer re-probe an existence
-  // oracle here — doing so always returned false and silently re-forced
-  // account creation even for returning students.
-  if(_createAccount){
-    if(!isStrongPassword(pwd)){
-      document.getElementById('inp-pwd').classList.add('err-border');
-      document.getElementById('reg-err').textContent='Password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol';
-      btn.disabled = false;
-      document.getElementById('reg-ldr').textContent = '';
-      return;
-    }
-    if(pwd !== pwd2){
-      document.getElementById('inp-pwd2').classList.add('err-border');
-      document.getElementById('reg-err').textContent='Passwords do not match';
-      btn.disabled = false;
-      document.getElementById('reg-ldr').textContent = '';
-      return;
-    }
+  // Everyone sets a password. We do NOT pre-probe whether the email already
+  // has an account — that endpoint is an intentional anti-enumeration stub.
+  // Instead existence is detected automatically from the signup response:
+  // a 409 means a Procta account already exists for this email, so we enrol
+  // the student and point them at sign-in instead of forcing a new account.
+  if(!isStrongPassword(pwd)){
+    document.getElementById('inp-pwd').classList.add('err-border');
+    document.getElementById('reg-err').textContent='Password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol';
+    btn.disabled = false;
+    document.getElementById('reg-ldr').textContent = '';
+    return;
+  }
+  if(pwd !== pwd2){
+    document.getElementById('inp-pwd2').classList.add('err-border');
+    document.getElementById('reg-err').textContent='Passwords do not match';
+    btn.disabled = false;
+    document.getElementById('reg-ldr').textContent = '';
+    return;
   }
 
-  document.getElementById('reg-ldr').textContent = _createAccount
-    ? 'Setting up your account...' : 'Registering...';
+  document.getElementById('reg-ldr').textContent = 'Setting up your account...';
 
-  let accountCreated = false;
+  let existingAccount = false;
 
   try{
     // Step 1: Register (enroll) with teacher
@@ -227,58 +199,51 @@ async function doRegister(){
     }
     const d1 = await r1.json();
 
-    // Step 2: Create student account (only if password was provided)
-    if(_createAccount && pwd){
-      const signupBody = {email:email, password:pwd, full_name:name};
-      if(_turnstileToken) signupBody.captcha_token = _turnstileToken;
-      const r2 = await fetchWithTimeout('/api/v1/student/auth/signup', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(signupBody)
-      });
-      if(r2.ok){
-        accountCreated = true;
-      } else {
-        const err2 = await r2.json().catch(()=>({}));
-        if(r2.status === 409){
-          // Account already exists — not an error, they just didn't know
-          accountCreated = true; // existing account counts
-        } else {
-          const msg = typeof err2.detail === 'object' ? (err2.detail.message || err2.detail.error) : err2.detail;
-          throw new Error(msg || 'Account creation failed');
-        }
-      }
-
-      // Step 3: Auto-login
-      if(accountCreated){
-        try {
-          const r3 = await fetchWithTimeout('/api/v1/student/auth/login', {
-            method: 'POST',
-            credentials: 'include',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({email:email, password:pwd})
-          });
-          if(r3.ok) await r3.json().catch(()=>({}));
-        } catch(loginErr) {
-          console.warn('Auto-login failed:', loginErr);
-        }
-      }
+    // Step 2: Create the student account. A 409 is the automatic "this email
+    // already has an account" signal for a returning student — not an error.
+    const signupBody = {email:email, password:pwd, full_name:name};
+    if(_turnstileToken) signupBody.captcha_token = _turnstileToken;
+    const r2 = await fetchWithTimeout('/api/v1/student/auth/signup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(signupBody)
+    });
+    if(r2.status === 409){
+      existingAccount = true;            // returning student — already registered
+    } else if(!r2.ok){
+      const err2 = await r2.json().catch(()=>({}));
+      const msg = typeof err2.detail === 'object' ? (err2.detail.message || err2.detail.error) : err2.detail;
+      throw new Error(msg || 'Account creation failed');
     }
 
-    // Show success — adapt stepper based on whether account was created
+    // Step 3: Best-effort sign-in with the password they typed. Brand-new
+    // accounts must verify their email first (login returns 403 until then),
+    // so this is allowed to fail quietly — the stepper tells them what to do.
+    try {
+      await fetchWithTimeout('/api/v1/student/auth/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email:email, password:pwd})
+      });
+    } catch(loginErr) {
+      console.warn('Auto-login failed:', loginErr);
+    }
+
+    // Show success — adapt the account step for new vs returning students
     document.getElementById('reg-form').style.display = 'none';
     document.getElementById('reg-success').style.display = 'block';
     document.getElementById('success-roll').textContent = d1.roll_number;
     document.getElementById('success-name').textContent = 'Registered as ' + d1.full_name;
 
-    // If they skipped account creation, update the stepper to reflect that
-    if(!_createAccount || !accountCreated){
-      const acctStep = document.getElementById('step-account');
-      if(acctStep){
-        acctStep.className = 'step current';
-        acctStep.querySelector('.step-icon').innerHTML = '2';
-        acctStep.querySelector('.step-title').textContent = 'Sign in with your existing account';
-        acctStep.querySelector('.step-desc').textContent = 'Open the Procta app and sign in with your email and password.';
+    const acctStep = document.getElementById('step-account');
+    if(acctStep){
+      if(existingAccount){
+        acctStep.querySelector('.step-title').textContent = 'Sign in to your existing account';
+        acctStep.querySelector('.step-desc').textContent = 'You already have a Procta account for this email. Open the app and sign in with your existing password.';
+      } else {
+        acctStep.querySelector('.step-title').textContent = 'Account created';
+        acctStep.querySelector('.step-desc').textContent = 'We sent a 6-digit verification code to your email. Enter it in the app the first time you sign in.';
       }
     }
   }catch(e){

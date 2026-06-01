@@ -75,11 +75,23 @@ def _job_success(job: Job, connection, result, *args, **kwargs):
     log.info("[done] %s args=%s result=%s", job.func_name, job.args, result)
 
 
-def _job_failure(job: Job, connection, typ, value, traceback):
+def _job_failure(job: Job, *exc_info):
+    """Log RQ job failures across RQ 1.x/2.x callback signatures.
+
+    RQ 1.x called handlers as ``(job, connection, exc_type, exc, tb)`` while
+    RQ 2.x calls them as ``(job, exc_type, exc, tb)``. Accept both so registry
+    cleanup cannot crash the worker while processing older failed jobs.
+    """
+    if len(exc_info) == 4:
+        _connection, typ, value, tb = exc_info
+    elif len(exc_info) == 3:
+        typ, value, tb = exc_info
+    else:
+        typ, value, tb = Exception, Exception(f"unexpected RQ failure callback args: {exc_info!r}"), None
     log.error(
         "[fail] %s args=%s exc=%s",
         job.func_name, job.args, value,
-        exc_info=(typ, value, traceback),
+        exc_info=(typ, value, tb),
     )
     if SENTRY_DSN:
         try:
@@ -90,9 +102,15 @@ def _job_failure(job: Job, connection, typ, value, traceback):
                 sentry_sdk.capture_exception(value)
         except Exception:
             pass
+    return True
 
 
-conn = Redis.from_url(redis_url)
+conn = Redis.from_url(
+    redis_url,
+    socket_connect_timeout=float(os.environ.get("REDIS_CONNECT_TIMEOUT", "10")),
+    socket_timeout=float(os.environ.get("REDIS_SOCKET_TIMEOUT", "600")),
+    health_check_interval=int(os.environ.get("REDIS_HEALTH_CHECK_INTERVAL", "30")),
+)
 
 # ── health heartbeat ────────────────────────────────────────────────
 import threading

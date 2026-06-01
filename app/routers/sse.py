@@ -336,17 +336,33 @@ async def _room_cam_offline_check():
             continue  # already flagged
         _ROOM_CAM_OFFLINE_FIRED.add(sid)
 
-        # Fire violation event
+        # Fire violation event — but first look up the session's teacher_id
+        # so the UPDATE and the violations.insert both carry the tenant.
+        # Without this the offline marker would write rows with no
+        # teacher_id (audit-trail gap) and could touch a same-session_key
+        # row that belongs to a different teacher if such a thing ever
+        # existed (FK-violating data; defense-in-depth).
         try:
             from ..database import async_table as _atable
-            await _atable("violations").insert({
+            row = (await _atable("exam_sessions")
+                   .select("teacher_id")
+                   .eq("session_key", sid)
+                   .limit(1).execute()).data or []
+            sess_tid = str(row[0].get("teacher_id") or "") if row else ""
+            viol_row = {
                 "session_key": sid,
                 "violation_type": "room_cam_offline",
                 "severity": "medium",
                 "details": "Room camera disconnected for >20s — phone may have gone offline",
-            }).execute()
-            await _atable("exam_sessions").update({"room_cam_status": "offline"})\
-                .eq("session_key", sid).execute()
+            }
+            if sess_tid:
+                viol_row["teacher_id"] = sess_tid
+            await _atable("violations").insert(viol_row).execute()
+            upd = _atable("exam_sessions").update({"room_cam_status": "offline"})\
+                .eq("session_key", sid)
+            if sess_tid:
+                upd = upd.eq("teacher_id", sess_tid)
+            await upd.execute()
             logger.warning("[room_cam_offline] session=%s marked offline", sid)
         except Exception as e:
             logger.error("[room_cam_offline] failed to record violation for %s: %s", sid, e)
@@ -515,11 +531,22 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
     # Start the room camera offline detection background loop
     _room_cam_ensure_offline_detection()
 
-    # Update DB: mark room cam as active
+    # Update DB: mark room cam as active. Look the teacher_id up once
+    # from the session row so this UPDATE and the matching "offline"
+    # transition on disconnect (below) both carry tenant scope.
+    sess_teacher_id = ""
     try:
         from ..database import async_table as _atable
-        await _atable("exam_sessions").update({"room_cam_status": "pending"})\
-            .eq("session_key", session_id).execute()
+        sess_row = (await _atable("exam_sessions")
+                    .select("teacher_id")
+                    .eq("session_key", session_id)
+                    .limit(1).execute()).data or []
+        sess_teacher_id = str(sess_row[0].get("teacher_id") or "") if sess_row else ""
+        upd = _atable("exam_sessions").update({"room_cam_status": "pending"})\
+            .eq("session_key", session_id)
+        if sess_teacher_id:
+            upd = upd.eq("teacher_id", sess_teacher_id)
+        await upd.execute()
     except Exception:
         logger.warning("sse: room_cam_status='pending' update failed", exc_info=True)
 
@@ -557,11 +584,16 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
         if hasattr(_store_room_frame, "_last_ts"):
             _store_room_frame._last_ts.pop(session_id, None)
         _last_live_frame_ts.pop(session_id, None)
-        # Mark room cam as offline in DB
+        # Mark room cam as offline in DB. sess_teacher_id was captured
+        # on the connect side; if it was unavailable then, the WHERE
+        # falls back to session_key alone.
         try:
             from ..database import async_table as _atable
-            await _atable("exam_sessions").update({"room_cam_status": "offline"})\
-                .eq("session_key", session_id).execute()
+            upd = _atable("exam_sessions").update({"room_cam_status": "offline"})\
+                .eq("session_key", session_id)
+            if sess_teacher_id:
+                upd = upd.eq("teacher_id", sess_teacher_id)
+            await upd.execute()
         except Exception:
             logger.warning("sse: room_cam_status='offline' update failed", exc_info=True)
 

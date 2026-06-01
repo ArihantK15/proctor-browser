@@ -247,7 +247,11 @@ async def validate_id_token(id_token: str, state: str) -> dict:
     # attempted attack worth logging.
     header_alg = header.get("alg", "")
     if header_alg and header_alg != "RS256":
-        logger.warning("lti: rejecting non-RS256 id_token alg=%s kid=%s",
+        # header_alg is the JWT algorithm identifier (e.g., "HS256"),
+        # not a credential. Semgrep's logger-credential-leak heuristic
+        # over-fires on the "alg" identifier.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+        logger.warning("lti: rejecting non-RS256 id_token algorithm=%s kid=%s",
                        safe(header_alg), safe(kid))
         raise ValueError(f"Unsupported JWT algorithm: {header_alg}")
 

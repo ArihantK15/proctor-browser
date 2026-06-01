@@ -365,6 +365,7 @@ ipcMain.handle('validate-student', async (event, roll, accessCode) => {
   if (!_assertMainFrame(event, 'validate-student')) throw new Error('Frame not allowed');
   const body = { roll_number: roll, access_code: accessCode || '' };
   if (getExamContext() && getExamContext().examId) body.exam_id = getExamContext().examId;
+  if (getExamContext() && getExamContext().teacherId) body.teacher_id = getExamContext().teacherId;
   const r = await fetchWithTimeout(`${SERVER_URL}/api/v1/validate-student`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

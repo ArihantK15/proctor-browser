@@ -298,6 +298,19 @@ async def register_student(request: Request, body: RegisterIn):
     if not teacher:
         raise HTTPException(status_code=404, detail="Unknown teacher")
     teacher_id = str(teacher["id"])
+    exam_id_from_body = (body.exam_id or "").strip() if body.exam_id else ""
+    if exam_id_from_body:
+        exam = (await _atable("exam_config")
+                .select("exam_id")
+                .eq("teacher_id", teacher_id)
+                .eq("exam_id", exam_id_from_body)
+                .limit(1)
+                .execute()).data or []
+        if not exam:
+            raise HTTPException(
+                status_code=404,
+                detail="This registration link does not match an exam owned by this teacher.",
+            )
 
     existing = await _atable("students").select("roll_number").eq("roll_number", roll).eq("teacher_id", teacher_id).execute()
     if existing.data:
@@ -326,7 +339,6 @@ async def register_student(request: Request, body: RegisterIn):
     # Falls back to teacher-only enrollment if the column doesn't
     # exist on the legacy schema — handled by the optional-column retry
     # below.
-    exam_id_from_body = (body.exam_id or "").strip() if body.exam_id else ""
     if exam_id_from_body:
         row["exam_id"] = exam_id_from_body
     try:

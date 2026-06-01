@@ -106,7 +106,12 @@ async def room_cam_start(session_id: str, request: Request):
 
     # Audit log: if viewing post-exam room cam, record the access
     from ..database import async_table as _atable
-    sess = await _atable("exam_sessions").select("status").eq("session_key", session_id).limit(1).execute()
+    sess = await (_atable("exam_sessions")
+                  .select("status")
+                  .eq("session_key", session_id)
+                  .eq("teacher_id", tid)
+                  .limit(1)
+                  .execute())
     sess_data = sess.data[0] if sess.data else {}
     if sess_data.get("status") in ("completed", "submitted", "force_submitted"):
         await _atable("violations").insert({
@@ -175,7 +180,7 @@ async def room_cam_approve(session_id: str, request: Request):
     await _atable("exam_sessions").update({
         "room_cam_status": "approved",
         "room_cam_approved_at": now_ist().isoformat(),
-    }).eq("session_key", session_id).execute()
+    }).eq("session_key", session_id).eq("teacher_id", tid).execute()
     return {"ok": True, "status": "approved"}
 
 
@@ -188,7 +193,7 @@ async def room_cam_reject(session_id: str, request: Request):
     from ..database import async_table as _atable
     await _atable("exam_sessions").update({
         "room_cam_status": "rejected",
-    }).eq("session_key", session_id).execute()
+    }).eq("session_key", session_id).eq("teacher_id", tid).execute()
     return {"ok": True, "status": "rejected"}
 
 
@@ -199,7 +204,12 @@ async def room_cam_status(session_id: str, request: Request):
     tid = str(teacher["id"])
     await _assert_session_owned(session_id, tid)
     from ..database import async_table as _atable
-    row = await _atable("exam_sessions").select("room_cam_status,room_cam_approved_at").eq("session_key", session_id).limit(1).execute()
+    row = await (_atable("exam_sessions")
+                 .select("room_cam_status,room_cam_approved_at")
+                 .eq("session_key", session_id)
+                 .eq("teacher_id", tid)
+                 .limit(1)
+                 .execute())
     data = row.data[0] if row.data else {}
     return {"status": data.get("room_cam_status", "disabled"), "approved_at": data.get("room_cam_approved_at")}
 

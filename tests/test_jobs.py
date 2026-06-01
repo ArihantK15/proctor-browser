@@ -225,7 +225,13 @@ class TestEmailJobFunctions:
                 to_email="a@b.com", to_name="Alice",
                 exam_title="Midterm", invite_url="https://example.com/invite/abc",
                 download_url="https://example.com/download",
-                roll_number="R001", teacher_name="Prof",
+                roll_number="R001",
+                registration_url="https://example.com/register?t=t1&e=e1",
+                access_code="ABC123",
+                exam_starts_at="1 Jan, 10:00",
+                exam_ends_at="1 Jan, 11:00",
+                custom_message="Be on time.",
+                teacher_name="Prof",
             )
             assert result["ok"] is True
             assert result["provider_msg_id"] == "msg-1"
@@ -233,7 +239,13 @@ class TestEmailJobFunctions:
                 to_email="a@b.com", to_name="Alice",
                 exam_title="Midterm", invite_url="https://example.com/invite/abc",
                 download_url="https://example.com/download",
-                roll_number="R001", teacher_name="Prof",
+                roll_number="R001",
+                registration_url="https://example.com/register?t=t1&e=e1",
+                access_code="ABC123",
+                exam_starts_at="1 Jan, 10:00",
+                exam_ends_at="1 Jan, 11:00",
+                custom_message="Be on time.",
+                teacher_name="Prof",
             )
 
     def test_send_invite_email_job_failure(self):

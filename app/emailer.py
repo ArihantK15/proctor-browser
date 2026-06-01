@@ -61,6 +61,7 @@ def send_invite_email(
     invite_url: str,
     download_url: str,
     roll_number: str,
+    registration_url: Optional[str] = None,
     access_code: Optional[str] = None,
     exam_starts_at: Optional[str] = None,
     exam_ends_at: Optional[str] = None,
@@ -76,6 +77,7 @@ def send_invite_email(
         invite_url=invite_url,
         download_url=download_url,
         roll_number=roll_number,
+        registration_url=registration_url,
         access_code=access_code,
         exam_starts_at=exam_starts_at,
         exam_ends_at=exam_ends_at,
@@ -928,6 +930,7 @@ def _render_invite(**ctx) -> tuple[str, str]:
     exam_title     = ctx.get("exam_title") or "Your exam"
     invite_url     = ctx["invite_url"]
     download_url   = ctx.get("download_url") or "https://procta.net/download"
+    registration_url = ctx.get("registration_url") or ""
     roll_number    = ctx.get("roll_number") or ""
     access_code    = ctx.get("access_code")
     exam_starts_at = ctx.get("exam_starts_at") or ""
@@ -950,6 +953,9 @@ def _render_invite(**ctx) -> tuple[str, str]:
     if exam_ends_at:
         text_lines.append(f"Ends:   {exam_ends_at}")
     text_lines += [
+        "",
+        "Register for this exact exam:",
+        f"  {registration_url}" if registration_url else "  Use the invite page below.",
         "",
         "Open your invite page to join:",
         f"  {invite_url}",
@@ -987,6 +993,16 @@ def _render_invite(**ctx) -> tuple[str, str]:
         f'</div>'
         if custom_message else ""
     )
+    registration_block = (
+        f'<div style="margin:18px 0 0 0;padding:14px 16px;background:#eff6ff;'
+        f'border:1px solid #bfdbfe;border-radius:10px;color:#1e3a8a;font-size:13px;line-height:1.55;">'
+        f'<div style="font-weight:700;margin-bottom:4px;color:#1d4ed8;">Exam registration link</div>'
+        f'<div style="margin-bottom:10px;">Use this link if you have not registered on Procta for this exam yet.</div>'
+        f'<a href="{_esc(registration_url)}" style="color:#1d4ed8;font-weight:700;text-decoration:none;">'
+        f'{_esc(registration_url)}</a>'
+        f'</div>'
+        if registration_url else ""
+    )
 
     html = f"""\
 <!doctype html>
@@ -1015,6 +1031,7 @@ def _render_invite(**ctx) -> tuple[str, str]:
             {ends_block}
           </div>
           {message_block}
+          {registration_block}
           <div style="margin:20px 0;">
             <a href="{_esc(invite_url)}"
                style="display:inline-block;background:#10b981;color:#ffffff;text-decoration:none;

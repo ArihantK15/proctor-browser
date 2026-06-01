@@ -120,6 +120,20 @@ def _invite_download() -> str:
   </div>"""
 
 
+def _invite_registration(registration_url: str) -> str:
+    if not registration_url:
+        return ""
+    e = _html_escape
+    return f"""<div class="card">
+    <h2>Need to register first?</h2>
+    <div class="step-desc" style="margin-bottom:12px">
+      If this is your first time taking this exam, register with the exact exam link below.
+      After that, come back here and click <b>Open in Procta app</b>.
+    </div>
+    <a class="dlbtn alt" href="{e(registration_url)}">Register for this exam</a>
+  </div>"""
+
+
 def _invite_steps(has_code: bool) -> str:
     code_line = " and access code" if has_code else ""
     return f"""<div class="card">
@@ -135,11 +149,12 @@ def _invite_steps(has_code: bool) -> str:
   </div>"""
 
 
-def _render_invite_landing(*, token, full_name, exam_title, roll_number, access_code, starts_at, ends_at) -> str:
+def _render_invite_landing(*, token, full_name, exam_title, roll_number, access_code, starts_at, ends_at, registration_url="") -> str:
     e = _html_escape
     hero = _invite_hero(exam_title, full_name)
     creds = _invite_credentials(roll_number, access_code, starts_at or "", ends_at or "")
     dl = _invite_download()
+    reg = _invite_registration(registration_url)
     steps = _invite_steps(bool(access_code))
     return f"""<!doctype html>
 <html><head><meta charset="utf-8">
@@ -172,6 +187,7 @@ def _render_invite_landing(*, token, full_name, exam_title, roll_number, access_
     </p>
   </div>
   {creds}
+  {reg}
   {dl}
   {steps}
   <footer style="margin-top:48px;padding:16px 0;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid rgba(255,255,255,0.06)">

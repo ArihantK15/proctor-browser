@@ -235,9 +235,10 @@ class TestSendInvites:
             "full_name": "Alice", "email": "alice@school.edu",
         }])
         patches = _patch(stub)
+        expires_at = _iso(datetime.now(timezone.utc) + timedelta(days=2))
         with patches[0] as mock_table, patches[1], \
              patch("app.routers.admin_invites.send_invite_email_job",
-                   return_value={"ok": True, "provider_msg_id": "msg-alice-1", "error": None}):
+                   return_value={"ok": True, "provider_msg_id": "msg-alice-1", "error": None}) as mock_send:
             mock_table.side_effect = stub
             r = client.post("/api/v1/admin/invites/send",
                 headers=admin_headers,
@@ -248,6 +249,8 @@ class TestSendInvites:
                     ],
                     "exam_id": "exam-1",
                     "custom_message": "Good luck!",
+                    "per_invite_code": True,
+                    "expires_at": expires_at,
                 })
         assert r.status_code == 200, r.text
         d = r.json()
@@ -259,6 +262,12 @@ class TestSendInvites:
         assert inv["provider_msg_id"] == "msg-alice-1"
         assert inv["custom_message"] == "Good luck!"
         assert inv["email"] == "alice@school.edu"
+        assert inv["expires_at"] == expires_at
+        assert inv["access_code"] and len(inv["access_code"]) == 6
+        sent_kwargs = mock_send.call_args.kwargs
+        assert sent_kwargs["registration_url"] == "https://app.procta.net/register?t=teacher-1&e=exam-1"
+        assert sent_kwargs["access_code"] == inv["access_code"]
+        assert sent_kwargs["custom_message"] == "Good luck!"
 
     def test_resend_is_idempotent(self, client, admin_headers):
         """Two sends to the same (teacher, email, exam) must upsert —
@@ -379,6 +388,7 @@ class TestInviteLanding:
         assert "Alice" in r.text
         assert "ALICE01" in r.text
         assert "HAPPY1" in r.text, "per-invite access code must appear on the landing page"
+        assert "/register?t=teacher-1&amp;e=exam-1" in r.text
         assert 'href="procta://invite/tok-open-1"' in r.text
         assert "onclick=" not in r.text
         assert '<script src="/static/invite-landing.js" defer></script>' in r.text

@@ -16,13 +16,21 @@ def send_invite_email_job(
     invite_url: str,
     download_url: str,
     roll_number: str,
+    registration_url: Optional[str] = None,
+    access_code: Optional[str] = None,
+    exam_starts_at: Optional[str] = None,
+    exam_ends_at: Optional[str] = None,
+    custom_message: Optional[str] = None,
     teacher_name: Optional[str] = None,
 ) -> dict:
     from .. import emailer
     result = emailer.send_invite_email(
         to_email=to_email, to_name=to_name, exam_title=exam_title,
         invite_url=invite_url, download_url=download_url,
-        roll_number=roll_number, teacher_name=teacher_name,
+        roll_number=roll_number, registration_url=registration_url,
+        access_code=access_code, exam_starts_at=exam_starts_at,
+        exam_ends_at=exam_ends_at, custom_message=custom_message,
+        teacher_name=teacher_name,
     )
     return {
         "ok": result.ok,

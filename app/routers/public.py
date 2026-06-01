@@ -623,6 +623,7 @@ async def invite_landing(token: str, request: Request):
         access_code=inv.get("access_code") or "",
         starts_at=fmt_ist(exam_cfg.get("starts_at")) if exam_cfg.get("starts_at") else "",
         ends_at=fmt_ist(exam_cfg.get("ends_at")) if exam_cfg.get("ends_at") else "",
+        registration_url=f"{_get_invite_base_url()}/register?t={inv.get('teacher_id')}&e={inv.get('exam_id')}" if inv.get("teacher_id") and inv.get("exam_id") else "",
     ))
 
 
@@ -649,10 +650,14 @@ async def resolve_invite(token: str):
             # Malformed expiry timestamp — fail closed (reject)
             raise HTTPException(status_code=410, detail="Invite expired")
 
+    exam_cfg = await _load_exam_config(inv.get("teacher_id"), exam_id=inv.get("exam_id")) \
+        if inv.get("exam_id") else {}
+
     return {
         "ok":          True,
         "status":      inv.get("status"),
         "exam_id":     inv.get("exam_id"),
+        "exam_title":  (exam_cfg.get("exam_title") if isinstance(exam_cfg, dict) else None) or "",
         "roll_number": inv.get("roll_number"),
         "email":       inv.get("email"),
         "full_name":   inv.get("full_name"),

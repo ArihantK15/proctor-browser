@@ -8,7 +8,7 @@ from ..auth import require_admin
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_exam_config as _load_exam_config, load_questions as _load_questions
-from ..invites import _get_invite_base_url, _new_invite_token, _claim_and_bump_cap
+from ..invites import _get_invite_base_url, _new_invite_token, _new_access_code, _claim_and_bump_cap
 from ..utils import now_ist, fmt_ist
 from ..models import InviteStatus
 from ..limiter import limiter
@@ -18,6 +18,10 @@ from ..models import SendInvitesBody, SaveTemplateIn
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
+
+
+def _exam_registration_url(base_url: str, teacher_id: str, exam_id: str) -> str:
+    return f"{base_url}/register?t={teacher_id}&e={exam_id}"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -73,6 +77,7 @@ async def _mint_and_send_invite_for_student(
     token = _new_invite_token()
     invite_url = f"{base_url}/invite/{token}"
     download_url = f"{base_url}/download"
+    registration_url = _exam_registration_url(base_url, tid, exam_id)
 
     invite_row = {
         "id": _uuid.uuid4(),
@@ -128,6 +133,8 @@ async def _mint_and_send_invite_for_student(
         invite_url=invite_url,
         download_url=download_url,
         roll_number=roll,
+        registration_url=registration_url,
+        custom_message=custom_message,
         teacher_name=teacher.get("email"),
     )
     provider_msg_id = (send_result or {}).get("provider_msg_id")
@@ -184,7 +191,11 @@ async def send_invites(body: SendInvitesBody, request: Request):
     exam_cfg = (await _atable("exam_config")
                 .select("*")
                 .eq("teacher_id", tid).eq("exam_id", body.exam_id).execute()).data
-    exam_title = exam_cfg[0].get("exam_title", body.exam_id) if exam_cfg else body.exam_id
+    cfg = exam_cfg[0] if exam_cfg else {}
+    exam_title = cfg.get("exam_title", body.exam_id) if cfg else body.exam_id
+    registration_url = _exam_registration_url(base_url, tid, body.exam_id)
+    starts_at = fmt_ist(cfg.get("starts_at")) if cfg.get("starts_at") else None
+    ends_at = fmt_ist(cfg.get("ends_at")) if cfg.get("ends_at") else None
 
     results = {"sent": 0, "failed": 0, "skipped": 0, "failures": []}
     for rec in body.recipients:
@@ -192,6 +203,7 @@ async def send_invites(body: SendInvitesBody, request: Request):
         token = _new_invite_token()
         invite_url = f"{base_url}/invite/{token}"
         download_url = f"{base_url}/download"
+        access_code = _new_access_code() if body.per_invite_code else None
 
         invite_row = {
             "id": _uuid.uuid4(),
@@ -203,8 +215,9 @@ async def send_invites(body: SendInvitesBody, request: Request):
             "token": token,
             "status": InviteStatus.QUEUED,
             "sent_at": None,
-            "access_code": None,
+            "access_code": access_code,
             "custom_message": body.custom_message,
+            "expires_at": body.expires_at,
         }
 
         # Avoid relying on a deployment-specific UNIQUE constraint for
@@ -235,6 +248,11 @@ async def send_invites(body: SendInvitesBody, request: Request):
             invite_url=invite_url,
             download_url=download_url,
             roll_number=rec.roll_number,
+            registration_url=registration_url,
+            access_code=access_code,
+            exam_starts_at=starts_at,
+            exam_ends_at=ends_at,
+            custom_message=body.custom_message,
             teacher_name=teacher.get("email"),
         )
         provider_msg_id = (send_result or {}).get("provider_msg_id")

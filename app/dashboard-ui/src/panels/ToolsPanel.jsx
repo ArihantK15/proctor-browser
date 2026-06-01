@@ -152,7 +152,7 @@ export default function ToolsPanel({ currentExamId }) {
 
   const appUrl = import.meta.env.VITE_APP_URL || 'https://app.procta.net'
   const teacherId = (user && (user.id || user.teacher_id || user.sub)) || ''
-  const shareUrl = `${appUrl}/register?teacher_id=${encodeURIComponent(teacherId)}`
+  const shareUrl = `${appUrl}/register?t=${encodeURIComponent(teacherId)}&e=${encodeURIComponent(currentExamId)}`
   const downloadUrl = `${appUrl}/download`
 
   return (

@@ -258,6 +258,35 @@
     <div class="loading" id="reg-ldr"></div>
   </div>
 
+  <!-- OTP verification card. Shown between the register form and the
+       success card when the signup API returned verify_required=true.
+       Verifying here (vs inside the desktop app later) means the OTP
+       still has time on its 10-minute TTL when the user submits it. -->
+  <div class="form-card" id="otp-card" style="display:none">
+    <h2 style="font-size:16px;font-weight:700;color:var(--text);margin:0 0 4px">Verify your email</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 20px">
+      We sent a 6-digit code to <strong id="otp-email-display" style="color:var(--text)"></strong>.
+      Enter it below to finish setting up your account.
+    </p>
+    <div class="fg">
+      <label>Verification code</label>
+      <input type="text" id="otp-code-input"
+             inputmode="numeric" autocomplete="one-time-code"
+             maxlength="6" placeholder="6-digit code"
+             style="text-align:center;font-family:monospace;letter-spacing:8px;font-size:18px;font-weight:700"
+             data-input-action="_otpDigitsOnly"
+             data-keydown-action="doVerifyOtp" data-keydown-key="Enter">
+    </div>
+    <button class="submit-btn" id="otp-verify-btn" data-action="doVerifyOtp">Verify & Continue</button>
+    <div class="err-msg" id="otp-err"></div>
+    <div class="loading" id="otp-ldr"></div>
+    <p style="font-size:12px;color:var(--muted);margin-top:12px;text-align:center">
+      Didn't get the code?
+      <a href="#" id="otp-resend-link" data-action="doResendOtp" style="color:var(--accent-light);text-decoration:none;font-weight:600">Resend it</a>
+      <span id="otp-resend-status" style="margin-left:6px;color:var(--emerald)"></span>
+    </p>
+  </div>
+
   <!-- Success card with progress stepper -->
   <div class="success-card" id="reg-success">
     <div class="success-check">
@@ -285,11 +314,20 @@
         </div>
         <div class="step-content">
           <div class="step-title">Account created</div>
-          <div class="step-desc">You can sign in at any time to check your exams.</div>
+          <div class="step-desc">Your Procta login is ready.</div>
+        </div>
+      </div>
+      <div class="step done" id="step-verified">
+        <div class="step-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="step-content">
+          <div class="step-title">Email verified</div>
+          <div class="step-desc">Your inbox is confirmed — no extra steps inside the app.</div>
         </div>
       </div>
       <div class="step current" id="step-download">
-        <div class="step-icon">3</div>
+        <div class="step-icon">4</div>
         <div class="step-content">
           <div class="step-title">Download the Procta app</div>
           <div class="step-desc">You'll need the app on exam day. Install it ahead of time.</div>
@@ -299,7 +337,7 @@
         </div>
       </div>
       <div class="step" id="step-exam">
-        <div class="step-icon">4</div>
+        <div class="step-icon">5</div>
         <div class="step-content">
           <div class="step-title">Take the exam</div>
           <div class="step-desc">Open the app, sign in, and start when your teacher provides the access code.</div>

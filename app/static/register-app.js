@@ -216,41 +216,127 @@ async function doRegister(){
       throw new Error(msg || 'Account creation failed');
     }
 
-    // Step 3: Best-effort sign-in with the password they typed. Brand-new
-    // accounts must verify their email first (login returns 403 until then),
-    // so this is allowed to fail quietly — the stepper tells them what to do.
-    try {
-      await fetchWithTimeout('/api/v1/student/auth/login', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email:email, password:pwd})
-      });
-    } catch(loginErr) {
-      console.warn('Auto-login failed:', loginErr);
+    // Returning student (409): account already exists, so it's already
+    // verified — skip the OTP step and jump straight to the success
+    // card with the "sign in to your existing account" copy.
+    if(existingAccount){
+      _showSuccessCard(d1, /*existingAccount=*/true);
+      return;
     }
 
-    // Show success — adapt the account step for new vs returning students
+    // Brand-new account: backend just emailed a 6-digit OTP. Show the
+    // OTP card so the student verifies WHILE the code is still fresh
+    // (10-minute TTL). Without this, they'd close the tab, download the
+    // app, install, open, attempt sign-in, get a 403 EMAIL_VERIFICATION
+    // _REQUIRED, and only THEN see an OTP prompt — by which point the
+    // code may have already expired and they'd have to request a resend.
+    _pendingSignupEmail = email;
+    _pendingRegInfo = d1;
     document.getElementById('reg-form').style.display = 'none';
-    document.getElementById('reg-success').style.display = 'block';
-    document.getElementById('success-roll').textContent = d1.roll_number;
-    document.getElementById('success-name').textContent = 'Registered as ' + d1.full_name;
-
-    const acctStep = document.getElementById('step-account');
-    if(acctStep){
-      if(existingAccount){
-        acctStep.querySelector('.step-title').textContent = 'Sign in to your existing account';
-        acctStep.querySelector('.step-desc').textContent = 'You already have a Procta account for this email. Open the app and sign in with your existing password.';
-      } else {
-        acctStep.querySelector('.step-title').textContent = 'Account created';
-        acctStep.querySelector('.step-desc').textContent = 'We sent a 6-digit verification code to your email. Enter it in the app the first time you sign in.';
-      }
-    }
+    document.getElementById('otp-card').style.display = 'block';
+    document.getElementById('otp-email-display').textContent = email;
+    document.getElementById('otp-err').textContent = '';
+    document.getElementById('otp-resend-status').textContent = '';
+    const otpInput = document.getElementById('otp-code-input');
+    if(otpInput){ otpInput.value = ''; setTimeout(()=>otpInput.focus(), 50); }
   }catch(e){
     document.getElementById('reg-err').textContent = e.message;
     btn.disabled = false;
   }
   document.getElementById('reg-ldr').textContent = '';
+}
+
+// ── OTP verification (post-signup, inline on the register page) ──────
+let _pendingSignupEmail = '';
+let _pendingRegInfo = null;
+
+function _otpDigitsOnly(){
+  this.value = (this.value || '').replace(/\D/g, '').slice(0, 6);
+  const err = document.getElementById('otp-err');
+  if(err) err.textContent = '';
+}
+
+function _showSuccessCard(regInfo, existingAccount){
+  document.getElementById('reg-form').style.display = 'none';
+  document.getElementById('otp-card').style.display = 'none';
+  document.getElementById('reg-success').style.display = 'block';
+  if(regInfo){
+    document.getElementById('success-roll').textContent = regInfo.roll_number || '';
+    document.getElementById('success-name').textContent = 'Registered as ' + (regInfo.full_name || '');
+  }
+  // Returning students don't go through the OTP step (they're already
+  // verified), so the "Email verified" step should be reframed as
+  // "Use your existing password" to match their actual experience.
+  if(existingAccount){
+    const acctStep = document.getElementById('step-account');
+    if(acctStep){
+      acctStep.querySelector('.step-title').textContent = 'Existing account detected';
+      acctStep.querySelector('.step-desc').textContent = 'You already have a Procta account for this email.';
+    }
+    const verifyStep = document.getElementById('step-verified');
+    if(verifyStep){
+      verifyStep.querySelector('.step-title').textContent = 'Sign in with your existing password';
+      verifyStep.querySelector('.step-desc').textContent = 'No new verification needed — your account is already active.';
+    }
+  }
+}
+
+async function doVerifyOtp(){
+  const code = (document.getElementById('otp-code-input').value || '').replace(/\D/g, '');
+  const errEl = document.getElementById('otp-err');
+  const ldr = document.getElementById('otp-ldr');
+  const btn = document.getElementById('otp-verify-btn');
+  errEl.textContent = '';
+  if(code.length !== 6){
+    errEl.textContent = 'Enter the 6-digit code from your email.';
+    return;
+  }
+  btn.disabled = true; ldr.textContent = 'Verifying...';
+  try{
+    const r = await fetchWithTimeout('/api/v1/student/auth/verify-signup-otp', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email: _pendingSignupEmail, code}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      const msg = (typeof d.detail === 'object' ? d.detail.message : d.detail) || 'Invalid or expired code.';
+      throw new Error(msg);
+    }
+    _showSuccessCard(_pendingRegInfo, /*existingAccount=*/false);
+  }catch(e){
+    errEl.textContent = e.message || 'Could not verify the code.';
+    btn.disabled = false;
+  }finally{
+    ldr.textContent = '';
+  }
+}
+
+async function doResendOtp(){
+  const status = document.getElementById('otp-resend-status');
+  const errEl = document.getElementById('otp-err');
+  status.textContent = '';
+  errEl.textContent = '';
+  if(!_pendingSignupEmail){
+    errEl.textContent = 'Cannot resend — please restart registration.';
+    return;
+  }
+  try{
+    const r = await fetchWithTimeout('/api/v1/student/auth/resend-signup-otp', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email: _pendingSignupEmail}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      const msg = (typeof d.detail === 'object' ? d.detail.message : d.detail) || 'Could not resend the code.';
+      throw new Error(msg);
+    }
+    status.textContent = 'New code sent — check your inbox.';
+    setTimeout(()=>{ status.textContent = ''; }, 6000);
+  }catch(e){
+    errEl.textContent = e.message || 'Could not resend the code.';
+  }
 }
 
 function isStrongPassword(password) {

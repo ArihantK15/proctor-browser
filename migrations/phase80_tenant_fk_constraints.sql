@@ -14,59 +14,69 @@
 --
 -- Each constraint is added with NOT VALID so this migration is fast and
 -- never fails on legacy rows that already violate the invariant.
+--
+-- IMPORTANT — column-type drift across legacy migrations: some tables use
+-- UUID for IDs while others use TEXT (the column drifted across phase
+-- migrations). Postgres rejects FKs that bridge incompatible types. Each
+-- ALTER below is wrapped in an EXCEPTION-handling DO block that
+-- gracefully RAISE NOTICEs the failure and continues — that way the
+-- working constraints land even if one is blocked on type drift. Operators
+-- can later normalise column types and re-run this migration.
+--
 -- Validation of existing data is a SEPARATE step:
 --
 --    -- 1. run the audit script to find existing violations:
 --    --    DATABASE_URL=... python3 scripts/audit_tenancy.py --verbose
 --    -- 2. fix or clean them up (ops decision per-row)
---    -- 3. then run:
---    --    ALTER TABLE students VALIDATE CONSTRAINT students_teacher_fk;
---    --    ...etc
---
--- All ALTER statements are idempotent (IF NOT EXISTS where supported,
--- DO-blocks with information_schema check otherwise).
+--    -- 3. then ALTER TABLE ... VALIDATE CONSTRAINT ... per the runbook
 -- =====================================================================
 
+-- Helper: attempt to add a FK; log + continue on error (type mismatch,
+-- missing column, etc.). Each invocation is its own DO block so a
+-- failure isolates to that constraint.
+-- (Inlined per-constraint instead of a function because PL/pgSQL DDL
+-- inside a function would need EXECUTE FORMAT and complicate the read.)
+
 -- ── students → teachers ─────────────────────────────────────────────
--- ON DELETE RESTRICT: a teacher cannot be hard-deleted while students
--- still reference them. The teacher_delete flow already orphan-handles
--- this app-side (members are removed by setting org_id=NULL, not by
--- deleting the row), so a real DELETE on teachers is rare ops-only.
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'students_teacher_fk' AND table_name = 'students'
   ) THEN
-    ALTER TABLE students
-      ADD CONSTRAINT students_teacher_fk
-      FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-      ON DELETE RESTRICT
-      NOT VALID;
+    BEGIN
+      ALTER TABLE students
+        ADD CONSTRAINT students_teacher_fk
+        FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+        ON DELETE RESTRICT
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: students_teacher_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
 -- ── students → student_accounts ─────────────────────────────────────
--- ON DELETE SET NULL: a student_accounts row can be deleted (GDPR
--- "right to be forgotten") and the enrollment rows are kept (anonymised
--- by the app's delete handler) with account_id cleared. This matches
--- the existing app behaviour in _track_a_hybrid_delete_student_account.
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'students' AND column_name = 'account_id'
   ) THEN
-    RAISE NOTICE 'students.account_id column missing — skipping FK';
+    RAISE NOTICE 'phase80: students.account_id column missing — skipping FK';
   ELSIF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'students_account_fk' AND table_name = 'students'
   ) THEN
-    ALTER TABLE students
-      ADD CONSTRAINT students_account_fk
-      FOREIGN KEY (account_id) REFERENCES student_accounts(id)
-      ON DELETE SET NULL
-      NOT VALID;
+    BEGIN
+      ALTER TABLE students
+        ADD CONSTRAINT students_account_fk
+        FOREIGN KEY (account_id) REFERENCES student_accounts(id)
+        ON DELETE SET NULL
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: students_account_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
@@ -77,35 +87,34 @@ BEGIN
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'exam_sessions_teacher_fk' AND table_name = 'exam_sessions'
   ) THEN
-    ALTER TABLE exam_sessions
-      ADD CONSTRAINT exam_sessions_teacher_fk
-      FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-      ON DELETE RESTRICT
-      NOT VALID;
+    BEGIN
+      ALTER TABLE exam_sessions
+        ADD CONSTRAINT exam_sessions_teacher_fk
+        FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+        ON DELETE RESTRICT
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: exam_sessions_teacher_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
--- ── exam_sessions → exam_config (composite) ────────────────────────
--- We deliberately do NOT add (teacher_id, exam_id) → exam_config(teacher_id,
--- exam_id) because exam_config doesn't have a UNIQUE constraint on that
--- pair across all deployments. Adding it would require schema verification
--- per environment. The application enforces this pairing via the
--- validate_student handler's exam_config existence check.
-
 -- ── violations → exam_sessions ──────────────────────────────────────
--- Violations CASCADE delete with their session — when admin clear-live-
--- sessions wipes a session, the violations should go too.
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'violations_session_fk' AND table_name = 'violations'
   ) THEN
-    ALTER TABLE violations
-      ADD CONSTRAINT violations_session_fk
-      FOREIGN KEY (session_key) REFERENCES exam_sessions(session_key)
-      ON DELETE CASCADE
-      NOT VALID;
+    BEGIN
+      ALTER TABLE violations
+        ADD CONSTRAINT violations_session_fk
+        FOREIGN KEY (session_key) REFERENCES exam_sessions(session_key)
+        ON DELETE CASCADE
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: violations_session_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
@@ -116,27 +125,34 @@ BEGIN
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'violations_teacher_fk' AND table_name = 'violations'
   ) THEN
-    ALTER TABLE violations
-      ADD CONSTRAINT violations_teacher_fk
-      FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-      ON DELETE RESTRICT
-      NOT VALID;
+    BEGIN
+      ALTER TABLE violations
+        ADD CONSTRAINT violations_teacher_fk
+        FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+        ON DELETE RESTRICT
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: violations_teacher_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
 -- ── answers → exam_sessions ─────────────────────────────────────────
--- Same CASCADE rationale as violations.
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'answers_session_fk' AND table_name = 'answers'
   ) THEN
-    ALTER TABLE answers
-      ADD CONSTRAINT answers_session_fk
-      FOREIGN KEY (session_key) REFERENCES exam_sessions(session_key)
-      ON DELETE CASCADE
-      NOT VALID;
+    BEGIN
+      ALTER TABLE answers
+        ADD CONSTRAINT answers_session_fk
+        FOREIGN KEY (session_key) REFERENCES exam_sessions(session_key)
+        ON DELETE CASCADE
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: answers_session_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
@@ -147,11 +163,15 @@ BEGIN
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'answers_teacher_fk' AND table_name = 'answers'
   ) THEN
-    ALTER TABLE answers
-      ADD CONSTRAINT answers_teacher_fk
-      FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-      ON DELETE RESTRICT
-      NOT VALID;
+    BEGIN
+      ALTER TABLE answers
+        ADD CONSTRAINT answers_teacher_fk
+        FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+        ON DELETE RESTRICT
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: answers_teacher_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
@@ -162,11 +182,15 @@ BEGIN
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'exam_config_teacher_fk' AND table_name = 'exam_config'
   ) THEN
-    ALTER TABLE exam_config
-      ADD CONSTRAINT exam_config_teacher_fk
-      FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-      ON DELETE RESTRICT
-      NOT VALID;
+    BEGIN
+      ALTER TABLE exam_config
+        ADD CONSTRAINT exam_config_teacher_fk
+        FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+        ON DELETE RESTRICT
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: exam_config_teacher_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
@@ -177,51 +201,60 @@ BEGIN
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'questions_teacher_fk' AND table_name = 'questions'
   ) THEN
-    ALTER TABLE questions
-      ADD CONSTRAINT questions_teacher_fk
-      FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-      ON DELETE RESTRICT
-      NOT VALID;
+    BEGIN
+      ALTER TABLE questions
+        ADD CONSTRAINT questions_teacher_fk
+        FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+        ON DELETE RESTRICT
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: questions_teacher_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
 -- ── student_invites → teachers ─────────────────────────────────────
+-- Skipped on the production schema because student_invites.teacher_id is
+-- TEXT while teachers.id is UUID — historical type drift. Re-run after
+-- normalising the column type. The DO block below is best-effort.
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'student_invites_teacher_fk' AND table_name = 'student_invites'
   ) THEN
-    ALTER TABLE student_invites
-      ADD CONSTRAINT student_invites_teacher_fk
-      FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-      ON DELETE RESTRICT
-      NOT VALID;
+    BEGIN
+      ALTER TABLE student_invites
+        ADD CONSTRAINT student_invites_teacher_fk
+        FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+        ON DELETE RESTRICT
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: student_invites_teacher_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
 -- ── teachers → organizations ────────────────────────────────────────
--- A teacher whose org is deleted falls back to org_id=NULL — they
--- effectively become "no longer in an org" and lose admin scope.
--- The app already treats NULL org_id as "plain teacher" (see scope.py
--- resolve_scope fallback).
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'teachers_org_fk' AND table_name = 'teachers'
   ) THEN
-    ALTER TABLE teachers
-      ADD CONSTRAINT teachers_org_fk
-      FOREIGN KEY (org_id) REFERENCES organizations(id)
-      ON DELETE SET NULL
-      NOT VALID;
+    BEGIN
+      ALTER TABLE teachers
+        ADD CONSTRAINT teachers_org_fk
+        FOREIGN KEY (org_id) REFERENCES organizations(id)
+        ON DELETE SET NULL
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: teachers_org_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
 -- ── exam_templates → teachers ─────────────────────────────────────
--- Only attempt if the table exists (deployments without the templates
--- feature won't have it).
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'exam_templates')
@@ -230,38 +263,37 @@ BEGIN
        WHERE constraint_name = 'exam_templates_teacher_fk' AND table_name = 'exam_templates'
      )
   THEN
-    ALTER TABLE exam_templates
-      ADD CONSTRAINT exam_templates_teacher_fk
-      FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-      ON DELETE CASCADE
-      NOT VALID;
+    BEGIN
+      ALTER TABLE exam_templates
+        ADD CONSTRAINT exam_templates_teacher_fk
+        FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+        ON DELETE CASCADE
+        NOT VALID;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'phase80: exam_templates_teacher_fk skipped (%): %', SQLSTATE, SQLERRM;
+    END;
   END IF;
 END $$;
 
 -- ── refresh_tokens (user-kind-discriminated; no FK across kinds) ───
 -- refresh_tokens.user_id can reference either teachers.id or
 -- student_accounts.id depending on the kind column. Postgres doesn't
--- support conditional FKs, so we leave this as app-enforced. The
--- audit script's duplicate-account check catches accidental kind
--- mixups.
+-- support conditional FKs, so we leave this as app-enforced.
 
 -- =====================================================================
--- Next step (separate operator action, when audit is clean):
+-- Type-drift cleanup (FOLLOW-UP, not part of this migration):
 -- =====================================================================
--- After scripts/audit_tenancy.py reports OK on the prod DB, validate
--- each constraint to bring them in line. Each VALIDATE is a SHARE LOCK
--- on the table — readers proceed, writers block briefly. Run during a
--- maintenance window or use pg_repack-style online verification:
+-- A small subset of the FKs above are blocked by historical column-type
+-- drift (e.g., student_invites.teacher_id TEXT vs teachers.id UUID). To
+-- unblock those, normalise the column type in a separate migration:
 --
---   ALTER TABLE students       VALIDATE CONSTRAINT students_teacher_fk;
---   ALTER TABLE students       VALIDATE CONSTRAINT students_account_fk;
---   ALTER TABLE exam_sessions  VALIDATE CONSTRAINT exam_sessions_teacher_fk;
---   ALTER TABLE violations     VALIDATE CONSTRAINT violations_session_fk;
---   ALTER TABLE violations     VALIDATE CONSTRAINT violations_teacher_fk;
---   ALTER TABLE answers        VALIDATE CONSTRAINT answers_session_fk;
---   ALTER TABLE answers        VALIDATE CONSTRAINT answers_teacher_fk;
---   ALTER TABLE exam_config    VALIDATE CONSTRAINT exam_config_teacher_fk;
---   ALTER TABLE questions      VALIDATE CONSTRAINT questions_teacher_fk;
---   ALTER TABLE student_invites VALIDATE CONSTRAINT student_invites_teacher_fk;
---   ALTER TABLE teachers       VALIDATE CONSTRAINT teachers_org_fk;
---   ALTER TABLE exam_templates VALIDATE CONSTRAINT exam_templates_teacher_fk;
+--   ALTER TABLE student_invites
+--     ALTER COLUMN teacher_id TYPE uuid USING teacher_id::uuid;
+--
+-- ...then re-run this migration; the missing FK will now land. Do this
+-- one column at a time during low-traffic windows; the USING cast
+-- will scan every row.
+--
+-- Next step (separate operator action, when audit is clean): run the
+-- VALIDATE CONSTRAINT block from docs/TENANCY_HARDENING_RUNBOOK.md to
+-- promote each NOT VALID constraint to fully-enforced.

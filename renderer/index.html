@@ -352,26 +352,32 @@
 
   // ─── Screen-recording prevention ─────────────────────────────
   // Override getDisplayMedia (screen-capture API) to always deny.
-  if(navigator.mediaDevices){
-    var _odm = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getDisplayMedia = function(){
-      return Promise.reject(new DOMException(
-        'Screen sharing is not permitted during exam', 'NotAllowedError'));
-    };
+  // Wrap each guard in its own try so a missing method on one platform
+  // (e.g., getDisplayMedia undefined → .bind throws) doesn't abort the
+  // rest of this IIFE and leave the OTHER proctoring guards uninstalled.
+  if(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function'){
+    try {
+      navigator.mediaDevices.getDisplayMedia = function(){
+        return Promise.reject(new DOMException(
+          'Screen sharing is not permitted during exam', 'NotAllowedError'));
+      };
+    } catch(_) { /* override blocked — relying on globalShortcut & kiosk */ }
   }
 
   // ─── Microphone-access prevention ────────────────────────────
   // Strip audio from all getUserMedia calls so no JS code path can
   // request mic access. Video-only requests (camera for ID verify)
   // continue to work normally.
-  if(navigator.mediaDevices){
-    var _ogum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getUserMedia = function(c){
-      if(c && c.audio){
-        c = Object.assign({}, c, {audio:false});
-      }
-      return _ogum(c);
-    };
+  if(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function'){
+    try {
+      var _ogum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = function(c){
+        if(c && c.audio){
+          c = Object.assign({}, c, {audio:false});
+        }
+        return _ogum(c);
+      };
+    } catch(_) { /* override blocked — relying on proctor.py audio detection */ }
   }
 
   // ─── Navigation & close prevention ───────────────────────────
@@ -1548,7 +1554,21 @@ async function finishCalibration() {
 
   // Centre offsets (existing behaviour) — subtracted by proctor.py so
   // "looking at centre" sits at 0,0 regardless of camera mounting.
+  // Defensive fallback: if somehow calResults[0] is missing (race with
+  // a timeout that pre-set calRunning=false), skip bias computation
+  // and let proctor.py self-calibrate from scratch. Without this the
+  // function would crash on .gaze_yaw and leave the student stranded.
   const centre = calResults[0];
+  if(!centre){
+    console.warn('[Cal] centre reading missing — proceeding without preset biases');
+    if(window.proctor){
+      try { await window.proctor.stopCalibration({ biases: null }); } catch(_) {}
+      try { await new Promise(r => setTimeout(r, 800)); await window.proctor.startProctor({ sessionId }); } catch(_) {}
+      try { await window.proctor.startPolling({ sessionId }); } catch(_) {}
+    }
+    setTimeout(startExam, 500);
+    return;
+  }
   const biases = {
     gaze_yaw:   centre.gaze_yaw,
     gaze_pitch: centre.gaze_pitch,
@@ -1747,8 +1767,24 @@ async function showPhoneCamScreen(){
     const spinner = document.getElementById('phone-cam-spinner');
     const rejectedMsg = document.getElementById('phone-cam-rejected-msg');
 
+    // Hard cap so a teacher who forgets to approve doesn't strand the
+    // student forever. 10 minutes matches a typical pre-exam window;
+    // bumping it requires zero code change since we proceed to the
+    // exam with graceful degradation either way.
+    const PHONE_CAM_MAX_WAIT_MS = 10 * 60 * 1000;
     await new Promise((resolve) => {
+      const pollStart = Date.now();
       const poll = setInterval(async () => {
+        // Timeout fallback. Without this, the function awaits forever
+        // and startExam() (which `await`s us) never proceeds — the
+        // student is hard-stuck on the phone-cam screen.
+        if(Date.now() - pollStart > PHONE_CAM_MAX_WAIT_MS){
+          clearInterval(poll);
+          statusMsg.textContent = 'Phone camera still pending. Continuing without it — your examiner can review later.';
+          if(spinner) spinner.style.display = 'none';
+          setTimeout(resolve, 1500);
+          return;
+        }
         try{
           const r = await fetch(`${SERVER}/api/v1/room-cam-approval-status?session_id=${encodeURIComponent(sessionId)}`, { headers: hdr() });
           if(!r.ok) return;
@@ -1759,6 +1795,8 @@ async function showPhoneCamScreen(){
             if(spinner) spinner.style.display = 'none';
             setTimeout(resolve, 1000);
           } else if(d.status === 'rejected'){
+            // Show the rejected hint but keep polling — the teacher
+            // can flip back to approved after the student adjusts.
             if(rejectedMsg) rejectedMsg.style.display = '';
             statusMsg.textContent = 'Teacher has asked you to reposition your phone.';
           }
@@ -1871,17 +1909,18 @@ async function startExam(){
           try { panicUnlock(); } catch(err) { console.error('[Panic fallback]', err); }
           return;
         }
-        var _k=e.key, _c=e.ctrlKey, _m=e.metaKey, _s=e.shiftKey;
+        var _k=e.key||'', _c=e.ctrlKey, _m=e.metaKey, _s=e.shiftKey;
+        var _kl=_k.toLowerCase();
         // Block all screenshot triggers
         if(['F12','F11','F5','PrintScreen','PRINTSCREEN'].includes(_k)||
            (_m&&_s&&['3','4','5'].includes(_k))||
-           (_c&&_s&&_k.toLowerCase()==='s')){
+           (_c&&_s&&_kl==='s')){
           e.preventDefault();
           logV('screenshot_blocked',`Blocked: ${_k}`);
         }
         if(!examActive) return;
         if((_m||_c)&&
-           ['c','v','x','a','u','s','p'].includes(_k.toLowerCase())){
+           ['c','v','x','a','u','s','p'].includes(_kl)){
           e.preventDefault();
           logV('shortcut_blocked',`Blocked: ${_k}`);
         }
@@ -1992,7 +2031,11 @@ function renderQ(){
     return;
   }
   const selected=ansSet(q.id);
-  Object.entries(q.options).forEach(([l,t], idx)=>{
+  // `|| {}` defends against a server response missing the options map
+  // for a non-short-answer question. Without it, `Object.entries(null)`
+  // throws TypeError and renderQ aborts — leaving the student staring
+  // at a blank question they can't answer or navigate past.
+  Object.entries(q.options || {}).forEach(([l,t], idx)=>{
     const d=document.createElement('div');
     d.className='opt'+(selected.has(l)?' sel':'');
     d.setAttribute('role', 'radio');
@@ -2727,6 +2770,14 @@ function showInterventionWarning(data){
   }, 30000);
 }
 
+// Tracks how many seconds remained on the exam clock when the teacher
+// paused. Without this the pause UI showed but timerInt kept counting
+// down (the earlier code referenced a `window._examTimerInterval`
+// global that doesn't exist), so the visible clock kept dropping and
+// could even auto-fire submitExam(true) while the student was supposedly
+// paused. Server-side paused_secs_total still keeps scoring fair, but
+// the renderer was lying to the student.
+let _pausedRemainingSecs = null;
 function showPauseOverlay(data){
   let ov = document.getElementById('intervention-pause-overlay');
   if(ov) return;
@@ -2757,13 +2808,16 @@ function showPauseOverlay(data){
     '</p>';
   ov.innerHTML = html;
   document.body.appendChild(ov);
-  // Pause the exam timer if there's an active interval. examTimer is
-  // declared higher up; setIntervalId is tracked there for the
-  // server-authoritative deadline. We stash both so resume can flip
-  // them back.
-  if(window._examTimerInterval){
-    clearInterval(window._examTimerInterval);
-    window._examTimerWasPaused = true;
+  // Pause the exam clock. `timerInt` is the setInterval handle created
+  // by startTimer(); clearing it freezes the visible countdown and
+  // prevents the timer from ever auto-firing submitExam(true) during
+  // a pause. Stash the remaining seconds so resume can pick up where
+  // we left off. (Without this the student watched their clock keep
+  // ticking through a "paused" overlay, defeating the directive.)
+  if(timerInt){
+    clearInterval(timerInt);
+    timerInt = null;
+    _pausedRemainingSecs = timerSecs;
   }
   // Auto-open the chat panel so the student sees teacher messages
   // without having to remember to click the FAB. If chat infra isn't
@@ -2781,10 +2835,13 @@ function showPauseOverlay(data){
 function hidePauseOverlay(){
   const ov = document.getElementById('intervention-pause-overlay');
   if(ov && ov.parentNode) ov.parentNode.removeChild(ov);
-  // Restart the timer interval if it was running before pause.
-  if(window._examTimerWasPaused && typeof startExamTimer === 'function'){
-    try { startExamTimer(); } catch(e) { console.warn('[resume] timer restart failed', e); }
-    window._examTimerWasPaused = false;
+  // Restart the exam clock from where the pause froze it. timerSecs
+  // was preserved because showPauseOverlay cleared timerInt without
+  // touching it. startTimer() reuses timerSecs as-is.
+  if(_pausedRemainingSecs !== null && examActive){
+    timerSecs = _pausedRemainingSecs;
+    _pausedRemainingSecs = null;
+    try { startTimer(); } catch(e) { console.warn('[resume] timer restart failed', e); }
   }
   _playChime();
 }

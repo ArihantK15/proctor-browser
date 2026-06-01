@@ -1139,8 +1139,15 @@ async function launchExam(exam, accessCode) {
     showModal('Open this page inside the Procta app to start your exam.');
     return;
   }
+  // The preflight modal is the visible surface by the time launchExam
+  // runs, so error feedback must land there. Earlier this set
+  // #modal-err (the code-entry modal's error slot, which has already
+  // been closed by confirmStartExam), so IPC failures were silently
+  // invisible to the student.
+  const preflightErr = document.getElementById('preflight-err');
   const btn = document.getElementById('preflight-start-btn') || document.getElementById('modal-start-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+  if (preflightErr) preflightErr.textContent = '';
   try {
     await window.procta_native.launchExam({
       rollNumber: exam.roll_number,
@@ -1152,7 +1159,13 @@ async function launchExam(exam, accessCode) {
     // Main process hides the lobby on success; this JS will stop running.
   } catch (e) {
     const msg = (e && e.message) || 'Failed to start exam';
-    document.getElementById('modal-err').textContent = msg;
+    if (preflightErr) {
+      preflightErr.textContent = msg;
+    } else {
+      // Fall back to a modal so the student at least sees the error
+      // if the preflight surface is gone for any reason.
+      showModal(msg);
+    }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Start exam'; }
   }

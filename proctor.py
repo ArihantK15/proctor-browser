@@ -876,18 +876,30 @@ def _heartbeat_loop():
     hb_failures = 0
     while True:
         time.sleep(30)
+        ok = False
         try:
-            _http.post(
+            r = _http.post(
                 HEARTBEAT_URL,
                 json={"session_id": SESSION_ID, "event_type": "heartbeat",
                       "severity": "low", "details": "alive"},
                 timeout=5
             )
+            # requests.post() only raises on connection-layer errors;
+            # 4xx/5xx HTTP responses are NOT exceptions. Without the
+            # status check, an auth failure (401) or backend outage
+            # (5xx) would silently count as success and we'd hammer
+            # the server every 30s with no backoff.
+            ok = r.ok
+            if not ok:
+                print(f"[Heartbeat] HTTP {r.status_code}")
+        except Exception as e:
+            print(f"[Heartbeat Error] {e}")
+        if ok:
             hb_failures = 0
-        except Exception:
+        else:
             hb_failures += 1
             hb_backoff = min(60, 2 ** min(hb_failures, 5))
-            print(f"[Heartbeat Error] backoff: {hb_backoff}s")
+            print(f"[Heartbeat] backoff: {hb_backoff}s")
             time.sleep(hb_backoff)
 
 threading.Thread(target=_heartbeat_loop, daemon=True).start()
@@ -1034,7 +1046,9 @@ threading.Thread(target=_live_upload_loop, daemon=True, name="live-uploader").st
 def log_event(etype, severity, details):
     global violation_count
     conf = CONFIDENCE.get(etype, 0.75)
-    full_details = f"{details} | confidence:{int(conf*100)}%"
+    conf_tag = f"confidence:{int(conf*100)}%"
+    # Avoid leading `| confidence:...` when details is empty/whitespace.
+    full_details = f"{details} | {conf_tag}" if (details and str(details).strip()) else conf_tag
     if severity in ("high", "medium"):
         with _violation_lock:
             violation_count += 1
@@ -1050,7 +1064,8 @@ def log_event(etype, severity, details):
         print(f"[Server Error] {e}")
 
 def save_evidence(frame, label):
-    if not JWT_TOKEN and not os.environ.get("SAVE_EVIDENCE_LOCAL", "").strip().lower() in {"1", "true"}:
+    save_local_flag = os.environ.get("SAVE_EVIDENCE_LOCAL", "").strip().lower()
+    if not JWT_TOKEN and save_local_flag not in {"1", "true"}:
         return
     try:
         ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -1082,8 +1097,10 @@ def _evidence_upload_loop():
             b64, label = _evidence_q.get(timeout=1)
         except Empty:
             continue
+        ok = False
+        err_msg = ""
         try:
-            _http.post(
+            r = _http.post(
                 EVIDENCE_UPLOAD_URL,
                 json={
                     "session_id": SESSION_ID,
@@ -1093,11 +1110,19 @@ def _evidence_upload_loop():
                 },
                 timeout=10,
             )
-            consecutive_failures = 0
+            # Same rationale as _heartbeat_loop: check the HTTP status
+            # so 4xx/5xx triggers backoff, not just connect failures.
+            ok = r.ok
+            if not ok:
+                err_msg = f"HTTP {r.status_code}"
         except Exception as e:
+            err_msg = str(e)
+        if ok:
+            consecutive_failures = 0
+        else:
             consecutive_failures += 1
             backoff = min(30, 2 ** min(consecutive_failures, 5))
-            print(f"[Evidence Upload Error] {e} (backoff: {backoff}s)")
+            print(f"[Evidence Upload Error] {err_msg} (backoff: {backoff}s)")
             time.sleep(backoff)
 
 threading.Thread(target=_evidence_upload_loop, daemon=True, name="evidence-uploader").start()
@@ -2282,36 +2307,37 @@ def run_proctoring(cap, W, H):
     eyes_closed_count   = 0
 
     # ── Per-student calibration bias ───────────────────────────────────────
-    # If pre-set biases from the renderer's dot-calibration are available,
-    # use them and skip self-calibration.
-    _preset_yaw_bias = _INITIAL_GAZE_YAW_BIAS
-    if _preset_yaw_bias is not None:
+    # Default to zero bias + self-calibration. If pre-set biases from the
+    # renderer's dot-calibration are available AND parse cleanly, we adopt
+    # them and skip self-calibration. Initializing defaults up-front means
+    # a partial-failure path (e.g., YAW parses, PITCH raises) can't leave
+    # any of the four bias variables unbound when the main loop reads them.
+    gaze_yaw_bias   = 0.0
+    gaze_pitch_bias = 0.0
+    head_yaw_bias   = 0.0
+    head_pitch_bias = 0.0
+    cal_gaze_yaw    = []
+    cal_gaze_pitch  = []
+    cal_head_yaw    = []
+    cal_head_pitch  = []
+    calibrated      = False
+
+    if _INITIAL_GAZE_YAW_BIAS is not None:
         try:
-            gaze_yaw_bias   = float(_preset_yaw_bias)
+            gaze_yaw_bias   = float(_INITIAL_GAZE_YAW_BIAS)
             gaze_pitch_bias = float(_INITIAL_GAZE_PITCH_BIAS or 0)
             head_yaw_bias   = float(_INITIAL_HEAD_YAW_BIAS or 0)
             head_pitch_bias = float(_INITIAL_HEAD_PITCH_BIAS or 0)
+            calibrated      = True
+            print(f"[CALIBRATION] ✅ Using pre-set biases from dot calibration — "
+                  f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) "
+                  f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})")
         except (ValueError, TypeError):
+            # Reset partial assignments so we self-calibrate from scratch
+            # rather than running with one good axis and three garbage ones.
+            gaze_yaw_bias = gaze_pitch_bias = head_yaw_bias = head_pitch_bias = 0.0
+            calibrated = False
             print("[PROCTOR] ⚠️ Invalid preset biases — falling back to self-calibration")
-            _preset_yaw_bias = None
-        calibrated      = True
-        cal_gaze_yaw    = []
-        cal_gaze_pitch  = []
-        cal_head_yaw    = []
-        cal_head_pitch  = []
-        print(f"[CALIBRATION] ✅ Using pre-set biases from dot calibration — "
-              f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) "
-              f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})")
-    else:
-        gaze_yaw_bias   = 0.0
-        gaze_pitch_bias = 0.0
-        head_yaw_bias   = 0.0
-        head_pitch_bias = 0.0
-        cal_gaze_yaw    = []
-        cal_gaze_pitch  = []
-        cal_head_yaw    = []
-        cal_head_pitch  = []
-        calibrated      = False
 
     # ── Shared mutable state for extracted helpers ────────────────────────
     state = _proctor_frame_init_state()

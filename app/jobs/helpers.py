@@ -117,7 +117,15 @@ def _run_coro_in_sync(coro) -> Any:
         # No running loop → submit to the persistent background loop.
         loop = _get_persistent_loop()
         future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=60)
+        # Scoring jobs for large exams or under DB contention can run
+        # past 60s. When the future timed out, the coroutine kept
+        # running on the background loop and eventually finished — but
+        # the RQ job had already failed, triggered a retry, and the
+        # retry then saw status=COMPLETED and bailed. Tuned via
+        # JOB_COROUTINE_TIMEOUT_SECS so ops can raise it without a
+        # redeploy if a slow downstream (LMS, email) shows up.
+        timeout_secs = float(os.environ.get("JOB_COROUTINE_TIMEOUT_SECS", "180"))
+        return future.result(timeout=timeout_secs)
 
     # Running loop exists → spawn a fresh thread + loop for this call.
     result: list = []

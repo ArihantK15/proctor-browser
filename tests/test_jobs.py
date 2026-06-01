@@ -248,19 +248,27 @@ class TestEmailJobFunctions:
                 teacher_name="Prof",
             )
 
-    def test_send_invite_email_job_failure(self):
+    def test_send_invite_email_job_failure_raises_for_retry(self):
+        """Provider failure must raise EmailDeliveryError so RQ retries.
+
+        Earlier this job returned ``{"ok": False}`` and let RQ mark the
+        job as successful, which silently consumed the only delivery
+        attempt for an invite. Raising puts the job through the retry
+        policy and surfaces persistent failures in the RQ failed queue.
+        """
+        from app.jobs.email_jobs import EmailDeliveryError
+
         mock_emailer = self._mock_emailer()
         with patch.object(mock_emailer, "send_invite_email",
                           return_value=MagicMock(ok=False, provider_msg_id=None, error="SMTP timeout")):
             from app.jobs import send_invite_email_job
 
-            result = send_invite_email_job(
-                to_email="a@b.com", to_name="Alice",
-                exam_title="Midterm", invite_url="https://ex.co/i/abc",
-                download_url="https://ex.co/dl", roll_number="R001",
-            )
-            assert result["ok"] is False
-            assert result["error"] == "SMTP timeout"
+            with pytest.raises(EmailDeliveryError, match="SMTP timeout"):
+                send_invite_email_job(
+                    to_email="a@b.com", to_name="Alice",
+                    exam_title="Midterm", invite_url="https://ex.co/i/abc",
+                    download_url="https://ex.co/dl", roll_number="R001",
+                )
 
     def test_send_demo_request_notification_job(self):
         mock_emailer = self._mock_emailer()

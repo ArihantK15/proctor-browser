@@ -15,6 +15,7 @@ from .email_jobs import (
 )
 from .autosave_jobs import flush_autosave_job
 from .scoring_jobs import score_submission_job
+from .lti_jobs import ags_grade_passback_job
 
 __all__ = [
     "enqueue_job",
@@ -23,4 +24,5 @@ __all__ = [
     "send_new_account_notification_job",
     "flush_autosave_job",
     "score_submission_job",
+    "ags_grade_passback_job",
 ]

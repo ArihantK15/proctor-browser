@@ -799,24 +799,31 @@ function _recoverOrphanAnswers(){
   const roll = currentRoll || (student && student.roll_number) || '';
   if(!roll) return {};
   const prefix = 'answers_' + roll + '_';
-  let newest = null, newestTs = 0;
+  // Snapshot all matching keys up-front. localStorage.key(i) is index-
+  // based, and removeItem() shifts indices down — iterating + removing
+  // in one pass silently skips half the orphans. Two passes is cheap.
+  const matching = [];
   for(let i = 0; i < localStorage.length; i++){
     const key = localStorage.key(i);
     if(!key || !key.startsWith(prefix)) continue;
     const ts = parseInt(key.slice(prefix.length), 10);
-    if(ts > newestTs){ newestTs = ts; newest = key; }
+    if(Number.isFinite(ts)) matching.push({key, ts});
   }
-  if(!newest) return {};
+  if(!matching.length) return {};
+  let newest = matching[0];
+  for(const m of matching){
+    if(m.ts > newest.ts) newest = m;
+  }
   try{
-    const raw = localStorage.getItem(newest);
+    const raw = localStorage.getItem(newest.key);
     const data = raw ? JSON.parse(raw) : {};
-    // Cleanup all orphaned keys (keep only the current session's)
+    // Cleanup all orphan keys older than the cutoff (keep the newest).
     const cutoff = Date.now() - 7 * 86400000;
-    for(let i = 0; i < localStorage.length; i++){
-      const k = localStorage.key(i);
-      if(!k || !k.startsWith(prefix)) continue;
-      const t = parseInt(k.slice(prefix.length), 10);
-      if(t !== newestTs && t < cutoff) localStorage.removeItem(k);
+    for(const m of matching){
+      if(m.key === newest.key) continue;
+      if(m.ts < cutoff){
+        try{ localStorage.removeItem(m.key); }catch(_){}
+      }
     }
     return data;
   }catch(_){ return {}; }
@@ -2170,10 +2177,18 @@ function stopHeartbeat(){
   if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
 }
 
+// Number of consecutive heartbeat failures observed by the renderer.
+// Used purely for diagnostic logging — the server-side reaper is the
+// authoritative source of truth for session liveness. Surfacing the
+// failure count in console lets devs distinguish "student was offline
+// the whole time" from "backend's heartbeat endpoint started 5xx-ing
+// at minute 12", which fetch alone hides because non-2xx responses
+// don't throw.
+let _heartbeatFailStreak = 0;
 async function doHeartbeat(){
   if(!sessionId || !examActive) return;
   try{
-    await fetch(`${SERVER}/api/v1/heartbeat`, {
+    const r = await fetch(`${SERVER}/api/v1/heartbeat`, {
       method: 'POST',
       headers: authHdr(),
       body: JSON.stringify({
@@ -2183,7 +2198,19 @@ async function doHeartbeat(){
         details: `answers:${Object.keys(answers).length}`
       })
     });
-  }catch(_){} // non-blocking — a missing heartbeat is caught by the server reaper
+    if(r.ok){
+      if(_heartbeatFailStreak > 0){
+        console.log(`[Heartbeat] recovered after ${_heartbeatFailStreak} failure(s)`);
+      }
+      _heartbeatFailStreak = 0;
+    } else {
+      _heartbeatFailStreak++;
+      console.warn(`[Heartbeat] HTTP ${r.status} (streak: ${_heartbeatFailStreak})`);
+    }
+  }catch(e){
+    _heartbeatFailStreak++;
+    console.warn(`[Heartbeat] network error: ${e.message || e} (streak: ${_heartbeatFailStreak})`);
+  }
 }
 
 function goQ(i)   { curQ=i; renderQ(); }
@@ -2414,10 +2441,16 @@ async function retrySubmit(auto=false){
   document.getElementById('final-score').textContent='...';
   submitInFlight=true;
 
-  // Refresh time_taken_secs and answers since time has passed
+  // Refresh time_taken_secs and answers since time has passed.
   lastSubmitPayload.time_taken_secs=
     startTime ? Math.floor((Date.now()-startTime)/1000) : 0;
-  const retryAnswers={};
+  // Merge instead of overwrite: previously this rebuilt the answers
+  // map from `answers` alone, which silently lost everything when the
+  // renderer had been reloaded since the failed submit and `answers`
+  // hadn't yet been re-hydrated from localStorage. Start from the
+  // saved payload (the durable copy on disk), then layer current
+  // in-memory answers on top so any post-failure edits still win.
+  const retryAnswers = Object.assign({}, lastSubmitPayload.answers || {});
   for(const [qid,ans] of Object.entries(answers)){
     retryAnswers[String(qid)]=String(ans);
   }

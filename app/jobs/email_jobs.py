@@ -8,6 +8,28 @@ from .helpers import _run_coro_in_sync
 log = logging.getLogger(__name__)
 
 
+class EmailDeliveryError(RuntimeError):
+    """Raised by email jobs when the provider rejected the send.
+
+    Raising (rather than returning ok=False) is what triggers RQ's
+    retry policy. Without this, a transient provider hiccup silently
+    consumed the only delivery attempt for an invite or scorecard —
+    the student would never receive the email and ops had no signal.
+    The RQ retry policy (default 3 attempts with 10/60/300s backoff)
+    bounds the damage on permanent failures: after the final retry
+    the job lands in the failed queue where ops can inspect it.
+    """
+
+
+def _maybe_raise(result, *, context: str) -> None:
+    """Raise EmailDeliveryError when the provider call did not succeed."""
+    if getattr(result, "ok", False):
+        return
+    err = getattr(result, "error", None) or "unknown email provider error"
+    log.warning("[email-job] %s failed: %s", context, err)
+    raise EmailDeliveryError(f"{context}: {err}")
+
+
 def send_invite_email_job(
     *,
     to_email: str,
@@ -32,6 +54,7 @@ def send_invite_email_job(
         exam_ends_at=exam_ends_at, custom_message=custom_message,
         teacher_name=teacher_name,
     )
+    _maybe_raise(result, context=f"invite to {to_email}")
     return {
         "ok": result.ok,
         "provider_msg_id": result.provider_msg_id,
@@ -52,6 +75,7 @@ def send_demo_request_notification_job(
         name=name, email=email, institution=institution,
         role=role, message=message,
     )
+    _maybe_raise(result, context=f"demo-request from {email}")
     return {
         "ok": result.ok,
         "provider_msg_id": getattr(result, "provider_msg_id", None),
@@ -90,13 +114,19 @@ def send_scorecard_email_job(
                 "scorecard_email_msg_id": result.provider_msg_id,
                 "scorecard_emailed_at": datetime.now(timezone.utc).isoformat(),
             }).eq("session_key", session_key).eq("teacher_id", teacher_id).execute()
+        _maybe_raise(result, context=f"scorecard {session_key} → {email}")
         return {
             "ok": result.ok, "provider_msg_id": result.provider_msg_id,
             "session_key": session_key, "error": result.error,
         }
 
+    # Let EmailDeliveryError propagate so RQ retries; catch only the
+    # truly-unexpected (PDF build crashed, DB write failed) and surface
+    # those without retry to avoid burning attempts on a stuck bug.
     try:
         return _run_coro_in_sync(_run())
+    except EmailDeliveryError:
+        raise
     except Exception as e:
         log.exception("[scorecard-job] failed sid=%s", session_key)
         return {"ok": False, "error": str(e), "session_key": session_key}
@@ -114,6 +144,7 @@ def send_org_invite_email_job(
         to_email=to_email, invite_url=invite_url,
         org_name=org_name, invited_by_name=invited_by_name,
     )
+    _maybe_raise(result, context=f"org invite to {to_email}")
     return {
         "ok": result.ok,
         "provider_msg_id": getattr(result, "provider_msg_id", None),
@@ -131,6 +162,12 @@ def send_new_account_notification_job(
     result = emailer.send_new_account_notification(
         account_type=account_type, name=name, email=email,
     )
+    # Best-effort: don't raise. New-account notifications are an internal
+    # ops convenience, not a user-facing delivery. Failing here would
+    # consume retry budget on every signup.
+    if not getattr(result, "ok", False):
+        log.warning("[email-job] new-account-notification failed: %s",
+                    getattr(result, "error", "unknown"))
     return {
         "ok": result.ok,
         "provider_msg_id": getattr(result, "provider_msg_id", None),

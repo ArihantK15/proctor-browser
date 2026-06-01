@@ -1242,11 +1242,28 @@ async def submit_exam(result: ResultIn, request: Request):
             if not t.cancelled() and t.exception() else None
         )
 
-    # Fire-and-forget: push grade to LMS via AGS if this is an LTI student
+    # Push grade to LMS via AGS if this is an LTI student. Routed
+    # through RQ so a transient Canvas/Moodle 5xx during submission
+    # gets the standard 3-attempt retry (10/60/300s backoff) instead
+    # of disappearing into a never-awaited create_task. When RQ is
+    # disabled, fall back to the old fire-and-forget asyncio.create_task
+    # path so local dev keeps working without Redis.
     if trusted_roll and server_total > 0:
-        asyncio.create_task(_try_ags_grade_passback(
-            trusted_roll, server_score, server_total, pct,
-        ))
+        # Local import: there's another `from ..jobs import enqueue_job`
+        # earlier in this function (async-scoring branch), which makes
+        # Python treat enqueue_job as a function-scoped local. A second
+        # local import here keeps the name bound on the inline path too.
+        from ..jobs import enqueue_job as _enqueue_job, ags_grade_passback_job
+        if _rq_enabled():
+            _enqueue_job(
+                ags_grade_passback_job,
+                trusted_roll, server_score, server_total, pct,
+                queue_name="default",
+            )
+        else:
+            asyncio.create_task(_try_ags_grade_passback(
+                trusted_roll, server_score, server_total, pct,
+            ))
 
     resp = {"status": SessionStatus.SUBMITTED, "score": server_score,
             "total": server_total, "percentage": pct,

@@ -236,7 +236,20 @@ async def validate_id_token(id_token: str, state: str) -> dict:
         raise ValueError(f"Failed to decode JWT header: {e}")
 
     kid = header.get("kid", "")
-    alg = header.get("alg", "RS256")
+    # NEVER trust the token's `alg` header — algorithm-confusion attacks
+    # (CVE-2015-9235 era) work by sending alg="HS256" so PyJWT treats
+    # the public RS key as an HMAC secret, letting anyone with the
+    # public JWKS forge tokens. LTI 1.3 mandates RS256, so the relying
+    # party (us) hardcodes the accepted algorithm regardless of what
+    # the token claims. We DO reject early when the header advertises
+    # something other than RS256 — there's no legitimate LTI 1.3 path
+    # that uses anything else, and a mismatch is a clear signal of an
+    # attempted attack worth logging.
+    header_alg = header.get("alg", "")
+    if header_alg and header_alg != "RS256":
+        logger.warning("lti: rejecting non-RS256 id_token alg=%s kid=%s",
+                       safe(header_alg), safe(kid))
+        raise ValueError(f"Unsupported JWT algorithm: {header_alg}")
 
     # 3. Find registration
     # Decode payload without verification first to get iss + aud
@@ -276,6 +289,8 @@ async def validate_id_token(id_token: str, state: str) -> dict:
         raise ValueError(f"No matching key found for kid={kid}")
 
     # 5. Verify signature
+    # algorithms=["RS256"] is a HARDCODED list, never `[header.alg]`.
+    # See the algorithm-confusion comment at the top of step 2 above.
     try:
         public_key = jwk_to_public_key(matching_key)
         claims = _jwt.decode(
@@ -283,7 +298,7 @@ async def validate_id_token(id_token: str, state: str) -> dict:
             public_key,
             audience=client_id,
             issuer=iss,
-            algorithms=[alg],
+            algorithms=["RS256"],
             options={
                 "verify_signature": True,
                 "verify_aud": True,

@@ -41,7 +41,11 @@ async def validate_deep_linking_request(id_token: str) -> dict:
         raise ValueError(f"Failed to decode JWT header: {e}")
 
     kid = header.get("kid", "")
-    alg = header.get("alg", "RS256")
+    # See validate_id_token's comment on algorithm confusion — we never
+    # trust the token's alg. Reject anything other than RS256 early.
+    header_alg = header.get("alg", "")
+    if header_alg and header_alg != "RS256":
+        raise ValueError(f"Unsupported JWT algorithm: {header_alg}")
 
     try:
         payload_b64 = id_token.split(".")[1]
@@ -93,7 +97,9 @@ async def validate_deep_linking_request(id_token: str) -> dict:
             public_key,
             audience=client_id,
             issuer=iss,
-            algorithms=[alg],
+            # Hardcoded list — see launch.py:validate_id_token for the
+            # algorithm-confusion rationale.
+            algorithms=["RS256"],
             options={
                 "verify_signature": True,
                 "verify_aud": True,

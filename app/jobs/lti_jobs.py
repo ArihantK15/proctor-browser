@@ -26,19 +26,19 @@ def ags_grade_passback_job(
 ) -> dict:
     """Sync wrapper called by the RQ worker.
 
-    Raises on transient failure so RQ retries; returns ``{"ok": True}``
-    on success or when the student has no LTI context (nothing to do).
+    Calls _try_ags_grade_passback with raise_on_failure=True so that a
+    transient post_score failure (LMS 5xx, access-token miss, asyncpg
+    error) raises AgsTransientError. RQ catches the exception and
+    re-enqueues with the standard 10/60/300s backoff. A clean return
+    (success OR "no LTI context to push to") completes the job.
     """
     from ..routers.exam import _try_ags_grade_passback
 
     async def _run() -> dict:
-        # _try_ags_grade_passback swallows its own errors and returns
-        # None unconditionally today, so we can't distinguish "no LTI
-        # context" from "LMS rejected". Wrap with a probe: if the call
-        # raises (asyncpg dropped, LMS 5xx propagated up), let the
-        # exception escape so RQ retries. If it returns silently,
-        # treat as success.
-        await _try_ags_grade_passback(roll_number, score, total, percentage)
+        await _try_ags_grade_passback(
+            roll_number, score, total, percentage,
+            raise_on_failure=True,
+        )
         return {"ok": True}
 
     return _run_coro_in_sync(_run())

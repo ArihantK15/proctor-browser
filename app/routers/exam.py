@@ -855,17 +855,37 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
     return {"status": "saved", "saved": saved, "queued": False}
 
 
+class AgsTransientError(RuntimeError):
+    """Raised by _try_ags_grade_passback when raise_on_failure is set
+    and the AGS push hit a transient failure (access-token miss, LMS
+    rejected the score). Lets the RQ job wrapper surface it as a job
+    failure so the retry policy actually fires."""
+
+
 async def _try_ags_grade_passback(
     roll_number: str,
     score: int,
     total: int,
     percentage: float,
+    *,
+    raise_on_failure: bool = False,
 ):
     """Attempt to push this student's score to their LMS via AGS.
 
-    This is called fire-and-forget after exam submission.  If the
-    student was created via LTI, we have their lti_user_id which lets
-    us look up the AGS deployment context and push the grade.
+    Two call patterns:
+      - Inline fire-and-forget (`raise_on_failure=False`, the default).
+        Used by submit_exam when async-scoring is disabled. Failures
+        are swallowed because there's no retry path; the operator can
+        re-push via the admin retry endpoint if needed.
+      - RQ job wrapper (`raise_on_failure=True`). Raises AgsTransient
+        Error on token-fetch or post_score=False so RQ's retry policy
+        (3 attempts, 10/60/300s backoff) actually fires — without this,
+        post_score returning False used to vanish into a logger.warning
+        and the queued retries never triggered.
+
+    Missing-LTI-context paths (no lti_user_id, no AGS endpoint claim,
+    no registration) are always silent returns — they aren't failures,
+    they're just "nothing to do".
     """
     try:
         student = (await _atable("students")
@@ -900,11 +920,9 @@ async def _try_ags_grade_passback(
         registration = find_registration(iss, client_id)
         if not registration:
             if not client_id:
-                tried_issuer_only = False
                 for r in load_registrations():
                     if r.issuer == iss:
                         registration = r
-                        tried_issuer_only = True
                         break
                 if registration:
                     _exam_log.warning("[AGS] Empty client_id, matched issuer=%s by fallback (reg=%s)", iss, registration.client_id)
@@ -922,6 +940,8 @@ async def _try_ags_grade_passback(
         )
         if not access_token:
             _exam_log.warning("[AGS] Failed to get access token for %s", iss)
+            if raise_on_failure:
+                raise AgsTransientError(f"access token unavailable for {iss}")
             return
 
         ok = await post_score(
@@ -935,8 +955,16 @@ async def _try_ags_grade_passback(
         )
         if ok:
             _exam_log.info("[AGS] Grade pushed for %s: %d/%d", roll_number, score, total)
+        elif raise_on_failure:
+            # post_score has already logged the underlying httpx error.
+            # Surfacing it here lets RQ retry on the standard backoff.
+            raise AgsTransientError(f"post_score returned False for {roll_number}")
+    except AgsTransientError:
+        raise
     except Exception as e:
         _exam_log.warning("[AGS] Grade passback failed for %s: %s", roll_number, e)
+        if raise_on_failure:
+            raise AgsTransientError(str(e)) from e
 
 
 def _async_scoring_enabled() -> bool:
@@ -1254,16 +1282,27 @@ async def submit_exam(result: ResultIn, request: Request):
         # Python treat enqueue_job as a function-scoped local. A second
         # local import here keeps the name bound on the inline path too.
         from ..jobs import enqueue_job as _enqueue_job, ags_grade_passback_job
-        if _rq_enabled():
-            _enqueue_job(
-                ags_grade_passback_job,
-                trusted_roll, server_score, server_total, pct,
-                queue_name="default",
-            )
-        else:
-            asyncio.create_task(_try_ags_grade_passback(
-                trusted_roll, server_score, server_total, pct,
-            ))
+        try:
+            if _rq_enabled():
+                # enqueue_job returns immediately when RQ is actually
+                # connected to Redis (job queued). In sync-fallback
+                # mode (no Redis env), the job runs inline and any
+                # AgsTransientError it raises would otherwise bubble up
+                # and 500 the submit response — so the try/except here
+                # absorbs the failure on the inline path while keeping
+                # the queued path's normal behaviour.
+                _enqueue_job(
+                    ags_grade_passback_job,
+                    trusted_roll, server_score, server_total, pct,
+                    queue_name="default",
+                )
+            else:
+                asyncio.create_task(_try_ags_grade_passback(
+                    trusted_roll, server_score, server_total, pct,
+                ))
+        except Exception as e:
+            _exam_log.warning("[AGS] inline grade passback failed for %s: %s",
+                              safe(result.session_id), safe(e))
 
     resp = {"status": SessionStatus.SUBMITTED, "score": server_score,
             "total": server_total, "percentage": pct,

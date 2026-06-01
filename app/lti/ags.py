@@ -14,6 +14,7 @@ from ..log_safe import safe
 import json
 import logging
 import time
+import uuid
 from typing import Optional
 
 import httpx
@@ -36,13 +37,18 @@ def _build_client_assertion(
     an access token from the LMS token endpoint.
     """
     now = int(time.time())
+    # The previous jti was f"{issuer}-{client_id}-{now}" — two
+    # assertions built in the same second for the same (issuer,
+    # client_id) collided. LMSes that track jti for replay protection
+    # (Canvas does) would reject the second one. Appending a random
+    # uuid4 component makes collisions impossible.
     payload = {
         "iss": issuer,
         "sub": client_id,
         "aud": auth_token_url,
         "iat": now,
         "exp": now + 3600,
-        "jti": f"{issuer}-{client_id}-{now}",
+        "jti": f"{issuer}-{client_id}-{now}-{uuid.uuid4().hex}",
     }
     return sign_jwt_payload(payload)
 

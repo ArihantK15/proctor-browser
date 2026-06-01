@@ -45,6 +45,33 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
     return True
 
 
+async def _student_allows_email_reminders(email: str) -> bool:
+    """Return the linked student's reminder preference.
+
+    Invited students may not have a Procta account yet; in that case reminders
+    stay enabled because the invite email is their only notification channel.
+    """
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    try:
+        rows = (await _atable("student_accounts")
+                .select("email_reminders_enabled")
+                .eq("email", email)
+                .limit(1)
+                .execute()).data or []
+    except Exception as e:
+        msg = str(e).lower()
+        if "email_reminders_enabled" in msg and ("column" in msg or "schema cache" in msg):
+            return True
+        _dep_log.warning("[reminders] preference lookup failed for %s: %s", email, e)
+        return True
+    if not rows:
+        return True
+    val = rows[0].get("email_reminders_enabled")
+    return True if val is None else bool(val)
+
+
 async def _reminder_tick():
     from .models import InviteStatus
 
@@ -73,6 +100,10 @@ async def _reminder_tick():
                     continue
                 try:
                     now_iso = datetime.now(timezone.utc).isoformat()
+                    if not await _student_allows_email_reminders(inv.get("email") or ""):
+                        await _atable("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute()
+                        _dep_log.info("[reminders] SKIPPED %dh reminder to=%s preference=off", hours_until, inv.get("email"))
+                        continue
                     claim = await _atable("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute()
                     if not claim.data:
                         continue

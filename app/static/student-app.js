@@ -525,6 +525,69 @@ async function confirmEmailChange() {
   }
 }
 
+// ─────── Exam reminder preferences ───────
+function _setReminderStatus(msg, ok) {
+  const el = document.getElementById('reminder-pref-status');
+  if (!el) return;
+  el.style.display = msg ? 'block' : 'none';
+  el.style.color = ok ? 'var(--emerald)' : 'var(--red)';
+  el.textContent = msg || '';
+}
+
+function renderReminderPreference(enabled) {
+  const checkbox = document.getElementById('email-reminders-enabled');
+  const badge = document.getElementById('reminder-pref-badge');
+  const isEnabled = enabled !== false;
+  if (checkbox) checkbox.checked = isEnabled;
+  if (badge) {
+    badge.textContent = isEnabled ? 'Enabled' : 'Off';
+    badge.className = 'badge ' + (isEnabled ? 'badge-emerald' : 'badge-muted');
+  }
+}
+
+async function loadReminderPreference() {
+  renderReminderPreference(_currentAccount ? _currentAccount.email_reminders_enabled : true);
+  try {
+    const r = await authed('/api/v1/student/account/preferences');
+    if (r.status === 401) { clearStudentSession(); return; }
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not load reminder setting');
+    const d = await r.json();
+    if (_currentAccount) _currentAccount.email_reminders_enabled = d.email_reminders_enabled !== false;
+    renderReminderPreference(d.email_reminders_enabled);
+    _setReminderStatus('', true);
+  } catch (e) {
+    _setReminderStatus(e.message || 'Could not load reminder setting', false);
+  }
+}
+
+async function saveReminderPreference() {
+  const btn = document.getElementById('save-reminder-pref-btn');
+  const checkbox = document.getElementById('email-reminders-enabled');
+  const enabled = !!(checkbox && checkbox.checked);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+  try {
+    const r = await authed('/api/v1/student/account/preferences', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email_reminders_enabled: enabled}),
+    });
+    if (r.status === 401) { clearStudentSession(); return; }
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not save reminder setting');
+    const d = await r.json();
+    if (_currentAccount) _currentAccount.email_reminders_enabled = d.email_reminders_enabled !== false;
+    renderReminderPreference(d.email_reminders_enabled);
+    _setReminderStatus(d.email_reminders_enabled === false
+      ? 'Exam reminder emails are off.'
+      : 'Exam reminder emails are on.',
+      true);
+  } catch (e) {
+    renderReminderPreference(_currentAccount ? _currentAccount.email_reminders_enabled : true);
+    _setReminderStatus(e.message || 'Could not save reminder setting', false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
+}
+
 function clearStudentSession() {
   _studentCsrfMemory = '';
   authToken = '';
@@ -634,7 +697,8 @@ async function showDashboard(account) {
   document.getElementById('auth-view').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('me-name').textContent = account.full_name || account.email;
-  await Promise.all([loadExams(), loadHistory(), loadAppeals()]);
+  renderReminderPreference(account.email_reminders_enabled);
+  await Promise.all([loadExams(), loadHistory(), loadAppeals(), loadReminderPreference()]);
 }
 
 function fmtWhen(iso) {

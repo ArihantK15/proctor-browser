@@ -620,6 +620,27 @@
    <h2 class="section-title">Account</h2>
    <p class="section-subtitle">Manage the email and password you use for Procta.</p>
    <div class="exam-list">
+    <div class="exam-card">
+      <div class="exam-card-head">
+        <div>
+          <div class="exam-title">Exam reminders</div>
+          <div class="exam-teacher">Email reminders are sent before scheduled invited exams.</div>
+        </div>
+        <span class="badge badge-accent" id="reminder-pref-badge">Loading</span>
+      </div>
+      <p class="section-subtitle" style="margin-top:0">
+        Keep this enabled to receive exam reminder emails before your exam window opens.
+      </p>
+      <div class="modal-actions" style="margin-top:10px;align-items:center;justify-content:space-between">
+        <label style="display:flex;gap:10px;align-items:center;color:var(--text);font-size:14px">
+          <input type="checkbox" id="email-reminders-enabled" style="width:18px;height:18px">
+          Email me exam reminders
+        </label>
+        <button class="btn btn-secondary" id="save-reminder-pref-btn" data-action="saveReminderPreference">Save</button>
+      </div>
+      <div class="modal-err" id="reminder-pref-status"></div>
+    </div>
+
     <!-- TRACK B: email change -->
     <div class="exam-card">
       <div class="exam-card-head">

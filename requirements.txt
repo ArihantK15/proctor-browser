@@ -8,7 +8,7 @@ reportlab
 slowapi>=0.1.9
 psutil>=5.9
 aiofiles>=25.1.0
-redis>=5.0.0
+redis>=8.0.0
 rq>=1.16.0
 razorpay>=1.4.0
 resend>=2.30.1

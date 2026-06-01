@@ -4,6 +4,9 @@
   "description": "AI Proctored Exam Browser",
   "author": "Procta",
   "main": "main.js",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --dir",

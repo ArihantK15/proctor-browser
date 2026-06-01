@@ -166,7 +166,7 @@ razorpay==2.0.1
     # via -r requirements.txt
 realtime==2.29.0
     # via supabase
-redis==7.4.0
+redis==8.0.0
     # via
     #   -r requirements.txt
     #   rq
@@ -174,7 +174,7 @@ resend==2.30.1
     # via -r requirements.txt
 reportlab==4.5.0
     # via -r requirements.txt
-requests==2.33.1
+requests==2.34.2
     # via
     #   pyiceberg
     #   razorpay

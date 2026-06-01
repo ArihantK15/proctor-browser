@@ -1615,7 +1615,11 @@ async function finishCalibration() {
     try {
       await new Promise(r => setTimeout(r, 800));
       await window.proctor.startProctor({ sessionId });
+    } catch (e) { console.error('[Cal] startProctor failed:', e); }
+    try {
       await window.proctor.startPolling({ sessionId });
+    } catch (e) { console.error('[Cal] startPolling failed:', e); }
+    try {
       window.proctor.onViolation(({ type, details, severity }) => {
         const color = severity === 'high' ? '#c0392b' : '#e67e22';
         showBanner(`⚠ ${type.replace(/_/g, ' ')}: ${details}`, color);
@@ -1631,7 +1635,7 @@ async function finishCalibration() {
         document.getElementById('countdown').textContent = 'Closing in 3 seconds...';
         setTimeout(() => { if (window.proctor) window.proctor.adminExit('AUTO_CLOSE'); }, 3000);
       });
-    } catch (e) { console.error('[Cal] startProctor/startPolling failed:', e); }
+    } catch (e) { console.error('[Cal] onViolation/onForceSubmit setup failed:', e); }
   }
 
   setTimeout(startExam, 500);
@@ -2230,7 +2234,7 @@ async function _doSubmit(payload){
       if(window.proctor){
         const result=await Promise.race([
           window.proctor.submitExam(payload),
-          new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout')),12000))
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout')),60000))
         ]);
         return result;
       }

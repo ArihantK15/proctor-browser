@@ -8,13 +8,13 @@ reportlab
 slowapi>=0.1.9
 psutil>=5.9
 aiofiles>=25.1.0
-redis>=5.0.0
+redis>=8.0.0
 rq>=1.16.0
 razorpay>=1.4.0
 resend>=2.30.1
 httpx>=0.27.0
 uvloop>=0.22.1
-openpyxl>=3.1.0
+openpyxl>=3.1.5
 sentry-sdk[fastapi]>=2.60.0   # optional — only used when SENTRY_DSN is set
 # qrcode is still used by the room-cam pairing flow (app/routers/exam.py)
 # where students scan a QR with their phone to attach a second camera.
@@ -24,11 +24,11 @@ qrcode>=8.0
 # Structured JSON logging — used in app/logger.py via JsonFormatter.
 # Was missing from this file; container started failing on 2026-05-14
 # with ModuleNotFoundError. Adding here to keep the build reproducible.
-python-json-logger>=2.0.0
+python-json-logger>=4.1.0
 
 google-auth-oauthlib>=1.2.0
 
-pillow>=10.0.0
+pillow>=12.2.0
 
 # 2FA — pyotp removed 2026-05-23 (email-OTP via email_otp.py replaces TOTP).
 # bcrypt is still used to hash email-OTP codes and backup-code remnants.

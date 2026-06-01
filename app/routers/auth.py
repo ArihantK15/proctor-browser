@@ -1787,31 +1787,23 @@ h2{color:#e2e8f0;margin-bottom:8px}p{color:#94a3b8;font-size:14px;line-height:1.
 async def verify_email(request: Request, token: str = ""):
     """Verify email address via token from verification email."""
     claims = verify_email_token(token)
+    if not claims:
+        # Expired or tampered link — we can't read its `kind` claim safely
+        # (decoding without signature verification would be a security
+        # finding), so route to the marketing root which links to both
+        # the teacher and student dashboards. The user picks the right
+        # one and requests a new verification from that login page.
+        return HTMLResponse(EMAIL_VERIFY_HTML % {
+            "title": "Link expired or invalid",
+            "msg": "This verification link has expired or is invalid. Open Procta from your bookmarks (or procta.net) and request a new verification email from your login page.",
+            "login_url": "https://procta.net",
+            "btn": "Go to Procta",
+        }, status_code=400)
+
     # Route the post-verify "Log In" button to the right dashboard. Without
     # this, a student-account verify link landed them on /dashboard which
     # is the TEACHER login — they couldn't sign in there at all.
-    if claims:
-        _kind_for_redirect = claims.get("kind", "teacher")
-    else:
-        # Best-effort kind detection from the unverified payload so the
-        # expired/invalid-link page also routes correctly. Falls back to
-        # /dashboard (the safer default — teachers won't be confused by
-        # the student login since they recognise their own product).
-        _kind_for_redirect = "teacher"
-        try:
-            import jwt as _jwt
-            unsafe = _jwt.decode(token, options={"verify_signature": False})
-            _kind_for_redirect = unsafe.get("kind", "teacher")
-        except Exception:
-            pass
-    _login_url = "/student" if _kind_for_redirect == "student_account" else "/dashboard"
-    if not claims:
-        return HTMLResponse(EMAIL_VERIFY_HTML % {
-            "title": "Link expired or invalid",
-            "msg": "This verification link has expired or is invalid. Request a new one from the login page.",
-            "login_url": _login_url,
-            "btn": "Back to Login",
-        }, status_code=400)
+    _login_url = "/student" if claims.get("kind") == "student_account" else "/dashboard"
 
     user_id = claims.get("uid", "")
     kind = claims.get("kind", "teacher")

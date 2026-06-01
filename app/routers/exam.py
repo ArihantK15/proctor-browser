@@ -138,13 +138,14 @@ async def validate_student(request: Request, body: ValidateIn):
     exam_id = body.exam_id
     roll_upper = body.roll_number.strip().upper()
     provided_code = (body.access_code or "").strip().upper()
+    provided_teacher_id = (body.teacher_id or "").strip() if body.teacher_id else ""
 
     # Practice sandbox: short-circuit before any DB lookups
     if is_practice(body.roll_number):
         return _practice_validate_response(roll_upper)
 
     # Redis cache: 10-minute TTL for validated student lookups
-    cache_key = f"validate:{roll_upper}:{exam_id or ''}:{provided_code}"
+    cache_key = f"validate:{provided_teacher_id or ''}:{roll_upper}:{exam_id or ''}:{provided_code}"
     try:
         cached = _cache.get(cache_key) if _cache else None
         if cached and isinstance(cached, dict) and cached.get("valid"):
@@ -155,7 +156,7 @@ async def validate_student(request: Request, body: ValidateIn):
     # Resolve teacher + student. Exam window errors are intentionally
     # user-facing; identity/access-code failures below are deliberately
     # collapsed to avoid roll-number enumeration.
-    pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code)
+    pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code, provided_teacher_id)
     config = await _load_exam_config(pre_tid, exam_id=exam_id)
     _check_exam_time_window(config)
     try:
@@ -213,10 +214,24 @@ def _check_exam_time_window(config: dict) -> None:
             pass
 
 
-async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str) -> tuple:
+async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str, provided_teacher_id: str = "") -> tuple:
     """Resolve teacher_id and exam_id via access_code, exam, or fallback."""
-    pre_tid = None
+    pre_tid = provided_teacher_id or None
     pre_exam_id = exam_id
+
+    if pre_tid and pre_exam_id:
+        cfg = (await _atable("exam_config")
+               .select("teacher_id,exam_id")
+               .eq("teacher_id", str(pre_tid))
+               .eq("exam_id", pre_exam_id)
+               .limit(1)
+               .execute()).data or []
+        if not cfg:
+            logger.warning(
+                "[validate_student] teacher/exam mismatch denied tid=%s exam=%s roll=%s",
+                safe(pre_tid), safe(pre_exam_id), safe(roll_upper),
+            )
+            raise HTTPException(status_code=403, detail="Invalid exam launch context.")
 
     # 1) access_code → invite → teacher_id + exam_id
     if provided_code and not exam_id:
@@ -868,6 +883,7 @@ async def _try_ags_grade_passback(
     total: int,
     percentage: float,
     *,
+    teacher_id: str | None = None,
     raise_on_failure: bool = False,
 ):
     """Attempt to push this student's score to their LMS via AGS.
@@ -883,14 +899,30 @@ async def _try_ags_grade_passback(
         post_score returning False used to vanish into a logger.warning
         and the queued retries never triggered.
 
+    Tenancy: ``teacher_id`` is REQUIRED for correctness. Two different
+    teachers can each have a student row with the same ``roll_number``
+    (the composite unique key is roll+teacher_id), and each row carries
+    its own ``lti_user_id``. Without the scope filter on the students
+    lookup, .limit(1) used to return an arbitrary teacher's row — so
+    grade A could be pushed to teacher B's LMS user. That's a
+    cross-tenant data + grade corruption bug. The teacher_id arrives
+    via the JWT claims at the submit_exam call site and via the
+    score_submission_job's session metadata, so callers always have
+    it; we accept None for back-compat but log a warning when it's
+    missing and bail to avoid the unscoped fallback.
+
     Missing-LTI-context paths (no lti_user_id, no AGS endpoint claim,
     no registration) are always silent returns — they aren't failures,
     they're just "nothing to do".
     """
+    if not teacher_id:
+        _exam_log.warning("[AGS] teacher_id missing on grade passback for roll=%s — bailing to avoid cross-tenant lookup", safe(roll_number))
+        return
     try:
         student = (await _atable("students")
             .select("lti_user_id")
             .eq("roll_number", roll_number)
+            .eq("teacher_id", str(teacher_id))
             .limit(1)
             .execute()).data
         if not student or not student[0].get("lti_user_id"):
@@ -1294,11 +1326,13 @@ async def submit_exam(result: ResultIn, request: Request):
                 _enqueue_job(
                     ags_grade_passback_job,
                     trusted_roll, server_score, server_total, pct,
+                    teacher_id=str(tid) if tid else "",
                     queue_name="default",
                 )
             else:
                 asyncio.create_task(_try_ags_grade_passback(
                     trusted_roll, server_score, server_total, pct,
+                    teacher_id=str(tid) if tid else None,
                 ))
         except Exception as e:
             _exam_log.warning("[AGS] inline grade passback failed for %s: %s",

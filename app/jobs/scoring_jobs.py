@@ -192,7 +192,13 @@ async def _score_submission_async(
     if roll_number and server_total > 0:
         try:
             from ..routers.exam import _try_ags_grade_passback
-            await _try_ags_grade_passback(roll_number, server_score, server_total, pct)
+            # teacher_id is REQUIRED to scope the students lookup —
+            # see _try_ags_grade_passback's docstring on the cross-tenant
+            # roll-collision risk.
+            await _try_ags_grade_passback(
+                roll_number, server_score, server_total, pct,
+                teacher_id=str(teacher_id) if teacher_id else None,
+            )
         except Exception as e:
             logger.warning("[score_job] AGS passback failed for %s: %s", safe(session_key), safe(e))
 

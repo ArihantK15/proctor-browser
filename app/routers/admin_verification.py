@@ -103,9 +103,14 @@ async def id_decision(data: IdDecisionIn, request: Request):
     obj["decided_at"] = now_ist().isoformat()
     obj["reason_code"] = reason_code
     obj["reason_text"] = reason_text
+    # Atomic update with the teacher_id filter — the SELECT above
+    # already proved ownership but a bare .eq("id", ...) UPDATE
+    # leaves a TOCTOU window if a row gets reassigned. Matches the
+    # tenant-guard pattern applied to admin_invites / admin_org.
     await _atable("violations")\
         .update({"details": json.dumps(obj)})\
         .eq("id", data.violation_id)\
+        .eq("teacher_id", str(tid))\
         .execute()
 
     if data.decision == "rejected":
@@ -133,10 +138,14 @@ async def id_decision(data: IdDecisionIn, request: Request):
         if _cache:
             _cache.delete(f"risk_score:{data.session_key}")
         try:
+            # session_key on its own is effectively scoped (it encodes
+            # the roll which is unique per teacher) but adding the
+            # teacher_id filter makes the tenant guarantee structural
+            # rather than dependent on session-key composition.
             await _atable("exam_sessions").update({
                 "status":       SessionStatus.REJECTED,
                 "submitted_at": now_ist().isoformat(),
-            }).eq("session_key", data.session_key).execute()
+            }).eq("session_key", data.session_key).eq("teacher_id", str(tid)).execute()
         except Exception as e:
             logger.debug("Failed to update session status to rejected: %s", e)
 

@@ -361,3 +361,67 @@ class TestWorkerHealth:
         # The health endpoint should respond even without auth. It may return
         # 503 in test/dev when optional providers such as email are not set.
         assert resp.status_code in (200, 404, 503)
+
+
+# ── AGS grade passback tenant isolation ────────────────────────────────
+
+class TestAgsTenantScoping:
+    """Pin the cross-tenant defense in `_try_ags_grade_passback`.
+
+    Two teachers can each have a `students` row with the same
+    roll_number (the composite unique key is (roll_number, teacher_id)).
+    The students table lookup MUST filter by teacher_id; otherwise a
+    `.limit(1)` would return an arbitrary teacher's row and the grade
+    would be pushed to that teacher's LMS user — cross-tenant data +
+    grade corruption.
+    """
+
+    @pytest.mark.asyncio
+    async def test_bails_without_teacher_id(self):
+        """Missing teacher_id must short-circuit BEFORE the unscoped
+        students lookup. Earlier the function fell through to
+        .eq("roll_number", roll).limit(1) which could match a different
+        teacher's row."""
+        from app.routers.exam import _try_ags_grade_passback
+
+        with patch("app.routers.exam._atable") as m_atable:
+            await _try_ags_grade_passback(
+                "STU001", 8, 10, 80.0,
+                teacher_id=None,
+            )
+            # _atable should never have been called — we bailed before
+            # the lookup. If teacher_id=None ever silently fell back to
+            # an unscoped query, m_atable would have been invoked.
+            m_atable.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_students_query_includes_teacher_id_filter(self):
+        """Verify the students lookup chain hits eq("teacher_id", ...)."""
+        from app.routers.exam import _try_ags_grade_passback
+
+        # Mock _atable so we can inspect the chained .eq() calls.
+        select_chain = MagicMock()
+        select_chain.eq = MagicMock(return_value=select_chain)
+        select_chain.limit = MagicMock(return_value=select_chain)
+
+        async def _execute():
+            return MagicMock(data=[])  # no LTI user → silent return
+        select_chain.execute = _execute
+
+        table = MagicMock()
+        table.select = MagicMock(return_value=select_chain)
+
+        with patch("app.routers.exam._atable", return_value=table):
+            await _try_ags_grade_passback(
+                "STU001", 8, 10, 80.0,
+                teacher_id="teacher-1",
+            )
+
+        # The first .eq() should be on roll_number, the second on teacher_id.
+        eq_calls = select_chain.eq.call_args_list
+        cols = [c.args[0] for c in eq_calls]
+        assert "teacher_id" in cols, (
+            "students lookup must include teacher_id filter to prevent "
+            "cross-tenant roll-number collisions from routing grades to "
+            "the wrong LMS user"
+        )

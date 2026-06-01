@@ -23,6 +23,7 @@ class ValidateIn(BaseModel):
     roll_number: str
     access_code: Optional[str] = None
     exam_id: Optional[str] = None
+    teacher_id: Optional[str] = None
 
 
 class ResultIn(BaseModel):

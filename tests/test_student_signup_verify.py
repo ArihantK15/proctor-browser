@@ -83,6 +83,28 @@ def test_student_signup_creates_pending_account_and_sends_otp(client):
     issue_mock.assert_awaited_once()
 
 
+def test_student_signup_existing_email_409_even_with_weak_password(client):
+    """A returning student must get a clean 409 regardless of password
+    strength. The existence check runs BEFORE validate_password so a
+    legacy/sub-policy password never masks the 409 with a 400 — the
+    registration page relies on this 409 to auto-detect an existing account."""
+    db = _Db(existing_account={"id": "student-1"})
+    with patch("app.routers.auth.verify_or_403", new=AsyncMock()), \
+         patch("app.routers.auth.local_password_auth_enabled", return_value=True), \
+         patch("app.routers.auth._atable", db.table), \
+         patch("app.routers.auth._track_a_issue_signup_otp", new=AsyncMock()) as issue_mock:
+        resp = client.post("/api/v1/student/auth/signup", json={
+            "email": "student@example.com",
+            "full_name": "Student One",
+            "password": "short",  # deliberately fails the strength policy
+        })
+
+    assert resp.status_code == 409
+    # No account row was inserted and no OTP was sent for an existing email.
+    assert db.inserted_account is None
+    issue_mock.assert_not_awaited()
+
+
 def test_student_login_blocks_unverified_account(client):
     account = {
         "id": "student-1",

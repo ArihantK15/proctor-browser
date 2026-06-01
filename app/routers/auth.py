@@ -1122,14 +1122,23 @@ async def student_signup(body: StudentSignupIn, request: Request):
         raise HTTPException(status_code=400, detail="A valid email is required")
     if not name:
         raise HTTPException(status_code=400, detail="Full name is required")
+
+    # Existence check runs BEFORE password validation on purpose: a returning
+    # student must receive a clean 409 even when their existing password
+    # predates the current strength policy. The registration page relies on
+    # this 409 to auto-detect an existing account — gating it behind
+    # validate_password would surface a misleading "password too weak" error
+    # and block legacy-password students from enrolling for a new exam. This
+    # leaks no new oracle: signup is captcha-gated + rate-limited (5/hour) and
+    # the 409 message is deliberately non-committal.
+    existing = await _atable("student_accounts").select("id").eq("email", email).execute()
+    if existing.data:
+        raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
+
     try:
         await validate_password_async(body.password)
     except PasswordError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    existing = await _atable("student_accounts").select("id").eq("email", email).execute()
-    if existing.data:
-        raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
 
     auth_resp = None
     password_hash = None

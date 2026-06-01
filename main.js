@@ -24,16 +24,25 @@ const {
 } = require('./lib/kiosk-manager');
 
 // ── Wire up kiosk-manager with backend module references ──────────
+// Threats and multi-monitor detection are reported at most once per
+// (session, label) pair. Without dedup, a student with TeamViewer
+// merely installed (not running maliciously) would emit a high-severity
+// event every 30s for the whole exam — flooding the teacher dashboard,
+// the events table, and the composite risk score. The Set is cleared
+// when the monitor stops so the next session starts with a clean slate.
+const _reportedThreats = new Set();
 const { startProcessMonitor, stopProcessMonitor } = (() => {
   let _interval = null;
   return {
     startProcessMonitor: () => {
       if (_interval) return;
       console.log('[Monitor] starting continuous process monitoring');
+      _reportedThreats.clear();
       _interval = setInterval(() => _scanProcesses(), 30000);
     },
     stopProcessMonitor: () => {
       if (_interval) { clearInterval(_interval); _interval = null; console.log('[Monitor] stopped'); }
+      _reportedThreats.clear();
     },
   };
 })();
@@ -44,33 +53,39 @@ async function _scanProcesses() {
   if (!output) return;
   const lower = output.toLowerCase();
   for (const { rx, label, type } of THREATS) {
-    if (rx.test(lower)) {
-      if (getCurrentSessionId() && getStudentToken()) {
-        fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {
-          method: 'POST', headers: authHeaders(getStudentToken()),
-          body: JSON.stringify({ session_id: getCurrentSessionId(),
-            event_type: type, severity: 'high',
-            details: `[Live scan] ${label} detected during exam` }),
-        }, 10000).catch(() => {});
-      }
-      if (getMainWindow() && !getMainWindow().isDestroyed()) {
-        getMainWindow().webContents.send('violation-detected', {
-          type, severity: 'high',
-          details: `[Live scan] ${label} detected during exam`,
-        });
-      }
-      console.log(`[Monitor] THREAT: ${label} (${type})`);
+    if (!rx.test(lower)) continue;
+    const key = `${type}:${label}`;
+    if (_reportedThreats.has(key)) continue;
+    _reportedThreats.add(key);
+    if (getCurrentSessionId() && getStudentToken()) {
+      fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {
+        method: 'POST', headers: authHeaders(getStudentToken()),
+        body: JSON.stringify({ session_id: getCurrentSessionId(),
+          event_type: type, severity: 'high',
+          details: `[Live scan] ${label} detected during exam` }),
+      }, 10000).catch(() => {});
     }
+    if (getMainWindow() && !getMainWindow().isDestroyed()) {
+      getMainWindow().webContents.send('violation-detected', {
+        type, severity: 'high',
+        details: `[Live scan] ${label} detected during exam`,
+      });
+    }
+    console.log(`[Monitor] THREAT: ${label} (${type})`);
   }
   try {
     const displays = screen.getAllDisplays();
     if (displays.length > 1 && getCurrentSessionId() && getStudentToken()) {
-      fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {
-        method: 'POST', headers: authHeaders(getStudentToken()),
-        body: JSON.stringify({ session_id: getCurrentSessionId(),
-          event_type: 'multiple_monitors', severity: 'medium',
-          details: `[Live scan] ${displays.length} displays detected` }),
-      }, 10000).catch(() => {});
+      const key = `multiple_monitors:${displays.length}`;
+      if (!_reportedThreats.has(key)) {
+        _reportedThreats.add(key);
+        fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {
+          method: 'POST', headers: authHeaders(getStudentToken()),
+          body: JSON.stringify({ session_id: getCurrentSessionId(),
+            event_type: 'multiple_monitors', severity: 'medium',
+            details: `[Live scan] ${displays.length} displays detected` }),
+        }, 10000).catch(() => {});
+      }
     }
   } catch(e) { console.error('[Monitor] _scanProcesses error:', e.message); }
 }

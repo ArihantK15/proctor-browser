@@ -1351,21 +1351,51 @@ window.addEventListener('pageshow', (e) => {
 // for window focus and visibilitychange and re-fetch /api/student/exams
 // whenever we come back into view, but only if the user is logged in
 // and the dashboard view is currently visible (not the auth view).
-// Only refetch if (a) logged in, (b) on dashboard view, and (c) the cached
-// list is at least STALE_MS old. Without the stale check the dashboard
-// reloaded on every alt-tab which made it feel like a permanent loading
-// spinner during testing.
-const EXAMS_STALE_MS = 60_000;
-function _shouldRefetchExams() {
+//
+// Defense in depth: three triggers cover three scenarios.
+//   1. Focus / visibilitychange — fires when the student alt-tabs back
+//      after registering in an external browser. Fastest path.
+//   2. Periodic background poll (BACKGROUND_REFRESH_MS) — guarantees
+//      the dashboard becomes consistent even when no focus event ever
+//      fires (e.g., the student keeps the Procta app focused while
+//      registering in a sibling window).
+//   3. Manual refresh button (#exams-refresh-btn, wired in dashboard
+//      onload) — explicit user-driven recovery for the long-tail.
+//
+// A tiny FOCUS_DEBOUNCE_MS gate prevents rapid alt-tab storms from
+// triggering N fetches in quick succession. silent mode + _examsInflight
+// already prevent flicker and concurrent fetches; this is just a
+// hand-of-restraint so we don't post a request per millisecond.
+const FOCUS_DEBOUNCE_MS = 1_500;
+const BACKGROUND_REFRESH_MS = 30_000;
+function _canRefetchExams() {
   if (!studentAuthed) return false;
   if (document.getElementById('dashboard').style.display !== 'block') return false;
-  return (Date.now() - _lastExamsFetch) > EXAMS_STALE_MS;
+  return true;
 }
-window.addEventListener('focus', () => {
-  if (_shouldRefetchExams()) loadExams({ silent: true });
-});
+function _maybeRefetchExamsOnFocus() {
+  if (!_canRefetchExams()) return;
+  if ((Date.now() - _lastExamsFetch) < FOCUS_DEBOUNCE_MS) return;
+  loadExams({ silent: true });
+}
+window.addEventListener('focus', _maybeRefetchExamsOnFocus);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && _shouldRefetchExams()) loadExams({ silent: true });
+  if (!document.hidden) _maybeRefetchExamsOnFocus();
+});
+// Background safety net. Cheap: silent + inflight guard means a fast
+// path returns immediately when a foreground fetch is already running.
+setInterval(() => {
+  if (_canRefetchExams()) loadExams({ silent: true });
+}, BACKGROUND_REFRESH_MS);
+
+// Manual refresh button. Wired here (idempotent) so it works whether
+// the button is present in the HTML or injected later. Bypasses the
+// debounce — the user explicitly asked for a refresh.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('#exams-refresh-btn, [data-action="refreshExams"]');
+  if (!btn) return;
+  e.preventDefault();
+  if (_canRefetchExams()) loadExams({ silent: true });
 });
 
 // ─── Countdown ticker for in-progress exams ──────────────────────

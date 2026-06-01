@@ -630,7 +630,7 @@ async def get_usage(request: Request):
     period_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     # Count distinct students who submitted this month
     student_count_q = await _atable("exam_sessions")\
-        .select("student_id", count="exact", distinct="student_id")\
+        .select("student_id", count="exact", distinct_on="student_id")\
         .eq("teacher_id", str(teacher["id"]))\
         .gte("submitted_at", period_start.isoformat())\
         .execute()

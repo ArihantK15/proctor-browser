@@ -538,7 +538,14 @@
     </div>
   </div>
 
-  <h2 class="section-title">Upcoming exams</h2>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <h2 class="section-title" style="margin-bottom:0">Upcoming exams</h2>
+    <button id="exams-refresh-btn" class="btn btn-secondary" data-action="refreshExams"
+            style="padding:6px 14px;font-size:13px"
+            title="Refresh — use this if you just registered for a new exam in your browser">
+      Refresh
+    </button>
+  </div>
   <p class="section-subtitle">Exams you've been enrolled in by your teachers. Launch the Procta app to sit them.</p>
 
   <div id="exams-container" class="exam-list"></div>

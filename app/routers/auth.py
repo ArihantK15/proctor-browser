@@ -1001,13 +1001,27 @@ async def accept_org_invite(body: dict, request: Request):
     if invite.get("expires_at"):
         try:
             expires = datetime.fromisoformat(str(invite["expires_at"]).replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) > expires:
-                raise HTTPException(status_code=410, detail="Invitation has expired")
-        except Exception:
-            _auth_log.debug("auth: invite expires parse failed", exc_info=True)
+        except (ValueError, TypeError) as exc:
+            # Fail closed: if we can't parse the expiry we can't prove the
+            # invite is still valid, so refuse it. The earlier code logged
+            # and fell through, which accepted a malformed-expiry row even
+            # though it could have been long-expired.
+            _auth_log.warning("auth: invite expires parse failed (id=%s): %s", invite.get("id"), exc)
+            raise HTTPException(status_code=410, detail="Invitation has expired") from exc
+        if datetime.now(timezone.utc) > expires:
+            raise HTTPException(status_code=410, detail="Invitation has expired")
 
-    email = invite["email"].strip().lower()
-    org_id = str(invite["org_id"])
+    email = (invite.get("email") or "").strip().lower()
+    if not email:
+        # Hard reject: every code path below assumes a usable email
+        # (account lookup, Supabase Auth create, teacher insert). A row
+        # missing email is corrupt invite data, not a user error.
+        _auth_log.error("auth: invite %s has no email; rejecting", invite.get("id"))
+        raise HTTPException(status_code=400, detail="Invitation is missing an email address. Ask your admin to resend it.")
+    org_id = str(invite.get("org_id") or "")
+    if not org_id:
+        _auth_log.error("auth: invite %s has no org_id; rejecting", invite.get("id"))
+        raise HTTPException(status_code=400, detail="Invitation is not linked to an organization. Ask your admin to resend it.")
 
     # Check if teacher already exists
     existing = await _atable("teachers").select("id,org_id,org_role,full_name,email,email_verified_at").eq("email", email).execute()
@@ -1015,13 +1029,21 @@ async def accept_org_invite(body: dict, request: Request):
         teacher = existing.data[0]
         if teacher.get("org_id"):
             raise HTTPException(status_code=409, detail="This email is already part of an organization")
-        update_fields = {"full_name": full_name, "status": "pending_verification"}
-        if local_password_auth_enabled() and not teacher.get("email_verified_at"):
-            update_fields.update({
-                "password_hash": await hash_password(password),
-                "auth_provider": "local",
-                "password_changed_at": now_ist().isoformat(),
-            })
+        # Trust boundary: only update profile fields when the existing
+        # teacher hasn't verified their email yet. A verified account
+        # owns its own profile; an org admin sending an invite to a
+        # verified teacher's email must not silently rename that
+        # teacher. We still flip status so the invite acceptance flow
+        # can complete, but the verified user's full_name is preserved.
+        update_fields: dict = {"status": "pending_verification"}
+        if not teacher.get("email_verified_at"):
+            update_fields["full_name"] = full_name
+            if local_password_auth_enabled():
+                update_fields.update({
+                    "password_hash": await hash_password(password),
+                    "auth_provider": "local",
+                    "password_changed_at": now_ist().isoformat(),
+                })
         await _atable("teachers").update(update_fields).eq("id", teacher["id"]).execute()
         teacher.update(update_fields)
     else:

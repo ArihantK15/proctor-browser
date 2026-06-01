@@ -16,6 +16,14 @@ import asyncpg
 
 _pool: asyncpg.Pool | None = None
 _IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+# Strict ISO-8601 date-time prefix: YYYY-MM-DD'T'HH:MM. Anything that
+# matches gets fed to fromisoformat() inside _SQL.add(); anything that
+# doesn't is passed through untouched. Earlier this was a length+'T'
+# heuristic that fired on every free-text string containing a 'T'
+# (subject lines, names, addresses) and burned cycles tripping
+# ValueError. The strict prefix keeps coercion targeted to real
+# timestamps.
+_ISO_DT_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
 
 # Per-table default ON CONFLICT columns for upserts.
 # Supabase REST infers the conflict target from the table's primary key
@@ -137,11 +145,10 @@ class _SQL:
         # strings through this layer. Coerce here so all of them keep
         # working on the postgres backend without per-callsite churn.
         #
-        # Heuristic: only attempt coercion on strings of plausible ISO
-        # length that contain 'T' — guarantees we don't try to coerce
-        # short identifiers, emails, UA strings, or other free text.
-        # If `fromisoformat()` raises, we leave the value as a string.
-        if isinstance(value, str) and 16 <= len(value) <= 40 and "T" in value:
+        # The match is anchored to a real ISO date-time prefix so free-
+        # text strings that happen to contain a 'T' (subject lines,
+        # names, etc.) never reach fromisoformat().
+        if isinstance(value, str) and _ISO_DT_PREFIX.match(value):
             try:
                 from datetime import datetime as _dt
                 # fromisoformat in 3.11+ accepts trailing 'Z' as +00:00;
@@ -236,10 +243,31 @@ class PostgresTable:
     def not_(self) -> _NotFilter:
         return _NotFilter(self)
 
-    def select(self, cols: str = "*", *, count: str | None = None, distinct: str | None = None) -> "PostgresTable":
+    def select(
+        self,
+        cols: str = "*",
+        *,
+        count: str | None = None,
+        distinct_on: str | None = None,
+        distinct: str | None = None,
+    ) -> "PostgresTable":
+        """Configure a SELECT.
+
+        ``distinct_on`` emits ``SELECT DISTINCT ON ({col}) ...``: returns one
+        row per unique value of ``col`` (Postgres picks which one without
+        ORDER BY — callers should ``.order()`` to make this deterministic).
+        Both ``data`` rows and ``count`` are scoped to that uniqueness.
+
+        ``distinct`` is a deprecated alias for ``distinct_on``. Earlier
+        callers passed ``distinct="student_id"`` and the implementation
+        emitted ``SELECT DISTINCT <select-list>``, which silently combined
+        columns rather than restricting to the named one — a footgun that
+        meant ``data`` and ``count`` could disagree when ``cols`` named
+        more than one column. New callers should use ``distinct_on``.
+        """
         self._select_cols = cols
         self._count_mode = count
-        self._distinct_col = distinct
+        self._distinct_col = distinct_on if distinct_on is not None else distinct
         self._op = "select"
         return self
 
@@ -411,7 +439,13 @@ class PostgresTable:
                 offset = f" OFFSET {int(self._offset_val)}" if self._offset_val is not None else ""
                 select_expr = _select_list(self._select_cols)
                 if self._distinct_col:
-                    select_expr = f"DISTINCT {select_expr}"
+                    # DISTINCT ON ({col}) — one row per unique value of col.
+                    # Matches COUNT(DISTINCT col) below so .data and .count
+                    # describe the same set. Without ORDER BY, Postgres picks
+                    # an arbitrary row per group; callers that care about
+                    # which row wins should add .order(). This is the
+                    # intended semantics behind the `distinct_on=` kwarg.
+                    select_expr = f"DISTINCT ON ({_ident(self._distinct_col)}) {select_expr}"
                 rows = await conn.fetch(
                     f"SELECT {select_expr} FROM {_ident(self._table)}"
                     f"{where}{order}{limit}{offset}",

@@ -169,11 +169,8 @@ const PIP_PACKAGES = [
   'insightface', 'websocket-client', 'psutil',
 ];
 
-// ── Polling / SSE ─────────────────────────────────────────────────
+// ── Polling ───────────────────────────────────────────────────────
 const POLL_INTERVAL_MS = 2000;
-const SSE_TIMEOUT_MS = 15000;
-const SSE_INITIAL_BACKOFF_MS = 2000;
-const SSE_MAX_BACKOFF_MS = 30000;
 const IGNORED_EVENT_TYPES = new Set([
   'screenshot','enrollment','started','submitted',
   'resumed','complete','session_ended','answer_selected',
@@ -205,8 +202,7 @@ module.exports = {
   VM_MAC_PREFIXES, VM_GPU_RENDERERS, BLOCKING_TYPES,
   THREATS, ALL_PROCESSES, SCAN_TYPE_MAP,
   getPythonCandidates, getScriptPathCandidates, PIP_PACKAGES,
-  POLL_INTERVAL_MS, SSE_TIMEOUT_MS, SSE_INITIAL_BACKOFF_MS, SSE_MAX_BACKOFF_MS,
-  IGNORED_EVENT_TYPES, MONITOR_INTERVAL_MS,
+  POLL_INTERVAL_MS, IGNORED_EVENT_TYPES, MONITOR_INTERVAL_MS,
   INVITE_REGEX,
   LOBBY_WIDTH, LOBBY_HEIGHT, LOBBY_MIN_W, LOBBY_MIN_H,
   EXAM_WIDTH, EXAM_HEIGHT,

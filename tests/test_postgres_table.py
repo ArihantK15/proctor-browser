@@ -10,7 +10,7 @@ import pytest
 from datetime import datetime, timezone
 from uuid import UUID
 
-from app.postgres_table import PostgresTable, _SQL, _PostgresResult, _json_safe, _ident, _select_list
+from app.postgres_table import PostgresTable, _SQL, _PostgresResult, _json_safe, _ident, _select_list, _ISO_DT_PREFIX
 
 
 # ─── identifier safety ─────────────────────────────────────────────
@@ -214,6 +214,66 @@ def test_single_flag_set():
     # OR return None for empty. We don't run execute() here (no DB);
     # we just confirm the builder records the intent.
     assert t._single is True
+
+
+# ─── distinct_on semantics ──────────────────────────────────────
+
+def test_select_distinct_on_records_column():
+    t = PostgresTable("exam_sessions").select(
+        "student_id", count="exact", distinct_on="student_id"
+    )
+    # The builder records the column; execute() emits DISTINCT ON ({col}).
+    # This pins the new parameter name so the renamed kwarg can't silently
+    # regress back to the old (semantically wrong) DISTINCT-over-select-list.
+    assert t._distinct_col == "student_id"
+    assert t._count_mode == "exact"
+
+
+def test_select_distinct_back_compat_alias():
+    """Old callers passing `distinct=` keep working until they migrate."""
+    t = PostgresTable("exam_sessions").select(
+        "student_id", count="exact", distinct="student_id"
+    )
+    assert t._distinct_col == "student_id"
+
+
+def test_select_distinct_on_takes_precedence_over_alias():
+    """If both are passed, `distinct_on` wins — it's the new canonical name."""
+    t = PostgresTable("t").select("a", distinct_on="a", distinct="b")
+    assert t._distinct_col == "a"
+
+
+# ─── ISO datetime coercion ──────────────────────────────────────
+
+def test_iso_dt_prefix_matches_real_timestamps():
+    assert _ISO_DT_PREFIX.match("2026-05-28T05:18:00+00:00")
+    assert _ISO_DT_PREFIX.match("2026-05-28T05:18:00Z")
+    assert _ISO_DT_PREFIX.match("2026-05-28T05:18")
+
+
+def test_iso_dt_prefix_rejects_free_text_with_T():
+    """The old length+contains heuristic would try to fromisoformat any
+    16-40 char string with a 'T'. The strict regex blocks free-text
+    matches so we don't waste cycles tripping ValueError on subject
+    lines, names, and other strings that happen to contain 'T'."""
+    assert not _ISO_DT_PREFIX.match("Subject: T-meeting 123")
+    assert not _ISO_DT_PREFIX.match("Tom Thompson Test")
+    assert not _ISO_DT_PREFIX.match("TYPESCRIPT_GUIDE_v2")
+    # Plain dates without time component don't need coercion (asyncpg
+    # binds them fine), so they shouldn't match.
+    assert not _ISO_DT_PREFIX.match("2026-05-28")
+
+
+def test_sql_add_coerces_iso_string_to_datetime():
+    sql = _SQL()
+    sql.add("2026-05-28T05:18:00+00:00")
+    assert isinstance(sql.params[0], datetime)
+
+
+def test_sql_add_leaves_free_text_alone():
+    sql = _SQL()
+    sql.add("Tom Thompson Test")
+    assert sql.params[0] == "Tom Thompson Test"  # still a str
 
 
 # Note: end-to-end execute() tests live in test_postgres_table_integration

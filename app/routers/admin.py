@@ -288,19 +288,33 @@ async def terminate_session(session_id: str, request: Request):
     teacher = await require_admin(request)
     scope = await resolve_scope(teacher, request)
     sess = await assert_session_accessible(session_id, scope)
+    # Capture the access-check's teacher_id so the UPDATE/INSERT below
+    # are atomically scoped. assert_session_accessible already proved
+    # ownership/org-membership; the WHERE adds defense-in-depth against
+    # a TOCTOU window where the session row gets reassigned between the
+    # check and the write. Synthetic rows (violations-only fallback) may
+    # not carry a real teacher_id — fall back to "" which the update
+    # treats as match-nothing on a real exam_sessions row.
+    sess_tid = str(sess.get("teacher_id") or "")
 
     now = now_ist().isoformat()
-    await _atable("exam_sessions").update({
+    upd_q = _atable("exam_sessions").update({
         "status": SessionStatus.FORCE_SUBMITTED,
         "submitted_at": now,
-    }).eq("session_key", session_id).execute()
+    }).eq("session_key", session_id)
+    if sess_tid:
+        upd_q = upd_q.eq("teacher_id", sess_tid)
+    await upd_q.execute()
 
     actor = scope["role"]
-    await _atable("violations").insert({
+    viol_row = {
         "session_key": session_id,
         "violation_type": "session_terminated",
         "severity": "high",
         "details": f"Session force-terminated by {actor}",
-    }).execute()
+    }
+    if sess_tid:
+        viol_row["teacher_id"] = sess_tid
+    await _atable("violations").insert(viol_row).execute()
 
     return {"status": "terminated", "session_id": session_id}

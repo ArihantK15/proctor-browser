@@ -389,20 +389,21 @@ async def revoke_invite(invite_id: str, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
 
+    # Atomic UPDATE filtered by BOTH id and teacher_id. The earlier code
+    # did a SELECT-then-UPDATE pair; the UPDATE only filtered by id which
+    # left a TOCTOU window — if the invite was reassigned between the
+    # ownership check and the update, the update would still revoke a
+    # row outside our scope. .data is the list of affected rows (under
+    # the postgres adapter), so empty = either invite doesn't exist or
+    # it belongs to another teacher. We collapse both to 404 to avoid
+    # leaking which is which.
     result = (await _atable("student_invites")
-              .select("id,teacher_id,status")
-              .eq("id", invite_id).execute())
+              .update({"status": InviteStatus.REVOKED})
+              .eq("id", invite_id)
+              .eq("teacher_id", tid)
+              .execute())
     if not result.data:
         raise HTTPException(status_code=404, detail="Invite not found")
-    if result.data[0].get("teacher_id") != tid:
-        raise HTTPException(status_code=403, detail="Not your invite")
-
-    # Keep this compatible with older student_invites schemas. The table's
-    # canonical audit fields are status + timestamps from phase10; some
-    # deployments do not have a revoked_at column yet.
-    (await _atable("student_invites")
-     .update({"status": InviteStatus.REVOKED})
-     .eq("id", invite_id).execute())
     return {"ok": True, "invite_id": invite_id}
 
 

@@ -14,14 +14,58 @@ MAX_ATTEMPTS = 5
 MAX_CODES_PER_HOUR = 3
 
 
+class OtpRateLimitError(RuntimeError):
+    """Raised by issue() when a (user, purpose) has exceeded MAX_CODES_PER_HOUR.
+
+    Callers should surface this as a 429 to the user without leaking
+    whether the rate-limit gate fired vs the upstream send pipeline.
+    """
+
+
 async def issue(user_kind: str, user_id: str, purpose: str) -> str:
     """Generate a 6-digit OTP, store its hash, return the raw code.
 
     Caller should send the raw code to the user's email.
+
+    Enforces MAX_CODES_PER_HOUR per (user_kind, user_id, purpose) so a
+    spammer can't trigger unlimited OTP emails to a victim address.
+    Earlier this constant was declared but never read, leaving the
+    issuance path with no per-user cap (only the outer endpoint's
+    request-level rate-limit, which is per-IP and bypassable).
+
+    Also invalidates any prior unused codes for the same (user, purpose)
+    before issuing the new one. Without this, every fresh issue() call
+    left old codes valid in parallel — verify() iterates the last 5
+    unused codes, so an attacker could brute-force against N codes at
+    once, widening the keyspace hit rate.
     """
+    now = datetime.now(timezone.utc)
+    one_hour_ago = now - timedelta(hours=1)
+    recent = await _atable("email_otps").select("id")\
+        .eq("user_kind", user_kind).eq("user_id", user_id)\
+        .eq("purpose", purpose)\
+        .gte("created_at", one_hour_ago.isoformat())\
+        .execute()
+    if len(recent.data or []) >= MAX_CODES_PER_HOUR:
+        logger.warning(
+            "[email_otp] rate limit exceeded user_kind=%s user_id=%s purpose=%s count=%d",
+            user_kind, user_id, purpose, len(recent.data or []),
+        )
+        raise OtpRateLimitError(
+            f"Too many codes requested for {purpose}. Please wait before trying again."
+        )
+
+    # Invalidate any still-valid unused codes so only the newest one can
+    # verify. Race-tolerant: a concurrent verify() may complete against
+    # an in-flight code; in that case the UPDATE no-ops and the user
+    # got their answer either way.
+    await _atable("email_otps").update({"used_at": now.isoformat()})\
+        .eq("user_kind", user_kind).eq("user_id", user_id)\
+        .eq("purpose", purpose).is_("used_at", "null").execute()
+
     code = "".join(secrets.choice("0123456789") for _ in range(6))
     code_hash = bcrypt.hashpw(code.encode(), bcrypt.gensalt()).decode()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)
+    expires_at = now + timedelta(minutes=OTP_TTL_MINUTES)
     await _atable("email_otps").insert({
         "user_kind": user_kind,
         "user_id": user_id,

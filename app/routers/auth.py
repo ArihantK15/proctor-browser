@@ -23,6 +23,7 @@ from ..models import SessionStatus
 from ..constants import ALL_SIGNING_KEYS, PLANS, TRIAL_DAYS
 from ..services.passwords import validate_password, validate_password_async, PasswordError
 from ..services.local_auth import (
+    burn_password_verify,
     hash_password,
     issue_password_reset_token,
     issue_refresh_token,
@@ -616,6 +617,10 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
                 await record_auth_event("login_failed", request, "teacher", "", email)
                 raise HTTPException(status_code=401, detail="Invalid email or password")
         elif not supabase_auth_fallback_enabled():
+            # Burn a bcrypt cycle so this no-account path takes the same
+            # wall time as a real verify_password — otherwise the timing
+            # difference (≈100ms vs ≈1ms) leaks account existence.
+            await burn_password_verify()
             await record_failure("teacher", email)
             await record_auth_event("login_failed", request, "teacher", "", email)
             raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -665,11 +670,22 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         # First call (no code yet): generate a fresh OTP, email it, return
         # 401 EMAIL_2FA_REQUIRED. The browser shows a code-input UI and
         # re-POSTs with the same email/password + the email_otp_code.
-        from ..services.email_otp import issue as otp_issue, verify as otp_verify
+        from ..services.email_otp import issue as otp_issue, verify as otp_verify, OtpRateLimitError
         from ..emailer import send_2fa_otp_email
 
         if not body.email_otp_code:
-            code = await otp_issue("teacher", str(teacher["id"]), "2fa_login")
+            try:
+                code = await otp_issue("teacher", str(teacher["id"]), "2fa_login")
+            except OtpRateLimitError:
+                # Per-(user, purpose) cap. Surface a 429 so the client UI
+                # shows "wait a few minutes" instead of leaving the user
+                # in the dark — same shape used everywhere else in this
+                # router for OTP rate-limits.
+                await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "email_2fa_rate_limited"})
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many 2FA codes requested. Please wait a few minutes before trying again.",
+                )
             try:
                 send_2fa_otp_email(email, teacher.get("full_name", ""), code, purpose="login")
             except Exception as e:
@@ -962,10 +978,15 @@ async def get_org_invite_page(token: str, request: Request):
     if invite.get("expires_at"):
         try:
             expires = datetime.fromisoformat(str(invite["expires_at"]).replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) > expires:
-                return HTMLResponse("<h1>This invitation has expired</h1>", status_code=410)
-        except Exception:
-            _auth_log.debug("auth: invite expires parse failed", exc_info=True)
+        except (ValueError, TypeError):
+            # Fail closed — we can't prove the invite is still valid, so
+            # treat it as expired. The earlier code logged + fell through,
+            # which accepted malformed-expiry rows even if they were
+            # long-expired in reality.
+            _auth_log.warning("auth: invite_page expires parse failed (id=%s)", invite.get("id"))
+            return HTMLResponse("<h1>This invitation has expired</h1>", status_code=410)
+        if datetime.now(timezone.utc) > expires:
+            return HTMLResponse("<h1>This invitation has expired</h1>", status_code=410)
     org_result = await _atable("organizations").select("name").eq("id", str(invite["org_id"])).limit(1).execute()
     org_name = org_result.data[0]["name"] if org_result.data else "an organization"
     page = _INVITE_PAGE.replace("{org_name}", _esc(org_name)).replace("{token}", token)
@@ -1259,6 +1280,11 @@ async def student_login(body: StudentLoginIn, request: Request):
                 await record_auth_event("login_failed", request, "student_account", "", email)
                 raise HTTPException(status_code=401, detail="Invalid email or password")
         elif not supabase_auth_fallback_enabled():
+            # Constant-time defense — see burn_password_verify docstring.
+            # Without this the timing gap between an existing-account
+            # bcrypt verify and a no-account early return enumerates
+            # students.
+            await burn_password_verify()
             await record_failure("student", email)
             await record_auth_event("login_failed", request, "student_account", "", email)
             raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -1793,8 +1819,13 @@ async def verify_email(request: Request, token: str = ""):
                 try:
                     expires = datetime.fromisoformat(str(invite["expires_at"]).replace("Z", "+00:00"))
                     expired = datetime.now(timezone.utc) > expires
-                except Exception:
-                    expired = False
+                except (ValueError, TypeError):
+                    # Fail closed — without a usable expiry we can't verify
+                    # the invite is still valid, so refuse the org-linking.
+                    # The email is still verified (above), the teacher just
+                    # doesn't get auto-attached to the org via this path.
+                    _auth_log.warning("auth: verify_email invite expires parse failed (id=%s)", invite.get("id"))
+                    expired = True
             if not expired:
                 teacher_res = await _atable("teachers").select("org_id").eq("id", user_id).limit(1).execute()
                 teacher = teacher_res.data[0] if teacher_res.data else {}
@@ -2278,13 +2309,22 @@ async def _track_a_hydrate_student_account(account: dict) -> dict:
 
 async def _track_a_issue_signup_otp(account: dict, email: str | None = None) -> None:
     from ..services import email_otp
+    from ..services.email_otp import OtpRateLimitError
     from ..emailer import send_2fa_otp_email
 
     account_id = str(account.get("id") or "")
     to_email = (email or account.get("email") or "").strip().lower()
     if not account_id or not to_email:
         return
-    code = await email_otp.issue("student", account_id, "signup_verify")
+    # Swallow the per-(user, purpose) hourly cap silently. The endpoint
+    # surface already returns a uniform "sent: true" response to defeat
+    # enumeration; surfacing rate-limit state to one caller but not
+    # another would re-introduce that oracle.
+    try:
+        code = await email_otp.issue("student", account_id, "signup_verify")
+    except OtpRateLimitError:
+        _auth_log.info("[signup_otp] rate-limited account=%s", safe(account_id))
+        return
     send_2fa_otp_email(to_email, account.get("full_name") or "", code, purpose="signup")
 
 
@@ -2435,12 +2475,19 @@ async def _track_a_hybrid_delete_student_account(account: dict, request: Request
 @limiter.limit("3/hour")
 async def student_account_delete_request(request: Request):
     from ..services import email_otp
+    from ..services.email_otp import OtpRateLimitError
     from ..emailer import send_2fa_otp_email
 
     account = await require_student_account(request)
     account_id = str(account["id"])
     email = (account.get("email") or "").strip().lower()
-    code = await email_otp.issue("student", account_id, "account_delete")
+    try:
+        code = await email_otp.issue("student", account_id, "account_delete")
+    except OtpRateLimitError:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many delete codes requested. Please wait before trying again.",
+        )
     send_2fa_otp_email(email, account.get("full_name") or "", code, purpose="delete")
     return {"sent": True, "expires_in": 600}
 
@@ -2509,13 +2556,21 @@ async def _track_b_set_password(kind: str, user: dict, password: str, request: R
 
 async def _track_b_send_password_reset_otp(kind: str, email: str) -> None:
     from ..services import email_otp
+    from ..services.email_otp import OtpRateLimitError
     from ..emailer import send_2fa_otp_email
 
     user = await _track_b_find_user_for_reset(kind, email)
     if not user:
         return
     purpose = "teacher_password_reset" if kind == "teacher" else "password_reset"
-    code = await email_otp.issue(kind, str(user["id"]), purpose)
+    # As with signup OTP: swallow rate-limit so the public reset-request
+    # endpoint returns the same shape whether the user exists, the user
+    # doesn't exist, or the user is just hitting the per-hour cap.
+    try:
+        code = await email_otp.issue(kind, str(user["id"]), purpose)
+    except OtpRateLimitError:
+        _auth_log.info("[password_reset_otp] rate-limited kind=%s user=%s", kind, safe(str(user.get("id"))))
+        return
     send_2fa_otp_email(email, user.get("full_name") or "", code, purpose="password_reset")
 
 
@@ -2614,6 +2669,7 @@ async def teacher_password_reset_otp_confirm(body: dict, request: Request):
 async def student_email_change_request(request: Request, body: dict = Body(default_factory=dict)):
     from ..auth.admin_auth import require_reauth_or_403
     from ..services import email_otp
+    from ..services.email_otp import OtpRateLimitError
     from ..emailer import send_2fa_otp_email, send_student_email_change_heads_up
 
     account = await require_student_account(request)
@@ -2628,7 +2684,13 @@ async def student_email_change_request(request: Request, body: dict = Body(defau
     existing = await _atable("student_accounts").select("id").eq("email", new_email).limit(1).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="That email is already in use")
-    code = await email_otp.issue("student", account_id, "email_change")
+    try:
+        code = await email_otp.issue("student", account_id, "email_change")
+    except OtpRateLimitError:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many email-change codes requested. Please wait before trying again.",
+        )
     send_2fa_otp_email(new_email, account.get("full_name") or "", code)
     if old_email:
         try:

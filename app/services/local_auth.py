@@ -67,6 +67,31 @@ async def verify_password(password: str, password_hash: str | None) -> bool:
         return False
 
 
+# Precomputed dummy bcrypt hash used by burn_password_verify() to keep
+# login response time constant on the "no account exists" path. Generated
+# once at module load (rather than per-call) because gensalt() itself is
+# slow; the resulting checkpw against a 6-char password takes the same
+# wall time as a real password hash check.
+_DUMMY_PASSWORD_HASH = bcrypt.hashpw(b"x" * 32, bcrypt.gensalt()).decode("utf-8")
+
+
+async def burn_password_verify() -> None:
+    """Perform a no-op bcrypt verify to equalise login timing.
+
+    Login endpoints used to skip bcrypt entirely when the account didn't
+    exist, which leaked account existence via timing (real verify ≈ 100ms,
+    no-account ≈ 1ms). Calling this on the no-account branch erases the
+    delta. The actual result is discarded; the only thing that matters is
+    that the same CPU work happens either way.
+    """
+    try:
+        await asyncio.to_thread(
+            lambda: bcrypt.checkpw(b"x" * 32, _DUMMY_PASSWORD_HASH.encode("utf-8"))
+        )
+    except Exception:
+        pass
+
+
 def issue_refresh_token(user_id: str, kind: str) -> tuple[str, str, datetime]:
     """Mint a 30-day refresh JWT with a UUID jti embedded as a claim.
 

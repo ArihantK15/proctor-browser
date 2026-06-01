@@ -62,6 +62,11 @@ async def test_purpose_tags_are_isolated(_atable_mock_factory=None):
             if val == "null":
                 self._is_null.append(col)
             return self
+        def gte(self, _col, _val):
+            # Rate-limit lookup in email_otp.issue() — the test doesn't
+            # exercise the cap so a permissive no-op is fine. Real test
+            # for the cap would use a separate fixture.
+            return self
         def order(self, col, desc=False):
             self._order = (col, desc)
             return self
@@ -77,13 +82,26 @@ async def test_purpose_tags_are_isolated(_atable_mock_factory=None):
             return type("R", (), {"data": matches})()
 
     class _Update:
-        def __init__(self, payload): self._payload = payload
+        def __init__(self, payload):
+            self._payload = payload
+            self._filters = []
+            self._is_null = []
         def eq(self, col, val):
-            for r in rows:
-                if r.get(col) == val:
-                    r.update(self._payload)
+            self._filters.append((col, val))
+            return self
+        def is_(self, col, val):
+            if val == "null":
+                self._is_null.append(col)
             return self
         async def execute(self):
+            # Apply only to rows that match ALL chained filters — the
+            # prior implementation re-walked rows on every .eq() call,
+            # which silently dropped the AND-semantics that issue()'s
+            # "invalidate prior unused codes" UPDATE depends on.
+            for r in rows:
+                if all(r.get(c) == v for c, v in self._filters) and \
+                   all(r.get(c) is None for c in self._is_null):
+                    r.update(self._payload)
             return type("R", (), {"data": []})()
 
     class _Table:
@@ -139,6 +157,7 @@ async def test_purpose_tags_isolated_across_users():
         def is_(self, c, v):
             if v == "null": self._is_null.append(c)
             return self
+        def gte(self, _c, _v): return self
         def order(self, *_a, **_kw): return self
         def limit(self, _n): return self
         async def execute(self):
@@ -148,12 +167,19 @@ async def test_purpose_tags_isolated_across_users():
             return type("R", (), {"data": m})()
 
     class _Update:
-        def __init__(self, p): self._p = p
-        def eq(self, c, v):
-            for r in rows:
-                if r.get(c) == v: r.update(self._p)
+        def __init__(self, p):
+            self._p = p
+            self._f = []
+            self._is_null = []
+        def eq(self, c, v): self._f.append((c, v)); return self
+        def is_(self, c, v):
+            if v == "null": self._is_null.append(c)
             return self
         async def execute(self):
+            for r in rows:
+                if all(r.get(c) == v for c, v in self._f) and \
+                   all(r.get(c) is None for c in self._is_null):
+                    r.update(self._p)
             return type("R", (), {"data": []})()
 
     class _Table:

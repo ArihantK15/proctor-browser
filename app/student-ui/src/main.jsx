@@ -1,6 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import ReactDOM from 'react-dom/client'
+import * as Sentry from '@sentry/react'
 import useTurnstile from './hooks/useTurnstile'
+
+// Sentry — gated on VITE_SENTRY_DSN set at build time. No-op without it.
+// This UI is what students see during exams, so error visibility here is
+// where most user-facing bugs surface. Replays are off because the UI
+// surfaces answers + camera state.
+const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || 'production',
+    release: import.meta.env.VITE_RELEASE || undefined,
+    tracesSampleRate: 0.1,
+    replaysSessionSampleRate: 0.0,
+    replaysOnErrorSampleRate: 0.0,
+  })
+}
 
 const API_BASE = '/api/v1'
 
@@ -216,6 +233,11 @@ class ErrorBoundary extends React.Component {
     this.state = { error: null }
   }
   static getDerivedStateFromError(error) { return { error } }
+  componentDidCatch(error, info) {
+    // Forward to Sentry when initialized — keeps the existing reload
+    // fallback UI but ensures the error reaches the central tracker.
+    try { Sentry.captureException(error, { extra: { componentStack: info?.componentStack } }) } catch { /* no-op */ }
+  }
   render() {
     if (this.state.error) {
       return (

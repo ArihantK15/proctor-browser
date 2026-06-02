@@ -1,5 +1,36 @@
 const { app, ipcMain, globalShortcut, screen } = require('electron');
 const path = require('path');
+
+// ── Sentry (optional — gated on SENTRY_DSN env / packaged config) ──
+// @sentry/electron captures main-process AND renderer-process errors
+// from a single init in the main process. Renderers automatically
+// route their crashes through the main process via Electron IPC, so
+// we don't need to call init() again inside renderer/.
+//
+// DSN is read from the SENTRY_DSN env var. When packaged, set it via
+// the OS environment or bake it into config.js for the installer.
+try {
+  const SENTRY_DSN = process.env.SENTRY_DSN || '';
+  if (SENTRY_DSN) {
+    const Sentry = require('@sentry/electron/main');
+    Sentry.init({
+      dsn: SENTRY_DSN,
+      environment: process.env.SENTRY_ENVIRONMENT || 'production',
+      release: process.env.APP_VERSION || app.getVersion(),
+      tracesSampleRate: 0.1,
+      // Don't capture screenshots — proctoring sessions contain student
+      // PII and exam content that we deliberately keep out of error
+      // tracking. Stack traces alone are enough for triage.
+      attachScreenshot: false,
+    });
+    console.log('[sentry] initialized for Electron main+renderer');
+  }
+} catch (e) {
+  // @sentry/electron not installed (or init failed) — swallow so the
+  // exam app still launches. Sentry is observability, not load-bearing.
+  console.warn('[sentry] electron init skipped:', e.message);
+}
+
 const {
   SERVER_URL, ADMIN_CODE, INVITE_REGEX, BLOCKING_TYPES, THREATS,
 } = require('./config');

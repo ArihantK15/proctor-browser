@@ -139,14 +139,34 @@ respond. Process:
 1. **Verify identity** as above.
 2. **Notify the user** in writing of what will be deleted vs retained
    (link them to this doc).
-3. **Have them call `/api/v1/privacy/delete`** themselves — preferred
-   because it carries audit context. (The student delete path inside
-   delegates to `auth.py:_perform_student_delete` which notifies the
-   issuing teacher and revokes their sessions; Procta runs on native
-   Postgres so there is no third-party identity provider to clean up.)
-   Alternatively run the deletion path server-side via an admin
-   endpoint (yet-to-be-built — `POST /api/v1/admin/sar/delete` is on
-   the roadmap).
+3. **Preferred — have them call `/api/v1/privacy/delete`** themselves
+   from the in-app Privacy panel. Carries the strongest audit context
+   (they're authenticated; reauth_token proves password possession).
+   The student path delegates to `auth.py:_perform_student_delete`
+   which also notifies the issuing teacher.
+
+4. **Hardship cases — operator-run via `POST /api/v1/admin/sar/delete`**
+   when the user can't authenticate (lost MFA device, deceased data
+   subject, court order). Superadmin-only. Required body:
+   ```json
+   {
+     "target_user_type": "teacher" | "student",
+     "target_user_id": "<uuid>",   // OR target_email
+     "reason": "free-text, min 20 chars — appears in audit log",
+     "ticket_id": "<optional helpdesk ref>"
+   }
+   ```
+   Writes one row to `admin_audit_log` (your action) and one to
+   `auth_events` with `event_type='account_deleted_by_admin'` (the
+   target's record). Same retention semantics as the self-service
+   path — see the matrix above.
+
+5. **Hardship export — `POST /api/v1/admin/sar/export`** when a user
+   emails support requesting their data but can't log in. Returns
+   the same JSON shape as `/privacy/export` plus
+   `exported_by_operator` + `ticket_id` for traceability. Logged to
+   `admin_audit_log`. Hand-deliver the JSON via a 24h-expiry B2
+   pre-signed URL (never email inline).
 4. **Confirm** to the user that erasure is complete, with the list
    of retained categories from the matrix.
 
@@ -179,9 +199,6 @@ within **30 days** (DPDP §13(5)).
 
 ## Future work
 
-- `POST /api/v1/admin/sar/delete` — operator-run erasure that doesn't
-  require the user to authenticate (for hardship cases, e.g. lost
-  account access). Not yet built.
 - Pseudonymisation key — instead of replacing name/email with
   `Deleted User` literals, use a one-way HMAC keyed on a rotating
   secret so anonymised rows become re-linkable for audits but

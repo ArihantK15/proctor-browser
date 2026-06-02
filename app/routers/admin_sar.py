@@ -1,0 +1,331 @@
+"""Operator-run Subject Access Request endpoints.
+
+Companion to user-facing `/api/v1/privacy/*`. When a user cannot
+authenticate themselves to call `/privacy/delete` (lost account
+access, deceased data subject, court order, etc.), a superadmin
+operator can run the erasure here instead.
+
+Same retention semantics as the user-facing flow (see
+docs/PRIVACY.md). The difference is the **caller** — a superadmin
+acting on behalf of the data subject — not the **target** of erasure.
+
+Every action here writes two audit records:
+  - `admin_audit_log`: who-ran-it + ticket ref + reason text
+  - `auth_events`: account_deleted_by_admin for the target user
+
+Authorization: superadmin only. Org-level admins can't trigger this
+because that would let an org admin erase users in other orgs. Only
+the platform owner (org_role='superadmin') has this capability.
+
+Endpoints:
+  POST /api/v1/admin/sar/delete — erase target user
+  POST /api/v1/admin/sar/export — staff-side dump for a target user
+                                  (returns the same JSON shape as
+                                  /privacy/export, useful when the
+                                  user emails support without being
+                                  able to log in)
+"""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import APIRouter, Request, HTTPException, Body
+from pydantic import BaseModel, ConfigDict, Field
+
+from ..auth import require_admin
+from ..database import async_table as _atable
+from ..limiter import limiter
+
+_log = logging.getLogger("admin.sar")
+
+router = APIRouter(prefix="/api/v1/admin/sar", tags=["admin", "sar"])
+
+
+class SARDeleteIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    target_user_type: str = Field(..., pattern="^(teacher|student)$")
+    target_user_id: str | None = None  # uuid; preferred
+    target_email: str | None = None    # fallback identifier
+    reason: str = Field(..., min_length=20)
+    ticket_id: str | None = None
+
+
+class SARExportIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    target_user_type: str = Field(..., pattern="^(teacher|student)$")
+    target_user_id: str | None = None
+    target_email: str | None = None
+    ticket_id: str | None = None
+
+
+async def _require_superadmin(request: Request) -> dict:
+    """Reject anyone who isn't org_role='superadmin'.
+
+    require_admin already enforces an authenticated teacher session;
+    we layer the role check on top.
+    """
+    teacher = await require_admin(request)
+    if (teacher.get("org_role") or "") != "superadmin":
+        raise HTTPException(
+            status_code=403,
+            detail="Superadmin role required for SAR operations",
+        )
+    return teacher
+
+
+async def _resolve_target(
+    user_type: str,
+    user_id: str | None,
+    email: str | None,
+) -> dict:
+    """Look up the SAR target by id or email. Raises 404 if missing."""
+    if not (user_id or email):
+        raise HTTPException(
+            status_code=400,
+            detail="Must provide target_user_id or target_email",
+        )
+    table = "teachers" if user_type == "teacher" else "student_accounts"
+    if user_id:
+        q = _atable(table).select("*").eq("id", user_id)
+    else:
+        q = _atable(table).select("*").eq("email", (email or "").strip().lower())
+    rows = (await q.execute()).data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No {user_type} found")
+    return rows[0]
+
+
+async def _revoke_target_sessions(user_type: str, user_id: str) -> list[str]:
+    """Best-effort revoke of every active session + refresh token."""
+    errs: list[str] = []
+    user_kind = "teacher" if user_type == "teacher" else "student_account"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        await _atable("auth_sessions").update({"revoked_at": now_iso})\
+            .eq("user_kind", user_kind).eq("user_id", user_id).execute()
+    except Exception as e:
+        errs.append(f"auth_sessions: {type(e).__name__}")
+    try:
+        await _atable("refresh_tokens").update({"revoked_at": now_iso})\
+            .is_("revoked_at", "null")\
+            .eq("kind", "teacher" if user_type == "teacher" else "student")\
+            .eq("user_id", user_id).execute()
+    except Exception as e:
+        errs.append(f"refresh_tokens: {type(e).__name__}")
+    return errs
+
+
+@router.post("/delete")
+@limiter.limit("10/hour")
+async def sar_delete(body: SARDeleteIn, request: Request):
+    """Erase a target user's account on their behalf.
+
+    Authorization: org_role='superadmin'. Required body fields include
+    a free-text `reason` (≥20 chars) so the audit row carries
+    forensic context — *why* this erasure happened outside the
+    self-service flow. Optional `ticket_id` links to an external
+    helpdesk reference.
+    """
+    operator = await _require_superadmin(request)
+    target = await _resolve_target(body.target_user_type, body.target_user_id, body.target_email)
+    target_id = str(target["id"])
+
+    errors: list[str] = []
+    anon_local = f"deleted_user_{target_id[:8]}"
+    anon_email = f"{anon_local}@deleted.procta.net"
+
+    # 1. Kill auth first.
+    errors.extend(await _revoke_target_sessions(body.target_user_type, target_id))
+
+    # 2. Per-role erasure.
+    if body.target_user_type == "teacher":
+        # Same shape as privacy.py teacher path — anonymise profile,
+        # students, exam_config; hard-delete oauth + email_otps;
+        # deactivate api_keys.
+        try:
+            await _atable("teachers").update({
+                "full_name": "Deleted User",
+                "email": anon_email,
+                "status": "deleted",
+            }).eq("id", target_id).execute()
+        except Exception as e:
+            errors.append(f"teachers: {type(e).__name__}")
+        try:
+            await _atable("students").update({
+                "full_name": "Deleted User",
+                "email": anon_email,
+            }).eq("teacher_id", target_id).execute()
+        except Exception as e:
+            errors.append(f"students: {type(e).__name__}")
+        try:
+            await _atable("exam_config").update({
+                "exam_title": "Deleted Exam",
+                "access_code": "",
+            }).eq("teacher_id", target_id).execute()
+        except Exception as e:
+            errors.append(f"exam_config: {type(e).__name__}")
+        try:
+            await _atable("api_keys").update({"is_active": False}).eq("teacher_id", target_id).execute()
+        except Exception as e:
+            errors.append(f"api_keys: {type(e).__name__}")
+        try:
+            await _atable("google_auth_tokens").delete().eq("teacher_id", target_id).execute()
+        except Exception as e:
+            errors.append(f"google_auth_tokens: {type(e).__name__}")
+        try:
+            await _atable("email_otps").delete().eq("user_kind", "teacher").eq("user_id", target_id).execute()
+        except Exception:
+            pass
+
+    else:  # student
+        # Delegate to the deeper auth.py flow which notifies the
+        # issuing teacher + deletes student_invites + student row
+        # cleanup. Pass the target account directly so the helper
+        # doesn't try to resolve from the request's auth context.
+        try:
+            from .auth import _perform_student_delete
+            result = await _perform_student_delete(request, target)
+            errors.extend(result.get("errors") or [])
+        except Exception as e:
+            _log.exception("[sar.delete] student delete failed for %s", target_id)
+            errors.append(f"student_delete: {type(e).__name__}")
+
+    # 3. Audit both ways — admin_audit_log captures the operator's
+    # action; auth_events captures the impact on the target user.
+    operator_id = str(operator["id"])
+    try:
+        from ..services.admin_audit import log_admin_action
+        await log_admin_action(
+            teacher_id=operator_id,
+            action="sar_delete",
+            target_type=body.target_user_type,
+            target_id=target_id,
+            details={
+                "reason": body.reason,
+                "ticket_id": body.ticket_id,
+                "target_email": target.get("email"),
+                "errors": errors,
+                "partial": bool(errors),
+            },
+            request=request,
+        )
+    except Exception:
+        _log.exception("[sar.delete] admin_audit_log write failed")
+
+    try:
+        ip = request.client.host if request.client else None
+        ua = request.headers.get("user-agent")
+        await _atable("auth_events").insert({
+            "user_kind": "teacher" if body.target_user_type == "teacher" else "student_account",
+            "user_id": target_id,
+            "email": target.get("email"),
+            "event_type": "account_deleted_by_admin",
+            "ip": ip,
+            "user_agent": ua,
+            "meta": json.dumps({
+                "operator_id": operator_id,
+                "reason": body.reason,
+                "ticket_id": body.ticket_id,
+                "errors": errors,
+            }),
+        }).execute()
+    except Exception:
+        _log.exception("[sar.delete] auth_events write failed")
+
+    status = "deleted" if not errors else "partial"
+    _log.warning(
+        "[sar.delete] operator=%s target=%s/%s status=%s ticket=%s",
+        operator_id, body.target_user_type, target_id, status, body.ticket_id,
+    )
+    return {"status": status, "target_id": target_id, "errors": errors or None}
+
+
+@router.post("/export")
+@limiter.limit("20/hour")
+async def sar_export(body: SARExportIn, request: Request):
+    """Generate a data export on a target user's behalf.
+
+    Returns the same JSON shape as /api/v1/privacy/export. Used when
+    a user emails support requesting their data but cannot or will
+    not log in themselves (e.g. lost MFA device).
+
+    Logs to admin_audit_log so we can show a regulator we honoured
+    the request.
+    """
+    operator = await _require_superadmin(request)
+    target = await _resolve_target(body.target_user_type, body.target_user_id, body.target_email)
+    target_id = str(target["id"])
+
+    # Reuse the user-facing exporter by reconstructing the auth path
+    # — the export router resolves "who am I" via require_admin /
+    # require_student_account, which we can't satisfy without a real
+    # session. Easier: reimplement the export shape inline. Same
+    # tables, but parameterised on target_id.
+    from .privacy import _safe_fetch
+
+    data: dict[str, Any] = {
+        "user_type": body.target_user_type,
+        "user_id": target_id,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "format_version": 2,
+        "exported_by_operator": str(operator["id"]),
+        "ticket_id": body.ticket_id,
+    }
+
+    if body.target_user_type == "teacher":
+        data["profile"] = target
+        oid = target.get("org_id")
+        if oid:
+            org_rows = await _safe_fetch(
+                "organizations", eq={"id": oid},
+                columns="id,name,slug,max_students,created_at",
+            )
+            data["organization"] = org_rows[0] if org_rows else None
+            data["subscriptions"] = await _safe_fetch("subscriptions", eq={"org_id": oid})
+        data["exams"] = await _safe_fetch("exam_config", eq={"teacher_id": target_id})
+        data["questions"] = await _safe_fetch("questions", eq={"teacher_id": target_id})
+        data["students"] = await _safe_fetch("students", eq={"teacher_id": target_id})
+        data["student_groups"] = await _safe_fetch("student_groups", eq={"teacher_id": target_id})
+        data["exam_sessions"] = await _safe_fetch("exam_sessions", eq={"teacher_id": target_id})
+        data["violations"] = await _safe_fetch("violations", eq={"teacher_id": target_id})
+        data["answers"] = await _safe_fetch("answers", eq={"teacher_id": target_id})
+        data["student_invites"] = await _safe_fetch("student_invites", eq={"teacher_id": target_id})
+        data["api_keys"] = await _safe_fetch(
+            "api_keys", eq={"teacher_id": target_id},
+            columns="id,name,key_prefix,is_active,created_at,last_used_at",
+        )
+        data["grading_audit"] = await _safe_fetch("grading_audit", eq={"teacher_id": target_id})
+        data["admin_audit_log"] = await _safe_fetch("admin_audit_log", eq={"teacher_id": target_id})
+    else:  # student
+        data["profile"] = target
+        data["enrollments"] = await _safe_fetch("students", eq={"account_id": target_id})
+        data["exam_sessions"] = await _safe_fetch("exam_sessions", eq={"student_id": target_id})
+        data["appeals"] = await _safe_fetch("appeals", eq={"student_id": target_id})
+
+    data["consent_records"] = await _safe_fetch("consent_records", eq={"user_id": target_id})
+    data["auth_events"] = await _safe_fetch(
+        "auth_events", eq={"user_id": target_id},
+        columns="event_type,ip,user_agent,meta,created_at",
+    )
+
+    try:
+        from ..services.admin_audit import log_admin_action
+        await log_admin_action(
+            teacher_id=str(operator["id"]),
+            action="sar_export",
+            target_type=body.target_user_type,
+            target_id=target_id,
+            details={
+                "ticket_id": body.ticket_id,
+                "target_email": target.get("email"),
+                "tables": sorted(k for k, v in data.items() if isinstance(v, list)),
+            },
+            request=request,
+        )
+    except Exception:
+        _log.exception("[sar.export] audit write failed")
+
+    return data

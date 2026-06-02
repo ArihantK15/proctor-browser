@@ -134,6 +134,33 @@ function clearErr(){
   document.querySelectorAll('.err-border').forEach(e=>e.classList.remove('err-border'));
 }
 
+// Returning students re-registering for a new exam already have a Procta
+// login — they don't need to invent a throwaway password. This toggle hides
+// the password fields so they just enrol (the roster row auto-links to their
+// existing account by email) and then sign in with their real password.
+let _haveAccount = false;
+function toggleExistingAccount(){
+  _haveAccount = !_haveAccount;
+  const sec  = document.getElementById('pwd-section');
+  const div  = document.getElementById('pwd-divider');
+  const link = document.getElementById('have-acct-link');
+  const btn  = document.getElementById('reg-btn');
+  if(_haveAccount){
+    sec.style.display = 'none';
+    div.style.display = 'none';
+    document.getElementById('inp-pwd').value = '';
+    document.getElementById('inp-pwd2').value = '';
+    link.innerHTML = 'Need to create a new account? Set a password &rarr;';
+    btn.textContent = 'Register for this exam';
+  } else {
+    sec.style.display = '';
+    div.style.display = '';
+    link.innerHTML = 'Already have a Procta account? Skip the password &rarr;';
+    btn.textContent = 'Register & Create Account';
+  }
+  clearErr();
+}
+
 async function doRegister(){
   clearErr();
   const name  = document.getElementById('inp-name').value.trim();
@@ -162,24 +189,27 @@ async function doRegister(){
   btn.disabled = true;
   document.getElementById('reg-ldr').textContent = 'Checking...';
 
-  // Everyone sets a password. We do NOT pre-probe whether the email already
-  // has an account — that endpoint is an intentional anti-enumeration stub.
-  // Instead existence is detected automatically from the signup response:
-  // a 409 means a Procta account already exists for this email, so we enrol
-  // the student and point them at sign-in instead of forcing a new account.
-  if(!isStrongPassword(pwd)){
-    document.getElementById('inp-pwd').classList.add('err-border');
-    document.getElementById('reg-err').textContent='Password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol';
-    btn.disabled = false;
-    document.getElementById('reg-ldr').textContent = '';
-    return;
-  }
-  if(pwd !== pwd2){
-    document.getElementById('inp-pwd2').classList.add('err-border');
-    document.getElementById('reg-err').textContent='Passwords do not match';
-    btn.disabled = false;
-    document.getElementById('reg-ldr').textContent = '';
-    return;
+  // Password is only required when creating a NEW account. A returning
+  // student who flipped the "I already have an account" toggle skips this
+  // entirely — see toggleExistingAccount(). For new accounts we do NOT
+  // pre-probe whether the email already exists (that endpoint is an
+  // intentional anti-enumeration stub); existence is instead detected from
+  // the signup 409 below.
+  if(!_haveAccount){
+    if(!isStrongPassword(pwd)){
+      document.getElementById('inp-pwd').classList.add('err-border');
+      document.getElementById('reg-err').textContent='Password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol';
+      btn.disabled = false;
+      document.getElementById('reg-ldr').textContent = '';
+      return;
+    }
+    if(pwd !== pwd2){
+      document.getElementById('inp-pwd2').classList.add('err-border');
+      document.getElementById('reg-err').textContent='Passwords do not match';
+      btn.disabled = false;
+      document.getElementById('reg-ldr').textContent = '';
+      return;
+    }
   }
 
   document.getElementById('reg-ldr').textContent = 'Setting up your account...';
@@ -198,6 +228,14 @@ async function doRegister(){
       throw new Error(err.detail || 'Registration failed');
     }
     const d1 = await r1.json();
+
+    // Returning student (toggle on): they already have a login, so skip
+    // signup entirely. The enrolment above auto-links to their existing
+    // account by email; they just sign in with their real password.
+    if(_haveAccount){
+      _showSuccessCard(d1, /*existingAccount=*/true);
+      return;
+    }
 
     // Step 2: Create the student account. A 409 is the automatic "this email
     // already has an account" signal for a returning student — not an error.

@@ -219,7 +219,25 @@ async function doAuth() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(signupBody),
       });
-      if (!r.ok) { _resetTurnstile(); throw new Error((await r.json().catch(()=>({}))).detail || 'Signup failed'); }
+      if (!r.ok) {
+        _resetTurnstile();
+        // A returning student re-registering for a new exam doesn't need a
+        // new account — exams auto-link to their existing one after login.
+        // The backend signals "already exists" with 409; instead of a
+        // dead-end error, drop them straight into the sign-in flow.
+        if (r.status === 409) {
+          setAuthMode('login');
+          document.getElementById('inp-email').value = email;
+          const pw = document.getElementById('inp-password');
+          pw.value = '';
+          pw.focus();
+          document.getElementById('forgot-link').style.display = '';
+          document.getElementById('auth-err').textContent =
+            'You already have a Procta account — just enter your password to sign in. New exams appear automatically once you log in. Forgot it? Use "Forgot password" below.';
+          return;
+        }
+        throw new Error((await r.json().catch(()=>({}))).detail || 'Signup failed');
+      }
       const sd = await r.json().catch(()=>({}));
       if (sd.verify_required) {
         _showSignupOtp(email);

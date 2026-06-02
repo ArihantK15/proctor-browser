@@ -263,8 +263,88 @@ app.disableHardwareAcceleration();
 // Reduce the renderer process idle time before it releases memory.
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
 
+// ── Custom protocol for lobby assets ──────────────────────────────
+// Why this exists: Electron's BrowserWindow.loadFile() turns a path
+// inside app.asar into a file:// URL, and Chromium's file:// handler
+// occasionally fails to read through Electron's asar fs patch on
+// packaged builds. We saw this in shipped 2.3.12/2.3.13 — the lobby
+// window stayed blank because loadFile fired did-fail-load on a
+// student.html that genuinely existed in the asar.
+//
+// procta-lobby:// is a custom scheme that:
+//   1. Reads the bundled file from the asar using Node's fs.readFile
+//      (the patched-by-Electron path that DOES work reliably).
+//   2. Hands the bytes back to the renderer with an explicit Content-
+//      Type derived from the file extension — no MIME-sniffing edge
+//      cases, no `text/plain` ambiguity that would let Chromium
+//      refuse to render an .html.
+//   3. Resolves relative paths inside the page naturally — when
+//      student.html links `<link href="tokens.css">`, the renderer
+//      requests procta-lobby://lobby/tokens.css and gets it from the
+//      same handler.
+//
+// registerSchemesAsPrivileged MUST run before app.whenReady fires,
+// otherwise protocol.handle below would throw.
+const _path = require('path');
+const _fsp = require('fs').promises;
+require('electron').protocol.registerSchemesAsPrivileged([
+  { scheme: 'procta-lobby', privileges: {
+    standard: true, secure: true, supportFetchAPI: true,
+    corsEnabled: true, allowServiceWorkers: false, bypassCSP: false,
+  }},
+]);
+
+const _MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css':  'text/css; charset=utf-8',
+  '.js':   'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg':  'image/svg+xml',
+  '.png':  'image/png',
+  '.ico':  'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2':'font/woff2',
+};
+
+function _registerLobbyProtocol() {
+  require('electron').protocol.handle('procta-lobby', async (request) => {
+    let urlPath;
+    try { urlPath = new URL(request.url).pathname; }
+    catch { return new Response('bad url', { status: 400 }); }
+    // procta-lobby://lobby/student.html → urlPath="/student.html"
+    // Strip leading slash + clamp to a single path component so a
+    // crafted URL can't escape app/static/ via ".." segments.
+    const filename = urlPath.replace(/^\/+/, '').replace(/[\\/].*$/, '');
+    if (!filename) {
+      return new Response('not found', { status: 404 });
+    }
+    const candidates = [
+      _path.join(__dirname, 'app', 'static', filename),
+      _path.join(process.resourcesPath || '', 'app', 'static', filename),
+    ];
+    for (const filepath of candidates) {
+      try {
+        const data = await _fsp.readFile(filepath);
+        const ext = _path.extname(filename).toLowerCase();
+        return new Response(data, {
+          headers: {
+            'Content-Type': _MIME[ext] || 'application/octet-stream',
+            // Don't cache aggressively — packaged builds replace these
+            // files on update and we want the new bundle to be picked
+            // up immediately rather than a stale cache.
+            'Cache-Control': 'no-cache',
+          },
+        });
+      } catch { /* try the next candidate */ }
+    }
+    console.error('[procta-lobby] not found in any candidate:', filename);
+    return new Response('not found', { status: 404 });
+  });
+}
+
 // ── APP START ─────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  _registerLobbyProtocol();
   // Cold-start protocol activation: Windows launches us with the
   // procta:// URL as process.argv; macOS uses open-url instead.
   // Captured before we open any window so deeplink-invite tokens

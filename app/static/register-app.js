@@ -92,7 +92,7 @@ async function lookupByCode(){
   btn.disabled = true; btn.textContent = 'Resolving...';
   try{
     const r = await fetchWithTimeout('/api/v1/resolve-access-code', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', credentials:'omit', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({access_code: code})
     });
     const d = await r.json();
@@ -220,6 +220,11 @@ async function doRegister(){
     // Step 1: Register (enroll) with teacher
     const r1 = await fetchWithTimeout('/api/v1/register-student', {
       method: 'POST',
+      // Public endpoint keyed by teacher_id+email in the body — it does not
+      // use the session. Omit credentials so a returning student's stale
+      // login cookie isn't sent, which would otherwise trip CSRFMiddleware
+      // (cookie present + no X-CSRF-Token header) and 403 the registration.
+      credentials: 'omit',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, teacher_id:_teacherId, exam_id:_examId||null})
     });
@@ -243,6 +248,9 @@ async function doRegister(){
     if(_turnstileToken) signupBody.captcha_token = _turnstileToken;
     const r2 = await fetchWithTimeout('/api/v1/student/auth/signup', {
       method: 'POST',
+      // Public signup keyed by the body email; omit credentials so a stale
+      // login cookie doesn't trip CSRFMiddleware (see register-student above).
+      credentials: 'omit',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(signupBody)
     });
@@ -333,6 +341,7 @@ async function doVerifyOtp(){
   try{
     const r = await fetchWithTimeout('/api/v1/student/auth/verify-signup-otp', {
       method: 'POST',
+      credentials: 'omit',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({email: _pendingSignupEmail, code}),
     });
@@ -362,6 +371,7 @@ async function doResendOtp(){
   try{
     const r = await fetchWithTimeout('/api/v1/student/auth/resend-signup-otp', {
       method: 'POST',
+      credentials: 'omit',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({email: _pendingSignupEmail}),
     });

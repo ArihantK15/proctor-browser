@@ -32,6 +32,11 @@ exports.default = async function afterPack(context) {
   }
 
   const appName = context.packager.appInfo.productFilename; // "Procta"
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  // Not user input: both `context.appOutDir` and `appName`
+  // (appInfo.productFilename) are build-time values supplied by
+  // electron-builder, never from a request or untrusted source. There is no
+  // traversal surface here — this runs only on the CI build host.
   const appPath = path.join(context.appOutDir, `${appName}.app`);
 
   console.log(`[afterPack] No cert — ad-hoc signing ${appPath}`);

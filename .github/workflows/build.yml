@@ -51,7 +51,12 @@ jobs:
       # to electron-builder, which interprets it as a cert path and dies
       # with a misleading "<workdir> not a file" error AFTER fuses. So
       # we branch in the shell: with a cert we sign + notarize; without
-      # we explicitly pass -c.mac.identity=null to skip signing cleanly.
+      # we pass -c.mac.identity=null to skip electron-builder's own
+      # signing, and the build/afterPack.js hook then APPLIES AN AD-HOC
+      # signature (codesign --sign -). That ad-hoc sig is what stops
+      # Apple Silicon from rejecting the download as "damaged" — the OS
+      # instead shows the bypassable "unidentified developer" prompt.
+      # (Not a substitute for a Developer ID + notarization.)
       - name: Build & publish (macOS)
         if: matrix.target == 'mac'
         shell: bash
@@ -66,10 +71,15 @@ jobs:
             export CSC_IDENTITY_AUTO_DISCOVERY=true
             npx electron-builder --mac --arm64 --x64 --publish always
           else
-            echo "No CSC_LINK secret — building UNSIGNED with identity=null."
+            echo "No CSC_LINK secret — building with identity=null; afterPack will ad-hoc sign."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            # hardenedRuntime requires a real Developer ID signature; it is
+            # incompatible with an ad-hoc sig and would make the app fail to
+            # launch. Disable it on the no-cert path so the ad-hoc signature
+            # is valid. (The cert branch above keeps hardenedRuntime=true.)
             npx electron-builder --mac --arm64 --x64 --publish always \
-              -c.mac.identity=null
+              -c.mac.identity=null \
+              -c.mac.hardenedRuntime=false
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

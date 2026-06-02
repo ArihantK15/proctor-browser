@@ -342,6 +342,20 @@ async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: st
     except HTTPException:
         raise
     except Exception as e:
+        # phase90/91 quota trigger: if the org has hit max_students,
+        # surface a clean 403 with the right phrasing for a student
+        # mid-invite-accept instead of a generic 500.
+        from ..services.quota import is_quota_error
+        if is_quota_error(e):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "This exam's organization has reached its student "
+                    "limit. Contact your teacher — they need to upgrade "
+                    "their plan or remove an unused enrollment before "
+                    "you can register."
+                ),
+            )
         err = str(e).lower()
         if "duplicate" in err or "unique" in err:
             recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)

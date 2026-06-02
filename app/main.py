@@ -54,17 +54,107 @@ logger = logging.getLogger("proctor.api")
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:
     try:
+        import re as _re
         import sentry_sdk
         from sentry_sdk.integrations.starlette import StarletteIntegration
         from sentry_sdk.integrations.fastapi import FastApiIntegration
+
+        # Header names that should never leave the server. Compared
+        # case-insensitively (Sentry preserves the casing the client
+        # sent, which can be anything).
+        _SENTRY_REDACT_HEADERS = frozenset({
+            "authorization", "cookie", "set-cookie",
+            "x-csrf-token", "x-reauth-token", "x-api-key",
+            "x-forwarded-for",  # IP — covered separately via send_default_pii
+        })
+        # URL/body keys whose VALUES are PII or auth material.
+        _SENTRY_REDACT_KEYS = frozenset({
+            "password", "code", "otp", "token", "reauth_token",
+            "captcha_token", "access_code", "key", "secret",
+            "answer", "answers", "email", "roll_number", "full_name",
+        })
+        _SENTRY_REDACT_QS_RE = _re.compile(
+            r"(?i)(\b(?:" + "|".join(_SENTRY_REDACT_KEYS) + r")=)[^&]*"
+        )
+
+        def _scrub_dict(d):
+            """Recursively redact PII-shaped keys in a dict/list payload."""
+            if isinstance(d, dict):
+                for k in list(d.keys()):
+                    if k.lower() in _SENTRY_REDACT_KEYS:
+                        d[k] = "[REDACTED]"
+                    else:
+                        _scrub_dict(d[k])
+            elif isinstance(d, list):
+                for item in d:
+                    _scrub_dict(item)
+            return d
+
+        def _sentry_before_send(event, hint):
+            """Strip PII + auth material before the event leaves the host.
+
+            Proctoring requests carry OTP codes in bodies, reauth tokens
+            in headers, exam-answer payloads, and student roll/emails.
+            Default Sentry capture would ship all of these to a third-
+            party host (DPDP §10 — reasonable security safeguards).
+            """
+            req = event.get("request") or {}
+            # Headers — case-insensitive redact.
+            headers = req.get("headers") or {}
+            for h in list(headers.keys()):
+                if h.lower() in _SENTRY_REDACT_HEADERS:
+                    headers[h] = "[REDACTED]"
+            # Query string (Sentry stores both `query_string` and `url`).
+            if req.get("query_string"):
+                req["query_string"] = _SENTRY_REDACT_QS_RE.sub(
+                    r"\1[REDACTED]", req["query_string"],
+                )
+            if "?" in (req.get("url") or ""):
+                base, qs = req["url"].split("?", 1)
+                req["url"] = base + "?" + _SENTRY_REDACT_QS_RE.sub(r"\1[REDACTED]", qs)
+            # Request body — dict gets keys redacted; string we replace
+            # wholesale since we can't reliably tokenise it.
+            body = req.get("data")
+            if isinstance(body, (dict, list)):
+                _scrub_dict(body)
+            elif isinstance(body, str) and any(
+                k + "=" in body.lower() for k in _SENTRY_REDACT_KEYS
+            ):
+                req["data"] = "[REDACTED — contained PII]"
+            # Exception value strings can leak too (e.g. a ValueError
+            # echoing back an OTP). Best effort scrub on the message.
+            for exc in (event.get("exception") or {}).get("values") or []:
+                val = exc.get("value")
+                if isinstance(val, str):
+                    exc["value"] = _SENTRY_REDACT_QS_RE.sub(
+                        r"\1[REDACTED]", val,
+                    )
+            return event
+
         sentry_sdk.init(
             dsn=SENTRY_DSN,
+            # Explicit OFF — default in v2 is False but we set it
+            # anyway so a future SDK change doesn't flip the switch.
+            # PII (IP, user info) is added at the application layer
+            # where we control which fields are safe to attach.
+            send_default_pii=False,
             traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.environ.get("SENTRY_PROFILES_SAMPLE_RATE", "0.0")),
             environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+            # Release tag — sourced from GIT_SHA injected by the
+            # deploy workflow. Falls back to APP_VERSION (semver) so
+            # Sentry can group events by build instead of bucketing
+            # everything as "no release".
+            release=(
+                os.environ.get("GIT_SHA")
+                or os.environ.get("SOURCE_COMMIT")
+                or os.environ.get("APP_VERSION")
+                or None
+            ),
             integrations=[StarletteIntegration(), FastApiIntegration()],
+            before_send=_sentry_before_send,
         )
-        print("[sentry] initialized", flush=True)
+        print("[sentry] initialized (PII scrubber active)", flush=True)
     except ImportError:
         print("[sentry] sentry-sdk not installed — install with: pip install sentry-sdk", flush=True)
     except Exception as e:

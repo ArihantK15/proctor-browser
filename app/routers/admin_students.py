@@ -159,6 +159,7 @@ async def _process_student_rows(
 
     registered = 0
     skipped = 0
+    quota_hit = False
     successfully_upserted: list[dict] = []
     for row in validated:
         try:
@@ -168,8 +169,29 @@ async def _process_student_rows(
                 successfully_upserted.append(row)
             else:
                 skipped += 1
-        except Exception:
+        except Exception as exc:
+            # phase90/91 quota trigger fired — every remaining row
+            # in this batch would hit the same error. Stop iterating
+            # and surface a clean error to the operator. The pre-flight
+            # check_org_limits above SHOULD have caught this; reaching
+            # here means a concurrent bulk-import slipped a row in
+            # between the check and the upserts.
+            from ..services.quota import is_quota_error
+            if is_quota_error(exc):
+                quota_hit = True
+                break
             skipped += 1
+
+    if quota_hit:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Student quota exceeded mid-import. Registered "
+                f"{registered} row(s) before hitting your plan's "
+                f"max_students. Upgrade your plan to import the rest, "
+                f"or remove unused students from your roster."
+            ),
+        )
 
     # ── Path B → Path A: automatic invite send ────────────────────
     # For every row that just landed in the roster, mint a token +

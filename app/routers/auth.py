@@ -54,6 +54,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="")
 
 
+def _fill_template(template: str, values: dict) -> str:
+    # Plain text substitution. We deliberately avoid `template % values` and
+    # `template.format(...)` because the embedded HTML/CSS contains literal
+    # `%` (e.g. `width:100%;`, `border-radius:50%;`) and `{` characters that
+    # both formatters would mis-interpret and raise on.
+    out = template
+    for key, value in values.items():
+        out = out.replace(f"%({key})s", value)
+    return out
+
+
 def _secure_cookie_enabled() -> bool:
     explicit = os.environ.get("COOKIE_SECURE", "").strip().lower()
     if explicit in {"0", "false", "no", "off"}:
@@ -2001,12 +2012,12 @@ async def verify_email(request: Request, token: str = ""):
         # finding), so route to the marketing root which links to both
         # the teacher and student dashboards. The user picks the right
         # one and requests a new verification from that login page.
-        return HTMLResponse(EMAIL_VERIFY_HTML % {
+        return HTMLResponse(_fill_template(EMAIL_VERIFY_HTML, {
             "title": "Link expired or invalid",
             "msg": "This verification link has expired or is invalid. Open Procta from your bookmarks (or procta.net) and request a new verification email from your login page.",
             "login_url": "https://procta.net",
             "btn": "Go to Procta",
-        }, status_code=400)
+        }), status_code=400)
 
     # Route the post-verify "Log In" button to the right dashboard. Without
     # this, a student-account verify link landed them on /dashboard which
@@ -2075,12 +2086,12 @@ async def verify_email(request: Request, token: str = ""):
 
     await record_auth_event("email_verified", request, kind, user_id, claims.get("email"))
 
-    return HTMLResponse(EMAIL_VERIFY_HTML % {
+    return HTMLResponse(_fill_template(EMAIL_VERIFY_HTML, {
         "title": "Email verified!",
         "msg": "Your email has been verified. You can now log in to Procta.",
         "login_url": _login_url,
         "btn": "Log In",
-    })
+    }))
 
 
 @router.post("/api/v1/auth/resend-verification")
@@ -2465,7 +2476,7 @@ async def reset_password_page(token: str = ""):
         return HTMLResponse("<h1>Password reset is handled by the auth provider.</h1>", status_code=404)
     if not verify_password_reset_token(token):
         return HTMLResponse("<h1>Reset link expired or invalid</h1>", status_code=400)
-    return HTMLResponse(RESET_PASSWORD_HTML % {"token": _esc(token)})
+    return HTMLResponse(_fill_template(RESET_PASSWORD_HTML, {"token": _esc(token)}))
 
 
 @router.post("/api/v1/auth/password-reset/confirm")

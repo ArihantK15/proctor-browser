@@ -27,6 +27,12 @@ loadtest/loadtest_tokens*.json
 .env
 .env.*
 !.env.example
+# Vite reads .env.production at build time to inline build-public
+# values into the JS bundle. Sentry DSNs (project identifiers, NOT
+# auth secrets) live here — Sentry's docs explicitly say DSNs can be
+# committed. Keep .env / .env.local gitignored for actual secrets.
+!app/dashboard-ui/.env.production
+!app/student-ui/.env.production
 app/credentials.json
 
 # Runtime data — generated on server

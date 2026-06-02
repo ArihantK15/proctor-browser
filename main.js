@@ -10,7 +10,16 @@ const path = require('path');
 // DSN is read from the SENTRY_DSN env var. When packaged, set it via
 // the OS environment or bake it into config.js for the installer.
 try {
-  const SENTRY_DSN = process.env.SENTRY_DSN || '';
+  // Hardcoded fallback DSN for shipped installers — students/teachers
+  // don't set env vars before launching the app. DSN is a project
+  // identifier (not auth) so committing/embedding it is fine per
+  // Sentry's data-management docs. The env-var override stays for
+  // dev/local builds where you want errors going to a different
+  // project (or disabled with SENTRY_DSN=).
+  const SENTRY_DSN_DEFAULT = 'https://a2fbe3d1b9eeba6931f4a740f15b38a9@o4511494935478272.ingest.de.sentry.io/4511494981615696';
+  const SENTRY_DSN = process.env.SENTRY_DSN !== undefined
+    ? process.env.SENTRY_DSN
+    : SENTRY_DSN_DEFAULT;
   if (SENTRY_DSN) {
     const Sentry = require('@sentry/electron/main');
     Sentry.init({

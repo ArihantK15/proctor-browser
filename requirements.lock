@@ -138,8 +138,10 @@ pygments==2.20.0
     # via rich
 pyiceberg==0.11.1
     # via storage3
-pyjwt[crypto]==2.12.1
-    # via supabase-auth
+pyjwt[crypto]==2.13.0
+    # via
+    #   -r requirements.txt
+    #   supabase-auth
 pyotp==2.9.0
     # via -r requirements.txt
 pyparsing==3.3.2

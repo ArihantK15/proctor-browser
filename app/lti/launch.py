@@ -106,12 +106,52 @@ def _store_state(state: str, data: dict):
 
 
 def _consume_state(state: str) -> Optional[dict]:
+    """Atomically consume an OIDC state value — returns the stored
+    data exactly once per state, or None if missing/already consumed.
+
+    Mirrors _consume_nonce: a GET-then-DELETE pattern (which was the
+    previous implementation) is racy across concurrent callbacks and
+    permits state replay — an attacker who intercepts the state can
+    re-submit the OIDC callback and get the same launch context twice,
+    enabling session-fixation attacks. OIDC requires state to be
+    single-use; we enforce that here with Redis GETDEL (atomic, since
+    Redis 6.2) and fall back to a Lua script for older Redis.
+    """
     if _cache:
-        data = _cache.get(f"lti_state:{state}")
-        if data:
-            _cache.delete(f"lti_state:{state}")
-            return data
+        from .. import cache as _c
+        r = _c._client()
+        if r is not None:
+            key = f"lti_state:{state}"
+            try:
+                raw = r.getdel(key)
+            except Exception:
+                try:
+                    _lua = r.register_script(
+                        "local v=redis.call('GET',KEYS[1]) "
+                        "if v then redis.call('DEL',KEYS[1]) return v "
+                        "else return false end"
+                    )
+                    raw = _lua(keys=[key])
+                except Exception:
+                    return None
+            if not raw:
+                return None
+            try:
+                import json as _j
+                payload = raw if isinstance(raw, (dict, list)) else _j.loads(
+                    raw.decode() if isinstance(raw, bytes) else raw
+                )
+                # Same expiry-tolerance check as the in-process branch
+                # below — a stale entry that hasn't been TTL-evicted yet
+                # is treated as missing.
+                if isinstance(payload, dict) and payload.get("expires", 0) > time.time():
+                    return payload
+                return None
+            except Exception:
+                return None
         return None
+    # In-process fallback (single-process / no Redis). dict.pop is
+    # already atomic at the GIL level, so this path was correct.
     entry = _states.pop(state, None)
     if entry and entry["expires"] > time.time():
         return entry

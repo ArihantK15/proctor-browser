@@ -286,7 +286,7 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
         documented in docs/PRIVACY.md.
 
     The student-account flow has a more thorough path through
-    auth.py:_perform_student_delete (notifies the issuing teacher,
+    auth.py:_track_a_hybrid_delete_student_account (notifies the issuing teacher,
     cleans student_invites, handles email_otps + auth_sessions). For
     students with a reauth token we delegate there. For teachers we
     do the cleanup inline since no parallel deeper-flow exists.
@@ -359,8 +359,8 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
         # it notifies the teacher + handles supabase + does the same
         # anonymise/delete split as below.
         try:
-            from .auth import _perform_student_delete
-            result = await _perform_student_delete(request, profile)
+            from .auth import _track_a_hybrid_delete_student_account
+            result = await _track_a_hybrid_delete_student_account(profile, request)
             errors.extend(result.get("errors") or [])
         except ImportError:
             # Fallback: inline anonymise + delete if the deeper helper

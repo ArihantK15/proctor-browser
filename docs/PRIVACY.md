@@ -84,7 +84,7 @@ What happens, in order:
 1. **Sessions + refresh tokens revoked.** Even if the rest fails, the
    user can no longer authenticate. (Done before any erasure work.)
 2. **Identifiers anonymised** (teacher) or thorough delete (student
-   — delegates to `auth.py:_perform_student_delete` which notifies
+   — delegates to `auth.py:_track_a_hybrid_delete_student_account` which notifies
    the issuing teacher and handles supabase if applicable).
 3. **OAuth tokens hard-deleted** (`google_auth_tokens`).
 4. **API keys deactivated** (`api_keys.is_active = false`).
@@ -142,7 +142,7 @@ respond. Process:
 3. **Preferred — have them call `/api/v1/privacy/delete`** themselves
    from the in-app Privacy panel. Carries the strongest audit context
    (they're authenticated; reauth_token proves password possession).
-   The student path delegates to `auth.py:_perform_student_delete`
+   The student path delegates to `auth.py:_track_a_hybrid_delete_student_account`
    which also notifies the issuing teacher.
 
 4. **Hardship cases — operator-run via `POST /api/v1/admin/sar/delete`**

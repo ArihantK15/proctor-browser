@@ -186,8 +186,8 @@ async def sar_delete(body: SARDeleteIn, request: Request):
         # cleanup. Pass the target account directly so the helper
         # doesn't try to resolve from the request's auth context.
         try:
-            from .auth import _perform_student_delete
-            result = await _perform_student_delete(request, target)
+            from .auth import _track_a_hybrid_delete_student_account
+            result = await _track_a_hybrid_delete_student_account(target, request)
             errors.extend(result.get("errors") or [])
         except Exception as e:
             _log.exception("[sar.delete] student delete failed for %s", target_id)

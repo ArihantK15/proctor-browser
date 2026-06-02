@@ -90,7 +90,8 @@
       "enableNodeOptionsEnvironmentVariable": false,
       "enableNodeCliInspectArguments": false,
       "grantFileProtocolExtraPrivileges": false,
-      "onlyLoadAppFromAsar": true
+      "onlyLoadAppFromAsar": true,
+      "resetAdHocDarwinSignature": true
     },
     "mac": {
       "icon": "build/icon.icns",

@@ -1,8 +1,8 @@
 // Lobby preload — loaded only into the unlocked pre-exam window that
-// renders the student dashboard (app/static/student.html, loaded via
-// file:// from inside the Electron bundle). Exposes a tiny bridge the
-// dashboard can use to launch a proctored exam window. Nothing here runs
-// inside the kiosk-locked exam window.
+// renders the student dashboard (app/static/student.html, served via the
+// procta-lobby:// custom protocol registered in main.js since v2.3.14).
+// Exposes a tiny bridge the dashboard can use to launch a proctored exam
+// window. Nothing here runs inside the kiosk-locked exam window.
 const { contextBridge, ipcRenderer } = require('electron');
 
 const SERVER_URL = process.env.PROCTOR_SERVER_URL || 'https://app.procta.net';

@@ -1,6 +1,6 @@
 {
   "name": "proctor-browser",
-  "version": "2.3.15",
+  "version": "2.3.16",
   "description": "AI Proctored Exam Browser",
   "author": "Procta",
   "main": "main.js",
@@ -50,7 +50,17 @@
       "app/static/tokens.css",
       "app/static/components.css",
       "app/static/_safe.js",
-      "app/static/student-app.js"
+      "app/static/student-app.js",
+      "app/static/favicon.svg",
+      "app/static/favicon-16.png",
+      "app/static/favicon-32.png",
+      "app/static/favicon-48.png",
+      "app/static/apple-touch-icon.png",
+      "app/static/icon-192.png",
+      "app/static/icon-512.png",
+      "app/static/icon-192-maskable.png",
+      "app/static/icon-512-maskable.png",
+      "app/static/site.webmanifest"
     ],
     "extraResources": [
       {

@@ -21,6 +21,7 @@ const ReviewPanel = lazy(() => import('./panels/ReviewPanel'))
 const OpsPanel = lazy(() => import('./panels/OpsPanel'))
 const SupportConsole = lazy(() => import('./panels/SupportConsole'))
 const IssuesPanel = lazy(() => import('./panels/IssuesPanel'))
+const PrivacyPanel = lazy(() => import('./panels/PrivacyPanel'))
 const OnboardingWizard = lazy(() => import('./components/OnboardingWizard'))
 
 // Role matrix mirrors the legacy dashboard's data-roles attributes
@@ -44,6 +45,7 @@ const TABS = [
   { id: 'bulk-import',  label: 'Import Students', roles: ['admin', 'superadmin'] },
   { id: 'billing',      label: 'Billing',        roles: ['admin', 'superadmin'] },
   { id: 'security',     label: 'Security',       roles: ['admin', 'superadmin'] },
+  { id: 'privacy',      label: 'Privacy',        roles: ['teacher', 'admin', 'superadmin'] },
   { id: 'org-settings', label: 'Org Settings',   roles: ['admin', 'superadmin'] },
   { id: 'support',      label: 'Support',        roles: ['admin', 'superadmin'] },
   // Super-admin only (maintenance)
@@ -220,6 +222,7 @@ function DashboardShell() {
     'bulk-import': BulkImportPanel,
     billing: BillingPanel,
     security: SecurityPanel,
+    privacy: PrivacyPanel,
     'all-orgs': AllOrgsPanel,
     'org-settings': OrgSettingsPanel,
     issues: IssuesPanel,

@@ -287,7 +287,7 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
 
     The student-account flow has a more thorough path through
     auth.py:_perform_student_delete (notifies the issuing teacher,
-    cleans student_invites, handles Supabase user delete). For
+    cleans student_invites, handles email_otps + auth_sessions). For
     students with a reauth token we delegate there. For teachers we
     do the cleanup inline since no parallel deeper-flow exists.
     """

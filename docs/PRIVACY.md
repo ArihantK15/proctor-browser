@@ -140,9 +140,13 @@ respond. Process:
 2. **Notify the user** in writing of what will be deleted vs retained
    (link them to this doc).
 3. **Have them call `/api/v1/privacy/delete`** themselves — preferred
-   because it carries audit context. Alternatively run the deletion
-   path server-side via an admin endpoint (yet-to-be-built —
-   `POST /api/v1/admin/sar/delete` is on the roadmap).
+   because it carries audit context. (The student delete path inside
+   delegates to `auth.py:_perform_student_delete` which notifies the
+   issuing teacher and revokes their sessions; Procta runs on native
+   Postgres so there is no third-party identity provider to clean up.)
+   Alternatively run the deletion path server-side via an admin
+   endpoint (yet-to-be-built — `POST /api/v1/admin/sar/delete` is on
+   the roadmap).
 4. **Confirm** to the user that erasure is complete, with the list
    of retained categories from the matrix.
 

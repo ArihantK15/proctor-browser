@@ -112,6 +112,10 @@ function StudentDashboard({ onLogout }) {
   const [exams, setExams] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
+  // 'exams' | 'privacy' — toggle between the default exam list and the
+  // DPDP/GDPR data-subject-rights view. Students reach the privacy
+  // view via the topbar link.
+  const [view, setView] = useState('exams')
 
   const authFetch = async (url, opts = {}) => {
     const r = await fetchWithTimeout(url, { ...opts, credentials: 'include' })
@@ -168,11 +172,21 @@ function StudentDashboard({ onLogout }) {
         <div className="topbar-brand">
           <span style={{ fontWeight: 600, fontSize: 14 }}>Procta</span>
         </div>
-        <div className="topbar-actions">
+        <div className="topbar-actions" style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setView(view === 'privacy' ? 'exams' : 'privacy')}
+          >
+            {view === 'privacy' ? 'My Exams' : 'Privacy'}
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={onLogout}>Logout</button>
         </div>
       </div>
       <div className="container" style={{ padding: '20px 24px' }}>
+        {view === 'privacy' ? (
+          <StudentPrivacyView authFetch={authFetch} onLoggedOut={onLogout} />
+        ) : (
+          <>
         <h2 style={{ marginBottom: 16 }}>My Exams</h2>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Loading...</div>
@@ -222,6 +236,138 @@ function StudentDashboard({ onLogout }) {
             })}
           </div>
         )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// DPDP §11–13 / GDPR Art 15–17 data-subject view. Two actions:
+//   - Export: GET /api/v1/privacy/export → JSON download.
+//   - Delete: POST /api/v1/privacy/delete with reauth_token from
+//             /api/v1/student/auth/reauth.
+function StudentPrivacyView({ authFetch, onLoggedOut }) {
+  const [exportMsg, setExportMsg] = useState('')
+  const [exportColor, setExportColor] = useState('var(--muted)')
+  const [deleteMsg, setDeleteMsg] = useState('')
+  const [deleteColor, setDeleteColor] = useState('var(--muted)')
+  const [exporting, setExporting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const exportData = async () => {
+    setExportColor('var(--muted)')
+    setExportMsg('Generating export — this may take a few seconds…')
+    setExporting(true)
+    try {
+      const r = await authFetch(`${API_BASE}/privacy/export`)
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.detail || `Export failed (${r.status})`)
+      const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const ts = new Date().toISOString().replace(/[:.]/g, '-')
+      a.href = url
+      a.download = `procta-data-export-${ts}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      const tables = Object.keys(d).filter(k => Array.isArray(d[k])).length
+      setExportColor('var(--emerald, #10b981)')
+      setExportMsg(`Export ready — ${tables} categories downloaded.`)
+    } catch (e) {
+      setExportColor('var(--red, #ef4444)')
+      setExportMsg(e.message || 'Export failed')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const deleteAccount = async () => {
+    const typed = window.prompt(
+      'Type DELETE (in capitals) to confirm you want to erase your account.\n\n' +
+      'This is permanent. If you want a copy of your data, export it first.'
+    )
+    if (typed !== 'DELETE') {
+      setDeleteColor('var(--muted)')
+      setDeleteMsg(typed === null ? '' : 'Cancelled — text didn\'t match.')
+      return
+    }
+    const password = window.prompt('Enter your password to confirm.')
+    if (!password) { setDeleteMsg('Cancelled.'); return }
+    setDeleting(true)
+    setDeleteColor('var(--muted)')
+    setDeleteMsg('Verifying password…')
+    try {
+      const rr = await authFetch(`${API_BASE}/student/auth/reauth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+      const rd = await rr.json().catch(() => ({}))
+      if (!rr.ok) throw new Error(rd.detail || 'Password verification failed')
+      const reauth_token = rd.reauth_token
+      setDeleteMsg('Erasing your account…')
+      const r = await authFetch(`${API_BASE}/privacy/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reauth_token }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.detail || `Delete failed (${r.status})`)
+      setDeleteColor(d.status === 'partial' ? 'var(--amber, #f59e0b)' : 'var(--emerald, #10b981)')
+      setDeleteMsg(d.status === 'partial'
+        ? `Erased with some non-fatal issues (${(d.errors || []).join(', ')}). Logging you out…`
+        : 'Account erased. Logging you out…')
+      setTimeout(() => { onLoggedOut() }, 3500)
+    } catch (e) {
+      setDeleteColor('var(--red, #ef4444)')
+      setDeleteMsg(e.message || 'Delete failed')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <h2 style={{ marginBottom: 6 }}>Privacy & Your Data</h2>
+      <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 0 }}>
+        Manage your data under India's DPDP Act and the EU GDPR.
+      </p>
+
+      <div className="card" style={{ padding: 20, marginTop: 24 }}>
+        <h3 style={{ marginTop: 0 }}>Download your data</h3>
+        <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+          Generate a JSON file containing everything we have linked to your
+          account — profile, exam sessions, violations, answers, consent
+          records, login history.
+        </p>
+        <button className="btn btn-secondary btn-sm" onClick={exportData} disabled={exporting}>
+          {exporting ? 'Exporting…' : 'Export my data'}
+        </button>
+        {exportMsg && <div style={{ marginTop: 12, color: exportColor, fontSize: 13 }}>{exportMsg}</div>}
+      </div>
+
+      <div className="card" style={{ padding: 20, marginTop: 16, border: '1px solid rgba(239,68,68,0.30)', background: 'rgba(239,68,68,0.05)' }}>
+        <h3 style={{ marginTop: 0, color: 'var(--red, #ef4444)' }}>Delete my account</h3>
+        <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+          Permanently erases your account. Sessions are revoked immediately.
+          Some records (consent proofs, anonymised exam history needed by
+          your teacher) are retained per the privacy policy.
+        </p>
+        <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
+          <strong>This cannot be undone.</strong>
+        </p>
+        <button
+          className="btn btn-sm"
+          onClick={deleteAccount}
+          disabled={deleting}
+          style={{ background: 'var(--red, #ef4444)', color: 'white', border: '1px solid var(--red, #ef4444)' }}
+        >
+          {deleting ? 'Deleting…' : 'Delete my account'}
+        </button>
+        {deleteMsg && <div style={{ marginTop: 12, color: deleteColor, fontSize: 13 }}>{deleteMsg}</div>}
       </div>
     </div>
   )

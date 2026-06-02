@@ -1,6 +1,6 @@
 {
   "name": "proctor-browser",
-  "version": "2.3.11",
+  "version": "2.3.12",
   "description": "AI Proctored Exam Browser",
   "author": "Procta",
   "main": "main.js",
@@ -47,6 +47,8 @@
       "build/icon.ico",
       "app/static/student.html",
       "app/static/theme.css",
+      "app/static/tokens.css",
+      "app/static/components.css",
       "app/static/_safe.js",
       "app/static/student-app.js"
     ],

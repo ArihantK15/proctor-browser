@@ -155,11 +155,20 @@ _LOADTEST_SECRET = os.environ.get("LOADTEST_SECRET", "")
 WS_MAX_CONNECTIONS_PER_IP = int(os.getenv("WS_MAX_CONNECTIONS_PER_IP", "10"))
 
 # ─── CORS ─────────────────────────────────────────────────────────
+# The desktop Electron app loads its lobby HTML from a custom protocol
+# (procta-lobby://lobby/student.html) registered in main.js — see the
+# v2.3.14 lobby-blank-window fix. The renderer's origin is therefore
+# `procta-lobby://lobby`, and every fetch it makes to /api/v1/* is
+# cross-origin. Without this in the allow-list, every login / exam-load
+# / save-answer call fails the CORS preflight and the lobby surfaces
+# as a wall of "blocked by CORS" + "failed to fetch" errors.
 _CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = [o.strip() for o in _CORS_RAW.split(",") if o.strip()] if _CORS_RAW else [
     "http://localhost",
     "http://localhost:5173",
     "https://app.procta.net",
+    # Electron desktop app (≥v2.3.14) — custom protocol origin.
+    "procta-lobby://lobby",
 ]
 
 # ─── App URL (used for absolute URLs in emails, OAuth callbacks, etc) ───

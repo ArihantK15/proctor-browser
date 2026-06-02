@@ -533,11 +533,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "base-uri 'self'; "
             "form-action 'self'; "
             "object-src 'none'; "
-            "script-src 'self' https://challenges.cloudflare.com https://checkout.razorpay.com https://cdn.razorpay.com; "
+            # static.cloudflareinsights.com hosts the RUM beacon Cloudflare
+            # auto-injects on proxied (orange-cloud) hostnames since
+            # 2026-06-02. Without this entry the browser blocks the script
+            # and every page logs "Refused to load … beacon.min.js" — no
+            # functional impact, just console noise that masks real CSP
+            # violations. The beacon also reports to cloudflareinsights.com,
+            # hence the matching connect-src entry below.
+            "script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com https://checkout.razorpay.com https://cdn.razorpay.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: blob: https://*.razorpay.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "connect-src 'self' https://challenges.cloudflare.com https://*.razorpay.com https://*.ingest.de.sentry.io https://*.ingest.sentry.io; "
+            "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com https://*.razorpay.com https://*.ingest.de.sentry.io https://*.ingest.sentry.io; "
             "media-src 'self' data:; "
             "frame-src https://challenges.cloudflare.com https://*.razorpay.com; "
             "frame-ancestors 'none'; "

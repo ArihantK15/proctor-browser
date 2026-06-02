@@ -74,8 +74,20 @@ def _assert_within_directory(path: Path, base: Path) -> None:
 # ─── HTML escaping ────────────────────────────────────────────────
 
 def _html_escape(s) -> str:
-    """Escape user data for safe embedding in HTML content."""
+    """Escape user data for safe embedding in HTML body OR attributes.
+
+    Wraps stdlib `html.escape(quote=True)` so the standard CodeQL/Bandit
+    sanitizer pattern is recognised, then adds `/` escaping. The slash
+    isn't dangerous in HTML body context, but escaping it prevents a
+    `</script>` breakout if the value is ever interpolated near a
+    `<script>` block — defence-in-depth for templates that mix HTML and
+    inline JS.
+
+    All callers (auth router, emailer, invite landing, scorecards) put
+    the result in HTML body or attribute context, where browsers decode
+    `&#x27;` back to `'` and `&#x2F;` back to `/` — display is unchanged.
+    """
     if s is None:
         return ""
-    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))
+    import html as _html
+    return _html.escape(str(s), quote=True).replace("/", "&#x2F;")

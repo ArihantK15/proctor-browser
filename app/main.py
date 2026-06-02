@@ -142,6 +142,22 @@ if SENTRY_DSN:
             # PII (IP, user info) is added at the application layer
             # where we control which fields are safe to attach.
             send_default_pii=False,
+            # Stack-frame local variables can carry the exact PII the
+            # before_send hook tries to strip (an exception in a
+            # handler that has a `password` / `otp` / `answers` local
+            # would ship the value to Sentry as part of the frame's
+            # `vars`). Capturing locals on a proctoring server is too
+            # risky — disable at source. Loses some debugging context
+            # but the request payload + exception message are still
+            # in the event.
+            include_local_variables=False,
+            # Cap the body chunk Sentry pulls from each request. The
+            # before_send hook scrubs known PII keys, but if a handler
+            # echoes back e.g. a 200 KB exam-answer JSON the chunk gets
+            # truncated mid-payload and our key-wise scrub can miss the
+            # tail half. "small" keeps the body window inside what we
+            # can reliably parse + redact.
+            max_request_body_size="small",
             traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.environ.get("SENTRY_PROFILES_SAMPLE_RATE", "0.0")),
             environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),

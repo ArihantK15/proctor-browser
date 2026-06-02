@@ -44,12 +44,47 @@ force_submit) so filtering by action stays predictable.
 """
 from __future__ import annotations
 
+import json
 import logging
+from datetime import date, datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import Request
 
 logger = logging.getLogger("admin.audit")
+
+
+def _json_default(o: Any) -> Any:
+    """JSON encoder for types asyncpg returns but stdlib json can't handle.
+
+    UUID + datetime/date land in `before_data` snapshots because we
+    pass `.data[0]` straight from a `SELECT *` — those columns come
+    back as native Python types. Without this default, json.dumps()
+    raises TypeError and the audit row never lands.
+    """
+    if isinstance(o, (datetime, date)):
+        return o.isoformat()
+    if isinstance(o, UUID):
+        return str(o)
+    if isinstance(o, bytes):
+        return o.decode("utf-8", errors="replace")
+    return str(o)
+
+
+def _to_jsonb(value: Any) -> str | None:
+    """Serialize a JSON-shaped value to a string asyncpg can hand to a
+    JSONB column. Returns None for None so the row column stays NULL.
+
+    The asyncpg pool in app/postgres_table.py registers no codec for
+    jsonb (Procta runs on plain Postgres, not Supabase), so a Python
+    dict/list passed directly would raise asyncpg.DataError. The
+    codebase convention (see auth_events.meta writes) is to dumps()
+    before insert; this helper centralises that.
+    """
+    if value is None:
+        return None
+    return json.dumps(value, default=_json_default)
 
 
 async def log_admin_action(
@@ -98,9 +133,13 @@ async def log_admin_action(
         "action": action,
         "target_type": target_type,
         "target_id": target_id,
-        "before_data": before_data,
-        "after_data": after_data,
-        "details": details or {},
+        # JSONB columns — serialise to string so asyncpg accepts them.
+        # Without this every audit insert raised DataError and was
+        # silently swallowed by the except below, leaving the audit
+        # table empty in production. See _to_jsonb docstring.
+        "before_data": _to_jsonb(before_data),
+        "after_data": _to_jsonb(after_data),
+        "details": _to_jsonb(details or {}),
         "ip": ip,
         "user_agent": user_agent,
     }

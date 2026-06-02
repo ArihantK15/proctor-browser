@@ -361,6 +361,22 @@ async def violations_bulk_dismiss(request: Request, body: dict | None = None):
         safe(teacher.get("id", "")), safe(violation_type), safe(severity or ""),
         safe(exam_id or ""), total,
     )
+    if total > 0:
+        from ..services.admin_audit import log_admin_action
+        await log_admin_action(
+            teacher_id=str(teacher["id"]),
+            action="bulk_dismiss_violations",
+            target_type="violations",
+            target_id=None,
+            details={
+                "violation_type": violation_type,
+                "severity": severity,
+                "exam_id": exam_id,
+                "reason": reason,
+                "dismissed_count": total,
+            },
+            request=request,
+        )
     return {
         "dismissed": total,
         "violation_type": violation_type,

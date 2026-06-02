@@ -132,14 +132,20 @@ async def delete_exam(exam_id: str, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     require_reauth_or_403(None, tid, request=request)
-    check = await _atable("exam_config").select("exam_id")\
+    # Snapshot identifying fields for the audit log before we delete.
+    before = await _atable("exam_config")\
+        .select("exam_id,exam_title,duration_minutes,access_code,created_at")\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
-    if not check.data:
+    if not before.data:
         raise HTTPException(status_code=404, detail="Exam not found")
     all_exams = await _atable("exam_config").select("exam_id")\
         .eq("teacher_id", tid).execute()
     if len(all_exams.data or []) <= 1:
         raise HTTPException(status_code=400, detail="Cannot delete your only exam")
+    # Count of child questions that will cascade so the audit row
+    # carries forensic context (how much got dropped).
+    q_count = await _atable("questions").select("id", count="exact")\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     await _atable("questions").delete()\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     try:
@@ -149,6 +155,16 @@ async def delete_exam(exam_id: str, request: Request):
         if _cache:
             _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
             _cache.delete(f"questions:{tid}:{exam_id or '_'}")
+    from ..services.admin_audit import log_admin_action
+    await log_admin_action(
+        teacher_id=tid,
+        action="delete_exam",
+        target_type="exam",
+        target_id=exam_id,
+        before_data=before.data[0] if before.data else None,
+        details={"questions_deleted": q_count.count or 0},
+        request=request,
+    )
     return {"status": "deleted", "exam_id": exam_id}
 
 
@@ -479,6 +495,15 @@ async def delete_group(group_id: str, request: Request):
               .delete().eq("id", group_id).eq("teacher_id", tid).execute())
     if not result.data:
         raise HTTPException(status_code=404, detail="Group not found")
+    from ..services.admin_audit import log_admin_action
+    await log_admin_action(
+        teacher_id=tid,
+        action="delete_group",
+        target_type="group",
+        target_id=group_id,
+        before_data=result.data[0] if result.data else None,
+        request=request,
+    )
     return {"ok": True}
 
 

@@ -787,6 +787,22 @@ async def delete_student_from_roster(
         except Exception as e:
             logger.error("[roster.delete] delete failed: %s", e, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Delete failed: {type(e).__name__}")
+        from ..services.admin_audit import log_admin_action
+        await log_admin_action(
+            teacher_id=tid,
+            action="delete_roster",
+            target_type="students",
+            target_id=None,  # bulk — no single target row
+            before_data={"rows": matched},
+            details={
+                "deleted_count": len(ids),
+                "email_filter": email,
+                "roll_filter": roll_number,
+                "exam_filter": exam_id,
+                "confirmed_warnings": bool(warnings),
+            },
+            request=request,
+        )
 
     return {
         "deleted": len(ids),

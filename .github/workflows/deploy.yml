@@ -41,11 +41,18 @@ jobs:
     environment: production
     steps:
       - name: Deploy via SSH (git pull + docker build)
+        id: deploy_primary
         uses: appleboy/ssh-action@v1
+        continue-on-error: true
         with:
           host: ${{ secrets.KVM_HOST }}
           username: ${{ secrets.KVM_USER }}
           key: ${{ secrets.KVM_SSH_KEY }}
+          # Connect-establishment timeout (was the default 30s, which
+          # tripped on transient network slowness between GH runners
+          # and our KVM). 2m gives plenty of headroom without hiding
+          # a genuinely unreachable server.
+          timeout: 2m
           # 15-minute timeout for Docker build on a 4-core KVM
           command_timeout: 15m
           script: |
@@ -102,12 +109,75 @@ jobs:
             docker compose --compatibility logs --tail=80 api
             exit 1
 
-      - name: Prune old images
-        if: always()
+      # ── Retry once on transient SSH failure ─────────────────────────
+      # The primary step has continue-on-error so a flaky SSH dial
+      # doesn't fail the workflow outright. If it failed, wait 30s for
+      # the network to settle then re-run the same script. The deploy
+      # script itself is idempotent (git reset --hard, docker compose
+      # up -d, migration runner skips already-applied files) so a
+      # second run won't double-apply anything.
+      - name: Wait before retry
+        if: steps.deploy_primary.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy via SSH (retry attempt)
+        id: deploy_retry
+        if: steps.deploy_primary.outcome == 'failure'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.KVM_HOST }}
           username: ${{ secrets.KVM_USER }}
           key: ${{ secrets.KVM_SSH_KEY }}
+          timeout: 2m
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+            cd /root/proctor-browser || { echo "ERROR: /root/proctor-browser not found — clone the repo first"; exit 1; }
+
+            echo "==> [retry] git pull main"
+            git fetch origin
+            git reset --hard origin/main
+
+            echo "==> [retry] building containers (sha=${{ github.sha }})"
+            export GIT_SHA="${{ github.sha }}"
+            export APP_VERSION="${{ github.ref_name }}"
+            export IMAGE_TAG="local"
+            docker compose --compatibility build api worker autosave-worker
+
+            echo "==> [retry] preflight migrations"
+            docker compose --compatibility run --rm --no-deps --entrypoint sh api -c 'if [ "${DATABASE_BACKEND:-supabase}" = "postgres" ]; then python scripts/run_postgres_migrations.py; else python scripts/run_migrations.py; fi'
+
+            echo "==> [retry] restarting api + workers"
+            docker compose --compatibility up -d --no-deps api worker autosave-worker
+
+            echo "==> [retry] ensuring caddy"
+            docker compose --compatibility up -d caddy
+            docker compose --compatibility restart caddy
+            sleep 2
+
+            echo "==> [retry] waiting for API healthcheck (max 180s)..."
+            for i in $(seq 1 36); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' proctor-api 2>/dev/null || echo unknown)
+              if [ "$STATUS" = "healthy" ]; then
+                echo "==> [retry] API healthy after $((i * 5))s"
+                exit 0
+              fi
+              sleep 5
+            done
+
+            echo "ERROR: API did not become healthy within 180s (retry attempt)"
+            docker compose --compatibility logs --tail=80 api
+            exit 1
+
+      - name: Prune old images
+        if: always()
+        continue-on-error: true  # Don't fail the deploy if prune flakes
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.KVM_HOST }}
+          username: ${{ secrets.KVM_USER }}
+          key: ${{ secrets.KVM_SSH_KEY }}
+          timeout: 2m
+          command_timeout: 2m
           script: |
             docker image prune -f --filter "until=24h" 2>/dev/null || true

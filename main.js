@@ -186,6 +186,22 @@ function extractAndReceive(args, source) {
       const a = String(args[i] || '');
       if (a.toLowerCase().startsWith(`${PROCTA_SCHEME}://`)) {
         sawProctaUrl = true;
+        // Plain "open the app" deep link (procta://open) — used by the web
+        // registration success page to launch the installed app. It carries
+        // no invite token, so route it straight to show+focus the lobby
+        // rather than through the invite path (which would flag it as a
+        // malformed invite). On cold start the lobby may not exist yet; the
+        // normal launch will surface it, so a no-op here is fine.
+        const rest = a.slice(`${PROCTA_SCHEME}://`.length).replace(/\/+$/, '').toLowerCase();
+        if (rest === 'open' || rest === 'lobby') {
+          const lobby = getLobbyWindow();
+          if (lobby && !lobby.isDestroyed()) {
+            if (lobby.isMinimized()) lobby.restore();
+            lobby.show();
+            lobby.focus();
+          }
+          return true;
+        }
         const tok = extractInviteToken(a, INVITE_REGEX);
         if (tok) {
           receiveInviteToken(tok, source);

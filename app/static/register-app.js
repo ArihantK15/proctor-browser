@@ -419,6 +419,29 @@ function loadSchedule(){
 }
 loadSchedule();
 
+// Launch the installed Procta desktop app via the procta://open deep link.
+// Mirrors invite-landing.js: direct user-click navigation (iframe launches
+// are unreliable in modern browsers), with a fallback hint if the app
+// doesn't take focus (i.e. it isn't installed yet).
+function openInApp(e){
+  if(e && e.preventDefault) e.preventDefault();
+  const msg = document.getElementById('open-in-app-msg');
+  if(msg){
+    msg.style.display = '';
+    msg.textContent = 'Opening Procta… If nothing happens, install the app below and click again.';
+  }
+  try{
+    window.location.href = 'procta://open';
+    setTimeout(function(){
+      if(msg && !document.hidden){
+        msg.textContent = 'Still here? Install Procta with the download link below, then click "Open in Procta app" again.';
+      }
+    }, 1800);
+  }catch(err){
+    if(msg) msg.textContent = 'Could not open Procta from this browser. Install the app, then sign in.';
+  }
+}
+
 function _parseDataArgs(raw) {
   try { return JSON.parse(raw || '[]'); } catch (err) { console.warn('[delegated] invalid data-args', err); return []; }
 }

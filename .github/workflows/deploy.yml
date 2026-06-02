@@ -1,13 +1,20 @@
 name: Deploy API
 
-# Deploys the API to the KVM production server after tests pass.
-# Strategy: SSH in, git pull, docker compose build + up (no GHCR registry
-# needed — the server builds from source directly, keeping things simple).
+# Deploys the API to the KVM production server via a self-hosted
+# GitHub Actions runner installed on the VM itself. The runner connects
+# OUTBOUND to GitHub (always works) and executes the deploy script in
+# place — no inbound SSH dependency, eliminating the dial-tcp timeout
+# class of failures we hit with the previous appleboy/ssh-action path.
 #
-# Required GitHub secrets:
-#   KVM_HOST        — server IP or hostname
-#   KVM_USER        — SSH user (e.g. root)
-#   KVM_SSH_KEY     — private key whose public key is in authorized_keys
+# The runner is registered against this repo and runs under root in
+# /root/actions-runner as a systemd service. It executes inside the
+# same VM that hosts the docker compose stack, so the deploy script
+# just cd's into /root/proctor-browser (the existing checkout that
+# docker-compose.yml references) and runs the same commands a human
+# operator would.
+#
+# Tests still run on a clean GitHub-hosted ubuntu-latest runner so
+# they don't pollute prod state.
 
 on:
   push:
@@ -28,156 +35,61 @@ permissions:
   security-events: write
 
 jobs:
-  # Re-run the test suite to gate the deploy
+  # Re-run the test suite on a clean cloud runner to gate the deploy.
   tests:
     uses: ./.github/workflows/test.yml
 
   deploy:
     needs: tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 20
     # Only deploy from main branch or manual trigger
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     environment: production
     steps:
-      - name: Deploy via SSH (git pull + docker build)
-        id: deploy_primary
-        uses: appleboy/ssh-action@v1
-        continue-on-error: true
-        with:
-          host: ${{ secrets.KVM_HOST }}
-          username: ${{ secrets.KVM_USER }}
-          key: ${{ secrets.KVM_SSH_KEY }}
-          # Connect-establishment timeout (was the default 30s, which
-          # tripped on transient network slowness between GH runners
-          # and our KVM). 2m gives plenty of headroom without hiding
-          # a genuinely unreachable server.
-          timeout: 2m
-          # 15-minute timeout for Docker build on a 4-core KVM
-          command_timeout: 15m
-          script: |
-            set -euo pipefail
-            cd /root/proctor-browser || { echo "ERROR: /root/proctor-browser not found — clone the repo first"; exit 1; }
+      - name: Deploy (git pull + docker build + healthcheck)
+        env:
+          GIT_SHA: ${{ github.sha }}
+          APP_VERSION: ${{ github.ref_name }}
+          IMAGE_TAG: local
+        run: |
+          set -euo pipefail
+          cd /root/proctor-browser
 
-            echo "==> git pull main"
-            git fetch origin
-            git reset --hard origin/main
+          echo "==> git fetch + reset to ${GIT_SHA}"
+          git fetch origin
+          git reset --hard origin/main
 
-            echo "==> building containers (sha=${{ github.sha }})"
-            export GIT_SHA="${{ github.sha }}"
-            export APP_VERSION="${{ github.ref_name }}"
-            export IMAGE_TAG="local"
-            docker compose --compatibility build api worker autosave-worker
+          echo "==> building containers"
+          docker compose --compatibility build api worker autosave-worker
 
-            echo "==> preflight migrations"
-            docker compose --compatibility run --rm --no-deps --entrypoint sh api -c 'if [ "${DATABASE_BACKEND:-supabase}" = "postgres" ]; then python scripts/run_postgres_migrations.py; else python scripts/run_migrations.py; fi'
+          echo "==> preflight migrations"
+          docker compose --compatibility run --rm --no-deps --entrypoint sh api -c \
+            'if [ "${DATABASE_BACKEND:-supabase}" = "postgres" ]; then python scripts/run_postgres_migrations.py; else python scripts/run_migrations.py; fi'
 
-            echo "==> restarting api + workers"
-            docker compose --compatibility up -d --no-deps api worker autosave-worker
+          echo "==> restarting api + workers"
+          docker compose --compatibility up -d --no-deps api worker autosave-worker
 
-            echo "==> ensuring caddy is running + applying Caddyfile"
-            docker compose --compatibility up -d caddy
-            # `caddy reload` (which we used to call here) was reporting
-            # success but the new routing tree wasn't actually applied
-            # — /dashboard kept hitting the old file_server route after
-            # the Caddyfile was simplified. Force a hard restart instead.
-            # Caddy comes back in <1s and the reverse_proxy upstream
-            # (api:8000) is on the same docker network so no cold-start
-            # to the user. Negligible downtime, guaranteed config swap.
-            docker compose --compatibility restart caddy
-            # Give Caddy a beat to bind ports before the healthcheck.
-            sleep 2
+          echo "==> ensuring caddy is running + applying Caddyfile"
+          docker compose --compatibility up -d caddy
+          docker compose --compatibility restart caddy
+          sleep 2
 
-            # Healthcheck window: bumped from 90s → 180s after multiple
-            # past deploys ran the container to "healthy" in 100-130s but
-            # the runner had already given up. The actual container DID
-            # take over (live API uptime matched the deploy time); we
-            # just kept marking the workflow red. 180s covers the slow
-            # cold-start cases (asyncpg pool warmup + model load) without
-            # hiding genuine failures — anything stuck past 3 min is real.
-            echo "==> waiting for API healthcheck (max 180s)..."
-            for i in $(seq 1 36); do
-              STATUS=$(docker inspect --format='{{.State.Health.Status}}' proctor-api 2>/dev/null || echo unknown)
-              if [ "$STATUS" = "healthy" ]; then
-                echo "==> API healthy after $((i * 5))s"
-                exit 0
-              fi
-              sleep 5
-            done
+          echo "==> waiting for API healthcheck (max 180s)..."
+          for i in $(seq 1 36); do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' proctor-api 2>/dev/null || echo unknown)
+            if [ "$STATUS" = "healthy" ]; then
+              echo "==> API healthy after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
 
-            echo "ERROR: API did not become healthy within 180s"
-            docker compose --compatibility logs --tail=80 api
-            exit 1
-
-      # ── Retry once on transient SSH failure ─────────────────────────
-      # The primary step has continue-on-error so a flaky SSH dial
-      # doesn't fail the workflow outright. If it failed, wait 30s for
-      # the network to settle then re-run the same script. The deploy
-      # script itself is idempotent (git reset --hard, docker compose
-      # up -d, migration runner skips already-applied files) so a
-      # second run won't double-apply anything.
-      - name: Wait before retry
-        if: steps.deploy_primary.outcome == 'failure'
-        run: sleep 30
-
-      - name: Deploy via SSH (retry attempt)
-        id: deploy_retry
-        if: steps.deploy_primary.outcome == 'failure'
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.KVM_HOST }}
-          username: ${{ secrets.KVM_USER }}
-          key: ${{ secrets.KVM_SSH_KEY }}
-          timeout: 2m
-          command_timeout: 15m
-          script: |
-            set -euo pipefail
-            cd /root/proctor-browser || { echo "ERROR: /root/proctor-browser not found — clone the repo first"; exit 1; }
-
-            echo "==> [retry] git pull main"
-            git fetch origin
-            git reset --hard origin/main
-
-            echo "==> [retry] building containers (sha=${{ github.sha }})"
-            export GIT_SHA="${{ github.sha }}"
-            export APP_VERSION="${{ github.ref_name }}"
-            export IMAGE_TAG="local"
-            docker compose --compatibility build api worker autosave-worker
-
-            echo "==> [retry] preflight migrations"
-            docker compose --compatibility run --rm --no-deps --entrypoint sh api -c 'if [ "${DATABASE_BACKEND:-supabase}" = "postgres" ]; then python scripts/run_postgres_migrations.py; else python scripts/run_migrations.py; fi'
-
-            echo "==> [retry] restarting api + workers"
-            docker compose --compatibility up -d --no-deps api worker autosave-worker
-
-            echo "==> [retry] ensuring caddy"
-            docker compose --compatibility up -d caddy
-            docker compose --compatibility restart caddy
-            sleep 2
-
-            echo "==> [retry] waiting for API healthcheck (max 180s)..."
-            for i in $(seq 1 36); do
-              STATUS=$(docker inspect --format='{{.State.Health.Status}}' proctor-api 2>/dev/null || echo unknown)
-              if [ "$STATUS" = "healthy" ]; then
-                echo "==> [retry] API healthy after $((i * 5))s"
-                exit 0
-              fi
-              sleep 5
-            done
-
-            echo "ERROR: API did not become healthy within 180s (retry attempt)"
-            docker compose --compatibility logs --tail=80 api
-            exit 1
+          echo "ERROR: API did not become healthy within 180s"
+          docker compose --compatibility logs --tail=80 api
+          exit 1
 
       - name: Prune old images
         if: always()
-        continue-on-error: true  # Don't fail the deploy if prune flakes
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.KVM_HOST }}
-          username: ${{ secrets.KVM_USER }}
-          key: ${{ secrets.KVM_SSH_KEY }}
-          timeout: 2m
-          command_timeout: 2m
-          script: |
-            docker image prune -f --filter "until=24h" 2>/dev/null || true
+        continue-on-error: true
+        run: docker image prune -f --filter "until=24h" 2>/dev/null || true

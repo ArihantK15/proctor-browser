@@ -72,29 +72,79 @@ def _secure_cookie_enabled() -> bool:
     return public_url.startswith("https://")
 
 
-def _set_auth_cookie(response: JSONResponse, name: str, value: str, max_age_seconds: int) -> None:
-    same_site = "strict" if name in {"procta_access", "procta_student_access"} else "lax"
+def _is_electron_origin(request: Request | None) -> bool:
+    """True if the request looks like it came from the desktop Electron
+    app (any version) rather than a regular web browser hitting
+    app.procta.net.
+
+    The desktop lobby loads with origin `procta-lobby://lobby` since
+    v2.3.14; older versions loaded via file:// which Chromium sends as
+    Origin: null. Either signal means we need cross-site-friendly
+    cookie attributes — SameSite=Strict/Lax would block the cookie
+    from coming back on the next request, so the user would appear to
+    log in successfully and then 401 on every subsequent call.
+    """
+    if request is None:
+        return False
+    origin = (request.headers.get("origin") or "").lower()
+    if origin.startswith("procta-lobby://") or origin == "null":
+        return True
+    # Electron user-agent fallback — covers cases where Origin header
+    # was stripped by an intermediate proxy.
+    ua = (request.headers.get("user-agent") or "").lower()
+    return "electron" in ua and "procta" in ua
+
+
+def _set_auth_cookie(
+    response: JSONResponse, name: str, value: str, max_age_seconds: int,
+    *, request: Request | None = None,
+) -> None:
+    is_access = name in {"procta_access", "procta_student_access"}
+    if _is_electron_origin(request):
+        # Cross-site request from the Electron desktop app — the cookie
+        # must be SameSite=None;Secure for the browser to attach it on
+        # subsequent fetches. None requires Secure; we force Secure on
+        # regardless of _secure_cookie_enabled() because modern browsers
+        # reject None-without-Secure cookies.
+        same_site = "none"
+        secure = True
+    else:
+        # Web browser hitting app.procta.net same-origin — keep the
+        # strict defaults so CSRF defence-in-depth stays in place even
+        # if the CSRF token mechanism ever has a gap.
+        same_site = "strict" if is_access else "lax"
+        secure = _secure_cookie_enabled()
     response.set_cookie(
         name,
         value,
         max_age=max_age_seconds,
         httponly=True,
-        secure=_secure_cookie_enabled(),
+        secure=secure,
         samesite=same_site,
         path="/",
     )
 
 
-def _set_teacher_cookies(response: JSONResponse, access_token: str, refresh_token: str) -> None:
+def _set_teacher_cookies(
+    response: JSONResponse, access_token: str, refresh_token: str,
+    *, request: Request | None = None,
+) -> None:
     from ..constants import ADMIN_TOKEN_TTL_MINUTES
-    _set_auth_cookie(response, "procta_access", access_token, ADMIN_TOKEN_TTL_MINUTES * 60)
-    _set_auth_cookie(response, "procta_refresh", refresh_token, 30 * 24 * 60 * 60)
+    _set_auth_cookie(response, "procta_access", access_token,
+                     ADMIN_TOKEN_TTL_MINUTES * 60, request=request)
+    _set_auth_cookie(response, "procta_refresh", refresh_token,
+                     30 * 24 * 60 * 60, request=request)
 
 
-def _set_student_cookies(response: JSONResponse, access_token: str, refresh_token: str) -> None:
+def _set_student_cookies(
+    response: JSONResponse, access_token: str, refresh_token: str,
+    *, request: Request | None = None,
+) -> None:
     from ..constants import STUDENT_AUTH_TTL_MINUTES
-    _set_auth_cookie(response, "procta_student_access", access_token, STUDENT_AUTH_TTL_MINUTES * 60)
-    _set_auth_cookie(response, "procta_student_refresh", refresh_token, 30 * 24 * 60 * 60)
+    _set_auth_cookie(response, "procta_student_access", access_token,
+                     STUDENT_AUTH_TTL_MINUTES * 60, request=request)
+    _set_auth_cookie(response, "procta_student_refresh", refresh_token,
+                     30 * 24 * 60 * 60, request=request)
 
 
 def _clear_teacher_cookies(response: JSONResponse) -> None:
@@ -811,7 +861,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             "email_verified_at": teacher.get("email_verified_at"),
         },
     })
-    _set_teacher_cookies(response, access_token, refresh_tok)
+    _set_teacher_cookies(response, access_token, refresh_tok, request=request)
     return response
 
 
@@ -892,7 +942,7 @@ async def teacher_refresh(request: Request, body: RefreshIn | None = None):
         "access_token": access_token,
         "refresh_token": new_refresh,
     })
-    _set_teacher_cookies(response, access_token, new_refresh)
+    _set_teacher_cookies(response, access_token, new_refresh, request=request)
     return response
 
 
@@ -1432,7 +1482,7 @@ async def student_login(body: StudentLoginIn, request: Request):
             "full_name": account["full_name"],
         },
     })
-    _set_student_cookies(response, access_token, refresh_tok)
+    _set_student_cookies(response, access_token, refresh_tok, request=request)
     return response
 
 
@@ -1526,7 +1576,7 @@ async def student_refresh(request: Request, body: RefreshIn | None = None):
         "access_token": access_token,
         "refresh_token": new_refresh,
     })
-    _set_student_cookies(response, access_token, new_refresh)
+    _set_student_cookies(response, access_token, new_refresh, request=request)
     return response
 
 

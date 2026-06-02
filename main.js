@@ -312,10 +312,15 @@ function _registerLobbyProtocol() {
     try { urlPath = new URL(request.url).pathname; }
     catch { return new Response('bad url', { status: 400 }); }
     // procta-lobby://lobby/student.html → urlPath="/student.html"
-    // Strip leading slash + clamp to a single path component so a
-    // crafted URL can't escape app/static/ via ".." segments.
-    const filename = urlPath.replace(/^\/+/, '').replace(/[\\/].*$/, '');
-    if (!filename) {
+    // procta-lobby://lobby/static/favicon.svg → urlPath="/static/favicon.svg"
+    // Strip leading slash + optional leading "static/" prefix (so
+    // absolute paths in student.html like /static/favicon.svg resolve)
+    // + clamp to a single component so a crafted URL can't escape
+    // app/static/ via ".." segments.
+    let rel = urlPath.replace(/^\/+/, '');
+    if (rel.startsWith('static/')) rel = rel.slice('static/'.length);
+    const filename = rel.replace(/[\\/].*$/, '');
+    if (!filename || filename === '..') {
       return new Response('not found', { status: 404 });
     }
     const candidates = [

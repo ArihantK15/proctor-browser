@@ -736,25 +736,25 @@ async def delete_student_from_roster(
         raise HTTPException(status_code=400,
             detail="Provide email or roll_number (or both)")
 
-    q = _atable("students").select("id,roll_number,email,exam_id").eq("teacher_id", tid)
+    # NOTE: the `students` table is teacher-scoped, NOT exam-scoped — a
+    # roster row is one enrollment of a student under a teacher and has
+    # no `exam_id` column (per-exam association lives in student_invites
+    # / exam_sessions). Selecting/filtering exam_id here was the cause of
+    # the "Lookup failed: UndefinedColumnError" 500. Removal is therefore
+    # always teacher-wide. The optional `exam_id` arg is used ONLY to
+    # narrow the in-progress-session warning below (exam_sessions DOES
+    # have an exam_id column).
+    scope_exam = (exam_id or "").strip()
+    q = _atable("students").select("id,roll_number,email").eq("teacher_id", tid)
     if email:
         q = q.eq("email", email.strip().lower())
     if roll_number:
         q = q.eq("roll_number", roll_number.strip().upper())
-    if exam_id:
-        q = q.eq("exam_id", exam_id.strip())
     try:
         rows = (await q.execute()).data or []
     except Exception as e:
-        # legacy schema without exam_id column → retry without it
-        if exam_id and "exam_id" in str(e).lower():
-            q2 = _atable("students").select("id,roll_number,email").eq("teacher_id", tid)
-            if email: q2 = q2.eq("email", email.strip().lower())
-            if roll_number: q2 = q2.eq("roll_number", roll_number.strip().upper())
-            rows = (await q2.execute()).data or []
-        else:
-            logger.error("[roster.delete] lookup failed: %s", e, exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Lookup failed: {type(e).__name__}")
+        logger.error("[roster.delete] lookup failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Lookup failed: {type(e).__name__}")
 
     if not rows:
         return {"deleted": 0, "matched": [], "warnings": []}
@@ -763,15 +763,14 @@ async def delete_student_from_roster(
     seen_sessions: set[str] = set()
     for row in rows:
         roll = (row.get("roll_number") or "").strip().upper()
-        row_exam_id = (row.get("exam_id") or "").strip()
         if not roll:
             continue
         try:
             sq = _atable("exam_sessions").select(
                 "session_key,roll_number,full_name,email,exam_id,status"
             ).eq("teacher_id", tid).eq("status", SessionStatus.IN_PROGRESS).eq("roll_number", roll)
-            if row_exam_id:
-                sq = sq.eq("exam_id", row_exam_id)
+            if scope_exam:
+                sq = sq.eq("exam_id", scope_exam)
             active = (await sq.limit(5).execute()).data or []
         except Exception as e:
             logger.warning("[roster.delete] in-progress warning lookup failed: %s", e)
@@ -788,12 +787,11 @@ async def delete_student_from_roster(
                 "roll_number": sess.get("roll_number") or roll,
                 "full_name": sess.get("full_name"),
                 "email": sess.get("email") or row.get("email"),
-                "exam_id": sess.get("exam_id") or row_exam_id,
+                "exam_id": sess.get("exam_id") or scope_exam,
             })
 
     matched = [{"roll_number": r.get("roll_number"),
-                "email": r.get("email"),
-                "exam_id": r.get("exam_id")} for r in rows]
+                "email": r.get("email")} for r in rows]
     if warnings and not confirm_warnings:
         return {
             "deleted": 0,

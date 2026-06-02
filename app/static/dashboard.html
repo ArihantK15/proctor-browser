@@ -1078,16 +1078,12 @@
       <div class="tool-card">
         <div class="tool-card-body">
           <h3>Remove Student From Roster</h3>
-          <p>Removes a single student's enrollment under your account so they can re-register cleanly. Their login account is kept; only the roster row is deleted. Scope to the currently-selected exam, or leave blank to remove from all your exams.</p>
+          <p>Removes a student's enrollment under your account so they can re-register cleanly. Their login account is kept; only the roster row is deleted. A roster entry spans all your exams, so removal applies to all of them.</p>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
             <input type="email" id="roster-remove-email" placeholder="student@school.edu"
               style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
             <input type="text" id="roster-remove-roll" placeholder="OR roll number (e.g. R001)"
               style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;text-transform:uppercase">
-            <label class="shuffle-toggle">
-              <input type="checkbox" id="roster-remove-scope-exam" checked>
-              <span>Scope to current exam only (uncheck to remove from all my exams)</span>
-            </label>
           </div>
         </div>
         <div class="tool-card-actions">

@@ -6160,22 +6160,20 @@ async function removeStudentFromRoster(){
   const status = document.getElementById('roster-remove-status');
   const emailEl = document.getElementById('roster-remove-email');
   const rollEl = document.getElementById('roster-remove-roll');
-  const scopeEl = document.getElementById('roster-remove-scope-exam');
   const email = (emailEl?.value || '').trim().toLowerCase();
   const roll = (rollEl?.value || '').trim().toUpperCase();
   if (!email && !roll) {
     if (status) { status.style.color='var(--red)'; status.textContent = 'Enter an email or roll number'; }
     return;
   }
-  const scopeToExam = !!(scopeEl && scopeEl.checked);
-  const examPart = scopeToExam && currentExamId ? `from THIS exam only` : `from ALL your exams`;
+  // A roster row is teacher-scoped (one enrollment per student under you),
+  // not per-exam, so removal always spans all your exams.
   const ident = email ? `email "${email}"` : `roll "${roll}"`;
-  if (!await appConfirm(`Remove the student matching ${ident} ${examPart}? Their LOGIN account is preserved; only the roster row is deleted.`, 'Remove from roster', {okText:'Remove'})) return;
+  if (!await appConfirm(`Remove the student matching ${ident} from your roster (all your exams)? Their LOGIN account is preserved; only the roster row is deleted.`, 'Remove from roster', {okText:'Remove'})) return;
   try {
     const params = new URLSearchParams();
     if (email) params.set('email', email);
     if (roll) params.set('roll_number', roll);
-    if (scopeToExam && currentExamId) params.set('exam_id', currentExamId);
     let r = await authFetch(`${BASE}/api/v1/admin/students/roster?${params.toString()}`, {
       method: 'DELETE'
     });

@@ -70,6 +70,10 @@
       {
         "from": "scripts/download_audio_models.py",
         "to": "scripts/download_audio_models.py"
+      },
+      {
+        "from": "python-runtime",
+        "to": "python-runtime"
       }
     ],
     "publish": {
@@ -95,6 +99,10 @@
     },
     "mac": {
       "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSCameraUsageDescription": "Procta uses your camera to proctor your exam and verify your identity.",
+        "NSMicrophoneUsageDescription": "Procta uses your microphone to detect background audio during your exam."
+      },
       "target": [
         {
           "target": "dmg",

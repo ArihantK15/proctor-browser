@@ -17,6 +17,50 @@
 
 const { execFileSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+
+// Ad-hoc sign the bundled relocatable Python interpreters under
+// Contents/Resources/python-runtime/. On Apple Silicon an *executed*
+// Mach-O must carry a valid signature, and `codesign --deep` on the .app
+// does NOT reach binaries sitting in Resources. python-build-standalone
+// ships its own ad-hoc signatures, but we re-sign the interpreter
+// executables + libpython defensively (--force is a no-op-safe replace)
+// so the venv symlink target always launches. Must run BEFORE the app is
+// signed (inside-out). Best-effort: a failure here must not abort the
+// build — the no-cert path is a convenience tier, not notarized.
+function signBundledPython(appPath) {
+  const runtimeRoot = path.join(appPath, 'Contents', 'Resources', 'python-runtime');
+  if (!fs.existsSync(runtimeRoot)) {
+    console.log('[afterPack] no python-runtime/ to sign (dev/empty bundle).');
+    return;
+  }
+  const targets = [];
+  for (const arch of fs.readdirSync(runtimeRoot)) {
+    const binDir = path.join(runtimeRoot, arch, 'bin');
+    const libDir = path.join(runtimeRoot, arch, 'lib');
+    try {
+      for (const f of fs.readdirSync(binDir)) {
+        const p = path.join(binDir, f);
+        // Sign the real binaries, not the symlinks that point at them.
+        if (!fs.lstatSync(p).isSymbolicLink()) targets.push(p);
+      }
+    } catch { /* no bin dir — skip */ }
+    try {
+      for (const f of fs.readdirSync(libDir)) {
+        if (/^libpython.*\.dylib$/.test(f)) targets.push(path.join(libDir, f));
+      }
+    } catch { /* no lib dir — skip */ }
+  }
+  for (const t of targets) {
+    try {
+      execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', t],
+        { stdio: 'ignore' });
+    } catch (e) {
+      console.warn(`[afterPack] could not sign ${path.basename(t)}: ${e.message}`);
+    }
+  }
+  console.log(`[afterPack] ad-hoc signed ${targets.length} bundled-python binary(ies).`);
+}
 
 exports.default = async function afterPack(context) {
   // macOS only — codesign doesn't exist on the win/linux runners.
@@ -40,6 +84,9 @@ exports.default = async function afterPack(context) {
   const appPath = path.join(context.appOutDir, `${appName}.app`);
 
   console.log(`[afterPack] No cert — ad-hoc signing ${appPath}`);
+  // Inside-out: sign the bundled Python binaries FIRST, then the app, so
+  // the .app's signature seals an already-signed payload.
+  signBundledPython(appPath);
   // --deep: sign nested frameworks/helpers too. --force: replace any
   // partial signature. --sign -: the ad-hoc identity.
   execFileSync('codesign', ['--deep', '--force', '--sign', '-', appPath], {

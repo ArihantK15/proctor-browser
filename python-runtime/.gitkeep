@@ -1,0 +1,5 @@
+# Populated at build time by `node bundle-python.js` (macOS: relocatable
+# python-build-standalone runtimes under <arch>/bin/python3). Committed
+# empty so electron-builder's extraResources `from: python-runtime` never
+# points at a missing directory in dev/local builds. In dev (empty dir),
+# python-manager.js falls back to system python3 to create the venv.

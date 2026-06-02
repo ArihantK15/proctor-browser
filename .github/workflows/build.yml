@@ -57,6 +57,14 @@ jobs:
       # Apple Silicon from rejecting the download as "damaged" — the OS
       # instead shows the bypassable "unidentified developer" prompt.
       # (Not a substitute for a Developer ID + notarization.)
+      # Download the relocatable python-build-standalone runtimes into
+      # python-runtime/ so they get shipped via extraResources. Without
+      # this the macOS app falls back to the user's system python3 (which
+      # PEP 668 blocks from pip-installing the proctor packages).
+      - name: Bundle Python runtime (macOS)
+        if: matrix.target == 'mac'
+        run: node bundle-python.js
+
       - name: Build & publish (macOS)
         if: matrix.target == 'mac'
         shell: bash

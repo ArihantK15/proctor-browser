@@ -47,7 +47,7 @@ const { extractInviteToken, authHeaders, fetchWithTimeout, _exec } = require('./
 const { initAutoUpdater } = require('./lib/auto-update');
 const { runIntegrityChecks } = require('./lib/integrity');
 const {
-  findPython, checkPackagesReady, runWindowsSetup,
+  findPython, checkPackagesReady, runSetup,
   createSetupWindow, getSetupWindow, closeSetupWindow,
   startPython, stopPython, startCalibration, stopCalibration,
 } = require('./lib/python-manager');
@@ -279,22 +279,34 @@ app.whenReady().then(async () => {
   // when done. On a re-launch with packages already there: very
   // brief "Checking…" splash → lobby. Either way one window at a
   // time, and the lobby never opens before setup is settled.
+  // Setup runs on both desktop targets we ship: Windows (downloads the
+  // python.org installer if needed) and macOS (uses the bundled
+  // relocatable Python + a per-user venv). Linux is not a shipping
+  // target, so it skips the gate and opens the lobby immediately.
+  //
+  // Gated on app.isPackaged: in dev (`npm start`, the smoke test) the
+  // developer manages their own Python env, and we must NOT kick off a
+  // multi-GB pip install (torch) into a throwaway venv on every launch.
+  // This preserves the prior behaviour where unpackaged runs never ran
+  // setup. Real installs always provision.
+  const needsSetupGate = app.isPackaged
+    && (process.platform === 'win32' || process.platform === 'darwin');
   let needSetup = false;
-  if (process.platform === 'win32') {
+  if (needsSetupGate) {
     try {
       const python = await findPython();
       needSetup = !(python && await checkPackagesReady(python));
     } catch(e) { console.error('[Setup] readiness check threw:', e.message); }
   }
 
-  if (process.platform === 'win32') {
+  if (needsSetupGate) {
     createSetupWindow();
     try {
       // 10-min ceiling on the whole setup flow. On an already-set-up
-      // install runWindowsSetup short-circuits in ~1s; on a fresh
-      // install it does the bundled pip + audio model download.
+      // install runSetup short-circuits in ~1s; on a fresh install it
+      // does the bundled pip + audio model download.
       await Promise.race([
-        runWindowsSetup(),
+        runSetup(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Setup timed out')), 600_000)),
       ]);
       await new Promise(r => setTimeout(r, needSetup ? 1500 : 400));
@@ -302,7 +314,7 @@ app.whenReady().then(async () => {
     if (getSetupWindow() && !getSetupWindow().isDestroyed()) closeSetupWindow();
   }
 
-  // Setup done (or skipped on non-Windows). Open the lobby now.
+  // Setup done (or skipped on unsupported platforms). Open the lobby now.
   createLobbyWindow();
 
   // Defer auto-updater to avoid blocking startup on slow networks.

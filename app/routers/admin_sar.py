@@ -13,9 +13,11 @@ Every action here writes two audit records:
   - `admin_audit_log`: who-ran-it + ticket ref + reason text
   - `auth_events`: account_deleted_by_admin for the target user
 
-Authorization: superadmin only. Org-level admins can't trigger this
-because that would let an org admin erase users in other orgs. Only
-the platform owner (org_role='superadmin') has this capability.
+Authorization: the env-pinned platform owner only. Org-level admins
+can't trigger this because that would let an org admin erase users in
+other orgs. The gate compares the caller's email to SUPER_ADMIN_EMAIL
+(env pin) — NOT a DB-stored org_role string — so it can never be
+satisfied by an org-side role write. See _require_superadmin.
 
 Endpoints:
   POST /api/v1/admin/sar/delete — erase target user

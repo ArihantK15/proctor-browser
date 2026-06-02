@@ -362,6 +362,29 @@ async def _revoke_refresh_tokens_for_user(
     await q.execute()
 
 
+async def _revoke_auth_sessions_for_user(user_id: str, kind: str) -> None:
+    """Bulk-revoke active access-token sessions for a user.
+
+    Access tokens are validated against auth_sessions.revoked_at on every
+    request (see app/auth/admin_auth.py), so marking the rows revoked
+    immediately invalidates any still-live access token. Pair this with
+    _revoke_refresh_tokens_for_user wherever we need to fully sign a user
+    out — e.g. password reset, which must actually evict an intruder
+    rather than leaving their current access token valid until it expires.
+
+    `kind` is the auth domain ("teacher" | "student"); auth_sessions keys
+    students under the "student_account" user_kind.
+    """
+    user_kind = "teacher" if kind == "teacher" else "student_account"
+    try:
+        await _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
+            .eq("user_kind", user_kind).eq("user_id", str(user_id))\
+            .is_("revoked_at", "null").execute()
+    except Exception:
+        _auth_log.warning("[auth] auth_sessions revoke failed for %s/%s",
+                          kind, safe(str(user_id)), exc_info=True)
+
+
 @router.post("/api/v1/auth/signup")
 @limiter.limit("5/hour")
 async def teacher_signup(body: TeacherSignupIn, request: Request):
@@ -2390,6 +2413,9 @@ async def confirm_password_reset(body: dict, request: Request):
         "auth_provider": "local",
         "password_changed_at": now_ist().isoformat(),
     }).eq("id", user_id).execute()
+    # Evict any session active before the reset — refresh + live access.
+    await _revoke_refresh_tokens_for_user(user_id, kind)
+    await _revoke_auth_sessions_for_user(user_id, kind)
     await record_auth_event("password_reset_completed", request, kind, user_id, claims.get("email"))
     return {"ok": True}
 
@@ -2568,7 +2594,12 @@ async def _track_a_hybrid_delete_student_account(account: dict, request: Request
         except Exception:
             _auth_log.warning("[StudentDelete] teacher notification failed", exc_info=True)
 
-    await record_auth_event("account_deleted", request, "student_account", account_id, email, {"anon_id": anon_id})
+    # Mask the email before it lands in the retained auth_events table —
+    # storing the deleted subject's full address there would re-persist the
+    # PII this erasure just scrubbed everywhere else (parity with the SAR
+    # teacher path's _mask_email; see admin_sar.py).
+    masked_email = f"{email[0]}***@{email.split('@', 1)[1]}" if (email and "@" in email) else ""
+    await record_auth_event("account_deleted", request, "student_account", account_id, masked_email, {"anon_id": anon_id})
     return {"errors": errors, "anon_id": anon_id}
 
 
@@ -2652,6 +2683,10 @@ async def _track_b_set_password(kind: str, user: dict, password: str, request: R
         except Exception:
             _auth_log.warning("[PasswordResetOtp] Supabase password update failed", exc_info=True)
     await _revoke_refresh_tokens_for_user(user_id, kind)
+    # Also kill live access-token sessions — a password reset is the
+    # "lock the intruder out" action, so it must evict any session that
+    # was active before the reset, not just the refresh path.
+    await _revoke_auth_sessions_for_user(user_id, kind)
     await record_auth_event("password_reset_completed", request, kind, user_id, user.get("email"))
 
 
@@ -2786,7 +2821,12 @@ async def student_email_change_request(request: Request, body: dict = Body(defau
     if existing.data:
         raise HTTPException(status_code=409, detail="That email is already in use")
     try:
-        code = await email_otp.issue("student", account_id, "email_change")
+        # Bind the OTP to the *target* address. Without this, a code issued
+        # for new_email=A could be replayed on a confirm that names a
+        # different new_email=B — moving the account to an address that never
+        # received a code. Folding new_email into the purpose-tag makes the
+        # code verify ONLY for the exact address it was mailed to.
+        code = await email_otp.issue("student", account_id, f"email_change:{new_email}")
     except OtpRateLimitError:
         raise HTTPException(
             status_code=429,
@@ -2821,14 +2861,24 @@ async def student_email_change_confirm(request: Request, body: dict = Body(defau
     existing = await _atable("student_accounts").select("id").eq("email", new_email).limit(1).execute()
     if existing.data and str(existing.data[0].get("id")) != account_id:
         raise HTTPException(status_code=409, detail="That email is already in use")
-    ok = await email_otp.verify("student", account_id, "email_change", code)
+    ok = await email_otp.verify("student", account_id, f"email_change:{new_email}", code)
     if not ok:
         raise HTTPException(status_code=403, detail="Invalid or expired code")
     old_email = (account.get("email") or "").strip().lower()
-    await _atable("student_accounts").update({
-        "email": new_email,
-        "updated_at": now_ist().isoformat(),
-    }).eq("id", account_id).execute()
+    try:
+        await _atable("student_accounts").update({
+            "email": new_email,
+            "updated_at": now_ist().isoformat(),
+        }).eq("id", account_id).execute()
+    except Exception as exc:
+        # A concurrent signup/change could have claimed new_email between the
+        # pre-check above and this write; the DB unique constraint
+        # (student_accounts_email_unique) is the real arbiter. Surface that
+        # race as a clean 409 rather than a 500.
+        err_lower = str(exc).lower()
+        if "duplicate key" in err_lower or "unique constraint" in err_lower or "already exists" in err_lower:
+            raise HTTPException(status_code=409, detail="That email is already in use")
+        raise
     await _atable("students").update({"email": new_email}).eq("account_id", account_id).execute()
     if old_email:
         await _atable("students").update({"email": new_email}).eq("email", old_email).execute()

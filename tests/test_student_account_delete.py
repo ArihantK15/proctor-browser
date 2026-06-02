@@ -133,6 +133,32 @@ def test_student_delete_confirm_anonymises_evidence_and_deletes_account(client, 
     assert ("consent_records", {"user_id": "student-1"}) in db.deletes
 
 
+def test_student_delete_masks_email_in_auth_events(client, student_headers):
+    """The retained auth_events 'account_deleted' row must store a masked
+    email, never the raw PII the erasure just scrubbed (M2 parity with the
+    SAR teacher path)."""
+    account = {"id": "student-1", "email": "student@example.com", "full_name": "Student"}
+    db = _Db()
+    teacher = {"id": "teacher-1", "email": "teacher@example.com", "full_name": "Teacher"}
+    rec = AsyncMock()
+    with patch("app.routers.auth.require_student_account", new=AsyncMock(return_value=account)), \
+         patch("app.services.email_otp.verify", new=AsyncMock(return_value=True)), \
+         patch("app.routers.auth._atable", db.table), \
+         patch("app.routers.auth._get_teacher_by_id", new=AsyncMock(return_value=teacher)), \
+         patch("app.routers.auth.record_auth_event", new=rec):
+        resp = client.post("/api/v1/student/account/delete-confirm", headers=student_headers, json={
+            "otp_code": "123456",
+        })
+
+    assert resp.status_code == 200
+    rec.assert_awaited()
+    # record_auth_event(event, request, user_kind, user_id, email, meta)
+    logged_email = rec.await_args.args[4]
+    assert logged_email == "s***@example.com"
+    assert "student@example.com" != logged_email
+    assert "student" not in logged_email.split("@")[0].replace("s***", "")
+
+
 def test_account_delete_otp_cannot_be_reused_for_email_change(client, student_headers):
     account = {"id": "student-1", "email": "student@example.com", "full_name": "Student"}
     db = _Db()
@@ -145,4 +171,8 @@ def test_account_delete_otp_cannot_be_reused_for_email_change(client, student_he
         })
 
     assert resp.status_code == 403
-    verify_mock.assert_awaited_once_with("student", "student-1", "email_change", "123456")
+    # F2: the email-change OTP is bound to the target address via the
+    # purpose-tag, so a code can never be replayed against a different
+    # new_email. An account_delete code therefore can't satisfy this verify.
+    verify_mock.assert_awaited_once_with(
+        "student", "student-1", "email_change:new@example.com", "123456")

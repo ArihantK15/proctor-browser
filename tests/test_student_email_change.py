@@ -66,7 +66,7 @@ def test_student_email_change_request_requires_reauth_and_sends_code(client):
     assert resp.status_code == 200
     assert resp.json()["sent"] is True
     reauth_mock.assert_called_once()
-    issue_mock.assert_awaited_once_with("student", "student-1", "email_change")
+    issue_mock.assert_awaited_once_with("student", "student-1", "email_change:new@example.com")
 
 
 def test_student_email_change_confirm_updates_account_and_roster(client):
@@ -82,7 +82,7 @@ def test_student_email_change_confirm_updates_account_and_roster(client):
 
     assert resp.status_code == 200
     assert resp.json()["email"] == "new@example.com"
-    verify_mock.assert_awaited_once_with("student", "student-1", "email_change", "123456")
+    verify_mock.assert_awaited_once_with("student", "student-1", "email_change:new@example.com", "123456")
     assert ("student_accounts", {"email": "new@example.com", "updated_at": db.updates[0][1]["updated_at"]}, {"id": "student-1"}) in db.updates
     assert ("students", {"email": "new@example.com"}, {"account_id": "student-1"}) in db.updates
     assert ("students", {"email": "new@example.com"}, {"email": "old@example.com"}) in db.updates

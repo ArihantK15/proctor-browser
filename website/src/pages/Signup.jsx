@@ -183,7 +183,7 @@ export default function Signup() {
             </Link>
             <h1 className="text-2xl font-bold text-white font-display">Start Your Free Trial</h1>
             <p className="mt-2 text-sm text-slate-400">
-              7 days free on Starter plan. No credit card required. Full access, no limits.
+              14 days free on Starter plan. No credit card required. Full access, no limits.
             </p>
           </div>
 

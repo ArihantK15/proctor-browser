@@ -120,6 +120,7 @@ async def lifespan(_app) -> AsyncIterator[None]:
     _reminder_task = None
     _room_frame_cleanup_task = None
     _reaper_task = None
+    _ttl_sweeper_task = None
 
     if os.environ.get("REMINDER_LOOP_DISABLED", "") == "1":
         print(f"[startup] reminders loop disabled by env ({worker_name})", flush=True)
@@ -152,6 +153,16 @@ async def lifespan(_app) -> AsyncIterator[None]:
         )
         print(f"[startup] heartbeat reaper started ({worker_name})", flush=True)
 
+    if is_leader and os.environ.get("TTL_SWEEPER_DISABLED", "") != "1":
+        from .services.ttl_sweeper import ttl_sweeper_loop
+        _ttl_sweeper_task = asyncio.create_task(ttl_sweeper_loop())
+        _ttl_sweeper_task.add_done_callback(
+            lambda t: print(f"[startup] ttl sweeper ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
+        print(f"[startup] ttl sweeper started ({worker_name})", flush=True)
+
     yield  # ── APP RUNNING ────────────────────────────────────────
 
     # ── SHUTDOWN ──────────────────────────────────────────────────
@@ -164,12 +175,15 @@ async def lifespan(_app) -> AsyncIterator[None]:
     if _reaper_task is not None and not _reaper_task.done():
         _reaper_task.cancel()
         log.info("[shutdown] Cancelled heartbeat reaper task")
+    if _ttl_sweeper_task is not None and not _ttl_sweeper_task.done():
+        _ttl_sweeper_task.cancel()
+        log.info("[shutdown] Cancelled ttl sweeper task")
     if _reminder_task is not None and not _reminder_task.done():
         _reminder_task.cancel()
         log.info("[shutdown] Cancelled reminder task")
 
     # Await cancelled tasks so they can run finally blocks
-    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _reminder_task]
+    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task]
     for t in cancelled_tasks:
         if t is not None:
             try:
@@ -181,7 +195,7 @@ async def lifespan(_app) -> AsyncIterator[None]:
     # (catches renamed/renamed-coroutine edge cases)
     for t in asyncio.all_tasks():
         name = getattr(t, "get_name", lambda: "")()
-        if "reminder" in name.lower() or "reaper" in name.lower() or "cleanup" in name.lower():
+        if "reminder" in name.lower() or "reaper" in name.lower() or "cleanup" in name.lower() or "sweeper" in name.lower():
             if not t.done():
                 t.cancel()
                 try:

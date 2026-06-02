@@ -306,31 +306,40 @@ async def _verify_and_rotate_refresh_token(
         # Either never issued (forged jti) or pruned. Reject.
         raise HTTPException(status_code=401, detail="Refresh token not recognised")
     rec = row.data[0]
-    if rec.get("revoked_at"):
-        # Replay attempt — the token was previously used and rotated.
-        # A replay means the refresh-token family may be compromised:
-        # revoke active descendants and access sessions for this user.
-        now_iso = now_ist().isoformat()
-        await _revoke_refresh_tokens_for_user(user_id, expected_kind)
-        session_kind = "teacher" if expected_kind == "teacher" else "student"
-        await _atable("auth_sessions").update({"revoked_at": now_iso})\
-            .eq("user_id", str(user_id)).eq("user_kind", session_kind)\
-            .is_("revoked_at", "null").execute()
-        raise HTTPException(status_code=401, detail="Refresh token has been revoked")
     if str(rec.get("user_id")) != str(user_id) or rec.get("kind") != expected_kind:
         # Claim/DB mismatch — should not happen unless someone is
         # tampering. Reject without leaking which check failed.
         raise HTTPException(status_code=401, detail="Refresh token invalid")
+    if rec.get("revoked_at"):
+        # Replay attempt — token was previously rotated. Compromise the
+        # whole refresh family + access sessions for this user.
+        # _revoke_auth_sessions_for_user handles the teacher→teacher /
+        # student→student_account user_kind mapping; calling the inline
+        # UPDATE with user_kind='student' would have matched 0 rows and
+        # silently failed to revoke active access tokens for students.
+        await _revoke_refresh_tokens_for_user(user_id, expected_kind)
+        await _revoke_auth_sessions_for_user(str(user_id), expected_kind)
+        raise HTTPException(status_code=401, detail="Refresh token has been revoked")
 
-    # Mint replacement, then revoke the old token with a pointer to the
-    # successor. This preserves the rotation chain for audit/replay
-    # investigation; the new token row itself has no replacement yet.
+    # Mint the replacement first so we have its jti for the rotation
+    # pointer, then perform a CAS-style UPDATE: only revoke the old
+    # row if it's still NOT revoked. If someone else rotated in the
+    # gap between our SELECT and this UPDATE, the rowcount is 0 — we
+    # treat that as a replay and burn the family the same way as the
+    # explicit replay branch above. Closes the TOCTOU window where
+    # two parallel refresh calls with the same token could both
+    # succeed and mint two children off one parent.
     now_iso = now_ist().isoformat()
     new_token, new_jti, new_exp = issue_refresh_token(user_id, expected_kind)
-    await _atable("refresh_tokens").update({
+    rotate_result = await _atable("refresh_tokens").update({
         "revoked_at": now_iso,
         "replaced_by_jti": new_jti,
-    }).eq("jti", jti).execute()
+    }).eq("jti", jti).is_("revoked_at", "null").execute()
+    if not (rotate_result.data or []):
+        # Concurrent rotation — same shape as replay. Burn the family.
+        await _revoke_refresh_tokens_for_user(user_id, expected_kind)
+        await _revoke_auth_sessions_for_user(str(user_id), expected_kind)
+        raise HTTPException(status_code=401, detail="Refresh token has been revoked")
 
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "")[:500]

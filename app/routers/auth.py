@@ -667,6 +667,23 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         if not teacher:
             raise HTTPException(status_code=403, detail="Teacher account not found. Please sign up first.")
 
+    # Block terminal account states even when credentials are valid.
+    # phase62 reserved 'suspended' for admin-disable; 'deleted' is set
+    # by the privacy/SAR erasure flow alongside an email anonymisation
+    # (so 'deleted' is rarely reachable from this path, but if the
+    # anonymisation step failed we still bounce). Generic 401 keeps
+    # the response indistinguishable from a wrong-password attempt —
+    # we don't want to confirm to an attacker that an email is known
+    # but just suspended. Failures intentionally NOT cleared so a
+    # suspended user can't burn down their own lockout counter.
+    status = (teacher.get("status") or "").lower()
+    if status in ("suspended", "deleted"):
+        await record_auth_event(
+            "login_failed", request, "teacher", str(teacher.get("id", "")), email,
+            {"reason": f"account_{status}"},
+        )
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
     await clear_failures("teacher", email)
 
     # Email verification check — auto-verify existing accounts (pre-feature)
@@ -846,6 +863,21 @@ async def teacher_refresh(request: Request, body: RefreshIn | None = None):
     teacher = await _get_teacher_by_id(teacher_id)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
+    # Mirror the login-time terminal-status block so an already-logged-in
+    # user whose account got suspended/deleted after their session
+    # started can't extend their access via refresh. Revoke the active
+    # refresh + auth_sessions for them so the bad token is dead going
+    # forward, then 401 the current call. Without this, a suspended
+    # teacher could keep refreshing for as long as their refresh rotates
+    # within its TTL.
+    status = (teacher.get("status") or "").lower()
+    if status in ("suspended", "deleted"):
+        try:
+            await _revoke_refresh_tokens_for_user(teacher_id, "teacher")
+            await _revoke_auth_sessions_for_user(teacher_id, "teacher")
+        except Exception:
+            _auth_log.warning("[Refresh] session revoke on suspended/deleted account failed", exc_info=True)
+        raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
     access_token = issue_admin_token(teacher)
     response = JSONResponse({
         "access_token": access_token,

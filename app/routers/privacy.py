@@ -117,7 +117,52 @@ async def record_consent(body: ConsentIn, request: Request):
 # ── Data export ───────────────────────────────────────────────────
 
 
-async def _safe_fetch(table: str, *, eq: dict | None = None, columns: str = "*") -> list[dict]:
+# Hard cap on rows pulled per table during export. Without this, an
+# org with months of exam history could OOM the api container or hit
+# asyncpg's statement timeout. 25k rows × 10 tables comfortably fits
+# in memory and JSON-serialises in <2s; covers the largest production
+# org. Truncation is surfaced to the user via the _truncated marker
+# inserted alongside the table.
+_EXPORT_ROW_CAP = 25000
+
+
+# Credential / secret columns that must NEVER appear in a data export.
+# A profile row is loaded with select("*"), so without this filter a
+# password hash or TOTP seed would ship to the requester (and, via the
+# operator SAR export, to staff for ANY user). Matched case-insensitively
+# by exact name or by the *_hash / *_secret / *_token suffix.
+_PROFILE_SECRET_KEYS = frozenset({
+    "password", "password_hash", "totp_secret", "totp_secret_temp",
+    "password_reset_token", "password_reset_expires",
+    "email_verify_token", "email_verification_token", "refresh_token",
+    "api_key", "secret",
+})
+
+
+def _redact_profile(row: dict | None) -> dict | None:
+    """Strip credential/secret columns from a profile row before export.
+
+    Defends both the self-service `/export` and the operator-run SAR
+    export — neither should ever return a password hash, TOTP seed, or
+    reset token to the requester.
+    """
+    if not isinstance(row, dict):
+        return row
+    out = dict(row)
+    for k in list(out.keys()):
+        kl = k.lower()
+        if kl in _PROFILE_SECRET_KEYS or kl.endswith(("_hash", "_secret", "_token")):
+            out.pop(k, None)
+    return out
+
+
+async def _safe_fetch(
+    table: str,
+    *,
+    eq: dict | None = None,
+    columns: str = "*",
+    limit: int = _EXPORT_ROW_CAP,
+) -> list[dict]:
     """Best-effort SELECT — returns [] on error rather than failing the
     whole export. A missing column on one table shouldn't deny the
     user their other data.
@@ -126,11 +171,26 @@ async def _safe_fetch(table: str, *, eq: dict | None = None, columns: str = "*")
         q = _atable(table).select(columns)
         for k, v in (eq or {}).items():
             q = q.eq(k, v)
-        result = await q.execute()
-        return result.data or []
+        # Pull `limit + 1` so the caller can detect "more rows existed"
+        # without a separate count query.
+        result = await q.limit(limit + 1).execute()
+        rows = result.data or []
+        return rows
     except Exception as e:
         _log.warning("[privacy.export] %s lookup failed: %s", table, e)
         return []
+
+
+def _maybe_truncate(rows: list[dict], cap: int = _EXPORT_ROW_CAP) -> tuple[list[dict], bool]:
+    """If _safe_fetch hit the +1 sentinel, trim back to `cap` and flag.
+
+    Returns (visible_rows, was_truncated). Caller writes both back into
+    the export so the user knows the data they're seeing isn't the
+    complete set and they should contact support for a fuller dump.
+    """
+    if len(rows) > cap:
+        return rows[:cap], True
+    return rows, False
 
 
 @router.get("/export")
@@ -151,10 +211,19 @@ async def export_data(request: Request):
         "user_id": user_id,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "format_version": 2,
+        # Lists any table that hit _EXPORT_ROW_CAP; populated below.
+        "_truncated_tables": [],
     }
 
+    def _add(key: str, rows: list[dict]) -> None:
+        """Insert rows into the export, flagging truncation when hit."""
+        visible, truncated = _maybe_truncate(rows)
+        data[key] = visible
+        if truncated:
+            data["_truncated_tables"].append(key)
+
     if user_type == "teacher":
-        data["profile"] = profile  # already loaded by _resolve_caller
+        data["profile"] = _redact_profile(profile)  # strip credential cols
 
         # Organization + org members visible to this teacher
         oid = profile.get("org_id")
@@ -165,73 +234,78 @@ async def export_data(request: Request):
                 columns="id,name,slug,max_students,created_at",
             )
             data["organization"] = org_rows[0] if org_rows else None
-            data["subscriptions"] = await _safe_fetch("subscriptions", eq={"org_id": oid})
+            _add("subscriptions", await _safe_fetch("subscriptions", eq={"org_id": oid}))
 
         # Tenant data this teacher owns
-        data["exams"] = await _safe_fetch(
+        _add("exams", await _safe_fetch(
             "exam_config",
             eq={"teacher_id": user_id},
             columns="exam_id,exam_title,exam_status,starts_at,ends_at,duration_minutes,access_code,created_at",
-        )
-        data["questions"] = await _safe_fetch("questions", eq={"teacher_id": user_id})
-        data["students"] = await _safe_fetch("students", eq={"teacher_id": user_id})
-        data["student_groups"] = await _safe_fetch("student_groups", eq={"teacher_id": user_id})
-        data["exam_templates"] = await _safe_fetch(
+        ))
+        _add("questions", await _safe_fetch("questions", eq={"teacher_id": user_id}))
+        _add("students", await _safe_fetch("students", eq={"teacher_id": user_id}))
+        _add("student_groups", await _safe_fetch("student_groups", eq={"teacher_id": user_id}))
+        _add("exam_templates", await _safe_fetch(
             "exam_templates",
             eq={"teacher_id": user_id},
             columns="id,template_name,exam_title,duration_minutes,created_at",
-        )
-        data["exam_sessions"] = await _safe_fetch("exam_sessions", eq={"teacher_id": user_id})
-        data["violations"] = await _safe_fetch("violations", eq={"teacher_id": user_id})
-        data["answers"] = await _safe_fetch("answers", eq={"teacher_id": user_id})
-        data["student_invites"] = await _safe_fetch(
+        ))
+        _add("exam_sessions", await _safe_fetch("exam_sessions", eq={"teacher_id": user_id}))
+        _add("violations", await _safe_fetch("violations", eq={"teacher_id": user_id}))
+        _add("answers", await _safe_fetch("answers", eq={"teacher_id": user_id}))
+        _add("student_invites", await _safe_fetch(
             "student_invites",
             eq={"teacher_id": user_id},
             columns="id,email,full_name,roll_number,exam_id,status,sent_at,clicked_at,accepted_at,created_at",
-        )
+        ))
         # API keys — hashes redacted; user gets metadata only
-        data["api_keys"] = await _safe_fetch(
+        _add("api_keys", await _safe_fetch(
             "api_keys",
             eq={"teacher_id": user_id},
             columns="id,name,key_prefix,is_active,created_at,last_used_at",
-        )
-        data["grading_audit"] = await _safe_fetch("grading_audit", eq={"teacher_id": user_id})
-        data["admin_audit_log"] = await _safe_fetch("admin_audit_log", eq={"teacher_id": user_id})
+        ))
+        _add("grading_audit", await _safe_fetch("grading_audit", eq={"teacher_id": user_id}))
+        _add("admin_audit_log", await _safe_fetch("admin_audit_log", eq={"teacher_id": user_id}))
 
     elif user_type == "student":
-        data["profile"] = profile
-        data["enrollments"] = await _safe_fetch("students", eq={"account_id": user_id})
+        data["profile"] = _redact_profile(profile)  # strip credential cols
+        _add("enrollments", await _safe_fetch("students", eq={"account_id": user_id}))
         # Sessions linked by student_id (current scheme) — older rows
         # may be linked by roll_number only, picked up via enrollments.
-        data["exam_sessions"] = await _safe_fetch("exam_sessions", eq={"student_id": user_id})
+        _add("exam_sessions", await _safe_fetch("exam_sessions", eq={"student_id": user_id}))
         # Their appeals (filed by this student)
-        data["appeals"] = await _safe_fetch("appeals", eq={"student_id": user_id})
-        # Sessions discovered, plus their answers + violations
+        _add("appeals", await _safe_fetch("appeals", eq={"student_id": user_id}))
+        # Sessions discovered, plus their answers + violations.
         session_keys: list[str] = [
             s["session_key"] for s in data["exam_sessions"]
             if s.get("session_key")
         ]
         if session_keys:
             # answer + violation pulls are session-scoped, so we run one
-            # query per session_key. Not amazing for huge histories but
-            # an export request is rare + asynchronous from a user POV.
+            # query per session_key. Cap at 500 sessions and flag if
+            # the user has more — going past that on a synchronous
+            # export risks timeout regardless of memory.
+            SESSION_CAP = 500
+            if len(session_keys) > SESSION_CAP:
+                data["_truncated_tables"].append("answers")
+                data["_truncated_tables"].append("violations")
             answers: list[dict] = []
             violations: list[dict] = []
-            for sk in session_keys[:200]:  # cap to avoid pathological cases
+            for sk in session_keys[:SESSION_CAP]:
                 answers.extend(await _safe_fetch("answers", eq={"session_key": sk}))
                 violations.extend(await _safe_fetch("violations", eq={"session_key": sk}))
             data["answers"] = answers
             data["violations"] = violations
 
     # Both roles: consent + auth-event trail
-    data["consent_records"] = await _safe_fetch(
+    _add("consent_records", await _safe_fetch(
         "consent_records", eq={"user_id": user_id}
-    )
-    data["auth_events"] = await _safe_fetch(
+    ))
+    _add("auth_events", await _safe_fetch(
         "auth_events",
         eq={"user_id": user_id},
         columns="event_type,ip,user_agent,meta,created_at",
-    )
+    ))
 
     await _record_privacy_event(
         request, user_type, user_id, "data_exported",

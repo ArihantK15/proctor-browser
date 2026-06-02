@@ -25,8 +25,14 @@ Endpoints:
                                   user emails support without being
                                   able to log in)
 """
-from __future__ import annotations
-
+# NOTE: deliberately NO `from __future__ import annotations`. slowapi's
+# @limiter.limit wraps each handler with functools.wraps, and FastAPI
+# resolves string annotations against the WRAPPER's __globals__ (slowapi's
+# module), where SARDeleteIn/SARExportIn don't exist. Stringized
+# annotations would therefore fail to resolve to the body model and
+# FastAPI would treat `body` as a query param (every call → 422). Keeping
+# annotations as real objects (Python 3.10+ native `str | None`) avoids
+# this. See the audit note in the commit that added this comment.
 import json
 import logging
 from datetime import datetime, timezone
@@ -36,10 +42,25 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import require_admin
+from ..constants import SUPER_ADMIN_EMAIL
 from ..database import async_table as _atable
 from ..limiter import limiter
 
 _log = logging.getLogger("admin.sar")
+
+
+def _mask_email(email: str | None) -> str | None:
+    """Reduce an email to a non-identifying audit token (a***@domain).
+
+    Used when writing the post-erasure auth_events row: persisting the
+    deleted subject's full address into a retained audit table would
+    re-introduce the PII we just erased. The masked form preserves
+    enough to correlate without storing the identifier.
+    """
+    if not email or "@" not in email:
+        return None
+    local, _, domain = email.partition("@")
+    return f"{(local[:1] or '')}***@{domain}"
 
 router = APIRouter(prefix="/api/v1/admin/sar", tags=["admin", "sar"])
 
@@ -62,13 +83,20 @@ class SARExportIn(BaseModel):
 
 
 async def _require_superadmin(request: Request) -> dict:
-    """Reject anyone who isn't org_role='superadmin'.
+    """Reject anyone who isn't the platform owner.
 
-    require_admin already enforces an authenticated teacher session;
-    we layer the role check on top.
+    require_admin enforces an authenticated teacher session; we then
+    verify the caller is the env-pinned SUPER_ADMIN_EMAIL directly,
+    rather than trusting the in-memory `org_role` string. SAR resolves
+    targets across ALL orgs with no tenant scoping, so the gate must
+    not be satisfiable by a DB-stored role — otherwise a future code
+    path that persisted org_role='superadmin' for an org admin would
+    silently grant them cross-tenant erase/export. The env pin is the
+    only authority that can never be set by an org-side write.
     """
     teacher = await require_admin(request)
-    if (teacher.get("org_role") or "") != "superadmin":
+    caller_email = str(teacher.get("email", "")).strip().lower()
+    if not (SUPER_ADMIN_EMAIL and caller_email == SUPER_ADMIN_EMAIL):
         raise HTTPException(
             status_code=403,
             detail="Superadmin role required for SAR operations",
@@ -123,7 +151,8 @@ async def _revoke_target_sessions(user_type: str, user_id: str) -> list[str]:
 async def sar_delete(body: SARDeleteIn, request: Request):
     """Erase a target user's account on their behalf.
 
-    Authorization: org_role='superadmin'. Required body fields include
+    Authorization: the env-pinned platform owner (SUPER_ADMIN_EMAIL)
+    only — see _require_superadmin. Required body fields include
     a free-text `reason` (≥20 chars) so the audit row carries
     forensic context — *why* this erasure happened outside the
     self-service flow. Optional `ticket_id` links to an external
@@ -132,10 +161,32 @@ async def sar_delete(body: SARDeleteIn, request: Request):
     operator = await _require_superadmin(request)
     target = await _resolve_target(body.target_user_type, body.target_user_id, body.target_email)
     target_id = str(target["id"])
+    operator_id = str(operator["id"])
 
     errors: list[str] = []
     anon_local = f"deleted_user_{target_id[:8]}"
     anon_email = f"{anon_local}@deleted.procta.net"
+
+    # 0. Record intent BEFORE touching anything. If the process dies
+    # mid-erasure we still have a forensic record that the operation
+    # was attempted (and by whom). The completion row below updates the
+    # final status; this one proves the attempt regardless of outcome.
+    try:
+        from ..services.admin_audit import log_admin_action
+        await log_admin_action(
+            teacher_id=operator_id,
+            action="sar_delete_started",
+            target_type=body.target_user_type,
+            target_id=target_id,
+            details={
+                "reason": body.reason,
+                "ticket_id": body.ticket_id,
+                "target_email": target.get("email"),
+            },
+            request=request,
+        )
+    except Exception:
+        _log.exception("[sar.delete] pre-op admin_audit_log write failed")
 
     # 1. Kill auth first.
     errors.extend(await _revoke_target_sessions(body.target_user_type, target_id))
@@ -195,7 +246,6 @@ async def sar_delete(body: SARDeleteIn, request: Request):
 
     # 3. Audit both ways — admin_audit_log captures the operator's
     # action; auth_events captures the impact on the target user.
-    operator_id = str(operator["id"])
     try:
         from ..services.admin_audit import log_admin_action
         await log_admin_action(
@@ -221,7 +271,9 @@ async def sar_delete(body: SARDeleteIn, request: Request):
         await _atable("auth_events").insert({
             "user_kind": "teacher" if body.target_user_type == "teacher" else "student_account",
             "user_id": target_id,
-            "email": target.get("email"),
+            # Masked — this row is retained; storing the full address
+            # would re-persist the PII the erasure just removed.
+            "email": _mask_email(target.get("email")),
             "event_type": "account_deleted_by_admin",
             "ip": ip,
             "user_agent": ua,
@@ -264,7 +316,7 @@ async def sar_export(body: SARExportIn, request: Request):
     # require_student_account, which we can't satisfy without a real
     # session. Easier: reimplement the export shape inline. Same
     # tables, but parameterised on target_id.
-    from .privacy import _safe_fetch
+    from .privacy import _safe_fetch, _redact_profile
 
     data: dict[str, Any] = {
         "user_type": body.target_user_type,
@@ -276,7 +328,7 @@ async def sar_export(body: SARExportIn, request: Request):
     }
 
     if body.target_user_type == "teacher":
-        data["profile"] = target
+        data["profile"] = _redact_profile(target)
         oid = target.get("org_id")
         if oid:
             org_rows = await _safe_fetch(
@@ -300,10 +352,29 @@ async def sar_export(body: SARExportIn, request: Request):
         data["grading_audit"] = await _safe_fetch("grading_audit", eq={"teacher_id": target_id})
         data["admin_audit_log"] = await _safe_fetch("admin_audit_log", eq={"teacher_id": target_id})
     else:  # student
-        data["profile"] = target
+        data["profile"] = _redact_profile(target)
         data["enrollments"] = await _safe_fetch("students", eq={"account_id": target_id})
         data["exam_sessions"] = await _safe_fetch("exam_sessions", eq={"student_id": target_id})
         data["appeals"] = await _safe_fetch("appeals", eq={"student_id": target_id})
+        # Walk each session for its answers + violations so the operator
+        # dump is at least as complete as the self-service /privacy/export
+        # (which a SAR exists precisely to substitute for). Capped to bound
+        # a synchronous export.
+        session_keys = [
+            s["session_key"] for s in (data["exam_sessions"] or [])
+            if s.get("session_key")
+        ]
+        SESSION_CAP = 500
+        data["_truncated_tables"] = []
+        if len(session_keys) > SESSION_CAP:
+            data["_truncated_tables"].extend(["answers", "violations"])
+        answers: list[dict] = []
+        violations: list[dict] = []
+        for sk in session_keys[:SESSION_CAP]:
+            answers.extend(await _safe_fetch("answers", eq={"session_key": sk}))
+            violations.extend(await _safe_fetch("violations", eq={"session_key": sk}))
+        data["answers"] = answers
+        data["violations"] = violations
 
     data["consent_records"] = await _safe_fetch("consent_records", eq={"user_id": target_id})
     data["auth_events"] = await _safe_fetch(

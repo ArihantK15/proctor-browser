@@ -112,15 +112,19 @@ if SENTRY_DSN:
             if "?" in (req.get("url") or ""):
                 base, qs = req["url"].split("?", 1)
                 req["url"] = base + "?" + _SENTRY_REDACT_QS_RE.sub(r"\1[REDACTED]", qs)
-            # Request body — dict gets keys redacted; string we replace
-            # wholesale since we can't reliably tokenise it.
+            # Request body — dict gets keys redacted; a string body is
+            # parsed as JSON and scrubbed key-wise when possible, else
+            # redacted wholesale if it looks like it carries PII.
             body = req.get("data")
             if isinstance(body, (dict, list)):
                 _scrub_dict(body)
-            elif isinstance(body, str) and any(
-                k + "=" in body.lower() for k in _SENTRY_REDACT_KEYS
-            ):
-                req["data"] = "[REDACTED — contained PII]"
+            elif isinstance(body, str):
+                try:
+                    req["data"] = _scrub_dict(json.loads(body))
+                except (ValueError, TypeError):
+                    low = body.lower()
+                    if any(k in low for k in _SENTRY_REDACT_KEYS):
+                        req["data"] = "[REDACTED — contained PII]"
             # Exception value strings can leak too (e.g. a ValueError
             # echoing back an OTP). Best effort scrub on the message.
             for exc in (event.get("exception") or {}).get("values") or []:

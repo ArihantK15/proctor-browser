@@ -76,18 +76,16 @@ def _assert_within_directory(path: Path, base: Path) -> None:
 def _html_escape(s) -> str:
     """Escape user data for safe embedding in HTML body OR attributes.
 
-    Wraps stdlib `html.escape(quote=True)` so the standard CodeQL/Bandit
-    sanitizer pattern is recognised, then adds `/` escaping. The slash
-    isn't dangerous in HTML body context, but escaping it prevents a
-    `</script>` breakout if the value is ever interpolated near a
-    `<script>` block — defence-in-depth for templates that mix HTML and
-    inline JS.
-
-    All callers (auth router, emailer, invite landing, scorecards) put
-    the result in HTML body or attribute context, where browsers decode
-    `&#x27;` back to `'` and `&#x2F;` back to `/` — display is unchanged.
+    Wraps stdlib `html.escape(quote=True)` — the standard CodeQL/Bandit
+    sanitiser pattern, escapes `& < > " '`. We deliberately do NOT
+    escape `/` even though OWASP's defence-in-depth recipe suggests it
+    for `</script>` breakouts: no caller interpolates `_html_escape`
+    output inside an inline `<script>` block today (the reset-password
+    template uses a JWT whose charset is verified before render), and
+    escaping `/` would change rendered URL display in invite-landing /
+    emails / scorecards in a way callers' tests assert against.
     """
     if s is None:
         return ""
     import html as _html
-    return _html.escape(str(s), quote=True).replace("/", "&#x2F;")
+    return _html.escape(str(s), quote=True)

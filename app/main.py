@@ -426,12 +426,34 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: blob: https://*.razorpay.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "connect-src 'self' https://challenges.cloudflare.com https://*.razorpay.com; "
+            "connect-src 'self' https://challenges.cloudflare.com https://*.razorpay.com https://*.ingest.de.sentry.io https://*.ingest.sentry.io; "
             "media-src 'self' data:; "
             "frame-src https://challenges.cloudflare.com https://*.razorpay.com; "
-            "frame-ancestors 'none'"
+            "frame-ancestors 'none'; "
+            # upgrade-insecure-requests: if any subresource is loaded
+            # over http://, the browser auto-upgrades it to https://
+            # rather than blocking. Catches accidental http:// urls in
+            # rendered HTML or third-party scripts.
+            "upgrade-insecure-requests"
         )
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # HSTS — added `preload` so we can submit to hstspreload.org and
+        # get the domain hard-coded into browsers. Combined with
+        # includeSubDomains this is the strictest TLS posture available.
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+        # Cross-Origin-Opener-Policy: prevents a same-origin window
+        # opened from procta from being able to script back into us
+        # (and prevents Spectre-style cross-origin leaks). same-origin
+        # is the strictest setting that still allows our own popups.
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        # Cross-Origin-Resource-Policy: only same-site origins can
+        # embed our resources. same-site (not same-origin) lets the
+        # marketing site at procta.net link to assets on
+        # app.procta.net without breaking — both share the eTLD+1.
+        response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+        # X-Permitted-Cross-Domain-Policies: legacy Flash/PDF defense.
+        # Tells Adobe-era plugins to ignore any crossdomain.xml on the
+        # origin. Cheap header; zero downside.
+        response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
         # Per-route Permissions-Policy: deny camera + mic by default,
         # but allow `self` on the specific HTML pages that need
         # getUserMedia(). Without this carve-out the global camera=()

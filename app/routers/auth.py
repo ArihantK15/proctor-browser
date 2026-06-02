@@ -1297,15 +1297,18 @@ async def student_signup(body: StudentSignupIn, request: Request):
                 _auth_log.critical("[StudentSignup] Failed to rollback Auth user %s: %s", supabase_uid, rollback_err)
         raise HTTPException(status_code=500, detail="Failed to create student record")
 
-    # Auto-link any existing enrollments by matching email (case-insensitive).
-    try:
-        await _atable("students")\
-            .update({"account_id": account["id"]})\
-            .eq("email", email)\
-            .is_("account_id", "null")\
-            .execute()
-    except Exception as e:
-        _auth_log.warning("[StudentSignup] Auto-link warning: %s", e)
+    # NOTE: auto-link of pre-existing students rows used to run here, but
+    # that opened a confused-deputy account hijack:
+    #   1. Attacker signs up with victim@example.com (CAPTCHA + valid pw).
+    #   2. Pre-enrolled students rows for victim@example.com get
+    #      account_id pointed at the attacker's freshly-minted account.
+    #   3. Verification email lands in the victim's inbox; victim clicks
+    #      or supplies the OTP thinking it's their own signup.
+    #   4. Attacker logs in (they know their own password) and now has
+    #      access to the victim's pre-enrollments.
+    # The fix is to defer auto-linking until email ownership is proven
+    # via OTP / verify-email. See _auto_link_student_enrollments() and
+    # the call sites in student_verify_signup_otp + verify_email.
 
     _auth_log.info("[StudentSignup] %s <%s> created", safe(name), safe(email))
     try:
@@ -1966,6 +1969,15 @@ async def verify_email(request: Request, token: str = ""):
 
     await _atable(table).update({"email_verified_at": now_ist().isoformat()}).eq("id", user_id).execute()
 
+    # Mirror the OTP-verify path: link pre-existing students rows AFTER
+    # ownership is proven. resend-verification can issue email-link
+    # tokens for student_accounts (auth.py:2043), so the same hijack
+    # vector applies on this code path too.
+    if kind == "student_account":
+        await _auto_link_student_enrollments(
+            str(user_id), str(claims.get("email") or "").strip().lower(),
+        )
+
     if kind == "teacher":
         email = str(claims.get("email") or "").strip().lower()
         pending = await (
@@ -2496,6 +2508,28 @@ async def _track_a_issue_signup_otp(account: dict, email: str | None = None) -> 
     send_2fa_otp_email(to_email, account.get("full_name") or "", code, purpose="signup")
 
 
+async def _auto_link_student_enrollments(account_id: str, email: str) -> None:
+    """Link pre-existing students rows whose email matches this account.
+
+    Called ONLY from verified-ownership paths (verify-signup-otp,
+    verify-email). The student_signup endpoint used to call this
+    immediately, which let an attacker who knew a victim's email seize
+    the victim's pre-enrollments by signing up first — verification
+    later by a confused victim then validated the takeover. Doing the
+    link only after ownership is proven removes that path.
+    """
+    if not (account_id and email):
+        return
+    try:
+        await _atable("students")\
+            .update({"account_id": account_id})\
+            .eq("email", email)\
+            .is_("account_id", "null")\
+            .execute()
+    except Exception as e:
+        _auth_log.warning("[Verify] auto-link warning for %s: %s", safe(email), e)
+
+
 @router.post("/api/v1/student/auth/verify-signup-otp")
 @limiter.limit("10/hour")
 async def student_verify_signup_otp(body: dict, request: Request):
@@ -2516,6 +2550,9 @@ async def student_verify_signup_otp(body: dict, request: Request):
     await _atable("student_accounts").update({
         "email_verified_at": now_ist().isoformat(),
     }).eq("id", str(account["id"])).execute()
+    # Auto-link AFTER verification — see _auto_link_student_enrollments
+    # docstring for the hijack vector this defers against.
+    await _auto_link_student_enrollments(str(account["id"]), email)
     await record_auth_event("email_verified", request, "student_account", str(account["id"]), email, {"method": "otp"})
     return {"ok": True}
 

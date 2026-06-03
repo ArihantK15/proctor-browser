@@ -204,9 +204,16 @@ function launchSmoke(app) {
     }, 4000);
     child.on('error', (e) => { clearTimeout(timer); warn(app, `launch smoke inconclusive (spawn error: ${e.message})`); done(); });
     child.on('exit', (code, signal) => {
+      // If the survival timer already fired, IT killed the process with
+      // SIGKILL and already recorded success — this exit IS our own kill,
+      // not the kernel's. Ignore it. (The previous version had no `settled`
+      // guard here, so it misread its own SIGKILL as a code-signature
+      // rejection — a timing-dependent false failure that passed locally
+      // but blocked the CI release of a perfectly-signed arm64 build.)
+      if (settled) return;
       clearTimeout(timer);
-      // We only kill it ourselves AFTER the timer fires (handled above). An
-      // early SIGKILL here is the kernel rejecting the signature.
+      // A SIGKILL that lands BEFORE the timer is the kernel rejecting the
+      // signature at page-in (the 2.3.9 failure mode).
       if (signal === 'SIGKILL') fail(app, 'launch smoke: process SIGKILL\'d at startup — code-signature rejected (the 2.3.9 failure)');
       else ok(app, `launch smoke: exited early without code-signing kill (code=${code}, signal=${signal})`);
       done();

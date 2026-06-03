@@ -119,8 +119,13 @@ jobs:
           # latest-mac.yml manifest + .blockmap deltas). --clobber lets a
           # re-run overwrite a partially-uploaded asset.
           gh release create "$TAG" --title "$TAG" --notes "Procta $TAG" 2>/dev/null || true
-          gh release upload "$TAG" \
-            dist/*.dmg dist/*.zip dist/*.blockmap dist/latest-mac.yml --clobber
+          # nullglob: an absent pattern expands to nothing instead of being
+          # passed to gh literally (which errors "no matches found").
+          shopt -s nullglob
+          files=(dist/*.dmg dist/*.zip dist/*.blockmap dist/latest-mac.yml)
+          if [ ${#files[@]} -eq 0 ]; then echo "✗ no macOS artifacts to upload"; exit 1; fi
+          printf 'uploading: %s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -164,8 +169,14 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           gh release create "$TAG" --title "$TAG" --notes "Procta $TAG" 2>/dev/null || true
-          gh release upload "$TAG" \
-            dist/*.exe dist/*.blockmap dist/latest.yml --clobber
+          # NSIS here is built with differentialPackage:false → NO .blockmap.
+          # nullglob drops the unmatched pattern so it isn't passed to gh
+          # literally (which failed the 2.3.17 run with "no matches found").
+          shopt -s nullglob
+          files=(dist/*.exe dist/*.blockmap dist/latest.yml)
+          if [ ${#files[@]} -eq 0 ]; then echo "✗ no Windows artifacts to upload"; exit 1; fi
+          printf 'uploading: %s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

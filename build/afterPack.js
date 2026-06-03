@@ -1,19 +1,26 @@
-// electron-builder afterPack hook — ad-hoc code-signing fallback.
+// electron-builder afterPack hook — sign the bundled Python runtime only.
 //
-// WHY: when no Apple Developer ID certificate is configured (no CSC_LINK
-// secret), the build is otherwise completely unsigned. On Apple Silicon
-// macOS REFUSES to launch a downloaded unsigned binary and shows the
-// blunt, dead-end error: "Procta is damaged and can't be opened."
+// WHY ONLY PYTHON HERE (and NOT the whole .app):
+// electron-builder's pack pipeline runs, in order:
+//     afterPack (this hook)  →  flip Electron fuses  →  sign the .app
+// The fuse flip MUTATES the Electron Framework binary. So the .app MUST be
+// sealed AFTER the fuse flip, never before. v2.3.9 sealed the whole bundle
+// here in afterPack with `codesign --deep`; the later fuse flip then changed
+// the framework bytes, leaving the outer seal pointing at a stale framework
+// hash → the kernel SIGKILL'd every student Mac with "Code Signature Invalid
+// / Invalid Page" at the first fuse read, before any JS ran.
 //
-// An *ad-hoc* signature (`codesign --sign -`) satisfies the arm64
-// "must be signed" requirement without needing a paid cert. The OS then
-// shows the softer, BYPASSABLE "unidentified developer" prompt instead
-// (right-click → Open, or `xattr -cr`). This is NOT a substitute for
-// notarization — it only improves the unsigned distribution path until
-// the Developer ID + notarization secrets are added (see build.yml).
+// THE FIX: let electron-builder do the .app signing in its own (post-fuse)
+// sign step. We trigger that on the no-cert path with `-c.mac.identity=-`
+// (ad-hoc) in build.yml — electron-builder then ad-hoc-signs the entire
+// bundle inside-out, AFTER the fuses, sealing the mutated framework
+// correctly. An ad-hoc signature satisfies the Apple-Silicon "must be
+// signed" rule (the OS shows the bypassable "unidentified developer" prompt
+// instead of "damaged"). NOT a substitute for Developer ID + notarization.
 //
-// This hook runs after the .app is packed but before the DMG is built,
-// so the DMG ships the ad-hoc-signed app.
+// This hook's ONLY remaining job is the one thing electron-builder's signer
+// does NOT reach: the relocatable Python interpreters under
+// Contents/Resources/python-runtime/ (see signBundledPython below).
 
 const { execFileSync } = require('child_process');
 const path = require('path');
@@ -83,14 +90,11 @@ exports.default = async function afterPack(context) {
   // traversal surface here — this runs only on the CI build host.
   const appPath = path.join(context.appOutDir, `${appName}.app`);
 
-  console.log(`[afterPack] No cert — ad-hoc signing ${appPath}`);
-  // Inside-out: sign the bundled Python binaries FIRST, then the app, so
-  // the .app's signature seals an already-signed payload.
+  console.log(`[afterPack] No cert — signing bundled Python under ${appPath}`);
+  // Sign ONLY the bundled Python interpreters. The .app itself is sealed by
+  // electron-builder AFTER the fuse flip (no-cert path uses identity=-).
+  // Do NOT `codesign` the outer .app here — doing so pre-fuse is exactly the
+  // v2.3.9 bug that produced "Code Signature Invalid / Invalid Page".
   signBundledPython(appPath);
-  // --deep: sign nested frameworks/helpers too. --force: replace any
-  // partial signature. --sign -: the ad-hoc identity.
-  execFileSync('codesign', ['--deep', '--force', '--sign', '-', appPath], {
-    stdio: 'inherit',
-  });
-  console.log('[afterPack] ad-hoc signing complete.');
+  console.log('[afterPack] bundled-Python signing complete; .app sealed later by electron-builder.');
 };

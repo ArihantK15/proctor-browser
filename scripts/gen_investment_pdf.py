@@ -419,22 +419,29 @@ def not_in_budget(elements):
         elements.append(Paragraph(body, BODY))
 
 
-def use_of_funds(elements, total):
+def use_of_funds(elements, total, comp):
     elements.append(PageBreak())
     elements.append(Paragraph("7. Use of Funds (Scenario B)", H2))
     elements.append(Paragraph(
         "How the recommended ask breaks down by spend category over the "
-        "18-month window.",
+        "18-month window. Every category is derived from the same line "
+        "items used in the runway calculation, so the breakdown traces "
+        "back to source with no rounding residual.",
         BODY))
     rows = [
-        ("Performance marketing (Meta + Google Ads + content)", 180000, "Rs. 10,000 / month x 18"),
-        ("Hosting and infrastructure", 28000, "2-year prepay, server amortised"),
-        ("Developer tools and software", 90000, "Rs. 5,000 / month x 18"),
-        ("Operations (email, Vercel Pro, signing services)", 53100,
-         "Email + Vercel + Windows signing"),
-        ("Code-signing and developer programs", 23750,
-         "Apple 1.5 yr + Windows signing"),
-        ("Setup and procurement", 13100, "Tools + domain + buffer"),
+        ("Performance marketing (Meta + Google Ads + content)",
+         comp["marketing"], "Rs. 10,000 / month x 18"),
+        ("Hosting and infrastructure",
+         comp["hosting"], "Server two-year prepay"),
+        ("Developer tools and software (subscriptions)",
+         comp["devtools_monthly"], "Rs. 5,000 / month x 18"),
+        ("Operations (email, Vercel Pro, Windows signing)",
+         comp["operations"],
+         "Email / Vercel Rs. 2,000 x 18 + Windows signing Rs. 950 x 18"),
+        ("Apple Developer Program",
+         comp["apple"], "1.5 years x Rs. 9,500"),
+        ("Setup and procurement (one-time)",
+         comp["setup"], "Dev tools Rs. 21,000 + domain Rs. 1,600"),
     ]
     paras = [[
         Paragraph("Category", TBL_HEAD),
@@ -541,6 +548,19 @@ def main():
     assert scenario_a == 171950, scenario_a
     assert scenario_b == 387950, scenario_b
 
+    # Scenario B "Use of Funds" components — each maps to a runway line
+    # item so the category breakdown reconciles to scenario_b exactly
+    # (no rounding residual, no double-counted line).
+    comp = {
+        "marketing":        10000 * 18,                 # 180000
+        "hosting":          28000,                      # server prepay
+        "devtools_monthly": 5000 * 18,                  # 90000
+        "operations":       (2000 * 18) + (950 * 18),   # 36000 + 17100 = 53100
+        "apple":            apple_18mo,                  # 14250
+        "setup":            21000 + 1600,               # 22600 one-time tools + domain
+    }
+    assert sum(comp.values()) == scenario_b, (sum(comp.values()), scenario_b)
+
     out_path = "Procta_Investment_Requirement.pdf"
     doc = SimpleDocTemplate(
         out_path,
@@ -560,7 +580,7 @@ def main():
     monthly(elements)
     runway(elements, scenario_a, scenario_b)
     not_in_budget(elements)
-    use_of_funds(elements, scenario_b)
+    use_of_funds(elements, scenario_b, comp)
     closing(elements)
     doc.build(elements, onFirstPage=_on_page, onLaterPages=_on_page)
     print(f"Written: {out_path}")

@@ -51,12 +51,19 @@ jobs:
       # to electron-builder, which interprets it as a cert path and dies
       # with a misleading "<workdir> not a file" error AFTER fuses. So
       # we branch in the shell: with a cert we sign + notarize; without
-      # we pass -c.mac.identity=null to skip electron-builder's own
-      # signing, and the build/afterPack.js hook then APPLIES AN AD-HOC
-      # signature (codesign --sign -). That ad-hoc sig is what stops
-      # Apple Silicon from rejecting the download as "damaged" — the OS
-      # instead shows the bypassable "unidentified developer" prompt.
-      # (Not a substitute for a Developer ID + notarization.)
+      # we pass -c.mac.identity=- so electron-builder AD-HOC signs the
+      # whole bundle in its own sign step — which runs AFTER the Electron
+      # fuse flip, sealing the (fuse-mutated) framework correctly. The old
+      # identity=null setting SKIPPED signing, leaving a stale pre-fuse
+      # seal the kernel rejected at launch ("Code Signature Invalid /
+      # Invalid Page" — the v2.3.9 crash). build/afterPack.js now signs
+      # only the bundled Python interpreters, never the outer .app.
+      #
+      # Builds NEVER auto-publish here. The signature gate
+      # (verify-macos-build.mjs) runs first; only if it passes does the
+      # publish step upload — so a build that would crash on a student
+      # Mac can never reach the auto-update channel.
+      #
       # Download the relocatable python-build-standalone runtimes into
       # python-runtime/ so they get shipped via extraResources. Without
       # this the macOS app falls back to the user's system python3 (which
@@ -65,7 +72,7 @@ jobs:
         if: matrix.target == 'mac'
         run: node bundle-python.js
 
-      - name: Build & publish (macOS)
+      - name: Build (macOS — no publish; gated below)
         if: matrix.target == 'mac'
         shell: bash
         run: |
@@ -77,32 +84,50 @@ jobs:
             export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
             export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
             export CSC_IDENTITY_AUTO_DISCOVERY=true
-            npx electron-builder --mac --arm64 --x64 --publish always
+            npx electron-builder --mac --arm64 --x64 --publish never
           else
-            echo "No CSC_LINK secret — building with identity=null; afterPack will ad-hoc sign."
+            echo "No CSC_LINK secret — ad-hoc signing via identity=-."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             # hardenedRuntime requires a real Developer ID signature; it is
             # incompatible with an ad-hoc sig and would make the app fail to
-            # launch. Disable it on the no-cert path so the ad-hoc signature
-            # is valid. (The cert branch above keeps hardenedRuntime=true.)
-            npx electron-builder --mac --arm64 --x64 --publish always \
-              -c.mac.identity=null \
+            # launch. Disable it on the no-cert path. (Cert branch keeps it on.)
+            npx electron-builder --mac --arm64 --x64 --publish never \
+              -c.mac.identity=- \
               -c.mac.hardenedRuntime=false
           fi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pass secrets in via *_SECRET names; the step above only exports
-          # the electron-builder-recognized names when the secret is present.
           CSC_LINK_SECRET: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD_SECRET: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
 
-      # Same defensive pattern for Windows. Without a cert the EXE is
-      # unsigned and triggers SmartScreen on first-run, but the build
-      # itself must not abort.
-      - name: Build & publish (Windows)
+      # THE GATE. Inspects the packaged .app and fails the job if its code
+      # signature is invalid — i.e. if it would SIGKILL on a student Mac.
+      # This is the check that was missing when v2.3.9 shipped green.
+      - name: Verify macOS signature (blocks publish on failure)
+        if: matrix.target == 'mac'
+        run: node scripts/verify-macos-build.mjs
+
+      - name: Publish macOS release (only after the gate passes)
+        if: matrix.target == 'mac' && startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Idempotent: create the release if the tag has none yet, then
+          # upload the artifacts electron-updater needs (dmg/zip + the
+          # latest-mac.yml manifest + .blockmap deltas). --clobber lets a
+          # re-run overwrite a partially-uploaded asset.
+          gh release create "$TAG" --title "$TAG" --notes "Procta $TAG" 2>/dev/null || true
+          gh release upload "$TAG" \
+            dist/*.dmg dist/*.zip dist/*.blockmap dist/latest-mac.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Windows: unsigned EXE only triggers SmartScreen (it does not crash),
+      # so there is no signature gate to fail — but we still build first,
+      # confirm the artifacts exist, then publish, for parity with macOS.
+      - name: Build (Windows — no publish; verified below)
         if: matrix.target == 'win'
         shell: bash
         run: |
@@ -110,15 +135,39 @@ jobs:
             echo "Signing enabled — CSC_LINK provided."
             export CSC_LINK="$CSC_LINK_SECRET"
             export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
-            npx electron-builder --win --x64 --publish always
+            npx electron-builder --win --x64 --publish never
           else
             echo "No CSC_LINK secret — building UNSIGNED."
-            npx electron-builder --win --x64 --publish always
+            npx electron-builder --win --x64 --publish never
           fi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK_SECRET: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD_SECRET: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Verify Windows artifacts exist
+        if: matrix.target == 'win'
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          exe=(dist/*.exe); yml=(dist/latest.yml)
+          if [ ${#exe[@]} -eq 0 ]; then echo "✗ no installer .exe produced"; exit 1; fi
+          if [ ! -f "${yml[0]}" ]; then echo "✗ latest.yml (auto-update manifest) missing"; exit 1; fi
+          # A truncated/empty installer is a silent release-breaker.
+          sz=$(stat -c%s "${exe[0]}" 2>/dev/null || stat -f%z "${exe[0]}")
+          if [ "$sz" -lt 10000000 ]; then echo "✗ installer suspiciously small ($sz bytes)"; exit 1; fi
+          echo "✓ Windows artifacts present (${exe[0]}, $sz bytes)"
+
+      - name: Publish Windows release (only after verification)
+        if: matrix.target == 'win' && startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "$TAG" --title "$TAG" --notes "Procta $TAG" 2>/dev/null || true
+          gh release upload "$TAG" \
+            dist/*.exe dist/*.blockmap dist/latest.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Show dist contents
         shell: bash

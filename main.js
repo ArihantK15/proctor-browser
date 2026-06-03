@@ -1,4 +1,4 @@
-const { app, ipcMain, globalShortcut, screen } = require('electron');
+const { app, ipcMain, globalShortcut, screen, dialog } = require('electron');
 const path = require('path');
 
 // ── Sentry (optional — gated on SENTRY_DSN env / packaged config) ──
@@ -50,6 +50,7 @@ const {
   findPython, checkPackagesReady, runSetup,
   createSetupWindow, getSetupWindow, closeSetupWindow,
   startPython, stopPython, startCalibration, stopCalibration,
+  reapOrphanProctors, ensureCameraAccess,
 } = require('./lib/python-manager');
 const { startPolling, stopPolling } = require('./lib/polling');
 
@@ -229,6 +230,17 @@ function extractAndReceive(args, source) {
 
 const _gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!_gotSingleInstanceLock) {
+  // Don't die silently — a zombie first instance (or a still-running copy)
+  // would otherwise make a relaunch look like "nothing happens". Tell the
+  // user plainly before quitting this second instance.
+  try {
+    dialog.showErrorBox(
+      'Procta is already running',
+      'Another copy of Procta is already open on this computer.\n\n' +
+      'Switch to the existing Procta window. If you don\'t see one, ' +
+      'quit Procta from your Dock/Taskbar (or restart your computer), ' +
+      'then open it again.');
+  } catch(e) { /* dialog may be unavailable pre-ready — quit anyway */ }
   app.quit();
 } else {
   app.on('second-instance', (_evt, argv) => {
@@ -241,6 +253,59 @@ if (!_gotSingleInstanceLock) {
     }
   });
 }
+
+// ── Global crash handlers ─────────────────────────────────────────
+// Without these, any unhandled throw on exam-start silently kills the
+// main process — exactly the "app just shut off" the student saw — and,
+// worse, can leave them trapped behind a kiosk window if the throw
+// happened mid-lockdown. We log the error for diagnosis and, if an exam
+// is in kiosk lockdown, FREE the student (handlePanicUnlock releases the
+// window and quits cleanly). If no exam is locked we log and keep the
+// lobby alive rather than tearing the app down over a stray rejection.
+function _writeCrashLog(kind, err) {
+  try {
+    const fs = require('fs');
+    const line = `[${new Date().toISOString()}] ${kind}: ` +
+      `${(err && err.stack) || err}\n`;
+    fs.appendFileSync(path.join(app.getPath('logs'), 'crash.log'), line);
+  } catch(e) { /* logs dir may not exist pre-ready — best effort */ }
+  console.error(`[crash] ${kind}:`, (err && err.stack) || err);
+}
+
+let _handlingFatal = false;
+function _handleFatal(kind, err) {
+  _writeCrashLog(kind, err);
+  let locked = false;
+  try { locked = !!getIsKiosk(); } catch(e) {}
+  const win = (() => { try { return getMainWindow(); } catch(e) { return null; } })();
+  if (locked && win && !win.isDestroyed()) {
+    if (_handlingFatal) return; // avoid re-entrancy if unlock path itself throws
+    _handlingFatal = true;
+    console.error('[crash] exam in lockdown — releasing student via panic unlock');
+    Promise.resolve(handlePanicUnlock(kind)).catch(e =>
+      console.error('[crash] panic unlock failed:', e && e.message));
+  }
+  // Not locked: deliberately do NOT quit — a stray exception/rejection
+  // shouldn't kill a working lobby for the student.
+}
+
+process.on('uncaughtException', (err) => _handleFatal('uncaughtException', err));
+process.on('unhandledRejection', (reason) => _handleFatal('unhandledRejection', reason));
+
+// Child/GPU process death must be observed but must NOT tear down the app.
+// A dead GPU process auto-recovers; a dead utility/renderer child is
+// handled by its own owner (e.g. createExamWindow's render-process-gone).
+app.on('child-process-gone', (_e, details) => {
+  console.error('[crash] child-process-gone:', details && details.type,
+    details && details.reason, 'exit=', details && details.exitCode);
+  _writeCrashLog('child-process-gone',
+    new Error(`${details && details.type} ${details && details.reason}`));
+});
+app.on('gpu-process-gone', (_e, details) => {
+  console.error('[crash] gpu-process-gone:', details && details.reason);
+  _writeCrashLog('gpu-process-gone',
+    new Error(`gpu ${details && details.reason}`));
+});
 
 app.on('open-url', (event, url) => {
   event.preventDefault();
@@ -366,6 +431,14 @@ function _registerLobbyProtocol() {
 // ── APP START ─────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   _registerLobbyProtocol();
+
+  // Reap any proctor that survived a previous hard crash BEFORE we touch
+  // Python or the camera. A crash skips before-quit/window-all-closed
+  // cleanup, leaving an orphaned proctor.py holding the camera — which
+  // makes the next exam's proctor fail to init and respawn-storm. Clear
+  // it first so the relaunch starts clean.
+  try { reapOrphanProctors(); } catch(e) { console.error('[Reaper] failed:', e.message); }
+
   // Cold-start protocol activation: Windows launches us with the
   // procta:// URL as process.argv; macOS uses open-url instead.
   // Captured before we open any window so deeplink-invite tokens
@@ -638,6 +711,29 @@ ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
     examId: ctx.examId || null,
   });
   console.log('[Lobby] launch exam:', getExamContext());
+
+  // Camera pre-flight (macOS TCC). If the OS denies camera access the
+  // proctor would throw on VideoCapture and could take the exam-start
+  // flow down with it. Catch it here, BEFORE the exam window arms, and
+  // surface a clear, escapable message — keep the student in the lobby.
+  try {
+    const cam = await ensureCameraAccess();
+    if (cam && !cam.ok) {
+      const lobby = getLobbyWindow();
+      try {
+        await dialog.showMessageBox(lobby && !lobby.isDestroyed() ? lobby : undefined, {
+          type: 'warning',
+          title: 'Camera access needed',
+          message: 'Procta can\'t access your camera.',
+          detail: 'Proctoring requires your camera. Open System Settings → ' +
+            'Privacy & Security → Camera, enable Procta, then start the exam again.',
+          buttons: ['OK'], defaultId: 0, noLink: true,
+        });
+      } catch(e) { /* dialog best-effort */ }
+      return { ok: false, error: 'camera-denied' };
+    }
+  } catch(e) { console.error('[Camera] preflight threw:', e.message); }
+
   if (getLobbyWindow() && !getLobbyWindow().isDestroyed()) {
     try { getLobbyWindow().hide(); } catch(e) {}
   }

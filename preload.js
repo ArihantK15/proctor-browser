@@ -39,4 +39,11 @@ contextBridge.exposeInMainWorld('proctor', {
     ipcRenderer.removeAllListeners('force-submit');
     ipcRenderer.once('force-submit', () => cb());
   },
+  // Proctoring gave up after a restart storm (e.g. the camera is held by
+  // another app). The main process fires this so the student sees a clear
+  // message instead of an invisible respawn loop.
+  onProctorFailed: (cb)   => {
+    ipcRenderer.removeAllListeners('proctor-failed');
+    ipcRenderer.on('proctor-failed', (_, data) => cb(data));
+  },
 });

@@ -78,7 +78,9 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
             if teacher_id in _teacher_cache and _teacher_cache_ttl.get(teacher_id, 0) > now:
                 _teacher_cache.move_to_end(teacher_id)
                 return _teacher_cache[teacher_id]
-    result = (await _atable("teachers").select("id,email,full_name,org_id,org_role,supabase_uid").eq("id", str(teacher_id)).execute()).data
+    result = (await _atable("teachers").select(
+        "id,email,full_name,org_id,org_role,supabase_uid,status,email_verified_at,email_2fa_enabled_at"
+    ).eq("id", str(teacher_id)).execute()).data
     if not result:
         return None
     teacher = _maybe_promote_super_admin(result[0])
@@ -137,6 +139,9 @@ async def verify_admin_token(token: str) -> dict:
     teacher = await _get_teacher_by_id(tid)
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
+    status = (teacher.get("status") or "").lower()
+    if status in {"suspended", "deleted"}:
+        raise HTTPException(status_code=401, detail="Session has been revoked")
     if jti:
         revoked = await _atable("auth_sessions").select("jti")\
             .eq("jti", str(jti)).eq("user_kind", "teacher").eq("user_id", str(tid))\
@@ -144,6 +149,20 @@ async def verify_admin_token(token: str) -> dict:
         if revoked.data:
             raise HTTPException(status_code=401, detail="Session has been revoked")
     return teacher
+
+
+def clear_teacher_cache(teacher_id: str) -> None:
+    """Invalidate cached teacher auth metadata after role/status changes."""
+    if not teacher_id:
+        return
+    if _cache:
+        try:
+            _cache.delete(f"teacher:{teacher_id}")
+        except Exception:
+            logger.debug("admin_auth: teacher cache delete failed", exc_info=True)
+    with _teacher_cache_lock:
+        _teacher_cache.pop(teacher_id, None)
+        _teacher_cache_ttl.pop(teacher_id, None)
 
 
 async def require_admin(request: Request) -> dict:
@@ -239,6 +258,15 @@ async def _get_student_account_by_id(account_id: str) -> dict | None:
             _student_acct_cache.popitem(last=False)
             _student_acct_cache_ttl.pop(oldest, None)
     return acct
+
+
+def clear_student_account_cache(account_id: str) -> None:
+    """Invalidate cached student account metadata after email/profile changes."""
+    if not account_id:
+        return
+    with _student_acct_cache_lock:
+        _student_acct_cache.pop(account_id, None)
+        _student_acct_cache_ttl.pop(account_id, None)
 
 
 async def _get_student_account_by_uid(uid: str) -> dict | None:

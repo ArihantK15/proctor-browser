@@ -37,6 +37,7 @@ class _Chain:
         self.table_name = table_name
         self.eqs: dict[str, object] = {}
         self.ins: dict[str, set] = {}
+        self.ilikes: dict[str, str] = {}
         self.nulls: set[str] = set()
         self.payload = None
         self.op = "select"
@@ -46,6 +47,7 @@ class _Chain:
 
     def select(self, *a, **kw): self.op = "select"; return self
     def eq(self, col, val): self.eqs[col] = val; return self
+    def ilike(self, col, val): self.ilikes[col] = str(val or "").lower(); return self
     def in_(self, col, vals): self.ins[col] = set(vals or []); return self
     def is_(self, col, val):
         if val == "null":
@@ -66,6 +68,8 @@ class _Chain:
         out = []
         for row in rows:
             if any(str(row.get(k) or "") != str(v or "") for k, v in self.eqs.items()):
+                continue
+            if any(str(row.get(k) or "").lower() != v for k, v in self.ilikes.items()):
                 continue
             if any(row.get(k) not in vals for k, vals in self.ins.items()):
                 continue
@@ -156,6 +160,39 @@ def test_student_lobby_claims_unlinked_roster_row_for_matching_account_email(cli
             "teacher_id": "teacher-1",
             "exam_id": "exam-1",
             "exam_title": "Claimed Exam",
+        }],
+        "exam_sessions": [],
+    })
+    sm = shared_supabase_mock()
+    with patch.object(sm, "table", side_effect=db):
+        resp = client.get("/api/student/exams", headers=_student_account_headers())
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["exams"][0]["exam_id"] == "exam-1"
+    assert db.tables["students"][0]["account_id"] == "student-1"
+
+
+def test_student_lobby_claims_unlinked_roster_row_case_insensitively(client):
+    """Teacher-entered email casing should not hide the student's exam."""
+    db = _TenantDB({
+        "auth_sessions": [],
+        "student_accounts": [{
+            "id": "student-1",
+            "email": "alice@test.com",
+            "full_name": "Alice",
+        }],
+        "students": [{
+            "roll_number": "A1",
+            "teacher_id": "teacher-1",
+            "exam_id": "exam-1",
+            "email": "Alice@Test.com",
+            "account_id": None,
+        }],
+        "teachers": [{"id": "teacher-1", "full_name": "Teacher One"}],
+        "exam_config": [{
+            "teacher_id": "teacher-1",
+            "exam_id": "exam-1",
+            "exam_title": "Case-Insensitive Exam",
         }],
         "exam_sessions": [],
     })

@@ -1,9 +1,22 @@
 name: Build & Release Electron App
 
 # Triggered by pushing a version tag (e.g. `git tag v2.1.4 && git push --tags`).
-# Each runner builds its own OS target and publishes straight to the GitHub
-# Release associated with the tag — including the latest.yml / latest-mac.yml
-# manifests and .blockmap files that electron-updater needs.
+# Each runner builds its own OS+arch target and publishes its binaries straight
+# to the GitHub Release for the tag — dmg/zip/exe + .blockmap deltas.
+#
+# AUTO-UPDATE MANIFESTS:
+#   - Windows: the single win job uploads latest.yml directly.
+#   - macOS: the two arch jobs (arm64 on macos-14, x64 on macos-13) each emit
+#     their OWN per-arch latest-mac.yml. They must NOT both upload it — the
+#     second would clobber the first and half of all Macs would get
+#     "no update found". So each mac job uploads ITS binaries but stashes its
+#     latest-mac.yml as a workflow artifact; the `merge-mac-manifest` job then
+#     unions the two into one manifest (scripts/merge-mac-latest.mjs) and
+#     uploads that single combined latest-mac.yml to the release.
+# WHY PER-ARCH JOBS: each arch bakes its own native wheels (numpy/opencv/
+# onnxruntime/insightface) into python-runtime/<arch>/ — cross-arch pip is
+# unreliable, so arm64 wheels must be built on Apple Silicon (macos-14) and
+# x64 wheels on Intel (macos-13). A single-host build could only bake one.
 
 on:
   push:
@@ -21,10 +34,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          # arm64 wheels MUST be baked on Apple Silicon → macos-14 (M-series).
+          - os: macos-14
             target: mac
+            arch: arm64
+          # x64 wheels MUST be baked on Intel → macos-13 (last Intel runner).
+          - os: macos-13
+            target: mac
+            arch: x64
           - os: windows-latest
             target: win
+            arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -43,8 +63,9 @@ jobs:
         # in release builds.
         run: npm ci
 
-      # Build BOTH mac archs in a single invocation so latest-mac.yml
-      # references both DMGs. Separate runs would overwrite the manifest.
+      # Build ONLY this matrix arch (--${{ matrix.arch }}). The per-arch
+      # latest-mac.yml manifests are merged afterwards by the
+      # merge-mac-manifest job — see the header comment.
       #
       # Signing path is gated on the CSC_LINK secret being non-empty.
       # When the secret is unset, an empty-string CSC_LINK gets handed
@@ -72,6 +93,20 @@ jobs:
         if: matrix.target == 'mac'
         run: node bundle-python.js
 
+      # Bake the on-device speech models (Vosk en-IN + hi + Silero VAD) into
+      # weights/ so they ship via extraResources (package.json maps weights/ →
+      # <resources>/weights). This makes a fresh install fully OFFLINE — zero
+      # first-launch model download on either OS (adds ~80 MB, accepted per the
+      # privacy/offline goal). Uses only Python stdlib (urllib/zipfile), so the
+      # runner's preinstalled Python is enough. PROCTA_WEIGHTS_DIR is left unset
+      # → the script extracts into ROOT/weights, exactly what we want to bundle.
+      - name: Bundle on-device audio models into weights/
+        shell: bash
+        run: |
+          PY=$(command -v python3 || command -v python)
+          echo "Using Python: $PY"
+          "$PY" scripts/download_audio_models.py
+
       - name: Build (macOS — no publish; gated below)
         if: matrix.target == 'mac'
         shell: bash
@@ -84,14 +119,14 @@ jobs:
             export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
             export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
             export CSC_IDENTITY_AUTO_DISCOVERY=true
-            npx electron-builder --mac --arm64 --x64 --publish never
+            npx electron-builder --mac --${{ matrix.arch }} --publish never
           else
             echo "No CSC_LINK secret — ad-hoc signing via identity=-."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             # hardenedRuntime requires a real Developer ID signature; it is
             # incompatible with an ad-hoc sig and would make the app fail to
             # launch. Disable it on the no-cert path. (Cert branch keeps it on.)
-            npx electron-builder --mac --arm64 --x64 --publish never \
+            npx electron-builder --mac --${{ matrix.arch }} --publish never \
               -c.mac.identity=- \
               -c.mac.hardenedRuntime=false
           fi
@@ -115,19 +150,37 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           # Idempotent: create the release if the tag has none yet, then
-          # upload the artifacts electron-updater needs (dmg/zip + the
-          # latest-mac.yml manifest + .blockmap deltas). --clobber lets a
-          # re-run overwrite a partially-uploaded asset.
+          # upload this arch's binaries (dmg/zip + .blockmap deltas). The
+          # latest-mac.yml manifest is uploaded by merge-mac-manifest, NOT
+          # here (see NOTE below). --clobber lets a re-run overwrite a
+          # partially-uploaded asset.
           gh release create "$TAG" --title "$TAG" --notes "Procta $TAG" 2>/dev/null || true
           # nullglob: an absent pattern expands to nothing instead of being
           # passed to gh literally (which errors "no matches found").
+          #
+          # NOTE: latest-mac.yml is DELIBERATELY excluded here. Each arch job
+          # would upload its own single-arch manifest and clobber the other's,
+          # breaking auto-update for half of all Macs. The merge-mac-manifest
+          # job uploads the combined manifest instead (see below).
           shopt -s nullglob
-          files=(dist/*.dmg dist/*.zip dist/*.blockmap dist/latest-mac.yml)
+          files=(dist/*.dmg dist/*.zip dist/*.blockmap)
           if [ ${#files[@]} -eq 0 ]; then echo "✗ no macOS artifacts to upload"; exit 1; fi
           printf 'uploading: %s\n' "${files[@]}"
           gh release upload "$TAG" "${files[@]}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Stash this arch's latest-mac.yml for the merge job. Runs on every
+      # trigger (not just tags) so workflow_dispatch debugging produces it too;
+      # the merge job is what gates on the tag. if-no-files-found=error catches
+      # a build that silently failed to emit a manifest.
+      - name: Stash macOS manifest for merge
+        if: matrix.target == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-manifest-${{ matrix.arch }}
+          path: dist/latest-mac.yml
+          if-no-files-found: error
 
       # Windows: unsigned EXE only triggers SmartScreen (it does not crash),
       # so there is no signature gate to fail — but we still build first,
@@ -183,3 +236,54 @@ jobs:
       - name: Show dist contents
         shell: bash
         run: ls -lh dist/ || true
+
+  # Combine the two per-arch latest-mac.yml manifests into the single one
+  # electron-updater reads. Runs only on a tag (no manifest to publish on a
+  # dispatch debug run) and only after BOTH mac jobs succeed. If either arch
+  # job failed, `needs: build` keeps this from shipping a half-manifest.
+  merge-mac-manifest:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # to upload the merged manifest to the release
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.12.0"
+
+      # The merge script needs js-yaml only. --ignore-scripts avoids the
+      # electron postinstall binary download (~100 MB) we don't need here.
+      - name: Install merge-script dependency (js-yaml)
+        run: npm install --no-save --ignore-scripts js-yaml@4
+
+      - name: Download arm64 manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-manifest-arm64
+          path: manifests/arm64
+
+      - name: Download x64 manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-manifest-x64
+          path: manifests/x64
+
+      - name: Merge per-arch manifests into one latest-mac.yml
+        run: |
+          node scripts/merge-mac-latest.mjs \
+            manifests/arm64/latest-mac.yml \
+            manifests/x64/latest-mac.yml \
+            -o latest-mac.yml
+          echo "--- merged latest-mac.yml ---"
+          cat latest-mac.yml
+
+      - name: Upload combined latest-mac.yml to the release
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release upload "$TAG" latest-mac.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

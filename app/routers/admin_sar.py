@@ -204,6 +204,8 @@ async def sar_delete(body: SARDeleteIn, request: Request):
                 "email": anon_email,
                 "status": "deleted",
             }).eq("id", target_id).execute()
+            from ..auth.admin_auth import clear_teacher_cache
+            clear_teacher_cache(target_id)
         except Exception as e:
             errors.append(f"teachers: {type(e).__name__}")
         try:

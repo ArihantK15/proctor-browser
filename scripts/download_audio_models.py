@@ -32,7 +32,14 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-WEIGHTS = ROOT / "weights"
+# In a packaged app the script lives under <resources>/scripts, so
+# ROOT/weights resolves to <resources>/weights — which is READ-ONLY on a
+# signed macOS .app bundle and on Windows Program Files. Extracting a zip
+# there raises PermissionError and fails the whole download. Electron
+# passes PROCTA_WEIGHTS_DIR pointing at a writable per-user dir
+# (app.getPath('userData')/weights); fall back to ROOT/weights only for
+# dev runs from a checkout where the tree is writable.
+WEIGHTS = Path(os.environ.get("PROCTA_WEIGHTS_DIR") or (ROOT / "weights"))
 WEIGHTS.mkdir(parents=True, exist_ok=True)
 
 # Model manifest. SHA-256 hashes are PLACEHOLDERS — empty / "TODO" is
@@ -105,7 +112,13 @@ def _extract_zip(zip_path: Path, into_dir: Path) -> bool:
             zf.extractall(into_dir)
         return True
     except zipfile.BadZipFile as e:
-        print(f"  ✗ zip extraction failed: {e}")
+        print(f"  ✗ zip extraction failed (corrupt archive): {e}")
+        return False
+    except OSError as e:
+        # PermissionError (read-only resources dir), ENOSPC, etc. Catch
+        # here so a write failure returns a clean error code instead of
+        # an uncaught traceback that the caller can't interpret.
+        print(f"  ✗ zip extraction failed (cannot write to {into_dir}): {e}")
         return False
 
 

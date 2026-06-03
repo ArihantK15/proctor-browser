@@ -1,6 +1,6 @@
 {
   "name": "proctor-browser",
-  "version": "2.3.17",
+  "version": "2.3.18",
   "description": "AI Proctored Exam Browser",
   "author": "Procta",
   "main": "main.js",
@@ -113,6 +113,7 @@
     },
     "mac": {
       "icon": "build/icon.icns",
+      "artifactName": "${productName}-${version}-${arch}-mac.${ext}",
       "extendInfo": {
         "NSCameraUsageDescription": "Procta uses your camera to proctor your exam and verify your identity.",
         "NSMicrophoneUsageDescription": "Procta uses your microphone to detect background audio during your exam."

@@ -63,6 +63,16 @@ _NON_VIOLATION_TYPES = {
     "exam_started", "submit_failed", "answer_selected", "session_ended",
     "face_enrolled", "heartbeat", "id_verification", "id_verification_captured",
     "calibration_started", "calibration_complete", "calibration_timeout",
+    # Reliability/diagnostic events — these describe the proctor SOFTWARE's
+    # health (boot, model load, restarts, the queue, give-up, camera-open
+    # failure, pre-exam self-check), NOT student behaviour. They ride the same
+    # /api/v1/event pipeline so failures are observable server-side, but they
+    # must NEVER count toward a student's risk score. A teacher is still
+    # alerted on the high-severity ones (proctor_failed/_camera_failed) via
+    # publish_critical_alert — they just don't penalise the student.
+    "proctor_boot", "model_load_failed", "restart_attempt",
+    "event_queue_full", "proctor_failed", "proctor_camera_failed",
+    "system_check", "proctoring_tier",
 }
 
 BLOCKING_TYPES = {"vm_detected", "remote_desktop_detected", "vpn_detected", "proxy_detected", "debugger_detected"}

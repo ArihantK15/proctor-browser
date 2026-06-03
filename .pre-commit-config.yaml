@@ -43,12 +43,12 @@ repos:
       - id: check-json
         exclude: tsconfig.*\.json$  # comments allowed in TS configs
       - id: check-added-large-files
-        args: [--maxkb=8192]
-        # 8 MB cap — fits compressed marketing video (~3 MB H.264 mp4)
-        # while still flagging accidentally-committed binaries. Anything
-        # over 8 MB really should go through Git LFS or external hosting.
-        # ONNX weights (45 MB) were left in git (no LFS yet) per the
-        # earlier deferred Phase C of the repo-health hardening sprint.
+        args: [--maxkb=16384]
+        # 16 MB cap — raised from 8 MB to admit the bundled object-detection
+        # model weights/yolov8n.onnx (~12 MB), required after the ultralytics/
+        # torch → onnxruntime migration (precedent: resnet18_gaze.onnx ~45 MB
+        # already lives in git, no LFS yet). Still flags genuinely accidental
+        # large binaries; anything bigger really should go through Git LFS.
       - id: check-merge-conflict
       - id: detect-private-key
 

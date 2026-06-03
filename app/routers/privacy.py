@@ -368,7 +368,7 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
     user_type, user_id, profile = await _resolve_caller(request)
 
     # Reauth gate — same protection the admin auth deep endpoints use.
-    from ..auth.admin_auth import require_reauth_or_403
+    from ..auth.admin_auth import clear_teacher_cache, require_reauth_or_403
     require_reauth_or_403(body, user_id, request=request)
 
     errors: list[str] = []
@@ -387,6 +387,7 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
                 "email": anon_email,
                 "status": "deleted",
             }).eq("id", user_id).execute()
+            clear_teacher_cache(user_id)
         except Exception as e:
             _log.exception("[privacy] teacher anonymise failed for %s", user_id)
             errors.append(f"teachers: {type(e).__name__}")

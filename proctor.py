@@ -64,6 +64,14 @@ _behavioral = BehavioralEngine(check_interval=15)
 # broken install can never crash proctor.py — it degrades to whatever
 # detectors are still available.
 
+# Records the *error class name* for any model that fails to load, keyed by a
+# stable model name. Populated by the import-time loaders below and surfaced
+# as privacy-safe `model_load_failed` diagnostics (in main()) and by
+# --selftest. METADATA ONLY — error class names + flags, never frames, audio,
+# or identity. This is what makes on-device boot failures observable
+# server-side without ever shipping media off the student's machine.
+_MODEL_ERRORS: dict = {}
+
 # uniface: face detection + 5 landmarks (ONNX RetinaFace under the hood)
 try:
     from uniface import RetinaFace
@@ -74,6 +82,7 @@ except Exception as _re:
     print(f"[Retina] ❌ Not available: {_re} — face detection disabled")
     RETINA_AVAILABLE = False
     _retina = None
+    _MODEL_ERRORS["retina"] = type(_re).__name__
 
 # onnxruntime: gaze direction model. Loaded lazily by GazeEstimator below.
 try:
@@ -82,46 +91,166 @@ try:
 except Exception as _oe:
     print(f"[ONNX] ❌ Not available: {_oe} — gaze direction disabled")
     ORT_AVAILABLE = False
+    _MODEL_ERRORS["onnxruntime"] = type(_oe).__name__
 
-# ultralytics YOLO: cheat object detection — loaded lazily to avoid
-# blocking proctor startup and to keep memory footprint low on 2GB droplets.
-_yolo_model = None
+# YOLOv8n cheat-object detection — runs on onnxruntime (NOT torch).
+# We ship a pre-exported weights/yolov8n.onnx and load it with the same
+# ORT session pattern as the gaze model, so the whole proctor depends on
+# a single runtime. The model is loaded lazily to avoid blocking startup
+# and to keep the resident footprint low until the first object check.
+#
+# The exported graph has a STATIC 640x640 input ([1,3,640,640]) and a
+# single output "output0" of shape [1, 84, 8400] (4 box coords + 80 COCO
+# class scores per anchor; YOLOv8 has no separate objectness channel).
+# Re-export with:  yolo export model=yolov8n.pt format=onnx imgsz=640 opset=12
+_yolo_session = None
+_yolo_input_name: Optional[str] = None
+_YOLO_INPUT_SIZE = 640           # square letterbox target the .onnx expects
 YOLO_AVAILABLE = False
 _YOLO_LOCK = threading.Lock()
 
+
+def _find_yolo_model() -> Optional[str]:
+    """Resolve the bundled yolov8n.onnx. Mirrors _find_gaze_model so the
+    Electron bundle (weights/ shipped via extraResources) and a dev
+    checkout both work, with a PROCTOR_YOLO_MODEL override on top."""
+    candidates = [
+        os.environ.get("PROCTOR_YOLO_MODEL", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "weights", "yolov8n.onnx"),
+        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""),
+                     "weights", "yolov8n.onnx"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def _yolo_providers():
+    """Best-effort accelerated providers, intersected with what this ORT
+    build actually ships, so a missing CoreML/DirectML/CUDA provider can
+    never fail session init. CPU is always the guaranteed fallback."""
+    preferred = ["CUDAExecutionProvider", "CoreMLExecutionProvider",
+                 "DmlExecutionProvider", "CPUExecutionProvider"]
+    try:
+        available = set(ort.get_available_providers())
+    except Exception:
+        available = {"CPUExecutionProvider"}
+    chosen = [p for p in preferred if p in available]
+    if "CPUExecutionProvider" not in chosen:
+        chosen.append("CPUExecutionProvider")
+    return chosen
+
+
 def _load_yolo():
-    """Load YOLOv8 model on demand. Thread-safe. Auto-detects GPU."""
-    global _yolo_model, YOLO_AVAILABLE
+    """Load the YOLOv8n ONNX session on demand. Thread-safe; returns the
+    ort.InferenceSession (or None if unavailable). Callers treat the
+    return value as an opaque handle and pass it to _yolo_infer()."""
+    global _yolo_session, _yolo_input_name, YOLO_AVAILABLE
     with _YOLO_LOCK:
-        if _yolo_model is not None or YOLO_AVAILABLE:
-            return _yolo_model
+        if _yolo_session is not None:
+            return _yolo_session
+        if not ORT_AVAILABLE:
+            print("[YOLO] Not available: onnxruntime not installed")
+            YOLO_AVAILABLE = False
+            return None
+        model_path = _find_yolo_model()
+        if not model_path:
+            print("[YOLO] Not available: weights/yolov8n.onnx not found")
+            YOLO_AVAILABLE = False
+            _MODEL_ERRORS["yolo"] = "weights_missing"
+            return None
         try:
-            from ultralytics import YOLO  # noqa
-            print("[YOLO] Loading model (lazy)...")
-            _yolo_model = YOLO("yolov8n.pt")
-
-            # Auto-detect GPU: CUDA (NVIDIA) > MPS (Apple Silicon) > CPU
-            device = "cpu"
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    device = "cuda"
-                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    device = "mps"
-            except Exception:
-                pass
-
-            if device != "cpu":
-                _yolo_model.to(device)
-                print(f"[YOLO]  Using {device.upper()} acceleration")
-
+            providers = _yolo_providers()
+            print(f"[YOLO] Loading {model_path} (providers={providers})...")
+            sess = ort.InferenceSession(model_path, providers=providers)
+            _yolo_input_name = sess.get_inputs()[0].name
+            _yolo_session = sess
             YOLO_AVAILABLE = True
-            print("[YOLO] Ready")
-            return _yolo_model
+            print(f"[YOLO] Ready (active provider: {sess.get_providers()[0]})")
+            return _yolo_session
         except Exception as _ye:
             print(f"[YOLO] Not available: {_ye}")
             YOLO_AVAILABLE = False
+            _MODEL_ERRORS["yolo"] = type(_ye).__name__
             return None
+
+
+def _yolo_infer(session, bgr_img):
+    """Run YOLOv8n on a BGR image and return detections as a list of
+    (cls_id, conf, x1, y1, x2, y2) tuples in **bgr_img's own pixel
+    coordinates**. Centralises the letterbox + decode + NMS math so the
+    two workers share one well-tested path. cls_id is the raw COCO index;
+    callers apply the CHEAT_IDS filter themselves.
+
+    Confidence/IoU match the ultralytics defaults this replaced:
+    conf=YOLO_CONFIDENCE (0.35), NMS IoU=0.7, per-class NMS."""
+    h0, w0 = bgr_img.shape[:2]
+    if h0 == 0 or w0 == 0:
+        return []
+    size = _YOLO_INPUT_SIZE
+
+    # 1. Letterbox to size x size, centre-padded with 114 (ultralytics const).
+    scale = min(size / w0, size / h0)
+    new_w, new_h = int(round(w0 * scale)), int(round(h0 * scale))
+    resized = cv2.resize(bgr_img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    pad_x = (size - new_w) / 2.0
+    pad_y = (size - new_h) / 2.0
+    canvas = np.full((size, size, 3), 114, dtype=np.uint8)
+    top, left = int(round(pad_y - 0.1)), int(round(pad_x - 0.1))
+    canvas[top:top + new_h, left:left + new_w] = resized
+
+    # 2. BGR->RGB, /255, HWC->CHW, batch.
+    blob = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    blob = np.expand_dims(np.transpose(blob, (2, 0, 1)), 0)
+
+    # 3. Inference.
+    name = _yolo_input_name or session.get_inputs()[0].name
+    out = session.run(None, {name: blob})[0]          # [1, 84, 8400]
+
+    # 4. Decode: -> [8400, 84]; first 4 = cx,cy,w,h, rest = 80 class scores.
+    preds = np.squeeze(out, 0).T
+    if preds.shape[0] == 0:
+        return []
+    class_scores = preds[:, 4:]
+    confs = class_scores.max(axis=1)
+    keep = confs >= YOLO_CONFIDENCE
+    if not np.any(keep):
+        return []
+    preds = preds[keep]
+    confs = confs[keep]
+    cls_ids = class_scores[keep].argmax(axis=1)
+
+    # 5. xywh (letterboxed space) -> xyxy, then undo the letterbox back to
+    #    the original image, and clip.
+    cx, cy, bw, bh = preds[:, 0], preds[:, 1], preds[:, 2], preds[:, 3]
+    x1 = (cx - bw / 2.0 - left) / scale
+    y1 = (cy - bh / 2.0 - top) / scale
+    x2 = (cx + bw / 2.0 - left) / scale
+    y2 = (cy + bh / 2.0 - top) / scale
+    x1 = np.clip(x1, 0, w0); y1 = np.clip(y1, 0, h0)
+    x2 = np.clip(x2, 0, w0); y2 = np.clip(y2, 0, h0)
+
+    # 6. Per-class NMS (matches ultralytics agnostic=False default).
+    detections = []
+    for c in np.unique(cls_ids):
+        m = cls_ids == c
+        boxes_xywh = [[float(x1[i]), float(y1[i]),
+                       float(x2[i] - x1[i]), float(y2[i] - y1[i])]
+                      for i in np.nonzero(m)[0]]
+        scores_c = [float(confs[i]) for i in np.nonzero(m)[0]]
+        idxs = cv2.dnn.NMSBoxes(boxes_xywh, scores_c,
+                                float(YOLO_CONFIDENCE), 0.7)
+        if len(idxs) == 0:
+            continue
+        src = np.nonzero(m)[0]
+        for j in np.array(idxs).flatten():
+            i = src[j]
+            detections.append((int(c), float(confs[i]),
+                               int(x1[i]), int(y1[i]),
+                               int(x2[i]), int(y2[i])))
+    return detections
 
 
 class YoloWorker:
@@ -156,9 +285,22 @@ class YoloWorker:
             self._thread = None
 
     def submit(self, frame: np.ndarray, frame_count: int, W: int, H: int):
-        """Queue a frame for YOLO inference (non-blocking)."""
+        """Queue a frame for YOLO inference (non-blocking).
+
+        Downscale ASPECT-PRESERVING (long side -> the model input). The old
+        cv2.resize(frame, (416, 416)) square-stretched non-square webcam
+        frames (4:3 / 16:9), distorting objects before YOLO ever saw them and
+        hurting detection (phones especially). _yolo_infer letterboxes to 640
+        itself and returns boxes in the SUBMITTED image's coords, which _run
+        scales back to W×H — so any uniform-aspect scale here is correct.
+        The resize is also a snapshot, so the main loop's later HUD drawing on
+        `frame` can't race into the worker.
+        """
         try:
-            small = cv2.resize(frame, (416, 416))
+            fh, fw = frame.shape[:2]
+            s = min(1.0, float(_YOLO_INPUT_SIZE) / max(fw, fh))
+            small = (cv2.resize(frame, (max(1, round(fw * s)), max(1, round(fh * s))))
+                     if s < 1.0 else frame.copy())
             self.frame_q.put_nowait((small, frame_count, W, H))
         except Exception:
             pass  # queue full, skip this frame
@@ -174,8 +316,8 @@ class YoloWorker:
         return None
 
     def _run(self):
-        model = _load_yolo()
-        if model is None:
+        session = _load_yolo()
+        if session is None:
             return
 
         while not self._stop.is_set():
@@ -185,16 +327,13 @@ class YoloWorker:
                 continue
 
             try:
-                res = model(small, verbose=False, conf=YOLO_CONFIDENCE)[0]
                 detections = []
                 h, w = small.shape[:2]
-                for box in res.boxes:
-                    cls_id = int(box.cls[0])
+                for cls_id, conf, x1, y1, x2, y2 in _yolo_infer(session, small):
                     if cls_id in CHEAT_IDS:
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                         detections.append((
                             CHEAT_IDS[cls_id],
-                            float(box.conf[0]),
+                            conf,
                             int(x1 * W / w), int(y1 * H / h),
                             int(x2 * W / w), int(y2 * H / h),
                         ))
@@ -310,8 +449,8 @@ class SahiYoloWorker:
         return merged
 
     def _run(self):
-        model = _load_yolo()
-        if model is None:
+        session = _load_yolo()
+        if session is None:
             return
 
         while not self._stop.is_set():
@@ -323,15 +462,11 @@ class SahiYoloWorker:
             all_dets = []
             try:
                 for tile, ox, oy in self._generate_tiles(frame):
-                    res = model(tile, verbose=False, conf=YOLO_CONFIDENCE)[0]
-                    for box in res.boxes:
-                        cls_id = int(box.cls[0])
+                    for cls_id, conf, x1, y1, x2, y2 in _yolo_infer(session, tile):
                         if cls_id in CHEAT_IDS:
-                            x1 = int(box.xyxy[0][0]) + ox
-                            y1 = int(box.xyxy[0][1]) + oy
-                            x2 = int(box.xyxy[0][2]) + ox
-                            y2 = int(box.xyxy[0][3]) + oy
-                            all_dets.append((CHEAT_IDS[cls_id], float(box.conf[0]), x1, y1, x2, y2))
+                            all_dets.append((CHEAT_IDS[cls_id], conf,
+                                             x1 + ox, y1 + oy,
+                                             x2 + ox, y2 + oy))
                 merged = self._nms_merge(all_dets)
                 self.result_q.put_nowait({
                     "frame_count": frame_count,
@@ -393,6 +528,7 @@ if ORT_AVAILABLE:
                     print(f"[EarClassifier] ✅ Loaded from {_model_path}")
                 except Exception as _ee:
                     print(f"[EarClassifier] ⚠ Model load failed: {_ee}")
+                    _MODEL_ERRORS["ear"] = type(_ee).__name__
             else:
                 print("[EarClassifier] ⚠ No ear model found — heuristic fallback enabled")
 
@@ -491,6 +627,7 @@ except Exception as _ie:
     print(f"[InsightFace] ❌ Not available: {_ie} — wrong-person detection disabled")
     INSIGHT_AVAILABLE = False
     _insight_app = None
+    _MODEL_ERRORS["insightface"] = type(_ie).__name__
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 SESSION_ID   = os.getenv("PROCTOR_SESSION_ID",  "test-session")
@@ -1050,6 +1187,11 @@ threading.Thread(target=_live_upload_loop, daemon=True, name="live-uploader").st
 # stuttering/freezing the exam on a flaky network. Single consumer keeps
 # events FIFO-ordered; the queue is bounded so a long outage can't grow memory.
 _event_q: "Queue" = Queue(maxsize=500)
+# Count of events dropped because the queue saturated (sustained outage).
+# Surfaced as a single `event_queue_full` diagnostic once connectivity
+# returns — emitting it mid-outage would just fail too. METADATA ONLY.
+_dropped_events = 0
+_dropped_lock = threading.Lock()
 
 def _event_upload_loop():
     consecutive_failures = 0
@@ -1069,6 +1211,23 @@ def _event_upload_loop():
             err_msg = str(e)
         if ok:
             consecutive_failures = 0
+            # Connectivity is back — report any drops that happened during
+            # the outage, exactly once, so the gap is visible server-side.
+            global _dropped_events
+            with _dropped_lock:
+                n = _dropped_events
+                _dropped_events = 0
+            if n > 0:
+                try:
+                    _http.post(SERVER_URL, json=dict(
+                        session_id=SESSION_ID, event_type="event_queue_full",
+                        severity="low",
+                        details=f"dropped:{n} events during upload outage"),
+                        timeout=5)
+                except Exception:
+                    # Still flaky — fold the count back in for the next recovery.
+                    with _dropped_lock:
+                        _dropped_events += n
         else:
             consecutive_failures += 1
             backoff = min(30, 2 ** min(consecutive_failures, 5))
@@ -1085,7 +1244,7 @@ def _flush_events(timeout=3.0):
         time.sleep(0.1)
 
 def log_event(etype, severity, details):
-    global violation_count
+    global violation_count, _dropped_events
     conf = CONFIDENCE.get(etype, 0.75)
     conf_tag = f"confidence:{int(conf*100)}%"
     # Avoid leading `| confidence:...` when details is empty/whitespace.
@@ -1105,8 +1264,12 @@ def log_event(etype, severity, details):
             _event_q.get_nowait()
             _event_q.put_nowait(payload)
             print(f"[VIOLATION] {etype}: {details} (queue full — dropped oldest)")
+            with _dropped_lock:
+                _dropped_events += 1
         except Exception:
             print(f"[Server Error] event queue full — dropped {etype}")
+            with _dropped_lock:
+                _dropped_events += 1
 
 def save_evidence(frame, label):
     save_local_flag = os.environ.get("SAVE_EVIDENCE_LOCAL", "").strip().lower()
@@ -1250,8 +1413,10 @@ if ORT_AVAILABLE:
             print(f"[Gaze] ✅ ResNet18 ONNX loaded from {_gaze_model_path}")
         except Exception as _ge:
             print(f"[Gaze] ❌ Model load failed: {_ge}")
+            _MODEL_ERRORS["gaze"] = type(_ge).__name__
     else:
         print("[Gaze] ❌ resnet18_gaze.onnx not found in weights/ — gaze direction disabled")
+        _MODEL_ERRORS["gaze"] = "weights_missing"
 
 # ─── HEAD POSE (cv2.solvePnP from RetinaFace 5-point landmarks) ───────────────
 # RetinaFace returns 5 2D points: left_eye, right_eye, nose, left_mouth,
@@ -2788,11 +2953,128 @@ def run_proctoring(cap, W, H):
             time.sleep(0.03)
             continue
 
+# ─── READINESS / DIAGNOSTICS ───────────────────────────────────────────────────
+def _compute_proctoring_tier(models: dict) -> dict:
+    """Map model availability → a proctoring TIER. Phase 1.6: this formalises
+    the existing per-model graceful degradation into an explicit, observable
+    contract. The exam ALWAYS starts (a single unavailable model never blocks
+    it — each detector is guarded at its call site); the tier only describes
+    how much on-device analysis is live so coverage degrades instead of the
+    exam failing.
+
+        full     — face detection + object + gaze + identity all loaded.
+        reduced  — face detection loaded but one+ secondary detector is down.
+        minimal  — face detection itself is down; only motion/audio heuristics.
+
+    A missing CAMERA is the one hard stop (handled in main()): with no frames
+    there is nothing to proctor, so that case exits rather than degrades."""
+    face = bool(models.get("retina"))
+    secondary = ("yolo", "gaze", "insightface", "ear")
+    if not face:
+        tier = "minimal"
+    elif all(models.get(k) for k in secondary):
+        tier = "full"
+    else:
+        tier = "reduced"
+    return {
+        "tier": tier,
+        "missing": sorted(k for k, v in models.items() if not v),
+    }
+
+
+def _collect_readiness() -> dict:
+    """Privacy-safe readiness snapshot. METADATA ONLY — model availability
+    flags, error classes, interpreter/OS/arch, audio-model file presence.
+    NEVER frames, audio, or identity. This is the boundary that lets us see
+    *why* an on-device boot failed server-side without ever shipping media
+    off the student's machine — keep it that way.
+
+    Reused by --selftest, the proctor_boot diagnostic event, and the
+    pre-exam System Check (1.4)."""
+    try:
+        ort_version = ort.__version__ if ORT_AVAILABLE else None
+    except Exception:
+        ort_version = None
+
+    def _present(p: str) -> bool:
+        try:
+            return bool(p) and os.path.exists(p)
+        except Exception:
+            return False
+
+    models = {
+        "retina": RETINA_AVAILABLE,
+        "onnxruntime": ORT_AVAILABLE,
+        "yolo": YOLO_AVAILABLE,
+        "gaze": GAZE_AVAILABLE,
+        "ear": EAR_CLASSIFIER_AVAILABLE,
+        "insightface": INSIGHT_AVAILABLE,
+        "eyes": EYES_AVAILABLE,
+    }
+
+    return {
+        "python_version": platform.python_version(),
+        "platform": platform.system(),
+        "arch": platform.machine(),
+        "ort_version": ort_version,
+        "models": models,
+        "proctoring": _compute_proctoring_tier(models),
+        "audio_models": {
+            "vosk_en": _present(os.environ.get("PROCTOR_VOSK_EN_MODEL", "")),
+            "vosk_hi": _present(os.environ.get("PROCTOR_VOSK_HI_MODEL", "")),
+            "silero_vad": _present(os.environ.get("PROCTOR_SILERO_VAD", "")),
+        },
+        "model_errors": dict(_MODEL_ERRORS),
+    }
+
+
+def run_selftest() -> int:
+    """Initialise every model, print a JSON readiness report to stdout, exit.
+    No camera, no proctoring loop, no event POST. Used by Phase 0 diagnosis,
+    the System Check (1.4), and CI. Returns a process exit code (0 = the
+    critical detectors loaded; 1 = a hard dependency like onnxruntime is
+    missing so proctoring would run badly degraded)."""
+    # YOLO loads lazily — exercise it so the report reflects reality.
+    try:
+        _load_yolo()
+    except Exception as e:
+        _MODEL_ERRORS["yolo"] = type(e).__name__
+    report = _collect_readiness()
+    # Marker prefix so the Electron side can grep one line out of stdout.
+    print("SELFTEST:" + _json.dumps(report))
+    sys.stdout.flush()
+    # onnxruntime underpins gaze/yolo/ear; uniface underpins face detection.
+    # Either missing means a materially degraded exam, so flag non-zero.
+    return 0 if (report["models"]["onnxruntime"] and report["models"]["retina"]) else 1
+
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
     print(f"[PROCTOR] Session: {SESSION_ID}")
     print(f"[PROCTOR] Server:  {SERVER_URL}")
     print(f"[PROCTOR] Headless: {HEADLESS}")
+
+    # Privacy-safe boot diagnostic: model flags + versions + OS/arch, through
+    # the existing event pipeline (POST /api/v1/event). METADATA ONLY — never
+    # media or identity. Makes on-device boot observable server-side.
+    try:
+        _boot = _collect_readiness()
+        log_event("proctor_boot", "low", _json.dumps(_boot))
+        for _name, _ok in _boot["models"].items():
+            if not _ok:
+                log_event("model_load_failed", "low",
+                          _json.dumps({"model": _name,
+                                       "error": _MODEL_ERRORS.get(_name, "unavailable")}))
+        # Phase 1.6 — surface the active proctoring tier (full/reduced/minimal)
+        # so a degraded-but-running exam is visible to teachers (and, via the
+        # System Check, to the student) instead of silently losing coverage.
+        # Low severity: a reduced tier is informational, not a violation.
+        _tier = _boot.get("proctoring", {})
+        print(f"[PROCTOR] Proctoring tier: {_tier.get('tier', 'unknown')} "
+              f"(missing: {', '.join(_tier.get('missing', [])) or 'none'})")
+        log_event("proctoring_tier", "low", _json.dumps(_tier))
+    except Exception as _be:
+        print(f"[PROCTOR] boot diagnostic skipped: {_be}")
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -2925,5 +3207,8 @@ def _handle_sigterm(signum, frame):
     sys.exit(0)
 
 if __name__ == "__main__":
+    # --selftest: readiness report only (no camera / proctoring / event POST).
+    if "--selftest" in sys.argv:
+        sys.exit(run_selftest())
     signal.signal(signal.SIGTERM, _handle_sigterm)
     main()

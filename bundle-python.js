@@ -25,6 +25,15 @@ const path    = require('path');
 const os      = require('os');
 const { execSync, spawnSync } = require('child_process');
 
+// Single source of truth for the proctor package set. config.js#PIP_PACKAGES
+// is the canonical list (asserted ⊇ requirements-proctor.txt by
+// scripts/electron-smoke-test.mjs). Importing it here — rather than keeping a
+// second hand-maintained array — is what stops the build-time installer from
+// drifting (the bug where Windows shipped without uniface/vosk/etc. and fell
+// into a nondeterministic first-launch pip). config.js requires electron only
+// lazily, so this require is safe in a plain-Node build script.
+const { PIP_PACKAGES } = require('./config');
+
 const PYTHON_VERSION = '3.11.9';
 const PYTHON_ZIP_URL =
   `https://www.python.org/ftp/python/${PYTHON_VERSION}` +
@@ -48,56 +57,110 @@ const pbsUrl = (target) =>
   `https://github.com/astral-sh/python-build-standalone/releases/download/` +
   `${PBS_RELEASE}/cpython-${PYTHON_VERSION}+${PBS_RELEASE}-${target}-install_only.tar.gz`;
 
+// Which python-runtime/<target> matches the arch we're building ON. A
+// python-build-standalone interpreter only EXECUTES on its native arch, so
+// we can only pip-install into the matching one. The per-arch CI matrix
+// (arm64 on macos-14, x64 on macos-13) runs this once per arch; each runner
+// bakes its own wheels natively and ships only its own dmg. On a single-host
+// dev build the non-matching runtime is bundled package-less and the app
+// falls back to a first-launch venv there.
+function hostMacTarget() {
+  return process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+}
+
+// True if this interpreter already imports every proctor package — lets a
+// re-run skip the (slow) pip install. Mirrors checkPackagesReady in
+// lib/python-manager.js (import names differ from pip names in two places).
+function macPackagesReady(py) {
+  const importLine = [
+    'import cv2', 'import numpy', 'import requests', 'import uniface',
+    'import onnxruntime', 'import sounddevice', 'import vosk',
+    'import python_speech_features', 'import insightface',
+    'import websocket', 'import psutil',
+  ].join('; ');
+  const r = spawnSync(py, ['-c', importLine], { stdio: 'ignore' });
+  return r.status === 0;
+}
+
+// Bake the proctor wheels straight into the bundled interpreter's
+// site-packages (NOT a venv) so the shipped .app needs zero first-launch
+// pip. --prefer-binary avoids slow source builds when a wheel exists.
+function bakeMacPackages(destDir) {
+  const py = path.join(destDir, 'bin', 'python3');
+  if (macPackagesReady(py)) {
+    console.log('[pip] packages already present — skipping install.');
+    return;
+  }
+  console.log('[pip] Upgrading pip…');
+  execSync(`"${py}" -m pip install --upgrade pip`, { stdio: 'inherit' });
+  console.log(`[pip] Installing ${PIP_PACKAGES.length} proctor packages (several minutes)…`);
+  execSync(
+    `"${py}" -m pip install --prefer-binary --no-warn-script-location ` +
+    PIP_PACKAGES.map(p => `"${p}"`).join(' '),
+    { stdio: 'inherit' });
+  if (!macPackagesReady(py)) {
+    throw new Error('pip install completed but a package still fails to import — aborting bake.');
+  }
+  console.log('[pip] ✅ All proctor packages import cleanly.');
+}
+
 async function runMac() {
   console.log('\n=== Procta — macOS Python runtime bundler ===\n');
   fs.mkdirSync(MAC_RUNTIME_DIR, { recursive: true });
+
+  const hostTarget = hostMacTarget();
+  console.log(`[host] building on ${process.arch} → will bake packages into ${hostTarget}\n`);
 
   for (const target of MAC_TARGETS) {
     const destDir = path.join(MAC_RUNTIME_DIR, target);
     const py = path.join(destDir, 'bin', 'python3');
     if (fs.existsSync(py)) {
-      console.log(`[skip] ${target} already present.`);
-      continue;
+      console.log(`[skip] ${target} interpreter already present.`);
+    } else {
+      const tgz = path.join(os.tmpdir(), `pbs-${target}.tar.gz`);
+      console.log(`[1/3] Downloading ${target}…`);
+      await download(pbsUrl(target), tgz);
+
+      console.log('[2/3] Extracting…');
+      // tarball contains a top-level `python/` dir → extract to a temp,
+      // then relocate its contents to python-runtime/<target>/.
+      const tmpExtract = path.join(os.tmpdir(), `pbs-extract-${target}`);
+      fs.rmSync(tmpExtract, { recursive: true, force: true });
+      fs.mkdirSync(tmpExtract, { recursive: true });
+      execSync(`tar -xzf "${tgz}" -C "${tmpExtract}"`, { stdio: 'inherit' });
+
+      const extractedPython = path.join(tmpExtract, 'python');
+      if (!fs.existsSync(path.join(extractedPython, 'bin', 'python3'))) {
+        throw new Error(`Unexpected archive layout for ${target} — no python/bin/python3`);
+      }
+      fs.rmSync(destDir, { recursive: true, force: true });
+      fs.renameSync(extractedPython, destDir);
+
+      console.log(`[3/3] ${target} → ${destDir}`);
+      fs.rmSync(tmpExtract, { recursive: true, force: true });
+      try { fs.unlinkSync(tgz); } catch { /* best-effort cleanup */ }
     }
-    const tgz = path.join(os.tmpdir(), `pbs-${target}.tar.gz`);
-    console.log(`[1/3] Downloading ${target}…`);
-    await download(pbsUrl(target), tgz);
 
-    console.log('[2/3] Extracting…');
-    // tarball contains a top-level `python/` dir → extract to a temp,
-    // then relocate its contents to python-runtime/<target>/.
-    const tmpExtract = path.join(os.tmpdir(), `pbs-extract-${target}`);
-    fs.rmSync(tmpExtract, { recursive: true, force: true });
-    fs.mkdirSync(tmpExtract, { recursive: true });
-    execSync(`tar -xzf "${tgz}" -C "${tmpExtract}"`, { stdio: 'inherit' });
-
-    const extractedPython = path.join(tmpExtract, 'python');
-    if (!fs.existsSync(path.join(extractedPython, 'bin', 'python3'))) {
-      throw new Error(`Unexpected archive layout for ${target} — no python/bin/python3`);
+    // Only the matching-arch interpreter can be executed to run pip.
+    if (target === hostTarget) {
+      bakeMacPackages(destDir);
+    } else {
+      console.log(`[pip] ${target} != host arch — bundling interpreter only ` +
+                  `(its wheels are baked by the ${target} CI runner).`);
     }
-    fs.rmSync(destDir, { recursive: true, force: true });
-    fs.renameSync(extractedPython, destDir);
-
-    console.log(`[3/3] ${target} → ${destDir}`);
-    fs.rmSync(tmpExtract, { recursive: true, force: true });
-    try { fs.unlinkSync(tgz); } catch { /* best-effort cleanup */ }
   }
 
-  console.log('\n✅ macOS runtimes bundled under python-runtime/.');
-  console.log('   afterPack.js code-signs them; first launch creates the venv.\n');
+  console.log('\n✅ macOS runtime(s) bundled under python-runtime/.');
+  console.log('   afterPack.js code-signs the interpreter AND the baked');
+  console.log('   site-packages native libs; the app uses them with no');
+  console.log('   first-launch pip (venv path remains a dev fallback).\n');
 }
 
-const PACKAGES = [
-  'opencv-python',
-  'mediapipe',
-  'ultralytics',
-  'sounddevice',
-  'numpy',
-  'scipy',
-  'requests',
-  'insightface',
-  'onnxruntime',
-];
+// Build-time install set == config.js#PIP_PACKAGES (see require above).
+// ultralytics/torch were already dropped (YOLOv8n runs on onnxruntime from a
+// bundled weights/yolov8n.onnx); mediapipe/scipy are likewise not imported by
+// any .py and are no longer installed.
+const PACKAGES = PIP_PACKAGES;
 
 function download(url, dest) {
   // Only opens the destination stream on the final 200 — GitHub release

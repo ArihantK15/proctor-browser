@@ -13,6 +13,24 @@ def test_student_password_reset_otp_request_is_generic(client):
     send_mock.assert_awaited_once_with("student", "student@example.com")
 
 
+def test_logged_in_student_password_reset_otp_skips_turnstile_for_own_email(client):
+    with patch("app.routers.auth.require_student_account", new=AsyncMock(return_value={
+            "id": "student-1",
+            "email": "student@example.com",
+            "full_name": "Student",
+         })), \
+         patch("app.routers.auth.verify_or_403", new=AsyncMock()) as turnstile_mock, \
+         patch("app.routers.auth._track_b_send_password_reset_otp", new=AsyncMock()) as send_mock:
+        resp = client.post("/api/v1/student/auth/reset-request", json={
+            "email": "student@example.com",
+        })
+
+    assert resp.status_code == 200
+    assert resp.json()["sent"] is True
+    turnstile_mock.assert_not_awaited()
+    send_mock.assert_awaited_once_with("student", "student@example.com")
+
+
 def test_student_password_reset_otp_confirm_updates_password(client):
     user = {"id": "student-1", "email": "student@example.com", "full_name": "Student"}
     with patch("app.routers.auth._track_b_find_user_for_reset", new=AsyncMock(return_value=user)), \

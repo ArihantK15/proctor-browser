@@ -16,7 +16,7 @@ from ..models import TeacherSignupIn, TeacherLoginIn, RefreshIn, StudentSignupIn
 from ..auth import (
     issue_admin_token, _get_teacher_by_id, _get_teacher_by_uid,
     issue_student_auth_token, _get_student_account_by_id, _get_student_account_by_uid,
-    require_admin, require_student_account,
+    require_admin, require_student_account, clear_teacher_cache, clear_student_account_cache,
 )
 from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus
@@ -772,6 +772,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         await _atable("teachers").update({
             "email_verified_at": now_ist().isoformat(),
         }).eq("id", teacher["id"]).execute()
+        clear_teacher_cache(str(teacher["id"]))
         _auth_log.info("[TeacherLogin] Auto-verified existing account %s <%s>", safe(teacher.get("full_name", "")), safe(email))
         await record_auth_event("email_verified", request, "teacher", teacher["id"], email)
 
@@ -1191,6 +1192,7 @@ async def accept_org_invite(body: dict, request: Request):
                     "password_changed_at": now_ist().isoformat(),
                 })
         await _atable("teachers").update(update_fields).eq("id", teacher["id"]).execute()
+        clear_teacher_cache(str(teacher["id"]))
         teacher.update(update_fields)
     else:
         password_hash = None
@@ -1678,7 +1680,7 @@ async def _student_enrollments_for_account(account: dict, email: str, columns: s
         try:
             await (_atable("students")
                    .update({"account_id": account_id})
-                   .eq("email", email)
+                   .ilike("email", email)
                    .is_("account_id", "null")
                    .execute())
         except Exception:
@@ -2073,16 +2075,19 @@ async def verify_email(request: Request, token: str = ""):
                         "org_role": "teacher",
                         "status": "active",
                     }).eq("id", user_id).execute()
+                    clear_teacher_cache(str(user_id))
                     await _atable("org_invites").update({
                         "status": "accepted",
                         "accepted_at": datetime.now(timezone.utc).isoformat(),
                     }).eq("id", invite["id"]).execute()
                 else:
                     await _atable("teachers").update({"status": "active"}).eq("id", user_id).execute()
+                    clear_teacher_cache(str(user_id))
             else:
                 await _atable("org_invites").update({"status": "expired"}).eq("id", invite["id"]).execute()
         else:
             await _atable("teachers").update({"status": "active"}).eq("id", user_id).execute()
+            clear_teacher_cache(str(user_id))
 
     await record_auth_event("email_verified", request, kind, user_id, claims.get("email"))
 
@@ -2223,6 +2228,7 @@ async def email_2fa_enable(body: dict, request: Request):
     await _atable("teachers").update({
         "email_2fa_enabled_at": now_ist().isoformat(),
     }).eq("id", tid).execute()
+    clear_teacher_cache(tid)
     await record_auth_event("2fa_enabled", request, "teacher", tid, teacher.get("email", ""))
     return {"ok": True, "message": "Two-factor authentication enabled. You'll receive a code by email on your next sign-in."}
 
@@ -2249,6 +2255,7 @@ async def email_2fa_disable(body: dict, request: Request):
     await _atable("teachers").update({
         "email_2fa_enabled_at": None,
     }).eq("id", tid).execute()
+    clear_teacher_cache(tid)
     await record_auth_event("2fa_disabled", request, "teacher", tid, teacher.get("email", ""))
     return {"ok": True}
 
@@ -2777,6 +2784,7 @@ async def student_account_delete_confirm(request: Request, body: dict = Body(def
     if not ok:
         raise HTTPException(status_code=403, detail="Invalid or expired code")
     result = await _track_a_hybrid_delete_student_account(account, request)
+    clear_student_account_cache(account_id)
     response = JSONResponse({
         "deleted": True,
         "status": "deleted" if not result["errors"] else "partial",
@@ -2849,14 +2857,27 @@ async def _track_b_send_password_reset_otp(kind: str, email: str) -> None:
     send_2fa_otp_email(email, user.get("full_name") or "", code, purpose="password_reset")
 
 
+async def _student_reset_request_is_authenticated_for_email(request: Request, email: str) -> bool:
+    """Allow logged-in students to request their own reset OTP without CAPTCHA."""
+    try:
+        account = await require_student_account(request)
+    except HTTPException:
+        return False
+    except Exception:
+        _auth_log.debug("[password_reset_otp] student auth probe failed", exc_info=True)
+        return False
+    return (account.get("email") or "").strip().lower() == email
+
+
 @router.post("/api/v1/student/auth/reset-request")
 @limiter.limit("3/minute")
 async def student_password_reset_otp_request(body: dict, request: Request):
     started = time.monotonic()
-    await verify_or_403(request, (body or {}).get("captcha_token"))
     email = ((body or {}).get("email") or "").strip().lower()
     if not _looks_like_email(email):
         raise HTTPException(status_code=400, detail="A valid email is required")
+    if not await _student_reset_request_is_authenticated_for_email(request, email):
+        await verify_or_403(request, (body or {}).get("captcha_token"))
     try:
         await _track_b_send_password_reset_otp("student", email)
     finally:
@@ -3033,6 +3054,7 @@ async def student_email_change_confirm(request: Request, body: dict = Body(defau
         except Exception:
             _auth_log.warning("[EmailChange] Supabase email update failed", exc_info=True)
     await record_auth_event("email_changed", request, "student_account", account_id, new_email, {"old_email": old_email})
+    clear_student_account_cache(account_id)
     return {"ok": True, "email": new_email}
 
 

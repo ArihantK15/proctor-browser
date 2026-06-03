@@ -108,7 +108,7 @@ function showReset() {
   document.getElementById('forgot-link').style.display = 'none';
   document.getElementById('reset-view').style.display = 'block';
   document.getElementById('auth-heading').textContent = 'Reset password';
-  document.getElementById('auth-subheading').textContent = 'We\'ll email you a link to reset it';
+  document.getElementById('auth-subheading').textContent = 'We\'ll email you a 6-digit reset code';
   _initTurnstile();
 }
 
@@ -118,6 +118,10 @@ function cancelReset() {
   document.getElementById('reset-ok').style.display = 'none';
   document.getElementById('reset-email').disabled = false;
   document.getElementById('reset-btn').style.display = '';
+  document.getElementById('reset-btn').textContent = 'Send reset code';
+  document.getElementById('reset-confirm-wrap').style.display = 'none';
+  document.getElementById('reset-code').value = '';
+  document.getElementById('reset-new-password').value = '';
   // Restore login form
   document.getElementById('inp-email').closest('.fg').style.display = '';
   document.getElementById('inp-password').closest('.fg').style.display = '';
@@ -164,23 +168,61 @@ async function doReset() {
   try {
     const body = {email};
     if (_turnstileToken) body.captcha_token = _turnstileToken;
-    const r = await fetchWithTimeout(apiUrl('/api/v1/student-auth/password-reset'), {
+    const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/reset-request'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
     if (!r.ok) {
       const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || 'Failed to send reset link');
+      throw new Error(d.detail || 'Failed to send reset code');
     }
     document.getElementById('reset-ok').style.display = 'block';
     document.getElementById('reset-btn').style.display = 'none';
     document.getElementById('reset-email').disabled = true;
+    document.getElementById('reset-confirm-wrap').style.display = 'block';
   } catch(e) {
     errEl.textContent = e.message || 'Something went wrong, try again.';
     _resetTurnstile();
   } finally {
-    btn.disabled = false; btn.textContent = 'Send Reset Link';
+    btn.disabled = false; btn.textContent = 'Send reset code';
+  }
+}
+
+async function confirmResetOtp() {
+  const email = document.getElementById('reset-email').value.trim().toLowerCase();
+  const code = (document.getElementById('reset-code').value || '').trim();
+  const newPassword = document.getElementById('reset-new-password').value || '';
+  const errEl = document.getElementById('reset-err');
+  const okEl = document.getElementById('reset-ok');
+  errEl.textContent = '';
+  if (!/^\d{6}$/.test(code)) { errEl.textContent = 'Enter the 6-digit code'; return; }
+  if (!isStrongPassword(newPassword)) {
+    errEl.textContent = 'Password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol.';
+    return;
+  }
+  const btn = document.getElementById('reset-confirm-btn');
+  btn.disabled = true; btn.textContent = 'Updating...';
+  try {
+    const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/reset-confirm'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, code, new_password: newPassword}),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Could not update password');
+    }
+    document.getElementById('reset-code').value = '';
+    document.getElementById('reset-new-password').value = '';
+    document.getElementById('reset-confirm-wrap').style.display = 'none';
+    okEl.textContent = 'Password updated. You can log in now.';
+    okEl.style.display = 'block';
+    document.getElementById('reset-email').disabled = false;
+  } catch(e) {
+    errEl.textContent = e.message || 'Something went wrong, try again.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Update password';
   }
 }
 
@@ -716,7 +758,15 @@ async function showDashboard(account) {
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('me-name').textContent = account.full_name || account.email;
   renderReminderPreference(account.email_reminders_enabled);
-  await Promise.all([loadExams(), loadHistory(), loadAppeals(), loadReminderPreference()]);
+  await loadExams();
+  Promise.allSettled([loadHistory(), loadAppeals(), loadReminderPreference()])
+    .then((results) => {
+      results.forEach((res, idx) => {
+        if (res.status === 'rejected') {
+          console.warn('[dashboard] secondary load failed', idx, res.reason);
+        }
+      });
+    });
 }
 
 function fmtWhen(iso) {
@@ -764,13 +814,20 @@ async function loadExams(opts) {
   try {
     const r = await authed('/api/student/exams');
     if (r.status === 401) { clearStudentSession(); return; }
-    if (!r.ok) throw new Error('Failed to load exams');
+    if (!r.ok) {
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || `Failed to load exams (${r.status})`);
+    }
     const d = await r.json();
     renderExams(d.exams || []);
     _lastExamsFetch = Date.now();
   } catch (e) {
     if (!silent) {
-      container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>' + _escHtml(e.message||'') + '</div>';
+      const baseHint = API_BASE
+        ? `<div style="margin-top:10px;font-size:11px;color:var(--muted);font-family:var(--font-mono,monospace);word-break:break-all">API: <strong style="color:var(--text)">${_escHtml(API_BASE)}</strong></div>`
+        : '';
+      container.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load exams</strong>'
+        + _escHtml(e.message||'') + baseHint + '</div>';
     }
   } finally {
     _examsInflight = false;
@@ -1346,7 +1403,6 @@ function _showInviteMalformedBanner(){
 async function _acceptPendingInvite(){
   if (!_pendingInvite || !studentAuthed) return;
   const token = _pendingInvite.token;
-  _pendingInvite = null; // one-shot
   try {
     const r = await authed('/api/v1/invite/' + encodeURIComponent(token) + '/accept', {
       method: 'POST',
@@ -1356,15 +1412,24 @@ async function _acceptPendingInvite(){
     if (!r.ok) {
       const d = await r.json().catch(()=>({}));
       console.warn('[invite] accept failed:', r.status, d.detail || '');
+      if ([403, 404, 410].includes(r.status)) {
+        _pendingInvite = null;
+      }
+      const container = document.getElementById('exams-container');
+      if (container && r.status >= 500) {
+        container.innerHTML = '<div class="exams-empty"><strong>Invite not applied yet</strong>'
+          + _escHtml(d.detail || 'Please try opening the invite again in a moment.') + '</div>';
+      }
       return;
     }
-    // Reload so the dashboard picks up the newly-created students
-    // enrollment row (the backend upserts it during accept) with a
-    // clean auth + exam-list state. A silent loadExams retry here
-    // can mask 500/401 errors that leave "Couldn't load exams" on
-    // screen permanently.
-    console.log('[invite] accepted, reloading dashboard');
-    location.reload();
+    _pendingInvite = null; // one-shot after the roster row exists server-side.
+    // Do NOT reload here. The Electron lobby is served from the
+    // procta-lobby:// origin and keeps auth in memory; a full reload
+    // drops the bearer token and can bounce the student back to login
+    // right after accepting the invite. Refresh the exam list in-place.
+    console.log('[invite] accepted, refreshing exams');
+    await loadExams({ silent: false });
+    Promise.allSettled([loadHistory(), loadReminderPreference()]).catch(() => {});
   } catch(e) {
     console.error('[invite] accept error:', e);
   }

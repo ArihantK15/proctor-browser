@@ -467,10 +467,21 @@
         <input type="email" id="reset-email" autocomplete="email" placeholder="you@university.edu">
       </div>
       <div id="cf-turnstile-reset" style="margin:4px 0"></div>
-      <button class="btn btn-primary btn-block" id="reset-btn" data-action="doReset">Send Reset Link</button>
+      <button class="btn btn-primary btn-block" id="reset-btn" data-action="doReset">Send reset code</button>
+      <div id="reset-confirm-wrap" style="display:none;margin-top:12px">
+        <div class="fg">
+          <label>Reset code</label>
+          <input type="text" id="reset-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456">
+        </div>
+        <div class="fg">
+          <label>New password</label>
+          <input type="password" id="reset-new-password" autocomplete="new-password" placeholder="Min 10 chars, mixed case, number, symbol">
+        </div>
+        <button class="btn btn-primary btn-block" id="reset-confirm-btn" data-action="confirmResetOtp">Update password</button>
+      </div>
       <div class="auth-err" id="reset-err"></div>
       <div id="reset-ok" style="display:none;color:var(--emerald,#10b981);font-size:13px;margin-top:8px;text-align:center">
-        If that email is registered, a reset link has been sent.
+        If that email is registered, a 6-digit reset code has been sent.
       </div>
       <p style="text-align:center;margin-top:14px">
         <a href="#" data-action="cancelReset" style="color:var(--accent-light,#63dfc4);font-size:12px;text-decoration:none;font-weight:600">Back to login</a>

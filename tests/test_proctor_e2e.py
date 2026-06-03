@@ -5,7 +5,7 @@ Feeds synthetic frames through the YOLO worker, SAHI worker, and
 phone classification pipeline to verify the full data flow:
   frame → worker → result queue → coordinate scaling → phone classification
 
-Requires proctor.py dependencies (cv2, numpy, ultralytics, etc.).
+Requires proctor.py dependencies (cv2, numpy, onnxruntime, etc.).
 """
 import sys
 import os
@@ -35,7 +35,7 @@ TEST_ENV = {
     "SERVER_URL": "http://localhost:8000/event",
     "HEADLESS": True,
     "SKIP_ENROLLMENT": True,
-    "YOLO_MODEL_PATH": "bogus.pt",
+    "YOLO_MODEL_PATH": "bogus.onnx",
     "GAZE_MODEL_PATH": "bogus.onnx",
     "RETINA_MODEL_PATH": "bogus.onnx",
     "EVIDENCE_DIR": "/tmp/procta_smoke_evidence",
@@ -43,7 +43,7 @@ TEST_ENV = {
 for k, v in TEST_ENV.items():
     os.environ.setdefault(k, str(v))
 
-for mod_name in ["sounddevice", "uniface", "ultralytics", "insightface"]:
+for mod_name in ["sounddevice", "uniface", "insightface"]:
     if mod_name not in sys.modules:
         sys.modules[mod_name] = MagicMock()
 
@@ -51,89 +51,12 @@ import cv2
 import numpy as np
 
 
-class TestYOLOWorkerCoordinateScaling:
-    """Verify that the YOLO worker correctly scales detection coordinates
-    from the 416×416 resized image back to the original frame dimensions."""
-
-    def test_scaling_preserves_aspect_ratio_correctly(self):
-        """A box at the center of a 416×416 image should map to the
-        center of any original frame regardless of aspect ratio."""
-        from proctor import YoloWorker, CHEAT_IDS
-
-        worker = YoloWorker()
-        worker.start()
-
-        # Create a 640×480 frame (4:3 aspect ratio)
-        frame = np.zeros((480, 640, 3), dtype=np.uint8)
-
-        # We can't run real YOLO without a model, but we can verify
-        # the scaling math by checking the submit/get_result interface
-        # and the coordinate transformation in _run.
-
-        # The scaling formula is: x_orig = x_small * W / w_small
-        # where w_small = 416 always (the resize target).
-        W, H = 640, 480
-
-        # Simulate what _run does:
-        small = cv2.resize(frame, (416, 416))
-        h, w = small.shape[:2]  # both 416
-
-        # A box at the center of the small image
-        x1_s, y1_s, x2_s, y2_s = 180, 180, 236, 236
-
-        # Scale back to original frame
-        x1_o = int(x1_s * W / w)
-        y1_o = int(y1_s * H / h)
-        x2_o = int(x2_s * W / w)
-        y2_o = int(y2_s * H / h)
-
-        # Center of 640×480 is (320, 240)
-        center_x = (x1_o + x2_o) / 2
-        center_y = (y1_o + y2_o) / 2
-
-        # Should be close to center (allowing for integer rounding)
-        assert abs(center_x - W / 2) < 5
-        assert abs(center_y - H / 2) < 5
-
-        worker.stop()
-
-    def test_scaling_for_wide_frame(self):
-        """A 1280×720 frame (16:9) should scale correctly."""
-        W, H = 1280, 720
-        small = np.zeros((416, 416, 3), dtype=np.uint8)
-        h, w = small.shape[:2]
-
-        # Box covering the full small image
-        x1_s, y1_s, x2_s, y2_s = 0, 0, 416, 416
-        x1_o = int(x1_s * W / w)
-        y1_o = int(y1_s * H / h)
-        x2_o = int(x2_s * W / w)
-        y2_o = int(y2_s * H / h)
-
-        assert x1_o == 0
-        assert y1_o == 0
-        assert x2_o == W
-        assert y2_o == H
-
-    def test_scaling_for_narrow_frame(self):
-        """A 480×640 frame (portrait) should scale correctly."""
-        W, H = 480, 640
-        small = np.zeros((416, 416, 3), dtype=np.uint8)
-        h, w = small.shape[:2]
-
-        # Box at center of small image
-        x1_s, y1_s, x2_s, y2_s = 158, 158, 258, 258
-        x1_o = int(x1_s * W / w)
-        y1_o = int(y1_s * H / h)
-        x2_o = int(x2_s * W / w)
-        y2_o = int(y2_s * H / h)
-
-        # Center of 480×640 is (240, 320)
-        center_x = (x1_o + x2_o) / 2
-        center_y = (y1_o + y2_o) / 2
-
-        assert abs(center_x - W / 2) < 3
-        assert abs(center_y - H / 2) < 3
+# NOTE: the old TestYOLOWorkerCoordinateScaling tests were removed here.
+# They re-implemented the PRE-ONNX 416-square-resize math INLINE and
+# asserted on their own arithmetic — they never called proctor and would
+# have passed even if detection were broken. Real coverage of the migrated
+# ONNX decode / letterbox / NMS / aspect-handling now lives in
+# tests/test_proctor_onnx_detection.py.
 
 
 class TestPhoneClassificationIntegration:

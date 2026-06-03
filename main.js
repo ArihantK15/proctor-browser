@@ -451,7 +451,7 @@ app.whenReady().then(async () => {
   // ── Setup gate ──────────────────────────────────────────────────
   // Until setup is complete, we DO NOT open the lobby. The user
   // shouldn't be able to click around (try to sign in, start an
-  // exam, etc.) while pip is still installing torch in the
+  // exam, etc.) while pip is still installing the AI packages in the
   // background. On a fresh install: setup window first → lobby
   // when done. On a re-launch with packages already there: very
   // brief "Checking…" splash → lobby. Either way one window at a
@@ -463,7 +463,7 @@ app.whenReady().then(async () => {
   //
   // Gated on app.isPackaged: in dev (`npm start`, the smoke test) the
   // developer manages their own Python env, and we must NOT kick off a
-  // multi-GB pip install (torch) into a throwaway venv on every launch.
+  // multi-hundred-MB pip install into a throwaway venv on every launch.
   // This preserves the prior behaviour where unpackaged runs never ran
   // setup. Real installs always provision.
   const needsSetupGate = app.isPackaged
@@ -482,12 +482,16 @@ app.whenReady().then(async () => {
     // reach the lobby.
     try { createSetupWindow(); } catch(e) { console.error('[Setup] createSetupWindow threw:', e.message); }
     try {
-      // 10-min ceiling on the whole setup flow. On an already-set-up
+      // 16-min ceiling on the whole setup flow. Must stay ABOVE the
+      // inner pip child's own 15-min timeout (python-manager runSetup),
+      // otherwise this race would fire first, close the setup window and
+      // open the lobby while pip is still running detached — letting a
+      // student start an exam before packages finish. On an already-set-up
       // install runSetup short-circuits in ~1s; on a fresh install it
       // does the bundled pip + audio model download.
       await Promise.race([
         runSetup(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Setup timed out')), 600_000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Setup timed out')), 960_000)),
       ]);
       await new Promise(r => setTimeout(r, needSetup ? 1500 : 400));
     } catch(e) { console.error('[Setup] Failed:', e); }

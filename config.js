@@ -161,7 +161,9 @@ function appRequires() { return require('electron').app; }
 // for separately).
 const PIP_PACKAGES = [
   'opencv-python', 'numpy', 'requests',
-  'uniface', 'onnxruntime', 'ultralytics',
+  'uniface', 'onnxruntime',
+  // YOLOv8n now runs on onnxruntime from a bundled weights/yolov8n.onnx —
+  // we no longer install ultralytics (which dragged in torch, ~2 GB).
   'sounddevice',
   // Phase 75 — audio detection
   'vosk', 'python_speech_features',

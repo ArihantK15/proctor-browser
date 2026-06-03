@@ -131,7 +131,7 @@ async def remove_member(teacher_id: str, request: Request):
     a high-blast-radius action; locking it behind a fresh password
     prompt closes the stolen-session impersonation path.
     """
-    from ..auth.admin_auth import require_reauth_or_403
+    from ..auth.admin_auth import clear_teacher_cache, require_reauth_or_403
     admin = await require_admin(request)
     if admin.get("org_role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Only admins can remove members")
@@ -153,6 +153,7 @@ async def remove_member(teacher_id: str, request: Request):
     # revokes below stay user-scoped (no org dimension on those rows).
     await _atable("teachers").update({"org_id": None, "org_role": "teacher"})\
         .eq("id", teacher_id).eq("org_id", str(org_id)).execute()
+    clear_teacher_cache(teacher_id)
     # Revoke all active auth sessions and refresh tokens so the removed
     # member cannot continue using previously issued JWTs
     await _atable("auth_sessions").update({"revoked_at": now_ist().isoformat()})\
@@ -180,7 +181,7 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
     # P1.2 helper — same fail-closed semantics, accepts body field or
     # X-Reauth-Token header. Role-change endpoints lose data flow on
     # mis-issued tokens, hence the gate.
-    from ..auth.admin_auth import require_reauth_or_403
+    from ..auth.admin_auth import clear_teacher_cache, require_reauth_or_403
     require_reauth_or_403(body, str(teacher["id"]), request=request)
 
     target = await _atable("teachers").select("id,org_role").eq("id", teacher_id).eq("org_id", str(org_id)).limit(1).execute()
@@ -195,6 +196,7 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
     # have their role changed by an admin who no longer manages them.
     await _atable("teachers").update({"org_role": role})\
         .eq("id", teacher_id).eq("org_id", str(org_id)).execute()
+    clear_teacher_cache(teacher_id)
     return {"ok": True, "role": role}
 
 

@@ -41,6 +41,26 @@ function signBundledPython(appPath) {
     console.log('[afterPack] no python-runtime/ to sign (dev/empty bundle).');
     return;
   }
+  // Recursively collect every Mach-O that needs an ad-hoc signature under a
+  // directory: native extension modules (*.so) and shared libs (*.dylib).
+  // The baked wheels (numpy, opencv, onnxruntime, insightface) ship dozens
+  // of these in site-packages, and on Apple Silicon an *executed* Mach-O
+  // must carry a valid signature — `codesign --deep` on the .app does NOT
+  // reach Resources, so we sign them here, BEFORE the .app is sealed.
+  function collectMachO(dir, out) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      try {
+        if (e.isSymbolicLink()) continue;          // sign real files, not links
+        if (e.isDirectory()) { collectMachO(p, out); continue; }
+        if (/\.(so|dylib)$/.test(e.name)) out.push(p);
+      } catch { /* unreadable entry — skip */ }
+    }
+  }
+
   const targets = [];
   for (const arch of fs.readdirSync(runtimeRoot)) {
     const binDir = path.join(runtimeRoot, arch, 'bin');
@@ -57,6 +77,16 @@ function signBundledPython(appPath) {
         if (/^libpython.*\.dylib$/.test(f)) targets.push(path.join(libDir, f));
       }
     } catch { /* no lib dir — skip */ }
+    // Baked wheels live in lib/python3.x/site-packages — sign all their
+    // native .so/.dylib (recursively). This is what makes the no-venv
+    // baked-bundle path load on Apple Silicon.
+    try {
+      for (const lp of fs.readdirSync(libDir)) {
+        if (/^python3\.\d+$/.test(lp)) {
+          collectMachO(path.join(libDir, lp, 'site-packages'), targets);
+        }
+      }
+    } catch { /* no site-packages — empty/dev bundle, skip */ }
   }
   for (const t of targets) {
     try {

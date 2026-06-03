@@ -706,12 +706,6 @@ async def accept_invite(token: str, request: Request):
     if not inv_email or inv_email != stu_email:
         raise HTTPException(status_code=403, detail="This invite is for a different email address")
 
-    await _atable("student_invites").update({
-        "status":      InviteStatus.ACCEPTED,
-        "accepted_at": datetime.now(timezone.utc).isoformat(),
-        "student_id":  str(student["id"]),
-    }).eq("token", token).execute()
-
     try:
         enroll_row = {
             "email":       inv.get("email"),
@@ -727,7 +721,17 @@ async def accept_invite(token: str, request: Request):
             on_conflict="roll_number,teacher_id",
         ).execute()
     except Exception as e:
-        _pub_log.warning("[accept_invite] failed to upsert student enrollment: %s", e)
+        _pub_log.exception("[accept_invite] failed to upsert student enrollment")
+        raise HTTPException(
+            status_code=500,
+            detail="Invite could not be applied. Please try again or ask your teacher to resend it.",
+        ) from e
+
+    await _atable("student_invites").update({
+        "status":      InviteStatus.ACCEPTED,
+        "accepted_at": datetime.now(timezone.utc).isoformat(),
+        "student_id":  str(student["id"]),
+    }).eq("token", token).execute()
 
     return {
         "ok":          True,

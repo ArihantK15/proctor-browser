@@ -49,7 +49,7 @@ for k, v in TEST_ENV.items():
     os.environ.setdefault(k, str(v))
 
 # Patch modules that proctor.py tries to import at top-level
-for mod_name in ["sounddevice", "uniface", "ultralytics", "insightface"]:
+for mod_name in ["sounddevice", "uniface", "onnxruntime", "insightface"]:
     if mod_name not in sys.modules:
         sys.modules[mod_name] = MagicMock()
 

@@ -57,13 +57,14 @@ class _InviteStub:
     """
 
     def __init__(self, invites=None, counters=None, teachers=None,
-                 students=None, exam_configs=None):
+                 students=None, exam_configs=None, fail_students_upsert=False):
         self.invites = list(invites or [])
         self.counters = list(counters or [])
         self.teachers = list(teachers or [
             {"id": "teacher-1", "email": "t@p.com", "full_name": "T One"}])
         self.students = list(students or [])
         self.exam_configs = list(exam_configs or [])
+        self.fail_students_upsert = fail_students_upsert
 
     # ── helpers ────────────────────────────────────────────────────
     def _apply_filters(self, rows, eqs, ins=None):
@@ -142,6 +143,8 @@ class _InviteStub:
                 ds.extend(new)
                 return MagicMock(data=new)
             if chain._op == "upsert":
+                if table == "students" and self.fail_students_upsert:
+                    raise RuntimeError("students upsert failed")
                 new = chain._payload if isinstance(chain._payload, list) \
                     else [chain._payload]
                 # If on_conflict columns are set, find and update matching rows
@@ -426,6 +429,36 @@ class TestInviteLanding:
 
 
 class TestInviteExamLaunch:
+
+    def test_accept_invite_does_not_mark_accepted_if_enrollment_fails(self, client):
+        """Invite acceptance must be atomic from the student's perspective."""
+        stub = _InviteStub(
+            invites=[{
+                "id": "i-accept", "token": "tok-accept",
+                "teacher_id": "teacher-1", "roll_number": "ACCEPT1",
+                "email": "student@school.edu", "full_name": "Student One",
+                "exam_id": "exam-demo", "status": "sent",
+                "access_code": "DEMO1",
+                "expires_at": _iso(datetime.now(timezone.utc) + timedelta(days=1)),
+            }],
+            fail_students_upsert=True,
+        )
+        patches = _patch(stub)
+        student_account = {
+            "id": "acct-1",
+            "email": "student@school.edu",
+            "full_name": "Student One",
+        }
+        with patches[0] as mock_table, patches[1], \
+             patch("app.routers.public.require_student_account", return_value=student_account):
+            mock_table.side_effect = stub
+            r = client.post("/api/v1/invite/tok-accept/accept")
+
+        assert r.status_code == 500, r.text
+        assert stub.students == []
+        assert stub.invites[0]["status"] == "sent"
+        assert not stub.invites[0].get("accepted_at")
+        assert not stub.invites[0].get("student_id")
 
     def test_validate_student_preserves_invite_exam_id_on_auto_enroll(self, client):
         """Invite-only launch must roster the student into the invited exam."""

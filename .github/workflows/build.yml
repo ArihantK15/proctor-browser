@@ -100,12 +100,21 @@ jobs:
       # privacy/offline goal). Uses only Python stdlib (urllib/zipfile), so the
       # runner's preinstalled Python is enough. PROCTA_WEIGHTS_DIR is left unset
       # → the script extracts into ROOT/weights, exactly what we want to bundle.
-      - name: Bundle on-device audio models into weights/
+      - name: Bundle on-device audio models into weights/ (best-effort)
         shell: bash
         run: |
           PY=$(command -v python3 || command -v python)
           echo "Using Python: $PY"
-          "$PY" scripts/download_audio_models.py
+          # Best-effort: baking the Vosk/Silero models for an OFFLINE first
+          # launch is an optimization, not load-bearing. download_audio_models.py
+          # exits 1 on any single model hiccup (transient network / runner
+          # flake), which previously failed the WHOLE release build. If it
+          # fails, lib/python-manager.js downloads the models on first launch
+          # instead (or degrades to the RMS-only voice path) — see the
+          # "audio models bundled in app — skipping download" branch. So a
+          # model miss must NOT block shipping the installer.
+          "$PY" scripts/download_audio_models.py \
+            || echo "::warning::audio model bundling failed — app will fetch them at first launch (RMS-only fallback meanwhile)"
 
       - name: Build (macOS — no publish; gated below)
         if: matrix.target == 'mac'

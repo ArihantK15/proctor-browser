@@ -392,24 +392,29 @@ const _MIME = {
 
 function _registerLobbyProtocol() {
   require('electron').protocol.handle('procta-lobby', async (request) => {
-    let urlPath;
-    try { urlPath = new URL(request.url).pathname; }
+    let u;
+    try { u = new URL(request.url); }
     catch { return new Response('bad url', { status: 400 }); }
-    // procta-lobby://lobby/student.html → urlPath="/student.html"
-    // procta-lobby://lobby/static/favicon.svg → urlPath="/static/favicon.svg"
-    // Strip leading slash + optional leading "static/" prefix (so
-    // absolute paths in student.html like /static/favicon.svg resolve)
-    // + clamp to a single component so a crafted URL can't escape
-    // app/static/ via ".." segments.
-    let rel = urlPath.replace(/^\/+/, '');
+    // host 'exam' serves the kiosk exam renderer (renderer/); any other host
+    // (e.g. 'lobby') serves the student dashboard (app/static/). BOTH are read
+    // via fs.readFile — the asar-patched path that WORKS where the exam
+    // window's old loadFile() ERR_FILE_NOT_FOUND'd on packaged Windows builds
+    // (the same failure that moved the lobby onto this scheme).
+    //   procta-lobby://lobby/student.html        → app/static/student.html
+    //   procta-lobby://lobby/static/favicon.svg  → app/static/favicon.svg
+    //   procta-lobby://exam/index.html           → renderer/index.html
+    let rel = u.pathname.replace(/^\/+/, '');
     if (rel.startsWith('static/')) rel = rel.slice('static/'.length);
+    // Clamp to a single component so a crafted URL can't escape the root
+    // via ".." segments.
     const filename = rel.replace(/[\\/].*$/, '');
     if (!filename || filename === '..') {
       return new Response('not found', { status: 404 });
     }
+    const root = u.host === 'exam' ? ['renderer'] : ['app', 'static'];
     const candidates = [
-      _path.join(__dirname, 'app', 'static', filename),
-      _path.join(process.resourcesPath || '', 'app', 'static', filename),
+      _path.join(__dirname, ...root, filename),
+      _path.join(process.resourcesPath || '', ...root, filename),
     ];
     for (const filepath of candidates) {
       try {

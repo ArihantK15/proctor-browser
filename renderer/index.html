@@ -697,6 +697,39 @@
      aria-label="Emergency unlock — release kiosk mode">Emergency unlock</div>
 
 <script>
+// ── Global safety net ─────────────────────────────────────────────
+// The exam flow is a long-lived single page with many fire-and-forget
+// async calls (heartbeat, bulk-save, violation logging). A stray
+// unhandled rejection or error here used to vanish into the console with
+// no breadcrumb — making "the exam misbehaved" reports impossible to
+// triage. Catch them centrally: log to the console, and best-effort
+// report to the server (throttled, never throwing) so there's a record.
+// This never alters exam UX — it's purely a diagnostic backstop.
+(function(){
+  let _lastReport = 0;
+  function _reportClientError(kind, detail){
+    try {
+      console.error('['+kind+']', detail);
+      const now = Date.now();
+      if (now - _lastReport < 10000) return; // throttle: at most 1/10s
+      _lastReport = now;
+      if (window.proctor && window.proctor.logEvent && typeof sessionId !== 'undefined' && sessionId) {
+        window.proctor.logEvent({
+          session_id: sessionId, event_type: 'client_error', severity: 'low',
+          details: (kind + ': ' + detail).slice(0, 300)
+        }).catch(function(){});
+      }
+    } catch(_) { /* a crash handler must never crash */ }
+  }
+  window.addEventListener('unhandledrejection', function(e){
+    const r = e && e.reason;
+    _reportClientError('unhandledrejection', (r && (r.stack || r.message)) || String(r));
+  });
+  window.addEventListener('error', function(e){
+    _reportClientError('window-error', (e && e.message) || 'unknown');
+  });
+})();
+
 // Server URL is fetched from the Electron main process via IPC so it
 // respects the PROCTOR_SERVER_URL env var and works in dev/prod.
 const SERVER = (window.proctor && window.proctor.getServerUrl)
@@ -1662,6 +1695,13 @@ async function finishCalibration() {
         document.getElementById('countdown').textContent = 'Closing in 3 seconds...';
         setTimeout(() => { if (window.proctor) window.proctor.adminExit('AUTO_CLOSE'); }, 3000);
       });
+      if (window.proctor.onProctorFailed) {
+        window.proctor.onProctorFailed(({ detail }) => {
+          showBanner('⚠ Proctoring couldn\'t start: ' +
+            (detail || 'close any app using your camera, then restart the exam.'),
+            '#c0392b');
+        });
+      }
     } catch (e) { console.error('[Cal] onViolation/onForceSubmit setup failed:', e); }
   }
 
@@ -1929,7 +1969,28 @@ async function startExam(){
 
   }catch(e){
     console.error('startExam:', e);
-    showModal('Could not load exam. Contact examiner.');
+    // Recoverable failure (most often getQuestions rejecting on a flaky
+    // network or a transient 5xx). The student is in the locked exam
+    // window with no browser chrome, so a dead-end "OK" modal would trap
+    // them until panic-unlock. Offer a Retry that re-runs startExam.
+    //
+    // Only offer Retry while !examActive — i.e. the failure landed BEFORE
+    // the exam actually started. On that path nothing is initialised yet
+    // (no timer, no bulk-save/heartbeat, listeners gated by antiCheatBound)
+    // and proctor/polling were started before startExam, so a retry just
+    // re-fetches questions — fully safe. If examActive is already true the
+    // failure was in late setup after startTimer(); re-running would leak a
+    // second timer/interval (none of those have double-start guards), so we
+    // show a plain acknowledgement instead.
+    if(!examActive){
+      showModal(
+        'Could not load exam',
+        'We couldn\'t load your exam questions. Check your internet connection and try again. If this keeps happening, contact your examiner.',
+        () => { setTimeout(startExam, 300); }
+      );
+    } else {
+      showModal('Could not load exam. Contact examiner.');
+    }
   }
 }
 
@@ -2473,6 +2534,12 @@ async function submitExam(timeUp=false){
 }
 
 async function retrySubmit(auto=false){
+  // Double-submit guard: the manual Retry button and the auto-retry-on-
+  // reconnect path can both reach here. _maybeRetrySubmitOnReconnect()
+  // already checks submitInFlight, but the manual button does not — so a
+  // fast double-tap (or a manual tap landing right as the online event
+  // fires) could otherwise launch two concurrent _doSubmit() calls.
+  if(submitInFlight) return;
   if(!lastSubmitPayload) lastSubmitPayload = _loadSubmitPayload();
   if(!lastSubmitPayload) return;
   document.getElementById('retry-submit-btn').style.display='none';
@@ -2963,13 +3030,29 @@ function chatUpdateBadge(){
     fab.classList.remove('unread');
   }
 }
-function showModal(title, message){
+let _modalRetryCb = null;
+function showModal(title, message, retryCb){
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').textContent = message;
+  // Optional recovery: when a caller passes a retry callback we surface a
+  // "Retry" button so a transient failure (e.g. getQuestions rejecting on
+  // a flaky network mid-exam) isn't a dead end that traps the student in
+  // a locked window with only "OK". Without a callback the modal stays a
+  // plain acknowledgement.
+  _modalRetryCb = (typeof retryCb === 'function') ? retryCb : null;
+  const retryBtn = document.getElementById('modal-retry-btn');
+  if(retryBtn) retryBtn.style.display = _modalRetryCb ? '' : 'none';
   document.getElementById('modal-overlay').style.display = 'flex';
 }
 function closeModal(){
   document.getElementById('modal-overlay').style.display = 'none';
+  _modalRetryCb = null;
+}
+function modalRetry(){
+  const cb = _modalRetryCb;
+  _modalRetryCb = null;
+  document.getElementById('modal-overlay').style.display = 'none';
+  if(cb){ try { cb(); } catch(e){ console.error('[modalRetry]', e); } }
 }
 </script>
 <div id="modal-overlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
@@ -2977,6 +3060,7 @@ function closeModal(){
     <div class="modal-title" id="modal-title"></div>
     <div class="modal-body" id="modal-body"></div>
     <div class="modal-actions">
+      <button class="modal-btn" id="modal-retry-btn" style="display:none" onclick="modalRetry()">Retry</button>
       <button class="modal-btn" onclick="closeModal()">OK</button>
     </div>
   </div>

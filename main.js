@@ -269,7 +269,10 @@ function _writeCrashLog(kind, err) {
       `${(err && err.stack) || err}\n`;
     fs.appendFileSync(path.join(app.getPath('logs'), 'crash.log'), line);
   } catch(e) { /* logs dir may not exist pre-ready — best effort */ }
-  console.error(`[crash] ${kind}:`, (err && err.stack) || err);
+  // Constant format string (kind/err passed as args) — keeps Semgrep's
+  // unsafe-formatstring rule satisfied without a suppression; both are
+  // internal values but a literal format string is the correct shape.
+  console.error('[crash] %s:', kind, (err && err.stack) || err);
 }
 
 let _handlingFatal = false;

@@ -155,7 +155,8 @@
       "runAfterFinish": true,
       "include": "build/installer.nsh",
       "deleteAppDataOnUninstall": false,
-      "differentialPackage": false
+      "differentialPackage": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     }
   }
 }

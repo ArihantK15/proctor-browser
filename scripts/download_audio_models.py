@@ -31,6 +31,18 @@ import urllib.error
 import zipfile
 from pathlib import Path
 
+# Windows consoles default to cp1252, which CANNOT encode the ↓ ✓ ✗ → glyphs
+# in the progress prints below — print() then raises UnicodeEncodeError and
+# crashes the script. At build time CI masks it (best-effort `|| echo`), but a
+# real Windows student hits it at first-launch model download → the crash
+# silently disables audio proctoring. Force UTF-8 output (errors='replace' so
+# even an exotic console can never crash this bootstrap).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 # In a packaged app the script lives under <resources>/scripts, so
 # ROOT/weights resolves to <resources>/weights — which is READ-ONLY on a

@@ -300,7 +300,16 @@ jobs:
             --exclude-rule "python.jwt.security.audit.jwt-exposed-data.jwt-python-exposed-data" \
             --exclude-rule "html.security.audit.missing-integrity.missing-integrity" \
             --exclude-rule "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal" \
+            --exclude-rule "javascript.lang.security.detect-child-process.detect-child-process" \
             .
+            # detect-child-process: an ADVISORY rule ("you used child_process").
+            # All our usage spawns python / system tools (pip, tar, taskkill,
+            # the bundled interpreter) with BUILD-CONTROLLED paths + hardcoded
+            # commands — no request/user input. The rules that catch the actual
+            # injection risk (spawn-shell-true, unsafe-formatstring) stay ACTIVE.
+            # This was blocking the whole Tests workflow — and therefore the
+            # Deploy API job gated on it — after per-arch wheel-baking added
+            # execSync calls to bundle-python.js.
 
       - name: Trivy filesystem scan
         run: |

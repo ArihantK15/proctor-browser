@@ -5,7 +5,15 @@
 // window. Nothing here runs inside the kiosk-locked exam window.
 const { contextBridge, ipcRenderer } = require('electron');
 
-const SERVER_URL = process.env.PROCTOR_SERVER_URL || 'https://app.procta.net';
+// NOTE: this preload runs with `sandbox: true` (see kiosk-manager.js). A
+// sandboxed preload only gets a PARTIAL `process` polyfill — `process.env`
+// may be undefined, in which case a bare `process.env.X` THROWS at load,
+// aborting the script before contextBridge runs and leaving the lobby with
+// no `window.procta_native` (students can't launch exams). Read it
+// defensively so it can never throw; prod uses the default URL anyway.
+const SERVER_URL =
+  (typeof process !== 'undefined' && process.env && process.env.PROCTOR_SERVER_URL) ||
+  'https://app.procta.net';
 
 contextBridge.exposeInMainWorld('procta_native', {
   isLobby: true,

@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'">
   <title>Procta — Proctored Exam</title>
   <!-- Non-blocking font load — prevents white screen if Google Fonts is slow/blocked -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1581,6 +1582,42 @@ function calHandleReading(r) {
   }
 }
 
+// Bind the violation / force-submit / proctor-failed IPC listeners.
+// Shared by BOTH proctor-start paths in finishCalibration (the normal
+// path and the no-centre fallback) so neither can start the proctor
+// without these wired up — otherwise a teacher force-submit, a live
+// violation, or a 'proctor-failed' would be silently dropped on whichever
+// path forgot to register them. Must run BEFORE startProctor/startPolling
+// because ipcRenderer.on does not queue for late listeners. Idempotent
+// enough for our use: each path calls it exactly once.
+function _bindProctorListeners() {
+  if (!window.proctor) return;
+  try {
+    window.proctor.onViolation(({ type, details, severity }) => {
+      const color = severity === 'high' ? '#c0392b' : '#e67e22';
+      showBanner(`⚠ ${type.replace(/_/g, ' ')}: ${details}`, color);
+    });
+    window.proctor.onForceSubmit(() => {
+      examActive = false;
+      teardownExamTimers(); // clear timer + bulk-save + heartbeat + chat
+      const _dh = document.getElementById('done-heading'); _dh.className = 'info'; _dh.textContent = 'Exam Closed';
+      document.getElementById('done-subtext').textContent = 'Your examiner has ended this session.';
+      document.getElementById('final-score').textContent = 'Submitted';
+      document.getElementById('done-note').style.display = 'none';
+      showScreen('done');
+      document.getElementById('countdown').textContent = 'Closing in 3 seconds...';
+      setTimeout(() => { if (window.proctor) window.proctor.adminExit('AUTO_CLOSE'); }, 3000);
+    });
+    if (window.proctor.onProctorFailed) {
+      window.proctor.onProctorFailed(({ detail }) => {
+        showBanner('⚠ Proctoring couldn\'t start: ' +
+          (detail || 'close any app using your camera, then restart the exam.'),
+          '#c0392b');
+      });
+    }
+  } catch (e) { console.error('[Cal] proctor listener setup failed:', e); }
+}
+
 async function finishCalibration() {
   calSetStatus('Calibration complete! Starting exam...');
   document.getElementById('cal-pf').style.width = '100%';
@@ -1596,6 +1633,7 @@ async function finishCalibration() {
     console.warn('[Cal] centre reading missing — proceeding without preset biases');
     if(window.proctor){
       try { await window.proctor.stopCalibration({ biases: null }); } catch(_) {}
+      _bindProctorListeners(); // wire force-submit/violation/failed BEFORE start
       try { await new Promise(r => setTimeout(r, 800)); await window.proctor.startProctor({ sessionId }); } catch(_) {}
       try { await window.proctor.startPolling({ sessionId }); } catch(_) {}
     }
@@ -1672,6 +1710,13 @@ async function finishCalibration() {
       });
     } catch (e) {}
 
+    // Wire force-submit / violation / proctor-failed listeners BEFORE the
+    // start calls — ipcRenderer.on does not queue for late listeners, so a
+    // fast first-tick force-submit or an early 'proctor-failed' would be
+    // dropped otherwise. Shared helper keeps this path and the no-centre
+    // fallback in lock-step.
+    _bindProctorListeners();
+
     try {
       await new Promise(r => setTimeout(r, 800));
       await window.proctor.startProctor({ sessionId });
@@ -1679,30 +1724,6 @@ async function finishCalibration() {
     try {
       await window.proctor.startPolling({ sessionId });
     } catch (e) { console.error('[Cal] startPolling failed:', e); }
-    try {
-      window.proctor.onViolation(({ type, details, severity }) => {
-        const color = severity === 'high' ? '#c0392b' : '#e67e22';
-        showBanner(`⚠ ${type.replace(/_/g, ' ')}: ${details}`, color);
-      });
-      window.proctor.onForceSubmit(() => {
-        examActive = false;
-        clearInterval(timerInt);
-        const _dh = document.getElementById('done-heading'); _dh.className = 'info'; _dh.textContent = 'Exam Closed';
-        document.getElementById('done-subtext').textContent = 'Your examiner has ended this session.';
-        document.getElementById('final-score').textContent = 'Submitted';
-        document.getElementById('done-note').style.display = 'none';
-        showScreen('done');
-        document.getElementById('countdown').textContent = 'Closing in 3 seconds...';
-        setTimeout(() => { if (window.proctor) window.proctor.adminExit('AUTO_CLOSE'); }, 3000);
-      });
-      if (window.proctor.onProctorFailed) {
-        window.proctor.onProctorFailed(({ detail }) => {
-          showBanner('⚠ Proctoring couldn\'t start: ' +
-            (detail || 'close any app using your camera, then restart the exam.'),
-            '#c0392b');
-        });
-      }
-    } catch (e) { console.error('[Cal] onViolation/onForceSubmit setup failed:', e); }
   }
 
   setTimeout(startExam, 500);
@@ -2270,6 +2291,11 @@ async function doBulkSave(){
 // ABANDONED after 5 min of silence so admins can see disconnects
 // and the reaper can auto-submit answers on behalf of the student.
 let heartbeatTimer = null;
+// True only while we're sitting on the "submit failed — retrying" screen.
+// The exam clock and anti-cheat are off (examActive=false) at that point,
+// but we still want heartbeats so the server reaper doesn't flag the
+// session as disconnected mid-retry. doHeartbeat() honours this flag.
+let _submitRetryActive = false;
 
 function startHeartbeat(){
   if(heartbeatTimer) clearInterval(heartbeatTimer);
@@ -2281,6 +2307,25 @@ function stopHeartbeat(){
   if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
 }
 
+// Single teardown for every exam-end path (normal submit, teacher
+// force-submit). Clears every long-lived renderer resource so nothing
+// keeps firing after the exam is over. Idempotent — safe to call twice.
+// Does NOT touch examActive (callers own that) or stop the proctor
+// subprocess (that's stopProctor(), called only once the answers are
+// safely submitted).
+function teardownExamTimers(){
+  if(bulkSaveTimer){ clearInterval(bulkSaveTimer); bulkSaveTimer = null; }
+  if(saveDebounceTimer){ clearTimeout(saveDebounceTimer); saveDebounceTimer = null; }
+  stopHeartbeat();
+  if(timerInt){ clearInterval(timerInt); timerInt = null; }
+  _submitRetryActive = false;
+  try{
+    chatDisconnect();
+    const fab=document.getElementById('chat-fab'); if(fab) fab.classList.remove('show');
+    const panel=document.getElementById('chat-panel'); if(panel) panel.classList.remove('open');
+  }catch(_){}
+}
+
 // Number of consecutive heartbeat failures observed by the renderer.
 // Used purely for diagnostic logging — the server-side reaper is the
 // authoritative source of truth for session liveness. Surfacing the
@@ -2290,7 +2335,8 @@ function stopHeartbeat(){
 // don't throw.
 let _heartbeatFailStreak = 0;
 async function doHeartbeat(){
-  if(!sessionId || !examActive) return;
+  if(!sessionId) return;
+  if(!examActive && !_submitRetryActive) return;
   try{
     const r = await fetch(`${SERVER}/api/v1/heartbeat`, {
       method: 'POST',
@@ -2392,11 +2438,7 @@ async function submitExam(timeUp=false){
   if(submitInFlight) return;
   submitInFlight=true;
   examActive=false;
-  if(bulkSaveTimer) clearInterval(bulkSaveTimer);
-  if(saveDebounceTimer) { clearTimeout(saveDebounceTimer); saveDebounceTimer = null; }
-  stopHeartbeat();
-  clearInterval(timerInt);
-  try{ chatDisconnect(); const fab=document.getElementById('chat-fab'); if(fab) fab.classList.remove('show'); const panel=document.getElementById('chat-panel'); if(panel) panel.classList.remove('open'); }catch(_){}
+  teardownExamTimers();
 
   const taken=startTime ? Math.floor((Date.now()-startTime)/1000) : 0;
 
@@ -2445,6 +2487,11 @@ async function submitExam(timeUp=false){
     document.getElementById('retry-submit-btn').style.display='block';
     document.getElementById('countdown').textContent='';
     submitInFlight=false; // allow retry
+    // Keep the session marked live while the student sits on the retry
+    // screen — otherwise the server reaper can flag them disconnected
+    // mid-retry. examActive is off, so this relies on _submitRetryActive.
+    _submitRetryActive = true;
+    startHeartbeat();
     return;
   }
 
@@ -2493,8 +2540,20 @@ async function submitExam(timeUp=false){
         'Your answers are saved. Your score will be available in your dashboard shortly.';
       document.getElementById('final-score').textContent='✓';
       document.getElementById('done-note').style.display='block';
-      // Skip the auto-close countdown so student can see the message
       if(window.proctor) window.proctor.stopProctor();
+      // Auto-close even on the scoring-timeout path. The submit already
+      // succeeded; without this the student is left on the done screen in
+      // a still-armed kiosk (fullscreen, closable:false, live shortcuts)
+      // with no exit but the panic chord. Use a longer 10s countdown than
+      // the scored path so they can read the "score available later" note.
+      let countTo=10;
+      const cdTo=document.getElementById('countdown');
+      cdTo.textContent=`Closing in ${countTo} seconds...`;
+      const cIntTo=setInterval(()=>{
+        countTo--;
+        cdTo.textContent=`Closing in ${countTo} ${countTo===1?'second':'seconds'}...`;
+        if(countTo<=0){ clearInterval(cIntTo); if(window.proctor) window.proctor.adminExit('AUTO_CLOSE'); }
+      },1000);
       return;
     }
   }
@@ -2580,6 +2639,8 @@ async function retrySubmit(auto=false){
   }
   lastSubmitPayload=null; // prevent further retries
   _clearSubmitPayload();
+  _submitRetryActive = false; // submit landed — stop the retry keepalive
+  stopHeartbeat();
   const finalScore=result.score, finalTotal=result.total||questions.length;
   const dh6=document.getElementById('done-heading');
   dh6.className='ok'; dh6.textContent='Exam Submitted';

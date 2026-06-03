@@ -474,7 +474,10 @@ app.whenReady().then(async () => {
   }
 
   if (needsSetupGate) {
-    createSetupWindow();
+    // Guard the setup-window creation: a throw here must NOT skip the
+    // lobby open below. Worst case we run setup windowless, then still
+    // reach the lobby.
+    try { createSetupWindow(); } catch(e) { console.error('[Setup] createSetupWindow threw:', e.message); }
     try {
       // 10-min ceiling on the whole setup flow. On an already-set-up
       // install runSetup short-circuits in ~1s; on a fresh install it
@@ -485,11 +488,31 @@ app.whenReady().then(async () => {
       ]);
       await new Promise(r => setTimeout(r, needSetup ? 1500 : 400));
     } catch(e) { console.error('[Setup] Failed:', e); }
-    if (getSetupWindow() && !getSetupWindow().isDestroyed()) closeSetupWindow();
+    try {
+      if (getSetupWindow() && !getSetupWindow().isDestroyed()) closeSetupWindow();
+    } catch(e) { console.error('[Setup] closeSetupWindow threw:', e.message); }
   }
 
   // Setup done (or skipped on unsupported platforms). Open the lobby now.
-  createLobbyWindow();
+  // This is the one window the app cannot run without, so it gets its own
+  // guard: the global crash handler logs an uncaught throw but deliberately
+  // does NOT quit when no exam is locked — so without this catch a throw
+  // here would leave a running process with no window (the silent "reopen
+  // does nothing" hang). Surface a dialog and quit so the user can retry.
+  try {
+    createLobbyWindow();
+  } catch(e) {
+    console.error('[Boot] createLobbyWindow threw:', e.message);
+    _writeCrashLog('boot-lobby-failed', e);
+    try {
+      dialog.showErrorBox('Procta could not start',
+        'Procta hit an error while opening its window.\n\n' +
+        'Please restart the app. If this keeps happening, reinstall the ' +
+        'latest version of Procta or contact your examiner.');
+    } catch(_) {}
+    app.quit();
+    return;
+  }
 
   // Defer auto-updater to avoid blocking startup on slow networks.
   setTimeout(() => initAutoUpdater(getLobbyWindow(), getMainWindow), 3000);
@@ -536,6 +559,19 @@ app.on('before-quit', () => {
   }
   stopPython();
   stopPolling();
+  // Force-destroy the exam window on EVERY quit path. During an armed exam
+  // two layered guards block a normal close — the kiosk 'close' preventDefault
+  // (kiosk-manager) and the renderer 'beforeunload' preventDefault. Those exist
+  // so a student can't close the exam, but they also cancel an app-level
+  // app.quit() (auto-update quitAndInstall, OS/menu Cmd+Q): before-quit would
+  // run, stop Python, then the quit would abort on the un-closable window —
+  // leaving a half-dead, hung app. destroy() bypasses both guards, so the quit
+  // always completes. Normal exam exits go through releaseKiosk (which also
+  // destroys) and never reach here, so this is purely the external-quit safety net.
+  try {
+    const mw = getMainWindow();
+    if (mw && !mw.isDestroyed()) mw.destroy();
+  } catch(e) { /* best-effort */ }
   if (!_quittingForUpdate) {
     if (getLobbyWindow() && !getLobbyWindow().isDestroyed()) {
       getLobbyWindow().destroy();
@@ -578,7 +614,8 @@ function _assertMainFrame(event, name) {
   }
 }
 
-ipcMain.handle('get-integrity-flags', async () => {
+ipcMain.handle('get-integrity-flags', async (event) => {
+  if (!_assertMainFrame(event, 'get-integrity-flags')) throw new Error('Frame not allowed');
   const ready = getIntegrityReady();
   if (ready) { try { await ready; } catch(e) { console.error('[Integrity] check failed:', e.message); } }
   return getIntegrityFlags().map(f => ({
@@ -637,7 +674,7 @@ ipcMain.handle('submit-exam', async (event, data) => {
 
 ipcMain.handle('get-events', async (event, sessionId) => {
   if (!_assertMainFrame(event, 'get-events')) throw new Error('Frame not allowed');
-  const r = await fetchWithTimeout(`${SERVER_URL}/api/v1/events/${sessionId}`,
+  const r = await fetchWithTimeout(`${SERVER_URL}/api/v1/events/${encodeURIComponent(sessionId)}`,
     { headers: authHeaders(getStudentToken()) }, 15000);
   if (!r.ok) return { events: [] };
   return r.json();
@@ -694,11 +731,20 @@ ipcMain.handle('stop-proctor', (event) => {
   return { stopped: true };
 });
 
-ipcMain.handle('consume-invite-token', () => consumeInviteToken());
+ipcMain.handle('consume-invite-token', (event) => {
+  if (!_assertMainFrame(event, 'consume-invite-token')) throw new Error('Frame not allowed');
+  return consumeInviteToken();
+});
 
-ipcMain.handle('get-exam-context', () => getExamContext());
+ipcMain.handle('get-exam-context', (event) => {
+  if (!_assertMainFrame(event, 'get-exam-context')) throw new Error('Frame not allowed');
+  return getExamContext();
+});
 
-ipcMain.handle('get-server-url', () => SERVER_URL);
+ipcMain.handle('get-server-url', (event) => {
+  if (!_assertMainFrame(event, 'get-server-url')) throw new Error('Frame not allowed');
+  return SERVER_URL;
+});
 
 ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
   if (!_assertMainFrame(event, 'lobby-launch-exam')) throw new Error('Frame not allowed');

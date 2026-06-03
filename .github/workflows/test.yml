@@ -152,6 +152,31 @@ jobs:
           flags: pytest
           fail_ci_if_error: false
 
+  # Electron integration smoke (lobby / exam window / sub-frame guard /
+  # fail-open) driven via CDP — see scripts/electron-e2e.mjs.
+  #
+  # NON-BLOCKING for now: this GUI test has not yet proven stable in CI, so
+  # `continue-on-error` keeps a flake/timeout from red-failing the pipeline
+  # or blocking a PR. Once it is green across several real runs, remove
+  # `continue-on-error` to promote it to a required gate. Runs on macOS
+  # because that is where Electron is known to launch in CI (the release
+  # build's signature gate already spawns it there). No `needs:` so it can
+  # never gate another job.
+  e2e-electron:
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.12.0"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Electron e2e (lobby / exam window / sub-frame guard / fail-open)
+        run: npm run test:e2e
+
   docker-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -231,6 +231,12 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gitleaks-action@v2 (currently v2.3.9) still ships a node20
+          # entrypoint, which GitHub deprecates after 2026-06-16. No v2
+          # RELEASE uses node24 yet (only the default branch + v3.x), so
+          # rather than jump majors we keep @v2 and force it onto the
+          # Node 24 runtime — GitHub's documented opt-in for this exact case.
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
       - name: Semgrep SAST
         # Direct CLI invocation rather than semgrep/semgrep-action@v1

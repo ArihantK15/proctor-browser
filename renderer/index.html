@@ -3126,5 +3126,14 @@ function modalRetry(){
     </div>
   </div>
 </div>
+<!-- App-version badge (exam window) — mirrors the lobby badge. -->
+<div id="app-version-badge" style="position:fixed;bottom:6px;right:8px;font:11px/1 ui-monospace,monospace;color:rgba(148,163,184,.5);z-index:3;pointer-events:none;user-select:none"></div>
+<script>
+  (function(){
+    var el = document.getElementById('app-version-badge');
+    var api = window.proctor && window.proctor.getAppVersion;
+    if (el && api) { api().then(function(v){ if (v) el.textContent = 'Procta v' + v; }).catch(function(){}); }
+  })();
+</script>
 </body>
 </html>

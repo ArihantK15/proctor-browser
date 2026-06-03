@@ -744,5 +744,16 @@
     </div>
   </div>
 </div>
+<!-- App-version badge — only renders inside the Procta desktop app (where
+     window.procta_native exists). Lets students/support see the build at a
+     glance (e.g. to tell whether an auto-update has landed). -->
+<div id="app-version-badge" style="position:fixed;bottom:8px;right:10px;font:11px/1 ui-monospace,monospace;color:rgba(148,163,184,.55);z-index:5;pointer-events:none;user-select:none"></div>
+<script>
+  (function(){
+    var el = document.getElementById('app-version-badge');
+    var api = window.procta_native && window.procta_native.getAppVersion;
+    if (el && api) { api().then(function(v){ if (v) el.textContent = 'Procta v' + v; }).catch(function(){}); }
+  })();
+</script>
 </body>
 </html>

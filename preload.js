@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('proctor', {
   // directly (legacy / debug).
   getExamContext:  ()     => ipcRenderer.invoke('get-exam-context'),
   getServerUrl:    ()     => ipcRenderer.invoke('get-server-url'),
+  getAppVersion:   ()     => ipcRenderer.invoke('get-app-version'),
   validateStudent: (roll, accessCode) => ipcRenderer.invoke('validate-student', roll, accessCode),
   getQuestions:    (sid)  => ipcRenderer.invoke('get-questions', sid),
   startCalibration:(data) => ipcRenderer.invoke('start-calibration', data),

@@ -758,6 +758,11 @@ ipcMain.handle('get-server-url', (event) => {
   return SERVER_URL;
 });
 
+// App version for the on-screen "Procta vX.Y.Z" badge (lobby + exam). A
+// non-sensitive string, so no frame gate — handy for support + spotting
+// which build a student is on (e.g. when an update hasn't landed yet).
+ipcMain.handle('get-app-version', () => { try { return app.getVersion(); } catch { return ''; } });
+
 ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
   if (!_assertMainFrame(event, 'lobby-launch-exam')) throw new Error('Frame not allowed');
   if (!ctx || !ctx.rollNumber) return { ok: false, error: 'Missing roll number' };

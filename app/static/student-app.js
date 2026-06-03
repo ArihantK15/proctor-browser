@@ -1122,11 +1122,21 @@ function showPreflight() {
     _pfCheckBrowser(),
     _pfCheckBandwidth(),
   ]).then(() => {
-    const ok = Object.values(_preflightResults).every(v => v === 'ok');
-    document.getElementById('preflight-start-btn').disabled = !ok;
-    if (!ok) {
-      document.getElementById('preflight-err').textContent =
-        'Some checks failed. You can fix and recheck, or try starting anyway.';
+    // Only a CAMERA failure hard-blocks — a student genuinely can't be
+    // proctored without a camera. A slow/unreachable network or a browser
+    // warning is INFORMATIONAL: the exam tolerates slow connections, so it
+    // must never stop a student from starting. (The old gate disabled Start
+    // on ANY non-'ok' check, so slow wifi — even a 'warn' — blocked the exam
+    // entirely, which is what students were hitting.)
+    const cameraBlocked = _preflightResults.camera === 'fail';
+    document.getElementById('preflight-start-btn').disabled = cameraBlocked;
+    const errEl = document.getElementById('preflight-err');
+    if (cameraBlocked) {
+      errEl.textContent = 'Camera access is required to start. Allow your camera, then re-check.';
+    } else if (Object.values(_preflightResults).some(v => v === 'fail' || v === 'warn')) {
+      errEl.textContent = 'Some checks reported issues (e.g. a slow connection) — you can still start the exam.';
+    } else {
+      errEl.textContent = '';
     }
   });
 }

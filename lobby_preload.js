@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('procta_native', {
   // token once (subsequent calls return null). onInviteToken(cb)
   // covers the race where a SECOND link is clicked after the lobby
   // already loaded — main.js pushes via IPC in that case.
+  // App version for the on-screen "Procta vX.Y.Z" badge.
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   consumeInviteToken: () => ipcRenderer.invoke('consume-invite-token'),
   onInviteToken: (cb) => {
     ipcRenderer.removeAllListeners('invite-token-available');

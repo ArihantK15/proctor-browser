@@ -2,25 +2,23 @@
 //
 // Drives the REAL packaged-shape app via the Chrome DevTools Protocol
 // (Node's built-in fetch + WebSocket — no Playwright dependency) and asserts
-// the things we historically only checked by hand:
+// behaviours we historically only checked by hand:
 //
-//   1. The lobby window loads under sandbox:true and its contextBridge
-//      (window.procta_native) is exposed — i.e. sandbox didn't silently
-//      break lobby_preload (the exact regression we hit and verified once
-//      manually). Also that the dashboard actually RENDERS (non-blank).
-//   2. Launching the exam window (via the lobby bridge) opens a window
-//      that loads renderer/index.html and exposes window.proctor — i.e.
-//      the exam preload + window lifecycle work, and the exam renderer is
-//      not a blank frame.
+//   1. The lobby loads under sandbox:true with its contextBridge
+//      (window.procta_native) present and the dashboard RENDERED (non-blank)
+//      — the exact sandbox/lobby_preload regression guard.
+//   2. Launching the exam window exposes window.proctor (exam preload works).
+//   3. A SUB-FRAME cannot invoke privileged IPC — the bridge is absent in
+//      sub-frames, and even if reached, _assertMainFrame rejects it.
+//   4. When the exam renderer fails to load, the window fails OPEN: it shows
+//      an escapable error page, never a blank/trapped frame.
 //
-// Runs windowed (--no-kiosk + PROCTOR_DEBUG=1) so it never takes over the
-// screen, and against NO backend (we assert window/preload lifecycle, not
-// exam content). Self-contained: spawns Electron with a throwaway
-// user-data-dir and a remote-debugging port, tears everything down after.
+// Runs windowed (--no-kiosk + PROCTOR_DEBUG=1, throwaway user-data-dir) so it
+// needs no backend and never takes over the screen.
 //
 //   npm run test:e2e
 //
-import { test, before, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -30,42 +28,39 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const electronPath = require('electron'); // path to the electron binary
+const electronPath = require('electron');
 const projectRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const PORT = 9242;
-
-let child;
-let userDataDir;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function cdpTargets() {
-  try {
-    const res = await fetch(`http://127.0.0.1:${PORT}/json/list`);
-    return await res.json();
-  } catch {
-    return [];
-  }
+// ── CDP plumbing (scoped to a debugging port) ─────────────────────────────
+function makeCdp(port) {
+  const targets = async () => {
+    try { return await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); }
+    catch { return []; }
+  };
+  const waitForTarget = async (rx, { timeoutMs = 25000, label = '' } = {}) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const t = (await targets()).find((x) => x.type === 'page' && rx.test(x.url || ''));
+      if (t && t.webSocketDebuggerUrl) return t;
+      await sleep(400);
+    }
+    throw new Error(`timed out waiting for target ${label || rx} (port ${port})`);
+  };
+  const ready = async (timeoutMs = 20000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) { if ((await targets()).length) return; await sleep(400); }
+    throw new Error(`CDP never came up on port ${port}`);
+  };
+  return { targets, waitForTarget, ready };
 }
 
-// Poll the CDP target list until a *page* whose url matches `rx` appears.
-async function waitForTarget(rx, { timeoutMs = 25000, label = '' } = {}) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const list = await cdpTargets();
-    const t = list.find((x) => x.type === 'page' && rx.test(x.url || ''));
-    if (t && t.webSocketDebuggerUrl) return t;
-    await sleep(400);
-  }
-  throw new Error(`timed out waiting for target ${label || rx} (debugging port ${PORT})`);
-}
-
-// Evaluate an expression in a target's page context, return the value.
 function evaluate(target, expression) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(target.webSocketDebuggerUrl);
     const id = 1;
-    const timer = setTimeout(() => { try { ws.close(); } catch {} reject(new Error('CDP evaluate timeout')); }, 10000);
+    const timer = setTimeout(() => { try { ws.close(); } catch {} reject(new Error('CDP evaluate timeout')); }, 12000);
     ws.addEventListener('open', () => {
       ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true, awaitPromise: true } }));
     });
@@ -74,64 +69,96 @@ function evaluate(target, expression) {
       if (m.id !== id) return;
       clearTimeout(timer);
       try { ws.close(); } catch {}
-      if (m.result && m.result.exceptionDetails) {
-        reject(new Error('page threw: ' + (m.result.exceptionDetails.text || JSON.stringify(m.result.exceptionDetails))));
-      } else {
-        resolve(m.result && m.result.result ? m.result.result.value : undefined);
-      }
+      if (m.result && m.result.exceptionDetails) reject(new Error('page threw: ' + (m.result.exceptionDetails.text || '')));
+      else resolve(m.result && m.result.result ? m.result.result.value : undefined);
     });
     ws.addEventListener('error', (e) => { clearTimeout(timer); reject(new Error('CDP ws error: ' + (e.message || e))); });
   });
 }
 
-before(async () => {
-  userDataDir = mkdtempSync(join(tmpdir(), 'procta-e2e-'));
-  child = spawn(
+// ── app lifecycle ─────────────────────────────────────────────────────────
+function launchApp({ port, env = {} }) {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'procta-e2e-'));
+  const child = spawn(
     electronPath,
-    ['.', `--remote-debugging-port=${PORT}`, '--no-kiosk', `--user-data-dir=${userDataDir}`],
-    { cwd: projectRoot, env: { ...process.env, PROCTOR_DEBUG: '1', SENTRY_DSN: '' }, stdio: 'ignore' },
+    ['.', `--remote-debugging-port=${port}`, '--no-kiosk', `--user-data-dir=${userDataDir}`],
+    { cwd: projectRoot, env: { ...process.env, PROCTOR_DEBUG: '1', SENTRY_DSN: '', ...env }, stdio: 'ignore' },
   );
-  // wait until the CDP endpoint is up
-  const deadline = Date.now() + 20000;
-  while (Date.now() < deadline) {
-    if ((await cdpTargets()).length) break;
-    await sleep(400);
-  }
-});
+  return { child, userDataDir, cdp: makeCdp(port) };
+}
 
-after(async () => {
-  try { child?.kill('SIGKILL'); } catch {}
-  // child reaping is best-effort; also sweep any stragglers from this run
+async function stopApp(app) {
+  try { app?.child?.kill('SIGKILL'); } catch {}
   await sleep(300);
-  if (userDataDir) { try { rmSync(userDataDir, { recursive: true, force: true }); } catch {} }
+  if (app?.userDataDir) { try { rmSync(app.userDataDir, { recursive: true, force: true }); } catch {} }
+}
+
+const LOBBY_RX = /student\.html|procta-lobby/;
+
+describe('exam flow (normal load)', () => {
+  let app;
+  before(async () => { app = launchApp({ port: 9242 }); await app.cdp.ready(); });
+  after(() => stopApp(app));
+
+  test('lobby loads under sandbox, exposes its bridge, renders content', async () => {
+    const lobby = await app.cdp.waitForTarget(LOBBY_RX, { label: 'lobby' });
+    assert.equal(await evaluate(lobby, 'typeof window.procta_native'), 'object',
+      'window.procta_native must exist under sandbox:true (lobby_preload regression guard)');
+    const serverUrl = await evaluate(lobby, '(window.procta_native && window.procta_native.serverUrl) || null');
+    assert.ok(serverUrl && /^https?:\/\//.test(serverUrl), `bridge.serverUrl should be a URL, got ${serverUrl}`);
+    assert.ok(await evaluate(lobby, 'document.body ? document.body.innerText.trim().length : 0') > 20,
+      'dashboard rendered content (guards a blank frame)');
+    assert.ok(await evaluate(lobby, 'document.querySelectorAll("input,button").length') > 0,
+      'lobby rendered interactive controls');
+  });
+
+  test('launching the exam window exposes the proctor bridge', async () => {
+    const lobby = await app.cdp.waitForTarget(LOBBY_RX, { label: 'lobby' });
+    await evaluate(lobby, `window.procta_native.launchExam({ rollNumber: 'E2E-TEST', accessCode: '', examTitle: 'E2E' })`);
+    const exam = await app.cdp.waitForTarget(/renderer\/index\.html|index\.html/, { label: 'exam window' });
+    assert.equal(await evaluate(exam, 'typeof window.proctor'), 'object',
+      'window.proctor must exist in the exam renderer (preload.js under sandbox)');
+    assert.equal(await evaluate(exam,
+      'typeof window.proctor.submitExam === "function" && typeof window.proctor.getQuestions === "function"'),
+      true, 'exam bridge exposes submitExam/getQuestions');
+  });
+
+  test('a sub-frame cannot invoke privileged IPC', async () => {
+    const exam = await app.cdp.waitForTarget(/renderer\/index\.html|index\.html/, { label: 'exam window' });
+    // Create an in-page iframe and, from ITS window, attempt a privileged
+    // call. Secure outcomes: the bridge isn't exposed in the sub-frame at
+    // all, OR the call is rejected by _assertMainFrame ("Frame not allowed").
+    const outcome = await evaluate(exam, `(async () => {
+      const f = document.createElement('iframe');
+      f.style.display = 'none';
+      const loaded = new Promise(r => { f.onload = () => r(); setTimeout(r, 1000); });
+      f.src = 'about:blank';
+      document.body.appendChild(f);
+      await loaded;
+      const w = f.contentWindow;
+      if (!w || !w.proctor) return 'SECURE:no-bridge-in-subframe';
+      try { await w.proctor.getServerUrl(); return 'INSECURE:subframe-invoked-privileged-ipc'; }
+      catch (e) { return /not allowed/i.test(String(e && e.message)) ? 'SECURE:rejected' : 'SECURE:rejected-other'; }
+    })()`);
+    assert.ok(String(outcome).startsWith('SECURE:'), `sub-frame must not invoke privileged IPC — got ${outcome}`);
+  });
 });
 
-test('lobby loads under sandbox and exposes its bridge (non-blank)', async () => {
-  const lobby = await waitForTarget(/student\.html|procta-lobby/, { label: 'lobby' });
-  const bridge = await evaluate(lobby, 'typeof window.procta_native');
-  assert.equal(bridge, 'object', 'window.procta_native must exist under sandbox:true (lobby_preload regression guard)');
+describe('exam window fails OPEN on a bad load', () => {
+  let app;
+  before(async () => {
+    app = launchApp({ port: 9243, env: { PROCTOR_E2E_FORCE_EXAM_LOAD_FAIL: '1' } });
+    await app.cdp.ready();
+  });
+  after(() => stopApp(app));
 
-  const serverUrl = await evaluate(lobby, '(window.procta_native && window.procta_native.serverUrl) || null');
-  assert.ok(serverUrl && /^https?:\/\//.test(serverUrl), `bridge.serverUrl should be a URL, got ${serverUrl}`);
-
-  const bodyLen = await evaluate(lobby, 'document.body ? document.body.innerText.trim().length : 0');
-  assert.ok(bodyLen > 20, `dashboard rendered content (got ${bodyLen} chars) — guards against a blank frame`);
-
-  const controls = await evaluate(lobby, 'document.querySelectorAll("input,button").length');
-  assert.ok(controls > 0, 'lobby rendered interactive controls');
-});
-
-test('launching the exam window opens a renderer with the proctor bridge', async () => {
-  const lobby = await waitForTarget(/student\.html|procta-lobby/, { label: 'lobby' });
-  // Drive the real lobby→exam path through the bridge (top-frame IPC).
-  await evaluate(lobby, `window.procta_native.launchExam({ rollNumber: 'E2E-TEST', accessCode: '', examTitle: 'E2E' })`);
-
-  // The exam window loads renderer/index.html (windowed, since --no-kiosk).
-  const exam = await waitForTarget(/renderer\/index\.html|index\.html/, { label: 'exam window' });
-  const proctorBridge = await evaluate(exam, 'typeof window.proctor');
-  assert.equal(proctorBridge, 'object', 'window.proctor must exist in the exam renderer (preload.js under sandbox)');
-
-  // It exposes the IPC surface the exam relies on.
-  const hasApi = await evaluate(exam, 'typeof window.proctor.submitExam === "function" && typeof window.proctor.getQuestions === "function"');
-  assert.equal(hasApi, true, 'exam bridge exposes submitExam/getQuestions');
+  test('shows an escapable error page, not a blank/trapped frame', async () => {
+    const lobby = await app.cdp.waitForTarget(LOBBY_RX, { label: 'lobby' });
+    await evaluate(lobby, `window.procta_native.launchExam({ rollNumber: 'E2E', accessCode: '', examTitle: 'E2E' })`);
+    // The forced bad load fires did-fail-load → loadURL(data:…) error page.
+    const errPage = await app.cdp.waitForTarget(/^data:text\/html/, { label: 'fail-open error page' });
+    const body = await evaluate(errPage, 'document.body ? document.body.innerText : ""');
+    assert.match(body, /couldn.?t load|close this window|reinstall/i,
+      'did-fail-load must render an escapable error page (never a blank, trapped frame)');
+  });
 });

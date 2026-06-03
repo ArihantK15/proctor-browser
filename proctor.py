@@ -52,7 +52,7 @@ import cv2
 import numpy as np
 from collections import deque
 from datetime import datetime, timezone
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 from typing import Optional, Tuple
 
 # ─── BEHAVIORAL ANALYSIS (multi-signal correlation) ────────────────────────────
@@ -1043,6 +1043,47 @@ def _live_upload_loop():
 
 threading.Thread(target=_live_upload_loop, daemon=True, name="live-uploader").start()
 
+# ─── ASYNCHRONOUS EVENT (VIOLATION) UPLOAD WORKER ─────────────────────────────
+# log_event() enqueues here instead of POSTing inline. A synchronous post in
+# log_event (timeout=3) used to run ON the per-frame proctoring loop, so a
+# slow/unreachable server stalled video processing up to 3s per event —
+# stuttering/freezing the exam on a flaky network. Single consumer keeps
+# events FIFO-ordered; the queue is bounded so a long outage can't grow memory.
+_event_q: "Queue" = Queue(maxsize=500)
+
+def _event_upload_loop():
+    consecutive_failures = 0
+    while True:
+        try:
+            payload = _event_q.get(timeout=1)
+        except Empty:
+            continue
+        ok = False
+        err_msg = ""
+        try:
+            r = _http.post(SERVER_URL, json=payload, timeout=5)
+            ok = r.ok
+            if not ok:
+                err_msg = f"HTTP {r.status_code}"
+        except Exception as e:
+            err_msg = str(e)
+        if ok:
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            backoff = min(30, 2 ** min(consecutive_failures, 5))
+            print(f"[Event Upload Error] {err_msg} (backoff: {backoff}s)")
+            time.sleep(backoff)
+
+threading.Thread(target=_event_upload_loop, daemon=True, name="event-uploader").start()
+
+def _flush_events(timeout=3.0):
+    """Best-effort drain of the event queue before the process exits, so the
+    final session_ended event (and any backlog) has a chance to send."""
+    deadline = time.time() + timeout
+    while not _event_q.empty() and time.time() < deadline:
+        time.sleep(0.1)
+
 def log_event(etype, severity, details):
     global violation_count
     conf = CONFIDENCE.get(etype, 0.75)
@@ -1052,16 +1093,20 @@ def log_event(etype, severity, details):
     if severity in ("high", "medium"):
         with _violation_lock:
             violation_count += 1
+    payload = dict(session_id=SESSION_ID, event_type=etype,
+                   severity=severity, details=full_details)
     try:
-        _http.post(SERVER_URL, json=dict(
-            session_id = SESSION_ID,
-            event_type = etype,
-            severity   = severity,
-            details    = full_details
-        ), timeout=3)
+        _event_q.put_nowait(payload)
         print(f"[VIOLATION] {etype}: {details}")
-    except Exception as e:
-        print(f"[Server Error] {e}")
+    except Full:
+        # Saturated (long outage) — drop the OLDEST so the newest violation
+        # still lands, rather than blocking the caller (which may be the loop).
+        try:
+            _event_q.get_nowait()
+            _event_q.put_nowait(payload)
+            print(f"[VIOLATION] {etype}: {details} (queue full — dropped oldest)")
+        except Exception:
+            print(f"[Server Error] event queue full — dropped {etype}")
 
 def save_evidence(frame, label):
     save_local_flag = os.environ.get("SAVE_EVIDENCE_LOCAL", "").strip().lower()
@@ -2430,300 +2475,318 @@ def run_proctoring(cap, W, H):
               f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})°")
 
     while True:
-        _loop_start = time.time()
-        ret, frame = cap.read()
-        if not ret:
-            state["consecutive_failures"] = state.get("consecutive_failures", 0) + 1
-            print(f"[PROCTOR] Frame read failed ({state['consecutive_failures']}/{MAX_FAILURES})")
-            if state["consecutive_failures"] >= MAX_FAILURES:
-                print("[PROCTOR] Camera lost — too many failures!")
-                break
-            time.sleep(0.05)
-            continue
-        state["consecutive_failures"] = 0
+        try:
+            _loop_start = time.time()
+            ret, frame = cap.read()
+            if not ret:
+                state["consecutive_failures"] = state.get("consecutive_failures", 0) + 1
+                print(f"[PROCTOR] Frame read failed ({state['consecutive_failures']}/{MAX_FAILURES})")
+                if state["consecutive_failures"] >= MAX_FAILURES:
+                    print("[PROCTOR] Camera lost — too many failures!")
+                    break
+                time.sleep(0.05)
+                continue
+            state["consecutive_failures"] = 0
 
-        # Live-view: if a teacher has opened the camera-feed panel for
-        # this session, push one downscaled JPEG every ~1.5 s.
-        if _LIVE_VIEW_ACTIVE:
-            _now = time.time()
-            if _now - _LAST_LIVE_FRAME_TS >= _LIVE_FRAME_INTERVAL_SEC:
-                _LAST_LIVE_FRAME_TS = _now
-                upload_live_frame(frame)
+            # Live-view: if a teacher has opened the camera-feed panel for
+            # this session, push one downscaled JPEG every ~1.5 s.
+            if _LIVE_VIEW_ACTIVE:
+                _now = time.time()
+                if _now - _LAST_LIVE_FRAME_TS >= _LIVE_FRAME_INTERVAL_SEC:
+                    _LAST_LIVE_FRAME_TS = _now
+                    upload_live_frame(frame)
 
-        state["frame_count"] += 1
-        frame_count = state["frame_count"]
+            state["frame_count"] += 1
+            frame_count = state["frame_count"]
 
-        # ── CALIBRATION TIMEOUT ──────────────────────────────────────────────
-        if not calibrated and frame_count >= CALIBRATION_MAX_WAIT:
-            _freeze_calibration_bias(f"⚠ timed out after {frame_count} frames")
-            log_event("calibration_timeout", "low",
-                      f"samples:{len(cal_head_yaw)}")
+            # ── CALIBRATION TIMEOUT ──────────────────────────────────────────────
+            if not calibrated and frame_count >= CALIBRATION_MAX_WAIT:
+                _freeze_calibration_bias(f"⚠ timed out after {frame_count} frames")
+                log_event("calibration_timeout", "low",
+                          f"samples:{len(cal_head_yaw)}")
 
-        # ── SCREEN-SHARE FEED DETECTION ──────────────────────────────────────
-        if frame_count % 30 == 0:
-            screen_feed = _detect_screen_share_feed(frame)
-            if screen_feed and can_log("screen_share_feed"):
-                log_if_allowed("screen_share_feed", "critical",
-                          f"Camera feed resembles screen capture: {screen_feed}")
-                save_evidence(frame, "screen_share_feed")
+            # ── SCREEN-SHARE FEED DETECTION ──────────────────────────────────────
+            if frame_count % 30 == 0:
+                screen_feed = _detect_screen_share_feed(frame)
+                if screen_feed and can_log("screen_share_feed"):
+                    log_if_allowed("screen_share_feed", "critical",
+                              f"Camera feed resembles screen capture: {screen_feed}")
+                    save_evidence(frame, "screen_share_feed")
 
-        # ── LAZY ENROLLMENT ──────────────────────────────────────────────────
-        if not state["lazy_enroll_done"] and INSIGHT_AVAILABLE and not calibrated:
-            emb = get_face_embedding(frame)
-            if emb is not None:
-                global enrolled_embedding
-                enrolled_embedding = emb
-                state["lazy_enroll_done"] = True
-                print(f"[PROCTOR] ✅ Identity reference captured at frame {frame_count}")
-                log_event("face_enrolled", "low",
-                          f"Identity reference at frame {frame_count}")
-                save_evidence(frame, "reference_frame")
-            elif frame_count > LAZY_ENROLL_WINDOW:
-                state["lazy_enroll_done"] = True
-                print("[PROCTOR] ⚠ Could not capture face embedding in first "
-                      f"{LAZY_ENROLL_WINDOW} frames — wrong-person check disabled")
+            # ── LAZY ENROLLMENT ──────────────────────────────────────────────────
+            if not state["lazy_enroll_done"] and INSIGHT_AVAILABLE and not calibrated:
+                emb = get_face_embedding(frame)
+                if emb is not None:
+                    global enrolled_embedding
+                    enrolled_embedding = emb
+                    state["lazy_enroll_done"] = True
+                    print(f"[PROCTOR] ✅ Identity reference captured at frame {frame_count}")
+                    log_event("face_enrolled", "low",
+                              f"Identity reference at frame {frame_count}")
+                    save_evidence(frame, "reference_frame")
+                elif frame_count > LAZY_ENROLL_WINDOW:
+                    state["lazy_enroll_done"] = True
+                    print("[PROCTOR] ⚠ Could not capture face embedding in first "
+                          f"{LAZY_ENROLL_WINDOW} frames — wrong-person check disabled")
 
-        # ── FACE DETECTION ───────────────────────────────────────────────────
-        faces = detect_faces(frame)
-        num_faces = len(faces)
+            # ── FACE DETECTION ───────────────────────────────────────────────────
+            faces = detect_faces(frame)
+            num_faces = len(faces)
 
-        # Per-frame readings used by the HUD; default to "everything fine".
-        gaze_yaw   = 0.0
-        gaze_pitch = 0.0
-        head_yaw   = 0.0
-        head_pitch = 0.0
-        face_crop  = None
-        lm_2d      = None
+            # Per-frame readings used by the HUD; default to "everything fine".
+            gaze_yaw   = 0.0
+            gaze_pitch = 0.0
+            head_yaw   = 0.0
+            head_pitch = 0.0
+            face_crop  = None
+            lm_2d      = None
 
-        if num_faces == 0:
-            state["_last_face_bbox"] = None
-            multi_face_count = 0
-            gaze_away_count    = max(0, gaze_away_count - 1)
-            gaze_extreme_count = max(0, gaze_extreme_count - 2)
-            eyes_closed_count  = max(0, eyes_closed_count - 1)
-            head_away_count    = max(0, head_away_count - 1)
-            head_extreme_count = max(0, head_extreme_count - 2)
-            if frame_count < WARMUP_GRACE_FRAMES:
-                face_missing_count = 0
-            else:
-                face_missing_count += 1
-                if face_missing_count >= FACE_MISSING_FRAMES and \
-                   can_log("face_missing"):
-                    log_event("face_missing", "high",
-                              f"No face detected for {face_missing_count} frames")
-                    save_evidence(frame, "face_missing")
-
-        elif num_faces >= 2:
-            state["_last_face_bbox"] = None
-            face_missing_count = 0
-            multi_face_count  += 1
-            if multi_face_count >= MULTI_FACE_FRAMES and \
-               can_log("multiple_faces"):
-                log_event("multiple_faces", "high",
-                          f"{num_faces} faces in frame")
-                save_evidence(frame, "multiple_faces")
-
-        else:
-            face_missing_count = 0
-            multi_face_count   = 0
-            bbox, lm_2d = faces[0]
-            x1, y1, x2, y2 = bbox
-            state["_last_face_bbox"] = (x1, y1, x2, y2)
-            x1 = max(0, x1); y1 = max(0, y1)
-            x2 = min(W, x2); y2 = min(H, y2)
-            face_crop = frame[y1:y2, x1:x2]
-
-            # ── CONTINUOUS IDENTITY VERIFICATION (calibration phase) ─────────
-            if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
-               not calibrated:
-                current_emb = get_face_embedding_from_crop(face_crop)
-                if current_emb is not None:
-                    similarity = float(np.dot(enrolled_embedding, current_emb))
-                    if similarity < WRONG_PERSON_THRESHOLD:
-                        print(f"[IDENTITY] ❌ Different person during "
-                              f"calibration! (similarity: {similarity:.2f})")
-                        log_event("calibration_abort", "critical",
-                                  f"Identity swap during calibration "
-                                  f"(similarity: {similarity:.2f})")
-                        save_evidence(frame, "calibration_abort")
-                        calibrated = False
-                        cal_gaze_yaw.clear()
-                        cal_gaze_pitch.clear()
-                        cal_head_yaw.clear()
-                        cal_head_pitch.clear()
-                        enrolled_embedding = current_emb
-                        print("[IDENTITY] ⚠ Reference updated to new face — "
-                              "recalibrating...")
-
-            # Face too small
-            fh, fw = face_crop.shape[:2]
-            if fh < FACE_MIN_SIZE or fw < FACE_MIN_SIZE:
-                face_missing_count += 1
-                if face_missing_count >= FACE_MISSING_FRAMES and \
-                   can_log("face_too_small"):
-                    log_event("face_too_small", "medium",
-                              f"Face too small ({fh}x{fw}px, min {FACE_MIN_SIZE}px)")
-                    save_evidence(frame, "face_too_small")
-
-            # ── GAZE ─────────────────────────────────────────────────────────
-            if GAZE_AVAILABLE and face_crop.size > 0:
-                gaze_yaw_raw, gaze_pitch_raw = _gaze_engine.estimate(face_crop)
-                gaze_yaw   = gaze_yaw_raw   - gaze_yaw_bias
-                gaze_pitch = gaze_pitch_raw - gaze_pitch_bias
-                is_extreme = (abs(gaze_yaw)   > GAZE_YAW_EXTREME or
-                              abs(gaze_pitch) > GAZE_PITCH_EXTREME)
-                is_away    = (abs(gaze_yaw)   > GAZE_YAW_RAD or
-                              abs(gaze_pitch) > GAZE_PITCH_RAD)
-                if not calibrated:
-                    cal_gaze_yaw.append(gaze_yaw_raw)
-                    cal_gaze_pitch.append(gaze_pitch_raw)
-                    is_extreme = False
-                    is_away    = False
-
-                if is_extreme:
-                    gaze_extreme_count += 2
-                    gaze_away_count    += 1
-                elif is_away:
-                    gaze_away_count    += 1
-                    gaze_extreme_count = max(0, gaze_extreme_count - 1)
-                else:
-                    gaze_away_count    = max(0, gaze_away_count - 1)
-                    gaze_extreme_count = max(0, gaze_extreme_count - 2)
-
-                if frame_count % 60 == 0:
-                    print(f"[Gaze Debug] yaw:{gaze_yaw:+.2f}rad "
-                          f"pitch:{gaze_pitch:+.2f}rad "
-                          f"normal:{gaze_away_count}/{GAZE_FRAMES_NEEDED} "
-                          f"extreme:{gaze_extreme_count}/{GAZE_EXTREME_FRAMES}")
-
-                if gaze_extreme_count >= GAZE_EXTREME_FRAMES:
-                    direction = _dominant_direction(
-                        gaze_yaw, gaze_pitch, GAZE_YAW_RAD, GAZE_PITCH_RAD)
-                    if log_if_allowed("gaze_away", "high",
-                               f"Looking off-screen {direction} "
-                               f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad EXTREME)"):
-                        save_evidence(frame, "gaze_away")
-                        gaze_away_count    = 0
-                        gaze_extreme_count = 0
-                elif gaze_away_count >= GAZE_FRAMES_NEEDED:
-                    direction = _dominant_direction(
-                        gaze_yaw, gaze_pitch, GAZE_YAW_RAD, GAZE_PITCH_RAD)
-                    if log_if_allowed("gaze_away", "medium",
-                               f"Looking {direction} "
-                               f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad)"):
-                        save_evidence(frame, "gaze_away")
-                        gaze_away_count = 0
-
-            # ── HEAD POSE ────────────────────────────────────────────────────
-            head_yaw_raw, head_pitch_raw = get_head_pose(lm_2d, W, H)
-            head_yaw   = head_yaw_raw   - head_yaw_bias
-            head_pitch = head_pitch_raw - head_pitch_bias
-            head_is_extreme = (abs(head_yaw)   > HEAD_YAW_EXTREME or
-                               abs(head_pitch) > HEAD_PITCH_EXTREME)
-            head_is_away    = (abs(head_yaw)   > HEAD_YAW_THRESHOLD or
-                               abs(head_pitch) > HEAD_PITCH_THRESHOLD)
-            if not calibrated:
-                cal_head_yaw.append(head_yaw_raw)
-                cal_head_pitch.append(head_pitch_raw)
-                head_is_extreme = False
-                head_is_away    = False
-
-            if head_is_extreme:
-                head_extreme_count += 2
-                head_away_count    += 1
-            elif head_is_away:
-                head_away_count    += 1
-                head_extreme_count = max(0, head_extreme_count - 1)
-            else:
+            if num_faces == 0:
+                state["_last_face_bbox"] = None
+                multi_face_count = 0
+                gaze_away_count    = max(0, gaze_away_count - 1)
+                gaze_extreme_count = max(0, gaze_extreme_count - 2)
+                eyes_closed_count  = max(0, eyes_closed_count - 1)
                 head_away_count    = max(0, head_away_count - 1)
                 head_extreme_count = max(0, head_extreme_count - 2)
+                if frame_count < WARMUP_GRACE_FRAMES:
+                    face_missing_count = 0
+                else:
+                    face_missing_count += 1
+                    if face_missing_count >= FACE_MISSING_FRAMES and \
+                       can_log("face_missing"):
+                        log_event("face_missing", "high",
+                                  f"No face detected for {face_missing_count} frames")
+                        save_evidence(frame, "face_missing")
 
-            if head_extreme_count >= HEAD_EXTREME_FRAMES:
-                direction = _dominant_direction(
-                    head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
-                if log_if_allowed("head_turned", "high",
-                          f"Head turned {direction} "
-                          f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}° EXTREME)"):
-                    save_evidence(frame, "head_turned")
-                    head_away_count    = 0
-                    head_extreme_count = 0
-            elif head_away_count >= HEAD_FRAMES_NEEDED:
-                direction = _dominant_direction(
-                    head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
-                if log_if_allowed("head_turned", "medium",
-                          f"Head turned {direction} "
-                          f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}°)"):
-                    save_evidence(frame, "head_turned")
-                    head_away_count = 0
+            elif num_faces >= 2:
+                state["_last_face_bbox"] = None
+                face_missing_count = 0
+                multi_face_count  += 1
+                if multi_face_count >= MULTI_FACE_FRAMES and \
+                   can_log("multiple_faces"):
+                    log_event("multiple_faces", "high",
+                              f"{num_faces} faces in frame")
+                    save_evidence(frame, "multiple_faces")
 
-            # ── EYES OPEN/CLOSED ─────────────────────────────────────────────
-            eyes_open = eyes_detected(face_crop)
-            if not eyes_open:
-                eyes_closed_count += 1
             else:
-                eyes_closed_count = max(0, eyes_closed_count - 2)
+                face_missing_count = 0
+                multi_face_count   = 0
+                bbox, lm_2d = faces[0]
+                x1, y1, x2, y2 = bbox
+                state["_last_face_bbox"] = (x1, y1, x2, y2)
+                x1 = max(0, x1); y1 = max(0, y1)
+                x2 = min(W, x2); y2 = min(H, y2)
+                face_crop = frame[y1:y2, x1:x2]
 
-            if eyes_closed_count >= EYES_CLOSED_FRAMES:
-                if log_if_allowed("eyes_closed", "high", "Eyes closed"):
-                    save_evidence(frame, "eyes_closed")
+                # ── CONTINUOUS IDENTITY VERIFICATION (calibration phase) ─────────
+                if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
+                   not calibrated:
+                    current_emb = get_face_embedding_from_crop(face_crop)
+                    if current_emb is not None:
+                        similarity = float(np.dot(enrolled_embedding, current_emb))
+                        if similarity < WRONG_PERSON_THRESHOLD:
+                            print(f"[IDENTITY] ❌ Different person during "
+                                  f"calibration! (similarity: {similarity:.2f})")
+                            log_event("calibration_abort", "critical",
+                                      f"Identity swap during calibration "
+                                      f"(similarity: {similarity:.2f})")
+                            save_evidence(frame, "calibration_abort")
+                            calibrated = False
+                            cal_gaze_yaw.clear()
+                            cal_gaze_pitch.clear()
+                            cal_head_yaw.clear()
+                            cal_head_pitch.clear()
+                            enrolled_embedding = current_emb
+                            print("[IDENTITY] ⚠ Reference updated to new face — "
+                                  "recalibrating...")
 
-            # ── CALIBRATION FREEZE ───────────────────────────────────────────
-            if not calibrated and len(cal_head_yaw) >= CALIBRATION_FRAMES:
-                _freeze_calibration_bias(f"✅ baseline frozen after {len(cal_head_yaw)} frames")
-                log_event("calibration_complete", "low",
-                          f"gaze yaw:{gaze_yaw_bias:+.2f}rad "
-                          f"pitch:{gaze_pitch_bias:+.2f}rad | "
-                          f"head yaw:{head_yaw_bias:+.0f}° "
-                          f"pitch:{head_pitch_bias:+.0f}°")
+                # Face too small
+                fh, fw = face_crop.shape[:2]
+                if fh < FACE_MIN_SIZE or fw < FACE_MIN_SIZE:
+                    face_missing_count += 1
+                    if face_missing_count >= FACE_MISSING_FRAMES and \
+                       can_log("face_too_small"):
+                        log_event("face_too_small", "medium",
+                                  f"Face too small ({fh}x{fw}px, min {FACE_MIN_SIZE}px)")
+                        save_evidence(frame, "face_too_small")
 
-            # ── HUD: draw bbox + landmarks ───────────────────────────────────
-            if not HEADLESS:
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                for px, py in lm_2d.astype(int):
-                    cv2.circle(frame, (px, py), 2, (0, 255, 255), -1)
+                # ── GAZE ─────────────────────────────────────────────────────────
+                if GAZE_AVAILABLE and face_crop.size > 0:
+                    gaze_yaw_raw, gaze_pitch_raw = _gaze_engine.estimate(face_crop)
+                    gaze_yaw   = gaze_yaw_raw   - gaze_yaw_bias
+                    gaze_pitch = gaze_pitch_raw - gaze_pitch_bias
+                    is_extreme = (abs(gaze_yaw)   > GAZE_YAW_EXTREME or
+                                  abs(gaze_pitch) > GAZE_PITCH_EXTREME)
+                    is_away    = (abs(gaze_yaw)   > GAZE_YAW_RAD or
+                                  abs(gaze_pitch) > GAZE_PITCH_RAD)
+                    if not calibrated:
+                        cal_gaze_yaw.append(gaze_yaw_raw)
+                        cal_gaze_pitch.append(gaze_pitch_raw)
+                        is_extreme = False
+                        is_away    = False
 
-        # ── YOLO OBJECT DETECTION (background thread) ────────────────────────
-        yolo_seen = _process_yolo_results(state, frame, frame_count, W, H,
-                                          can_log, log_if_allowed)
+                    if is_extreme:
+                        gaze_extreme_count += 2
+                        gaze_away_count    += 1
+                    elif is_away:
+                        gaze_away_count    += 1
+                        gaze_extreme_count = max(0, gaze_extreme_count - 1)
+                    else:
+                        gaze_away_count    = max(0, gaze_away_count - 1)
+                        gaze_extreme_count = max(0, gaze_extreme_count - 2)
 
-        # ── SAHI TILED DETECTION (small objects) ─────────────────────────────
-        _process_sahi_results(state, frame, frame_count, W, H, yolo_seen,
-                              can_log, log_if_allowed)
+                    if frame_count % 60 == 0:
+                        print(f"[Gaze Debug] yaw:{gaze_yaw:+.2f}rad "
+                              f"pitch:{gaze_pitch:+.2f}rad "
+                              f"normal:{gaze_away_count}/{GAZE_FRAMES_NEEDED} "
+                              f"extreme:{gaze_extreme_count}/{GAZE_EXTREME_FRAMES}")
 
-        # ── EAR-CROP CLASSIFIER (earbud detection) ───────────────────────────
-        _process_ear_detection(state, frame, num_faces, lm_2d, frame_count, W, H,
-                               can_log, log_if_allowed)
+                    if gaze_extreme_count >= GAZE_EXTREME_FRAMES:
+                        direction = _dominant_direction(
+                            gaze_yaw, gaze_pitch, GAZE_YAW_RAD, GAZE_PITCH_RAD)
+                        if log_if_allowed("gaze_away", "high",
+                                   f"Looking off-screen {direction} "
+                                   f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad EXTREME)"):
+                            save_evidence(frame, "gaze_away")
+                            gaze_away_count    = 0
+                            gaze_extreme_count = 0
+                    elif gaze_away_count >= GAZE_FRAMES_NEEDED:
+                        direction = _dominant_direction(
+                            gaze_yaw, gaze_pitch, GAZE_YAW_RAD, GAZE_PITCH_RAD)
+                        if log_if_allowed("gaze_away", "medium",
+                                   f"Looking {direction} "
+                                   f"(yaw:{gaze_yaw:+.2f}rad pitch:{gaze_pitch:+.2f}rad)"):
+                            save_evidence(frame, "gaze_away")
+                            gaze_away_count = 0
 
-        # ── VOICE DETECTION ──────────────────────────────────────────────────
-        _process_voice_detection(state, frame, can_log, log_if_allowed)
+                # ── HEAD POSE ────────────────────────────────────────────────────
+                head_yaw_raw, head_pitch_raw = get_head_pose(lm_2d, W, H)
+                head_yaw   = head_yaw_raw   - head_yaw_bias
+                head_pitch = head_pitch_raw - head_pitch_bias
+                head_is_extreme = (abs(head_yaw)   > HEAD_YAW_EXTREME or
+                                   abs(head_pitch) > HEAD_PITCH_EXTREME)
+                head_is_away    = (abs(head_yaw)   > HEAD_YAW_THRESHOLD or
+                                   abs(head_pitch) > HEAD_PITCH_THRESHOLD)
+                if not calibrated:
+                    cal_head_yaw.append(head_yaw_raw)
+                    cal_head_pitch.append(head_pitch_raw)
+                    head_is_extreme = False
+                    head_is_away    = False
 
-        # ── WRONG PERSON CHECK (post-calibration safety net) ─────────────────
-        if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
-           frame_count % WRONG_PERSON_CHECK_FREQ == 0 and calibrated:
-            if face_crop is not None:
-                current_emb = get_face_embedding_from_crop(face_crop)
-            else:
-                current_emb = get_face_embedding(frame)
-            if current_emb is not None:
-                similarity = float(np.dot(enrolled_embedding, current_emb))
-                if similarity < WRONG_PERSON_THRESHOLD and \
-                   can_log("wrong_person"):
-                    log_if_allowed("wrong_person", "medium",
-                              f"Different person detected "
-                              f"(cosine similarity: {similarity:.2f})")
-                    save_evidence(frame, "wrong_person")
+                if head_is_extreme:
+                    head_extreme_count += 2
+                    head_away_count    += 1
+                elif head_is_away:
+                    head_away_count    += 1
+                    head_extreme_count = max(0, head_extreme_count - 1)
+                else:
+                    head_away_count    = max(0, head_away_count - 1)
+                    head_extreme_count = max(0, head_extreme_count - 2)
 
-        # ── BEHAVIORAL ANALYSIS (multi-signal correlation) ─────────────────
-        _process_behavioral(state, frame, W, H, num_faces, calibrated,
-                            gaze_yaw, gaze_pitch, head_yaw, head_pitch,
-                            can_log, log_if_allowed)
+                if head_extreme_count >= HEAD_EXTREME_FRAMES:
+                    direction = _dominant_direction(
+                        head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
+                    if log_if_allowed("head_turned", "high",
+                              f"Head turned {direction} "
+                              f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}° EXTREME)"):
+                        save_evidence(frame, "head_turned")
+                        head_away_count    = 0
+                        head_extreme_count = 0
+                elif head_away_count >= HEAD_FRAMES_NEEDED:
+                    direction = _dominant_direction(
+                        head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
+                    if log_if_allowed("head_turned", "medium",
+                              f"Head turned {direction} "
+                              f"(yaw:{head_yaw:+.0f}° pitch:{head_pitch:+.0f}°)"):
+                        save_evidence(frame, "head_turned")
+                        head_away_count = 0
 
-        # ── HUD ──────────────────────────────────────────────────────────────
-        _draw_hud(frame, W, H, state, num_faces, gaze_away_count, head_away_count)
+                # ── EYES OPEN/CLOSED ─────────────────────────────────────────────
+                eyes_open = eyes_detected(face_crop)
+                if not eyes_open:
+                    eyes_closed_count += 1
+                else:
+                    eyes_closed_count = max(0, eyes_closed_count - 2)
 
-        # ── FPS LIMITER ──────────────────────────────────────────────────────
-        governor.maybe_update()
-        _limit_fps(state, governor, _loop_start)
+                if eyes_closed_count >= EYES_CLOSED_FRAMES:
+                    if log_if_allowed("eyes_closed", "high", "Eyes closed"):
+                        save_evidence(frame, "eyes_closed")
+
+                # ── CALIBRATION FREEZE ───────────────────────────────────────────
+                if not calibrated and len(cal_head_yaw) >= CALIBRATION_FRAMES:
+                    _freeze_calibration_bias(f"✅ baseline frozen after {len(cal_head_yaw)} frames")
+                    log_event("calibration_complete", "low",
+                              f"gaze yaw:{gaze_yaw_bias:+.2f}rad "
+                              f"pitch:{gaze_pitch_bias:+.2f}rad | "
+                              f"head yaw:{head_yaw_bias:+.0f}° "
+                              f"pitch:{head_pitch_bias:+.0f}°")
+
+                # ── HUD: draw bbox + landmarks ───────────────────────────────────
+                if not HEADLESS:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    for px, py in lm_2d.astype(int):
+                        cv2.circle(frame, (px, py), 2, (0, 255, 255), -1)
+
+            # ── YOLO OBJECT DETECTION (background thread) ────────────────────────
+            yolo_seen = _process_yolo_results(state, frame, frame_count, W, H,
+                                              can_log, log_if_allowed)
+
+            # ── SAHI TILED DETECTION (small objects) ─────────────────────────────
+            _process_sahi_results(state, frame, frame_count, W, H, yolo_seen,
+                                  can_log, log_if_allowed)
+
+            # ── EAR-CROP CLASSIFIER (earbud detection) ───────────────────────────
+            _process_ear_detection(state, frame, num_faces, lm_2d, frame_count, W, H,
+                                   can_log, log_if_allowed)
+
+            # ── VOICE DETECTION ──────────────────────────────────────────────────
+            _process_voice_detection(state, frame, can_log, log_if_allowed)
+
+            # ── WRONG PERSON CHECK (post-calibration safety net) ─────────────────
+            if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
+               frame_count % WRONG_PERSON_CHECK_FREQ == 0 and calibrated:
+                if face_crop is not None:
+                    current_emb = get_face_embedding_from_crop(face_crop)
+                else:
+                    current_emb = get_face_embedding(frame)
+                if current_emb is not None:
+                    similarity = float(np.dot(enrolled_embedding, current_emb))
+                    if similarity < WRONG_PERSON_THRESHOLD and \
+                       can_log("wrong_person"):
+                        log_if_allowed("wrong_person", "medium",
+                                  f"Different person detected "
+                                  f"(cosine similarity: {similarity:.2f})")
+                        save_evidence(frame, "wrong_person")
+
+            # ── BEHAVIORAL ANALYSIS (multi-signal correlation) ─────────────────
+            _process_behavioral(state, frame, W, H, num_faces, calibrated,
+                                gaze_yaw, gaze_pitch, head_yaw, head_pitch,
+                                can_log, log_if_allowed)
+
+            # ── HUD ──────────────────────────────────────────────────────────────
+            _draw_hud(frame, W, H, state, num_faces, gaze_away_count, head_away_count)
+
+            # ── FPS LIMITER ──────────────────────────────────────────────────────
+            governor.maybe_update()
+            _limit_fps(state, governor, _loop_start)
+            state["loop_errors"] = 0  # full clean iteration → reset consecutive-error count
+        except (KeyboardInterrupt, SystemExit):
+            raise  # clean shutdown must propagate to main()
+        except Exception as _loop_exc:
+            # Isolate per-frame errors: one bad frame (transient cv2/
+            # numpy/detector hiccup) must not tear down the whole exam
+            # session. Log rate-limited, skip the frame, keep going.
+            state["loop_errors"] = state.get("loop_errors", 0) + 1
+            _n = state["loop_errors"]
+            if _n <= 3 or _n % 50 == 0:
+                print(f"[PROCTOR] ⚠ frame-loop error #{_n}: "
+                      f"{type(_loop_exc).__name__}: {_loop_exc}")
+            if _n >= 60:
+                print("[PROCTOR] ❌ persistent frame-loop errors — exiting for a clean restart")
+                break  # bounded by python-manager restart cap
+            time.sleep(0.03)
+            continue
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
@@ -2751,87 +2814,105 @@ def main():
         print("[PROCTOR] ❌ Cannot open camera!")
         sys.exit(1)
 
-    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    if W == 0 or H == 0:
-        W, H = 640, 480
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, W)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, H)
-        print(f"[PROCTOR] Camera returned 0x0 — forcing {W}x{H}")
-    print(f"[PROCTOR] Camera: {W}x{H}")
-
-    # First few frames are often blank, especially on Windows.
-    # ── Lazy VM + virtual camera detection ───────────────────────────
-    # Run after camera open (non-blocking at import time). Results are
-    # logged via normal event pipeline.
-    global _virtual_camera_name, _vm_name
-    _virtual_camera_name = _detect_virtual_camera()
-    if _virtual_camera_name:
-        print(f"[VIRTUAL CAM] ⚠ Virtual camera detected: '{_virtual_camera_name}'")
-        log_event("virtual_camera_detected", "critical",
-                  f"Virtual webcam: {_virtual_camera_name}")
-    else:
-        print("[VIRTUAL CAM] ✅ Physical webcam confirmed")
-    _vm_name = _detect_vm()
-    if _vm_name:
-        print(f"[VM DETECT] ⚠ Virtual machine indicator found: '{_vm_name}'")
-        log_event("vm_detected", "high", f"VM indicator: {_vm_name}")
-
-    print("[PROCTOR] Warming up camera...")
-    for _ in range(10):
-        cap.read()
-    time.sleep(0.5)
-
-    # ── Start audio analysis ────────────────────────────────────────────
-    _start_audio()
-
-    # ── Pre-exam system check (runs after camera is ready) ────────────────
-    print("[PROCTOR] Running pre-exam system check...")
-    check_results = run_system_check(cap=cap)
+    # Everything past this point HOLDS the camera. Wrap the whole body in
+    # try/finally so a SIGINT/SIGTERM (or any exception) during warmup,
+    # audio start, the system check, or enrollment ALSO releases the camera
+    # and workers. Previously only run_proctoring() was guarded, so a signal
+    # during those earlier phases leaked the camera FD (released only when
+    # the OS reaped the process) — blocking the next proctor/exam launch.
     try:
-        _http.post(SYSTEM_CHECK_URL, json=check_results, timeout=5)
-        print(f"[PROCTOR] System check: {check_results['overall'].upper()}")
-        for name, result in check_results["checks"].items():
-            icon = "✅" if result["status"] == "pass" else "⚠️" if result["status"] == "warn" else "❌"
-            print(f"  {icon} {name}: {result['detail']}")
-    except Exception:
-        pass  # Server may not have the endpoint yet — non-fatal
+        W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if W == 0 or H == 0:
+            W, H = 640, 480
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, W)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, H)
+            print(f"[PROCTOR] Camera returned 0x0 — forcing {W}x{H}")
+        print(f"[PROCTOR] Camera: {W}x{H}")
 
-    # ── Calibration-only mode: stream readings and exit ────────────
-    if CALIBRATION_MODE:
+        # First few frames are often blank, especially on Windows.
+        # ── Lazy VM + virtual camera detection ───────────────────────────
+        # Run after camera open (non-blocking at import time). Results are
+        # logged via normal event pipeline.
+        global _virtual_camera_name, _vm_name
+        _virtual_camera_name = _detect_virtual_camera()
+        if _virtual_camera_name:
+            print(f"[VIRTUAL CAM] ⚠ Virtual camera detected: '{_virtual_camera_name}'")
+            log_event("virtual_camera_detected", "critical",
+                      f"Virtual webcam: {_virtual_camera_name}")
+        else:
+            print("[VIRTUAL CAM] ✅ Physical webcam confirmed")
+        _vm_name = _detect_vm()
+        if _vm_name:
+            print(f"[VM DETECT] ⚠ Virtual machine indicator found: '{_vm_name}'")
+            log_event("vm_detected", "high", f"VM indicator: {_vm_name}")
+
+        print("[PROCTOR] Warming up camera...")
+        for _ in range(10):
+            cap.read()
+        time.sleep(0.5)
+
+        # ── Start audio analysis ────────────────────────────────────────────
+        _start_audio()
+
+        # ── Pre-exam system check (runs after camera is ready) ────────────────
+        print("[PROCTOR] Running pre-exam system check...")
+        check_results = run_system_check(cap=cap)
         try:
-            run_calibration(cap, W, H)
-        except KeyboardInterrupt:
-            print("\n[CALIBRATION] Stopped by signal")
-        finally:
-            cap.release()
+            _http.post(SYSTEM_CHECK_URL, json=check_results, timeout=5)
+            print(f"[PROCTOR] System check: {check_results['overall'].upper()}")
+            for name, result in check_results["checks"].items():
+                icon = "✅" if result["status"] == "pass" else "⚠️" if result["status"] == "warn" else "❌"
+                print(f"  {icon} {name}: {result['detail']}")
+        except Exception:
+            pass  # Server may not have the endpoint yet — non-fatal
+
+        # ── Calibration-only mode: stream readings and exit ────────────
+        if CALIBRATION_MODE:
+            try:
+                run_calibration(cap, W, H)
+            except KeyboardInterrupt:
+                print("\n[CALIBRATION] Stopped by signal")
             print("[CALIBRATION] Done")
-        return
+            return  # the outer finally still releases the camera + workers
 
-    if HEADLESS or SKIP_ENROLLMENT:
-        reason = "headless mode" if HEADLESS else "renderer handled enrollment"
-        print(f"[ENROLLMENT] Skipping UI phase — {reason}")
-        print("[ENROLLMENT] Face embedding will be captured on first clear frame.")
-        log_event("enrollment_complete", "low", f"Skipped: {reason}")
-    else:
-        run_enrollment(cap, W, H)
+        if HEADLESS or SKIP_ENROLLMENT:
+            reason = "headless mode" if HEADLESS else "renderer handled enrollment"
+            print(f"[ENROLLMENT] Skipping UI phase — {reason}")
+            print("[ENROLLMENT] Face embedding will be captured on first clear frame.")
+            log_event("enrollment_complete", "low", f"Skipped: {reason}")
+        else:
+            run_enrollment(cap, W, H)
 
-    try:
-        run_proctoring(cap, W, H)
-    except KeyboardInterrupt:
-        print("\n[PROCTOR] Stopped by signal")
-    except SystemExit:
-        print("\n[PROCTOR] Stopped by SIGTERM")
+        try:
+            run_proctoring(cap, W, H)
+        except KeyboardInterrupt:
+            print("\n[PROCTOR] Stopped by signal")
+        except SystemExit:
+            print("\n[PROCTOR] Stopped by SIGTERM")
     finally:
-        yolo_worker.stop()
-        if _sahi_available():
-            sahi_worker.stop()
-        duration = int(time.time() - session_start)
-        log_event("session_ended", "low",
-                  f"violations:{violation_count} | duration:{duration}s")
-        cap.release()
-        _http.close()
-        _cleanup_evidence_dir()
+        try: yolo_worker.stop()
+        except Exception: pass
+        try:
+            if _sahi_available():
+                sahi_worker.stop()
+        except Exception: pass
+        if not CALIBRATION_MODE:
+            try:
+                duration = int(time.time() - session_start)
+                log_event("session_ended", "low",
+                          f"violations:{violation_count} | duration:{duration}s")
+            except Exception: pass
+        try: cap.release()
+        except Exception: pass
+        # Drain queued events (incl. session_ended) BEFORE closing the HTTP
+        # session — the event uploader posts through _http.
+        try: _flush_events()
+        except Exception: pass
+        try: _http.close()
+        except Exception: pass
+        try: _cleanup_evidence_dir()
+        except Exception: pass
         if not HEADLESS:
             try:
                 cv2.destroyAllWindows()

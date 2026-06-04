@@ -1074,13 +1074,19 @@ html,body{overflow-x:hidden;max-width:100vw}
 .q-list-item.active .q-list-preview{color:var(--text-high)}
 .q-list-empty{padding:var(--space-4);color:var(--text-muted);
               font-size:var(--text-xs);text-align:center}
+/* Center column mirrors the sidebar/AI-panel: a sticky, viewport-bounded
+   flex column so the question cards scroll INSIDE #q-content-scroll instead
+   of growing the whole page. Height is viewport-relative (not a fixed px),
+   so it's always far more than ~1.5 cards tall and adapts to the screen;
+   short question sets stay naturally compact (no forced empty space). */
 .q-content{flex:1;min-width:0;display:flex;flex-direction:column;
-           background:var(--bg-base)}
+           background:var(--bg-base);
+           position:sticky;top:120px;align-self:flex-start;
+           max-height:calc(100vh - 140px)}
 .q-content-toolbar{display:flex;align-items:center;gap:var(--space-3);
                    padding:var(--space-2-5) var(--space-5);
                    border-bottom:1px solid var(--border-subtle);flex-shrink:0;
-                   background:var(--bg-base);
-                   position:sticky;top:120px;z-index:2}
+                   background:var(--bg-base);z-index:2}
 .q-content-toolbar .toolbar-spacer{flex:1}
 .q-content-toolbar .qct-btn{display:inline-flex;align-items:center;gap:6px;
                             font-family:inherit;font-size:var(--text-sm);
@@ -1094,7 +1100,17 @@ html,body{overflow-x:hidden;max-width:100vw}
 .q-content-toolbar .qct-btn.primary:hover{background:var(--accent-hover)}
 .q-content-toolbar .qct-btn.ghost{background:transparent;border-color:transparent;color:var(--text-muted)}
 .q-content-toolbar .qct-btn.ghost:hover{background:var(--surface-1);color:var(--text-high)}
-.q-content-scroll{padding:var(--space-5)}
+.q-content-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
+                  padding:var(--space-5);
+                  scrollbar-width:thin;
+                  scrollbar-color:var(--border-default) transparent}
+.q-content-scroll::-webkit-scrollbar{width:10px}
+.q-content-scroll::-webkit-scrollbar-track{background:transparent}
+.q-content-scroll::-webkit-scrollbar-thumb{background:var(--border-default);
+                  border-radius:99px;border:2px solid var(--bg-base);
+                  background-clip:padding-box}
+.q-content-scroll::-webkit-scrollbar-thumb:hover{background:var(--text-muted);
+                  border:2px solid var(--bg-base);background-clip:padding-box}
 .q-aipanel{width:360px;flex-shrink:0;background:var(--bg-subtle);
            border-left:1px solid var(--border-subtle);
            display:flex;flex-direction:column;overflow:hidden;
@@ -1125,6 +1141,10 @@ html,body{overflow-x:hidden;max-width:100vw}
   .qx-main{flex-direction:column;border:none;border-radius:0}
   .q-sidebar{width:100%;max-height:200px;border-right:none;
              border-bottom:1px solid var(--border-subtle)}
+  /* Stacked column on mobile — let the page scroll naturally instead of a
+     cramped inner scroller; undo the desktop sticky/bounded center column. */
+  .q-content{position:static;max-height:none;align-self:auto}
+  .q-content-scroll{overflow-y:visible;min-height:0}
    .q-aipanel{width:100%;border-left:none;
               border-top:1px solid var(--border-subtle);max-height:60vh}
 }

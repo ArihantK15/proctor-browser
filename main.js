@@ -556,6 +556,29 @@ app.on('before-quit', () => {
     if (getLobbyWindow() && !getLobbyWindow().isDestroyed()) {
       getLobbyWindow().destroy();
     }
+    // Hard-exit safety net for the "reopen says 'Procta is already open'
+    // then takes 30-40s" bug. Root cause: autoUpdater.autoDownload pulls
+    // the new installer (~200 MB) in THIS process the moment a stale build
+    // launches. Those download sockets are ref'd handles, so a graceful
+    // app.quit() will NOT terminate while the download is in flight — the
+    // process lingers windowless for the whole download, still holding the
+    // single-instance lock. A relaunch in that window fails the lock →
+    // showErrorBox('…already open') → the new instance quits, and a window
+    // only appears once the ghost finally dies.
+    //
+    // The timer is UNREF'd on purpose: on a clean quit the loop empties and
+    // the process exits before 2s, so this never fires (no added quit
+    // latency). It only fires when a stray ref'd handle (the update
+    // download, a wedged socket) keeps the loop alive past 2s — exactly the
+    // ghost case — and force-terminates it. Capping the ghost at 2s means a
+    // relaunch can't race it. Skipped on _quittingForUpdate so we never cut
+    // off an in-progress update install/relaunch.
+    // 2500ms (not 2000) so stopPython's own 2s SIGKILL group-kill backstop
+    // wins the race first and reaps the proctor before we force-exit.
+    const _hardExit = setTimeout(() => {
+      try { app.exit(0); } catch(e) { try { process.exit(0); } catch(_) {} }
+    }, 2500);
+    if (_hardExit.unref) _hardExit.unref();
   }
   // On _quittingForUpdate we leave the window up showing the overlay
   // until electron-updater actually replaces the process.

@@ -490,15 +490,32 @@ def student_page():
 
 @router.get("/dashboard")
 def admin_dashboard():
-    return _static_html_response("dashboard.html", "Dashboard not found")
+    # The React dashboard is now the canonical teacher surface (it has the
+    # full live-camera path incl. live-view/keepalive, plus Review/Timeline
+    # panels the legacy HTML never gained). Served through
+    # _static_html_response so it picks up CSP + cache-bust like every other
+    # auth page — the old /dashboard-react route used a raw read_text() that
+    # skipped both. The React index references its bundle via absolute
+    # /static/dashboard-react/assets/* URLs, so it renders identically at
+    # this path. Legacy dashboard.html is preserved at /dashboard-legacy.
+    return _static_html_response(
+        "dashboard-react/index.html", "Dashboard not found")
 
 
 @router.get("/dashboard-react")
 def admin_dashboard_react():
-    html_path = STATIC_DIR / "dashboard-react" / "index.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="React dashboard not found")
-    return HTMLResponse(html_path.read_text())
+    # Back-compat alias for any bookmarked /dashboard-react URL — now routed
+    # through the same CSP/cache-bust path as /dashboard.
+    return _static_html_response(
+        "dashboard-react/index.html", "React dashboard not found")
+
+
+@router.get("/dashboard-legacy")
+def admin_dashboard_legacy():
+    # Fallback to the legacy hand-rolled HTML dashboard. Kept reachable so we
+    # can diff behaviour / fall back if a React panel regresses, but it is no
+    # longer the default teacher surface.
+    return _static_html_response("dashboard.html", "Legacy dashboard not found")
 
 
 @router.get("/trust-center")

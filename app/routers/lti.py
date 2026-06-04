@@ -173,9 +173,16 @@ async def lti_launch(request: Request):
     )
     token = issue_lti_session_token(user, target_link_uri)
 
-    # Redirect based on role — use fragment to avoid token in server logs
+    # Redirect based on role — use fragment to avoid token in server logs.
+    # NB: the canonical /dashboard now serves the React app, which
+    # authenticates via the httpOnly procta_access cookie and does NOT parse
+    # an #access_token fragment. LTI delivers the session token only in the
+    # URL fragment (no cookie is set here), so teachers must land on the
+    # legacy dashboard, whose JS reads the fragment token. Until the React
+    # build learns to exchange a fragment token for a cookie, keep LTI on
+    # /dashboard-legacy so launches stay authenticated.
     if user.get("role") == "teacher":
-        redirect_to = f"/dashboard#access_token={token}&token_type=Bearer"
+        redirect_to = f"/dashboard-legacy#access_token={token}&token_type=Bearer"
     else:
         redirect_to = f"/student#access_token={token}&token_type=Bearer"
 

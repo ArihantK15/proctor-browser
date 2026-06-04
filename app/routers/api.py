@@ -66,7 +66,10 @@ async def api_get_exam(exam_id: str, request: Request, tid: str = Depends(_requi
     return result.data[0]
 
 
-STUDENT_COLS = "roll_number,full_name,email,teacher_id,exam_id,status,created_at,account_id"
+# `students` has no `exam_id` column (per-exam link lives in
+# student_invites / exam_sessions — see commit a99797b). Selecting it
+# raised UndefinedColumnError → 500 on these API-key endpoints.
+STUDENT_COLS = "roll_number,full_name,email,teacher_id,status,created_at,account_id"
 SESSION_COLS = "session_key,exam_id,student_roll_number,student_name,started_at,ended_at,status,score,total,percentage"
 
 @router.get("/exams/{exam_id}/students")

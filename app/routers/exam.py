@@ -273,7 +273,7 @@ async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str, pr
 async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: str) -> tuple:
     """Look up student scoped by teacher_id; auto-enroll from invite if needed.
     Returns (student_dict, teacher_id, matched_invite_id)."""
-    result_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
+    result_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id").eq("roll_number", roll_upper)
     if pre_tid:
         result_q = result_q.eq("teacher_id", str(pre_tid))
     result = await result_q.execute()
@@ -319,8 +319,10 @@ async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: st
         "phone": inv.get("phone") or None,
         "teacher_id": str(inv["teacher_id"]),
     }
-    if inv.get("exam_id"):
-        student_row["exam_id"] = inv.get("exam_id")
+    # NOTE: the `students` table has NO `exam_id` column — per-exam
+    # association lives in student_invites / exam_sessions (see commit
+    # a99797b). Writing exam_id here raised UndefinedColumnError → 500
+    # on the auto-enroll path. Enrollment is teacher-scoped only.
     try:
         enroll_result = await _atable("students").insert(student_row).execute()
         if enroll_result.data:
@@ -332,7 +334,7 @@ async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: st
                 }).eq("id", inv["id"]).execute()
             return student, student.get("teacher_id"), None
         # Fallback re-query
-        recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
+        recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id").eq("roll_number", roll_upper)
         if "teacher_id" in student_row:
             recheck_q = recheck_q.eq("teacher_id", str(student_row["teacher_id"]))
         recheck = await recheck_q.execute()
@@ -358,7 +360,7 @@ async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: st
             )
         err = str(e).lower()
         if "duplicate" in err or "unique" in err:
-            recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,exam_id,expires_at").eq("roll_number", roll_upper)
+            recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id").eq("roll_number", roll_upper)
             if "teacher_id" in inv:
                 recheck_q = recheck_q.eq("teacher_id", str(inv["teacher_id"]))
             recheck = await recheck_q.execute()

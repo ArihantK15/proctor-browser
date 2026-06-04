@@ -1298,14 +1298,25 @@ async function launchExam(exam, accessCode) {
   if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
   if (preflightErr) preflightErr.textContent = '';
   try {
-    await window.procta_native.launchExam({
+    const res = await window.procta_native.launchExam({
       rollNumber: exam.roll_number,
       accessCode: accessCode || '',
       examTitle:  exam.exam_title || 'Exam',
       teacherId:  exam.teacher_id,
       examId:     exam.exam_id || null,
     });
-    // Main process hides the lobby on success; this JS will stop running.
+    // On success the main process hides the lobby and the exam window
+    // takes over, so this JS stops running. A returned {ok:false} means we
+    // stayed in the lobby — surface why.
+    if (res && res.ok === false) {
+      if (res.error === 'setup-not-ready') {
+        _showSetupPreparing(res.setup, preflightErr, btn);
+        return;  // hold the button in "Preparing…"; finally won't reset it
+      }
+      if (res.error === 'camera-denied') return;  // main already showed a dialog
+      const msg = res.error || 'Could not start the exam. Please try again.';
+      if (preflightErr) preflightErr.textContent = msg; else showModal(msg);
+    }
   } catch (e) {
     const msg = (e && e.message) || 'Failed to start exam';
     if (preflightErr) {
@@ -1316,8 +1327,34 @@ async function launchExam(exam, accessCode) {
       showModal(msg);
     }
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Start exam'; }
+    // Don't reset while we're holding the "Preparing AI environment" state
+    // (set by _showSetupPreparing) — that handler owns the button until
+    // setup reports ready.
+    if (btn && btn.dataset.preparing !== '1') { btn.disabled = false; btn.textContent = 'Start exam'; }
   }
+}
+
+// The lobby now opens before the background AI setup finishes. If a launch
+// lands during that window the main process returns {ok:false,
+// error:'setup-not-ready'}; show a friendly one-time-setup message and
+// re-enable "Start exam" automatically when setup-state reports ready.
+function _showSetupPreparing(setup, preflightErr, btn) {
+  const label = (setup && setup.label) || 'Preparing the AI exam environment…';
+  if (preflightErr) {
+    preflightErr.textContent = label +
+      ' This one-time setup is finishing — try Start exam again in a moment.';
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; btn.dataset.preparing = '1'; }
+  if (!window.procta_native || typeof window.procta_native.onSetupState !== 'function') return;
+  window.procta_native.onSetupState((st) => {
+    if (!st) return;
+    if (st.ready) {
+      if (preflightErr) preflightErr.textContent = '';
+      if (btn) { btn.disabled = false; btn.textContent = 'Start exam'; delete btn.dataset.preparing; }
+    } else if (st.label && preflightErr && btn && btn.dataset.preparing === '1') {
+      preflightErr.textContent = st.label;
+    }
+  });
 }
 
 // Modal dismiss: Escape key + backdrop click.

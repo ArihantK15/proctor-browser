@@ -36,6 +36,16 @@ contextBridge.exposeInMainWorld('procta_native', {
   // already loaded — main.js pushes via IPC in that case.
   // App version for the on-screen "Procta vX.Y.Z" badge.
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  // Background AI-setup state, so the dashboard's "Start exam" flow can
+  // show "Preparing AI environment…" when a launch lands before setup has
+  // finished (the lobby now opens before Python provisioning completes).
+  getSetupState: () => ipcRenderer.invoke('get-setup-state'),
+  onSetupState: (cb) => {
+    ipcRenderer.removeAllListeners('setup-state');
+    ipcRenderer.on('setup-state', (_, st) => {
+      try { cb(st); } catch(e) { console.error('[setup] state cb failed', e); }
+    });
+  },
   consumeInviteToken: () => ipcRenderer.invoke('consume-invite-token'),
   onInviteToken: (cb) => {
     ipcRenderer.removeAllListeners('invite-token-available');

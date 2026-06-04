@@ -47,8 +47,7 @@ const { extractInviteToken, authHeaders, fetchWithTimeout, _exec } = require('./
 const { initAutoUpdater } = require('./lib/auto-update');
 const { runIntegrityChecks } = require('./lib/integrity');
 const {
-  findPython, checkPackagesReady, checkPackagesReadyCached, runSetup,
-  createSetupWindow, getSetupWindow, closeSetupWindow,
+  startSetupInBackground, getSetupState, isSetupReady,
   startPython, stopPython, startCalibration, stopCalibration,
   reapOrphanProctors, ensureCameraAccess,
 } = require('./lib/python-manager');
@@ -456,71 +455,22 @@ app.whenReady().then(async () => {
   // survive the wait for setup.
   extractAndReceive(process.argv, 'argv');
 
-  // ── Setup gate ──────────────────────────────────────────────────
-  // Until setup is complete, we DO NOT open the lobby. The user
-  // shouldn't be able to click around (try to sign in, start an
-  // exam, etc.) while pip is still installing the AI packages in the
-  // background. On a fresh install: setup window first → lobby
-  // when done. On a re-launch with packages already there: very
-  // brief "Checking…" splash → lobby. Either way one window at a
-  // time, and the lobby never opens before setup is settled.
-  // Setup runs on both desktop targets we ship: Windows (downloads the
-  // python.org installer if needed) and macOS (uses the bundled
-  // relocatable Python + a per-user venv). Linux is not a shipping
-  // target, so it skips the gate and opens the lobby immediately.
+  // ── Open the lobby IMMEDIATELY ──────────────────────────────────
+  // The lobby is a pure HTML/JS login surface — it needs no Python. We
+  // used to block it behind the full AI-package setup (a heavy import
+  // probe + pip), so every launch waited seconds (a fresh install,
+  // minutes) before the window even appeared. Now the lobby opens first
+  // and Python provisioning runs in the BACKGROUND (startSetupInBackground
+  // below). The safety invariant — a student can't enter an exam before
+  // the packages are ready — moves to the exam-start IPC gate
+  // (lobby-launch-exam / start-proctor check isSetupReady()).
   //
-  // Gated on app.isPackaged: in dev (`npm start`, the smoke test) the
-  // developer manages their own Python env, and we must NOT kick off a
-  // multi-hundred-MB pip install into a throwaway venv on every launch.
-  // This preserves the prior behaviour where unpackaged runs never ran
-  // setup. Real installs always provision.
-  const needsSetupGate = app.isPackaged
-    && (process.platform === 'win32' || process.platform === 'darwin');
-  let needSetup = false;
-  if (needsSetupGate) {
-    try {
-      const python = await findPython();
-      // Cache-aware: skips the heavy 11-package import probe when a valid
-      // readiness marker exists (steady-state launches), falling back to the
-      // real probe only when the marker is missing/stale.
-      needSetup = !(python && await checkPackagesReadyCached(python));
-    } catch(e) { console.error('[Setup] readiness check threw:', e.message); }
-  }
-
-  if (needsSetupGate) {
-    // Guard the setup-window creation: a throw here must NOT skip the
-    // lobby open below. Worst case we run setup windowless, then still
-    // reach the lobby.
-    try { createSetupWindow(); } catch(e) { console.error('[Setup] createSetupWindow threw:', e.message); }
-    try {
-      // 16-min ceiling on the whole setup flow. Must stay ABOVE the
-      // inner pip child's own 15-min timeout (python-manager runSetup),
-      // otherwise this race would fire first, close the setup window and
-      // open the lobby while pip is still running detached — letting a
-      // student start an exam before packages finish. On an already-set-up
-      // install runSetup short-circuits in ~1s; on a fresh install it
-      // does the bundled pip + audio model download.
-      await Promise.race([
-        runSetup(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Setup timed out')), 960_000)),
-      ]);
-      // Only the fresh-install path pauses so the "Ready" state renders
-      // before the window closes. A warm launch has nothing to show, so
-      // close immediately — the 400ms here was pure dead time on every
-      // already-set-up start.
-      if (needSetup) await new Promise(r => setTimeout(r, 1500));
-    } catch(e) { console.error('[Setup] Failed:', e); }
-    try {
-      if (getSetupWindow() && !getSetupWindow().isDestroyed()) closeSetupWindow();
-    } catch(e) { console.error('[Setup] closeSetupWindow threw:', e.message); }
-  }
-
-  // Setup done (or skipped on unsupported platforms). Open the lobby now.
-  // This is the one window the app cannot run without, so it gets its own
-  // guard: the global crash handler logs an uncaught throw but deliberately
-  // does NOT quit when no exam is locked — so without this catch a throw
-  // here would leave a running process with no window (the silent "reopen
-  // does nothing" hang). Surface a dialog and quit so the user can retry.
+  // The lobby is the one window the app cannot run without, so it keeps
+  // its own guard: the global crash handler logs an uncaught throw but
+  // deliberately does NOT quit when no exam is locked — so without this
+  // catch a throw here would leave a running process with no window (the
+  // silent "reopen does nothing" hang). Surface a dialog and quit so the
+  // user can retry.
   try {
     createLobbyWindow();
   } catch(e) {
@@ -535,6 +485,14 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+
+  // Provision Python + AI packages in the background. On a warm launch the
+  // cached readiness marker makes this resolve to `ready` in ~0ms with no
+  // window; on a fresh install it surfaces the setup window's progress
+  // while the lobby stays usable, and pushes `setup-state` to the lobby so
+  // the Start-exam button can show "Preparing AI environment…". Exam start
+  // stays gated on isSetupReady() until this completes.
+  startSetupInBackground(getLobbyWindow);
 
   // Defer auto-updater to avoid blocking startup on slow networks.
   setTimeout(() => initAutoUpdater(getLobbyWindow(), getMainWindow), 3000);
@@ -723,10 +681,24 @@ ipcMain.handle('stop-calibration', (event, data) => {
 
 ipcMain.handle('start-proctor', async (event, data) => {
   if (!_assertMainFrame(event, 'start-proctor')) throw new Error('Frame not allowed');
+  // Backstop to the lobby-launch-exam gate: the exam window only opens
+  // once setup is ready, but guard here too so a race can never start the
+  // proctor before the packages exist. startPython also fail-closes.
+  if (!isSetupReady()) {
+    console.warn('[start-proctor] AI setup not ready — refusing to start proctor');
+    return { started: false, error: 'setup-not-ready' };
+  }
   const sessionId = data && data.sessionId;
   if (sessionId) setCurrentSessionId(sessionId);
   await startPython(sessionId, SERVER_URL, getStudentToken(), getCalBiases());
   return { started: true };
+});
+
+// Lobby polls this (and receives `setup-state` pushes) to reflect the
+// background AI-setup progress on the Start-exam button. No frame gate —
+// it's non-sensitive status, same as get-app-version.
+ipcMain.handle('get-setup-state', () => {
+  try { return getSetupState(); } catch { return { phase: 'idle', ready: false, label: '', pct: 0 }; }
 });
 
 ipcMain.handle('start-polling', (event, data) => {
@@ -789,6 +761,14 @@ ipcMain.handle('get-app-version', () => { try { return app.getVersion(); } catch
 ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
   if (!_assertMainFrame(event, 'lobby-launch-exam')) throw new Error('Frame not allowed');
   if (!ctx || !ctx.rollNumber) return { ok: false, error: 'Missing roll number' };
+  // ── Safety invariant ──────────────────────────────────────────────
+  // The lobby now opens before Python setup finishes. Never create the
+  // kiosk exam window until the AI packages are ready — keep the student
+  // in the lobby with a clear "preparing…" status instead of starting an
+  // exam the proctor can't initialise. The renderer reflects setup.label.
+  if (!isSetupReady()) {
+    return { ok: false, error: 'setup-not-ready', setup: getSetupState() };
+  }
   setExamContext({
     rollNumber: String(ctx.rollNumber).trim().toUpperCase(),
     accessCode: String(ctx.accessCode || '').trim().toUpperCase(),

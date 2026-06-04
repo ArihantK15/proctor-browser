@@ -175,3 +175,29 @@ describe('exam window fails OPEN on a bad load', { skip: CI_SKIP }, () => {
       'did-fail-load must render an escapable error page (never a blank, trapped frame)');
   });
 });
+
+// Safety invariant for the Phase-2 boot decouple: the lobby now opens
+// before the background AI setup finishes, so exam-start MUST refuse to
+// open the kiosk window until packages are ready. Forcing the setup state
+// to "not ready" must make launchExam return {ok:false,setup-not-ready}
+// and open NO exam window. This is a pure IPC assertion (no second
+// window), so it is CI-display-stable and not skipped.
+describe('exam-start is gated on AI setup readiness', () => {
+  let app;
+  before(async () => {
+    app = launchApp({ port: 9244, env: { PROCTOR_E2E_FORCE_SETUP_NOT_READY: '1' } });
+    await app.cdp.ready();
+  });
+  after(() => stopApp(app));
+
+  test('get-setup-state reports not-ready and launchExam is refused', async () => {
+    const lobby = await app.cdp.waitForTarget(LOBBY_RX, { label: 'lobby' });
+    const st = await evaluate(lobby, 'window.procta_native.getSetupState()');
+    assert.ok(st && st.ready === false,
+      `setup-state should be not-ready when forced, got ${JSON.stringify(st)}`);
+    const res = await evaluate(lobby,
+      `window.procta_native.launchExam({ rollNumber: 'E2E-GATE', accessCode: '', examTitle: 'E2E' })`);
+    assert.ok(res && res.ok === false && res.error === 'setup-not-ready',
+      `launchExam must be refused while setup is not ready — got ${JSON.stringify(res)}`);
+  });
+});

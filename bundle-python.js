@@ -8,11 +8,13 @@
  *
  * macOS: downloads a relocatable python-build-standalone interpreter for
  *   BOTH architectures into python-runtime/<arch>/ (arch dir names match
- *   lib/python-manager.js: aarch64-apple-darwin / x86_64-apple-darwin).
- *   electron-builder ships python-runtime/ via extraResources. At first
- *   launch the app creates a per-user venv from this interpreter and pip-
- *   installs the proctor packages into it (PEP 668-safe; never writes
- *   inside the signed .app). No silent system install, no admin prompt.
+ *   lib/python-manager.js: aarch64-apple-darwin / x86_64-apple-darwin) and
+ *   BAKES the proctor wheels straight into the matching interpreter's
+ *   site-packages, so the signed .app needs zero first-launch pip. Which
+ *   arch to bake is chosen by PROCTA_BAKE_ARCH (set by the CI matrix); the
+ *   x64 leg is cross-built on the Apple-Silicon runner via Rosetta 2.
+ *   electron-builder ships python-runtime/ via extraResources. The legacy
+ *   first-launch venv path remains only as a dev/no-bundle fallback.
  *
  * CI (.github/workflows/build.yml) runs this before `electron-builder
  * --mac`. In dev, python-runtime/ ships empty (.gitkeep) and the app
@@ -57,15 +59,26 @@ const pbsUrl = (target) =>
   `https://github.com/astral-sh/python-build-standalone/releases/download/` +
   `${PBS_RELEASE}/cpython-${PYTHON_VERSION}+${PBS_RELEASE}-${target}-install_only.tar.gz`;
 
-// Which python-runtime/<target> matches the arch we're building ON. A
-// python-build-standalone interpreter only EXECUTES on its native arch, so
-// we can only pip-install into the matching one. The per-arch CI matrix
-// (arm64 on macos-14, x64 on macos-13) runs this once per arch; each runner
-// bakes its own wheels natively and ships only its own dmg. On a single-host
-// dev build the non-matching runtime is bundled package-less and the app
-// falls back to a first-launch venv there.
+// The python-build-standalone runtime for THIS host's native arch. Used as
+// the default bake target on a dev machine where no arch is specified.
 function hostMacTarget() {
   return process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+}
+
+// Which python-runtime/<target> to bake the proctor wheels INTO. baking runs
+// `<runtime>/bin/python3 -m pip install …`, and that interpreter normally only
+// EXECUTES on its native arch — which is why x64 dmgs once needed a real Intel
+// host. The CI matrix now passes the wanted arch via PROCTA_BAKE_ARCH so the
+// x64 leg can be CROSS-BUILT on an Apple-Silicon runner (macos-14): with
+// Rosetta 2 installed, the x86_64 interpreter runs emulated and its pip pulls
+// genuine x86_64 wheels (numpy/opencv/onnxruntime/insightface all ship them).
+// Unset (dev / single-host) → host arch only; the other runtime ships
+// package-less and the app falls back to a first-launch venv there.
+function bakeMacTarget() {
+  const a = (process.env.PROCTA_BAKE_ARCH || '').toLowerCase();
+  if (a === 'arm64' || a === 'aarch64') return 'aarch64-apple-darwin';
+  if (a === 'x64' || a === 'x86_64' || a === 'x86-64') return 'x86_64-apple-darwin';
+  return hostMacTarget();
 }
 
 // True if this interpreter already imports every proctor package — lets a
@@ -108,8 +121,10 @@ async function runMac() {
   console.log('\n=== Procta — macOS Python runtime bundler ===\n');
   fs.mkdirSync(MAC_RUNTIME_DIR, { recursive: true });
 
-  const hostTarget = hostMacTarget();
-  console.log(`[host] building on ${process.arch} → will bake packages into ${hostTarget}\n`);
+  const bakeTarget = bakeMacTarget();
+  const crossArch  = bakeTarget !== hostMacTarget();
+  console.log(`[host] running on ${process.arch}; baking proctor packages into ` +
+              `${bakeTarget}${crossArch ? ' (cross-arch — requires Rosetta 2)' : ''}\n`);
 
   for (const target of MAC_TARGETS) {
     const destDir = path.join(MAC_RUNTIME_DIR, target);
@@ -141,12 +156,13 @@ async function runMac() {
       try { fs.unlinkSync(tgz); } catch { /* best-effort cleanup */ }
     }
 
-    // Only the matching-arch interpreter can be executed to run pip.
-    if (target === hostTarget) {
+    // Bake wheels into the requested target only. For x86_64 on an arm64
+    // host this executes the interpreter under Rosetta 2 (installed by CI).
+    if (target === bakeTarget) {
       bakeMacPackages(destDir);
     } else {
-      console.log(`[pip] ${target} != host arch — bundling interpreter only ` +
-                  `(its wheels are baked by the ${target} CI runner).`);
+      console.log(`[pip] ${target} != bake target — bundling interpreter only ` +
+                  `(its wheels are baked by the ${target} build leg).`);
     }
   }
 

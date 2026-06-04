@@ -6,17 +6,21 @@ name: Build & Release Electron App
 #
 # AUTO-UPDATE MANIFESTS:
 #   - Windows: the single win job uploads latest.yml directly.
-#   - macOS: the two arch jobs (arm64 on macos-14, x64 on macos-13) each emit
-#     their OWN per-arch latest-mac.yml. They must NOT both upload it — the
-#     second would clobber the first and half of all Macs would get
-#     "no update found". So each mac job uploads ITS binaries but stashes its
-#     latest-mac.yml as a workflow artifact; the `merge-mac-manifest` job then
-#     unions the two into one manifest (scripts/merge-mac-latest.mjs) and
-#     uploads that single combined latest-mac.yml to the release.
+#   - macOS: the two arch jobs (both on macos-14) each emit their OWN per-arch
+#     latest-mac.yml. They must NOT both upload it — the second would clobber
+#     the first and half of all Macs would get "no update found". So each mac
+#     job uploads ITS binaries but stashes its latest-mac.yml as a workflow
+#     artifact; the `merge-mac-manifest` job then unions the two into one
+#     manifest (scripts/merge-mac-latest.mjs) and uploads that single combined
+#     latest-mac.yml to the release.
 # WHY PER-ARCH JOBS: each arch bakes its own native wheels (numpy/opencv/
-# onnxruntime/insightface) into python-runtime/<arch>/ — cross-arch pip is
-# unreliable, so arm64 wheels must be built on Apple Silicon (macos-14) and
-# x64 wheels on Intel (macos-13). A single-host build could only bake one.
+# onnxruntime/insightface) into python-runtime/<arch>/. BOTH run on macos-14
+# (Apple Silicon): arm64 wheels bake natively; x64 wheels are CROSS-BUILT via
+# Rosetta 2 (the x86_64 interpreter runs emulated, so its pip pulls genuine
+# x86_64 wheels). We no longer use the macos-13 Intel runner — GitHub stopped
+# scheduling it for this repo, which stalled every release in `queued`. The
+# bake target is selected by PROCTA_BAKE_ARCH (= matrix.arch), see
+# bundle-python.js#bakeMacTarget.
 
 on:
   push:
@@ -34,12 +38,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # arm64 wheels MUST be baked on Apple Silicon → macos-14 (M-series).
+          # arm64 wheels bake natively on Apple Silicon → macos-14 (M-series).
           - os: macos-14
             target: mac
             arch: arm64
-          # x64 wheels MUST be baked on Intel → macos-13 (last Intel runner).
-          - os: macos-13
+          # x64 wheels are cross-built on the SAME Apple-Silicon runner via
+          # Rosetta 2 (see the Install Rosetta step). The macos-13 Intel runner
+          # is no longer scheduled for this repo and stalled every release.
+          - os: macos-14
             target: mac
             arch: x64
           - os: windows-latest
@@ -89,9 +95,20 @@ jobs:
       # python-runtime/ so they get shipped via extraResources. Without
       # this the macOS app falls back to the user's system python3 (which
       # PEP 668 blocks from pip-installing the proctor packages).
+      # x64 mac is cross-built on this arm64 runner: Rosetta 2 lets the
+      # bundled x86_64 interpreter execute so its pip pulls x86_64 wheels.
+      # Idempotent + no-op if already present; only needed on the x64 leg.
+      - name: Install Rosetta 2 (mac x64 cross-build)
+        if: matrix.target == 'mac' && matrix.arch == 'x64'
+        run: softwareupdate --install-rosetta --agree-to-license
+
       - name: Bundle Python runtime (macOS)
         if: matrix.target == 'mac'
         run: node bundle-python.js
+        env:
+          # Selects which python-runtime/<arch> gets the proctor wheels baked
+          # in — see bundle-python.js#bakeMacTarget.
+          PROCTA_BAKE_ARCH: ${{ matrix.arch }}
 
       # Bake the on-device speech models (Vosk en-IN + hi + Silero VAD) into
       # weights/ so they ship via extraResources (package.json maps weights/ →

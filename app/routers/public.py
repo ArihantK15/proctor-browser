@@ -490,31 +490,33 @@ def student_page():
 
 @router.get("/dashboard")
 def admin_dashboard():
-    # The React dashboard is now the canonical teacher surface (it has the
-    # full live-camera path incl. live-view/keepalive, plus Review/Timeline
-    # panels the legacy HTML never gained). Served through
-    # _static_html_response so it picks up CSP + cache-bust like every other
-    # auth page — the old /dashboard-react route used a raw read_text() that
-    # skipped both. The React index references its bundle via absolute
-    # /static/dashboard-react/assets/* URLs, so it renders identically at
-    # this path. Legacy dashboard.html is preserved at /dashboard-legacy.
-    return _static_html_response(
-        "dashboard-react/index.html", "Dashboard not found")
+    # The legacy hand-rolled HTML dashboard is the canonical teacher surface.
+    # It is feature-complete and battle-tested. The React rewrite was made
+    # default for a brief window but reverted (2026-06-04): it lagged the
+    # HTML one on features and had an unresolved lazy-chunk React-instance
+    # bug (#321) that broke every panel. React is kept reachable at
+    # /dashboard-react for incremental work, but is NOT the default.
+    return _static_html_response("dashboard.html", "Dashboard not found")
 
 
 @router.get("/dashboard-react")
 def admin_dashboard_react():
-    # Back-compat alias for any bookmarked /dashboard-react URL — now routed
-    # through the same CSP/cache-bust path as /dashboard.
+    # The React dashboard (work-in-progress). Not the default teacher surface
+    # yet — reachable here for development/testing. Known issue: lazy panel
+    # chunks throw React #321 ("invalid hook call") because FastAPI's
+    # _stamp_static_urls appends ?v= to the Vite entry <script>, giving the
+    # React-containing chunk two ES-module URLs (?v= entry vs bare lazy
+    # import) and thus two React instances. Fix before promoting: exclude
+    # /static/dashboard-react/ from _stamp_static_urls (the bundle is already
+    # content-hashed, so it needs no ?v= cache-bust).
     return _static_html_response(
         "dashboard-react/index.html", "React dashboard not found")
 
 
 @router.get("/dashboard-legacy")
 def admin_dashboard_legacy():
-    # Fallback to the legacy hand-rolled HTML dashboard. Kept reachable so we
-    # can diff behaviour / fall back if a React panel regresses, but it is no
-    # longer the default teacher surface.
+    # Back-compat alias for the legacy dashboard, now identical to /dashboard.
+    # Kept so any bookmarked/LTI-cached /dashboard-legacy URL still resolves.
     return _static_html_response("dashboard.html", "Legacy dashboard not found")
 
 

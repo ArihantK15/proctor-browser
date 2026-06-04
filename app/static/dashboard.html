@@ -460,7 +460,7 @@
         <span class="search-icon">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         </span>
-        <input type="text" id="live-search" class="search-input" placeholder="Search by name, roll, or session id…" data-input-action="filterLive"">
+        <input type="text" id="live-search" class="search-input" placeholder="Search by name, roll, or session id…" data-input-action="filterLive">
       </div>
       <!-- Bifurcation by teacher — only visible to admin/superadmin
            (data-roles + applyOrgRole). Plain teachers see nothing here. -->
@@ -517,7 +517,7 @@
         <span class="search-icon">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         </span>
-        <input type="text" id="results-search" class="search-input" placeholder="Search by name, roll, or email…" data-input-action="filterResults"">
+        <input type="text" id="results-search" class="search-input" placeholder="Search by name, roll, or email…" data-input-action="filterResults">
       </div>
       <select class="filter-select teacher-filter" id="results-teacher-filter"
               data-roles="admin superadmin"
@@ -580,7 +580,7 @@
          <span class="search-icon">
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
          </span>
-         <input type="text" id="history-search" class="search-input" placeholder="Search students by roll number, name, or email…" data-input-action="filterHistorySearch"">
+         <input type="text" id="history-search" class="search-input" placeholder="Search students by roll number, name, or email…" data-input-action="filterHistorySearch">
        </div>
        <select class="filter-select teacher-filter" id="history-teacher-filter"
                data-roles="admin superadmin"
@@ -674,7 +674,7 @@
           <div class="q-sidebar-title"><span id="q-list-count">0</span> Questions</div>
           <div class="q-sidebar-search">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input type="text" id="q-list-search" placeholder="Search…" data-input-action="renderQSidebar"">
+            <input type="text" id="q-list-search" placeholder="Search…" data-input-action="renderQSidebar">
           </div>
         </div>
         <div class="q-sidebar-filter" role="radiogroup" aria-label="Filter by question type">
@@ -782,7 +782,7 @@
                default; setAITab('bank') reveals it. -->
           <div data-aipane="bank" style="display:none">
             <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
-              <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" data-input-action="filterBank""
+              <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" data-input-action="filterBank"
                 style="flex:1;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);font-size:12px;font-family:inherit">
               <button class="btn btn-secondary btn-sm" data-action="exportBank" title="Download bank as JSON">Export</button>
             </div>

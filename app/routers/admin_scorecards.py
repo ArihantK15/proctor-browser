@@ -24,7 +24,7 @@ from ..services.risk import compute_risk_score
 from ..utils import _safe_filename, _html_escape, _xlsx_safe, fmt_ist, now_ist
 from ..models import SessionStatus
 from .. import cache as _cache
-from ..services.sessions import collect_session_screenshots as _collect_session_screenshots, match_screenshot_for_violation as _match_screenshot_for_violation
+from ..services.sessions import collect_session_screenshots as _collect_session_screenshots, match_screenshot_for_violation as _match_screenshot_for_violation, match_room_screenshot_for_violation as _match_room_screenshot_for_violation
 from ..limiter import limiter
 from ..models import EmailScorecardsIn
 from ..services.scorecard import _build_scorecard_pdf
@@ -278,16 +278,22 @@ def _pdf_find_evidence(session_id: str, exam: dict, raw_violations: list, tid: s
     for idx, v in enumerate(raw_violations, 1):
         match = _match_screenshot_for_violation(v, paths)
         if match is not None and match.exists():
-            items.append((idx, v, match))
+            # Phone-cam companion captured at the same instant (None if the
+            # student didn't pair a phone) — rendered side by side.
+            room = _match_room_screenshot_for_violation(v, paths)
+            room = room if (room is not None and room.exists()) else None
+            items.append((idx, v, match, room))
     return items
 
 
 def _pdf_build_evidence_section(evidence_items: list, styles, evidence_caption_style):
     from reportlab.lib.units import inch
-    from reportlab.platypus import Paragraph, Spacer, Image, KeepTogether
+    from reportlab.lib import colors as _colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph, Spacer, Image, KeepTogether, Table, TableStyle
 
     story = []
-    for idx, v, img_path in evidence_items:
+    for idx, v, img_path, room_path in evidence_items:
         ts_str = fmt_ist(v.get("created_at", ""))
         sev = v["severity"].upper()
         sev_color = "#c0392b" if v["severity"] == "high" else "#d68910"
@@ -298,8 +304,27 @@ def _pdf_build_evidence_section(evidence_items: list, styles, evidence_caption_s
         if detail:
             caption += f'<br/><font size="8" color="#666">{detail}</font>'
         try:
-            img = Image(str(img_path), width=4.5 * inch, height=3.4 * inch, kind="proportional")
-            story.append(KeepTogether([Paragraph(caption, evidence_caption_style), img, Spacer(1, 14)]))
+            if room_path is not None:
+                # Two cameras side by side: primary (webcam) + phone (room).
+                cap = ParagraphStyle('evcap', parent=evidence_caption_style,
+                                     fontSize=8, textColor=_colors.HexColor("#666"),
+                                     alignment=1, spaceBefore=2)
+                primary = Image(str(img_path), width=2.6 * inch, height=2.0 * inch, kind="proportional")
+                phone = Image(str(room_path), width=2.6 * inch, height=2.0 * inch, kind="proportional")
+                grid = Table(
+                    [[primary, phone],
+                     [Paragraph("Primary camera", cap), Paragraph("Phone camera", cap)]],
+                    colWidths=[2.75 * inch, 2.75 * inch])
+                grid.setStyle(TableStyle([
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]))
+                story.append(KeepTogether([Paragraph(caption, evidence_caption_style), grid, Spacer(1, 14)]))
+            else:
+                img = Image(str(img_path), width=4.5 * inch, height=3.4 * inch, kind="proportional")
+                story.append(KeepTogether([Paragraph(caption, evidence_caption_style), img, Spacer(1, 14)]))
         except Exception as err:
             logger.warning("pdf: unreadable screenshot %s: %s", img_path, err)
             story.append(Paragraph(

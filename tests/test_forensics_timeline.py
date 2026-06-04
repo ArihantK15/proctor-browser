@@ -262,3 +262,54 @@ class TestForensicsTimeline:
         )
         assert event["screenshot"].startswith("/api/v1/admin/screenshot/alice/")
         assert event["screenshot"].endswith(fake_screenshot.name)
+
+    def test_timeline_stamps_phone_camera_companion(self, client, admin_headers):
+        """When a flag has BOTH a primary frame and the phone-cam companion
+        captured at the same instant, the timeline stamps both screenshot and
+        room_screenshot URLs so the dashboard shows the two cameras side by
+        side for the flag."""
+        stub = _TimelineSupabaseStub(
+            sessions=[{
+                "session_key": "sess_alice_3", "teacher_id": "teacher-1",
+                "roll_number": "alice", "full_name": "Alice", "status": "completed",
+            }],
+            violations=[_viol("face_missing", "medium", vid=8)],
+        )
+        stub.violations[0]["session_key"] = "sess_alice_3"
+        primary = Path("evt_face_missing_20260420_100005.jpg")
+        room = Path("room_face_missing_20260420_100005.jpg")
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.admin._collect_session_screenshots",
+                          return_value={primary.name: primary, room.name: room}), \
+             patch("app.routers.admin._match_screenshot_for_violation", return_value=primary), \
+             patch("app.routers.admin._match_room_screenshot_for_violation", return_value=room):
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/timeline/sess_alice_3", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        event = r.json()["timeline"][0]
+        assert event["screenshot"].endswith(primary.name)
+        assert event.get("room_screenshot", "").endswith(room.name), (
+            "Timeline must stamp room_screenshot (the phone-cam companion) so the "
+            "dashboard can show both cameras side by side for a flag.")
+        assert event["room_screenshot"].startswith("/api/v1/admin/screenshot/alice/")
+
+
+def test_room_companion_pairing_logic():
+    """match_room_screenshot_for_violation pairs the room_<type>_<ts> companion;
+    match_screenshot_for_violation must NEVER return a room_ file as primary."""
+    from app.services.sessions import (
+        match_screenshot_for_violation, match_room_screenshot_for_violation)
+    v = {"violation_type": "face_missing", "created_at": "2026-04-20T10:00:05+00:00"}
+    shots = {
+        "evt_face_missing_20260420_100005.jpg": Path("evt_face_missing_20260420_100005.jpg"),
+        "room_face_missing_20260420_100005.jpg": Path("room_face_missing_20260420_100005.jpg"),
+    }
+    primary = match_screenshot_for_violation(v, shots)
+    room = match_room_screenshot_for_violation(v, shots)
+    assert primary is not None and primary.name.startswith("evt_")
+    assert room is not None and room.name.startswith("room_")
+    # Even with ONLY a room_ file in the window, the primary matcher must not
+    # fall back to it (it would mislabel the phone frame as the webcam).
+    only_room = {"room_face_missing_20260420_100005.jpg": Path("room_face_missing_20260420_100005.jpg")}
+    assert match_screenshot_for_violation(v, only_room) is None
+    assert match_room_screenshot_for_violation(v, only_room) is not None

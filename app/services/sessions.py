@@ -420,7 +420,31 @@ def match_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]
         if fname.startswith("evt_") and any(k in fname for k in window_keys):
             return fpath
     for fname, fpath in screenshots.items():
-        if any(k in fname for k in window_keys):
+        # Exclude the phone-cam companion (room_*) — it is matched separately
+        # by match_room_screenshot_for_violation; it must never stand in as
+        # the PRIMARY frame.
+        if not fname.startswith("room_") and any(k in fname for k in window_keys):
+            return fpath
+    return None
+
+
+def match_room_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]) -> Path | None:
+    """The phone-cam companion (room_<type>_<ts>.jpg) saved at the same instant
+    as the primary evt_ frame for a flag — so the PDF / live timeline can show
+    both cameras side by side. Returns None when no phone was paired."""
+    if not screenshots or not violation.get("created_at"):
+        return None
+    try:
+        evt_ts = datetime.fromisoformat(str(violation["created_at"]).replace("Z", "+00:00")).astimezone(tz=timezone.utc).replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+    vtype = violation.get("violation_type", "")
+    window_keys = {(evt_ts + timedelta(seconds=delta)).strftime("%Y%m%d_%H%M%S") for delta in range(-2, 3)}
+    for fname, fpath in screenshots.items():
+        if fname.startswith(f"room_{vtype}_") and any(k in fname for k in window_keys):
+            return fpath
+    for fname, fpath in screenshots.items():
+        if fname.startswith("room_") and any(k in fname for k in window_keys):
             return fpath
     return None
 

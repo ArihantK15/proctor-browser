@@ -1431,21 +1431,37 @@ async def session_status(request: Request, session_id: str):
     }
 
 
-def _save_frame(student_dir: str, data: FrameIn) -> str:
-    """Decode and save a frame to disk. Returns filename."""
+def _save_frame(student_dir: str, data: FrameIn, room_jpeg: bytes | None = None) -> str:
+    """Decode and save a frame to disk. Returns filename.
+
+    When a phone-cam frame is supplied (captured at the same instant from the
+    roomframe cache), it's written as a `room_<label>_<ts>.jpg` companion with
+    the SAME timestamp as the primary `evt_<label>_<ts>.jpg`, so the evidence
+    PDF and the live timeline can show both cameras side by side for a flag.
+    """
     os.makedirs(student_dir, exist_ok=True)
     ts = now_ist().strftime("%Y%m%d_%H%M%S")
     if data.event_type:
-        safe_label = "".join(
+        label = "".join(
             c if c.isalnum() or c in "_-" else "_"
             for c in data.event_type
         )[:32]
-        fname = f"evt_{safe_label}_{ts}.jpg"
+        fname = f"evt_{label}_{ts}.jpg"
     else:
+        label = "frame"
         fname = f"frame_{ts}.jpg"
     fpath = os.path.join(student_dir, fname)
     with open(fpath, "wb") as f:
         f.write(base64.b64decode(data.frame))
+    # Companion phone-cam frame at the SAME moment. Best-effort: a missing
+    # phone (not paired) just means no companion and the UI shows the primary
+    # frame alone.
+    if room_jpeg:
+        try:
+            with open(os.path.join(student_dir, f"room_{label}_{ts}.jpg"), "wb") as rf:
+                rf.write(room_jpeg)
+        except Exception:
+            pass
     return fname
 
 
@@ -1482,8 +1498,21 @@ async def analyze_frame(data: FrameIn, request: Request):
     if not real_dir.startswith(real_base + os.sep) and real_dir != real_base:
         raise HTTPException(status_code=400, detail="Invalid session identifier")
 
+    # Snapshot the student's phone-cam frame at this same instant (the phone
+    # streams ~1fps into the roomframe cache) so a flagged moment carries BOTH
+    # cameras. Read the same way the room-cam/frame endpoint does. Absent when
+    # no phone is paired — degrades to primary-only.
+    room_jpeg = None
     try:
-        await asyncio.to_thread(_save_frame, student_dir, data)
+        if _cache:
+            _rp = _cache.get(f"roomframe:{data.session_id}")
+            if isinstance(_rp, dict):
+                room_jpeg = _rp.get("jpeg_bytes")
+    except Exception:
+        room_jpeg = None
+
+    try:
+        await asyncio.to_thread(_save_frame, student_dir, data, room_jpeg)
     except Exception as e:
         _exam_log.error("[Frame] Error saving frame for %s: %s", safe(data.session_id), safe(e))
         raise HTTPException(status_code=500, detail="Failed to save frame")

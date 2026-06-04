@@ -4734,8 +4734,14 @@ function renderTimeline(){
     const icon=TL_ICONS[e.type]||'&#128204;';
     const icCls=`ic-${e.severity}`;
     const timeStr=extractTime(e.timestamp);
+    // Primary webcam frame, plus the phone-cam companion captured at the same
+    // flag instant when present — shown side by side (both lazy-load + open in
+    // the lightbox). Falls back to the single primary thumb when no phone.
+    const _tlThumb=(src,suffix)=>`<img class="tl-thumb" title="${escAttr((e.type+suffix).replace(/_/g,' '))}" data-src="${escAttr(src)}" data-action="_showLightbox" data-args='${_jsonArgsForAttr(src,e.type+suffix,timeStr)}' data-error-action="_hideSelf">`;
     const thumbHtml=e.screenshot
-      ?`<img class="tl-thumb" data-src="${escAttr(e.screenshot)}" data-action="_showLightbox" data-args='${_jsonArgsForAttr(e.screenshot,e.type,timeStr)}' data-error-action="_hideSelf">`
+      ?(e.room_screenshot
+        ?`<div style="display:flex;gap:6px;align-items:flex-start">${_tlThumb(e.screenshot,' — primary camera')}${_tlThumb(e.room_screenshot,' — phone camera')}</div>`
+        :_tlThumb(e.screenshot,''))
       :'';
     return `<div class="tl-event sev-${e.severity}${e.is_violation?' is-violation':''}" id="tl-evt-${i}">
       <div class="tl-time">${timeStr}</div>

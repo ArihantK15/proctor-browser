@@ -26,6 +26,7 @@ from ..services.risk import compute_risk_score, _is_violation, generate_session_
 from ..services.calibration import get_calibration_quality
 from ..services.false_positive import explain_flag, normalize_sensitivity, SENSITIVITY_PRESETS
 from ..services.sessions import match_screenshot_for_violation as _match_screenshot_for_violation
+from ..services.sessions import match_room_screenshot_for_violation as _match_room_screenshot_for_violation
 from ..database import supabase, async_table as _atable
 from ..limiter import limiter
 from ..constants import SCREENSHOTS_DIR
@@ -131,6 +132,11 @@ async def get_timeline(session_id: str, request: Request):
         match = _match_screenshot_for_violation(e, screenshot_paths)
         if match is not None:
             entry["screenshot"] = screenshot_urls[match.name]
+        # Phone-cam companion captured at the same instant — the timeline
+        # shows both cameras side by side for the flag (None if no phone).
+        room_match = _match_room_screenshot_for_violation(e, screenshot_paths)
+        if room_match is not None:
+            entry["room_screenshot"] = screenshot_urls[room_match.name]
         timeline.append(entry)
 
     return {

@@ -38,6 +38,22 @@ import tempfile
 import threading
 import requests
 
+# ── Windows-safe console encoding ─────────────────────────────────────────────
+# When Electron spawns us, stdout/stderr are pipes; on Windows Python defaults
+# those pipes to the ANSI code page (cp1252), which CANNOT encode the ✅/❌/🎯
+# status glyphs used throughout this file. A bare print() of one then raises
+# UnicodeEncodeError — and when that fires inside an optional-detector except
+# handler (e.g. "face detection disabled"), it turns a graceful degrade into a
+# hard daemon crash (Exited 1), stranding the student on calibration. Force
+# UTF-8 with replacement so no status line can ever crash the proctor. Must run
+# before the first print() and before the heavy imports below. errors="replace"
+# is the belt-and-suspenders: even an exotic glyph degrades to "?" not a raise.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Soft-import psutil so older bundled clients that don't ship it can
 # still run — the thermal/CPU governor below silently no-ops when
 # psutil is unavailable. Fresh installs from requirements-proctor.txt

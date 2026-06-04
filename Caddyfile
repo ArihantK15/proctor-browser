@@ -87,6 +87,35 @@ app.procta.net {
         Cross-Origin-Opener-Policy "same-origin-allow-popups"
     }
 
+    # ── React dashboard bundle: served by FastAPI from the IMAGE ───────
+    # The dashboard-react build is gitignored and exists ONLY inside the
+    # api image (Dockerfile COPY --from=uibuilder). The /srv host
+    # bind-mount Caddy serves below does NOT contain it on a fresh
+    # checkout — and even after a manual `docker cp` the host copy drifts
+    # out of sync with the image whenever a new image is built. Because
+    # FastAPI serves the React index.html from the image (via
+    # _static_html_response), every Vite-hashed chunk that index.html
+    # imports MUST come from the SAME image, or the import 404s and the
+    # SPA renders a blank #root / "Something went wrong" ErrorBoundary.
+    #
+    # Routing these to api:8000 (FastAPI's StaticFiles mount at /static)
+    # makes index.html + all hashed chunks a single atomic source = the
+    # image. This MUST appear before @assets below, since Caddy evaluates
+    # `handle` blocks in written order and @assets (path *.js *.css) would
+    # otherwise short-circuit these to the host file_server.
+    handle /static/dashboard-react/* {
+        reverse_proxy api:8000 {
+            flush_interval -1
+            transport http {
+                keepalive 30s
+                keepalive_idle_conns 200
+                keepalive_idle_conns_per_host 200
+                dial_timeout 5s
+                response_header_timeout 30s
+            }
+        }
+    }
+
     # ── Static CSS / JS / SVG / favicon ────────────────────────────────
     # Serve pre-compressed .gz variants when available. Caddy falls back
     # to on-the-fly gzip for other assets.

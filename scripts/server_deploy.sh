@@ -53,6 +53,20 @@ for i in $(seq 1 18); do
   sleep 5
 done
 
+# ── 4b. Sync the React dashboard bundle from the image onto the host ──────
+# Caddy serves /static/* from the host bind-mount (./app/static -> /srv/static
+# in docker-compose.yml), but app/static/dashboard-react/ is gitignored and is
+# built ONLY inside the api image (Dockerfile COPY --from=uibuilder). So after
+# a fresh checkout the host dir is empty and every Vite-hashed bundle asset
+# 404s -> the React dashboard renders a black/blank #root. Copy the built
+# bundle (incl. pre-gzipped variants) out of the running api container into the
+# host dir Caddy reads. rm -rf first so stale old-hash assets from previous
+# deploys don't accumulate. The api container is healthy by this point (step 4).
+echo "==> syncing React dashboard bundle (image -> host static for Caddy)"
+rm -rf ./app/static/dashboard-react
+mkdir -p ./app/static/dashboard-react
+docker cp proctor-api:/app/app/static/dashboard-react/. ./app/static/dashboard-react/
+
 # ── 5. Prune dangling images to reclaim disk ─────────────────────────────
 docker image prune -f --filter "until=24h" >/dev/null 2>&1 || true
 

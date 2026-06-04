@@ -64,6 +64,10 @@ function canSeeTab(tab, user) {
 
 function LoginForm() {
   const { login } = useAuth()
+  // 'login' | 'reset' — mirrors the legacy dashboard's toggleAuthForm so
+  // the split-screen auth shell can swap the right-hand card between the
+  // sign-in form and the password-reset form without leaving the page.
+  const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -71,6 +75,11 @@ function LoginForm() {
   const [unverifiedEmail, setUnverifiedEmail] = useState(null)
   const [resending, setResending] = useState(false)
   const [resendMsg, setResendMsg] = useState('')
+  // Password-reset form state (mode === 'reset')
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetErr, setResetErr] = useState('')
+  const [resetSent, setResetSent] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
   // Email-OTP 2FA challenge state — set when server returns
   // EMAIL_2FA_REQUIRED. While `awaiting2FA` is true we surface a
   // 6-digit input and resubmit login() with the code populated.
@@ -135,53 +144,162 @@ function LoginForm() {
     }
   }
 
+  // Password-reset submit — mirrors the legacy dashboard's
+  // doPasswordReset(): POST /auth/password-reset {email, captcha_token?}.
+  // The endpoint always returns 200 (no account enumeration) so we show
+  // the success state on any non-error response.
+  const handleReset = async (e) => {
+    e.preventDefault()
+    setResetErr('')
+    setResetLoading(true)
+    try {
+      const body = { email: resetEmail }
+      if (turnstile.token) body.captcha_token = turnstile.token
+      const r = await fetchWithTimeout(`${API_BASE}/auth/password-reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!r.ok) throw new Error('Failed')
+      setResetSent(true)
+    } catch (err) {
+      setResetErr('Could not send reset link. Try again later.')
+    } finally {
+      turnstile.refresh()
+      setResetLoading(false)
+    }
+  }
+
   return (
-    <div className="auth-card dashboard-login-card">
-      <h2>Procta Dashboard</h2>
-      <p>Sign in to your account</p>
-      {error && <div className="auth-err">{error}</div>}
-      {unverifiedEmail && (
-        <div style={{ marginBottom: 12, textAlign: 'center' }}>
-          <button className="btn btn-primary btn-sm" onClick={resendVerification} disabled={resending}>
-            {resending ? 'Sending...' : 'Resend verification email'}
-          </button>
-          {resendMsg && <div style={{ fontSize: 11, marginTop: 6, color: resendMsg.includes('✅') ? 'var(--emerald)' : 'var(--text-muted)' }}>{resendMsg}</div>}
+    <div id="auth-overlay">
+      {/* Decorative accent glow behind the card — matches the marketing
+          site's Hero treatment. Pure CSS, no JS hook. */}
+      <div className="auth-glow" aria-hidden="true"></div>
+      <div className="auth-shell">
+        {/* Left: value-prop panel (hidden on mobile via .auth-aside CSS). */}
+        <aside className="auth-aside">
+          <a href="https://procta.net" className="auth-aside-back">← Back to procta.net</a>
+          <h1 className="auth-aside-h1">
+            Remote exams.<br />
+            <span className="auth-aside-h1-accent">Real results.</span>
+          </h1>
+          <p className="auth-aside-lede">
+            AI proctoring that catches cheating without making honest
+            students nervous. Sign in to manage your exams, monitor
+            live sessions, and review flagged candidates.
+          </p>
+          <ul className="auth-aside-list">
+            <li><span className="auth-aside-bullet"></span>Real-time face, gaze, and audio monitoring</li>
+            <li><span className="auth-aside-bullet"></span>Risk-scored sessions with evidence trails</li>
+            <li><span className="auth-aside-bullet"></span>3,000 concurrent students on a ₹699/mo box</li>
+          </ul>
+        </aside>
+
+        {/* Right: login / reset card */}
+        <div className="auth-card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 20 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+                <path d="M4 3h3v1H5v8h2v1H4V3zm5 0h3v10h-3v-1h2V4H9V3z" fill="white" />
+                <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8" />
+              </svg>
+            </div>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: 'white' }}>Procta</span>
+          </div>
+
+          {mode === 'login' ? (
+            <div>
+              <h2>Welcome Back</h2>
+              <p>Sign in to your teacher dashboard</p>
+              {unverifiedEmail && (
+                <div style={{ marginBottom: 12, textAlign: 'center' }}>
+                  <button className="btn btn-primary btn-sm" onClick={resendVerification} disabled={resending}>
+                    {resending ? 'Sending...' : 'Resend verification email'}
+                  </button>
+                  {resendMsg && <div style={{ fontSize: 11, marginTop: 6, color: resendMsg.includes('✅') ? 'var(--emerald)' : 'var(--muted)' }}>{resendMsg}</div>}
+                </div>
+              )}
+              <form onSubmit={handleSubmit} autoComplete="on">
+                <input
+                  type="email" placeholder="Email address" value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email" required
+                />
+                <input
+                  type="password" placeholder="Password" value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password" required
+                />
+                {awaiting2FA && (
+                  <div style={{ marginTop: 8 }}>
+                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 6px' }}>
+                      We sent a 6-digit code to your email. Enter it to finish signing in.
+                    </p>
+                    <input
+                      type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
+                      placeholder="6-digit code" value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value)}
+                      autoComplete="one-time-code" required autoFocus
+                      style={{ letterSpacing: 6, textAlign: 'center', fontFamily: 'monospace' }}
+                    />
+                  </div>
+                )}
+                {/* Cloudflare Turnstile (Managed mode) — invisible 99% of
+                    the time. ref=null in dev makes this a harmless no-op. */}
+                <div ref={turnstile.ref} style={{ margin: '4px 0' }} />
+                <button type="submit" id="login-btn" disabled={loading}>
+                  {loading ? 'Signing in...' : (awaiting2FA ? 'Verify & Log In' : 'Log In')}
+                </button>
+              </form>
+              {error && <div className="auth-err">{error}</div>}
+              <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 12 }}>
+                <a
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setError(''); setMode('reset') }}
+                  style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: 12 }}
+                >
+                  Forgot password?
+                </a>
+              </p>
+              <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>
+                {"Don't have an account? "}
+                <a href="https://procta.net/signup" style={{ color: 'var(--accent-light)', textDecoration: 'none', fontWeight: 600 }}>
+                  Start free trial
+                </a>
+              </p>
+            </div>
+          ) : (
+            <div>
+              <h2>Reset Password</h2>
+              <p>{"Enter your email and we'll send a reset link"}</p>
+              <form onSubmit={handleReset} autoComplete="on">
+                <input
+                  type="email" placeholder="Email address" value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  autoComplete="email" required
+                />
+                <button type="submit" id="reset-btn" disabled={resetLoading}>
+                  {resetLoading ? 'Sending...' : 'Send Reset Link'}
+                </button>
+              </form>
+              {resetErr && <div className="auth-err">{resetErr}</div>}
+              {resetSent && (
+                <div style={{ color: 'var(--emerald)', fontSize: 13, marginTop: 12 }}>
+                  Reset link sent! Check your email inbox.
+                </div>
+              )}
+              <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 16 }}>
+                <a
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setResetErr(''); setMode('login') }}
+                  style={{ color: 'var(--accent-light)', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  Back to login
+                </a>
+              </p>
+            </div>
+          )}
         </div>
-      )}
-      <form onSubmit={handleSubmit}>
-        <input
-          type="email" placeholder="Email" value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required className="input" style={{ width: '100%', boxSizing: 'border-box', marginBottom: 12 }}
-        />
-        <input
-          type="password" placeholder="Password" value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required className="input" style={{ width: '100%', boxSizing: 'border-box', marginBottom: 16 }}
-        />
-        {awaiting2FA && (
-          <input
-            type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
-            placeholder="6-digit code" value={otpCode}
-            onChange={(e) => setOtpCode(e.target.value)}
-            autoComplete="one-time-code" required autoFocus
-            className="input"
-            style={{ width: '100%', boxSizing: 'border-box', marginBottom: 16,
-                     letterSpacing: 6, textAlign: 'center', fontFamily: 'monospace' }}
-          />
-        )}
-        {/* Cloudflare Turnstile (Managed mode) — invisible 99% of the
-            time, shows a challenge only when bot signal is high. The
-            hook returns ref=null when VITE_TURNSTILE_SITE_KEY is unset
-            so the empty <div> is a harmless no-op in dev. */}
-        <div ref={turnstile.ref} style={{ margin: '4px 0' }} />
-        <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
-          {loading ? 'Signing in...' : (awaiting2FA ? 'Verify & Sign In' : 'Sign In')}
-        </button>
-      </form>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 14, fontSize: 12 }}>
-        <a href="/dashboard#tab-reset" style={{ color: 'var(--accent)' }}>Forgot password?</a>
-        <a href="https://procta.net/signup" style={{ color: 'var(--accent)' }}>Start free trial</a>
       </div>
     </div>
   )

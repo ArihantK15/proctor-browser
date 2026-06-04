@@ -27,9 +27,16 @@ const VM_MAC_PREFIXES = [
   '08:00:27', '00:15:5d', '00:16:3e', '52:54:00', '00:1a:4a',
 ];
 
+// Only GPU strings that are *uniquely* produced by virtual hardware belong
+// here. Software rasterizers — "microsoft basic render" (WARP), "swiftshader",
+// "llvmpipe", "chromium" — are Chromium's fallback when hardware acceleration
+// is disabled/unavailable, which happens on plenty of REAL student laptops
+// (no GPU driver, old integrated GPU, accel toggled off). Flagging those as a
+// VM blocked legit students with "Exam Blocked: Virtual Machine". VMware/
+// VirtualBox/virgl are real VM GPUs and are also caught by the Manufacturer
+// and MAC-prefix checks, so this stays defense-in-depth without false blocks.
 const VM_GPU_RENDERERS = [
-  'vmware', 'virtualbox', 'llvmpipe', 'swiftshader',
-  'microsoft basic render', 'chromium', 'virgl',
+  'vmware', 'virtualbox', 'virgl',
 ];
 
 const BLOCKING_TYPES = new Set([

@@ -217,13 +217,18 @@ jobs:
         run: |
           set -e
           shopt -s nullglob
-          exe=(dist/*.exe); yml=(dist/latest.yml)
+          exe=(dist/*.exe); yml=(dist/latest.yml); bmap=(dist/*.exe.blockmap)
           if [ ${#exe[@]} -eq 0 ]; then echo "✗ no installer .exe produced"; exit 1; fi
           if [ ! -f "${yml[0]}" ]; then echo "✗ latest.yml (auto-update manifest) missing"; exit 1; fi
+          # differentialPackage:true must emit a .blockmap — it's what lets
+          # auto-update download only changed blocks instead of the full
+          # (now ~400MB, Python-bundled) installer. Missing blockmap = silent
+          # regression back to full re-downloads.
+          if [ ${#bmap[@]} -eq 0 ]; then echo "✗ no .blockmap produced (differential updates broken)"; exit 1; fi
           # A truncated/empty installer is a silent release-breaker.
           sz=$(stat -c%s "${exe[0]}" 2>/dev/null || stat -f%z "${exe[0]}")
           if [ "$sz" -lt 10000000 ]; then echo "✗ installer suspiciously small ($sz bytes)"; exit 1; fi
-          echo "✓ Windows artifacts present (${exe[0]}, $sz bytes)"
+          echo "✓ Windows artifacts present (${exe[0]}, $sz bytes, blockmap ${bmap[0]})"
 
       - name: Publish Windows release (only after verification)
         if: matrix.target == 'win' && startsWith(github.ref, 'refs/tags/')
@@ -231,8 +236,9 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           gh release create "$TAG" --title "$TAG" --notes "Procta $TAG" 2>/dev/null || true
-          # NSIS here is built with differentialPackage:false → NO .blockmap.
-          # nullglob drops the unmatched pattern so it isn't passed to gh
+          # NSIS is built with differentialPackage:true → a .blockmap is
+          # produced and uploaded so electron-updater can do delta downloads.
+          # nullglob drops any unmatched pattern so it isn't passed to gh
           # literally (which failed the 2.3.17 run with "no matches found").
           shopt -s nullglob
           files=(dist/*.exe dist/*.blockmap dist/latest.yml)

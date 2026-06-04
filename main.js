@@ -445,7 +445,10 @@ app.whenReady().then(async () => {
   // cleanup, leaving an orphaned proctor.py holding the camera — which
   // makes the next exam's proctor fail to init and respawn-storm. Clear
   // it first so the relaunch starts clean.
-  try { reapOrphanProctors(); } catch(e) { console.error('[Reaper] failed:', e.message); }
+  // Fire-and-forget: the reaper is async and yields immediately, so it no
+  // longer blocks cold start. It still completes well before any proctor
+  // spawns (which only happens at exam launch).
+  reapOrphanProctors().catch(e => console.error('[Reaper] failed:', e.message));
 
   // Cold-start protocol activation: Windows launches us with the
   // procta:// URL as process.argv; macOS uses open-url instead.

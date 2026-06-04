@@ -75,3 +75,6 @@ website/src/components/RazorpayCheckoutButton.jsx
 skills-lock.json
 .agents/
 .claude/
+
+# VC++ runtime fetched by CI for the Windows installer (not committed)
+build/vc_redist.x64.exe

@@ -121,6 +121,27 @@ jobs:
         if: matrix.target == 'win'
         run: node bundle-python.js
 
+      # onnxruntime (face / gaze / object models) needs the MSVC runtime
+      # (msvcp140.dll / vcruntime140_1.dll). Most end-user machines lack it,
+      # so `import onnxruntime` fails with "DLL load failed …" and ALL AI
+      # proctoring dies — students get stranded on gaze calibration. We embed
+      # the official redistributable into Setup.exe (build/installer.nsh's
+      # customInstall runs it silently). Load-bearing: a failed download must
+      # FAIL the build rather than ship an installer that bricks proctoring.
+      - name: Download Visual C++ runtime for the installer (Windows)
+        if: matrix.target == 'win'
+        shell: pwsh
+        run: |
+          $url = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+          $out = 'build/vc_redist.x64.exe'
+          Write-Host "Downloading VC++ redistributable from $url"
+          Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+          $size = (Get-Item $out).Length
+          Write-Host "Saved $out ($size bytes)"
+          if ($size -lt 1000000) {
+            throw "vc_redist.x64.exe is only $size bytes — download failed; refusing to ship an installer without the VC++ runtime"
+          }
+
       # Bake the on-device speech models (Vosk en-IN + hi + Silero VAD) into
       # weights/ so they ship via extraResources (package.json maps weights/ →
       # <resources>/weights). This makes a fresh install fully OFFLINE — zero

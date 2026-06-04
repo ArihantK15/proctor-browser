@@ -76,3 +76,37 @@
   Delete "$DESKTOP\Procta Browser.lnk"
   Delete "$DESKTOP\Proctor Browser.lnk"
 !macroend
+
+; ─────────────────────────────────────────────────────────────────────
+; Visual C++ runtime — REQUIRED by onnxruntime (the face / gaze / object
+; detection models all load through it). Without msvcp140.dll /
+; vcruntime140_1.dll, the proctor's `import onnxruntime` fails with
+;   ImportError: DLL load failed … the specified module could not be found
+; which kills ALL AI proctoring and strands the student on gaze
+; calibration with only "camera may be unavailable". End-user Windows
+; machines very often lack this runtime, so we bundle the official
+; redistributable into Setup.exe and install it silently here.
+;
+; vc_redist is idempotent: it no-ops (returns 1638 / 3010) when an
+; equal-or-newer runtime is already present, so running it on every
+; install is safe. We deliberately do NOT gate the app install on its
+; exit code — a student who already has the runtime, or whose machine
+; blocks the redist, must still get Procta.
+;
+; CI (.github/workflows/build.yml) downloads vc_redist.x64.exe into the
+; build/ resources dir before electron-builder packages. The /FileExists
+; guard keeps local dev builds (which don't fetch it) compiling — they
+; simply ship without the embedded runtime.
+; ─────────────────────────────────────────────────────────────────────
+!macro customInstall
+  !if /FileExists "${BUILD_RESOURCES_DIR}\vc_redist.x64.exe"
+    SetOutPath "$PLUGINSDIR"
+    File "${BUILD_RESOURCES_DIR}\vc_redist.x64.exe"
+    DetailPrint "Installing Microsoft Visual C++ runtime (required for AI proctoring)…"
+    ExecWait '"$PLUGINSDIR\vc_redist.x64.exe" /quiet /norestart' $0
+    DetailPrint "Visual C++ runtime installer exit code: $0"
+    SetOutPath "$INSTDIR"
+  !else
+    DetailPrint "vc_redist.x64.exe not bundled — skipping VC++ runtime install"
+  !endif
+!macroend

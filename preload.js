@@ -8,7 +8,11 @@ contextBridge.exposeInMainWorld('proctor', {
   // on the web dashboard. Returns null if the exam window was opened
   // directly (legacy / debug).
   getExamContext:  ()     => ipcRenderer.invoke('get-exam-context'),
-  getServerUrl:    ()     => ipcRenderer.invoke('get-server-url'),
+  // SYNCHRONOUS on purpose: the renderer assigns `const SERVER =
+  // getServerUrl()` and uses it as a string immediately. invoke() returned a
+  // Promise that stringified to "[object Promise]" → relative URLs → 404 on
+  // every renderer fetch. sendSync returns the real string inline.
+  getServerUrl:    ()     => ipcRenderer.sendSync('get-server-url-sync'),
   getAppVersion:   ()     => ipcRenderer.invoke('get-app-version'),
   validateStudent: (roll, accessCode) => ipcRenderer.invoke('validate-student', roll, accessCode),
   getQuestions:    (sid)  => ipcRenderer.invoke('get-questions', sid),

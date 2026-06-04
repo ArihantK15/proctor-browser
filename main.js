@@ -768,6 +768,19 @@ ipcMain.handle('get-server-url', (event) => {
   return SERVER_URL;
 });
 
+// SYNCHRONOUS variant. The renderer assigns `const SERVER = getServerUrl()`
+// at module-eval time and uses it as a plain string in ~15 fetch/URL call
+// sites. The async (invoke) version returned a Promise that callers
+// stringified to "[object Promise]", turning every renderer→server URL into
+// a RELATIVE path resolved against the procta-lobby:// page origin → 404
+// (the ID-verification upload failure, plus silently every other renderer
+// fetch: heartbeat, bulk-save, submit, chat). sendSync hands back the real
+// string inline so there is no Promise and no race. Returns '' if the frame
+// is not the main exam frame; the renderer guards against that too.
+ipcMain.on('get-server-url-sync', (event) => {
+  event.returnValue = _assertMainFrame(event, 'get-server-url-sync') ? SERVER_URL : '';
+});
+
 // App version for the on-screen "Procta vX.Y.Z" badge (lobby + exam). A
 // non-sensitive string, so no frame gate — handy for support + spotting
 // which build a student is on (e.g. when an update hasn't landed yet).

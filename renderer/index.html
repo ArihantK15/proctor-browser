@@ -731,10 +731,21 @@
   });
 })();
 
-// Server URL is fetched from the Electron main process via IPC so it
+// Server URL is fetched from the Electron main process via IPC (now a
+// SYNCHRONOUS sendSync so it returns a real string, not a Promise) so it
 // respects the PROCTOR_SERVER_URL env var and works in dev/prod.
-const SERVER = (window.proctor && window.proctor.getServerUrl)
+//
+// Defense in depth: SERVER is the base for ~15 fetch() / new URL() call
+// sites. If the IPC ever hands back a non-string (the old Promise bug) or an
+// empty value, a relative URL would resolve against the procta-lobby:// page
+// origin and 404 — which is exactly what broke ID-verification uploads. So
+// we accept the value ONLY if it's a real http(s) URL, else fall back to the
+// production origin.
+const _srvRaw = (window.proctor && window.proctor.getServerUrl)
   ? window.proctor.getServerUrl()
+  : '';
+const SERVER = (typeof _srvRaw === 'string' && /^https?:\/\//.test(_srvRaw))
+  ? _srvRaw.replace(/\/+$/, '')   // trim any trailing slash → no //api double-slash
   : 'https://app.procta.net';
 
 // Shared escape helpers (mirrors app/static/_safe.js for file:// context)

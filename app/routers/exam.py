@@ -282,7 +282,12 @@ async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: st
         return student, student.get("teacher_id"), None
 
     # Auto-enroll from invite
-    inv_q = _atable("student_invites").select("id,teacher_id,exam_id,roll_number,full_name,email,phone,status,expires_at,access_code").eq("roll_number", roll_upper)
+    # NOTE: student_invites has NO `phone` column (see phase10 schema) —
+    # selecting it raised UndefinedColumnError → 500 on the auto-enroll
+    # path (the second half of the same 2f2d5af select(*)→explicit
+    # regression as students.exam_id). inv.get("phone") below safely
+    # yields None, and students.phone is nullable.
+    inv_q = _atable("student_invites").select("id,teacher_id,exam_id,roll_number,full_name,email,status,expires_at,access_code").eq("roll_number", roll_upper)
     if pre_tid:
         inv_q = inv_q.eq("teacher_id", str(pre_tid))
     if pre_exam_id:

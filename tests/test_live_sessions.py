@@ -212,6 +212,40 @@ class TestLiveSessions:
         assert s["live_state"] == "stale"
         assert s["heartbeat_age_sec"] is None
 
+    def test_in_progress_session_without_violations_still_appears(self, client, admin_headers):
+        """Live table is backed by exam_sessions, not only violations.
+
+        A clean student may have no violation rows yet. The teacher must still
+        see that candidate in Live Sessions instead of watching them vanish
+        between SSE init and the next polling refresh.
+        """
+        now = datetime.now(timezone.utc)
+        stub = _SessionsStub(
+            sessions=[{
+                "session_key":    "sess_clean_1",
+                "teacher_id":     "teacher-1",
+                "exam_id":        "exam-1",
+                "status":         "in_progress",
+                "risk_score":     0,
+                "last_heartbeat": _iso(now - timedelta(seconds=8)),
+                "started_at":     _iso(now - timedelta(minutes=1)),
+                "submitted_at":   None,
+                "room_cam_status": "disabled",
+            }],
+            violations=[],
+        )
+        with patch.object(shared_supabase_mock(), "table") as mock_table:
+            mock_table.side_effect = stub
+            r = client.get("/api/v1/admin/sessions", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert len(d["all_sessions"]) == 1
+        s = d["all_sessions"][0]
+        assert s["session_id"] == "sess_clean_1"
+        assert s["live_state"] == "live"
+        assert s["last_event"] == "heartbeat"
+        assert len(d["sessions"]) == 1
+
     def test_completed_session_is_submitted(self, client, admin_headers):
         """status=='completed' → live_state=='submitted', submitted=True."""
         now = datetime.now(timezone.utc)

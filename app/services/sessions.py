@@ -385,6 +385,32 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
     for sk, sess in sessions.items():
         sess["calibration"] = cal_tiers.get(sk, {"tier": "missing", "reason": "No calibration recorded.", "ranges": None})
 
+    # The live monitor's source of truth is exam_sessions, not violations.
+    # A student can be actively testing before their first violation, or a
+    # transient violation query can return empty while the session row remains.
+    # Without this backfill the dashboard row appears, disappears on the next
+    # refresh, then reappears only after reload/new events.
+    for sk, meta in sess_meta.items():
+        if sk in sessions:
+            continue
+        live_state, hb_age = derive_live_state(meta)
+        if live_state == "submitted":
+            continue
+        sessions[sk] = {
+            "session_id": sk,
+            "last_event": "heartbeat" if meta.get("last_heartbeat") else "exam_started",
+            "last_severity": "low",
+            "room_cam_status": meta.get("room_cam_status", "disabled"),
+            "last_seen": fmt_ist(meta.get("last_heartbeat") or meta.get("started_at")),
+            "details": None,
+            "submitted": False,
+            "live_state": live_state,
+            "heartbeat_age_sec": hb_age,
+            "risk_score": meta.get("risk_score"),
+            "risk_label": _risk_label(meta.get("risk_score")) if meta.get("risk_score") is not None else None,
+            "calibration": cal_tiers.get(sk, {"tier": "missing", "reason": "No calibration recorded.", "ranges": None}),
+        }
+
     active = [s for s in sessions.values() if s["live_state"] == "live"]
     return {"sessions": active, "all_sessions": list(sessions.values())}
 

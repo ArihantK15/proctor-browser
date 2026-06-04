@@ -1590,6 +1590,35 @@ async def id_verification(data: IdVerifyIn, request: Request):
         _exam_log.error("[ID Verify] File save error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save verification images")
 
+    # The violations table has a FK to exam_sessions(session_key) (phase80).
+    # ID verification is the student's FIRST exam-start step — it runs BEFORE
+    # the exam_started event / first heartbeat creates the session row (renderer
+    # order: id-verification → startProctor → exam_started). So the violation
+    # insert below would hit that FK and 500 ("Failed to record verification") —
+    # the bug that surfaced once the CORS fix let this request reach the server.
+    # Ensure the session row exists first: insert a minimal IN_PROGRESS row only
+    # when absent (never resurrect a terminal one; a concurrent exam_started just
+    # makes our insert a no-op race we swallow).
+    try:
+        existing_sess = await _atable("exam_sessions").select("session_key")\
+            .eq("session_key", data.session_id).limit(1).execute()
+        if not existing_sess.data:
+            sess_row = {
+                "session_key": data.session_id,
+                "roll_number": raw_roll,
+                "status":      SessionStatus.IN_PROGRESS,
+                "started_at":  now_ist().isoformat(),
+            }
+            if claims.get("sid"):
+                sess_row["student_id"] = claims.get("sid")
+            if tid:
+                sess_row["teacher_id"] = str(tid)
+            if claims.get("eid"):
+                sess_row["exam_id"] = claims.get("eid")
+            await _atable("exam_sessions").insert(sess_row).execute()
+    except Exception as e:
+        _exam_log.warning("[ID Verify] ensure-session failed (may be a race): %s", safe(e))
+
     try:
         detail_obj = {
             "status":       "pending",

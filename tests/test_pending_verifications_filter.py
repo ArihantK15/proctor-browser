@@ -96,7 +96,10 @@ class TestIdVerificationWriter:
                 return _AsyncMockResult(data=[])
 
         def _atable_mock(table_name):
-            return _AtableChainMock(table_name, insert_cb=lambda row: captured.setdefault("row", row))
+            # Capture the VIOLATIONS row specifically — id_verification now also
+            # ensures the exam_sessions row exists first (FK to exam_sessions), so
+            # that insert must not be mistaken for the verification row.
+            return _AtableChainMock(table_name, insert_cb=lambda row: (captured.setdefault("row", row) if table_name == "violations" else None))
 
         with patch("app.routers.exam._atable", side_effect=_atable_mock), \
              patch("app.dependencies._check_session_ownership"):
@@ -171,7 +174,10 @@ class TestIdVerificationWriter:
                 return _AsyncMockResult(data=[])
 
         def _atable_mock(table_name):
-            return _AtableChainMock(table_name, insert_cb=lambda row: captured.setdefault("row", row))
+            # Capture the VIOLATIONS row specifically — id_verification now also
+            # ensures the exam_sessions row exists first (FK to exam_sessions), so
+            # that insert must not be mistaken for the verification row.
+            return _AtableChainMock(table_name, insert_cb=lambda row: (captured.setdefault("row", row) if table_name == "violations" else None))
 
         with patch("app.routers.exam._atable", side_effect=_atable_mock), \
              patch("app.dependencies._check_session_ownership"):
@@ -191,6 +197,55 @@ class TestIdVerificationWriter:
         assert resp.status_code == 200, resp.text
         details = json.loads(captured["row"]["details"])
         assert details.get("exam_id") == "", details
+
+    def test_writer_creates_missing_session_row_for_fk(self, client, tmp_path, monkeypatch):
+        """Regression: id-verification is the student's FIRST exam-start step,
+        BEFORE the exam_started event creates the exam_sessions row. The
+        violations FK (violations.session_key -> exam_sessions) then rejected
+        the verification insert -> 500 'Failed to record verification' (it only
+        surfaced once the CORS fix let this request reach the server). The
+        endpoint now inserts a minimal IN_PROGRESS session row first so the FK
+        is satisfied."""
+        monkeypatch.setenv("SCREENSHOTS_DIR", str(tmp_path))
+        token = make_student_token(roll="CARA003", tid="teacher-1", eid="exam-C")
+        captured = {}
+
+        class _AsyncMockResult:
+            def __init__(self, data): self._data = data
+            async def _resolve(self):
+                class _R: data = self._data
+                return _R()
+            def __await__(self): return self._resolve().__await__()
+
+        class _AtableChainMock:
+            def __init__(self, table): self._table = table
+            def select(self, *a, **kw): return self
+            def eq(self, *a, **kw): return self
+            def order(self, *a, **kw): return self
+            def limit(self, *a, **kw): return self
+            def insert(self, row):
+                captured.setdefault(self._table, []).append(row)
+                return self
+            def execute(self): return _AsyncMockResult(data=[])  # no existing session
+
+        with patch("app.routers.exam._atable", side_effect=_AtableChainMock), \
+             patch("app.dependencies._check_session_ownership"):
+            resp = client.post(
+                "/api/v1/id-verification",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"session_id": "CARA003_1", "roll_number": "CARA003",
+                      "selfie_frame": _TINY_JPEG_B64, "id_frame": _TINY_JPEG_B64,
+                      "full_name": "Cara Example"},
+            )
+        assert resp.status_code == 200, resp.text
+        sess_inserts = captured.get("exam_sessions", [])
+        assert sess_inserts, "id-verification must create the exam_sessions row (FK) when absent"
+        sr = sess_inserts[0]
+        assert sr["session_key"] == "CARA003_1"
+        assert sr["status"] == "in_progress"
+        assert sr["teacher_id"] == "teacher-1"
+        assert sr["exam_id"] == "exam-C"
+        assert captured.get("violations"), "the verification violation must still be recorded"
 
 
 # ─── READER: /api/v1/admin/pending-verifications must filter ─────────────

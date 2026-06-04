@@ -328,8 +328,15 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
         sess_query = _apply_tids(sess_query, tids)
     elif tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
-    if exam_id:
-        sess_query = sess_query.eq("exam_id", exam_id)
+    # NOTE: the LIVE view intentionally shows ALL of a teacher's active
+    # sessions, regardless of the dashboard's selected exam. A proctor must
+    # never miss a student who is currently testing just because that
+    # student is enrolled in a different exam — or because the session row
+    # has no exam_id at all (which the old `eq("exam_id", …)` filter silently
+    # dropped, making live monitoring appear empty). The `exam_id` arg is
+    # kept for signature/back-compat but deliberately NOT applied here;
+    # per-exam scoping stays on the results/history endpoints. Tenant
+    # isolation is unaffected — it comes from the teacher_id/tids filter above.
     sess_result = await sess_query.execute()
     sess_meta = {r["session_key"]: r for r in (sess_result.data or [])}
     submitted = {
@@ -346,8 +353,6 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
     sessions: dict = {}
     for e in events:
         sk = e["session_key"]
-        if exam_id and sk not in sess_meta:
-            continue
         if sk not in sessions:
             meta = sess_meta.get(sk, {})
             cached_risk = meta.get("risk_score")

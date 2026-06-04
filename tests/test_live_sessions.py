@@ -241,9 +241,13 @@ class TestLiveSessions:
         assert s["submitted"] is True
         assert len(d["sessions"]) == 0
 
-    def test_exam_scope_filters_other_exams(self, client, admin_headers):
-        """exam_id query param must still filter — multi-tenant teachers
-        viewing one exam should not see sessions from a sibling exam."""
+    def test_live_view_shows_all_active_sessions_across_exams(self, client, admin_headers):
+        """The LIVE view must show ALL of a teacher's active sessions
+        regardless of the dashboard's selected exam — a proctor can't miss
+        a student testing in a sibling exam (or a session with no exam_id).
+        The exam_id query param does NOT filter the live list; tenant
+        isolation stays via teacher_id. (Per-exam scoping lives on the
+        results/history endpoints, not here.)"""
         now = datetime.now(timezone.utc)
         stub = _SessionsStub(
             sessions=[
@@ -277,10 +281,12 @@ class TestLiveSessions:
              patch("app.routers.exam.compute_risk_score",
                           return_value={"risk_score": 5}):
             mock_table.side_effect = stub
+            # Even with ?exam_id=exam-1 selected, the live view shows BOTH
+            # of teacher-1's active sessions (exam-1 AND exam-2).
             r = client.get("/api/v1/admin/sessions?exam_id=exam-1", headers=admin_headers)
         assert r.status_code == 200, r.text
         d = r.json()
         keys = {s["session_id"] for s in d["all_sessions"]}
-        assert keys == {"sess_in_exam_1"}, (
-            f"exam scope leak — expected only exam-1 sessions, got {keys}"
+        assert keys == {"sess_in_exam_1", "sess_other_exam_1"}, (
+            f"live view must show all active sessions regardless of exam, got {keys}"
         )

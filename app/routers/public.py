@@ -721,6 +721,11 @@ async def accept_invite(token: str, request: Request):
         raise HTTPException(status_code=403, detail="This invite is for a different email address")
 
     try:
+        # students is the teacher-wide roster row — it has NO exam_id
+        # column. Writing exam_id here raised UndefinedColumnError →
+        # caught below → a 500 on EVERY invite-link acceptance. The
+        # per-exam association is preserved by the student_invites status
+        # update right after this (the invite row carries the exam_id).
         enroll_row = {
             "email":       inv.get("email"),
             "full_name":   inv.get("full_name"),
@@ -728,8 +733,6 @@ async def accept_invite(token: str, request: Request):
             "teacher_id":  str(inv["teacher_id"]),
             "account_id":  str(student["id"]),
         }
-        if inv.get("exam_id"):
-            enroll_row["exam_id"] = inv.get("exam_id")
         await _atable("students").upsert(
             enroll_row,
             on_conflict="roll_number,teacher_id",

@@ -53,10 +53,13 @@ async def submit_appeal(body: AppealIn, request: Request):
     teacher_id = s.get("teacher_id", "")
     exam_id = s.get("exam_id", "")
 
+    # NOTE: the appeals table has no `email` column (see phase51 schema)
+    # — student identity is session_key + student_id + roll_number, and
+    # the teacher resolves email separately. Inserting email here raised
+    # UndefinedColumnError → 500 on every appeal submission.
     await _atable("appeals").insert({
         "session_key":  body.session_key,
         "student_id":   student_id,
-        "email":        student_email,
         "exam_id":      exam_id,
         "teacher_id":   teacher_id,
         "appeal_type":  body.appeal_type,

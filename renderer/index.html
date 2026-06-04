@@ -1211,6 +1211,10 @@ let idPollTimer = null;
 
 async function startIdVerify() {
   idStep = 1; selfieB64 = null; idCardB64 = null;
+  // The window is already kiosk-locked at this point, so the student needs
+  // a guaranteed escape hatch even before the exam proper begins.
+  _revealPanicLink();
+  _bindPanicFallback();
   showScreen('id-verify');
   document.getElementById('id-capture-card').style.display = '';
   document.getElementById('id-waiting-card').style.display = 'none';
@@ -1263,17 +1267,39 @@ function _idShowStep(step) {
   }
 }
 
+// Server caps a single frame at _MAX_FRAME_BASE64_LEN = 500_000 base64
+// chars (~375KB decoded). A full-resolution 1080p webcam JPEG blows past
+// that, so the /id-verification POST 413s and the student sees a generic
+// "Upload failed" (the bug: capture used vid.videoWidth/Height verbatim
+// with no bound). Downscale to a bounded long edge and step quality down
+// until the encoded frame is provably under the cap — so it fits on ANY
+// webcam, regardless of resolution. 1080px keeps an ID card legible.
+const _ID_MAX_EDGE = 1080;
+const _ID_SAFE_B64_LEN = 460000;  // headroom below the server's 500000 cap
+function _encodeBoundedFrame(vid, cvs) {
+  const sw = vid.videoWidth, sh = vid.videoHeight;
+  const scale = Math.min(1, _ID_MAX_EDGE / Math.max(sw, sh));
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
+  cvs.width = dw; cvs.height = dh;
+  cvs.getContext('2d').drawImage(vid, 0, 0, dw, dh);
+  let b64 = '';
+  for (const q of [0.85, 0.7, 0.55, 0.4]) {
+    b64 = cvs.toDataURL('image/jpeg', q).split(',')[1];
+    if (b64.length <= _ID_SAFE_B64_LEN) break;
+  }
+  return b64;
+}
+
 function captureIdPhoto() {
   const vid = document.getElementById('id-cam');
   const cvs = document.getElementById('id-canvas');
   if (!vid.videoWidth) return;
 
-  cvs.width = vid.videoWidth; cvs.height = vid.videoHeight;
+  const b64 = _encodeBoundedFrame(vid, cvs);
   cvs.style.width = '400px'; cvs.style.height = '';
-  cvs.getContext('2d').drawImage(vid, 0, 0);
   vid.style.display = 'none'; cvs.style.display = 'block';
 
-  const b64 = cvs.toDataURL('image/jpeg', 0.85).split(',')[1];
   if (idStep === 1) { selfieB64 = b64; }
   else              { idCardB64 = b64; }
 
@@ -1350,7 +1376,14 @@ async function idNextStep() {
         timestamp: new Date().toISOString()
       })
     });
-    if (!res.ok) throw new Error('Upload failed');
+    if (!res.ok) {
+      // Surface the real status + server detail. The old blanket
+      // "Upload failed" hid a 413 (frame too large) behind a useless
+      // message; keep the cause visible so the next failure is diagnosable.
+      let detail = '';
+      try { detail = (await res.json()).detail || ''; } catch (_) {}
+      throw new Error(detail ? `${res.status} — ${detail}` : `server error ${res.status}`);
+    }
   } catch (e) {
     document.getElementById('id-err').textContent = 'Upload failed — ' + e.message;
     document.getElementById('id-next-btn').disabled = false;
@@ -1930,11 +1963,11 @@ async function startExam(){
     showScreen('exam');
     startTimer(); // start AFTER screen is shown so student sees full time
     examActive=true;
-    // Phase 2: reveal the emergency-unlock link now that the student is
-    // actually in the exam. Hidden everywhere else so it can't be
-    // clicked accidentally during login / enrollment.
-    const _panicLink = document.getElementById('panic-link');
-    if (_panicLink) _panicLink.style.display = 'block';
+    // Phase 2: ensure the emergency-unlock link + panic chord are live.
+    // Idempotent — they were already armed in startIdVerify(), this just
+    // covers any path that reaches the exam without going through it.
+    _revealPanicLink();
+    _bindPanicFallback();
     startBulkSave();
     startHeartbeat();
     chatInit();
@@ -1959,17 +1992,9 @@ async function startExam(){
       });
       document.addEventListener('contextmenu', e=>e.preventDefault());
       document.addEventListener('keydown', e=>{
-        // Panic chord: Ctrl/Cmd+Shift+F12. Checked BEFORE the F12
-        // preventDefault() below so Windows users whose globalShortcut
-        // registration silently failed still have an in-app way out.
-        // This re-uses the same panicUnlock() renderer function that
-        // the on-screen "Emergency unlock" link calls, so there's a
-        // single confirm prompt and a single code path.
-        if((e.ctrlKey||e.metaKey) && e.shiftKey && e.key==='F12'){
-          e.preventDefault();
-          try { panicUnlock(); } catch(err) { console.error('[Panic fallback]', err); }
-          return;
-        }
+        // Panic chord (Ctrl/Cmd+Shift+F12) is handled by the dedicated
+        // capture-phase listener in _bindPanicFallback(), which runs first
+        // and stops propagation — so it never reaches this handler.
         var _k=e.key||'', _c=e.ctrlKey, _m=e.metaKey, _s=e.shiftKey;
         var _kl=_k.toLowerCase();
         // Block all screenshot triggers
@@ -2667,23 +2692,61 @@ async function adminExit(){
   if(!r||!r.success) showModal('Wrong code');
 }
 
+// Phase 2: the on-screen "Emergency unlock" link is revealed, and an
+// in-renderer panic chord (Ctrl/Cmd+Shift+F12) is bound, the moment the
+// kiosk-locked window takes over — i.e. from ID verification onward, NOT
+// just during the exam. Earlier the fallback lived only inside
+// startExam(), so a student who got stuck at the verification stage (where
+// the window is already locked) was trapped if the global shortcut had
+// silently failed to register (common on Windows). Both helpers are
+// idempotent so calling them from startIdVerify() and startExam() is safe.
+function _revealPanicLink(){
+  const link = document.getElementById('panic-link');
+  if (link) link.style.display = 'block';
+}
+let _panicKeyBound = false;
+function _bindPanicFallback(){
+  if (_panicKeyBound) return;
+  _panicKeyBound = true;
+  document.addEventListener('keydown', e=>{
+    // Panic chord: Ctrl/Cmd+Shift+F12. This is the in-app escape hatch for
+    // when the main-process globalShortcut registration silently failed.
+    // stopImmediatePropagation() keeps the exam anti-cheat handler from
+    // also reacting (it would preventDefault F12 as a "screenshot").
+    if((e.ctrlKey||e.metaKey) && e.shiftKey && e.key==='F12'){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      try { panicUnlock(); } catch(err) { console.error('[Panic fallback]', err); }
+    }
+  }, true); // capture phase: runs before the bubble-phase anti-cheat listener
+}
+
 // Phase 2: student-triggered emergency unlock. Flags the session for the
 // teacher to review, releases kiosk, and returns to the student lobby.
-// Does NOT auto-submit. The panic link is only shown once the exam is
-// actually active — see `showScreen('exam')` wiring in startExam().
+// Does NOT auto-submit. Available from ID verification onward via the
+// on-screen link and the panic chord — see _bindPanicFallback().
+let _panicBusy = false;
 async function panicUnlock(){
+  if (_panicBusy) return;   // guard against double-confirm (link + chord)
+  _panicBusy = true;
+  try {
   const ok = confirm(
     'EMERGENCY UNLOCK\n\n' +
     'This releases the exam lockdown and flags your session for your teacher to review.\n\n' +
     'Your work will NOT be submitted automatically.\n\n' +
     'Continue?'
   );
-  if (!ok) return;
+  if (!ok) { _panicBusy = false; return; }
   try {
     if (window.proctor && window.proctor.panicUnlock) {
       await window.proctor.panicUnlock('student-clicked-link');
     }
   } catch(e) { console.error('[Panic]', e); }
+  } finally {
+    // Keep busy true after a confirmed unlock (window is tearing down);
+    // only reset if the IPC path somehow returned without quitting.
+    setTimeout(()=>{ _panicBusy = false; }, 3000);
+  }
 }
 
 // ── IN-EXAM CHAT (student side) ────────────────────────────────────

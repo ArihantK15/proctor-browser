@@ -8,11 +8,13 @@ body{min-width:0}
    surface — split layout with brand-pitch aside on the left and
    form card on the right (stacked on mobile), grain texture, and
    a soft accent glow behind the shell mirroring Hero.jsx. */
-#auth-overlay{position:fixed;inset:0;background:var(--bg);z-index:9999;
+#auth-overlay{position:fixed;inset:0;background:var(--bg);z-index:200000;
   display:flex;align-items:center;justify-content:center;
   background-image:var(--grain);background-size:200px 200px;
   padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));overflow-y:auto}
 #auth-overlay.hidden{display:none}
+body.auth-active{overflow:hidden}
+body.auth-active > :not(#auth-overlay):not(script):not(style){display:none !important}
 .auth-glow{position:absolute;top:0;left:50%;transform:translateX(-50%);
   width:min(800px,120vw);height:min(600px,80vh);border-radius:50%;
   background:radial-gradient(circle,var(--accent-glow) 0%,transparent 70%);
@@ -49,6 +51,8 @@ body{min-width:0}
 @media (min-width: 900px){.auth-card{justify-self:end;width:420px}}
 .auth-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
   background:linear-gradient(90deg,transparent,var(--accent),transparent);z-index:2}
+.auth-brand-name{font-family:var(--font-display);font-size:22px;font-weight:700;
+  color:var(--text-high)}
 .auth-card h2{color:var(--text-high);margin-bottom:8px;font-size:24px;font-weight:700;
   font-family:var(--font-display);letter-spacing:-0.02em}
 .auth-card p{color:var(--muted);font-size:13px;margin-bottom:20px}
@@ -187,6 +191,7 @@ body{min-width:0}
     linear-gradient(180deg, var(--bg-base), var(--bg-subtle));
 }
 [data-theme="light"] #auth-overlay{
+  background-color:var(--bg-base);
   background:
     radial-gradient(circle at 50% 0%, rgba(59,130,246,0.12), transparent 44%),
     linear-gradient(180deg, var(--bg-base), var(--bg-subtle));

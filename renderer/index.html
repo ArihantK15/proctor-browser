@@ -1531,6 +1531,19 @@ function calSetFaceStatus(text, color) {
   el.style.color = color || '#8b949e';
 }
 
+function calErrorMessage(r) {
+  const detail = r && r.detail ? String(r.detail).split('\n').slice(-2).join(' ') : '';
+  const messages = {
+    camera_open_failed: 'Calibration camera could not open. Close other apps using the camera, then Retry.',
+    camera_lost: 'Calibration lost the camera. Close other apps using the camera, then Retry.',
+    calibration_unavailable: 'Calibration engine is unavailable. Restart Procta Browser and try again.',
+    calibration_spawn_failed: 'Calibration engine could not start. Restart Procta Browser and try again.',
+    calibration_process_exited: 'Calibration engine stopped before camera frames arrived. Restart the exam or click Retry.'
+  };
+  const base = messages[r.error] || 'Camera error — click Retry';
+  return detail ? `${base} (${detail})` : base;
+}
+
 function calUpdateDots() {
   for (let i = 0; i < CAL_POINTS.length; i++) {
     const dot = document.getElementById('cal-dot-' + i);
@@ -1546,15 +1559,20 @@ function calUpdateDots() {
 }
 
 function calHandleReading(r) {
-  if (!calRunning) return;
-
   if (r.error) {
-    calSetStatus('Camera error — click Retry');
+    calSetStatus(calErrorMessage(r));
     calSetFaceStatus('', '#ff7b72');
     document.getElementById('cam-retry-btn').style.display = 'inline-block';
     calRunning = false;
     return;
   }
+
+  if (r.status === 'starting' && !calRunning) {
+    calSetStatus('Starting calibration camera...');
+    return;
+  }
+
+  if (!calRunning) return;
 
   if (!r.face) {
     calNoFaceCount++;
@@ -1777,6 +1795,7 @@ async function finishCalibration() {
 async function retryCam() {
   document.getElementById('cam-retry-btn').style.display = 'none';
   calIdx = 0; calReadings = []; calResults = {};
+  calRunning = false; calNoFaceCount = 0;
   calUpdateDots();
   calSetStatus('Retrying camera...');
   try {
@@ -1786,11 +1805,25 @@ async function retryCam() {
     testStream.getTracks().forEach(t => t.stop());
 
     // Restart calibration proctor (it opens its own camera)
+    let calGotReading = false;
+    let calStartFailed = false;
     if (window.proctor) {
+      window.proctor.onCalReading(r => {
+        if (r && r.error) calStartFailed = true;
+        if (r && !r.status) calGotReading = true;
+        calHandleReading(r);
+      });
       await window.proctor.startCalibration({ sessionId });
-      window.proctor.onCalReading(calHandleReading);
+      setTimeout(() => {
+        if (!calGotReading && calRunning) {
+          calRunning = false;
+          calSetStatus('Calibration is still warming up or camera frames are blocked. Click Retry after closing other camera apps.');
+          document.getElementById('cam-retry-btn').style.display = 'inline-block';
+        }
+      }, 45000);
     }
     await new Promise(r => setTimeout(r, 2000));
+    if (calStartFailed) return;
     calRunning = true;
     calUpdateDots();
     calSetStatus('Look at the centre dot');
@@ -1819,10 +1852,23 @@ async function startEnroll() {
   }
 
   // Start proctor.py in calibration mode — it opens its own camera
+  let calGotReading = false;
+  let calStartFailed = false;
   if (window.proctor) {
     try {
+      window.proctor.onCalReading(r => {
+        if (r && r.error) calStartFailed = true;
+        if (r && !r.status) calGotReading = true;
+        calHandleReading(r);
+      });
       await window.proctor.startCalibration({ sessionId });
-      window.proctor.onCalReading(calHandleReading);
+      setTimeout(() => {
+        if (!calGotReading && calRunning) {
+          calRunning = false;
+          calSetStatus('Calibration is still warming up or camera frames are blocked. Click Retry after closing other camera apps.');
+          document.getElementById('cam-retry-btn').style.display = 'inline-block';
+        }
+      }, 45000);
     } catch (e) {
       calSetStatus('Failed to start calibration: ' + e.message);
       document.getElementById('cam-retry-btn').style.display = 'inline-block';
@@ -1832,22 +1878,11 @@ async function startEnroll() {
 
   // Wait for proctor.py to warm up camera
   await new Promise(r => setTimeout(r, 2000));
+  if (calStartFailed) return;
 
   calRunning = true;
   calUpdateDots();
   calSetStatus('Look at the centre dot');
-
-  // Timeout — if no reading arrives in 15s, proctor.py likely crashed
-  let calGotReading = false;
-  const origHandler = calHandleReading;
-  window.proctor.onCalReading(r => { calGotReading = true; origHandler(r); });
-  setTimeout(() => {
-    if (!calGotReading && calRunning) {
-      calRunning = false;
-      calSetStatus('Calibration timed out — camera may be unavailable');
-      document.getElementById('cam-retry-btn').style.display = 'inline-block';
-    }
-  }, 15000);
 }
 
 // ── PHONE CAMERA QR + APPROVAL WAITING ──────────────────────────

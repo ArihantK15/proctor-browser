@@ -216,6 +216,7 @@ async function doPasswordReset(){
 // Signup is handled at procta.net/signup — no inline form on the dashboard.
 
 async function _onAuthed(teacher){
+  document.body.classList.remove('auth-active');
   document.getElementById('auth-overlay').classList.add('hidden');
   currentTeacherProfile = teacher || null;
   _onAuthDone();
@@ -600,6 +601,7 @@ async function doLogout(){
     document.querySelectorAll('#live-body, #results-body').forEach(el=>el.innerHTML='');
   }catch(_){}
   chatDisconnect();
+  document.body.classList.add('auth-active');
   document.getElementById('auth-overlay').classList.remove('hidden');
   document.getElementById('teacher-name').textContent = '';
   document.getElementById('exam-bar').style.display = 'none';

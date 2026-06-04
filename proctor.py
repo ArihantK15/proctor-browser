@@ -3048,6 +3048,83 @@ def run_selftest() -> int:
     return 0 if (report["models"]["onnxruntime"] and report["models"]["retina"]) else 1
 
 
+def _camera_backend_candidates():
+    system = platform.system()
+    candidates = []
+    if system == "Windows":
+        candidates.extend([
+            ("DSHOW", getattr(cv2, "CAP_DSHOW", None)),
+            ("MSMF", getattr(cv2, "CAP_MSMF", None)),
+        ])
+    elif system == "Darwin":
+        candidates.append(("AVFOUNDATION", getattr(cv2, "CAP_AVFOUNDATION", None)))
+    elif system == "Linux":
+        candidates.append(("V4L2", getattr(cv2, "CAP_V4L2", None)))
+    candidates.append(("DEFAULT", None))
+
+    deduped = []
+    seen = set()
+    for name, backend in candidates:
+        key = (name, backend)
+        if backend is not None and not isinstance(backend, int):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((name, backend))
+    return deduped
+
+
+def _camera_has_frames(cap, attempts: int = 12) -> bool:
+    for _ in range(attempts):
+        ok, frame = cap.read()
+        if ok and frame is not None and getattr(frame, "size", 0) > 0:
+            return True
+        time.sleep(0.08)
+    return False
+
+
+def _open_camera():
+    """Open a real camera with platform-specific fallbacks.
+
+    Browser pre-checks use Chromium's camera stack, while proctoring uses
+    OpenCV. On Windows especially, the default backend can fail while MSMF or
+    DSHOW succeeds, so every candidate must be checked with isOpened() and a
+    real frame read instead of relying on VideoCapture object truthiness.
+    """
+    for idx in (0, 1, 2):
+        for backend_name, backend in _camera_backend_candidates():
+            cap = None
+            try:
+                print(f"[CAM] Trying camera index={idx} backend={backend_name}")
+                if backend is None:
+                    cap = cv2.VideoCapture(idx)
+                else:
+                    cap = cv2.VideoCapture(idx, backend)
+                if cap is None or not cap.isOpened():
+                    continue
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                if _camera_has_frames(cap):
+                    print(f"[CAM] Ready index={idx} backend={backend_name}")
+                    return cap, {"index": idx, "backend": backend_name}
+            except Exception as exc:
+                print(f"[CAM] Failed index={idx} backend={backend_name}: "
+                      f"{type(exc).__name__}: {exc}")
+            finally:
+                if cap is not None and (not cap.isOpened() or cap is None):
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+    return None, None
+
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
     print(f"[PROCTOR] Session: {SESSION_ID}")
@@ -3076,13 +3153,7 @@ def main():
     except Exception as _be:
         print(f"[PROCTOR] boot diagnostic skipped: {_be}")
 
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) \
-              if platform.system() == "Windows" \
-              else None
-    if cap is None or not cap.isOpened():
-        cap = cv2.VideoCapture(1)
+    cap, cam_meta = _open_camera()
     if cap is None or not cap.isOpened():
         try:
             _http.post(SERVER_URL, json=dict(
@@ -3093,6 +3164,11 @@ def main():
             ), timeout=3)
         except Exception:
             pass
+        if CALIBRATION_MODE:
+            print("CAL:" + _json.dumps({
+                "error": "camera_open_failed",
+                "detail": "OpenCV could not open a webcam. Close other camera apps and retry."
+            }), flush=True)
         print("[PROCTOR] ❌ Cannot open camera!")
         sys.exit(1)
 
@@ -3110,7 +3186,21 @@ def main():
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, W)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, H)
             print(f"[PROCTOR] Camera returned 0x0 — forcing {W}x{H}")
-        print(f"[PROCTOR] Camera: {W}x{H}")
+        _cam_desc = f"{cam_meta.get('backend')} index {cam_meta.get('index')}" \
+            if cam_meta else "unknown backend"
+        print(f"[PROCTOR] Camera: {W}x{H} ({_cam_desc})")
+
+        if CALIBRATION_MODE:
+            print("[PROCTOR] Warming up camera for calibration...")
+            for _ in range(10):
+                cap.read()
+            time.sleep(0.5)
+            try:
+                run_calibration(cap, W, H)
+            except KeyboardInterrupt:
+                print("\n[CALIBRATION] Stopped by signal")
+            print("[CALIBRATION] Done")
+            return  # the outer finally still releases the camera + workers
 
         # First few frames are often blank, especially on Windows.
         # ── Lazy VM + virtual camera detection ───────────────────────────
@@ -3148,15 +3238,6 @@ def main():
                 print(f"  {icon} {name}: {result['detail']}")
         except Exception:
             pass  # Server may not have the endpoint yet — non-fatal
-
-        # ── Calibration-only mode: stream readings and exit ────────────
-        if CALIBRATION_MODE:
-            try:
-                run_calibration(cap, W, H)
-            except KeyboardInterrupt:
-                print("\n[CALIBRATION] Stopped by signal")
-            print("[CALIBRATION] Done")
-            return  # the outer finally still releases the camera + workers
 
         if HEADLESS or SKIP_ENROLLMENT:
             reason = "headless mode" if HEADLESS else "renderer handled enrollment"

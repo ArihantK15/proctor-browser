@@ -6984,16 +6984,127 @@ async function deleteTemplate(templateId){
 // ── REAL-TIME RISK ALERTS ──────────────────────────────────────
 let _alertCount = 0;
 let _alertMuted = false;
+let _alertQueue = [];
+let _activeAlertToast = null;
+let _activeAlertTimer = null;
+const _ALERT_QUEUE_MAX = 50;
+const _ALERT_DEDUPE_MS = 30000;
+const _recentAlertKeys = new Map();
 
 function _getAlertContainer(){
   let c = document.getElementById('alert-toast-container');
   if(!c){
     c = document.createElement('div');
     c.id = 'alert-toast-container';
-    c.style.cssText = 'position:fixed;top:80px;right:16px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:380px;pointer-events:none';
     document.body.appendChild(c);
   }
   return c;
+}
+
+function _playAlertTone(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.value = 0.1;
+    osc.start(); osc.stop(ctx.currentTime + 0.15);
+  }catch(_){}
+}
+
+function _alertKey(a){
+  return [
+    a.session_id || '',
+    a.violation_type || '',
+    a.severity || '',
+    a.roll_number || a.full_name || ''
+  ].join('|');
+}
+
+function _rememberAlertKey(key){
+  const now = Date.now();
+  for(const [k, ts] of _recentAlertKeys){
+    if(now - ts > _ALERT_DEDUPE_MS) _recentAlertKeys.delete(k);
+  }
+  const prev = _recentAlertKeys.get(key);
+  if(prev && now - prev < _ALERT_DEDUPE_MS) return false;
+  _recentAlertKeys.set(key, now);
+  return true;
+}
+
+function _alertPalette(sev){
+  const colors = {
+    critical: ['var(--sev-critical-fg)', 'var(--sev-critical-bg)'],
+    high: ['var(--sev-warn-fg)', 'var(--sev-warn-bg)'],
+    medium: ['var(--accent)', 'var(--accent-subtle)'],
+    low: ['var(--text-muted)', 'var(--surface-2)']
+  };
+  return colors[sev] || colors.medium;
+}
+
+function _alertQueueLabel(){
+  const count = _alertQueue.length;
+  if(count <= 0) return '';
+  return count === 1 ? '1 more queued' : `${count} more queued`;
+}
+
+function _syncActiveAlertQueueLabel(){
+  if(!_activeAlertToast) return;
+  const meta = _activeAlertToast.querySelector('[data-alert-queue-meta]');
+  if(!meta) return;
+  meta.textContent = _alertQueueLabel();
+  meta.style.display = _alertQueue.length ? '' : 'none';
+}
+
+function _finishActiveAlert(){
+  if(_activeAlertTimer){
+    clearTimeout(_activeAlertTimer);
+    _activeAlertTimer = null;
+  }
+  if(_activeAlertToast?.parentElement) _activeAlertToast.remove();
+  _activeAlertToast = null;
+  setTimeout(_showNextQueuedAlert, 80);
+}
+
+function _showNextQueuedAlert(){
+  if(_activeAlertToast || _alertMuted) return;
+  const a = _alertQueue.shift();
+  if(!a) return;
+
+  _playAlertTone();
+
+  const sev = (a.severity||'medium').toLowerCase();
+  const [color, bg] = _alertPalette(sev);
+  const container = _getAlertContainer();
+  const toast = document.createElement('div');
+  const studentLabel = _escHtml(a.full_name||a.roll_number||'Student');
+  const violationType = _escHtml((a.violation_type||'').replace(/_/g,' '));
+  const details = a.details ? String(a.details) : '';
+  const detailsPreview = details.length > 120 ? details.slice(0, 120) + '…' : details;
+  const safeSessionId = _escGrp(a.session_id || '');
+
+  toast.className = 'live-alert-toast';
+  toast.style.setProperty('--alert-color', color);
+  toast.style.setProperty('--alert-bg', bg);
+  toast.innerHTML = `
+    <div class="live-alert-head">
+      <span class="live-alert-icon">⚠️</span>
+      <span class="live-alert-student">${studentLabel}</span>
+      <span class="live-alert-sev">${_escHtml(sev)}</span>
+      <button type="button" class="live-alert-dismiss" data-action="_dismissCurrentAlertToast" aria-label="Dismiss alert">×</button>
+    </div>
+    <div class="live-alert-type">${violationType}</div>
+    ${details?'<div class="live-alert-detail">'+_escHtml(detailsPreview)+'</div>':''}
+    <div class="live-alert-actions">
+      <button class="btn btn-secondary btn-sm" data-action="viewSession" data-args='${_jsonArgsForAttr(safeSessionId)}'>View Timeline</button>
+      <span class="live-alert-meta" data-alert-queue-meta></span>
+    </div>
+  `;
+  container.replaceChildren(toast);
+  _activeAlertToast = toast;
+  _syncActiveAlertQueueLabel();
+  _activeAlertTimer = setTimeout(_finishActiveAlert, 8000);
 }
 
 function handleRealtimeAlert(a){
@@ -7005,44 +7116,11 @@ function handleRealtimeAlert(a){
   }
   if(_alertMuted) return;
 
-  try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    gain.gain.value = 0.1;
-    osc.start(); osc.stop(ctx.currentTime + 0.15);
-  }catch(_){}
-
-  const sevColors = {critical:'var(--red)',high:'var(--amber)',medium:'var(--accent)',low:'var(--muted)'};
-  const sevBg = {critical:'rgba(220,38,38,0.15)',high:'rgba(245,158,11,0.15)',medium:'rgba(16,185,129,0.15)',low:'rgba(107,114,128,0.15)'};
-  const sev = (a.severity||'medium').toLowerCase();
-  const color = sevColors[sev]||sevColors.medium;
-  const bg = sevBg[sev]||sevBg.medium;
-  const container = _getAlertContainer();
-  const toast = document.createElement('div');
-  const studentLabel = _escHtml(a.full_name||a.roll_number||'Student');
-  const violationType = _escHtml((a.violation_type||'').replace(/_/g,' '));
-  const details = a.details ? String(a.details) : '';
-  const detailsPreview = details.length > 120 ? details.slice(0, 120) + '…' : details;
-  const safeSessionId = _escGrp(a.session_id || '');
-  toast.style.cssText = 'pointer-events:auto;background:rgba(20,20,30,0.95);backdrop-filter:blur(12px);border:1px solid var(--border);border-left:3px solid '+color+';border-radius:8px;padding:12px 14px';
-  toast.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <span style="font-size:14px">⚠️</span>
-      <span style="font-weight:600;font-size:13px;color:${color}">${studentLabel}</span>
-      <span class="badge" style="background:${bg};color:${color};font-size:10px">${sev}</span>
-      <span style="margin-left:auto;font-size:10px;color:var(--muted);cursor:pointer" data-action="_closeToastParent">✕</span>
-    </div>
-    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${violationType}</div>
-    ${details?'<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+_escHtml(detailsPreview)+'</div>':''}
-    <div style="display:flex;gap:6px">
-      <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" data-action="viewSession" data-args='${_jsonArgsForAttr(safeSessionId)}'>View Timeline</button>
-    </div>
-  `;
-  container.appendChild(toast);
-  setTimeout(()=>{ if(toast.parentElement) toast.remove(); }, 8000);
+  if(!_rememberAlertKey(_alertKey(a))) return;
+  if(_alertQueue.length >= _ALERT_QUEUE_MAX) _alertQueue.shift();
+  _alertQueue.push(a);
+  _syncActiveAlertQueueLabel();
+  _showNextQueuedAlert();
 }
 
 function toggleAlertMute(){
@@ -7051,6 +7129,12 @@ function toggleAlertMute(){
   const badge = document.getElementById('live-alert-badge');
   if(btn) btn.textContent = _alertMuted ? '🔔 Muted' : '🔔';
   if(badge) badge.style.display = _alertMuted ? 'none' : (_alertCount > 0 ? '' : 'none');
+  if(_alertMuted){
+    _alertQueue = [];
+    _finishActiveAlert();
+  }else{
+    _showNextQueuedAlert();
+  }
 }
 
 function clearAlertBadge(){
@@ -7078,7 +7162,12 @@ function switchTabLiveClearBadge(){ switchTab('live'); clearAlertBadge(); }
 function _clickQImageInput(i){ document.getElementById('qimg-input-'+i).click(); }
 function _showLightbox(screenshot, type, timeStr){ showLightbox(screenshot, type+' \u2014 '+timeStr); }
 function _discardGenPreview(){ _genPreview=[]; _renderGenPreview(); document.getElementById('gen-status').textContent=''; }
-function _closeToastParent(){ this.closest('div').parentElement.remove(); }
+function _dismissCurrentAlertToast(){ _finishActiveAlert(); }
+function _closeToastParent(){
+  const toast = this.closest('.live-alert-toast') || this.closest('div')?.parentElement;
+  if(toast === _activeAlertToast){ _finishActiveAlert(); return; }
+  toast?.remove();
+}
 function _focusLoginPwd(){ document.getElementById('login-pwd')?.focus(); }
 
 const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt', 'eval', 'Function', 'fetch']);

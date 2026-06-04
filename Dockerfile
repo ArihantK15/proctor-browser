@@ -1,3 +1,18 @@
+# ── Stage 0: Build the React teacher dashboard ─────────────────────
+# Served by the API at /dashboard-react (the live view + camera panel).
+# app/static/dashboard-react/ is gitignored and the prod checkout never
+# had it, so /dashboard-react used to 404. Build it here so the runtime
+# image always ships the current dashboard. vite outDir is
+# ../static/dashboard-react, so mirror the app/dashboard-ui ↔ app/static
+# layout the config expects.
+FROM node:22-slim AS uibuilder
+WORKDIR /ui
+COPY app/dashboard-ui/package.json app/dashboard-ui/package-lock.json ./app/dashboard-ui/
+RUN cd app/dashboard-ui && npm ci --no-audit --no-fund
+COPY app/dashboard-ui ./app/dashboard-ui
+RUN cd app/dashboard-ui && npm run build
+# → /ui/app/static/dashboard-react/{index.html,assets/…}
+
 # ── Stage 1: Build deps ────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
@@ -20,6 +35,9 @@ COPY --from=builder /install /usr/local
 
 # Copy application code + entrypoint
 COPY app/ ./app/
+# Built React dashboard (overlays the gitignored, context-absent dir so
+# /dashboard-react serves a real app instead of 404).
+COPY --from=uibuilder /ui/app/static/dashboard-react ./app/static/dashboard-react
 COPY worker.py .
 COPY scripts/ ./scripts/
 COPY migrations/ ./migrations/

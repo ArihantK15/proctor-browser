@@ -1392,6 +1392,34 @@
   </div>
 </div>
 
+<!-- ── Live webcam modal — streams the student's primary camera while a
+     teacher watches. Frames come from GET …/live-frame (short-TTL Redis
+     cache, never persisted). open/closeLiveView in dashboard-app.js drive
+     live-view/start, a 1.5s frame poll, a 25s keepalive (the server's
+     liveview:{sid} key is 60s TTL — without renewal the proctor stops
+     streaming), and live-view/stop on close. Ported from the React panel. -->
+<div class="modal-bg hidden" id="liveview-modal" data-action="closeLiveView" data-guard-self>
+  <div class="modal" style="max-width:560px">
+    <button class="close" data-action="closeLiveView">&times;</button>
+    <h3 style="margin-bottom:4px">Live Camera</h3>
+    <div id="liveview-meta" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);margin-bottom:14px"></div>
+    <div style="position:relative;background:#000;border:1px solid var(--border);border-radius:8px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center">
+      <img id="liveview-img" alt="Live webcam feed" style="display:none;width:100%;height:100%;object-fit:cover">
+      <div id="liveview-placeholder" style="color:var(--muted);font-size:13px;text-align:center;padding:20px;line-height:1.6">
+        Connecting to the student's webcam…<br>
+        <span style="font-size:11px">The live feed is never stored — it streams from the student's device only while this window is open.</span>
+      </div>
+    </div>
+    <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)">
+      <span id="liveview-status">●&nbsp;Connecting</span>
+      <span id="liveview-ts"></span>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px">
+      <button class="btn btn-secondary btn-sm" data-action="closeLiveView" style="flex:1">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── AI Insight modal — one-line LLM TL;DR of a session's recent
      violations. Backed by GET /api/admin/sessions/{sid}/triage which
      caches 60s in Redis so re-opens are instant. -->

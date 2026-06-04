@@ -1658,6 +1658,88 @@ async function roomCamReject(){
 
 
 
+// ── LIVE WEBCAM VIEW ───────────────────────────────────────────────
+// Ported from the React LiveSessionsPanel into the (canonical) legacy
+// dashboard. Mirrors the room-cam flow above but for the student's PRIMARY
+// webcam: live-view/start → 1.5s frame poll → 25s keepalive → live-view/stop.
+// The 25s keepalive is REQUIRED: the server's liveview:{sid} key has a 60s
+// TTL and the proctor's control loop stops streaming once it lapses, so
+// without renewal the feed froze after ~60s.
+async function openLiveView(sid){
+  _liveViewSid = sid;
+  const img = document.getElementById('liveview-img');
+  const ph = document.getElementById('liveview-placeholder');
+  const meta = document.getElementById('liveview-meta');
+  const statusEl = document.getElementById('liveview-status');
+  if(img){ img.style.display = 'none'; }
+  if(ph){ ph.style.display = ''; }
+  if(meta){ meta.textContent = sid; }
+  if(statusEl){ statusEl.innerHTML = '● Connecting'; }
+  document.getElementById('liveview-modal').classList.remove('hidden');
+
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/live-view/start`, {method:'POST'});
+    if(!r.ok) throw new Error();
+  }catch(e){ if(statusEl) statusEl.innerHTML = '● Failed'; return; }
+
+  if(_liveViewFrameTimer) clearInterval(_liveViewFrameTimer);
+  if(_liveViewKeepaliveTimer) clearInterval(_liveViewKeepaliveTimer);
+  _liveViewFrameTimer = setInterval(_pollLiveFrame, 1500);
+  _liveViewKeepaliveTimer = setInterval(_liveViewKeepalive, 25000);
+}
+
+function _pollLiveFrame(){
+  if(!_liveViewSid) return;
+  const img = document.getElementById('liveview-img');
+  const ph = document.getElementById('liveview-placeholder');
+  const statusEl = document.getElementById('liveview-status');
+  const tsEl = document.getElementById('liveview-ts');
+  const t = Date.now();
+  const headers = {};
+  if(authToken) headers.Authorization = `Bearer ${authToken}`;
+  fetchWithTimeout(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-frame?t=${t}`, {
+    credentials: 'include',
+    headers,
+  }).then(r => {
+    if(!r.ok) throw new Error();
+    return r.blob();
+  }).then(blob => {
+    if(_liveViewSid && img){
+      // Revoke the prior frame's object URL before swapping in the new one —
+      // the room-cam poll above leaks one blob: URL per 1.5s tick; this
+      // doesn't (matters over a long watch).
+      const prior = img.src;
+      img.src = URL.createObjectURL(blob); img.style.display = '';
+      if(ph) ph.style.display = 'none';
+      if(prior && prior.startsWith('blob:')){ try{ URL.revokeObjectURL(prior); }catch(_){} }
+      if(tsEl) tsEl.textContent = new Date().toLocaleTimeString();
+      if(statusEl) statusEl.innerHTML = '● Live';
+    }
+  }).catch(() => {
+    if(statusEl) statusEl.innerHTML = '●&#160;Offline';
+  });
+}
+
+async function _liveViewKeepalive(){
+  if(_liveViewSid){
+    try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/keepalive`, {method:'POST'}); }catch(_){}
+  }
+}
+
+async function closeLiveView(){
+  if(_liveViewFrameTimer){ clearInterval(_liveViewFrameTimer); _liveViewFrameTimer = null; }
+  if(_liveViewKeepaliveTimer){ clearInterval(_liveViewKeepaliveTimer); _liveViewKeepaliveTimer = null; }
+  const img = document.getElementById('liveview-img');
+  if(img && img.src && img.src.startsWith('blob:')){ try{ URL.revokeObjectURL(img.src); }catch(_){} img.removeAttribute('src'); }
+  const modal = document.getElementById('liveview-modal');
+  if(modal) modal.classList.add('hidden');
+  const sid = _liveViewSid;
+  _liveViewSid = null;
+  if(sid){
+    try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/live-view/stop`, {method:'POST'}); }catch(_){}
+  }
+}
+
 let _showingAudit = false;
 
 function toggleGradeAudit(){
@@ -1828,6 +1910,7 @@ function renderLive(){
       <td>
         <button class="btn btn-secondary btn-sm" data-action="openTriage" data-args='${_jsonArgsForAttr(sid)}'>Insight</button>
         <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
+        ${isSubmitted ? '' : `<button class="btn btn-secondary btn-sm" title="Watch the student's live webcam" data-action="openLiveView" data-args='${_jsonArgsForAttr(sid)}'>📷 Camera</button>`}
         ${interventionBtns}
       </td>
     </tr>`;

@@ -47,7 +47,7 @@ const { extractInviteToken, authHeaders, fetchWithTimeout, _exec } = require('./
 const { initAutoUpdater } = require('./lib/auto-update');
 const { runIntegrityChecks } = require('./lib/integrity');
 const {
-  findPython, checkPackagesReady, runSetup,
+  findPython, checkPackagesReady, checkPackagesReadyCached, runSetup,
   createSetupWindow, getSetupWindow, closeSetupWindow,
   startPython, stopPython, startCalibration, stopCalibration,
   reapOrphanProctors, ensureCameraAccess,
@@ -480,7 +480,10 @@ app.whenReady().then(async () => {
   if (needsSetupGate) {
     try {
       const python = await findPython();
-      needSetup = !(python && await checkPackagesReady(python));
+      // Cache-aware: skips the heavy 11-package import probe when a valid
+      // readiness marker exists (steady-state launches), falling back to the
+      // real probe only when the marker is missing/stale.
+      needSetup = !(python && await checkPackagesReadyCached(python));
     } catch(e) { console.error('[Setup] readiness check threw:', e.message); }
   }
 
@@ -501,7 +504,11 @@ app.whenReady().then(async () => {
         runSetup(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Setup timed out')), 960_000)),
       ]);
-      await new Promise(r => setTimeout(r, needSetup ? 1500 : 400));
+      // Only the fresh-install path pauses so the "Ready" state renders
+      // before the window closes. A warm launch has nothing to show, so
+      // close immediately — the 400ms here was pure dead time on every
+      // already-set-up start.
+      if (needSetup) await new Promise(r => setTimeout(r, 1500));
     } catch(e) { console.error('[Setup] Failed:', e); }
     try {
       if (getSetupWindow() && !getSetupWindow().isDestroyed()) closeSetupWindow();

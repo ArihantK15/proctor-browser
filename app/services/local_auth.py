@@ -23,7 +23,12 @@ HYBRID_AUTH_PROVIDER = "hybrid"
 
 
 def auth_provider_mode() -> str:
-    return os.environ.get("AUTH_PROVIDER", "supabase").strip().lower()
+    # Default is `local`: Procta has fully migrated off Supabase Auth, so a
+    # deployment with no AUTH_PROVIDER set must fail SAFE to plain-Postgres
+    # password auth — never to the decommissioned Supabase path. Set
+    # AUTH_PROVIDER=supabase/hybrid explicitly only if running the legacy
+    # bridge during a transition.
+    return os.environ.get("AUTH_PROVIDER", "local").strip().lower()
 
 
 def local_auth_enabled() -> bool:

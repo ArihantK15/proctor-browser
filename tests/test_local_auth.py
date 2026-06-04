@@ -29,9 +29,12 @@ from app.services.local_auth import (
 
 # ─── flag + uid helpers ─────────────────────────────────────────────
 
-def test_local_auth_enabled_defaults_to_false(monkeypatch):
+def test_local_auth_enabled_defaults_to_true(monkeypatch):
+    # Post-migration default: with AUTH_PROVIDER unset, Procta must fail SAFE
+    # to plain-Postgres local auth — never the decommissioned Supabase path.
     monkeypatch.delenv("AUTH_PROVIDER", raising=False)
-    assert local_auth_enabled() is False
+    assert auth_provider_mode() == LOCAL_AUTH_PROVIDER
+    assert local_auth_enabled() is True
 
 
 def test_local_auth_enabled_when_explicit(monkeypatch):
@@ -110,7 +113,8 @@ def test_refresh_token_without_jti_rejected():
     """Pre-revocation tokens (no jti claim) must be rejected strictly.
 
     The pre-rotation code path was deployed under AUTH_PROVIDER=supabase
-    (default), so no jti-less refresh tokens exist in the wild. This
+    (the default at that time), so no jti-less refresh tokens exist in the
+    wild. This
     test guards against a future regression where someone removes the
     jti check and reopens the stateless-JWT leak window.
     """

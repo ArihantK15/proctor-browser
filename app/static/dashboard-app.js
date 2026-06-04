@@ -3407,10 +3407,17 @@ function clearAccessCode(){
 // ── REGISTERED COUNT ────────────────────────────────────────────
 async function loadRegisteredCount(){
   try{
-    const r=await authFetch(`${BASE}/api/v1/admin/registered-count`);
+    // Scope the count to the selected exam when one is active. The
+    // backend reads per-exam membership from student_invites; with no
+    // exam_id it returns the teacher-wide roster count (legacy default).
+    const examParam = (typeof currentExamId!=='undefined' && currentExamId)
+      ? `?exam_id=${encodeURIComponent(currentExamId)}` : '';
+    const r=await authFetch(`${BASE}/api/v1/admin/registered-count${examParam}`);
     if(!r.ok) return;
     const d=await r.json();
     document.getElementById('tools-registered').textContent=d.count;
+    const lbl=document.getElementById('tools-registered-label');
+    if(lbl) lbl.textContent = (d.scope==='exam') ? 'Registered (this exam)' : 'Registered Students';
   }catch(e){}
 }
 

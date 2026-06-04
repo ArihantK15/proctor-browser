@@ -14,6 +14,7 @@ from ..repositories.sessions import violation_counts_by_session as _violation_co
 from ..services.risk import generate_session_summary, _risk_label
 from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus
+from ..models.invites import InviteStatus
 from ..limiter import limiter
 from ..services.sessions import check_org_limits
 from ..models import BulkRegisterIn, AccessCodeIn
@@ -689,14 +690,67 @@ async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
 
 @router.get("/api/v1/admin/registered-count")
 @limiter.limit("60/minute")
-async def registered_count(request: Request):
+async def registered_count(request: Request, exam_id: str | None = None):
+    """Registered-student count.
+
+    Two modes:
+
+    - **Default (no exam_id)** — teacher-wide roster count from the
+      `students` table. Unchanged behaviour: one student account per
+      (roll_number, teacher_id), shared across all the teacher's exams.
+
+    - **Per-exam (exam_id set)** — count of students rostered *for that
+      specific exam*. The `students` table is teacher-scoped and has NO
+      exam_id column, so per-exam membership is read from
+      `student_invites`, the canonical "this student was rostered for
+      this exam" record (written by the bulk-register auto-invite path
+      and the manual Email Invites tool). REVOKED invites mean the
+      student was explicitly removed from the exam, so they're excluded;
+      every other status counts — a bounced/failed *email* doesn't make
+      the student any less registered. Invite rows are unique per
+      (teacher_id, email, exam_id) via the upsert, so the row count
+      equals the number of distinct students.
+
+    Note: students added with send_invites=False (silent roster) have no
+    per-exam association by design, so they appear only in the default
+    teacher-wide count, never the per-exam one.
+    """
     teacher = await require_admin(request)
-    tid = teacher["id"]
-    query = _atable("students").select("roll_number", count="exact")
-    if tid:
-        query = query.eq("teacher_id", tid)
-    result = await query.execute()
-    return {"count": result.count if result.count is not None else len(result.data or [])}
+    tid = teacher.get("id")
+    eid = (exam_id or "").strip()
+
+    # Hardening — no cross-teacher leak. Both queries below MUST be
+    # scoped to the authenticated teacher. exam_id is client-supplied,
+    # so an UNscoped student_invites query would let any teacher read
+    # another teacher's per-exam roster size simply by guessing/knowing
+    # their exam_id. require_admin guarantees a teacher dict, but if the
+    # id is ever absent we refuse to run an unscoped query and return a
+    # safe 0 rather than a global count. (The teacher_id filter is now
+    # unconditional — never gated behind `if tid:`.)
+    if not tid:
+        return {"count": 0, "scope": "exam" if eid else "teacher",
+                **({"exam_id": eid} if eid else {})}
+
+    if eid:
+        active_statuses = [s.value for s in InviteStatus if s != InviteStatus.REVOKED]
+        result = await (_atable("student_invites")
+                        .select("email", count="exact")
+                        .eq("teacher_id", tid)
+                        .eq("exam_id", eid)
+                        .in_("status", active_statuses)).execute()
+        return {
+            "count": result.count if result.count is not None else len(result.data or []),
+            "exam_id": eid,
+            "scope": "exam",
+        }
+
+    result = await (_atable("students")
+                    .select("roll_number", count="exact")
+                    .eq("teacher_id", tid)).execute()
+    return {
+        "count": result.count if result.count is not None else len(result.data or []),
+        "scope": "teacher",
+    }
 
 
 @router.delete("/api/v1/admin/students/roster")

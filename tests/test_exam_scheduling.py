@@ -437,6 +437,7 @@ class TestWindowStatus:
             def __init__(self, rows):
                 self.rows = list(rows)
                 self.eqs = {}
+                self.ins = {}
                 self._limit = None
                 self._order_col = None
                 self._order_desc = False
@@ -444,6 +445,9 @@ class TestWindowStatus:
             def select(self, *a, **kw): return self
             def eq(self, col, val):
                 self.eqs[col] = val
+                return self
+            def in_(self, col, vals):
+                self.ins[col] = set(vals or [])
                 return self
             def order(self, col, desc=False, **kw):
                 self._order_col = col
@@ -455,7 +459,8 @@ class TestWindowStatus:
             async def execute(self):
                 rows = []
                 for row in self.rows:
-                    if all(str(row.get(k) or "") == str(v or "") for k, v in self.eqs.items()):
+                    if all(str(row.get(k) or "") == str(v or "") for k, v in self.eqs.items()) \
+                       and all(row.get(k) in vals for k, vals in self.ins.items()):
                         rows.append(row)
                 if self._order_col:
                     rows.sort(key=lambda r: str(r.get(self._order_col) or ""), reverse=self._order_desc)
@@ -465,12 +470,21 @@ class TestWindowStatus:
 
         rows = {
             "student_accounts": [STUDENT_ACCOUNT],
+            # Teacher-wide roster row (students has no exam_id column).
             "students": [{
                 "roll_number": "ALICE001",
                 "teacher_id": "teacher-1",
-                "exam_id": "exam-2",
                 "email": "alice@test.com",
                 "account_id": "student-1",
+            }],
+            # Per-exam membership lives here: registered for exam-2 only.
+            # This is the canonical source the lobby now reads (replacing
+            # the old students.exam_id).
+            "student_invites": [{
+                "teacher_id": "teacher-1",
+                "roll_number": "ALICE001",
+                "exam_id": "exam-2",
+                "status": "accepted",
             }],
             "teachers": [TEACHER],
             "exam_config": [

@@ -95,6 +95,44 @@ class _Chain:
         return MagicMock(data=rows, count=len(rows))
 
 
+def test_student_lobby_shows_per_exam_cards_from_invites_not_teacher_first_exam(client):
+    """The lobby must surface the exams the student is actually registered
+    for (read from student_invites), one card each — NOT the teacher's
+    first exam. REVOKED invites are excluded; a teacher with an unrelated
+    'first' exam (exam-1) the student was never invited to must not leak."""
+    db = _TenantDB({
+        "auth_sessions": [],
+        "student_accounts": [{"id": "student-1", "email": "alice@test.com", "full_name": "Alice"}],
+        "students": [{
+            "roll_number": "A1", "teacher_id": "teacher-1",
+            "email": "alice@test.com", "account_id": "student-1",
+        }],
+        "student_invites": [
+            {"teacher_id": "teacher-1", "roll_number": "A1", "exam_id": "exam-2", "status": "accepted"},
+            {"teacher_id": "teacher-1", "roll_number": "A1", "exam_id": "exam-3", "status": "sent"},
+            {"teacher_id": "teacher-1", "roll_number": "A1", "exam_id": "exam-4", "status": "revoked"},
+        ],
+        "teachers": [{"id": "teacher-1", "full_name": "Teacher One"}],
+        "exam_config": [
+            {"teacher_id": "teacher-1", "exam_id": "exam-1", "exam_title": "Unrelated First Exam"},
+            {"teacher_id": "teacher-1", "exam_id": "exam-2", "exam_title": "Maths"},
+            {"teacher_id": "teacher-1", "exam_id": "exam-3", "exam_title": "Science"},
+            {"teacher_id": "teacher-1", "exam_id": "exam-4", "exam_title": "Revoked Exam"},
+        ],
+        "exam_sessions": [],
+    })
+    sm = shared_supabase_mock()
+    with patch.object(sm, "table", side_effect=db):
+        resp = client.get("/api/student/exams", headers=_student_account_headers())
+
+    assert resp.status_code == 200, resp.text
+    exams = resp.json()["exams"]
+    got = {e["exam_id"] for e in exams}
+    assert got == {"exam-2", "exam-3"}, got          # both invited exams, distinct cards
+    assert "exam-1" not in got                         # NOT the teacher's first exam
+    assert "exam-4" not in got                         # revoked invite excluded
+
+
 def test_student_lobby_only_lists_enrollments_bound_to_that_account(client):
     """Same email under another account must not bleed into this lobby."""
     db = _TenantDB({

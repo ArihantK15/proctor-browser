@@ -20,6 +20,7 @@ from ..auth import (
 )
 from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus
+from ..models.invites import InviteStatus
 from ..constants import ALL_SIGNING_KEYS, PLANS, TRIAL_DAYS
 from ..services.passwords import validate_password, validate_password_async, PasswordError
 from ..services.local_auth import (
@@ -1732,21 +1733,15 @@ async def student_exams(request: Request):
     email = (email_raw or "").strip().lower()
 
     try:
-        # Read account-bound enrollment rows. This keeps student lobby
-        # visibility tied to the authenticated account instead of a raw
-        # email string that may be stale or reused elsewhere.
-        try:
-            enrollments = await _student_enrollments_for_account(
-                account, email, "roll_number, teacher_id, exam_id",
-            )
-        except Exception as e:
-            msg = str(e).lower()
-            if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
-                enrollments = await _student_enrollments_for_account(
-                    account, email, "roll_number, teacher_id",
-                )
-            else:
-                raise
+        # Read account-bound enrollment rows (teacher-wide identity). This
+        # keeps lobby visibility tied to the authenticated account instead
+        # of a raw email string that may be stale or reused elsewhere. The
+        # students table has no exam_id column, so we ask only for
+        # roll_number + teacher_id and resolve per-exam membership from
+        # student_invites in the expansion step below.
+        enrollments = await _student_enrollments_for_account(
+            account, email, "roll_number, teacher_id",
+        )
         if not enrollments:
             return {"exams": []}
     except Exception as e:
@@ -1755,6 +1750,47 @@ async def student_exams(request: Request):
                         rid, email or "<none>", e, exc_info=True)
         raise HTTPException(status_code=500,
             detail=f"Failed to load enrollments ({type(e).__name__}). request_id: {rid}")
+
+    # Expand each teacher-wide enrollment into per-exam entries. Per-exam
+    # membership lives in student_invites — the canonical roster written by
+    # the teacher's bulk-register / Email-Invites tools and by student
+    # self-registration. Emit one lobby card per (teacher, exam) the
+    # student is invited to (REVOKED excluded). An enrollment with NO
+    # invite row falls back to a single teacher-scoped entry (exam_id=None
+    # resolves the teacher's exam in the loop) so silent-rostered / legacy
+    # students still see their exam rather than nothing. This replaces the
+    # old behaviour that read students.exam_id (a non-existent column) and
+    # therefore always surfaced the teacher's FIRST exam.
+    active_inv_statuses = [s.value for s in InviteStatus if s != InviteStatus.REVOKED]
+    expanded: list[dict] = []
+    seen: set = set()
+    for enr in enrollments:
+        roll = enr.get("roll_number")
+        enr_tid = enr.get("teacher_id")
+        if not roll or not enr_tid:
+            continue
+        enr_tid = str(enr_tid)
+        try:
+            inv_rows = (await _atable("student_invites")
+                        .select("exam_id")
+                        .eq("teacher_id", enr_tid)
+                        .eq("roll_number", roll)
+                        .in_("status", active_inv_statuses)
+                        .execute()).data or []
+        except Exception as e:
+            _auth_log.warning("[student/exams] invite lookup failed (roll=%s tid=%s): %s",
+                              roll, enr_tid, e)
+            inv_rows = []
+        eids = [eid for eid in (str(r.get("exam_id") or "").strip() for r in inv_rows) if eid]
+        if not eids:
+            eids = [None]  # fallback: resolve the teacher's exam in the loop
+        for eid in eids:
+            key = (enr_tid, eid)
+            if key in seen:
+                continue
+            seen.add(key)
+            expanded.append({"roll_number": roll, "teacher_id": enr_tid, "exam_id": eid})
+    enrollments = expanded
 
     exams = []
     now = datetime.now(timezone.utc)

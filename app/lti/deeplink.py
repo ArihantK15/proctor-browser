@@ -162,7 +162,11 @@ async def get_teacher_exams_as_content_items(teacher_id: str) -> list[dict]:
     Returns a list of ltiResourceLink content items.
     """
     exams = (await _atable("exam_config")
-        .select("exam_id,title,description,duration_minutes")
+        # exam_config has no `title`/`description` columns — the title lives in
+        # `exam_title` (aliased back to `title` so the loop below is unchanged);
+        # there is no description column, so it's dropped and the
+        # `exam.get("description") or "Duration: …"` fallback handles it.
+        .select("exam_id,title:exam_title,duration_minutes")
         .eq("teacher_id", teacher_id)
         .order("created_at", desc=True)
         .execute()).data or []

@@ -104,7 +104,8 @@ for (const badInviteUrl of ['procta://invite/short', 'procta://invite/../../bad'
 // silently drifted from config.js — shipping mediapipe/scipy (unused) while
 // omitting uniface/vosk/python_speech_features/websocket-client/psutil, so a
 // freshly built app failed checkPackagesReady and fell into a nondeterministic
-// first-launch pip. We now require it to derive PACKAGES from PIP_PACKAGES so
+// first-launch pip. We now require it to (a) import PIP_PACKAGES from config
+// and (b) install that very list directly (spread/map into the pip call), so
 // the three lists (bundle-python ⊇ config ⊇ requirements) can never diverge.
 const bundleJs = readFileSync('bundle-python.js', 'utf8')
 if (!/const\s+\{\s*PIP_PACKAGES\s*\}\s*=\s*require\(['"]\.\/config['"]\)/.test(bundleJs)) {
@@ -113,16 +114,18 @@ if (!/const\s+\{\s*PIP_PACKAGES\s*\}\s*=\s*require\(['"]\.\/config['"]\)/.test(b
     'found no `const { PIP_PACKAGES } = require(\'./config\')`.'
   )
 }
-if (!/const\s+PACKAGES\s*=\s*PIP_PACKAGES\s*;/.test(bundleJs)) {
+// Must actually USE PIP_PACKAGES to install (mac: `...PIP_PACKAGES` /
+// `PIP_PACKAGES.map`; win: `...PIP_PACKAGES`), not import-then-ignore it.
+if (!/\.\.\.PIP_PACKAGES|PIP_PACKAGES\.(map|join)\b/.test(bundleJs)) {
   throw new Error(
-    'bundle-python.js must set `const PACKAGES = PIP_PACKAGES;` rather than re-declaring its own ' +
-    'array — a separate list will drift from config.js#PIP_PACKAGES (the mediapipe/uniface bug).'
+    'bundle-python.js imports PIP_PACKAGES but never installs it (no `...PIP_PACKAGES` ' +
+    'spread or `PIP_PACKAGES.map(...)` in a pip call) — the bake would ship the wrong set.'
   )
 }
 if (/const\s+PACKAGES\s*=\s*\[/.test(bundleJs)) {
   throw new Error(
-    'bundle-python.js still declares a literal PACKAGES array — remove it and use ' +
-    '`const PACKAGES = PIP_PACKAGES;` so the build-time installer cannot drift.'
+    'bundle-python.js declares a literal PACKAGES array — remove it and install ' +
+    'config.js#PIP_PACKAGES directly so the build-time installer cannot drift.'
   )
 }
 

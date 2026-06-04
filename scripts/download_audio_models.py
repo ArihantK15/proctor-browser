@@ -26,9 +26,11 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import urllib.request
 import urllib.error
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 # Windows consoles default to cp1252, which CANNOT encode the ↓ ✓ ✗ → glyphs
@@ -104,17 +106,41 @@ def _verify_sha(path: Path, expected: str) -> bool:
     return True
 
 
-def _download(url: str, dest: Path, timeout: int = 600) -> bool:
-    """Stream a URL into dest with a 10-minute cap. Follows redirects
-    automatically via urllib's default handler."""
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Procta-AudioModels/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as r, dest.open("wb") as out:
-            shutil.copyfileobj(r, out, length=1 << 20)
-        return True
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ConnectionError) as e:
-        print(f"  ✗ download failed: {e}")
-        return False
+def _download(url: str, dest: Path, timeout: int = 600, attempts: int = 3) -> bool:
+    """Stream a URL into dest with retry + HTTP-Range resume. Follows
+    redirects via urllib's default handler. On a mid-stream drop the next
+    attempt resumes from the bytes already on disk (Range: bytes=N-) instead
+    of restarting the whole (~40MB) file — important on the slow third-party
+    CDNs (alphacephei.com) these models live on."""
+    for attempt in range(1, attempts + 1):
+        try:
+            have = dest.stat().st_size if dest.exists() else 0
+            headers = {"User-Agent": "Procta-AudioModels/1.0"}
+            if have:
+                headers["Range"] = f"bytes={have}-"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                # 206 → server honoured Range (append); 200 → it sent the full
+                # body (start over). getattr guards older urllib without .status.
+                resume = have > 0 and getattr(r, "status", 200) == 206
+                with dest.open("ab" if resume else "wb") as out:
+                    shutil.copyfileobj(r, out, length=1 << 20)
+            return True
+        except (urllib.error.URLError, urllib.error.HTTPError,
+                TimeoutError, ConnectionError, OSError) as e:
+            # 416 Range Not Satisfiable → our partial is already complete or
+            # bogus; drop it so the next attempt fetches fresh.
+            if isinstance(e, urllib.error.HTTPError) and e.code == 416:
+                try: dest.unlink()
+                except OSError: pass
+            wait = 2 ** (attempt - 1)
+            last = attempt >= attempts
+            print(f"  ⚠ download attempt {attempt}/{attempts} failed: {e}"
+                  + ("" if last else f" — retrying in {wait}s"))
+            if not last:
+                time.sleep(wait)
+    print(f"  ✗ download failed after {attempts} attempts: {url}")
+    return False
 
 
 def _extract_zip(zip_path: Path, into_dir: Path) -> bool:
@@ -170,10 +196,19 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 0
     print(f"[audio-models] weights dir: {WEIGHTS}")
-    ok = True
-    for m in MODELS:
-        if not _install_one(m, force=force, check_only=check_only):
-            ok = False
+    if check_only:
+        # Cheap local stat() per model — no benefit to threading, and keeps
+        # the report ordered.
+        ok = all(_install_one(m, force=force, check_only=True) for m in MODELS)
+    else:
+        # Download the 3 models CONCURRENTLY — they're I/O-bound (~80MB total
+        # from slow CDNs) and write to distinct subdirs/files in WEIGHTS, so
+        # there's no collision. Cuts a sequential ~10-30min cold fetch to the
+        # slowest single model.
+        with ThreadPoolExecutor(max_workers=len(MODELS)) as ex:
+            results = list(ex.map(
+                lambda m: _install_one(m, force=force, check_only=False), MODELS))
+        ok = all(results)
     if not ok:
         print("[audio-models] one or more models" + (
             " missing — re-run without --check" if check_only else " FAILED"))

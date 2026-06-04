@@ -110,6 +110,17 @@ jobs:
           # in — see bundle-python.js#bakeMacTarget.
           PROCTA_BAKE_ARCH: ${{ matrix.arch }}
 
+      # Bake the embeddable Python 3.11 + ALL proctor wheels into
+      # resources/python/ so a fresh Windows install does ZERO first-launch
+      # pip (the old behaviour: a 300-400 MB pip install on first run, behind
+      # the setup window). Shipped via extraResources (package.json maps
+      # resources/python → <resources>/python, where getBundledPython() looks).
+      # bundle-python.js now FAILS the build if the bake can't import the full
+      # package set, so a broken Windows installer can't reach the release.
+      - name: Bundle Python runtime (Windows)
+        if: matrix.target == 'win'
+        run: node bundle-python.js
+
       # Bake the on-device speech models (Vosk en-IN + hi + Silero VAD) into
       # weights/ so they ship via extraResources (package.json maps weights/ →
       # <resources>/weights). This makes a fresh install fully OFFLINE — zero

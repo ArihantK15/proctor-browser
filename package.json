@@ -88,6 +88,10 @@
       {
         "from": "python-runtime",
         "to": "python-runtime"
+      },
+      {
+        "from": "resources/python",
+        "to": "python"
       }
     ],
     "publish": {

@@ -439,6 +439,24 @@ async def _check_existing_session(student: dict, student_tid: str, exam_id: str)
 
 def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: str = None) -> dict:
     """Build the standard validate-student response dict."""
+    # Observability for the #1 cause of "the student started but never showed
+    # up on the teacher's dashboard": a token minted WITHOUT a teacher_id (tid)
+    # publishes to no `sessions:{tid}` channel AND writes a teacher-less session
+    # row, so it never reaches live monitoring. A token without exam_id (eid)
+    # leaves the session un-tagged, breaking per-exam results/history. create_token
+    # silently drops empty claims, so surface them loudly (Sentry-visible, now
+    # that Sentry is on) with the roll so they're traceable — but still mint the
+    # token so the student can sit the exam.
+    if not student_tid:
+        _exam_log.error(
+            "[validate] EMPTY teacher_id minting token for roll=%s exam=%s — this "
+            "session will NOT appear in the teacher live view (no tenant scope)",
+            safe(student.get("roll_number")), safe(exam_id))
+    elif not exam_id:
+        _exam_log.warning(
+            "[validate] no exam_id minting token for roll=%s (teacher=%s) — session "
+            "will be un-tagged for per-exam results/history",
+            safe(student.get("roll_number")), safe(student_tid))
     resp = {
         "valid": True,
         "full_name": student["full_name"],

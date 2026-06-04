@@ -81,6 +81,11 @@ export default function LiveSessionsPanel({ currentExamId }) {
   // which made the panel unsafe to mount twice.
   const livePollRef = useRef(null)
   const liveBlobUrlRef = useRef(null)
+  // Renews the server's liveview:{sid} key (60s TTL) every 25s while the
+  // camera modal is open. The proctor's control loop reads that key; if it
+  // lapses the server returns live_view:false and the student STOPS
+  // streaming — so without this keepalive the feed froze/blanked after ~60s.
+  const liveKeepaliveRef = useRef(null)
 
   useEffect(() => {
     connectSSE()
@@ -101,6 +106,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
       // this the setInterval keeps firing forever, leaking both the
       // interval and a fresh blob URL every 1.5 s.
       if (livePollRef.current) { clearInterval(livePollRef.current); livePollRef.current = null }
+      if (liveKeepaliveRef.current) { clearInterval(liveKeepaliveRef.current); liveKeepaliveRef.current = null }
       if (liveBlobUrlRef.current && liveBlobUrlRef.current.startsWith('blob:')) {
         try { URL.revokeObjectURL(liveBlobUrlRef.current) } catch (_) { /* noop */ }
         liveBlobUrlRef.current = null
@@ -258,6 +264,12 @@ export default function LiveSessionsPanel({ currentExamId }) {
       // clicks "Camera" on session A, then on session B without closing
       // A's modal). Without this we'd leak intervals.
       if (livePollRef.current) clearInterval(livePollRef.current)
+      // Keep the proctor streaming for the WHOLE watch: renew liveview:{sid}
+      // (60s TTL) every 25s. Fire one immediately too so a slow first tick
+      // can't let the key lapse right at the 60s boundary.
+      if (liveKeepaliveRef.current) clearInterval(liveKeepaliveRef.current)
+      const _keepalive = () => authFetch(`${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-view/keepalive`, { method: 'POST' }).catch(() => {})
+      liveKeepaliveRef.current = setInterval(_keepalive, 25000)
       const poll = setInterval(async () => {
         try {
           const r = await fetchWithTimeout(`${API_BASE}/admin/sessions/${encodeURIComponent(sid)}/live-frame?t=${Date.now()}`, {
@@ -310,6 +322,7 @@ export default function LiveSessionsPanel({ currentExamId }) {
 
   const closeLiveView = () => {
     if (livePollRef.current) { clearInterval(livePollRef.current); livePollRef.current = null }
+    if (liveKeepaliveRef.current) { clearInterval(liveKeepaliveRef.current); liveKeepaliveRef.current = null }
     // Revoke the last frame URL on close to release the final blob.
     if (liveBlobUrlRef.current && liveBlobUrlRef.current.startsWith('blob:')) {
       try { URL.revokeObjectURL(liveBlobUrlRef.current) } catch (_) { /* noop */ }

@@ -1851,6 +1851,17 @@ async function startEnroll() {
     }).catch(() => {});
   }
 
+  // Camera handoff settle. ID verification held the camera via Chromium
+  // getUserMedia (idStream), which the approval handler stops right before
+  // calling us. track.stop() returns synchronously, but the OS-level camera
+  // release is async — and the calibration proctor (proctor.py) opens the
+  // camera in a SEPARATE process via OpenCV. On macOS the device is
+  // exclusive, so spawning the proctor before Chromium has freed the camera
+  // makes cv2.VideoCapture get no frames → "camera frames are blocked"
+  // timeout. Wait the same 800ms the calibration→main-proctor handoff uses
+  // (see the startProctor handoffs below) so the camera is actually free first.
+  await new Promise(r => setTimeout(r, 800));
+
   // Start proctor.py in calibration mode — it opens its own camera
   let calGotReading = false;
   let calStartFailed = false;

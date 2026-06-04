@@ -3125,6 +3125,41 @@ def _open_camera():
     return None, None
 
 
+def _open_camera_retry(total_timeout: float = 4.0):
+    """Open the camera, retrying briefly to absorb a cross-process handoff race.
+
+    The browser (Chromium getUserMedia, used by ID verification) may still be
+    releasing the webcam when this separate OpenCV process starts. On macOS the
+    device is exclusive, so the first _open_camera() pass can find no frames
+    purely because the previous holder hasn't let go yet. Retrying for a short
+    bounded window lets the common handoff race self-heal without depending on a
+    fixed sleep guess on the renderer side.
+
+    Shutdown-safe by design: this catches NOTHING. KeyboardInterrupt (SIGINT,
+    sent by stopCalibration) and SystemExit (SIGTERM via _handle_sigterm) are
+    BaseExceptions, so they propagate straight out and a stop / panic-mode
+    teardown during the wait still exits the process immediately — the retry
+    never delays shutdown. _open_camera() already releases any cap it can't use,
+    so retrying leaks no camera FD. If the whole window elapses we return
+    (None, None), leaving main()'s existing failure path (event POST + exit 1)
+    exactly as before — only reached up to ~total_timeout later.
+    """
+    deadline = time.monotonic() + max(0.0, total_timeout)
+    attempt = 0
+    while True:
+        attempt += 1
+        cap, meta = _open_camera()
+        if cap is not None and cap.isOpened():
+            if attempt > 1:
+                print(f"[CAM] Acquired on retry attempt {attempt}")
+            return cap, meta
+        if time.monotonic() >= deadline:
+            return None, None
+        print(f"[CAM] No camera yet (attempt {attempt}) — likely still held by "
+              f"the browser; retrying…")
+        time.sleep(0.4)
+
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
     print(f"[PROCTOR] Session: {SESSION_ID}")
@@ -3153,7 +3188,7 @@ def main():
     except Exception as _be:
         print(f"[PROCTOR] boot diagnostic skipped: {_be}")
 
-    cap, cam_meta = _open_camera()
+    cap, cam_meta = _open_camera_retry()
     if cap is None or not cap.isOpened():
         try:
             _http.post(SERVER_URL, json=dict(

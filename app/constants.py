@@ -155,27 +155,37 @@ _LOADTEST_SECRET = os.environ.get("LOADTEST_SECRET", "")
 WS_MAX_CONNECTIONS_PER_IP = int(os.getenv("WS_MAX_CONNECTIONS_PER_IP", "10"))
 
 # ─── CORS ─────────────────────────────────────────────────────────
-# The desktop Electron app loads its lobby HTML from a custom protocol
-# (procta-lobby://lobby/student.html) registered in main.js — see the
-# v2.3.14 lobby-blank-window fix. The renderer's origin is therefore
-# `procta-lobby://lobby`, and every fetch it makes to /api/v1/* is
-# cross-origin. Without this in the allow-list, every login / exam-load
-# / save-answer call fails the CORS preflight and the lobby surfaces
-# as a wall of "blocked by CORS" + "failed to fetch" errors.
+# The desktop Electron app serves its HTML from a custom protocol
+# (procta-lobby://) registered in main.js — see the v2.3.14
+# lobby-blank-window fix. There are TWO distinct window origins, because
+# the custom-scheme origin is `scheme://host` and the two windows use
+# different hosts (main.js protocol.handle map):
+#   • procta-lobby://lobby — the lobby window (lobby/student.html)
+#   • procta-lobby://exam  — the exam window (exam/index.html, the
+#     renderer that runs ID-verification, save-answers, heartbeat,
+#     submit-exam, etc.) since d34926a moved it off file:// to fix a
+#     packaged-Windows ERR_FILE_NOT_FOUND.
+# Every fetch either window makes to /api/v1/* is cross-origin. BOTH
+# origins must be allow-listed exactly (Starlette CORS does exact-string
+# matching), or that window's preflight fails and the renderer surfaces
+# a wall of "blocked by CORS" + "Failed to fetch". The exam origin was
+# missing here, which broke ALL exam-window API calls (ID upload, answer
+# save, submit) even though the lobby worked fine.
 _CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "")
 _CORS_DEFAULT_ORIGINS = [
     "http://localhost",
     "http://localhost:5173",
     "https://app.procta.net",
-    # Electron desktop app (≥v2.3.14) — custom protocol origin.
-    "procta-lobby://lobby",
+    # Electron desktop app (≥v2.3.14) — custom protocol window origins.
+    "procta-lobby://lobby",  # lobby window
+    "procta-lobby://exam",   # exam/renderer window (d34926a)
 ]
 CORS_ALLOWED_ORIGINS = [o.strip() for o in _CORS_RAW.split(",") if o.strip()] if _CORS_RAW else list(_CORS_DEFAULT_ORIGINS)
 # Env-configured CORS should extend, not accidentally remove, the
-# Electron lobby origins. Otherwise packaged/dev desktop builds can
+# Electron window origins. Otherwise packaged/dev desktop builds can
 # login from a restored cookie but fail later API preflights as plain
 # "Failed to fetch".
-for _origin in ("procta-lobby://lobby", "null"):
+for _origin in ("procta-lobby://lobby", "procta-lobby://exam", "null"):
     if _origin not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(_origin)
 

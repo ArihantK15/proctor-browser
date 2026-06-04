@@ -70,6 +70,17 @@ jobs:
           print('All Python files parse cleanly.')
           "
 
+      - name: Schema-reference guard
+        # Fails the build if app code SELECTs / filters / writes a column
+        # that does not exist in the committed live-schema snapshot
+        # (schema/columns.json). Catches the UndefinedColumnError -> 500
+        # class that caused a run of prod incidents (students.exam_id,
+        # student_invites.phone, appeals.email, ...) which the schema-blind
+        # test stubs never noticed. Stdlib-only; no DB access. Skips with a
+        # notice until the snapshot is seeded from prod via
+        # scripts/dump_schema.py — so this is safe to land before seeding.
+        run: python scripts/check_schema_refs.py
+
       - name: Install + lint Electron dependencies
         run: |
           npm ci

@@ -162,6 +162,39 @@ body{min-width:0}
   align-items:center;justify-content:center;line-height:1}
 .topbar-logout{color:var(--red)}
 .topbar-logout:hover{border-color:var(--red) !important;color:var(--red) !important}
+
+/* ── Theme switch (dark / black / light) ───────────────────────────
+   A segmented pill of 3 icon buttons. The active option fills with the
+   accent-subtle wash so the current theme reads at a glance. All colors
+   come from tokens so the control re-themes itself. */
+.theme-switch{display:inline-flex;align-items:center;gap:2px;padding:3px;
+  background:var(--bg);border:1px solid var(--border);border-radius:9px}
+.theme-opt{width:28px;height:26px;display:inline-flex;align-items:center;
+  justify-content:center;border:0;border-radius:6px;cursor:pointer;
+  background:transparent;color:var(--muted);transition:.15s}
+.theme-opt:hover{color:var(--text);background:var(--surface-2,rgba(255,255,255,.05))}
+.theme-opt.active{color:var(--accent);
+  background:var(--accent-subtle,rgba(91,138,240,.16))}
+.theme-opt svg{display:block}
+/* Help "?" button — round, same height as the other topbar buttons.
+   Scoped under .topbar to beat ".topbar .btn" specificity so padding:0
+   (clean circle) actually wins. */
+.topbar .topbar-help{width:32px;padding:0;border-radius:50%;font-weight:700;
+  font-size:15px;line-height:1}
+
+/* ── Real-time degraded banner ─────────────────────────────────────
+   A warning strip under the Live header when SSE pub/sub isn't live. */
+.realtime-banner{display:flex;align-items:center;gap:10px;
+  margin:0 0 var(--space-4) 0;padding:10px 14px;
+  border:1px solid var(--sev-warn-fg,#f59e0b);border-radius:var(--radius-lg,10px);
+  background:var(--sev-warn-bg,rgba(245,158,11,.12));
+  color:var(--sev-warn-fg,#f59e0b);font-size:13px;line-height:1.4}
+.realtime-banner svg{flex-shrink:0}
+.realtime-banner strong{color:var(--text-high)}
+/* Degraded state recolors the Live "Streaming" pulse + label amber. */
+.panel-status.degraded .status-label{color:var(--sev-warn-fg,#f59e0b)}
+.panel-status.degraded .status-pulse{background:var(--sev-warn-fg,#f59e0b);
+  box-shadow:0 0 8px var(--sev-warn-fg,#f59e0b)}
 .tabs{display:flex;gap:2px;background:var(--bg);border-bottom:1px solid var(--border);
   padding:0 24px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .tabs::-webkit-scrollbar{display:none}
@@ -366,6 +399,13 @@ tr:hover td{background:rgba(61,217,168,.04)}
   /* Composer needs explicit row so the send button is reachable. */
   .chat-composer{padding:8px;gap:8px}
   .topbar-teacher{padding-left:0;border-left:none}
+  /* Settings two-pane collapses to a stacked layout: the category rail
+     becomes a horizontally-scrollable chip row above the content. */
+  .settings-layout{flex-direction:column;gap:var(--space-3)}
+  .settings-nav{flex-basis:auto;width:100%;position:static;flex-direction:row;
+    overflow-x:auto;scrollbar-width:none}
+  .settings-nav::-webkit-scrollbar{display:none}
+  .settings-nav-item{width:auto;white-space:nowrap}
   .tools-grid{grid-template-columns:1fr}
   .q-opts{grid-template-columns:1fr}
   table{font-size:12px}
@@ -648,6 +688,37 @@ html,body{overflow-x:hidden;max-width:100vw}
   display:block;margin:0 0 10px 0}
 
 /* ── Tools tab cards ─────────────────────────────────────────── */
+/* ── Two-pane settings layout (Tools tab) ──────────────────────────
+   Left: a sticky category rail. Right: the content pane that holds the
+   existing .tools-grid. showToolsSection() adds .hidden to cards whose
+   data-section isn't active, so only one category's cards render at a
+   time — turning the old flat wall of 14 cards into a focused view. */
+.settings-layout{display:flex;gap:var(--space-5);align-items:flex-start}
+.settings-nav{flex:0 0 200px;position:sticky;top:var(--space-4);
+  display:flex;flex-direction:column;gap:4px;
+  background:var(--surface-1);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-xl);padding:8px}
+.settings-nav-item{display:flex;align-items:center;gap:10px;width:100%;
+  padding:9px 12px;border:0;border-radius:var(--radius-lg,10px);
+  background:transparent;color:var(--text-muted);cursor:pointer;
+  font-size:13px;font-weight:600;text-align:left;
+  font-family:var(--font-display);letter-spacing:-0.01em;
+  transition:background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard)}
+.settings-nav-item svg{flex-shrink:0;opacity:.85}
+.settings-nav-item:hover{color:var(--text-high);
+  background:var(--surface-2,rgba(255,255,255,.04))}
+.settings-nav-item.active{color:var(--accent);
+  background:var(--accent-subtle,rgba(91,138,240,.16))}
+.settings-nav-item.danger{color:var(--text-muted)}
+.settings-nav-item.danger:hover{color:var(--sev-error-fg,#ef4444)}
+.settings-nav-item.danger.active{color:var(--sev-error-fg,#ef4444);
+  background:var(--sev-error-bg,rgba(239,68,68,.12))}
+.settings-content{flex:1;min-width:0}
+/* Cards filtered out of the active category. No inline display is used on
+   any .tool-card, so this plain rule reliably wins. */
+.tool-card.hidden{display:none}
+
 .tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
   gap:var(--space-4);align-items:stretch}
 .tool-card{background:var(--surface-1);border:1px solid var(--border-subtle);

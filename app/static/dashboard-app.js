@@ -237,6 +237,35 @@ async function _onAuthed(teacher){
 
 let _sseSource = null;
 let _sseFallbackTimer = null;
+let _liveRefreshTimer = null;
+
+/* Toggle the "real-time degraded" banner + Live pulse. 'degraded' means
+ * the SSE pub/sub path isn't live (no Redis, or the stream dropped to a
+ * polling tick) — monitoring still works, just not instantly. */
+function _setRealtimeStatus(state){
+  const degraded = state === 'degraded';
+  const banner = document.getElementById('realtime-banner');
+  if(banner) banner.style.display = degraded ? 'flex' : 'none';
+  const status = document.querySelector('#panel-live .panel-status');
+  if(status){
+    status.classList.toggle('degraded', degraded);
+    const label = status.querySelector('.status-label');
+    if(label) label.textContent = degraded ? 'Degraded' : 'Streaming';
+  }
+}
+
+/* Coalesce a burst of SSE 'update' events into one refresh. Trailing-edge
+ * throttle: the first update schedules a fetch ~400ms out and further
+ * updates within that window are folded in. Light by design — heartbeat
+ * storms are already throttled server-side. */
+function _debouncedLiveRefresh(){
+  if(_liveRefreshTimer) return;
+  _liveRefreshTimer = setTimeout(()=>{
+    _liveRefreshTimer = null;
+    refreshLive();
+    refreshIdReviews();
+  }, 400);
+}
 
 async function _connectSSE(){
   // Clean up any existing connection
@@ -260,13 +289,17 @@ async function _connectSSE(){
         liveData=d.all_sessions||[];
         renderLiveStats(d.sessions||[],liveData);
         renderLive();
+        // Server tells us whether the live pub/sub path is actually up.
+        // 'degraded' => no reachable Redis, stream is a 5s refresh tick.
+        _setRealtimeStatus(d.realtime === 'degraded' ? 'degraded' : 'live');
       }catch(err){ console.error('[SSE] init parse error',err); }
     });
 
     _sseSource.addEventListener('update', (e)=>{
-      // Incremental update — refresh live data from server
-      refreshLive();
-      refreshIdReviews();
+      // Incremental update — refresh live data from server. Debounced so a
+      // burst of updates coalesces into a single fetch (heartbeat storms are
+      // already throttled server-side, so this is a light safety net).
+      _debouncedLiveRefresh();
     });
 
     _sseSource.addEventListener('alert', (e)=>{
@@ -290,6 +323,8 @@ async function _connectSSE(){
       console.warn('[SSE] connection error — falling back to polling');
       try{_sseSource.close();}catch(_){}
       _sseSource=null;
+      // Stream dropped — we're now on a polling tick, so monitoring is degraded.
+      _setRealtimeStatus('degraded');
       // Fall back to polling
       _sseFallbackTimer = setInterval(()=>{ refreshLive(); refreshIdReviews(); }, 5000);
       // Retry SSE after 30s
@@ -303,6 +338,7 @@ async function _connectSSE(){
     };
   }catch(e){
     console.warn('[SSE] not available, using polling');
+    _setRealtimeStatus('degraded');
     _sseFallbackTimer = setInterval(()=>{ refreshLive(); refreshIdReviews(); }, 5000);
     // Retry SSE after 30s
     setTimeout(()=>{
@@ -899,20 +935,61 @@ function _onboardMaybeShow(){
   onboardOpen();
 }
 
-// Add a "?" help button to the topbar so the wizard is re-openable
-// after dismissal. Inserted on DOMContentLoaded so the topbar exists.
+/* ── Theme switch ──────────────────────────────────────────────────
+ * tokens.css ships three themes via [data-theme] on <html>. _safe.js
+ * stamps the saved choice before first paint; setTheme() is the live
+ * switch wired to the topbar buttons via data-action delegation. The
+ * choice is persisted to localStorage('procta_theme') (same key _safe.js
+ * reads) so it survives reloads and applies flash-free next time. */
+var _THEMES = ['dark', 'dark-oled', 'light'];
+function setTheme(name){
+  if(_THEMES.indexOf(name) === -1) name = 'dark';
+  document.documentElement.setAttribute('data-theme', name);
+  try { localStorage.setItem('procta_theme', name); } catch(_){}
+  _syncThemeSwitch();
+}
+function _syncThemeSwitch(){
+  var cur = document.documentElement.getAttribute('data-theme') || 'dark';
+  document.querySelectorAll('.theme-opt').forEach(function(b){
+    var on = b.getAttribute('data-theme-opt') === cur;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
+/* ── Tools two-pane category switch ────────────────────────────────
+ * Each .tool-card carries data-section; the left rail items carry the
+ * same. showToolsSection() hides cards outside the active section and
+ * highlights the matching rail item. The choice is remembered so the
+ * teacher returns to the same category. */
+var _TOOLS_SECTIONS = ['students', 'exam', 'integrations', 'maintenance', 'danger'];
+function showToolsSection(name){
+  if(_TOOLS_SECTIONS.indexOf(name) === -1) name = 'students';
+  document.querySelectorAll('.tool-card[data-section]').forEach(function(c){
+    c.classList.toggle('hidden', c.getAttribute('data-section') !== name);
+  });
+  document.querySelectorAll('.settings-nav-item').forEach(function(b){
+    var on = b.getAttribute('data-section') === name;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  try { localStorage.setItem('procta_tools_section', name); } catch(_){}
+}
+function _restoreToolsSection(){
+  var saved = 'students';
+  try { saved = localStorage.getItem('procta_tools_section') || 'students'; } catch(_){}
+  showToolsSection(saved);
+}
+
+// The "?" help button now lives as static markup in the topbar
+// (data-action="onboardOpen") instead of being injected here — the old
+// code queried a non-existent .topbar-right and fell back to .topbar,
+// landing the button top-left where it looked broken.
 document.addEventListener('DOMContentLoaded', () => {
-  const right = document.querySelector('.topbar-right') || document.querySelector('.topbar');
-  if(right && !document.getElementById('onboard-trigger')){
-    const btn = document.createElement('button');
-    btn.id = 'onboard-trigger';
-    btn.className = 'btn btn-secondary btn-sm';
-    btn.title = 'Open the getting-started tour';
-    btn.style.cssText = 'padding:6px 12px;font-size:13px;font-weight:600';
-    btn.textContent = '?';
-    btn.onclick = () => onboardOpen();
-    right.insertBefore(btn, right.firstChild);
-  }
+  // Reflect the active theme (stamped on <html> by _safe.js before paint)
+  // onto the topbar switch, and the saved Tools category onto the rail.
+  _syncThemeSwitch();
+  _restoreToolsSection();
   // Trigger maybe-show after a short delay so login flow has time
   // to flip the auth-overlay class.
   setTimeout(_onboardMaybeShow, 800);

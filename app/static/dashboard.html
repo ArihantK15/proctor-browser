@@ -299,6 +299,26 @@
          the role is known. -->
     <span id="topbar-role-badge" class="topbar-role" style="display:none"></span>
     <span id="topbar-trial-badge" style="display:none;font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer" data-action="trialBannerClick"></span>
+    <!-- Theme switch — dark (default) / black (OLED) / light. Buttons (not a
+         <select>) so the active state reads at a glance and each is a single
+         tap. data-theme-opt drives the active-class sync in _syncThemeSwitch();
+         setTheme() persists the choice to localStorage('procta_theme') which
+         _safe.js reads on the next load (flash-free). -->
+    <div class="theme-switch" role="group" aria-label="Theme">
+      <button class="theme-opt" data-theme-opt="dark" data-action="setTheme" data-args='["dark"]' title="Dark" aria-label="Dark theme">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" fill="currentColor"/></svg>
+      </button>
+      <button class="theme-opt" data-theme-opt="dark-oled" data-action="setTheme" data-args='["dark-oled"]' title="Black (OLED)" aria-label="Black OLED theme">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="currentColor"/></svg>
+      </button>
+      <button class="theme-opt" data-theme-opt="light" data-action="setTheme" data-args='["light"]' title="Light" aria-label="Light theme">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="3" x2="12" y2="5.5"/><line x1="12" y1="18.5" x2="12" y2="21"/><line x1="3" y1="12" x2="5.5" y2="12"/><line x1="18.5" y1="12" x2="21" y2="12"/><line x1="5.6" y1="5.6" x2="7.3" y2="7.3"/><line x1="16.7" y1="16.7" x2="18.4" y2="18.4"/><line x1="5.6" y1="18.4" x2="7.3" y2="16.7"/><line x1="16.7" y1="7.3" x2="18.4" y2="5.6"/></g></svg>
+      </button>
+    </div>
+    <!-- Help — opens the getting-started tour (onboardOpen is a global, so the
+         delegated data-action resolves it). Replaces the old JS-injected button
+         that landed top-left because it queried a non-existent .topbar-right. -->
+    <button class="btn btn-secondary btn-sm topbar-help" data-action="onboardOpen" title="Getting-started guide" aria-label="Help">?</button>
     <button class="btn btn-secondary btn-sm" data-action="refreshAll">Refresh</button>
     <button class="btn btn-ghost topbar-logout btn-sm" data-action="doLogout">Logout</button>
   </div>
@@ -388,6 +408,15 @@
         <span class="status-pulse" aria-hidden="true"></span>
         <span class="status-label">Streaming</span>
       </div>
+    </div>
+    <!-- Real-time degraded banner — shown when the SSE init event reports
+         realtime:"degraded" (no reachable Redis pub/sub) or when the stream
+         drops to polling. Without it the teacher would assume monitoring is
+         instant when it's actually on a ~5s refresh tick (no push/alerts/
+         camera peek). _setRealtimeStatus() toggles this + the pulse label. -->
+    <div id="realtime-banner" class="realtime-banner" style="display:none" role="status">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span><strong>Real-time updates degraded.</strong> Live sessions refresh every few seconds instead of instantly — push alerts and camera peek may lag. Monitoring is still active.</span>
     </div>
     <!-- Pending ID reviews (hidden when empty). Sits OUTSIDE the
          flex-1 stats/toolbar/table chain so it can grow naturally
@@ -975,8 +1004,39 @@
         <div class="stat-tile-value" id="tools-failed" style="color:var(--sev-error-fg)">--</div>
       </div>
     </div>
+    <!-- Two-pane settings layout: a left category rail + a right content
+         pane. Each .tool-card carries data-section; showToolsSection()
+         (dashboard-app.js) toggles .hidden on cards whose section is not
+         active and highlights the matching rail item. The grid keeps its
+         responsive auto-fill columns and the grid-column:1/-1 full-width
+         cards still span. Replaces the single flat "military control panel"
+         wall of 14 cards with a focused one-category-at-a-time view. -->
+    <div class="settings-layout">
+      <nav class="settings-nav" role="tablist" aria-label="Tool categories">
+        <button class="settings-nav-item active" data-section="students" data-action="showToolsSection" data-args='["students"]' role="tab" aria-selected="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Students</span>
+        </button>
+        <button class="settings-nav-item" data-section="exam" data-action="showToolsSection" data-args='["exam"]' role="tab" aria-selected="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>
+          <span>Exam Setup</span>
+        </button>
+        <button class="settings-nav-item" data-section="integrations" data-action="showToolsSection" data-args='["integrations"]' role="tab" aria-selected="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span>Integrations</span>
+        </button>
+        <button class="settings-nav-item" data-section="maintenance" data-action="showToolsSection" data-args='["maintenance"]' role="tab" aria-selected="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          <span>Maintenance</span>
+        </button>
+        <button class="settings-nav-item danger" data-section="danger" data-action="showToolsSection" data-args='["danger"]' role="tab" aria-selected="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>Danger Zone</span>
+        </button>
+      </nav>
+      <div class="settings-content">
     <div class="tools-grid">
-      <div class="tool-card" style="grid-column:1/-1">
+      <div class="tool-card" style="grid-column:1/-1" data-section="students">
         <div class="tool-card-body">
           <h3>Share With Students</h3>
           <p>Send these links to your students. The registration link is unique to your account — students who register through it will appear in your dashboard.</p>
@@ -1001,7 +1061,7 @@
         </div>
       </div>
 
-      <div class="tool-card" style="grid-column:1/-1">
+      <div class="tool-card" style="grid-column:1/-1" data-section="students">
         <div class="tool-card-body">
           <h3>Email Invites</h3>
           <p>Mint one-click join links and mail them to students. Each invite carries a unique token (and optional per-student access code) so teachers never have to read out codes on speaker-phone. Bounces and opens update automatically. <span id="invite-cap-line" style="color:var(--muted)">Daily cap: <span id="invite-cap-used">—</span> / <span id="invite-cap-total">—</span> used today.</span></p>
@@ -1063,7 +1123,7 @@
         </div>
       </div>
 
-      <div class="tool-card">
+      <div class="tool-card" data-section="exam">
         <div class="tool-card-body">
           <h3>Per-Student Randomization</h3>
           <p>Give every student their own deterministic question order and option layout.
@@ -1086,7 +1146,7 @@
            clearing misregistered students, demo-prep state cleanup, or
            pulling a no-show out of the count before the access window
            opens. Doesn't touch the student_accounts login row. -->
-      <div class="tool-card">
+      <div class="tool-card" data-section="danger">
         <div class="tool-card-body">
           <h3>Remove Student From Roster</h3>
           <p>Removes a student's enrollment under your account so they can re-register cleanly. Their login account is kept; only the roster row is deleted. A roster entry spans all your exams, so removal applies to all of them.</p>
@@ -1103,7 +1163,7 @@
         <div class="tool-card-result" id="roster-remove-status" style="font-size:12px"></div>
       </div>
 
-      <div class="tool-card">
+      <div class="tool-card" data-section="exam">
         <div class="tool-card-body">
           <h3>Room Camera</h3>
           <p>Require students to connect a phone camera for room monitoring during the exam.</p>
@@ -1115,7 +1175,7 @@
         <div class="tool-card-result" id="phone-cam-status" style="font-size:12px"></div>
       </div>
 
-      <div class="tool-card" id="google-classroom-card">
+      <div class="tool-card" id="google-classroom-card" data-section="integrations">
         <div class="tool-card-body">
           <h3>Google Classroom</h3>
           <p>Sync courses, rosters, and push grades directly to Google Classroom.</p>
@@ -1135,7 +1195,7 @@
         <div class="tool-card-result" id="google-result" style="font-size:12px"></div>
       </div>
 
-      <div class="tool-card">
+      <div class="tool-card" data-section="maintenance">
         <div class="tool-card-body">
           <h3>Backfill Risk Scores</h3>
           <p>Recompute risk scores for all completed sessions. Use after first deployment or formula update.</p>
@@ -1146,7 +1206,7 @@
         <div class="tool-card-result" id="backfill-result" style="color:var(--emerald)"></div>
       </div>
 
-      <div class="tool-card">
+      <div class="tool-card" data-section="maintenance">
         <div class="tool-card-body">
           <h3>Cleanup Screenshots</h3>
           <p>Delete screenshots older than 7 days to free disk space.</p>
@@ -1157,7 +1217,7 @@
         <div class="tool-card-result" id="cleanup-result" style="color:var(--emerald)"></div>
       </div>
 
-      <div class="tool-card" id="clear-live-card" style="border-color:rgba(239,68,68,0.35)">
+      <div class="tool-card" id="clear-live-card" style="border-color:rgba(239,68,68,0.35)" data-section="danger">
         <div class="tool-card-body">
           <h3 style="color:var(--red)">Clear Sessions</h3>
           <p>Destructive. Wipes <em>stale</em> in-progress exam sessions for your account — along with the saved answers, violation events and screenshots that belong to them. A student whose client has sent a heartbeat in the last 2 minutes is considered actively taking the exam and is <b>never</b> touched. Your questions and other teachers' data are never touched. Requires two confirmations.</p>
@@ -1177,7 +1237,7 @@
         <div class="tool-card-result" id="clear-live-result" style="font-size:12px"></div>
       </div>
 
-      <div class="tool-card">
+      <div class="tool-card" data-section="maintenance">
         <div class="tool-card-body">
           <h3>Failed Sessions</h3>
           <p>View sessions where submission failed and may need admin force-submit.</p>
@@ -1188,7 +1248,7 @@
         <div class="tool-card-result" id="failed-result"></div>
       </div>
 
-      <div class="tool-card">
+      <div class="tool-card" data-section="exam">
         <div class="tool-card-body">
           <h3>Exam Access Code</h3>
           <p>Students must enter this code along with their roll number to start the exam. Leave empty to disable.</p>
@@ -1204,7 +1264,7 @@
         <div class="tool-card-result" id="access-code-status" style="font-size:12px"></div>
       </div>
 
-      <div class="tool-card">
+      <div class="tool-card" data-section="exam">
         <div class="tool-card-body">
           <h3>Schedule Exam</h3>
           <p>Set exam start and end times. Students cannot begin outside this window. Leave empty for no restrictions.</p>
@@ -1224,7 +1284,7 @@
         <div class="tool-card-result" id="schedule-status" style="font-size:12px"></div>
       </div>
 
-      <div class="tool-card" style="grid-column:1/-1">
+      <div class="tool-card" style="grid-column:1/-1" data-section="students">
         <div class="tool-card-body">
           <h3>Student Groups</h3>
           <p>Create groups and assign students. Restrict exam access so only students in assigned groups can enter.</p>
@@ -1268,7 +1328,7 @@
         </div>
       </div>
 
-      <div class="tool-card" style="grid-column:1/-1">
+      <div class="tool-card" style="grid-column:1/-1" data-section="exam">
         <div class="tool-card-body">
           <h3>Exam Templates</h3>
           <p>Save exam configurations as reusable templates. Clone a template to instantly create a new exam with the same settings and questions — perfect for running the same exam across multiple batches.</p>
@@ -1287,7 +1347,9 @@
         <div class="tool-card-result" id="template-result" style="font-size:12px;min-height:18px"></div>
       </div>
 
-    </div>
+    </div><!-- /.tools-grid -->
+      </div><!-- /.settings-content -->
+    </div><!-- /.settings-layout -->
   </div>
 </div>
 

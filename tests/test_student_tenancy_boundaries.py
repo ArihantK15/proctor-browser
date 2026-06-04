@@ -225,6 +225,75 @@ def test_public_registration_rejects_exam_not_owned_by_teacher(client):
     assert db.tables["students"] == []
 
 
+def test_public_registration_records_per_exam_invite(client):
+    """Self-registration with a valid exam_id must (a) create a teacher-wide
+    students row WITHOUT an exam_id column, and (b) record the per-exam
+    membership in student_invites so the student is counted in that exam's
+    'registered' roster (the schema-honest replacement for students.exam_id)."""
+    db = _TenantDB({
+        "teachers": [{"id": "teacher-1", "full_name": "Teacher One"}],
+        "exam_config": [{"teacher_id": "teacher-1", "exam_id": "exam-1"}],
+        "students": [],
+        "student_invites": [],
+        "student_accounts": [],
+    })
+    sm = shared_supabase_mock()
+    with patch.object(sm, "table", side_effect=db):
+        resp = client.post("/api/v1/register-student", json={
+            "teacher_id": "teacher-1",
+            "exam_id": "exam-1",
+            "roll_number": "A1",
+            "full_name": "Alice",
+            "email": "alice@test.com",
+        })
+
+    assert resp.status_code == 200, resp.text
+    # (a) teacher-wide roster row, no exam_id column written
+    assert len(db.tables["students"]) == 1
+    assert "exam_id" not in db.tables["students"][0]
+    # (b) per-exam association lands in student_invites, marked accepted
+    invs = db.tables.get("student_invites", [])
+    assert len(invs) == 1, invs
+    assert invs[0]["exam_id"] == "exam-1"
+    assert invs[0]["roll_number"] == "A1"
+    assert invs[0]["teacher_id"] == "teacher-1"
+    assert invs[0]["status"] == "accepted"
+    assert invs[0].get("token")
+
+
+def test_public_registration_per_exam_invite_is_idempotent(client):
+    """Re-registering the same student for the same exam updates the existing
+    invite row rather than duplicating it (keeps the per-exam count accurate).
+    A pre-existing invite + an existing students row would 409 the second
+    register, so this exercises the update branch via a pre-seeded invite."""
+    db = _TenantDB({
+        "teachers": [{"id": "teacher-1", "full_name": "Teacher One"}],
+        "exam_config": [{"teacher_id": "teacher-1", "exam_id": "exam-1"}],
+        "students": [],
+        "student_invites": [{
+            "id": "inv-pre", "teacher_id": "teacher-1", "email": "alice@test.com",
+            "exam_id": "exam-1", "roll_number": "A1", "status": "sent",
+            "token": "pre-token",
+        }],
+        "student_accounts": [],
+    })
+    sm = shared_supabase_mock()
+    with patch.object(sm, "table", side_effect=db):
+        resp = client.post("/api/v1/register-student", json={
+            "teacher_id": "teacher-1",
+            "exam_id": "exam-1",
+            "roll_number": "A1",
+            "full_name": "Alice",
+            "email": "alice@test.com",
+        })
+
+    assert resp.status_code == 200, resp.text
+    invs = db.tables["student_invites"]
+    assert len(invs) == 1, "must update in place, not duplicate"
+    assert invs[0]["id"] == "inv-pre"
+    assert invs[0]["status"] == "accepted"
+
+
 def test_exam_launch_rejects_teacher_exam_mismatch(client):
     db = _TenantDB({
         "exam_config": [{"teacher_id": "teacher-2", "exam_id": "exam-foreign"}],

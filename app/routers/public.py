@@ -22,7 +22,7 @@ from ..models import RegisterIn, SessionStatus, InviteStatus, VerificationStatus
 from ..utils import fmt_ist, now_ist
 from ..constants import DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN
 from ..repositories.questions import load_exam_config as _load_exam_config
-from ..invites import _get_invite_base_url
+from ..invites import _get_invite_base_url, _new_invite_token
 from ..services.invite_landing import _render_invite_error, _render_invite_landing
 from ..services.release import (
     _RELEASE_CACHE, _RELEASE_CACHE_EXPIRES, _refresh_release_cache, _resolve_release_asset, _download_redirect,
@@ -324,6 +324,13 @@ async def register_student(request: Request, body: RegisterIn):
         from ..services.sessions import check_org_limits
         await check_org_limits({"org_id": org_id, "org_role": teacher.get("org_role", "teacher")}, delta=1)
 
+    # The students row is the TEACHER-WIDE roster entry — it has no
+    # exam_id column. Per-exam membership ("registered for THIS exam")
+    # is recorded in student_invites below, the same canonical place the
+    # teacher-side roster + registered-count read from. (Writing exam_id
+    # here used to UndefinedColumnError and silently drop the exam link,
+    # so self-registered students never appeared in the per-exam count
+    # and the lobby fell back to the teacher's first exam.)
     row = {
         "roll_number": roll,
         "full_name":   name,
@@ -331,44 +338,18 @@ async def register_student(request: Request, body: RegisterIn):
         "phone":       phone,
         "teacher_id":  teacher_id,
     }
-    # exam-scoped registration: when the dashboard's share-link
-    # included &e=<exam_id>, persist that on the row so the student
-    # lobby's /api/student/exams lookup matches the correct exam_config
-    # (vs picking the teacher's "first" exam, which was the bug behind
-    # the user's "registered but no exam visible" demo-prep report).
-    # Falls back to teacher-only enrollment if the column doesn't
-    # exist on the legacy schema — handled by the optional-column retry
-    # below.
-    if exam_id_from_body:
-        row["exam_id"] = exam_id_from_body
     try:
         await _atable("students").insert(row).execute()
     except httpx.HTTPStatusError as e:
         msg = str(e).lower()
-        if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
-            # Legacy schema without students.exam_id column — retry
-            # without the field so registration still succeeds.
-            row.pop("exam_id", None)
-            try:
-                await _atable("students").insert(row).execute()
-            except Exception:
-                raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
-        elif "duplicate" in msg or "unique" in msg or e.response.status_code == 409:
+        if "duplicate" in msg or "unique" in msg or e.response.status_code == 409:
             raise HTTPException(status_code=409, detail="This roll number is already registered.")
-        else:
-            raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
     except Exception as e:
         msg = str(e).lower()
-        if "exam_id" in msg and ("column" in msg or "schema cache" in msg):
-            row.pop("exam_id", None)
-            try:
-                await _atable("students").insert(row).execute()
-            except Exception:
-                raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
-        elif "duplicate" in msg or "unique" in msg:
+        if "duplicate" in msg or "unique" in msg:
             raise HTTPException(status_code=409, detail="This roll number is already registered.")
-        else:
-            raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
 
     # Auto-link: if the student already has a login account, set
     # account_id immediately — otherwise they'd have to wait until
@@ -383,6 +364,39 @@ async def register_student(request: Request, body: RegisterIn):
                 .execute()
     except Exception as e:
         _pub_log.warning("[register_student] auto-link failed: %s", e)
+
+    # Per-exam association: record (or refresh) a student_invites row so
+    # this self-registration is counted in the exam's "registered" roster
+    # and the lobby resolves the right exam. This is the schema-honest
+    # replacement for the old students.exam_id write. Idempotent on
+    # (teacher_id, email, exam_id); marked accepted (the student
+    # registered themselves) — NO invite email is sent here. Non-fatal:
+    # the student is already registered teacher-wide if this fails.
+    if exam_id_from_body:
+        try:
+            existing_inv = (await _atable("student_invites").select("id")
+                            .eq("teacher_id", teacher_id)
+                            .eq("email", email)
+                            .eq("exam_id", exam_id_from_body)
+                            .limit(1).execute()).data or []
+            inv_fields = {
+                "teacher_id":  teacher_id,
+                "email":       email,
+                "full_name":   name,
+                "roll_number": roll,
+                "exam_id":     exam_id_from_body,
+                "status":      InviteStatus.ACCEPTED,
+                "accepted_at": datetime.now(timezone.utc).isoformat(),
+            }
+            if existing_inv:
+                await (_atable("student_invites").update(inv_fields)
+                       .eq("id", existing_inv[0]["id"]).execute())
+            else:
+                inv_fields["token"] = _new_invite_token()
+                await _atable("student_invites").insert(inv_fields).execute()
+        except Exception as e:
+            _pub_log.warning("[register_student] per-exam roster link failed "
+                             "(roll=%s exam=%s): %s", roll, exam_id_from_body, e)
 
     return {"status": "registered", "roll_number": roll, "full_name": name,
             "exam_id": exam_id_from_body or None}

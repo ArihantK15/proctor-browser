@@ -46,6 +46,12 @@ app/downloads/
 *.dmg
 *.exe
 
+# Python runtime baked at build time by bundle-python.js (Windows) — never
+# commit the (large) interpreter/wheels; keep only the .gitkeep so the dir
+# exists for electron-builder's extraResources (mirrors python-runtime/).
+/resources/python/*
+!/resources/python/.gitkeep
+
 # Exam config — managed per-deployment
 questions.json
 

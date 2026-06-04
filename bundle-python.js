@@ -82,9 +82,11 @@ function bakeMacTarget() {
 }
 
 // True if this interpreter already imports every proctor package — lets a
-// re-run skip the (slow) pip install. Mirrors checkPackagesReady in
-// lib/python-manager.js (import names differ from pip names in two places).
-function macPackagesReady(py) {
+// re-run skip the (slow) pip install. Interpreter-path based, so it works
+// for the macOS bundled python3 AND the Windows embeddable python.exe.
+// Mirrors checkPackagesReady in lib/python-manager.js (import names differ
+// from pip names in two places).
+function packagesReady(py) {
   const importLine = [
     'import cv2', 'import numpy', 'import requests', 'import uniface',
     'import onnxruntime', 'import sounddevice', 'import vosk',
@@ -100,7 +102,7 @@ function macPackagesReady(py) {
 // pip. --prefer-binary avoids slow source builds when a wheel exists.
 function bakeMacPackages(destDir) {
   const py = path.join(destDir, 'bin', 'python3');
-  if (macPackagesReady(py)) {
+  if (packagesReady(py)) {
     console.log('[pip] packages already present — skipping install.');
     return;
   }
@@ -111,7 +113,7 @@ function bakeMacPackages(destDir) {
     `"${py}" -m pip install --prefer-binary --no-warn-script-location ` +
     PIP_PACKAGES.map(p => `"${p}"`).join(' '),
     { stdio: 'inherit' });
-  if (!macPackagesReady(py)) {
+  if (!packagesReady(py)) {
     throw new Error('pip install completed but a package still fails to import — aborting bake.');
   }
   console.log('[pip] ✅ All proctor packages import cleanly.');
@@ -171,12 +173,6 @@ async function runMac() {
   console.log('   site-packages native libs; the app uses them with no');
   console.log('   first-launch pip (venv path remains a dev fallback).\n');
 }
-
-// Build-time install set == config.js#PIP_PACKAGES (see require above).
-// ultralytics/torch were already dropped (YOLOv8n runs on onnxruntime from a
-// bundled weights/yolov8n.onnx); mediapipe/scipy are likewise not imported by
-// any .py and are no longer installed.
-const PACKAGES = PIP_PACKAGES;
 
 function download(url, dest) {
   // Only opens the destination stream on the final 200 — GitHub release
@@ -262,17 +258,31 @@ function download(url, dest) {
   spawnSync(pyExe, [GET_PIP_SCRIPT, '--no-warn-script-location'],
     { stdio: 'inherit' });
 
-  // 5. Packages
-  console.log('[4/4] Installing AI packages (several minutes)...');
-  for (const pkg of PACKAGES) {
-    process.stdout.write(`  ${pkg}... `);
-    const r = spawnSync(
-      pyExe,
-      ['-m', 'pip', 'install', pkg, '--quiet', '--no-warn-script-location'],
-      { stdio: 'inherit' }
-    );
-    console.log(r.status === 0 ? '✅' : '⚠️ failed');
+  // 5. Packages — ONE pip pass (pip resolves once + downloads wheels in
+  // parallel internally; --prefer-binary skips slow source builds). The old
+  // per-package serial loop was ~3-5x slower AND swallowed failures (it just
+  // printed "⚠️ failed" and shipped a broken installer). Bake them into the
+  // embeddable interpreter so a fresh Windows install does ZERO first-launch
+  // pip — matching the macOS bundled path.
+  console.log(`[4/4] Installing ${PIP_PACKAGES.length} AI packages in one pass (several minutes)...`);
+  spawnSync(pyExe, ['-m', 'pip', 'install', '--upgrade', 'pip', '--no-warn-script-location'],
+    { stdio: 'inherit' });
+  spawnSync(
+    pyExe,
+    ['-m', 'pip', 'install', '--prefer-binary', '--no-warn-script-location', ...PIP_PACKAGES],
+    { stdio: 'inherit' }
+  );
+
+  // Post-bake assertion: a Windows installer that ships without a working
+  // import set would silently fall back to a 300-400MB first-launch pip (the
+  // very thing this bake removes) or fail proctoring outright. Fail the BUILD
+  // here instead so a broken bake can never reach the release channel.
+  if (!packagesReady(pyExe)) {
+    console.error('[ERROR] pip install completed but a proctor package still ' +
+      'fails to import — aborting Windows bake.');
+    process.exit(1);
   }
+  console.log('[pip] ✅ All proctor packages import cleanly.');
 
   console.log(`\n✅ Done — ${OUT_DIR}`);
   console.log('   Now run: npm run build:win\n');

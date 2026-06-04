@@ -1,0 +1,3 @@
+# Placeholder so resources/python/ exists for electron-builder extraResources.
+# bundle-python.js bakes the embeddable Python + proctor wheels here on Windows
+# CI builds; on macOS this dir ships empty (macOS uses python-runtime/ instead).

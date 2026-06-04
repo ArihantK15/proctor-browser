@@ -788,7 +788,28 @@ async def sse_sessions(request: Request):
                     evt_type, data = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
                     yield f"event: {evt_type}\ndata: {json.dumps(data)}\n\n"
                 except asyncio.TimeoutError:
-                    yield f"event: refresh\ndata: {{\"ts\": {time.time()}}}\n\n"
+                    # No pub/sub event for `wait_timeout`s → emit a FULL snapshot,
+                    # not a bare ping. The dashboard's 'refresh' handler renders
+                    # straight from data.sessions / data.all_sessions, so a
+                    # payload-less tick made it render an EMPTY list every 5s —
+                    # live sessions flashed in on `init`, then vanished until a
+                    # manual refresh (and re-vanished on the next tick). Sending
+                    # the current snapshot fixes that AND makes the degraded
+                    # (no-Redis) path a real 5s poll-over-SSE instead of a no-op.
+                    try:
+                        snap = await _build_sessions_payload(teacher_id, exam_id=exam_id)
+                        yield (
+                            "event: refresh\n"
+                            "data: " + json.dumps({
+                                "ts": time.time(),
+                                "sessions": snap["sessions"],
+                                "all_sessions": snap["all_sessions"],
+                                "realtime": "live" if _realtime_available() else "degraded",
+                            }) + "\n\n"
+                        )
+                    except Exception as e:
+                        logger.warning("[sse_sessions] refresh snapshot failed: %s", e)
+                        yield f"event: refresh\ndata: {{\"ts\": {time.time()}}}\n\n"
         except asyncio.CancelledError:
             pass
         finally:

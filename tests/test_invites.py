@@ -488,8 +488,17 @@ class TestInviteExamLaunch:
                             json={"roll_number": "LAUNCH1", "access_code": "DEMO1"})
 
         assert r.status_code == 200, r.text
+        # Auto-enroll creates a TEACHER-scoped roster row. The students
+        # table has no exam_id column (per-exam association lives in
+        # student_invites / exam_sessions — writing exam_id here raised
+        # UndefinedColumnError → 500 in prod). The exam link is preserved
+        # via the invite, which is marked accepted on enroll.
         assert stub.students
-        assert stub.students[0]["exam_id"] == "exam-demo"
+        assert stub.students[0]["roll_number"] == "LAUNCH1"
+        assert stub.students[0]["teacher_id"] == "teacher-1"
+        assert "exam_id" not in stub.students[0]
+        assert stub.invites[0]["exam_id"] == "exam-demo"
+        assert stub.invites[0]["status"] == "accepted"
 
 
 class TestWebhook:

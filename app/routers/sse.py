@@ -31,6 +31,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
 
+
+def _realtime_available() -> bool:
+    """True when the live SSE pub/sub path is actually usable. `_HAS_REDIS`
+    only means the redis library imported — a configured-but-DOWN Redis still
+    kills real-time push/alerts/camera. cache._r_healthy reflects runtime
+    reachability and the connect-token read on this same request just
+    refreshed it, so this is a cheap, non-blocking, accurate signal."""
+    if not _HAS_REDIS:
+        return False
+    try:
+        return bool(getattr(_cache, "_r_healthy", False))
+    except Exception:
+        return False
+
 # ─── SHORT-LIVED CONNECTION TOKENS (avoid JWT in URL query params) ─
 #
 # Stored in Redis so all uvicorn workers see the same token pool.
@@ -723,10 +737,22 @@ async def sse_sessions(request: Request):
         events_channel = f"sessions:{teacher_id}"
         stream_started = time.time()
 
-        # Send initial snapshot
+        # Send initial snapshot. `realtime` tells the dashboard whether the
+        # live pub/sub path is actually working: without a reachable Redis the
+        # channel readers below no-op and the stream silently collapses to a
+        # 5s refresh tick (no push, no alerts, no camera). The dashboard shows
+        # a "real-time degraded" banner when this is 'degraded' instead of
+        # leaving the teacher to think monitoring is live when it isn't.
         try:
             sessions_payload = await _build_sessions_payload(teacher_id, exam_id=exam_id)
-            yield f"event: init\ndata: {json.dumps({'sessions': sessions_payload['sessions'], 'all_sessions': sessions_payload['all_sessions']})}\n\n"
+            yield (
+                "event: init\n"
+                "data: " + json.dumps({
+                    "sessions": sessions_payload["sessions"],
+                    "all_sessions": sessions_payload["all_sessions"],
+                    "realtime": "live" if _realtime_available() else "degraded",
+                }) + "\n\n"
+            )
         except Exception as e:
             logger.warning("[sse_sessions] initial snapshot failed: %s", e)
 

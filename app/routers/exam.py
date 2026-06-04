@@ -807,10 +807,28 @@ async def heartbeat(event: EventIn, request: Request):
             row["exam_id"] = eid
         await _atable("exam_sessions").upsert(row).execute()
 
-    # Publish heartbeat to dashboard SSE
+    # Publish a heartbeat ping to the dashboard SSE — but COALESCE it per
+    # teacher. Each student heartbeats ~every 30s, so an N-student exam would
+    # otherwise fire N "refresh" pushes per cycle, and the dashboard does a
+    # FULL live-sessions refetch (a 2000-row violations query) on EVERY push.
+    # A short Redis throttle (≤1 heartbeat push per teacher per few seconds)
+    # collapses that storm at the source; the DB last_heartbeat write above
+    # still happens per beat, so liveness stays accurate. Violation pushes
+    # (in log_event) are NEVER throttled — those must reach the teacher
+    # immediately. When Redis is down the throttle no-ops and pub/sub is
+    # already inert, so behaviour is unchanged.
     if tid:
-        await _bus_async_publish(f"sessions:{tid}", {"kind": "heartbeat",
-                     "session_id": event.session_id})
+        _hb_throttled = False
+        try:
+            if _cache and _cache.get(f"hb_pub_throttle:{tid}"):
+                _hb_throttled = True
+            elif _cache:
+                _cache.set(f"hb_pub_throttle:{tid}", 1, ttl=3)
+        except Exception:
+            _hb_throttled = False
+        if not _hb_throttled:
+            await _bus_async_publish(f"sessions:{tid}", {"kind": "heartbeat",
+                         "session_id": event.session_id})
 
     return {"ok": True}
 

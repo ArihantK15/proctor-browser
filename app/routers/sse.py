@@ -45,6 +45,23 @@ def _realtime_available() -> bool:
     except Exception:
         return False
 
+
+def _sessions_event_data(snap: dict, *, with_ts: bool = False) -> dict:
+    """Shape the init / refresh SSE payload from a build_sessions_payload()
+    result. BOTH events MUST carry `sessions` + `all_sessions`: the dashboard's
+    refresh handler renders straight from them, so a payload-less refresh tick
+    blanked the live table every 5s (the 'sessions vanish after 5s' bug).
+    Centralising the shape keeps init and refresh from drifting apart again."""
+    data = {
+        "sessions": snap.get("sessions", {}),
+        "all_sessions": snap.get("all_sessions", []),
+        "realtime": "live" if _realtime_available() else "degraded",
+    }
+    if with_ts:
+        data["ts"] = time.time()
+    return data
+
+
 # ─── SHORT-LIVED CONNECTION TOKENS (avoid JWT in URL query params) ─
 #
 # Stored in Redis so all uvicorn workers see the same token pool.
@@ -747,11 +764,7 @@ async def sse_sessions(request: Request):
             sessions_payload = await _build_sessions_payload(teacher_id, exam_id=exam_id)
             yield (
                 "event: init\n"
-                "data: " + json.dumps({
-                    "sessions": sessions_payload["sessions"],
-                    "all_sessions": sessions_payload["all_sessions"],
-                    "realtime": "live" if _realtime_available() else "degraded",
-                }) + "\n\n"
+                "data: " + json.dumps(_sessions_event_data(sessions_payload)) + "\n\n"
             )
         except Exception as e:
             logger.warning("[sse_sessions] initial snapshot failed: %s", e)
@@ -800,12 +813,7 @@ async def sse_sessions(request: Request):
                         snap = await _build_sessions_payload(teacher_id, exam_id=exam_id)
                         yield (
                             "event: refresh\n"
-                            "data: " + json.dumps({
-                                "ts": time.time(),
-                                "sessions": snap["sessions"],
-                                "all_sessions": snap["all_sessions"],
-                                "realtime": "live" if _realtime_available() else "degraded",
-                            }) + "\n\n"
+                            "data: " + json.dumps(_sessions_event_data(snap, with_ts=True)) + "\n\n"
                         )
                     except Exception as e:
                         logger.warning("[sse_sessions] refresh snapshot failed: %s", e)

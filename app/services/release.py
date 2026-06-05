@@ -36,6 +36,27 @@ def _match_win(name: str) -> bool:
     return n.endswith(".exe") and "setup" in n
 
 
+def _pick_release_assets(assets: list) -> dict:
+    """Map a GitHub release's assets → {mac_arm, mac_x64, win} download URLs.
+    Pure (no network) so the matcher logic is unit-testable in isolation — the
+    mac matchers silently 404'd downloads across multiple releases when the
+    asset naming gained a '-mac' suffix, with no test to catch it. First match
+    per slot wins; non-installer assets (.zip / .blockmap / .yml) fall through."""
+    found = {"mac_arm": "", "mac_x64": "", "win": ""}
+    for a in assets:
+        name = a.get("name", "") or ""
+        url_ = a.get("browser_download_url", "") or ""
+        if not url_:
+            continue
+        if not found["mac_arm"] and _match_mac_arm64(name):
+            found["mac_arm"] = url_
+        elif not found["mac_x64"] and _match_mac_x64(name):
+            found["mac_x64"] = url_
+        elif not found["win"] and _match_win(name):
+            found["win"] = url_
+    return found
+
+
 async def _refresh_release_cache() -> None:
     global _RELEASE_CACHE, _RELEASE_CACHE_EXPIRES
     url = f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"
@@ -56,18 +77,7 @@ async def _refresh_release_cache() -> None:
         return
     assets = data.get("assets", []) or []
     tag = data.get("tag_name", "")
-    found = {"mac_arm": "", "mac_x64": "", "win": ""}
-    for a in assets:
-        name = a.get("name", "") or ""
-        url_ = a.get("browser_download_url", "") or ""
-        if not url_:
-            continue
-        if not found["mac_arm"] and _match_mac_arm64(name):
-            found["mac_arm"] = url_
-        elif not found["mac_x64"] and _match_mac_x64(name):
-            found["mac_x64"] = url_
-        elif not found["win"] and _match_win(name):
-            found["win"] = url_
+    found = _pick_release_assets(assets)
     _RELEASE_CACHE = {**found, "tag": tag}
     _RELEASE_CACHE_EXPIRES = time.time() + RELEASE_TTL_SEC
     logger.info(

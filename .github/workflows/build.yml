@@ -17,10 +17,8 @@ name: Build & Release Electron App
 # onnxruntime/insightface) into python-runtime/<arch>/. BOTH run on macos-14
 # (Apple Silicon): arm64 wheels bake natively; x64 wheels are CROSS-BUILT via
 # Rosetta 2 (the x86_64 interpreter runs emulated, so its pip pulls genuine
-# x86_64 wheels). We no longer use the macos-13 Intel runner — GitHub stopped
-# scheduling it for this repo, which stalled every release in `queued`. The
-# bake target is selected by PROCTA_BAKE_ARCH (= matrix.arch), see
-# bundle-python.js#bakeMacTarget.
+# x86_64 wheels). The bake target is selected by PROCTA_BAKE_ARCH (=
+# matrix.arch), see bundle-python.js#bakeMacTarget.
 
 on:
   push:
@@ -43,8 +41,7 @@ jobs:
             target: mac
             arch: arm64
           # x64 wheels are cross-built on the SAME Apple-Silicon runner via
-          # Rosetta 2 (see the Install Rosetta step). The macos-13 Intel runner
-          # is no longer scheduled for this repo and stalled every release.
+          # Rosetta 2 (see the Install Rosetta step).
           - os: macos-14
             target: mac
             arch: x64

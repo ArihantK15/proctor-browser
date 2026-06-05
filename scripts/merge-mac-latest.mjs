@@ -1,8 +1,9 @@
 // merge-mac-latest.mjs — combine per-arch latest-mac.yml manifests into one.
 //
 // WHY THIS EXISTS:
-// The per-arch CI matrix builds arm64 (macos-14) and x64 (macos-13) in
-// SEPARATE jobs. Each job's electron-builder writes its own latest-mac.yml
+// The per-arch CI matrix builds arm64 and x64 in SEPARATE jobs (both on
+// macos-14; x64 cross-builds via Rosetta 2). Each job's electron-builder
+// writes its own latest-mac.yml
 // listing only ITS arch's files. electron-updater, however, reads ONE
 // latest-mac.yml and picks the entry matching the running Mac's arch — so a
 // release needs a SINGLE manifest whose `files:` array contains BOTH arches'

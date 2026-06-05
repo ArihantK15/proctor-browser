@@ -54,6 +54,17 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
+# Make our OWN directory importable before pulling in sibling modules
+# (behavioral_analysis, audio_processor). The bundled Windows interpreter is
+# the python.org *embeddable* build: its ._pth puts the runtime in isolated
+# path mode, so the script's directory is NOT auto-added to sys.path and a
+# bare `from behavioral_analysis import …` raises ModuleNotFoundError. (The
+# old system-Python fallback hid this because system Python adds cwd.) Insert
+# the resolved file dir explicitly so siblings import regardless of the
+# interpreter flavour, the working directory, or PYTHONPATH (which ._pth mode
+# ignores). Harmless on system Python where the dir is already on the path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # Soft-import psutil so older bundled clients that don't ship it can
 # still run — the thermal/CPU governor below silently no-ops when
 # psutil is unavailable. Fresh installs from requirements-proctor.txt

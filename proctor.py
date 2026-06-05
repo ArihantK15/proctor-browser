@@ -1968,12 +1968,13 @@ def get_face_embedding_from_crop(face_crop):
 def detect_faces(frame: np.ndarray):
     """Return list of (bbox, landmarks_2d) tuples — empty list if no faces.
 
-    uniface 1.1.0's RetinaFace.detect() returns a list of dicts shaped like:
-        {'bbox': [x1, y1, x2, y2],
-         'confidence': float,
-         'landmarks': [[x,y]*5]}
-    Older uniface versions returned a (boxes, landmarks) ndarray tuple — we
-    detect both shapes so the proctor doesn't break across version bumps.
+    RetinaFace.detect()'s per-face shape drifted across uniface majors:
+      • 1.1.x → list of dicts  {'bbox':[x1,y1,x2,y2], 'confidence':f, 'landmarks':[[x,y]*5]}
+      • 3.x   → list of Face dataclass objects (attribute access; .to_dict() given)
+    Calling .get() on a 3.x Face raised "'Face' object has no attribute 'get'"
+    on EVERY frame — swallowed below → "No face detected" forever even with the
+    model loaded. We normalise each item to a dict so the parser is
+    version-agnostic, and still handle the legacy (boxes, landmarks) tuple.
     """
     if not RETINA_AVAILABLE:
         return []
@@ -1982,12 +1983,19 @@ def detect_faces(frame: np.ndarray):
         if result is None:
             return []
 
-        # New API (uniface ≥ 1.1): list of per-face dicts.
+        # List of per-face items — dicts (1.1.x) or Face objects (3.x).
         if isinstance(result, list):
             out = []
             for face in result:
-                bbox = face.get("bbox")
-                lms  = face.get("landmarks")
+                if isinstance(face, dict):
+                    fd = face
+                elif hasattr(face, "to_dict"):
+                    fd = face.to_dict()              # uniface ≥3.x Face dataclass
+                else:
+                    fd = {"bbox":      getattr(face, "bbox", None),
+                          "landmarks": getattr(face, "landmarks", None)}
+                bbox = fd.get("bbox")
+                lms  = fd.get("landmarks")
                 if bbox is None or lms is None:
                     continue
                 bbox_int = [int(round(c)) for c in bbox[:4]]

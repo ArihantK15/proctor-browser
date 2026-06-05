@@ -56,17 +56,18 @@ if (!pipMatch) {
 // pattern like "// note\n  'vosk'," lands in the same fragment and
 // our package-name parser thinks the whole fragment is a comment.
 const pipBody = pipMatch[1].replace(/\/\/[^\n]*/g, '')
+// Match each quoted spec, then strip the version (specs can contain commas,
+// e.g. 'opencv-python>=4.13.0.92,<5', so a naive split(',') would shred them).
 const pipPkgs = new Set(
-  pipBody
-    .split(',')
-    .map(s => s.trim().replace(/^['"]/, '').replace(/['"]$/, '').replace(/_/g, '-'))
+  [...pipBody.matchAll(/['"]([^'"]+)['"]/g)]
+    .map(m => m[1].split(/[<>=!~,]/)[0].trim().toLowerCase().replace(/_/g, '-'))
     .filter(Boolean)
 )
 const reqLines = readFileSync('requirements-proctor.txt', 'utf8').split('\n')
 const reqPkgs = reqLines
   .map(l => l.trim())
   .filter(l => l && !l.startsWith('#'))
-  .map(l => l.split(/[<>=!~]/)[0].trim().toLowerCase().replace(/_/g, '-'))
+  .map(l => l.split(/[<>=!~,]/)[0].trim().toLowerCase().replace(/_/g, '-'))
 const missingFromInstaller = reqPkgs.filter(p => !pipPkgs.has(p))
 if (missingFromInstaller.length) {
   throw new Error(

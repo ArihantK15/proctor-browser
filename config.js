@@ -167,15 +167,21 @@ function appRequires() { return require('electron').app; }
 // allowlist if it's a transitive-only dep we don't need to spawn pip
 // for separately).
 const PIP_PACKAGES = [
-  'opencv-python', 'numpy', 'requests',
-  'uniface', 'onnxruntime',
+  // VERSION-PINNED on purpose. Unbounded '>=' let the Windows bundle pull
+  // uniface 3.7.0 while detect_faces targeted 1.1.0's dict API — detect() then
+  // returned Face OBJECTS and face detection silently broke on every frame.
+  // uniface is pinned EXACTLY (its retinaface_mnet_v2.onnx is SHA-locked to
+  // this release); the rest are capped below the next major so an API-breaking
+  // bump can't land unnoticed while patches/minors still flow.
+  'opencv-python>=4.13.0.92,<5', 'numpy>=1.24.0,<3', 'requests',
+  'uniface==3.7.0', 'onnxruntime>=1.19.2,<2',
   // YOLOv8n now runs on onnxruntime from a bundled weights/yolov8n.onnx —
   // we no longer install ultralytics (which dragged in torch, ~2 GB).
   'sounddevice',
   // Phase 75 — audio detection
   'vosk', 'python_speech_features',
   // Previously drifted from requirements-proctor.txt
-  'insightface', 'websocket-client', 'psutil',
+  'insightface>=0.7.3,<0.8', 'websocket-client', 'psutil',
 ];
 
 // ── Polling ───────────────────────────────────────────────────────

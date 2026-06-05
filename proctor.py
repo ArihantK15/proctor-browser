@@ -99,8 +99,42 @@ _behavioral = BehavioralEngine(check_interval=15)
 # server-side without ever shipping media off the student's machine.
 _MODEL_ERRORS: dict = {}
 
+# uniface downloads its RetinaFace model to ~/.uniface/models on FIRST use.
+# That network fetch FAILS offline / on flaky connections (e.g. a student on
+# slow Wi-Fi), leaving face detection dead — calibration then sits forever on
+# "No face detected". Every other model (gaze, YOLO) is bundled in weights/ for
+# offline-first; RetinaFace was the one exception. Ship retinaface_mnet_v2.onnx
+# in weights/ too and pre-seed uniface's cache from it so RetinaFace() loads
+# with ZERO network. uniface SHA-256-verifies the file against the official
+# hash, so seeding a byte-identical copy is safe (a mismatch self-heals: uniface
+# deletes it and re-downloads).
+def _seed_retina_model():
+    try:
+        import shutil
+        from uniface.constants import RetinaFaceWeights
+        fname = RetinaFaceWeights.MNET_V2.value + ".onnx"   # retinaface_mnet_v2.onnx
+        here = os.path.dirname(os.path.abspath(__file__))
+        candidates = [
+            os.path.join(os.environ.get("PROCTA_WEIGHTS_DIR", ""), fname),
+            os.path.join(here, "weights", fname),
+            os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", fname),
+        ]
+        bundled = next((p for p in candidates if p and os.path.exists(p)), None)
+        if not bundled:
+            return
+        cache_dir = os.path.expanduser("~/.uniface/models")
+        os.makedirs(cache_dir, exist_ok=True)
+        dest = os.path.join(cache_dir, fname)
+        if not os.path.exists(dest):
+            shutil.copy2(bundled, dest)
+            print(f"[Retina] seeded bundled model -> {dest}")
+    except Exception as _se:
+        print(f"[Retina] model seed skipped: {_se}")
+
+
 # uniface: face detection + 5 landmarks (ONNX RetinaFace under the hood)
 try:
+    _seed_retina_model()
     from uniface import RetinaFace
     _retina = RetinaFace()
     RETINA_AVAILABLE = True

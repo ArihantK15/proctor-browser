@@ -14,13 +14,21 @@ _RELEASE_CACHE_EXPIRES: float = 0.0
 _RELEASE_CACHE_LOCK = asyncio.Lock()
 
 
+# electron-builder's mac artifactName is "${productName}-${version}-${arch}-mac.${ext}"
+# → Procta-2.3.28-arm64-mac.dmg / Procta-2.3.28-x64-mac.dmg. The old matchers
+# predated the "-mac" suffix: _match_mac_arm64 required "-arm64.dmg" (never
+# matches "-arm64-mac.dmg") and _match_mac_x64 *rejected* any "-mac" name, so
+# BOTH mac downloads 404'd while only Windows resolved. Match on arch substring
+# + .dmg extension, which is robust to the version and the -mac suffix.
 def _match_mac_arm64(name: str) -> bool:
-    return name.lower().endswith("-arm64.dmg")
+    n = name.lower()
+    return n.endswith(".dmg") and "arm64" in n
 
 
 def _match_mac_x64(name: str) -> bool:
+    # Any .dmg that isn't the arm64 build (x64, or a universal dmg).
     n = name.lower()
-    return n.endswith(".dmg") and "-arm64" not in n and "-mac" not in n.replace("-macos", "")
+    return n.endswith(".dmg") and "arm64" not in n
 
 
 def _match_win(name: str) -> bool:
@@ -69,6 +77,15 @@ async def _refresh_release_cache() -> None:
         '✓' if found['mac_x64'] else '✗',
         '✓' if found['win'] else '✗',
     )
+
+
+def release_cache_snapshot() -> dict:
+    """Live view of the resolved-asset cache + expiry. The debug endpoint MUST
+    call this rather than importing _RELEASE_CACHE / _RELEASE_CACHE_EXPIRES by
+    value: _refresh_release_cache REBINDS those module globals, so a
+    value-import in another module freezes at the initial empty dict / 0.0 and
+    reports stale (empty) state even when real downloads resolve fine."""
+    return {**_RELEASE_CACHE, "_expires": _RELEASE_CACHE_EXPIRES}
 
 
 async def _resolve_release_asset(key: str) -> str:

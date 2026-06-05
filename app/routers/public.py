@@ -26,6 +26,7 @@ from ..invites import _get_invite_base_url, _new_invite_token
 from ..services.invite_landing import _render_invite_error, _render_invite_landing
 from ..services.release import (
     _RELEASE_CACHE, _RELEASE_CACHE_EXPIRES, _refresh_release_cache, _resolve_release_asset, _download_redirect,
+    release_cache_snapshot,
 )
 from ..jobs import enqueue_job, send_demo_request_notification_job
 from ..services.turnstile import verify_or_403
@@ -600,12 +601,13 @@ async def download_latest_info():
     """Debug / health endpoint — shows what the server currently resolves
     for each platform and the last seen release tag."""
     await _resolve_release_asset("mac_arm")
+    snap = release_cache_snapshot()  # live values — see release_cache_snapshot()
     return {
-        "tag":       _RELEASE_CACHE.get("tag", ""),
-        "mac_arm":   _RELEASE_CACHE.get("mac_arm", ""),
-        "mac_x64":   _RELEASE_CACHE.get("mac_x64", ""),
-        "win":       _RELEASE_CACHE.get("win", ""),
-        "cache_expires_in_sec": max(0, int(_RELEASE_CACHE_EXPIRES - time.time())),
+        "tag":       snap.get("tag", ""),
+        "mac_arm":   snap.get("mac_arm", ""),
+        "mac_x64":   snap.get("mac_x64", ""),
+        "win":       snap.get("win", ""),
+        "cache_expires_in_sec": max(0, int(snap.get("_expires", 0) - time.time())),
         "env_overrides": {
             "DOWNLOAD_MAC_ARM": bool(DOWNLOAD_MAC_ARM),
             "DOWNLOAD_MAC_X64": bool(DOWNLOAD_MAC_X64),

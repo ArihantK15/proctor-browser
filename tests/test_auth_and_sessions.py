@@ -528,6 +528,38 @@ class TestValidateStudent:
             assert resp.status_code == 409, resp.text
             assert "already submitted" in resp.json()["detail"].lower()
 
+    def test_abandoned_session_gives_disconnection_message(self, client):
+        """An ABANDONED session (reaper closed it after a disconnect) is NOT a
+        submission — the student should be told it was a disconnection and to
+        ask for a reset, not the misleading 'already submitted'."""
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.exam._load_exam_config", return_value={}), \
+             patch("app.routers.exam._get_access_code", return_value=""), \
+             patch("app.routers.exam._check_group_access", return_value=True):
+
+            def table_side_effect(name):
+                mt = MagicMock()
+                if name == "students":
+                    mt.select.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock(
+                        data=[{"roll_number": "ALICE001", "full_name": "Alice",
+                               "teacher_id": "t1", "email": "a@t.com"}])
+                    mt.select.return_value.eq.return_value.execute.return_value = MagicMock(
+                        data=[{"roll_number": "ALICE001", "full_name": "Alice",
+                               "teacher_id": "t1", "email": "a@t.com"}])
+                elif name == "exam_sessions":
+                    row = [{"session_key": "ALICE001_old", "status": "abandoned"}]
+                    # terminal query: select().eq(roll).in_(status).eq(teacher).execute()
+                    mt.select.return_value.eq.return_value.in_.return_value.eq.return_value.execute.return_value = MagicMock(data=row)
+                    mt.select.return_value.eq.return_value.in_.return_value.execute.return_value = MagicMock(data=row)
+                return mt
+            mock_table.side_effect = table_side_effect
+            resp = client.post("/api/v1/validate-student",
+                               json={"roll_number": "ALICE001"})
+            assert resp.status_code == 409, resp.text
+            d = resp.json()["detail"].lower()
+            assert "disconnection" in d or "reset" in d
+            assert "already submitted" not in d
+
     def test_exam_not_started_yet(self, client):
         """Exam window hasn't opened → 403."""
         future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()

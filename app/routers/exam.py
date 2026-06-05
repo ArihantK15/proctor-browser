@@ -420,19 +420,31 @@ async def _check_existing_session(student: dict, student_tid: str, exam_id: str)
     # H46: Check all terminal statuses — COMPLETED, FORCE_SUBMITTED, REJECTED, ABANDONED
     terminal = (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
                 SessionStatus.REJECTED, SessionStatus.ABANDONED)
-    q = _atable("exam_sessions").select("session_key").eq("roll_number", student["roll_number"]).in_("status", terminal)
+    q = _atable("exam_sessions").select("session_key,status").eq("roll_number", student["roll_number"]).in_("status", terminal)
     if student_tid:
         q.eq("teacher_id", str(student_tid))
     if exam_id:
         q.eq("exam_id", exam_id)
-    if (await q.execute()).data:
+    prior = (await q.execute()).data
+    if prior:
         # 409 (not 403) on purpose: validate_student collapses 403/404 into a
         # generic "invalid details" message to prevent roll-number enumeration.
-        # But "already submitted" leaks nothing the student doesn't already know
-        # (they sat the exam), and hiding it behind the generic error left
-        # students — and us, while testing — staring at "invalid student details"
-        # with no idea a terminal session was the real block. 409 passes through
-        # the collapse so the actionable reason reaches the student.
+        # A terminal session leaks nothing the student doesn't already know, so
+        # 409 passes through the collapse and the actionable reason reaches them
+        # — instead of "invalid student details" (which left students, and us
+        # while testing, with no idea a prior session was the real block).
+        #
+        # ABANDONED ≠ submitted: the heartbeat reaper closes a session after a
+        # long disconnection (and auto-scores it), so the student didn't submit
+        # — they dropped off. Say so, and point at the teacher reset path,
+        # instead of the misleading "already submitted".
+        st = (prior[0].get("status") or "").lower()
+        if st == SessionStatus.ABANDONED:
+            raise HTTPException(
+                status_code=409,
+                detail="Your previous session was closed after a long disconnection. "
+                       "Ask your examiner to reset it so you can re-enter.",
+            )
         raise HTTPException(status_code=409, detail="You have already submitted this exam.")
 
     q2 = _atable("exam_sessions").select("session_key,status").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.IN_PROGRESS)

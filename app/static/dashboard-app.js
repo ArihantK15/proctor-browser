@@ -2314,7 +2314,13 @@ async function refreshIdReviews(){
   const count = document.getElementById('id-reviews-count');
   if(!section || !list || !count) return;
   try{
-    const r = await authFetch(`${BASE}/api/v1/admin/pending-verifications${_examQuery('?')}`);
+    // NO exam scoping here on purpose. An ID check is an IDENTITY step that
+    // happens BEFORE the exam, and the student's session exam_id may not match
+    // (or may be unset for) whatever exam the teacher has selected in the
+    // dropdown — scoping by it silently hid students from the review queue, so
+    // they sat "waiting for examiner" with no card to approve. Show ALL of the
+    // teacher's pending verifications (same rationale as the live-sessions view).
+    const r = await authFetch(`${BASE}/api/v1/admin/pending-verifications`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     const rows = d.pending || [];

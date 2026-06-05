@@ -258,18 +258,40 @@ function download(url, dest) {
   spawnSync(pyExe, [GET_PIP_SCRIPT, '--no-warn-script-location'],
     { stdio: 'inherit' });
 
-  // 5. Packages — ONE pip pass (pip resolves once + downloads wheels in
-  // parallel internally; --prefer-binary skips slow source builds). The old
-  // per-package serial loop was ~3-5x slower AND swallowed failures (it just
-  // printed "⚠️ failed" and shipped a broken installer). Bake them into the
-  // embeddable interpreter so a fresh Windows install does ZERO first-launch
-  // pip — matching the macOS bundled path.
-  console.log(`[4/4] Installing ${PIP_PACKAGES.length} AI packages in one pass (several minutes)...`);
+  // 5. Packages. insightface ships SOURCE-ONLY (no wheel on any platform); its
+  // setup.py does `import numpy` at build time. On a NORMAL interpreter pip's
+  // PEP 517 build isolation installs insightface's build-system.requires (incl.
+  // numpy) into the isolated build env, so it builds fine (macOS does). But the
+  // Windows EMBEDDABLE python has no ensurepip/venv, so pip's isolated build env
+  // comes up broken/empty → `import numpy` fails → "ModuleNotFoundError: No
+  // module named 'numpy'" while getting requirements to build insightface's
+  // wheel, and the whole bake aborts. Fix: don't rely on build isolation on the
+  // embeddable interpreter. Pre-install the build deps (numpy + Cython) into the
+  // MAIN env, then install everything with --no-build-isolation so insightface
+  // builds against the numpy we just put there. --prefer-binary still uses wheels
+  // for every package that ships one (only insightface + the pure-python
+  // python_speech_features/srt build from source).
+  console.log(`[4/4] Installing ${PIP_PACKAGES.length} AI packages (several minutes)...`);
   spawnSync(pyExe, ['-m', 'pip', 'install', '--upgrade', 'pip', '--no-warn-script-location'],
     { stdio: 'inherit' });
+  // Build deps first. Keep numpy in lockstep with the pinned range in
+  // PIP_PACKAGES so the pre-install can't drift from what the bake resolves.
+  const numpySpec = PIP_PACKAGES.find(p => /^numpy\b/i.test(p)) || 'numpy';
+  const buildDeps = [numpySpec, 'Cython', 'setuptools', 'wheel'];
+  console.log(`[4/4]   build deps (no-isolation prep): ${buildDeps.join(' ')}`);
+  const prep = spawnSync(
+    pyExe,
+    ['-m', 'pip', 'install', '--prefer-binary', '--no-warn-script-location', ...buildDeps],
+    { stdio: 'inherit' }
+  );
+  if (prep.status !== 0) {
+    console.error('[ERROR] failed to install build deps (numpy/Cython) — aborting Windows bake.');
+    process.exit(1);
+  }
   spawnSync(
     pyExe,
-    ['-m', 'pip', 'install', '--prefer-binary', '--no-warn-script-location', ...PIP_PACKAGES],
+    ['-m', 'pip', 'install', '--prefer-binary', '--no-build-isolation',
+      '--no-warn-script-location', ...PIP_PACKAGES],
     { stdio: 'inherit' }
   );
 

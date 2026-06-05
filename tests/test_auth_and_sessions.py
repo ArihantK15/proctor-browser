@@ -499,7 +499,9 @@ class TestValidateStudent:
             assert resp.json()["detail"] == "Invalid student details, invite status, or access code."
 
     def test_already_completed(self, client):
-        """Student who already submitted should get 403."""
+        """Student who already submitted gets a SPECIFIC 409 (not the collapsed
+        generic 403) so the actionable reason — 'already submitted' — reaches
+        them instead of a misleading 'invalid student details'."""
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.routers.exam._load_exam_config", return_value={}), \
              patch("app.routers.exam._get_access_code", return_value=""), \
@@ -523,7 +525,8 @@ class TestValidateStudent:
             mock_table.side_effect = table_side_effect
             resp = client.post("/api/v1/validate-student",
                                json={"roll_number": "ALICE001"})
-            assert resp.status_code in (403, 404)
+            assert resp.status_code == 409, resp.text
+            assert "already submitted" in resp.json()["detail"].lower()
 
     def test_exam_not_started_yet(self, client):
         """Exam window hasn't opened → 403."""

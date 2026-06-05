@@ -426,7 +426,14 @@ async def _check_existing_session(student: dict, student_tid: str, exam_id: str)
     if exam_id:
         q.eq("exam_id", exam_id)
     if (await q.execute()).data:
-        raise HTTPException(status_code=403, detail="You have already submitted this exam.")
+        # 409 (not 403) on purpose: validate_student collapses 403/404 into a
+        # generic "invalid details" message to prevent roll-number enumeration.
+        # But "already submitted" leaks nothing the student doesn't already know
+        # (they sat the exam), and hiding it behind the generic error left
+        # students — and us, while testing — staring at "invalid student details"
+        # with no idea a terminal session was the real block. 409 passes through
+        # the collapse so the actionable reason reaches the student.
+        raise HTTPException(status_code=409, detail="You have already submitted this exam.")
 
     q2 = _atable("exam_sessions").select("session_key,status").eq("roll_number", student["roll_number"]).eq("status", SessionStatus.IN_PROGRESS)
     if student_tid:

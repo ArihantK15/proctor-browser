@@ -590,6 +590,74 @@ async def session_pause(session_id: str, request: Request,
     return {"status": SessionStatus.PAUSED, "paused_at": now.isoformat(), "note": note}
 
 
+@router.post("/api/v1/admin/session/{session_id:path}/reset")
+@limiter.limit("30/minute")
+async def session_reset(session_id: str, request: Request,
+                        body: dict = Body(default_factory=dict)):
+    """Re-open a CLOSED session so the student can re-enter.
+
+    The heartbeat reaper closes a session as ABANDONED after a long
+    disconnection (and auto-scores it), which then blocks re-entry as "already
+    submitted". For a genuine disconnect — or any terminal session the teacher
+    chooses to let the student redo — this flips it back to IN_PROGRESS, clears
+    the submission/score the reaper stamped, and refreshes last_heartbeat so the
+    reaper doesn't immediately re-abandon it before the student reconnects. The
+    student's saved answers are NOT touched, so they resume where they left off.
+
+    Teacher-scoped (you can only reset your own session) and audited. Refuses an
+    already-active session — use pause/resume/end for those.
+    """
+    teacher = await require_admin(request)
+    tid = teacher["id"]
+    sess = await _assert_session_owned(session_id, tid)
+    status = (sess.get("status") or "").lower()
+    if status in (SessionStatus.IN_PROGRESS, SessionStatus.PAUSED):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Session is still active ('{status}'). Use pause/resume or end instead of reset.",
+        )
+
+    now = now_ist()
+    await _atable("exam_sessions").update({
+        "status":         SessionStatus.IN_PROGRESS,
+        "submitted_at":   None,
+        "score":          None,
+        "total":          None,
+        "percentage":     None,
+        "paused_at":      None,
+        "last_heartbeat": now.isoformat(),
+    }).eq("session_key", session_id).eq("teacher_id", str(tid)).execute()
+
+    # The auto-scored result we just cleared was cached — drop it.
+    try:
+        if _cache:
+            _cache.delete(f"risk_score:{session_id}")
+    except Exception:
+        logger.debug("session_reset: risk cache invalidate failed", exc_info=True)
+
+    decided_by = teacher.get("full_name") or teacher.get("email") or tid
+    note = (body.get("note") or "").strip()[:200]
+    audit_detail = f"Session reset (re-opened from '{status}') by {decided_by}"
+    if note:
+        audit_detail += f" — note: {note}"
+    await _atable("violations").insert({
+        "session_key":    session_id,
+        "teacher_id":     str(tid),
+        "violation_type": "session_reset",
+        "severity":       "low",
+        "details":        audit_detail,
+    }).execute()
+
+    # Nudge the live view so the row flips back to active without a reload.
+    try:
+        await _bus_async_publish(f"sessions:{tid}", {"type": "session_reset", "session_id": session_id})
+    except Exception:
+        logger.debug("session_reset: bus publish failed", exc_info=True)
+
+    _admin_log.info("[Reset] %s from:%s by:%s", session_id, status, tid)
+    return {"status": SessionStatus.IN_PROGRESS, "reset_from": status}
+
+
 @router.post("/api/v1/admin/session/{session_id:path}/resume")
 @limiter.limit("30/minute")
 async def session_resume(session_id: str, request: Request,

@@ -348,3 +348,56 @@ class TestPausedSecsSubtraction:
         assert "paused_secs_total" in src
         assert "server_elapsed - paused_secs_total" in src \
             or "server_elapsed = max(0, server_elapsed - paused_secs_total)" in src
+
+
+class TestSessionReset:
+    """POST /admin/session/{id}/reset — re-open a closed/abandoned session so
+    the student can re-enter (disconnect recovery), teacher-scoped + audited."""
+
+    def test_reset_abandoned_reopens_clears_submission_and_audits(self, client):
+        captured: dict = {}
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+                "teachers":      [TEACHER],
+                "exam_sessions": [_session_row(status="abandoned",
+                                               submitted_at="2025-01-01T10:00:00Z",
+                                               score=5, total=10)],
+             }, captured)):
+            resp = client.post("/api/v1/admin/session/S1/reset",
+                               headers=_admin_headers(), json={})
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d["status"] == "in_progress"
+        assert d["reset_from"] == "abandoned"
+        upd = captured.get("exam_sessions_update")
+        assert upd is not None, "reset must update the session"
+        assert upd["status"] == "in_progress"
+        assert upd["submitted_at"] is None            # cleared the reaper's stamp
+        assert upd["score"] is None and upd["total"] is None
+        assert upd.get("last_heartbeat")              # grace period for the reaper
+        assert any(i.get("violation_type") == "session_reset"
+                   for i in captured.get("violations_inserts", [])), "must audit"
+
+    def test_reset_active_session_refused_409_no_write(self, client):
+        captured: dict = {}
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+                "teachers":      [TEACHER],
+                "exam_sessions": [_session_row(status="in_progress")],
+             }, captured)):
+            resp = client.post("/api/v1/admin/session/S1/reset",
+                               headers=_admin_headers(), json={})
+        assert resp.status_code == 409, resp.text
+        assert "exam_sessions_update" not in captured  # refusal writes nothing
+
+    def test_reset_not_owned_blocked_no_write(self, client):
+        captured: dict = {}
+        sm = shared_supabase_mock()
+        with patch.object(sm, "table", side_effect=_table_side_effect({
+                "teachers":      [TEACHER],
+                "exam_sessions": [],   # not this teacher's session
+             }, captured)):
+            resp = client.post("/api/v1/admin/session/S1/reset",
+                               headers=_admin_headers(), json={})
+        assert resp.status_code in (403, 404), resp.text
+        assert "exam_sessions_update" not in captured

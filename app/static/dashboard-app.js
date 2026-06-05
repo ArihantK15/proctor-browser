@@ -1991,6 +1991,10 @@ function renderLive(){
     const risk = s.risk_score == null ? '--' : String(s.risk_score);
     const isPaused    = s.live_state === 'paused';
     const isSubmitted = s.submitted || s.live_state === 'force_submitted' || s.live_state === 'completed';
+    // Reset re-opens a CLOSED/abandoned session (disconnect recovery). Shown for
+    // submitted/terminal rows and stale ones (the reaper marks a long-disconnected
+    // session abandoned → stale here). The backend refuses an active session.
+    const isResettable = isSubmitted || s.live_state === 'stale';
     const state = s.submitted ? 'Submitted'
                  : s.live_state === 'force_submitted' ? 'Force Submitted'
                  : isPaused ? 'PAUSED'
@@ -2016,6 +2020,7 @@ function renderLive(){
         <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
         ${isSubmitted ? '' : `<button class="btn btn-secondary btn-sm" title="Watch the student's live webcam" data-action="openLiveView" data-args='${_jsonArgsForAttr(sid)}'>📷 Camera</button>`}
         ${interventionBtns}
+        ${isResettable ? `<button class="btn btn-secondary btn-sm" title="Re-open this session so the student can re-enter (e.g. after a disconnection)" data-action="confirmResetSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--emerald)">↺ Reset</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -2128,6 +2133,32 @@ async function openInterventionWarn(sid){
     }
   }catch(e){
     showModal('Warning failed', e.message || 'Could not send warning.');
+  }
+}
+
+async function confirmResetSession(sid){
+  // Re-open a closed/abandoned session so the student can re-enter. Their saved
+  // answers are preserved server-side, so a genuine disconnect resumes where it
+  // left off. Optional note is for the teacher's own audit trail.
+  const note = await appPrompt(
+    'Re-open this session so the student can re-enter?\n\n'
+    + 'Use this for a genuine disconnection — the student\'s saved answers are kept, so they resume where they left off. '
+    + 'Add an optional note for your records, or leave blank.',
+    '',
+    {title:'Reset session', okText:'Re-open', multiline:true});
+  if(note === null) return;  // teacher cancelled
+  try{
+    const resp = await authFetch(`${BASE}/api/v1/admin/session/${encodeURIComponent(sid)}/reset`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({note: (note || '').slice(0, 200)}),
+    });
+    if(!resp.ok){
+      const d = await resp.json().catch(()=>({}));
+      throw new Error(d.detail || `HTTP ${resp.status}`);
+    }
+    await refreshLive();
+  }catch(e){
+    showModal('Reset failed', e.message || 'Could not re-open the session.');
   }
 }
 
@@ -4940,11 +4971,90 @@ const TL_ICONS = {
   sustained_offtask:'&#9203;', nervous_evasion:'&#128064;&#65039;',
 };
 
+const TL_NON_VIOLATION_TYPES = new Set([
+  'answer_selected', 'heartbeat', 'exam_started', 'exam_submitted',
+  'session_ended', 'enrollment_started', 'enrollment_complete',
+  'face_enrolled', 'teacher_warning', 'session_paused', 'session_resumed',
+]);
+
+function _tlIsViolation(type){
+  const key = String(type || '').toLowerCase();
+  return key ? !TL_NON_VIOLATION_TYPES.has(key) : false;
+}
+
+function _resetTimelineFilter(){
+  tlFilter = 'all';
+  document.querySelectorAll('.tl-filter-btn').forEach(b => {
+    const active = b.dataset.sev === 'all';
+    b.classList.toggle('active', active);
+    const input = b.querySelector('input[name="tl-sev"]');
+    if(input) input.checked = active;
+  });
+}
+
+function _sessionRollFromId(sid){
+  const raw = String(sid || '');
+  if(!raw) return '—';
+  const parts = raw.split('_');
+  return parts[0] || raw;
+}
+
+function _sameSession(row, sid){
+  const needle = String(sid || '');
+  if(!needle || !row) return false;
+  return [row.session_id, row.session_key, row.id, row.key]
+    .some(v => String(v || '') === needle);
+}
+
+function _findTimelineFallbackRow(sid){
+  const pools = [liveData, resultsData];
+  for(const pool of pools){
+    if(!Array.isArray(pool)) continue;
+    const row = pool.find(r => _sameSession(r, sid));
+    if(row) return row;
+  }
+  return null;
+}
+
+function _buildFallbackTimeline(sid, row, reason){
+  const type = row.last_event || row.event_type || row.status || 'session_status';
+  const severity = String(row.last_severity || row.severity || 'low').toLowerCase();
+  const timestamp = row.last_seen || row.submitted_at || row.started_at || '';
+  const rawTs = row.raw_ts || row.last_seen_raw || row.updated_at || row.created_at || '';
+  const details = row.details || row.last_details ||
+    'This session is visible in Live Sessions, but the full forensic timeline is unavailable for this row.';
+  return {
+    session_id: sid,
+    roll_number: row.roll_number || row.student_roll_number || _sessionRollFromId(sid),
+    full_name: row.full_name || row.name || 'Session',
+    status: row.live_state || row.status || (row.submitted ? 'submitted' : 'visible'),
+    started_at: row.started_at || '',
+    submitted_at: row.submitted_at || '',
+    score: row.score,
+    total: row.total,
+    risk_score: row.risk_score,
+    total_events: type ? 1 : 0,
+    fallback_notice: `Full timeline unavailable (${reason || 'not found'}). Showing the latest authorized row already visible on this dashboard.`,
+    timeline: type ? [{
+      type,
+      severity,
+      timestamp,
+      raw_ts: rawTs,
+      details,
+      is_violation: _tlIsViolation(type),
+      screenshot: row.screenshot || row.screenshot_url || '',
+      room_screenshot: row.room_screenshot || row.room_screenshot_url || '',
+    }] : [],
+  };
+}
+
 function openTimeline(){
   if(!currentSessionId) return;
   closeModal();
   const m=document.getElementById('timeline-modal');
   m.classList.add('open');
+  _resetTimelineFilter();
+  renderTimelineSummary(null);
   document.getElementById('tl-title').textContent='Loading...';
   document.getElementById('tl-meta').innerHTML='';
   document.getElementById('tl-events').innerHTML='<div class="tl-empty"><span class="spinner"></span> Loading timeline...</div>';
@@ -4967,14 +5077,21 @@ async function loadTimeline(sid){
       throw new Error(msg);
     }
     tlData=await r.json();
-    tlFilter='all';
-    // Reset filter buttons
-    document.querySelectorAll('.tl-filter-btn').forEach(b=>{
-      b.classList.toggle('active',b.dataset.sev==='all');
-    });
+    _resetTimelineFilter();
     renderTimelineSummary(tlData.summary||null);
     renderTimeline();
   }catch(e){
+    const fallbackRow = _findTimelineFallbackRow(sid);
+    if(fallbackRow){
+      tlData = _buildFallbackTimeline(sid, fallbackRow, e.message);
+      renderTimelineSummary(null);
+      renderTimeline();
+      return;
+    }
+    document.getElementById('tl-title').textContent='Timeline unavailable';
+    document.getElementById('tl-meta').innerHTML=`<span>Session: <strong>${_escHtml(sid)}</strong></span>`;
+    document.getElementById('tl-scrubber-track').innerHTML='';
+    document.getElementById('tl-scrubber-labels').innerHTML='';
     document.getElementById('tl-events').innerHTML=`<div class="tl-empty" style="color:var(--red)">Failed to load timeline: ${_escHtml(e.message)}</div>`;
   }
 }
@@ -4982,43 +5099,48 @@ async function loadTimeline(sid){
 function renderTimeline(){
   if(!tlData) return;
   const d=tlData;
+  const timeline = Array.isArray(d.timeline) ? d.timeline : [];
+  const totalEvents = d.total_events != null ? d.total_events : timeline.length;
 
   // Title & meta
   document.getElementById('tl-title').textContent=`${d.full_name||'Unknown'} — ${d.roll_number}`;
   document.getElementById('tl-meta').innerHTML=`
-    <span>Status: <strong>${d.status}</strong></span>
-    <span>Started: <strong>${d.started_at||'—'}</strong></span>
-    <span>Submitted: <strong>${d.submitted_at||'—'}</strong></span>
-    <span>Score: <strong>${d.score!=null?d.score+'/'+d.total:'—'}</strong></span>
-    <span>Risk: <strong>${d.risk_score!=null?d.risk_score+'/100':'—'}</strong></span>
-    <span>Events: <strong>${d.total_events}</strong></span>
+    <span>Status: <strong>${_escHtml(d.status || '—')}</strong></span>
+    <span>Started: <strong>${_escHtml(d.started_at||'—')}</strong></span>
+    <span>Submitted: <strong>${_escHtml(d.submitted_at||'—')}</strong></span>
+    <span>Score: <strong>${d.score!=null?_escHtml(d.score+'/'+(d.total ?? '—')):'—'}</strong></span>
+    <span>Risk: <strong>${d.risk_score!=null?_escHtml(d.risk_score+'/100'):'—'}</strong></span>
+    <span>Events: <strong>${_escHtml(totalEvents)}</strong></span>
   `;
 
   // Filter events
-  const events=d.timeline.filter(e=>{
+  const events=timeline.filter(e=>{
     if(tlFilter==='all') return true;
     if(tlFilter==='violations') return e.is_violation;
     return e.severity===tlFilter;
   });
 
   // Scrubber — parse timestamps to build the bar
-  const allTs=d.timeline.map(e=>parseRawTs(e.raw_ts)).filter(t=>t>0);
-  const minTs=Math.min(...allTs), maxTs=Math.max(...allTs);
+  const allTs=timeline.map(e=>parseRawTs(e.raw_ts)).filter(t=>Number.isFinite(t) && t>0);
+  const minTs=allTs.length ? Math.min(...allTs) : 0;
+  const maxTs=allTs.length ? Math.max(...allTs) : 0;
   const range=maxTs-minTs||1;
 
   const track=document.getElementById('tl-scrubber-track');
   track.innerHTML='';
-  events.forEach((e,i)=>{
-    const ts=parseRawTs(e.raw_ts);
-    if(ts<=0) return;
-    const pct=((ts-minTs)/range)*100;
-    const dot=document.createElement('div');
-    dot.className=`tl-dot sev-${e.severity}${e.screenshot?' has-screenshot':''}`;
-    dot.style.left=pct+'%';
-    dot.title=`${e.type.replace(/_/g,' ')} (${e.severity})`;
-    dot.onclick=(ev)=>{ev.stopPropagation();scrollToEvent(i);};
-    track.appendChild(dot);
-  });
+  if(allTs.length){
+    events.forEach((e,i)=>{
+      const ts=parseRawTs(e.raw_ts);
+      if(ts<=0) return;
+      const pct=((ts-minTs)/range)*100;
+      const dot=document.createElement('div');
+      dot.className=`tl-dot sev-${e.severity}${e.screenshot?' has-screenshot':''}`;
+      dot.style.left=pct+'%';
+      dot.title=`${String(e.type || '').replace(/_/g,' ')} (${e.severity})`;
+      dot.onclick=(ev)=>{ev.stopPropagation();scrollToEvent(i);};
+      track.appendChild(dot);
+    });
+  }
 
   // Scrubber labels
   const labels=document.getElementById('tl-scrubber-labels');
@@ -5033,12 +5155,15 @@ function renderTimeline(){
 
   // Event list
   const el=document.getElementById('tl-events');
+  const noticeHtml = d.fallback_notice
+    ? `<div class="tl-notice">${_escHtml(d.fallback_notice)}</div>`
+    : '';
   if(!events.length){
-    el.innerHTML='<div class="tl-empty">No events match the current filter.</div>';
+    el.innerHTML=noticeHtml + '<div class="tl-empty">No events match the current filter.</div>';
     return;
   }
   // Render events and then lazy-load thumbnails
-  el.innerHTML=events.map((e,i)=>{
+  el.innerHTML=noticeHtml + events.map((e,i)=>{
     const icon=TL_ICONS[e.type]||'&#128204;';
     const icCls=`ic-${e.severity}`;
     const timeStr=extractTime(e.timestamp);
@@ -5055,8 +5180,8 @@ function renderTimeline(){
       <div class="tl-time">${timeStr}</div>
       <div class="tl-icon ${icCls}">${icon}</div>
       <div class="tl-body">
-        <div class="tl-type">${e.type.replace(/_/g,' ')}<span style="margin-left:8px;font-size:11px;font-weight:400;color:${e.severity==='high'?'var(--red)':e.severity==='medium'?'var(--amber)':'var(--muted)'}">${e.severity.toUpperCase()}</span></div>
-        ${e.details?`<div class="tl-detail">${esc(e.details)}</div>`:''}
+        <div class="tl-type">${_escHtml(String(e.type || '').replace(/_/g,' '))}<span style="margin-left:8px;font-size:11px;font-weight:400;color:${e.severity==='high'?'var(--red)':e.severity==='medium'?'var(--amber)':'var(--muted)'}">${_escHtml(String(e.severity || '').toUpperCase())}</span></div>
+        ${e.details?`<div class="tl-detail">${_escHtml(e.details)}</div>`:''}
       </div>
       ${thumbHtml}
     </div>`;
@@ -5075,7 +5200,11 @@ function renderTimeline(){
 
 function parseRawTs(raw){
   if(!raw) return 0;
-  try{return new Date(raw.replace(' ','T').replace('Z','+00:00')).getTime()/1000;}catch(e){return 0;}
+  try{
+    const normalized = String(raw).replace(' ','T').replace('Z','+00:00');
+    const ms = new Date(normalized).getTime();
+    return Number.isFinite(ms) ? ms/1000 : 0;
+  }catch(e){return 0;}
 }
 
 function extractTime(formatted){
@@ -5086,6 +5215,7 @@ function extractTime(formatted){
 }
 
 function filterTimeline(){
+  if(!tlData) return;
   const checked=document.querySelector('input[name="tl-sev"]:checked');
   tlFilter=checked?checked.value:'all';
   document.querySelectorAll('.tl-filter-btn').forEach(b=>{

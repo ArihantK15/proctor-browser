@@ -2297,6 +2297,17 @@ function filterResults(){renderResults();}
 // only on the transition from 0 → N. Avoids scroll-jumping every poll.
 let _lastIdReviewCount = 0;
 
+// Mirror of the rows last rendered into the queue. The focus modal
+// (openIdReviewModal) reads this so it can page through students and
+// auto-advance after each decision without re-fetching. Kept in sync by
+// refreshIdReviews on every poll.
+let _idReviewQueue = [];
+let _idReviewModalIdx = -1;   // which student the modal is showing
+let _idReviewPhotoIdx = 0;    // which of that student's photos is shown
+let _idReviewRenderKey = '';  // identity of what's painted, so a poll that
+                              // changes nothing visible skips re-render
+                              // (preserves an in-progress zoom).
+
 async function refreshIdReviews(){
   const section = document.getElementById('id-reviews-section');
   const list = document.getElementById('id-reviews-list');
@@ -2309,38 +2320,42 @@ async function refreshIdReviews(){
     const rows = d.pending || [];
     count.textContent = rows.length;
     section.style.display = rows.length ? '' : 'none';
-    // Render. `tabindex="0"` so the card is keyboard-focusable for
-    // A/R/X shortcuts. Thumbnails open the side-by-side comparison
-    // viewer via _openIdComparisonOverlay.
+    // Compact, single-click rows. The full review — large photos shown
+    // one at a time with Approve / Retake / Reject below — lives in the
+    // focus modal (openIdReviewModal) so the dashboard isn't flooded.
+    // `tabindex=0` keeps the A/R/X keyboard shortcuts working on a
+    // focused row for power users who don't want to open the modal.
     list.innerHTML = rows.map(v => {
-      const safeName   = _escHtml(v.full_name || v.roll_number || 'Student');
-      const safeKey    = _escHtml(v.session_key || '');
-      const selfieAttr = v.selfie_url ? escAttr(v.selfie_url) : '';
-      const idAttr     = v.id_url     ? escAttr(v.id_url)     : '';
-      const compareArgs = _jsonArgsForAttr(selfieAttr, idAttr, v.full_name || v.roll_number || 'Student');
+      const safeName = _escHtml(v.full_name || v.roll_number || 'Student');
+      const safeKey  = _escHtml(v.session_key || '');
+      const thumbUrl = v.selfie_url || v.id_url || '';
+      const thumb = thumbUrl
+        ? `<img src="${escAttr(thumbUrl)}" alt="" class="id-review-thumb" data-error-action="_irImgError">`
+        : `<div class="id-review-thumb id-review-thumb-empty">ID</div>`;
       return `
-      <div class="id-review-card" tabindex="0"
+      <div class="id-review-card" tabindex="0" role="button"
+           data-action="openIdReviewModal" data-args='${_jsonArgsForAttr(v.id)}'
            data-violation-id="${v.id}" data-session-key="${escAttr(v.session_key || '')}"
-           data-full-name="${escAttr(v.full_name || v.roll_number || 'Student')}">
-        <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
-          <div>
-            <div style="font-weight:600;color:var(--text-high)">${safeName}</div>
-            <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${safeKey}</div>
-          </div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,v.full_name||'',"approved")}'>Approve</button>
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,v.full_name||'',"retake")}'>Retake</button>
-            <button class="btn btn-secondary btn-sm" data-action="decideIdReview" data-args='${_jsonArgsForAttr(v.id,v.session_key,v.full_name||'',"rejected")}' style="color:var(--red)">Reject</button>
-          </div>
+           data-full-name="${escAttr(v.full_name || v.roll_number || 'Student')}"
+           title="Open review">
+        ${thumb}
+        <div class="id-review-info">
+          <div class="id-review-name">${safeName}</div>
+          <div class="id-review-roll">${safeKey}</div>
+          <div class="id-review-time">${_escHtml(v.created_at || '')}</div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-          ${selfieAttr ? `<img src="${selfieAttr}" data-action="openIdComparison" data-args='${compareArgs}' style="width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle);cursor:zoom-in" title="Click to compare side by side">` : ''}
-          ${idAttr     ? `<img src="${idAttr}"     data-action="openIdComparison" data-args='${compareArgs}' style="width:96px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle);cursor:zoom-in" title="Click to compare side by side">` : ''}
-          <span style="font-size:11px;color:var(--text-muted);align-self:center">${_escHtml(v.created_at || '')}</span>
-        </div>
+        <span class="id-review-open-hint" aria-hidden="true">Review →</span>
       </div>
     `;
     }).join('');
+    // Keep a focus modal pinned to the SAME student across a background
+    // poll: capture its violation id BEFORE we swap the queue array out
+    // from under it, then re-sync.
+    const _modalOpen = !!document.getElementById('id-review-modal');
+    const _prevVid = (_modalOpen && _idReviewQueue[_idReviewModalIdx])
+      ? _idReviewQueue[_idReviewModalIdx].id : null;
+    _idReviewQueue = rows;
+    if(_modalOpen) _syncIdReviewModalAfterRefresh(_prevVid);
     // Auto-focus + pulse the first card on the 0→N transition.
     if(_lastIdReviewCount === 0 && rows.length > 0){
       const first = list.firstElementChild;
@@ -2355,6 +2370,177 @@ async function refreshIdReviews(){
     console.warn('refreshIdReviews', e);
     section.style.display = 'none';
   }
+}
+
+// ── ID review focus modal ────────────────────────────────────────
+// A click-to-open popup that focuses one student at a time: their
+// captured photos shown large, one at a time (selfie / ID card), with
+// Approve / Retake / Reject below. Reuses decideIdReview() for the
+// actual decision (so the confirm + reason flow is identical) and
+// auto-advances to the next pending student after each decision.
+function _currentIdReviewStudent(){
+  return _idReviewQueue[_idReviewModalIdx] || null;
+}
+function _currentIdReviewPhotos(){
+  const v = _currentIdReviewStudent();
+  if(!v) return [];
+  const out = [];
+  if(v.selfie_url) out.push({label: 'Selfie', url: v.selfie_url});
+  if(v.id_url)     out.push({label: 'ID card', url: v.id_url});
+  return out;
+}
+// Identity of the currently-visible modal state. If a refresh leaves this
+// unchanged we can skip re-rendering (and so preserve an in-progress zoom).
+function _idReviewKey(){
+  const v = _currentIdReviewStudent();
+  if(!v) return '';
+  const photos = _currentIdReviewPhotos();
+  const pIdx = _idReviewPhotoIdx >= photos.length ? 0 : _idReviewPhotoIdx;
+  const cur = photos[pIdx];
+  return `${v.id}|${_idReviewModalIdx}|${_idReviewQueue.length}|${pIdx}|${(cur && cur.url) || ''}`;
+}
+
+function openIdReviewModal(violationId){
+  const idx = _idReviewQueue.findIndex(v => String(v.id) === String(violationId));
+  if(idx < 0) return;
+  _idReviewModalIdx = idx;
+  _idReviewPhotoIdx = 0;
+  let ov = document.getElementById('id-review-modal');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'id-review-modal';
+  ov.className = 'ir-modal';
+  ov.setAttribute('role', 'dialog');
+  ov.setAttribute('aria-modal', 'true');
+  // Click on the backdrop itself (guard-self) closes; clicks inside the
+  // card bubble up to a data-action button instead.
+  ov.setAttribute('data-action', '_closeIdReviewModal');
+  ov.setAttribute('data-guard-self', '');
+  document.body.appendChild(ov);
+  document.addEventListener('keydown', _idReviewModalKeydown);
+  _renderIdReviewModal();
+}
+
+function _renderIdReviewModal(){
+  const ov = document.getElementById('id-review-modal');
+  if(!ov) return;
+  const v = _currentIdReviewStudent();
+  if(!v){ _closeIdReviewModal(); return; }
+  const photos = _currentIdReviewPhotos();
+  if(_idReviewPhotoIdx >= photos.length) _idReviewPhotoIdx = 0;
+  const total = _idReviewQueue.length;
+  const pos   = _idReviewModalIdx + 1;
+  _idReviewRenderKey = _idReviewKey();
+  const name  = _escHtml(v.full_name || v.roll_number || 'Student');
+  const key   = _escHtml(v.session_key || '');
+  const cur   = photos[_idReviewPhotoIdx];
+  const stage = cur
+    ? `<div class="ir-stage-label">${_escHtml(cur.label)} · ${_idReviewPhotoIdx + 1} / ${photos.length}</div>
+       <img class="ir-stage-img" src="${escAttr(cur.url)}" alt="${_escHtml(cur.label)}"
+            title="Click to zoom" data-action="_idReviewZoomToggle" data-error-action="_irImgError">`
+    : `<div class="ir-stage-empty">No photos were captured for this student.</div>`;
+  const photoNav = photos.length > 1
+    ? `<button class="ir-arrow ir-arrow-prev" data-action="_idReviewPhotoNav" data-args='[-1]' aria-label="Previous photo">‹</button>
+       <button class="ir-arrow ir-arrow-next" data-action="_idReviewPhotoNav" data-args='[1]' aria-label="Next photo">›</button>`
+    : '';
+  ov.innerHTML = `
+  <div class="ir-card" role="document">
+    <div class="ir-head">
+      <div class="ir-who">
+        <div class="ir-name">${name}</div>
+        <div class="ir-key">${key}</div>
+      </div>
+      <div class="ir-pos">Review ${pos} of ${total}</div>
+      <button class="ir-close" data-action="_closeIdReviewModal" title="Close (Esc)" aria-label="Close">✕</button>
+    </div>
+    <div class="ir-stage">
+      ${photoNav}
+      ${stage}
+    </div>
+    <div class="ir-dots">${photos.map((p, i) => `<span class="ir-dot${i === _idReviewPhotoIdx ? ' on' : ''}"></span>`).join('')}</div>
+    <div class="ir-actions">
+      <button class="btn id-btn-approve" data-action="_idReviewModalDecide" data-args='["approved"]'>Approve ✓</button>
+      <button class="btn id-btn-retake"  data-action="_idReviewModalDecide" data-args='["retake"]'>Retake</button>
+      <button class="btn id-btn-reject"  data-action="_idReviewModalDecide" data-args='["rejected"]'>Reject ✕</button>
+    </div>
+    <div class="ir-foot">
+      <button class="ir-link" data-action="_idReviewStudentNav" data-args='[-1]' ${pos <= 1 ? 'disabled' : ''}>‹ Prev</button>
+      <span class="ir-hint">A approve · R retake · X reject · ←/→ photos · Esc close</span>
+      <button class="ir-link" data-action="_idReviewStudentNav" data-args='[1]' ${pos >= total ? 'disabled' : ''}>Next ›</button>
+    </div>
+  </div>`;
+}
+
+function _idReviewPhotoNav(delta){
+  const photos = _currentIdReviewPhotos();
+  if(photos.length < 2) return;
+  _idReviewPhotoIdx = (_idReviewPhotoIdx + delta + photos.length) % photos.length;
+  _renderIdReviewModal();
+}
+function _idReviewStudentNav(delta){
+  const next = _idReviewModalIdx + delta;
+  if(next < 0 || next >= _idReviewQueue.length) return;
+  _idReviewModalIdx = next;
+  _idReviewPhotoIdx = 0;
+  _renderIdReviewModal();
+}
+function _idReviewZoomToggle(){ this.classList.toggle('zoomed'); }
+function _irImgError(){ this.style.display = 'none'; }
+
+function _closeIdReviewModal(){
+  const ov = document.getElementById('id-review-modal');
+  if(ov) ov.remove();
+  document.removeEventListener('keydown', _idReviewModalKeydown);
+  _idReviewModalIdx = -1;
+}
+
+// Re-render / advance / close the modal after the queue is refreshed.
+// `prevVid` is the violation id the modal was showing before the swap.
+// If it's still pending → keep showing it (a background poll shouldn't
+// move the teacher). If it's gone (just decided) → the next student has
+// slid into the same slot, so show that one; close if the queue emptied.
+function _syncIdReviewModalAfterRefresh(prevVid){
+  if(!document.getElementById('id-review-modal')) return;
+  if(_idReviewQueue.length === 0){ _closeIdReviewModal(); return; }
+  let at = (prevVid != null)
+    ? _idReviewQueue.findIndex(x => String(x.id) === String(prevVid))
+    : -1;
+  if(at < 0){
+    // Student resolved/removed — keep the slot so the next slides in.
+    at = Math.min(_idReviewModalIdx, _idReviewQueue.length - 1);
+    _idReviewPhotoIdx = 0;
+  }
+  _idReviewModalIdx = Math.max(0, at);
+  // A background poll that changes nothing visible shouldn't repaint the
+  // image (would reset an in-progress zoom). Only re-render on a change.
+  if(_idReviewKey() === _idReviewRenderKey) return;
+  _renderIdReviewModal();
+}
+
+async function _idReviewModalDecide(decision){
+  const v = _currentIdReviewStudent();
+  if(!v) return;
+  // decideIdReview runs the same confirm + reason flow as the inline
+  // queue. On a committed decision it calls refreshIdReviews(), which
+  // re-syncs this modal (advance / close). On cancel nothing changes and
+  // the modal stays on the same student.
+  await decideIdReview(v.id, v.session_key, v.full_name || v.roll_number || '', decision);
+}
+
+function _idReviewModalKeydown(e){
+  if(!document.getElementById('id-review-modal')) return;
+  // A stacked confirm / reason modal owns the keyboard while it's open.
+  const ovEl = document.getElementById('app-modal-overlay');
+  if(ovEl && ovEl.style.display && ovEl.style.display !== 'none') return;
+  if(e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if(tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  const k = e.key;
+  if(k === 'Escape'){ e.preventDefault(); _closeIdReviewModal(); return; }
+  if(k === 'ArrowLeft'){ e.preventDefault(); _idReviewPhotoNav(-1); return; }
+  if(k === 'ArrowRight'){ e.preventDefault(); _idReviewPhotoNav(1); return; }
+  const map = { a: 'approved', A: 'approved', r: 'retake', R: 'retake', x: 'rejected', X: 'rejected' };
+  if(map[k]){ e.preventDefault(); _idReviewModalDecide(map[k]); }
 }
 
 // Build a copy of the side-by-side overlay each call so multiple
@@ -7257,6 +7443,9 @@ document.addEventListener('keydown', (e) => {
   const ovEl = document.getElementById('app-modal-overlay');
   if (ovEl && ovEl.style.display && ovEl.style.display !== 'none') return;
   if (document.getElementById('id-compare-overlay')) return;
+  // The focus modal owns the keyboard while open (the clicked card may
+  // still hold focus underneath it — avoid a double decide).
+  if (document.getElementById('id-review-modal')) return;
   const key = e.key.toLowerCase();
   const map = { a: 'approved', r: 'retake', x: 'rejected' };
   const decision = map[key];

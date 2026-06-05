@@ -410,6 +410,10 @@ jobs:
       - name: Verify published manifests match the tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has no actions/checkout, so there's no local .git for gh to
+          # infer the repo from (it errored "not a git repository"). Point gh at
+          # the repo explicitly so `gh release download/view` work checkout-free.
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           TAG="${GITHUB_REF_NAME}"

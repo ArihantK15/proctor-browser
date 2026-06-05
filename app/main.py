@@ -232,6 +232,7 @@ async def lifespan(_app) -> AsyncIterator[None]:
     _room_frame_cleanup_task = None
     _reaper_task = None
     _ttl_sweeper_task = None
+    _proctor_health_task = None
 
     if os.environ.get("REMINDER_LOOP_DISABLED", "") == "1":
         print(f"[startup] reminders loop disabled by env ({worker_name})", flush=True)
@@ -274,6 +275,19 @@ async def lifespan(_app) -> AsyncIterator[None]:
         )
         print(f"[startup] ttl sweeper started ({worker_name})", flush=True)
 
+    # Proactive fleet proctor-health alert — pages (WARNING log + Sentry when
+    # configured) when on-device failures spike across recent sessions. Device
+    # failures POST as 200s, so nothing else catches a fleet-wide regression.
+    if is_leader and os.environ.get("PROCTOR_HEALTH_ALERT_DISABLED", "") != "1":
+        from .services.fleet_health import proctor_health_alert_loop
+        _proctor_health_task = asyncio.create_task(proctor_health_alert_loop())
+        _proctor_health_task.add_done_callback(
+            lambda t: print(f"[startup] proctor-health alert loop ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
+        print(f"[startup] proctor-health alert loop started ({worker_name})", flush=True)
+
     yield  # ── APP RUNNING ────────────────────────────────────────
 
     # ── SHUTDOWN ──────────────────────────────────────────────────
@@ -292,9 +306,12 @@ async def lifespan(_app) -> AsyncIterator[None]:
     if _reminder_task is not None and not _reminder_task.done():
         _reminder_task.cancel()
         log.info("[shutdown] Cancelled reminder task")
+    if _proctor_health_task is not None and not _proctor_health_task.done():
+        _proctor_health_task.cancel()
+        log.info("[shutdown] Cancelled proctor-health alert task")
 
     # Await cancelled tasks so they can run finally blocks
-    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task]
+    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task, _proctor_health_task]
     for t in cancelled_tasks:
         if t is not None:
             try:

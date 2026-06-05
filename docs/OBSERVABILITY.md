@@ -136,6 +136,43 @@ psql "$DATABASE_URL" -c "SELECT public.sweep_transient_rows();"
 Disable in an emergency: `TTL_SWEEPER_DISABLED=1` env var, then restart
 api containers.
 
+## Fleet proctor health
+
+On-device failures — `proctor_camera_failed` (no camera) and
+`model_load_failed` (a model didn't load, e.g. the RetinaFace download
+failing offline, or a build with a dead onnxruntime) — are POSTed by
+proctor.py as **violations that succeed (200)**, so Sentry's exception
+capture never sees them. Without a rate check a fleet-wide regression stays
+invisible until a student reports it.
+
+`app/services/fleet_health.py` computes the failure **rate** over a rolling
+window (denominator = `proctor_boot`, i.e. how many proctors started):
+
+- **Visibility:** `GET /api/v1/admin/status` → `metrics.proctor_health`
+  (`boots`, `camera_failed_pct`, `model_load_failed_pct`, `degraded`). A breach
+  flips the top-level `status` to `degraded`, so the BetterStack monitor on
+  `/status` (above) catches it.
+- **Proactive alert:** the leader worker runs `proctor_health_alert_loop` every
+  `PROCTOR_HEALTH_ALERT_INTERVAL_SEC` (default 600s) and, on a breach, logs
+  `[ALERT] Fleet proctor health DEGRADED …` (WARNING) and — when `SENTRY_DSN`
+  is set — `capture_message(level=error)`, so it shows up as a Sentry issue you
+  can alert-rule on.
+
+Thresholds (env-tunable; defaults shown):
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `PROCTOR_HEALTH_WINDOW_MINS` | 60 | rolling window |
+| `PROCTOR_HEALTH_MIN_BOOTS` | 5 | min boots before flagging (avoids 1/1 = 100% noise) |
+| `PROCTOR_CAMERA_FAIL_PCT` | 20 | camera-failure rate that flags degraded |
+| `PROCTOR_MODEL_FAIL_PCT` | 30 | model-load-failure rate that flags degraded |
+| `PROCTOR_HEALTH_ALERT_DISABLED` | — | `=1` to disable the alert loop |
+
+Triage a degraded reading: a spike in `model_load_failed` right after a
+desktop release usually means a bad build (e.g. an un-bundled model or a
+broken runtime) — check the latest tag and consider `scripts/rollback-release.sh`.
+A `camera_failed` spike is more often environmental (drivers / permissions).
+
 ## CI / deploy
 
 GitHub Actions workflow `deploy.yml` has two jobs:

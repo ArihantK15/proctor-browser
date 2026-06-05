@@ -274,6 +274,20 @@ async def get_status(request: Request):
     except Exception:
         metrics["submit_failures_24h"] = None
 
+    # Fleet proctor health — device-failure rates Sentry can't see (the events
+    # POST as 200s). Surfaced here for the status page + any admin monitor; the
+    # leader worker's alert loop pages on a sustained breach. A breach degrades
+    # the overall status so a watcher on the `status` field notices.
+    try:
+        from ..services.fleet_health import proctor_fleet_health
+        ph = await proctor_fleet_health()
+        metrics["proctor_health"] = ph
+        if ph.get("degraded"):
+            ok = False
+    except Exception:
+        _log.warning("admin_status: proctor health gather failed", exc_info=True)
+        metrics["proctor_health"] = None
+
     uptime_sec = round(time.time() - _REQ_TS, 1)
 
     return {

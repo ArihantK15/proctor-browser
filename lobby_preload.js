@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld('procta_native', {
   // already loaded — main.js pushes via IPC in that case.
   // App version for the on-screen "Procta vX.Y.Z" badge.
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  // Pre-exam System Check (Phase 1.4). Exercises the full on-device
+  // pipeline (Python, AI packages, models, camera, mic, speech models)
+  // and resolves a green/red summary per component. On-device only —
+  // returns metadata, never media. The dashboard's "Run system check"
+  // button calls this. Can take up to ~60s on a cold machine.
+  runSystemCheck: () => ipcRenderer.invoke('run-system-check'),
   // Background AI-setup state, so the dashboard's "Start exam" flow can
   // show "Preparing AI environment…" when a launch lands before setup has
   // finished (the lobby now opens before Python provisioning completes).

@@ -49,7 +49,7 @@ const { runIntegrityChecks } = require('./lib/integrity');
 const {
   startSetupInBackground, getSetupState, isSetupReady,
   startPython, stopPython, startCalibration, stopCalibration,
-  reapOrphanProctors, ensureCameraAccess,
+  reapOrphanProctors, ensureCameraAccess, runSystemCheck,
 } = require('./lib/python-manager');
 const { startPolling, stopPolling } = require('./lib/polling');
 
@@ -780,6 +780,43 @@ ipcMain.on('get-server-url-sync', (event) => {
 // non-sensitive string, so no frame gate — handy for support + spotting
 // which build a student is on (e.g. when an update hasn't landed yet).
 ipcMain.handle('get-app-version', () => { try { return app.getVersion(); } catch { return ''; } });
+
+// ── Pre-exam System Check (Phase 1.4) ─────────────────────────────
+// The lobby ("Run system check") invokes this to exercise the full
+// on-device pipeline (Python, AI packages, every model via
+// proctor.py --selftest, camera, mic, speech models) and get a green/red
+// summary per component. 100% on-device — the heavy lifting is in
+// python-manager.runSystemCheck(), which never ships media or identity.
+// Frame-gated like every other lobby handler.
+ipcMain.handle('run-system-check', async (event) => {
+  if (!_assertMainFrame(event, 'run-system-check')) throw new Error('Frame not allowed');
+  let result;
+  try {
+    result = await runSystemCheck();
+  } catch (e) {
+    console.error('[SystemCheck] run failed:', e.message);
+    return { ok: false, error: 'system-check-failed', components: {} };
+  }
+  // Best-effort, METADATA-ONLY telemetry. Posts through the existing
+  // /api/v1/event pipeline via the PRACTICE_ session prefix, which the
+  // server short-circuits to a stdout log BEFORE require_auth — so the
+  // lobby (which may hold no student token) can report readiness without
+  // auth. `details` carries ONLY OS/arch/version + per-component status
+  // strings + tier (result.summary). NEVER frames, audio, identity, or
+  // file paths. Fire-and-forget: offline / server-down must not surface.
+  try {
+    fetchWithTimeout(`${SERVER_URL}/api/v1/event`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: `PRACTICE_SYSCHECK_${Date.now()}`,
+        event_type: 'system_check',
+        severity: result.ok ? 'low' : 'medium',
+        details: JSON.stringify(result.summary || { ok: result.ok }),
+      }),
+    }, 5000).catch(() => {});
+  } catch (e) { /* telemetry is best-effort — never block the result */ }
+  return result;
+});
 
 ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
   if (!_assertMainFrame(event, 'lobby-launch-exam')) throw new Error('Frame not allowed');

@@ -1211,6 +1211,98 @@ async function _pfCheckBandwidth() {
   }
 }
 
+// ─── Pre-exam System Check (Phase 1.4) ────────────────────────
+// A proactive, on-device readiness probe a student can run BEFORE exam
+// day. Calls window.procta_native.runSystemCheck() (Electron main →
+// python-manager) which exercises the FULL local pipeline — Python, AI
+// packages, every model (proctor.py --selftest), camera, microphone, and
+// speech models — and returns a green/red summary per component. 100%
+// on-device: nothing here records or uploads media. Only available inside
+// the Procta app (the bridge is injected by lobby_preload.js); in a plain
+// browser the button explains that.
+const _SYSCHECK_ROWS = ['python', 'packages', 'models', 'camera', 'mic', 'audio'];
+let _syscheckRunning = false;
+
+function _setSyscheckRow(key, status, text) {
+  const row = document.querySelector(`[data-syscheck="${key}"]`);
+  if (!row) return;
+  const map = {
+    green: { icon: '✅', color: 'var(--emerald)' },
+    warn:  { icon: '⚠️', color: 'var(--amber)' },
+    red:   { icon: '❌', color: 'var(--red)' },
+    skip:  { icon: '➖', color: 'var(--muted)' },
+    wait:  { icon: '⌛', color: '' },
+  };
+  const m = map[status] || map.wait;
+  row.querySelector('.pf-icon').textContent = m.icon;
+  const st = row.querySelector('.pf-status');
+  st.textContent = text || '';
+  st.style.color = m.color;
+}
+
+function openSystemCheck() {
+  if (!INSIDE_PROCTA_APP || !window.procta_native || typeof window.procta_native.runSystemCheck !== 'function') {
+    showModal('Open this page inside the Procta app to run the on-device system check.');
+    return;
+  }
+  document.getElementById('syscheck-modal').classList.add('active');
+  runSystemCheckUI();
+}
+
+function closeSystemCheck() {
+  document.getElementById('syscheck-modal').classList.remove('active');
+}
+
+async function runSystemCheckUI() {
+  if (_syscheckRunning) return;
+  if (!INSIDE_PROCTA_APP || !window.procta_native || typeof window.procta_native.runSystemCheck !== 'function') {
+    return;
+  }
+  _syscheckRunning = true;
+  const rerunBtn = document.getElementById('syscheck-rerun-btn');
+  const summaryEl = document.getElementById('syscheck-summary');
+  if (rerunBtn) { rerunBtn.disabled = true; rerunBtn.textContent = 'Checking…'; }
+  if (summaryEl) { summaryEl.style.color = 'var(--muted)'; summaryEl.textContent = 'Running on-device checks — this can take up to a minute…'; }
+  _SYSCHECK_ROWS.forEach(k => _setSyscheckRow(k, 'wait', 'Checking…'));
+
+  let result;
+  try {
+    result = await window.procta_native.runSystemCheck();
+  } catch (e) {
+    _SYSCHECK_ROWS.forEach(k => _setSyscheckRow(k, 'red', 'Check failed'));
+    if (summaryEl) { summaryEl.style.color = 'var(--red)'; summaryEl.textContent = 'The system check could not run. Restart the Procta app and try again.'; }
+    _syscheckRunning = false;
+    if (rerunBtn) { rerunBtn.disabled = false; rerunBtn.textContent = 'Re-run'; }
+    return;
+  }
+
+  const comps = (result && result.components) || {};
+  _SYSCHECK_ROWS.forEach(k => {
+    const c = comps[k];
+    if (!c) { _setSyscheckRow(k, 'red', 'Check failed'); return; }
+    _setSyscheckRow(k, c.status || 'red', c.detail || (c.status || ''));
+  });
+
+  if (summaryEl) {
+    if (result && result.ok) {
+      summaryEl.style.color = 'var(--emerald)';
+      summaryEl.textContent = 'You’re ready to take an exam on this device.';
+    } else {
+      summaryEl.style.color = 'var(--red)';
+      // The exam-blocking components are Python, packages, and camera.
+      const blockers = ['python', 'packages', 'camera']
+        .filter(k => comps[k] && comps[k].status === 'red')
+        .map(k => ({ python: 'Python runtime', packages: 'AI packages', camera: 'Camera' }[k]));
+      summaryEl.textContent = blockers.length
+        ? `Resolve before your exam: ${blockers.join(', ')}.`
+        : 'Some components reported issues — see the rows above.';
+    }
+  }
+
+  _syscheckRunning = false;
+  if (rerunBtn) { rerunBtn.disabled = false; rerunBtn.textContent = 'Re-run'; }
+}
+
 // ─── Practice mode launch ─────────────────────────────────────
 // Generates a one-shot PRACTICE_<8 hex> roll number and routes
 // through the existing launchExam IPC. The server detects the

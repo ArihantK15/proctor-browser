@@ -551,11 +551,18 @@
 
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <h2 class="section-title" style="margin-bottom:0">Upcoming exams</h2>
-    <button id="exams-refresh-btn" class="btn btn-secondary" data-action="refreshExams"
-            style="padding:6px 14px;font-size:13px"
-            title="Refresh — use this if you just registered for a new exam in your browser">
-      Refresh
-    </button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button id="syscheck-btn" class="btn btn-secondary" data-action="openSystemCheck"
+              style="padding:6px 14px;font-size:13px"
+              title="Run a full on-device readiness check before exam day — camera, microphone, and the AI models all run locally on your machine">
+        System check
+      </button>
+      <button id="exams-refresh-btn" class="btn btn-secondary" data-action="refreshExams"
+              style="padding:6px 14px;font-size:13px"
+              title="Refresh — use this if you just registered for a new exam in your browser">
+        Refresh
+      </button>
+    </div>
   </div>
   <p class="section-subtitle">Exams you've been enrolled in by your teachers. Launch the Procta app to sit them.</p>
 
@@ -607,6 +614,55 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" style="flex:1" data-action="closePreflight">Cancel</button>
         <button class="btn btn-primary" style="flex:1" id="preflight-start-btn" data-action="launchAfterPreflight" disabled>Start exam</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pre-exam System Check modal (Phase 1.4). A proactive, on-device
+       readiness probe a student can run BEFORE exam day. Every row is
+       populated from window.procta_native.runSystemCheck(), which exercises
+       the full LOCAL pipeline (Python, AI packages, models, camera, mic,
+       speech models). 100% on-device — nothing here leaves the machine. -->
+  <div class="modal-backdrop" id="syscheck-modal">
+    <div class="modal-card" style="max-width:480px">
+      <h3>System check</h3>
+      <p class="sub">Runs entirely on your device — we test the AI environment, camera, and microphone locally. Nothing is recorded or uploaded. This can take up to a minute the first time.</p>
+      <div id="syscheck-results" style="margin:16px 0">
+        <div class="pf-row" data-syscheck="python">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">Python runtime</span>
+          <span class="pf-status">Waiting…</span>
+        </div>
+        <div class="pf-row" data-syscheck="packages">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">AI packages</span>
+          <span class="pf-status">Waiting…</span>
+        </div>
+        <div class="pf-row" data-syscheck="models">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">AI models</span>
+          <span class="pf-status">Waiting…</span>
+        </div>
+        <div class="pf-row" data-syscheck="camera">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">Camera</span>
+          <span class="pf-status">Waiting…</span>
+        </div>
+        <div class="pf-row" data-syscheck="mic">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">Microphone</span>
+          <span class="pf-status">Waiting…</span>
+        </div>
+        <div class="pf-row" data-syscheck="audio">
+          <span class="pf-icon">&#8987;</span>
+          <span class="pf-label">Speech models</span>
+          <span class="pf-status">Waiting…</span>
+        </div>
+      </div>
+      <div id="syscheck-summary" class="modal-err" style="color:var(--muted)"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" style="flex:1" data-action="closeSystemCheck">Close</button>
+        <button class="btn btn-primary" style="flex:1" id="syscheck-rerun-btn" data-action="runSystemCheckUI">Re-run</button>
       </div>
     </div>
   </div>

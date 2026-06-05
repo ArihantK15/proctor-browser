@@ -3145,44 +3145,96 @@ def _camera_has_frames(cap, attempts: int = 12) -> bool:
     return False
 
 
-def _open_camera():
-    """Open a real camera with platform-specific fallbacks.
+def _frame_is_usable(frame) -> bool:
+    """True if a frame looks like a real, lit COLOR image — not the near-black
+    or grayscale output of an IR / Windows-Hello camera. _open_camera uses this
+    to skip the IR camera on dual-camera laptops: it streams fine (so the old
+    'has frames' check accepted it), but its mono/dark frames yield no face, so
+    gaze calibration sat forever on 'No face detected'."""
+    try:
+        if frame is None or getattr(frame, "size", 0) == 0:
+            return False
+        if getattr(frame, "ndim", 0) < 3 or frame.shape[2] < 3:
+            return False  # single-channel feed = IR / grayscale
+        b = float(frame[:, :, 0].mean())
+        g = float(frame[:, :, 1].mean())
+        r = float(frame[:, :, 2].mean())
+        if (r + g + b) / 3.0 < 12.0:                        # essentially black (shutter / IR, no illum)
+            return False
+        if max(abs(r - g), abs(g - b), abs(r - b)) < 3.0:   # R≈G≈B → grayscale / IR
+            return False
+        return True
+    except Exception:
+        return True  # never reject on a probe error — degrade to "usable"
 
-    Browser pre-checks use Chromium's camera stack, while proctoring uses
-    OpenCV. On Windows especially, the default backend can fail while MSMF or
-    DSHOW succeeds, so every candidate must be checked with isOpened() and a
-    real frame read instead of relying on VideoCapture object truthiness.
+
+def _camera_probe(cap, attempts: int = 12):
+    """Read up to `attempts` frames (first ones are often blank on Windows).
+    Returns (had_any_frame, had_usable_color_frame)."""
+    had = False
+    for _ in range(attempts):
+        ok, frame = cap.read()
+        if ok and frame is not None and getattr(frame, "size", 0) > 0:
+            had = True
+            if _frame_is_usable(frame):
+                return True, True
+        time.sleep(0.03)
+    return had, False
+
+
+def _open_camera():
+    """Open a real camera, PREFERRING one that yields a usable color frame.
+
+    Browser pre-checks use Chromium's camera stack; proctoring uses OpenCV. Two
+    problems this handles: (1) on Windows the default backend can fail while
+    MSMF/DSHOW succeeds, so each candidate is frame-tested, not trusted on
+    isOpened(); (2) dual-camera (RGB+IR, Windows Hello) laptops enumerate the IR
+    camera too — it streams but its mono/dark frames never yield a face, and the
+    old 'first camera with any frames' rule grabbed it. So take the FIRST camera
+    with a usable COLOR frame, and fall back to any camera that at least streams
+    only if none qualify (a dark room / mono webcam is better proctored than not
+    at all). PROCTOR_CAMERA_INDEX forces a specific index as an escape hatch.
     """
-    for idx in (0, 1, 2):
+    forced = os.environ.get("PROCTOR_CAMERA_INDEX", "").strip()
+    indices = [int(forced)] if forced.isdigit() else [0, 1, 2]
+    fallback = None  # (idx, backend_name, backend) — first cam with ANY frames
+
+    for idx in indices:
         for backend_name, backend in _camera_backend_candidates():
             cap = None
             try:
                 print(f"[CAM] Trying camera index={idx} backend={backend_name}")
-                if backend is None:
-                    cap = cv2.VideoCapture(idx)
-                else:
-                    cap = cv2.VideoCapture(idx, backend)
+                cap = cv2.VideoCapture(idx) if backend is None else cv2.VideoCapture(idx, backend)
                 if cap is None or not cap.isOpened():
+                    if cap is not None:
+                        cap.release()
                     continue
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                if _camera_has_frames(cap):
-                    print(f"[CAM] Ready index={idx} backend={backend_name}")
-                    return cap, {"index": idx, "backend": backend_name}
+                had, usable = _camera_probe(cap)
+                if usable:
+                    print(f"[CAM] Ready (usable color) index={idx} backend={backend_name}")
+                    return cap, {"index": idx, "backend": backend_name, "usable": True}
+                if had and fallback is None:
+                    fallback = (idx, backend_name, backend)
+                cap.release()
             except Exception as exc:
                 print(f"[CAM] Failed index={idx} backend={backend_name}: "
                       f"{type(exc).__name__}: {exc}")
-            finally:
-                if cap is not None and (not cap.isOpened() or cap is None):
+                if cap is not None:
                     try:
                         cap.release()
                     except Exception:
                         pass
-            if cap is not None:
-                try:
-                    cap.release()
-                except Exception:
-                    pass
+
+    if fallback is not None:
+        idx, backend_name, backend = fallback
+        print(f"[CAM] No usable color camera — falling back to index={idx} backend={backend_name}")
+        cap = cv2.VideoCapture(idx) if backend is None else cv2.VideoCapture(idx, backend)
+        if cap is not None and cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            return cap, {"index": idx, "backend": backend_name, "usable": False}
     return None, None
 
 

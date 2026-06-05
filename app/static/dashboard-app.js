@@ -401,6 +401,7 @@ function onExamSwitch(examId){
   if (_shareLinkTeacherId) _populateShareLinks(_shareLinkTeacherId);
   // Reset data and reload everything for the new exam
   liveData = []; resultsData = []; qData = [];
+  _reloadQuestionsIfActive();
   refreshAll();
 }
 
@@ -444,6 +445,10 @@ async function createExam(){
     currentExamId = d.exam_id;
     await loadExams();
     liveData = []; resultsData = []; qData = [];
+    // A brand-new exam has no questions — resync the editor so it clears
+    // the previous exam's title + question cards instead of showing stale
+    // data (the dropdown switched but the editor wouldn't reload on its own).
+    _reloadQuestionsIfActive();
     refreshAll();
   }catch(e){
     document.getElementById('create-exam-err').textContent = e.message;
@@ -479,6 +484,7 @@ async function confirmDeleteExam(){
     currentExamId = null;
     await loadExams();
     liveData = []; resultsData = []; qData = [];
+    _reloadQuestionsIfActive();
     refreshAll();
   }catch(e){ showModal('Delete failed: '+e.message); }
 }
@@ -518,6 +524,7 @@ async function duplicateCurrentExam(){
     const sel = document.getElementById('exam-select');
     if (sel) sel.value = d.exam_id;
     liveData = []; resultsData = []; qData = [];
+    _reloadQuestionsIfActive();
     refreshAll();
     showModal(`Created "${d.exam_title}" with ${d.questions_copied} question(s).`);
   } catch (e) {
@@ -3800,6 +3807,18 @@ async function savePhoneCamConfig(){
 let qData = [];       // array of question objects (with correct answers)
 let qPreviewMode = false;
 let qDirty = false;   // unsaved changes flag
+
+// loadQuestions() only fires on a tab-switch INTO the Questions tab
+// (switchTab) when qData is empty. When the active exam changes while the
+// teacher is already viewing Questions, nothing re-triggers it, so the
+// editor keeps showing the previous exam's title + questions. Call this
+// after any exam change to resync the editor in that case. (When NOT on
+// the Questions tab we leave qData empty so switchTab reloads it on the
+// next visit — the existing behaviour.)
+function _reloadQuestionsIfActive(){
+  const p = document.getElementById('panel-questions');
+  if(p && p.classList.contains('active')) loadQuestions();
+}
 
 async function loadQuestions(){
   const el = document.getElementById('q-editor');

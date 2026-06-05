@@ -451,8 +451,21 @@ tr:hover td{background:rgba(61,217,168,.04)}
 .status-stale{background:rgba(148,163,184,.08);color:var(--muted)}
 
 /* ── Modal ────────────────────────────────────────────────────── */
+/* Modal backdrop. TWO open/close conventions coexist on .modal-bg and
+   both must work:
+     • `.hidden` convention — JS toggles the `hidden` class to show/hide
+       (onboard "?", roomcam/secondary camera, liveview, triage, grade,
+       upgrade, issue-report). Showing = REMOVING `hidden`, so the base
+       state must be VISIBLE.
+     • `.open` convention — JS toggles the `open` class (detail,
+       broadcast, timeline).
+   Base is therefore display:flex, `.hidden` force-hides, and `.open`
+   (declared AFTER `.hidden`) re-shows the .open-convention modals, which
+   keep `hidden` in their markup so they don't flash on first paint.
+   EVERY .modal-bg element must start with `hidden` in its markup. */
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;
-  display:none;align-items:center;justify-content:center;padding:16px}
+  display:flex;align-items:center;justify-content:center;padding:16px}
+.modal-bg.hidden{display:none}
 .modal-bg.open{display:flex}
 .modal{background:var(--card);border:1px solid var(--border);border-radius:12px;
   padding:32px;width:700px;max-width:min(95vw,900px);max-height:calc(100dvh - 32px);overflow-y:auto;

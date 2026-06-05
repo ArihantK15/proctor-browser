@@ -177,6 +177,12 @@ def heartbeat_age_seconds(hb) -> float | None:
 
 def derive_live_state(meta: dict) -> tuple[str, int | None]:
     status = (meta.get("status") or "").lower()
+    if status == SessionStatus.PAUSED:
+        # Surface paused AS paused so the dashboard renders the Resume button.
+        # Without this it fell through to live/stale (a paused student stops
+        # heartbeating → "stale"), so a teacher could pause but never unpause
+        # from the UI — the Resume control only shows when live_state=='paused'.
+        return "paused", None
     if status in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED) or meta.get("submitted_at"):
         return "submitted", None
     age = heartbeat_age_seconds(meta.get("last_heartbeat"))

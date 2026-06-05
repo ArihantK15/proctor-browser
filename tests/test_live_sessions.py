@@ -362,3 +362,18 @@ def test_proctor_readiness_none_without_proctor_events():
 def test_proctor_readiness_tolerates_bad_details_json():
     evs = [{"violation_type": "proctoring_tier", "details": "not json{"}]
     assert _derive_proctor_readiness(evs) == (None, [])
+
+
+# ── derive_live_state: paused must surface so the dashboard shows Resume ──────
+from app.services.sessions import derive_live_state  # noqa: E402
+
+
+def test_derive_live_state_surfaces_paused():
+    # The Resume button only renders when live_state=='paused'; before this,
+    # a paused session fell through to live/stale and was un-resumable in the UI.
+    assert derive_live_state({"status": "paused"})[0] == "paused"
+
+
+def test_derive_live_state_terminal_and_stale_unchanged():
+    assert derive_live_state({"status": "completed"})[0] == "submitted"
+    assert derive_live_state({"status": "in_progress"})[0] == "stale"  # no heartbeat

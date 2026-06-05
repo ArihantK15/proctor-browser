@@ -390,3 +390,61 @@ jobs:
           gh release upload "$TAG" latest-mac.yml --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Post-publish safety net ────────────────────────────────────────────────
+  # After the installers AND both auto-update manifests are published, verify
+  # the release is internally consistent so a bad publish can't SILENTLY break
+  # auto-update or new downloads. Runs ONLY on a tag and ONLY after build +
+  # merge-mac-manifest succeed, so it can ALERT (red run + notification) but
+  # never blocks the publish that already happened. For latest.yml (win) AND
+  # latest-mac.yml (mac) it asserts:
+  #   • version == the tag — electron-updater compares this; a mismatch means
+  #     clients never see the update (or loop on it)
+  #   • every file the manifest references is a real release asset — a missing
+  #     asset 404s mid-update and bricks the updater
+  # Pairs with scripts/rollback-release.sh for the response when this trips.
+  verify-release:
+    needs: [build, merge-mac-manifest]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify published manifests match the tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          WANT="${TAG#v}"
+          echo "Verifying release $TAG (expected version $WANT)"
+          if ! gh release download "$TAG" -p 'latest*.yml' -D _relverify --clobber; then
+            echo "::error::could not download latest*.yml from $TAG — auto-update manifests missing"
+            exit 1
+          fi
+          assets="$(gh release view "$TAG" --json assets -q '.assets[].name')"
+          fail=0
+          for mf in _relverify/latest.yml _relverify/latest-mac.yml; do
+            if [ ! -f "$mf" ]; then
+              echo "::error::missing manifest $(basename "$mf")"; fail=1; continue
+            fi
+            ver="$(awk '/^version:/{print $2; exit}' "$mf" | tr -d '\r')"
+            if [ "$ver" = "$WANT" ]; then
+              echo "OK  $(basename "$mf") version $ver"
+            else
+              echo "::error::$(basename "$mf") version '$ver' != tag '$WANT'"; fail=1
+            fi
+            while read -r url; do
+              [ -n "$url" ] || continue
+              if printf '%s\n' "$assets" | grep -qxF "$url"; then
+                echo "    OK asset $url"
+              else
+                echo "::error::$(basename "$mf") references missing asset '$url'"; fail=1
+              fi
+            done < <(awk '/^[[:space:]]*-[[:space:]]*url:/{print $3}' "$mf" | tr -d '\r')
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::release $TAG manifest verification FAILED — auto-update may be broken; see scripts/rollback-release.sh"
+            exit 1
+          fi
+          echo "Release $TAG verified: manifest versions match the tag and all referenced assets exist."

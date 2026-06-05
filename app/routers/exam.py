@@ -1622,19 +1622,33 @@ async def id_verification(data: IdVerifyIn, request: Request):
         existing_sess = await _atable("exam_sessions").select("session_key")\
             .eq("session_key", data.session_id).limit(1).execute()
         if not existing_sess.data:
-            sess_row = {
+            # Only these four are REQUIRED to satisfy violations' session FK.
+            base_row = {
                 "session_key": data.session_id,
                 "roll_number": raw_roll,
                 "status":      SessionStatus.IN_PROGRESS,
                 "started_at":  now_ist().isoformat(),
             }
+            # student_id (→ student_accounts), teacher_id (→ teachers) and
+            # exam_id are nice-to-have for scoping/results, but each is its own
+            # FK — a stale/mismatched sid claim (seen after manual session
+            # surgery) fails the WHOLE insert, leaving no session row so the
+            # verification below 500s on the FK. Attempt the full row, then fall
+            # back to the bare required columns so the row always lands.
+            full_row = dict(base_row)
             if claims.get("sid"):
-                sess_row["student_id"] = claims.get("sid")
+                full_row["student_id"] = claims.get("sid")
             if tid:
-                sess_row["teacher_id"] = str(tid)
+                full_row["teacher_id"] = str(tid)
             if claims.get("eid"):
-                sess_row["exam_id"] = claims.get("eid")
-            await _atable("exam_sessions").insert(sess_row).execute()
+                full_row["exam_id"] = claims.get("eid")
+            try:
+                await _atable("exam_sessions").insert(full_row).execute()
+            except Exception as e_full:
+                _exam_log.warning(
+                    "[ID Verify] full session insert failed (%s) — retrying with "
+                    "required columns only", safe(e_full))
+                await _atable("exam_sessions").insert(base_row).execute()
     except Exception as e:
         _exam_log.warning("[ID Verify] ensure-session failed (may be a race): %s", safe(e))
 

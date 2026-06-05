@@ -247,6 +247,64 @@ class TestIdVerificationWriter:
         assert sr["exam_id"] == "exam-C"
         assert captured.get("violations"), "the verification violation must still be recorded"
 
+    def test_writer_falls_back_to_minimal_session_when_full_insert_fails(
+            self, client, tmp_path, monkeypatch):
+        """If the full session insert fails (e.g. a stale student_id ->
+        student_accounts FK after manual session surgery), the writer retries
+        with ONLY the required columns so the verification still records instead
+        of 500ing on the violation FK."""
+        monkeypatch.setenv("SCREENSHOTS_DIR", str(tmp_path))
+        token = make_student_token(roll="DARA004", tid="teacher-1", eid="exam-D")
+        captured = {"exam_sessions": []}
+
+        class _Result:
+            def __init__(self, data): self._data = data
+            async def _r(self):
+                class _R: data = self._data
+                return _R()
+            def __await__(self): return self._r().__await__()
+
+        class _RaiseAwaitable:
+            def __init__(self, exc): self._exc = exc
+            def __await__(self):
+                async def _r(): raise self._exc
+                return _r().__await__()
+
+        class _Chain:
+            def __init__(self, table):
+                self._table = table; self._row = None
+            def select(self, *a, **k): return self
+            def eq(self, *a, **k): return self
+            def order(self, *a, **k): return self
+            def limit(self, *a, **k): return self
+            def insert(self, row): self._row = row; return self
+            def execute(self):
+                row, self._row = self._row, None
+                if self._table == "exam_sessions" and row is not None:
+                    captured["exam_sessions"].append(row)
+                    # Full row (carries the optional FK columns) FK-fails;
+                    # the minimal retry (none of them) succeeds.
+                    if any(k in row for k in ("student_id", "teacher_id", "exam_id")):
+                        return _RaiseAwaitable(Exception("insert violates FK student_id"))
+                return _Result(data=[])
+
+        with patch("app.routers.exam._atable", side_effect=_Chain), \
+             patch("app.dependencies._check_session_ownership"):
+            resp = client.post(
+                "/api/v1/id-verification",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"session_id": "DARA004_1", "roll_number": "DARA004",
+                      "selfie_frame": _TINY_JPEG_B64, "id_frame": _TINY_JPEG_B64,
+                      "full_name": "Dara Example"},
+            )
+        assert resp.status_code == 200, resp.text
+        rows = captured["exam_sessions"]
+        assert len(rows) >= 2, f"expected full-then-minimal inserts, got {rows}"
+        minimal = rows[-1]
+        assert minimal["session_key"] == "DARA004_1"
+        assert minimal["status"] == "in_progress"
+        assert not any(k in minimal for k in ("teacher_id", "exam_id", "student_id"))
+
 
 # ─── READER: /api/v1/admin/pending-verifications must filter ─────────────
 

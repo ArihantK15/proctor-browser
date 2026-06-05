@@ -75,9 +75,14 @@ MODELS = [
     },
     {
         "name": "silero-vad",
-        "url":  "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx",
+        # PINNED to a release tag (was raw/master — a moving branch that could
+        # swap the model under us between builds). v6.2.1's file is byte-
+        # identical to the master we'd been pulling, so this changes nothing but
+        # makes it deterministic; the SHA below now enforces integrity (a
+        # mismatch is rejected → falls back to the RMS-only voice path).
+        "url":  "https://github.com/snakers4/silero-vad/raw/v6.2.1/src/silero_vad/data/silero_vad.onnx",
         "dir":  "silero_vad.onnx",  # single file
-        "sha":  "",
+        "sha":  "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
     },
 ]
 

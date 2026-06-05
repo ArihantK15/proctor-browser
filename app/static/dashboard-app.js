@@ -1926,6 +1926,24 @@ function _calBadge(cal){
   return `<span class="badge" title="${escAttr((cal && cal.reason) || '')}">${_escHtml(label)}</span>`;
 }
 
+// On-device proctor readiness, from the proctoring_tier / proctor_camera_failed
+// events the backend folds into each session. Only surfaced when DEGRADED so a
+// teacher can see a student whose exam is proctored at reduced capacity — or
+// not at all — instead of assuming full AI coverage. Full/unknown shows nothing.
+function _proctorBadge(s){
+  const tier = s && s.proctor_tier;
+  if(!tier || tier === 'full') return '';
+  const missing = (s.proctor_missing || []).join(', ');
+  const styles = {
+    camera_failed: ['No camera', 'rgba(192,57,43,.18)', '#f87171', 'rgba(192,57,43,.5)', 'Proctor could not open a camera — AI proctoring is disabled for this student'],
+    minimal:       ['AI minimal', 'rgba(192,57,43,.18)', '#f87171', 'rgba(192,57,43,.5)', 'Face detection unavailable — only basic checks are running'],
+    reduced:       ['AI reduced', 'rgba(245,158,11,.18)', '#fbbf24', 'rgba(245,158,11,.5)', 'Some AI detectors are unavailable'],
+  };
+  const st = styles[tier] || ['AI ' + tier, 'rgba(245,158,11,.18)', '#fbbf24', 'rgba(245,158,11,.5)', ''];
+  const title = missing ? `${st[4]} (missing: ${missing})` : st[4];
+  return ` <span class="badge" title="${escAttr(title)}" style="background:${st[1]};color:${st[2]};border:1px solid ${st[3]};margin-left:4px">⚠ ${_escHtml(st[0])}</span>`;
+}
+
 function renderLiveStats(activeRows=[], allRows=[]){
   const el = document.getElementById('live-stats');
   if(!el) return;
@@ -1986,7 +2004,7 @@ function renderLive(){
           : `<button class="btn btn-secondary btn-sm" title="Pause exam"  data-action="confirmPauseSession"  data-args='${_jsonArgsForAttr(sid)}'>⏸</button>`}
         <button class="btn btn-secondary btn-sm" title="End exam (with reason)" data-action="confirmEndSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--red)">⛔</button>`;
     return `<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
-      <td><span style="font-family:var(--font-mono);font-size:11px">${_escHtml(sid)}</span></td>
+      <td><span style="font-family:var(--font-mono);font-size:11px">${_escHtml(sid)}</span>${_proctorBadge(s)}</td>
       <td>${_escHtml((s.last_event || '--').replace(/_/g,' '))}</td>
       <td><span class="sev ${escAttr(String(s.last_severity || 'low').toLowerCase())}">${_escHtml(s.last_severity || '--')}</span></td>
       <td><span class="badge">${_escHtml(risk)}</span></td>

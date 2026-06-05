@@ -324,3 +324,41 @@ class TestLiveSessions:
         assert keys == {"sess_in_exam_1", "sess_other_exam_1"}, (
             f"live view must show all active sessions regardless of exam, got {keys}"
         )
+
+
+# ── Proctor readiness derivation (dashboard "AI degraded" badge) ──────────────
+# Locks in _derive_proctor_readiness: the live payload now folds each session's
+# proctoring_tier / proctor_camera_failed events into proctor_tier + missing, so
+# a teacher sees a student whose exam is proctored at reduced capacity (or not at
+# all) instead of assuming full coverage. Events are newest-first (created_at DESC).
+from app.services.sessions import _derive_proctor_readiness  # noqa: E402
+
+
+def test_proctor_readiness_reads_latest_tier():
+    evs = [{"violation_type": "proctoring_tier",
+            "details": '{"tier": "reduced", "missing": ["yolo", "gaze"]}'}]
+    assert _derive_proctor_readiness(evs) == ("reduced", ["yolo", "gaze"])
+
+
+def test_proctor_readiness_camera_failed_wins_when_newest():
+    # newest-first: a camera failure after an earlier boot is the live state
+    evs = [{"violation_type": "proctor_camera_failed", "details": "no camera"},
+           {"violation_type": "proctoring_tier", "details": '{"tier": "full", "missing": []}'}]
+    assert _derive_proctor_readiness(evs) == ("camera_failed", [])
+
+
+def test_proctor_readiness_newest_boot_overrides_older_failure():
+    # a successful re-boot (newest) supersedes a prior camera failure
+    evs = [{"violation_type": "proctoring_tier", "details": '{"tier": "full", "missing": []}'},
+           {"violation_type": "proctor_camera_failed", "details": "no camera"}]
+    assert _derive_proctor_readiness(evs) == ("full", [])
+
+
+def test_proctor_readiness_none_without_proctor_events():
+    assert _derive_proctor_readiness([]) == (None, [])
+    assert _derive_proctor_readiness([{"violation_type": "tab_switch"}]) == (None, [])
+
+
+def test_proctor_readiness_tolerates_bad_details_json():
+    evs = [{"violation_type": "proctoring_tier", "details": "not json{"}]
+    assert _derive_proctor_readiness(evs) == (None, [])

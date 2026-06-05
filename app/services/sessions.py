@@ -3,6 +3,7 @@
 Extracted from app/dependencies.py.
 """
 
+import json
 import logging
 import time
 import uuid as _uuid
@@ -299,6 +300,29 @@ def clear_token_consume(token: str, teacher_id: str) -> bool:
 
 # ─── BUILD SESSIONS PAYLOAD ────────────────────────────────────────
 
+def _derive_proctor_readiness(evs: list[dict]) -> tuple:
+    """Summarise on-device proctor health for the live view from a session's
+    events (newest-first). proctor.py logs `proctoring_tier`
+    (full/reduced/minimal + the missing models) at boot, and
+    `proctor_camera_failed` when no camera can be opened. Surfacing the newest
+    of these lets a teacher SEE a student whose exam is being proctored at
+    reduced capacity — or not at all — instead of assuming full AI coverage.
+    Returns (tier, missing); tier is None when the proctor hasn't reported yet
+    (legacy/pre-boot session) so the dashboard simply shows nothing."""
+    for e in evs:  # newest-first (events are ordered created_at DESC)
+        vt = e.get("violation_type")
+        if vt == "proctor_camera_failed":
+            return "camera_failed", []
+        if vt == "proctoring_tier":
+            try:
+                d = json.loads(e.get("details") or "{}")
+                if isinstance(d, dict):
+                    return d.get("tier"), (d.get("missing") or [])
+            except (ValueError, TypeError):
+                return None, []
+    return None, []
+
+
 async def build_sessions_payload(tid: str, exam_id: str = None,
                                  tids: list[str] | None = None) -> dict:
     """Build the Live-tab session payload. Filter precedence:
@@ -361,6 +385,7 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
             else:
                 risk_label = _risk_label(cached_risk) if cached_risk is not None else None
             live_state, hb_age = derive_live_state(meta)
+            _ptier, _pmissing = _derive_proctor_readiness(viol_by_session.get(sk, []))
             sessions[sk] = {
                 "session_id": sk,
                 "last_event": e["violation_type"],
@@ -373,6 +398,8 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
                 "heartbeat_age_sec": hb_age,
                 "risk_score": cached_risk,
                 "risk_label": risk_label,
+                "proctor_tier": _ptier,
+                "proctor_missing": _pmissing,
             }
 
     cal_tiers: dict[str, dict] = {}
@@ -396,6 +423,7 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
         live_state, hb_age = derive_live_state(meta)
         if live_state == "submitted":
             continue
+        _ptier, _pmissing = _derive_proctor_readiness(viol_by_session.get(sk, []))
         sessions[sk] = {
             "session_id": sk,
             "last_event": "heartbeat" if meta.get("last_heartbeat") else "exam_started",
@@ -408,6 +436,8 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
             "heartbeat_age_sec": hb_age,
             "risk_score": meta.get("risk_score"),
             "risk_label": _risk_label(meta.get("risk_score")) if meta.get("risk_score") is not None else None,
+            "proctor_tier": _ptier,
+            "proctor_missing": _pmissing,
             "calibration": cal_tiers.get(sk, {"tier": "missing", "reason": "No calibration recorded.", "ranges": None}),
         }
 

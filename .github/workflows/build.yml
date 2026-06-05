@@ -165,6 +165,45 @@ jobs:
           "$PY" scripts/download_audio_models.py \
             || echo "::warning::audio model bundling failed — app will fetch them at first launch (RMS-only fallback meanwhile)"
 
+      # Functional gate for the BUNDLED Windows proctor runtime — the symmetric
+      # counterpart to verify-macos-build.mjs (Windows previously had none; a
+      # build could ship completely dead proctoring with CI green). Runs
+      # proctor.py --selftest on resources/python/python.exe and asserts:
+      #   • exit 0  → onnxruntime AND uniface/RetinaFace import in the bundled
+      #     interpreter (run_selftest returns 1 if either hard dep is missing)
+      #   • a SELFTEST: line is emitted → the module imported to completion
+      #   • no UnicodeEncodeError → proctor.py's UTF-8 stdio reconfigure holds
+      # We force cp1252 stdout (PYTHONIOENCODING) to reproduce the Electron
+      # pipe, and deliberately do NOT set PYTHONUTF8 — this tests proctor.py's
+      # OWN protection, so removing the reconfigure fails the build.
+      # CAVEAT: GitHub runners ship the MSVC runtime, so this cannot reproduce
+      # the missing-VC++ case that bricked 2.3.26 — that is covered by the
+      # installer-bundled vc_redist (build/installer.nsh) and ultimately a
+      # clean-VM smoke test. This gate guards the runtime's health + the
+      # cp1252 crash, not the end-user's missing-runtime machine.
+      - name: Verify bundled Windows proctor runtime (selftest gate)
+        if: matrix.target == 'win'
+        shell: pwsh
+        run: |
+          $py = "resources/python/python.exe"
+          if (-not (Test-Path $py)) {
+            throw "bundled Python missing at $py — the Windows bundle step produced no interpreter; the app would fall back to an unmanaged system Python"
+          }
+          $env:PYTHONIOENCODING = "cp1252"   # reproduce the Electron cp1252 pipe
+          $out = & $py proctor.py --selftest 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Host $out
+          if ($out -match "UnicodeEncodeError") {
+            throw "proctor.py crashed on a non-ASCII status print under cp1252 — the UTF-8 stdio reconfigure regressed (the 2.3.27 Windows-calibration bug)"
+          }
+          if ($out -notmatch "SELFTEST:") {
+            throw "no SELFTEST report emitted — proctor.py failed to import to completion in the bundled runtime"
+          }
+          if ($code -ne 0) {
+            throw "proctor --selftest exit $code — a hard model dependency (onnxruntime / RetinaFace) failed to load in the bundled Windows runtime"
+          }
+          Write-Host "OK: bundled Windows runtime loads onnxruntime + RetinaFace and survives a cp1252 stdout"
+
       - name: Build (macOS — no publish; gated below)
         if: matrix.target == 'mac'
         shell: bash

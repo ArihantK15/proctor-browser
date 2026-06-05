@@ -121,8 +121,11 @@ body.auth-active > :not(#auth-overlay):not(script):not(style){display:none !impo
   font-family:var(--font-body);
 }
 .modal-card label.modal-checkbox-row input[type=checkbox]{
-  width:auto;margin:0;
-  accent-color:var(--accent);
+  /* Override the generic .modal-card input{width:100%} so the box doesn't
+     stretch full-width. Defer all check styling (appearance:none + SVG
+     tick) to components.css — do NOT set accent-color here, which would
+     re-introduce a native tick on top of the SVG one (duplicate check). */
+  width:16px;height:16px;margin:0;
   flex-shrink:0;
 }
 .modal-card label.modal-checkbox-row span{flex:1;line-height:1.4}

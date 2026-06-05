@@ -174,7 +174,27 @@ async function runMac() {
   console.log('   first-launch pip (venv path remains a dev fallback).\n');
 }
 
-function download(url, dest) {
+// Retry wrapper. CI runners intermittently drop the connection mid-stream
+// ("Error: socket hang up" / ECONNRESET) on the larger CDN/GitHub-release
+// downloads — that took out two macOS bakes in a row AFTER pip had already
+// succeeded. Retry with backoff + a fresh dest file so a flaky network drop
+// no longer fails the whole build.
+async function download(url, dest, attempts = 4) {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await downloadOnce(url, dest);
+    } catch (e) {
+      const last = i >= attempts;
+      console.warn(`[dl] attempt ${i}/${attempts} failed for ${url}: ${e.message}` +
+        (last ? '' : ` — retrying in ${i * 2}s`));
+      try { fs.rmSync(dest, { force: true }); } catch { /* nothing to clean */ }
+      if (last) throw e;
+      await new Promise(r => setTimeout(r, i * 2000));
+    }
+  }
+}
+
+function downloadOnce(url, dest) {
   // Only opens the destination stream on the final 200 — GitHub release
   // URLs redirect (302 → objects.githubusercontent.com), so opening the
   // file up front and closing it on the first redirect (the old bug)
@@ -201,6 +221,35 @@ function download(url, dest) {
     };
     follow(url);
   });
+}
+
+// Fetch CPython dev headers + import libs (matching PYTHON_VERSION) from the
+// python-build-standalone Windows tarball and install them into the embeddable
+// interpreter dir so source C-extension builds (insightface) can compile + link.
+async function fetchWindowsBuildHeaders(outDir) {
+  if (fs.existsSync(path.join(outDir, 'include', 'Python.h'))) {
+    console.log('[hdr] dev headers already present — skipping.');
+    return;
+  }
+  const url = pbsUrl('x86_64-pc-windows-msvc');
+  const tgz = path.join(os.tmpdir(), 'pbs-win-headers.tar.gz');
+  console.log(`[3b/4] Fetching Windows dev headers (python-build-standalone ${PYTHON_VERSION})...`);
+  await download(url, tgz);
+  const tmp = path.join(os.tmpdir(), 'pbs-win-extract');
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp, { recursive: true });
+  // bsdtar ships with Windows 10 1803+ as tar.exe.
+  execSync(`tar -xzf "${tgz}" -C "${tmp}"`, { stdio: 'inherit' });
+  for (const sub of ['include', 'libs']) {
+    const src = path.join(tmp, 'python', sub);
+    const dst = path.join(outDir, sub);
+    if (!fs.existsSync(src)) {
+      console.error(`[ERROR] python-build-standalone tarball missing python/${sub} — aborting.`);
+      process.exit(1);
+    }
+    fs.cpSync(src, dst, { recursive: true });
+    console.log(`      installed ${sub}/ -> ${dst}`);
+  }
 }
 
 (async () => {
@@ -251,6 +300,16 @@ function download(url, dest) {
     fs.writeFileSync(p, c);
     console.log(`      Patched ${f}`);
   }
+
+  // 3b. Dev headers + import libs. The python.org embeddable zip ships NO
+  // Python.h or python311.lib, so building any C-extension from source fails
+  // with "Cannot open include file: 'Python.h'". insightface is source-only
+  // and its mesh_core_cython is a C++ extension, so the bake needs them.
+  // python-build-standalone's Windows tarball is the SAME CPython 3.11.9 and
+  // bundles include/ + libs/ — drop just those next to the embeddable
+  // interpreter (sys.prefix) so cl.exe compiles + the linker finds
+  // python311.lib. Build-time only; harmless if shipped.
+  await fetchWindowsBuildHeaders(OUT_DIR);
 
   // 4. pip
   console.log('[3/4] Installing pip...');

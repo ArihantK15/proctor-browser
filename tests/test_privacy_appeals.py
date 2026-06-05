@@ -154,6 +154,148 @@ class TestStudentAppeals:
             assert r.status_code == 403
 
 
+class TestFlagLinkedAppeals:
+    """Phase 94 — flag-linked appeals + remediation hook."""
+
+    def test_appeal_with_unknown_flag_404(self, student_headers, mock_student_account):
+        """Disputing a violation_id that isn't on this session → 404."""
+        session_row = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com",
+                                       "teacher_id": "teacher-1", "exam_id": "exam-1"}])
+        empty = MagicMock(data=[])
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            for attr in ("select", "eq", "limit", "insert"):
+                getattr(m, attr).return_value = m
+            if table_name == "exam_sessions":
+                m.execute = AsyncMock(return_value=session_row)
+            else:  # violations lookup returns nothing
+                m.execute = AsyncMock(return_value=empty)
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable):
+            r = client.post("/api/v1/student/appeal", json={
+                "session_key": "owned_session",
+                "appeal_type": "violation",
+                "description": "dispute this specific flag",
+                "violation_id": "viol-does-not-exist",
+            }, headers=student_headers)
+            assert r.status_code == 404, r.text
+
+    def test_resolve_accept_dismisses_flag_and_audits(self, admin_headers, mock_teacher):
+        """Accepting a flag-linked appeal dismisses the flag, recomputes risk,
+        records resolution + an audit row, and returns the new score."""
+        appeal_row = MagicMock(data=[{
+            "id": "appeal-1", "teacher_id": "teacher-1", "violation_id": "viol-1",
+            "session_key": "sess-1", "status": "pending",
+        }])
+        seen = {"violations_update": 0}
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            for attr in ("select", "eq", "limit", "update", "insert", "is_"):
+                getattr(m, attr).return_value = m
+            if table_name == "appeals":
+                m.execute = AsyncMock(return_value=appeal_row)
+            elif table_name == "violations":
+                async def _exec(*a, **k):
+                    seen["violations_update"] += 1
+                    return MagicMock(data=[{"id": "viol-1"}])
+                m.execute = AsyncMock(side_effect=_exec)
+            else:
+                m.execute = AsyncMock(return_value=MagicMock(data=[]))
+            return m
+
+        # NOTE: patch compute_risk_score where it is USED — appeals.py imports
+        # it at module top (`from ..services.risk import compute_risk_score`),
+        # so the name is bound into the appeals namespace and patching
+        # app.services.risk.* would not intercept the call. log_admin_action is
+        # imported locally inside resolve_appeal, so patching it on its own
+        # module still works.
+        with patch("app.routers.appeals._atable", side_effect=mock_atable), \
+             patch("app.routers.appeals.compute_risk_score", new_callable=AsyncMock) as mock_risk, \
+             patch("app.services.admin_audit.log_admin_action", new_callable=AsyncMock) as mock_audit:
+            mock_risk.return_value = {"risk_score": 12, "label": "Low Risk"}
+            r = client.post("/api/v1/admin/appeals/appeal-1/resolve",
+                            json={"status": "accepted", "teacher_note": "legit reason"},
+                            headers=admin_headers)
+            assert r.status_code == 200, r.text
+            d = r.json()
+            assert d["resolution"] == "flag_dismissed"
+            assert d["risk_score"] == 12
+            assert seen["violations_update"] >= 1
+            mock_audit.assert_awaited_once()
+
+    def test_resolve_reject_leaves_flag_untouched(self, admin_headers, mock_teacher):
+        """Rejecting (or a session-level appeal) does no remediation."""
+        appeal_row = MagicMock(data=[{
+            "id": "appeal-2", "teacher_id": "teacher-1", "violation_id": "viol-9",
+            "session_key": "sess-2", "status": "pending",
+        }])
+        seen = {"violations_update": 0}
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            for attr in ("select", "eq", "limit", "update", "insert", "is_"):
+                getattr(m, attr).return_value = m
+            if table_name == "appeals":
+                m.execute = AsyncMock(return_value=appeal_row)
+            elif table_name == "violations":
+                async def _exec(*a, **k):
+                    seen["violations_update"] += 1
+                    return MagicMock(data=[])
+                m.execute = AsyncMock(side_effect=_exec)
+            else:
+                m.execute = AsyncMock(return_value=MagicMock(data=[]))
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable), \
+             patch("app.services.admin_audit.log_admin_action", new_callable=AsyncMock):
+            r = client.post("/api/v1/admin/appeals/appeal-2/resolve",
+                            json={"status": "rejected", "teacher_note": "not valid"},
+                            headers=admin_headers)
+            assert r.status_code == 200, r.text
+            d = r.json()
+            assert d.get("resolution") is None
+            assert "risk_score" not in d
+            assert seen["violations_update"] == 0
+
+    def test_resolve_cross_tenant_appeal_404_and_no_dismiss(self, admin_headers, mock_teacher):
+        """A teacher must not be able to resolve another teacher's appeal or
+        dismiss another teacher's flag. The appeal lookup is
+        .eq('id',appeal_id).eq('teacher_id',tid)-scoped, so a non-owned appeal
+        returns no rows — modelled here by an empty appeals result (exactly what
+        the teacher_id filter yields for someone else's appeal). The endpoint
+        must 404 and NEVER touch the violations table."""
+        seen = {"violations_update": 0}
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            for attr in ("select", "eq", "limit", "update", "insert", "is_"):
+                getattr(m, attr).return_value = m
+            if table_name == "appeals":
+                # teacher-scoped lookup for an appeal that isn't ours → empty
+                m.execute = AsyncMock(return_value=MagicMock(data=[]))
+            elif table_name == "violations":
+                async def _exec(*a, **k):
+                    seen["violations_update"] += 1
+                    return MagicMock(data=[{"id": "viol-1"}])
+                m.execute = AsyncMock(side_effect=_exec)
+            else:
+                m.execute = AsyncMock(return_value=MagicMock(data=[]))
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable), \
+             patch("app.routers.appeals.compute_risk_score", new_callable=AsyncMock) as mock_risk:
+            mock_risk.return_value = {"risk_score": 99, "label": "High Risk"}
+            r = client.post("/api/v1/admin/appeals/appeal-1/resolve",
+                            json={"status": "accepted", "teacher_note": "not mine"},
+                            headers=admin_headers)
+            assert r.status_code == 404, r.text
+            assert seen["violations_update"] == 0, \
+                "a non-owned flag must never be dismissed"
+
+
 class TestTeacherAppeals:
     def test_list_appeals_requires_auth(self):
         r = client.get("/api/v1/admin/appeals")

@@ -102,3 +102,31 @@ class TestGenerateSessionSummary:
         result = generate_session_summary(violations)
         assert result["severity"] == "clean"
         assert "No suspicious activity" in result["narrative"]
+
+    def test_dismissed_violations_excluded(self):
+        # Due-process: a flag dismissed by a teacher or an accepted appeal
+        # must drop out of the narrative entirely (phase94 remediation hook).
+        violations = [
+            {"violation_type": "wrong_person", "severity": "high",
+             "created_at": "2025-01-01T09:00:00Z",
+             "dismissed_at": "2025-01-01T10:00:00Z",
+             "dismissed_reason": "appeal_accepted"},
+        ]
+        result = generate_session_summary(violations)
+        assert result["severity"] == "clean"
+        assert "No suspicious activity" in result["narrative"]
+
+    def test_dismissed_one_of_many_excluded(self):
+        # The active flag still summarizes; only the dismissed one is gone.
+        violations = [
+            {"violation_type": "wrong_person", "severity": "high",
+             "created_at": "2025-01-01T09:00:00Z",
+             "dismissed_at": "2025-01-01T10:00:00Z"},
+            {"violation_type": "gaze_away", "severity": "low",
+             "created_at": "2025-01-01T09:05:00Z"},
+            {"violation_type": "gaze_away", "severity": "low",
+             "created_at": "2025-01-01T09:10:00Z"},
+        ]
+        result = generate_session_summary(violations)
+        assert "different person" not in result["narrative"]
+        assert "gaze away (2" in result["narrative"]

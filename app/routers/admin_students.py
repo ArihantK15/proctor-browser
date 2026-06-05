@@ -421,7 +421,11 @@ async def get_student_history(
     violations_by_session: dict[str, list[dict]] = {}
     if session_keys:
         all_viols = (await _atable("violations")
-                     .select("session_key,violation_type,severity,created_at")
+                     # dismissed_at is selected so generate_session_summary's
+                     # in-memory dismissed-flag exclusion (phase94) actually
+                     # applies here too — without it the student-history
+                     # narrative still describes flags a teacher/appeal cleared.
+                     .select("session_key,violation_type,severity,created_at,dismissed_at")
                      .eq("teacher_id", scoped_tid)
                      .in_("session_key", session_keys)
                      .execute()).data or []

@@ -155,7 +155,12 @@ async def compute_risk_score(session_id: str, teacher_id: str | None = None) -> 
         cached = _cache.get(cache_key)
         if cached:
             return cached
-    query = _atable("violations").select("violation_type,severity,created_at").eq("session_key", session_id)
+    # Exclude dismissed flags: a teacher (or an accepted appeal) marking a
+    # violation dismissed must clear its risk contribution. phase73 created
+    # dismissed_at for exactly this; before this filter, dismissing was
+    # cosmetic and the score never moved. Mirrors the partial index
+    # contract `WHERE dismissed_at IS NULL`.
+    query = _atable("violations").select("violation_type,severity,created_at").eq("session_key", session_id).is_("dismissed_at", "null")
     if teacher_id:
         query = query.eq("teacher_id", str(teacher_id))
     viol_result = await query.order("created_at").execute()
@@ -213,7 +218,9 @@ async def compute_risk_score(session_id: str, teacher_id: str | None = None) -> 
 def _batch_risk_scores(viol_by_session: dict[str, list[dict]]) -> dict[str, tuple[int | None, str | None]]:
     scores: dict[str, tuple[int | None, str | None]] = {}
     for sk, rows in viol_by_session.items():
-        scored = [r for r in rows if _is_violation(r["violation_type"]) and r["severity"] in ("high", "medium")]
+        # Dismissed flags don't count toward risk (see compute_risk_score).
+        # The caller's query must select dismissed_at for this to take effect.
+        scored = [r for r in rows if _is_violation(r["violation_type"]) and r["severity"] in ("high", "medium") and not r.get("dismissed_at")]
         if not scored:
             scores[sk] = (0, "Low Risk")
             continue
@@ -262,7 +269,10 @@ def generate_session_summary(violations: list[dict], session_info: dict | None =
             "pattern_count": 0,
         }
 
-    real_viols = [v for v in violations if _is_violation(v.get("violation_type", ""))]
+    # Dismissed flags are excluded from the narrative too — a flag the
+    # teacher (or an accepted appeal) cleared should not appear in the
+    # "what happened" summary the same way it no longer scores.
+    real_viols = [v for v in violations if _is_violation(v.get("violation_type", "")) and not v.get("dismissed_at")]
     if not real_viols:
         return {
             "narrative": "No suspicious activity detected during this session.",

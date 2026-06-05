@@ -984,7 +984,8 @@ function renderHistory(items){
           ${riskStr?'<div>Risk<strong style="color:'+_riskColor(h.risk_score)+'">'+_escHtml(riskStr)+'</strong></div>':''}
           <div>Submitted<strong>${_escHtml(h.submitted_at)}</strong></div>
         </div>
-        <div style="margin-top:8px">
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          ${h.violation_count>0?`<button class="btn btn-sm btn-secondary" data-action="openEvidence" data-args='${_escHtml(JSON.stringify([h.session_key]))}'>Why flagged?</button>`:''}
           <button class="btn btn-sm btn-secondary" data-action="openAppeal" data-args='${_escHtml(JSON.stringify([h.session_key]))}'>Appeal</button>
         </div>
       </div>`;
@@ -1041,18 +1042,111 @@ function renderAppeals(items) {
 
 // ─── Appeal ──────────────────────────────────────────────────────
 let _appealSessionKey = '';
+let _appealViolationId = '';   // set when disputing ONE specific flag
 
-function openAppeal(sessionKey) {
+function openAppeal(sessionKey, violationId) {
   _appealSessionKey = sessionKey;
+  _appealViolationId = violationId || '';
   document.getElementById('appeal-type').value = 'violation';
   document.getElementById('appeal-desc').value = '';
-  document.getElementById('appeal-err').textContent = '';
+  const err = document.getElementById('appeal-err');
+  err.style.color = '';
+  // When the student is disputing a specific flag, tell them so the free-text
+  // box is about THAT flag — the violation_id is carried silently.
+  err.textContent = _appealViolationId ? 'Disputing one specific flag from this exam.' : '';
   document.getElementById('appeal-modal').classList.add('active');
 }
 
 function closeAppeal() {
   document.getElementById('appeal-modal').classList.remove('active');
   _appealSessionKey = '';
+  _appealViolationId = '';
+}
+
+// ─── Why was this flagged? (explainable evidence) ─────────────────
+function _evReliabilityColor(rel) {
+  if (rel === 'strong') return 'var(--emerald)';
+  if (rel === 'moderate') return 'var(--amber)';
+  return 'var(--red)';   // needs_review
+}
+
+async function openEvidence(sessionKey) {
+  const modal = document.getElementById('evidence-modal');
+  const body = document.getElementById('evidence-body');
+  if (!modal || !body) return;
+  body.innerHTML = '<div class="exams-empty">Loading…</div>';
+  modal.classList.add('active');
+  try {
+    const r = await authed('/api/v1/student/session/' + encodeURIComponent(sessionKey) + '/evidence');
+    if (r.status === 401) { doLogout(); return; }
+    if (!r.ok) throw new Error('Failed to load evidence');
+    const d = await r.json();
+    renderEvidence(d);
+  } catch (e) {
+    body.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load evidence</strong></div>';
+  }
+}
+
+function closeEvidence() {
+  const modal = document.getElementById('evidence-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+function renderEvidence(d) {
+  const body = document.getElementById('evidence-body');
+  if (!body) return;
+  const risk = d.risk || {};
+  const flags = d.flags || [];
+  const sk = d.session_key || '';
+  const riskCol = _riskColor(risk.score);
+  const breakdown = risk.breakdown || {};
+  const bdRows = Object.keys(breakdown).map(k => {
+    const c = breakdown[k] || {};
+    return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:2px 0">
+      <span>${_escHtml(k)} <span style="opacity:.7">×${c.count||0}</span></span>
+      <span>+${_escHtml(String(c.contribution||0))}</span></div>`;
+  }).join('');
+
+  const flagCards = flags.map(f => {
+    const relCol = _evReliabilityColor(f.reliability);
+    const codes = (f.reason_codes || []).map(rc =>
+      `<span class="badge" style="font-size:10px;padding:1px 6px;color:var(--muted);border-color:var(--border)">${_escHtml(rc)}</span>`).join(' ');
+    const dismissed = f.dismissed;
+    const disputeBtn = dismissed
+      ? `<span class="badge" style="color:var(--emerald);border-color:var(--emerald)">Removed${f.dismissed_reason==='appeal_accepted'?' (appeal accepted)':''}</span>`
+      : `<button class="btn btn-sm btn-secondary" data-action="disputeFlag" data-args='${_escHtml(JSON.stringify([sk, f.id]))}'>Dispute this flag</button>`;
+    return `
+      <div class="exam-card" style="margin-top:10px;${dismissed?'opacity:.6':''}">
+        <div class="exam-card-head">
+          <div>
+            <div class="exam-title" style="font-size:14px">${_escHtml(f.type||'flag')}</div>
+            <div class="exam-teacher" style="font-size:11px;color:var(--muted)">${_escHtml((f.at||'').slice(0,19).replace('T',' '))} · severity ${_escHtml(f.severity||'')}</div>
+          </div>
+          <span class="badge" style="color:${relCol};border-color:${relCol};text-transform:capitalize">${_escHtml((f.reliability||'').replace('_',' '))}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin:6px 0;line-height:1.5">${_escHtml(f.explanation||'')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">${codes}</div>
+        <div>${disputeBtn}</div>
+      </div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="exam-card">
+      <div class="exam-card-head">
+        <div><div class="exam-title" style="font-size:14px">Overall risk</div></div>
+        <span class="badge" style="color:${riskCol};border-color:${riskCol}">${_escHtml(risk.label||'')} · ${_escHtml(String(risk.score==null?'—':risk.score))}/100</span>
+      </div>
+      ${d.summary && d.summary.narrative ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5">${_escHtml(d.summary.narrative)}</div>` : ''}
+      ${bdRows ? `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${bdRows}</div>` : ''}
+    </div>
+    ${flags.length ? flagCards : '<div class="exams-empty" style="margin-top:10px">No flags recorded for this session.</div>'}`;
+}
+
+// Dispute one specific flag: close evidence, open the appeal pre-loaded with
+// the violation_id so the resolution can surgically clear THIS flag.
+function disputeFlag(sessionKey, violationId) {
+  closeEvidence();
+  openAppeal(sessionKey, violationId);
 }
 
 async function submitAppeal() {
@@ -1067,7 +1161,12 @@ async function submitAppeal() {
     const r = await authed('/api/v1/student/appeal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_key: _appealSessionKey, appeal_type: type, description: desc }),
+      body: JSON.stringify({
+        session_key: _appealSessionKey,
+        appeal_type: type,
+        description: desc,
+        ...(_appealViolationId ? { violation_id: _appealViolationId } : {}),
+      }),
     });
     const d = await r.json();
     if (r.ok) {

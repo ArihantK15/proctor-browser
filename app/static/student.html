@@ -549,6 +549,20 @@
     </div>
   </div>
 
+  <!-- Why was this flagged? — student-facing explainable evidence (metadata
+       only; no frames/audio ever reach this view). Lets a student see the
+       same risk breakdown the teacher sees and dispute a specific flag. -->
+  <div class="modal-backdrop" id="evidence-modal">
+    <div class="modal-card" style="max-width:560px;max-height:86vh;overflow:auto">
+      <h3>Why was this flagged?</h3>
+      <p class="sub">This is the same evidence your teacher sees — flag types, timing, and detector confidence. No video or audio is shown here. You can dispute any individual flag.</p>
+      <div id="evidence-body"><div class="exams-empty">Loading…</div></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" style="flex:1" data-action="closeEvidence">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <h2 class="section-title" style="margin-bottom:0">Upcoming exams</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap">

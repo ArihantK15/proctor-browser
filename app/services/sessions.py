@@ -339,7 +339,10 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
         if not tids:        return q.eq("teacher_id", "__none__")
         if len(tids) == 1:  return q.eq("teacher_id", str(tids[0]))
         return q.in_("teacher_id", tids)
-    evts_query = _atable("violations").select("session_key,violation_type,severity,created_at,details").gte("created_at", cutoff)
+    # dismissed_at is selected (not filtered at the DB) so the live feed
+    # still shows last_event/proctor-readiness from all flags, while
+    # _batch_risk_scores excludes dismissed ones from the score itself.
+    evts_query = _atable("violations").select("session_key,violation_type,severity,created_at,details,dismissed_at").gte("created_at", cutoff)
     if tids is not None:
         evts_query = _apply_tids(evts_query, tids)
     elif tid:

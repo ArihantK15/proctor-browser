@@ -612,7 +612,7 @@
 </div>
 
 <!-- ── ROOM CAMERA QR SCREEN ─────────────────────────────────────── -->
-<div class="screen" id="screen-phone-cam" style="display:none">
+<div class="screen" id="screen-phone-cam">
   <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:40px;text-align:center">
     <h2 style="margin-bottom:8px">Room Camera Required</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:20px;max-width:400px">
@@ -976,7 +976,13 @@ let submitRetryTimer=null;
 function showScreen(id){
   document.querySelectorAll('.screen')
     .forEach(s=>s.classList.remove('active'));
-  document.getElementById('screen-'+id).classList.add('active');
+  const el = document.getElementById('screen-'+id);
+  // Defense in depth: an inline `display` (e.g. a stray style="display:none"
+  // in the markup) overrides the .screen.active{display:flex} rule, leaving
+  // the screen "active" but invisible — a black screen. Clear it so the class
+  // alone controls visibility, like every other screen.
+  el.style.removeProperty('display');
+  el.classList.add('active');
 }
 
 // Sticky amber banner pinned to the top of every screen so a student

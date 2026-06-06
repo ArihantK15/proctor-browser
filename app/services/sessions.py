@@ -484,7 +484,13 @@ def match_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]
     except Exception:
         return None
     vtype = violation.get("violation_type", "")
-    window_keys = {(evt_ts + timedelta(seconds=delta)).strftime("%Y%m%d_%H%M%S") for delta in range(-2, 3)}
+    # Match filenames written in EITHER UTC (current) or IST (legacy — _save_frame
+    # used now_ist() before the tz fix), so existing evidence still resolves. ±5s
+    # tolerates async evidence-upload lag. A 5.5h-away false match is impossible
+    # within a single (minutes-long) exam.
+    _bases = (evt_ts, evt_ts + timedelta(hours=5, minutes=30))
+    window_keys = {(b + timedelta(seconds=delta)).strftime("%Y%m%d_%H%M%S")
+                   for b in _bases for delta in range(-5, 6)}
     for fname, fpath in screenshots.items():
         if fname.startswith(f"evt_{vtype}_") and any(k in fname for k in window_keys):
             return fpath
@@ -511,7 +517,13 @@ def match_room_screenshot_for_violation(violation: dict, screenshots: dict[str, 
     except Exception:
         return None
     vtype = violation.get("violation_type", "")
-    window_keys = {(evt_ts + timedelta(seconds=delta)).strftime("%Y%m%d_%H%M%S") for delta in range(-2, 3)}
+    # Match filenames written in EITHER UTC (current) or IST (legacy — _save_frame
+    # used now_ist() before the tz fix), so existing evidence still resolves. ±5s
+    # tolerates async evidence-upload lag. A 5.5h-away false match is impossible
+    # within a single (minutes-long) exam.
+    _bases = (evt_ts, evt_ts + timedelta(hours=5, minutes=30))
+    window_keys = {(b + timedelta(seconds=delta)).strftime("%Y%m%d_%H%M%S")
+                   for b in _bases for delta in range(-5, 6)}
     for fname, fpath in screenshots.items():
         if fname.startswith(f"room_{vtype}_") and any(k in fname for k in window_keys):
             return fpath

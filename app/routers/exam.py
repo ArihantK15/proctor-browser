@@ -1510,7 +1510,12 @@ def _save_frame(student_dir: str, data: FrameIn, room_jpeg: bytes | None = None)
     PDF and the live timeline can show both cameras side by side for a flag.
     """
     os.makedirs(student_dir, exist_ok=True)
-    ts = now_ist().strftime("%Y%m%d_%H%M%S")
+    # UTC — NOT now_ist(). The evidence matcher
+    # (match_screenshot_for_violation) builds its filename window from the
+    # violation's created_at converted to UTC, so an IST filename was always
+    # ~5.5h off the window → screenshots NEVER matched → reports/scorecards
+    # showed no evidence images.
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     if data.event_type:
         label = "".join(
             c if c.isalnum() or c in "_-" else "_"

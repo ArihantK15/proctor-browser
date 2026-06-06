@@ -66,6 +66,35 @@ jobs:
         # in release builds.
         run: npm ci
 
+      # Reclaim disk on the macOS runner BEFORE the build. dmgbuild creates the
+      # DMG by mounting a disk image and ditto-copying the whole .app (now ~400MB+
+      # with the bundled Python runtime + model weights) into it, so it needs
+      # roughly 2× the app size in contiguous free space. The macos-14 image
+      # ships an Android SDK, Rust/Haskell toolchains, and the iOS/tvOS/watchOS
+      # simulator runtimes (>10GB combined) that an Electron build never touches.
+      # On the x64 leg the extra Rosetta install + cross-baked x86_64 wheels tip
+      # a near-full disk over "[Errno 28] No space left on device" during the DMG
+      # step (the v2.3.38 x64 failure). BEST-EFFORT: this is pure cleanup, so any
+      # individual rm failing must never fail the release — we swallow errors and
+      # always exit 0.
+      - name: Free up disk space (macOS)
+        if: matrix.target == 'mac'
+        shell: bash
+        run: |
+          set +e
+          echo "Disk before cleanup:"; df -h /
+          # Unused language toolchains.
+          sudo rm -rf ~/.rustup ~/.cargo ~/.ghcup
+          # Android SDK/NDK.
+          sudo rm -rf "$HOME/Library/Android" /Users/runner/Library/Android
+          # iOS/tvOS/watchOS simulator devices + runtimes — the largest single
+          # reclaimable chunk; codesign/notarize don't need them.
+          xcrun simctl delete all
+          sudo rm -rf "$HOME/Library/Developer/CoreSimulator/Caches"
+          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes/*
+          echo "Disk after cleanup:"; df -h /
+          exit 0
+
       # Build ONLY this matrix arch (--${{ matrix.arch }}). The per-arch
       # latest-mac.yml manifests are merged afterwards by the
       # merge-mac-manifest job — see the header comment.

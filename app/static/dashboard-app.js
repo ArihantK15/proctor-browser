@@ -2330,6 +2330,7 @@ function renderResults(){
       <td>${_escHtml(r.submitted_at || '--')}</td>
       <td>
         <button class="btn btn-secondary btn-sm" data-action="dlScorecard" data-args='${_jsonArgsForAttr(sid)}'>Scorecard</button>
+        <button class="btn btn-secondary btn-sm" title="Full proctoring report — per-event violations + evidence screenshots" data-action="dlPDF" data-args='${_jsonArgsForAttr(sid)}'>Report</button>
         <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
       </td>
     </tr>`;
@@ -4985,10 +4986,24 @@ const TL_ICONS = {
   sustained_offtask:'&#9203;', nervous_evasion:'&#128064;&#65039;',
 };
 
+// Kept in lockstep with the backend _NON_VIOLATION_TYPES (app/services/risk.py)
+// so the timeline classifies events the same way the scorecard/report/risk do —
+// lifecycle, ID/calibration, proctor-software diagnostics and room-cam plumbing
+// are NOT student violations and shouldn't render as such.
 const TL_NON_VIOLATION_TYPES = new Set([
   'answer_selected', 'heartbeat', 'exam_started', 'exam_submitted',
   'session_ended', 'enrollment_started', 'enrollment_complete',
   'face_enrolled', 'teacher_warning', 'session_paused', 'session_resumed',
+  // ID + calibration lifecycle
+  'id_verification', 'id_verification_captured',
+  'calibration_started', 'calibration_complete', 'calibration_timeout',
+  // proctor-software diagnostics (health, not behaviour)
+  'proctor_boot', 'model_load_failed', 'restart_attempt', 'event_queue_full',
+  'proctor_failed', 'proctor_camera_failed', 'system_check', 'proctoring_tier',
+  'client_throttled', 'submit_failed',
+  // session admin + room-cam plumbing
+  'session_reset', 'session_abandoned',
+  'room_cam_offline', 'room_cam_pending', 'room_cam_approved', 'room_cam_rejected',
 ]);
 
 function _tlIsViolation(type){

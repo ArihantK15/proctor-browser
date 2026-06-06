@@ -5064,7 +5064,13 @@ function _buildFallbackTimeline(sid, row, reason){
 
 function openTimeline(){
   if(!currentSessionId) return;
+  // closeModal() (below, to dismiss the detail modal) RESETS currentSessionId
+  // to null — so capture it first and restore it, otherwise loadTimeline()
+  // would fetch /api/v1/admin/timeline/null → 404 (this broke the timeline on
+  // every open).
+  const sid = currentSessionId;
   closeModal();
+  currentSessionId = sid;
   const m=document.getElementById('timeline-modal');
   m.classList.add('open');
   _resetTimelineFilter();
@@ -5074,10 +5080,17 @@ function openTimeline(){
   document.getElementById('tl-events').innerHTML='<div class="tl-empty"><span class="spinner"></span> Loading timeline...</div>';
   document.getElementById('tl-scrubber-track').innerHTML='';
   document.getElementById('tl-scrubber-labels').innerHTML='';
-  loadTimeline(currentSessionId);
+  loadTimeline(sid);
 }
 
 async function loadTimeline(sid){
+  // Defense in depth: never request /timeline/null|undefined (the bug above).
+  if(!sid || sid === 'null' || sid === 'undefined'){
+    document.getElementById('tl-events').innerHTML =
+      '<div class="tl-empty">No session selected — open a session’s Timeline from the list.</div>';
+    document.getElementById('tl-title').textContent = 'Timeline';
+    return;
+  }
   try{
     const r=await authFetch(`${BASE}/api/v1/admin/timeline/${encodeURIComponent(sid)}`);
     if(!r.ok){

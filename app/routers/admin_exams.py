@@ -114,6 +114,12 @@ async def set_phone_camera_config(body: dict, request: Request):
         raise HTTPException(status_code=400, detail="exam_id is required")
     await _atable("exam_config").update({"phone_camera_enabled": enabled})\
         .eq("exam_id", exam_id).eq("teacher_id", str(teacher["id"])).execute()
+    # Invalidate the cached exam_config row (TTL 86400s in load_exam_config),
+    # else get_questions keeps serving stale phone_camera_enabled and the
+    # renderer gate (index.html) skips the phone-cam pairing screen.
+    if _cache:
+        tid = str(teacher["id"])
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
     return {"exam_id": exam_id, "phone_camera": enabled}
 
 

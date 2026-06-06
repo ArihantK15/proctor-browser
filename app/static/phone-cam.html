@@ -81,40 +81,63 @@ function setStatus(state, msg){
 }
 
 async function startCamera(){
-  document.getElementById('consent-overlay').style.display = 'none';
-  consentGiven = true;
-
-  // Acquire WakeLock to prevent screen sleep
-  try{
-    if('wakeLock' in navigator){
-      wakeLock = await navigator.wakeLock.request('screen');
-    }
-  }catch(e){
-    warningBanner.textContent = '⚠️ Your device may lock during the exam. Disable auto-lock in Settings.';
-    warningBanner.style.display = '';
-  }
-
+  const overlay = document.getElementById('consent-overlay');
   setStatus('connecting', 'Starting camera...');
 
+  // getUserMedia MUST be the first async call in this tap handler:
+  //  • iOS drops the user-gesture activation after an unrelated `await`, so a
+  //    prior `await wakeLock.request()` would suppress the camera permission
+  //    prompt; and
+  //  • wakeLock.request() can HANG (never settle) in some iOS in-app browsers,
+  //    blocking the whole flow so the camera never starts.
+  // So we request the camera immediately, then do wakeLock fire-and-forget.
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setStatus('error', 'This browser can’t access the camera. Tap the share icon and choose “Open in Safari”, then scan the QR again.');
+    return;
+  }
   try{
     stream = await navigator.mediaDevices.getUserMedia({
-      video: {facingMode: 'environment', width: {ideal: 640}, height: {ideal: 480}},
+      video: {facingMode: {ideal: 'environment'}, width: {ideal: 640}, height: {ideal: 480}},
       audio: false,
     });
   }catch(e){
-    setStatus('error', 'Camera access denied. Allow camera permission and try again.');
-    return;
+    const name = (e && e.name) || '';
+    let msg;
+    if(name === 'NotAllowedError' || name === 'SecurityError'){
+      // On iOS this is also what a restricted in-app webview throws.
+      msg = 'Camera permission was blocked. Allow camera access, OR if you opened this from the QR/camera scanner, tap the share icon → “Open in Safari” and scan again.';
+    } else if(name === 'NotFoundError' || name === 'OverconstrainedError'){
+      msg = 'No usable camera found on this phone.';
+    } else if(name === 'NotReadableError'){
+      msg = 'Your camera is busy in another app. Close it and tap “I Consent” again.';
+    } else {
+      msg = 'Couldn’t start the camera (' + (name || 'unknown') + '). Try “Open in Safari” and scan again.';
+    }
+    setStatus('error', msg);
+    return;   // keep the consent overlay up so they can retry / read the hint
   }
 
+  // Camera is live — commit the UI.
+  overlay.style.display = 'none';
+  consentGiven = true;
   video.srcObject = stream;
   video.style.display = '';
   placeholder.style.display = 'none';
   targetOverlay.style.display = '';
+  try{ await video.play(); }catch(_){ /* autoplay+muted+playsinline should allow it */ }
 
-  // Wait for video to start
-  await video.play();
+  // WakeLock AFTER the camera is up — fire-and-forget so it can NEVER block or
+  // hang the capture flow (its behaviour is unreliable in iOS webviews).
+  if('wakeLock' in navigator){
+    navigator.wakeLock.request('screen')
+      .then(wl => { wakeLock = wl; })
+      .catch(() => {
+        warningBanner.textContent = '⚠️ Keep this screen on — disable auto-lock so the camera stays active.';
+        warningBanner.style.display = '';
+      });
+  }
+
   setStatus('connecting', 'Connecting to server...');
-
   connectWs();
 }
 

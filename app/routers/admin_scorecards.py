@@ -22,7 +22,7 @@ from ..repositories.sessions import (
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
 from ..services.risk import compute_risk_score, _is_violation
 from ..utils import _safe_filename, _html_escape, _xlsx_safe, fmt_ist, now_ist
-from ..models import SessionStatus
+from ..models import SessionStatus, RESULT_STATUSES
 from .. import cache as _cache
 from ..services.sessions import collect_session_screenshots as _collect_session_screenshots, match_screenshot_for_violation as _match_screenshot_for_violation, match_room_screenshot_for_violation as _match_room_screenshot_for_violation
 from ..limiter import limiter
@@ -604,9 +604,12 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
     custom_message = body.custom_message.strip() or None
     teacher_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
 
-    sess_q = (await _atable("exam_sessions").select(
+    # Build the query (NOT awaited — the PostgresTable chain is not awaitable;
+    # only .execute() is). The stray `await` here was the email-scorecards 500:
+    # "object PostgresTable can't be used in 'await' expression".
+    sess_q = (_atable("exam_sessions").select(
         "session_key,roll_number,full_name,exam_id,scorecard_emailed_at"
-    ).eq("teacher_id", tid).in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED]).eq("exam_id", exam_id)
+    ).eq("teacher_id", tid).in_("status", list(RESULT_STATUSES)).eq("exam_id", exam_id)
         .limit(1000))
     sessions = (await sess_q.execute()).data or []
     if not sessions:

@@ -675,16 +675,26 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
                 already_sent += 1
                 continue
 
-        job_result = enqueue_job(
-            send_scorecard_email_job,
-            session_key=sid,
-            teacher_id=tid,
-            email=email,
-            full_name=full_name,
-            teacher_name=teacher_name,
-            custom_message=custom_message,
-            resend_all=resend_all,
-        )
+        try:
+            job_result = enqueue_job(
+                send_scorecard_email_job,
+                session_key=sid,
+                teacher_id=tid,
+                email=email,
+                full_name=full_name,
+                teacher_name=teacher_name,
+                custom_message=custom_message,
+                resend_all=resend_all,
+            )
+        except Exception as e:
+            # One bad session must not 500 the whole batch (the endpoint had no
+            # error handling — a single enqueue/job failure took the lot down).
+            # Record it and log the traceback so it's diagnosable next time.
+            failed += 1
+            failures.append({"roll": roll, "reason": f"enqueue failed: {e}"})
+            _admin_log.error("[email-scorecards] enqueue failed for %s: %s",
+                             sid, e, exc_info=True)
+            continue
         if job_result is None:
             sent += 1
         elif job_result.get("ok"):

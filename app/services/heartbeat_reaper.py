@@ -24,7 +24,13 @@ from ..models import SessionStatus
 
 logger = logging.getLogger(__name__)
 
-HEARTBEAT_TIMEOUT_SECS = int(os.environ.get("HEARTBEAT_TIMEOUT_SECS", "300"))   # 5 min
+# 10 min (was 5). Heartbeats fire every 30s, so this tolerates ~20 missed —
+# enough to ride out a laptop sleep, a wifi drop, or a transient network blip
+# without abandoning a student who is mid-exam and will come back. recover-on-
+# submit is the safety net if a real session is still abandoned (its late
+# submission recovers). A genuinely-gone student is still cleaned up within
+# ~11 min, keeping the live monitor honest.
+HEARTBEAT_TIMEOUT_SECS = int(os.environ.get("HEARTBEAT_TIMEOUT_SECS", "600"))   # 10 min
 REAPER_INTERVAL_SECS   = int(os.environ.get("REAPER_INTERVAL_SECS",   "60"))    # 1 min
 
 

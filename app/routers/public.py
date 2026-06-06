@@ -893,14 +893,11 @@ async def list_demo_requests(request: Request):
     return {"requests": result.data, "count": len(result.data)}
 
 
-_PHONE_CAM_PATH = Path(__file__).parent.parent.parent / "renderer" / "phone-cam.html"
-
-
 @router.get("/phone-cam")
 async def phone_cam_page(request: Request):
-    """Serve the phone camera capture page (room monitoring)."""
-    from fastapi.responses import FileResponse
-    if not _PHONE_CAM_PATH.exists():
-        return HTMLResponse("Phone camera page not found", status_code=404)
-    return FileResponse(str(_PHONE_CAM_PATH), media_type="text/html",
-                        headers={"Cache-Control": "no-cache"})
+    """Serve the phone camera capture page (room monitoring). The student's
+    phone loads this over the web from the QR URL, so it must live in the
+    SERVER's static dir (app/static) — it used to point at renderer/, which
+    isn't in the deployed Docker image, so prod 404'd ('Phone camera page not
+    found') and the phone could never pair."""
+    return _static_html_response("phone-cam.html", "Phone camera page not found")

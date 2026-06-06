@@ -20,7 +20,7 @@ from ..repositories.sessions import (
     stream_csv_results as _stream_csv_results,
 )
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
-from ..services.risk import compute_risk_score
+from ..services.risk import compute_risk_score, _is_violation
 from ..utils import _safe_filename, _html_escape, _xlsx_safe, fmt_ist, now_ist
 from ..models import SessionStatus
 from .. import cache as _cache
@@ -169,7 +169,11 @@ async def _pdf_fetch_violations(session_id: str, tid: str) -> list[dict]:
         .eq("session_key", session_id)\
         .eq("teacher_id", str(tid))\
         .order("created_at").execute()
-    return [v for v in (result.data or []) if v["severity"] in ("high", "medium")]
+    # high/medium severity AND an actual student violation — exclude high-severity
+    # DIAGNOSTIC events (model_load_failed, proctor_failed, …) which the severity
+    # filter alone would let into the report's Violations table.
+    return [v for v in (result.data or [])
+            if v["severity"] in ("high", "medium") and _is_violation(v["violation_type"])]
 
 
 async def _pdf_fetch_answers(session_id: str, tid: str) -> list[dict]:

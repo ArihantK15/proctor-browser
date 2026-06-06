@@ -339,6 +339,47 @@ class TestSubmitExam:
                     upserted_row = calls[0][0][0]
                     assert upserted_row["roll_number"] == "ALICE001"  # From JWT, not BOB002
 
+    def test_submit_recovers_abandoned_session(self, client):
+        """recover-on-submit: a session the reaper marked ABANDONED, but with a
+        valid late submission, RECOVERS (not 409) — so an over-aggressive
+        abandonment never loses a student's attempt."""
+        token = make_student_token(roll="ALICE001")
+        with patch("app.routers.exam._recalculate_score", return_value=(7, 10)), \
+             patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
+             patch("app.routers.exam.compute_risk_score", new=AsyncMock(return_value={"risk_score": 10, "label": "Low Risk"})), \
+             patch("app.routers.exam._atable") as atable_mock:
+            atable_mock.return_value.select.return_value.eq.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[{"status": "abandoned", "full_name": "Alice", "email": "a@test.com"}]))
+            atable_mock.return_value.upsert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+            atable_mock.return_value.insert.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+            atable_mock.return_value.update.return_value.eq.return_value.not_.in_.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[{"session_key": "ALICE001_123"}]))
+            atable_mock.return_value.eq.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+            atable_mock.return_value.eq.return_value.update.return_value.execute = AsyncMock(return_value=MagicMock(data=[]))
+
+            resp = client.post("/api/v1/submit-exam",
+                               json={"session_id": "ALICE001_123", "roll_number": "ALICE001",
+                                     "full_name": "Alice", "email": "a@test.com",
+                                     "time_taken_secs": 600, "answers": {}},
+                               headers={"Authorization": f"Bearer {token}"})
+            assert resp.status_code == 200, resp.text
+
+    def test_submit_completed_session_still_409(self, client):
+        """A genuinely COMPLETED session still 409s on re-submit — recover-on-submit
+        must NOT resurrect a finished attempt."""
+        token = make_student_token(roll="ALICE001")
+        with patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
+             patch("app.routers.exam._atable") as atable_mock:
+            atable_mock.return_value.select.return_value.eq.return_value.execute = AsyncMock(
+                return_value=MagicMock(data=[{"status": "completed", "score": 5, "total": 10, "percentage": 50}]))
+            resp = client.post("/api/v1/submit-exam",
+                               json={"session_id": "ALICE001_123", "roll_number": "ALICE001",
+                                     "full_name": "Alice", "email": "a@test.com",
+                                     "time_taken_secs": 600, "answers": {}},
+                               headers={"Authorization": f"Bearer {token}"})
+            assert resp.status_code == 409, resp.text
+            assert "already submitted" in resp.json()["detail"].lower()
+
     def test_submit_zero_score_warning(self, client):
         """When score is 0/0, a warning should be logged (not crash)."""
         token = make_student_token(roll="ALICE001")

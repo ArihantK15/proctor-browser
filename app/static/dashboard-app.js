@@ -5002,7 +5002,7 @@ const TL_NON_VIOLATION_TYPES = new Set([
   'proctor_failed', 'proctor_camera_failed', 'system_check', 'proctoring_tier',
   'client_throttled', 'submit_failed',
   // session admin + room-cam plumbing
-  'session_reset', 'session_abandoned',
+  'session_reset', 'session_abandoned', 'session_recovered',
   'room_cam_offline', 'room_cam_pending', 'room_cam_approved', 'room_cam_rejected',
 ]);
 

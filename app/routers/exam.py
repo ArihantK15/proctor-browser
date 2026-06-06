@@ -1138,11 +1138,20 @@ async def submit_exam(result: ResultIn, request: Request):
     # async flow strictly idempotent at the API edge.
     existing = await _atable("exam_sessions").select("status,started_at,full_name,email,submitted_at,score,total,percentage,risk_score,paused_secs_total")\
         .eq("session_key", result.session_id).execute()
+    recovered_from_abandoned = False
     if existing.data:
         current_status = existing.data[0].get("status")
         if current_status in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
-                              SessionStatus.REJECTED, SessionStatus.ABANDONED):
+                              SessionStatus.REJECTED):
             raise HTTPException(status_code=409, detail="Exam already submitted")
+        # ABANDONED is RECOVERABLE: the heartbeat reaper (or a disconnection)
+        # closed the session, but the student is submitting valid, JWT-authed
+        # answers — accept + score it rather than lose the attempt. The UPDATE
+        # guards below allow ABANDONED→COMPLETED, and a 'session_recovered'
+        # audit row is written so the teacher sees it was reopened by a late
+        # submit. COMPLETED/FORCE_SUBMITTED/REJECTED stay terminal (real
+        # double-submits / teacher-terminations are still rejected above).
+        recovered_from_abandoned = (current_status == SessionStatus.ABANDONED)
         if current_status == SessionStatus.SUBMITTED:
             # Treat as a successful retry — return the same shape the renderer
             # expects so the user sees the "Calculating your score…" state
@@ -1204,7 +1213,7 @@ async def submit_exam(result: ResultIn, request: Request):
             await _atable("exam_sessions").update(interim_row)\
                 .eq("session_key", result.session_id)\
                 .not_.in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
-                                      SessionStatus.REJECTED, SessionStatus.ABANDONED])\
+                                      SessionStatus.REJECTED])\
                 .execute()
 
             # Enqueue the scoring job — runs in RQ worker, never blocks this request
@@ -1310,13 +1319,27 @@ async def submit_exam(result: ResultIn, request: Request):
     }
 
     parallel_ops = [
+        # NOTE: ABANDONED is intentionally NOT in this guard — recover-on-submit
+        # allows a reaper-closed session to finalize. COMPLETED/FORCE_SUBMITTED/
+        # REJECTED stay protected against TOCTOU resurrection.
         _atable("exam_sessions").update(session_row)\
             .eq("session_key", result.session_id)\
             .not_.in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
-                                  SessionStatus.REJECTED, SessionStatus.ABANDONED])\
+                                  SessionStatus.REJECTED])\
             .execute(),
         _atable("violations").insert(submit_viol).execute(),
     ]
+    if recovered_from_abandoned:
+        parallel_ops.append(
+            _atable("violations").insert({
+                "session_key":    result.session_id,
+                "violation_type": "session_recovered",
+                "severity":       "low",
+                "details":        "Recovered from ABANDONED by a valid late submission.",
+                "teacher_id":     tid or "",
+            }).execute())
+        _exam_log.info("[SUBMIT-RECOVER] %s recovered from ABANDONED (roll=%s)",
+                       safe(result.session_id), safe(trusted_roll))
 
     # Time exceeded check — use server-computed elapsed time (H44).
     # Phase 74: subtract paused_secs_total so teacher-pause windows

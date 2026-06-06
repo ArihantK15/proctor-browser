@@ -78,6 +78,7 @@ _NON_VIOLATION_TYPES = {
     # Summary" (e.g. "Session Reset", "Session Abandoned", "Room Cam Offline")
     # and must not count toward risk either.
     "session_paused", "session_resumed", "session_reset", "session_abandoned",
+    "session_recovered",
     "room_cam_offline", "room_cam_pending", "room_cam_approved", "room_cam_rejected",
 }
 

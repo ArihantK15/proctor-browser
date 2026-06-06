@@ -615,8 +615,11 @@
 <div class="screen" id="screen-phone-cam">
   <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:40px;text-align:center">
     <h2 style="margin-bottom:8px">Room Camera Required</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:20px;max-width:400px">
-      Your teacher requires a phone camera for room monitoring. Scan the QR code below with your phone to connect.
+    <p style="color:var(--muted);font-size:13px;margin-bottom:20px;max-width:420px">
+      Your teacher needs a second camera showing your room. <strong>1.</strong> Scan the QR code below with your phone.
+      <strong>2.</strong> Prop the phone up about 1&nbsp;m behind you so its camera shows your desk and surroundings —
+      you don't hold it or take a photo, it streams a live view. <strong>3.</strong> Wait here while your teacher checks
+      the live view and approves.
     </p>
     <div id="phone-cam-qr" style="background:#fff;border-radius:12px;padding:12px;margin-bottom:16px">
       <div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">Loading QR...</div>
@@ -756,6 +759,10 @@ function _escHtml(s) {
 }
 let student=null, sessionId=null, currentRoll=null, questions=[], answers={};
 let studentToken=null;
+// Exam payload (questions + flags like phone_camera_enabled) fetched ONCE at
+// the ID-verify → calibration handoff so we can run the room-cam step BEFORE
+// calibration. startExam reuses it instead of re-fetching.
+let _examData=null;
 // Practice sandbox: set when the validate-student response carries
 // {practice: true} (server-side detected by PRACTICE_ roll prefix).
 // All server writes are still ATTEMPTED — the backend short-circuits
@@ -1447,7 +1454,7 @@ function _startIdPoll() {
           idStream = null;
           document.getElementById('id-cam').srcObject = null;
         }
-        startEnroll();
+        proceedFromIdToCalibration();
 
       } else if (d.status === 'retake') {
         clearInterval(idPollTimer); idPollTimer = null;
@@ -1839,6 +1846,29 @@ async function retryCam() {
   }
 }
 
+// ── ID-verify → (room cam) → calibration ──────────────────────────────
+// The room/phone camera is set up and APPROVED BY THE TEACHER here — after
+// ID verification, before calibration — so the teacher vets the room view
+// while proctor.py isn't holding the camera yet (no contention, no false
+// look-aways). We prefetch the exam payload once to learn phone_camera_enabled
+// without a second round-trip in startExam.
+async function proceedFromIdToCalibration() {
+  try {
+    _examData = await window.proctor.getQuestions(sessionId);
+  } catch (e) {
+    console.warn('[Flow] prefetch exam data failed:', e);
+    _examData = null;
+  }
+  if (_examData && _examData.phone_camera_enabled) {
+    try {
+      await showPhoneCamScreen();   // blocks until the teacher approves
+    } catch (e) {
+      console.warn('[PhoneCam] setup failed — continuing to calibration:', e);
+    }
+  }
+  startEnroll();
+}
+
 // ── Start calibration ────────────────────────────────────────────────
 async function startEnroll() {
   calIdx = 0; calReadings = []; calResults = {};
@@ -1924,23 +1954,19 @@ async function showPhoneCamScreen(){
     const spinner = document.getElementById('phone-cam-spinner');
     const rejectedMsg = document.getElementById('phone-cam-rejected-msg');
 
-    // Hard cap so a teacher who forgets to approve doesn't strand the
-    // student forever. 10 minutes matches a typical pre-exam window;
-    // bumping it requires zero code change since we proceed to the
-    // exam with graceful degradation either way.
-    const PHONE_CAM_MAX_WAIT_MS = 10 * 60 * 1000;
+    // BLOCK until the teacher approves — the room view is an integrity gate,
+    // so we do NOT auto-proceed on a timeout. The student waits here (the
+    // emergency-exit link + panic chord remain available if they're genuinely
+    // stranded). After a few minutes we soften the wording so they know it's
+    // the teacher they're waiting on, not a frozen app.
+    const PHONE_CAM_SOFT_WAIT_MS = 5 * 60 * 1000;
     await new Promise((resolve) => {
       const pollStart = Date.now();
+      let softened = false;
       const poll = setInterval(async () => {
-        // Timeout fallback. Without this, the function awaits forever
-        // and startExam() (which `await`s us) never proceeds — the
-        // student is hard-stuck on the phone-cam screen.
-        if(Date.now() - pollStart > PHONE_CAM_MAX_WAIT_MS){
-          clearInterval(poll);
-          statusMsg.textContent = 'Phone camera still pending. Continuing without it — your examiner can review later.';
-          if(spinner) spinner.style.display = 'none';
-          setTimeout(resolve, 1500);
-          return;
+        if(!softened && Date.now() - pollStart > PHONE_CAM_SOFT_WAIT_MS){
+          softened = true;
+          statusMsg.textContent = 'Still waiting for your teacher to approve the room camera. Keep this screen open.';
         }
         try{
           const r = await fetch(`${SERVER}/api/v1/room-cam-approval-status?session_id=${encodeURIComponent(sessionId)}`, { headers: hdr() });
@@ -1969,15 +1995,14 @@ async function showPhoneCamScreen(){
 // ── EXAM ───────────────────────────────────────────────────────────
 async function startExam(){
   try{
-    const data=await window.proctor.getQuestions(sessionId);
+    // Reuse the payload prefetched at the ID→calibration handoff (room cam was
+    // already handled there); fall back to a fetch for any path that reaches
+    // startExam without the prefetch (e.g. resume).
+    const data = _examData || await window.proctor.getQuestions(sessionId);
+    _examData = data;
     questions=data.questions||[];
     if(!questions.length){
       showModal('No questions found. Contact examiner.'); return;
-    }
-
-    // Phone camera check — if required, show QR and wait for approval
-    if(data.phone_camera_enabled){
-      await showPhoneCamScreen();
     }
 
     const durationMins = data.duration_minutes || questions.length * 2;

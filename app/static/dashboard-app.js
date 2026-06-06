@@ -1999,6 +1999,14 @@ function renderLive(){
                  : s.live_state === 'force_submitted' ? 'Force Submitted'
                  : isPaused ? 'PAUSED'
                  : (s.live_state || 'Active');
+    // Room (phone) camera: surface a button to view/approve it whenever the
+    // student has a room cam in play. 'pending' = student is waiting on the
+    // exam screen for the teacher to approve — make it loud (amber).
+    const rcStatus = s.room_cam_status || 'disabled';
+    const rcActive = !isSubmitted && rcStatus !== 'disabled' && rcStatus !== 'offline';
+    const roomCamBtn = rcActive
+      ? `<button class="btn btn-secondary btn-sm" title="View / approve the student's room (phone) camera" data-action="openRoomCamView" data-args='${_jsonArgsForAttr(sid)}'${rcStatus === 'pending' ? ' style="background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.5)"' : ''}>🎥 Room${rcStatus === 'pending' ? ' • approve' : ''}</button>`
+      : '';
     // Phase 74: Warn / Pause / Resume / End intervention buttons.
     // Only shown on still-running sessions (not after submit/terminate).
     const interventionBtns = isSubmitted ? '' : `
@@ -2019,6 +2027,7 @@ function renderLive(){
         <button class="btn btn-secondary btn-sm" data-action="openTriage" data-args='${_jsonArgsForAttr(sid)}'>Insight</button>
         <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
         ${isSubmitted ? '' : `<button class="btn btn-secondary btn-sm" title="Watch the student's live webcam" data-action="openLiveView" data-args='${_jsonArgsForAttr(sid)}'>📷 Camera</button>`}
+        ${roomCamBtn}
         ${interventionBtns}
         ${isResettable ? `<button class="btn btn-secondary btn-sm" title="Re-open this session so the student can re-enter (e.g. after a disconnection)" data-action="confirmResetSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--emerald)">↺ Reset</button>` : ''}
       </td>

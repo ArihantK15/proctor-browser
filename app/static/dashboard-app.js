@@ -1974,6 +1974,10 @@ function renderLive(){
   if(sevFilter !== 'all'){
     rows = rows.filter(s => String(s.last_severity || '').toLowerCase() === sevFilter);
   }
+  // Completed / submitted / force-submitted sessions are DONE — they belong in
+  // the Results tab, not the live monitor, so they don't pile up here forever.
+  // (Abandoned + stale stay: they're recoverable via the ↺ Reset button.)
+  rows = rows.filter(s => !(s.submitted || s.live_state === 'submitted'));
   rows.sort((a,b)=>{
     let va = a[liveSortKey], vb = b[liveSortKey];
     if(liveSortKey === 'last_severity'){ va = _severityRank(va); vb = _severityRank(vb); }
@@ -1994,9 +1998,10 @@ function renderLive(){
     // Reset re-opens a CLOSED/abandoned session (disconnect recovery). Shown for
     // submitted/terminal rows and stale ones (the reaper marks a long-disconnected
     // session abandoned → stale here). The backend refuses an active session.
-    const isResettable = isSubmitted || s.live_state === 'stale';
+    const isResettable = isSubmitted || s.live_state === 'stale' || s.live_state === 'abandoned';
     const state = s.submitted ? 'Submitted'
                  : s.live_state === 'force_submitted' ? 'Force Submitted'
+                 : s.live_state === 'abandoned' ? 'Abandoned'
                  : isPaused ? 'PAUSED'
                  : (s.live_state || 'Active');
     // Room (phone) camera: surface a button to view/approve it whenever the

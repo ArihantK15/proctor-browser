@@ -183,8 +183,15 @@ def derive_live_state(meta: dict) -> tuple[str, int | None]:
         # heartbeating → "stale"), so a teacher could pause but never unpause
         # from the UI — the Resume control only shows when live_state=='paused'.
         return "paused", None
-    if status in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED) or meta.get("submitted_at"):
+    if status in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED, SessionStatus.REJECTED) or meta.get("submitted_at"):
         return "submitted", None
+    if status == SessionStatus.ABANDONED:
+        # Terminal-but-recoverable: the heartbeat reaper closed it after a long
+        # disconnection. Surface it HONESTLY as 'abandoned' instead of letting it
+        # fall through to 'stale' (which made a dead, days-old session look like a
+        # live student who just went quiet). The dashboard labels it "Abandoned"
+        # and keeps the Reset affordance.
+        return "abandoned", None
     age = heartbeat_age_seconds(meta.get("last_heartbeat"))
     if age is not None and age <= _CLEAR_ACTIVE_WINDOW:
         return "live", int(age)

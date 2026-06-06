@@ -1945,9 +1945,29 @@ async function showPhoneCamScreen(){
     const td = await tr.json();
     const roomCamToken = td.token;
 
-    // Load QR code
+    // Load QR code. The endpoint requires the student's Bearer token, which an
+    // <img src> CANNOT send — so a plain <img> 401s and shows a broken-image
+    // placeholder (and the phone never pairs → room cam never goes pending →
+    // teacher gets no approve button → student stuck). Fetch it WITH auth and
+    // render the SVG via a blob URL. Retry IN PLACE on failure so we never fall
+    // through to calibration without a working QR (block-until-approved).
     const qrDiv = document.getElementById('phone-cam-qr');
-    qrDiv.innerHTML = `<img src="${SERVER}/api/v1/room-cam-qr?session_id=${encodeURIComponent(sessionId)}&t=${Date.now()}" alt="QR code" style="width:200px;height:200px">`;
+    let qrLoaded = false;
+    while(!qrLoaded){
+      try {
+        const qrRes = await fetch(
+          `${SERVER}/api/v1/room-cam-qr?session_id=${encodeURIComponent(sessionId)}&t=${Date.now()}`,
+          { headers: hdr() });
+        if(!qrRes.ok) throw new Error('QR HTTP ' + qrRes.status);
+        const qrBlob = await qrRes.blob();
+        qrDiv.innerHTML = `<img src="${URL.createObjectURL(qrBlob)}" alt="Room camera QR code" style="width:200px;height:200px">`;
+        qrLoaded = true;
+      } catch(qrErr){
+        console.warn('[PhoneCam] QR load failed, retrying:', qrErr);
+        qrDiv.innerHTML = `<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;color:#c0392b;font-size:12px;text-align:center;padding:8px">Couldn't load the QR code — check your connection. Retrying…</div>`;
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
 
     // Poll for approval
     const statusMsg = document.getElementById('phone-cam-status-msg');

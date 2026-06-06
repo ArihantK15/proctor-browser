@@ -159,6 +159,21 @@ async def validate_student(request: Request, body: ValidateIn):
     pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code, provided_teacher_id)
     config = await _load_exam_config(pre_tid, exam_id=exam_id)
     _check_exam_time_window(config)
+    # Block entry to an exam that has NO questions. Otherwise the student passes
+    # ID-verify + calibration and only then hits get-questions' 404, getting
+    # stuck on a cryptic "Could not load questions" with no way forward. Fail
+    # early with an actionable message (409, not collapsed to the generic 403).
+    _q_exam_id = exam_id or pre_exam_id
+    if _q_exam_id:
+        try:
+            _exam_questions = await _load_questions(pre_tid, exam_id=_q_exam_id)
+        except Exception:
+            _exam_questions = None  # don't block on a transient lookup error
+        if _exam_questions is not None and len(_exam_questions) == 0:
+            raise HTTPException(
+                status_code=409,
+                detail="This exam has no questions yet. Ask your examiner to add "
+                       "questions before starting.")
     try:
         student, student_tid, matched_invite_id = await _find_or_enroll_student(
             roll_upper, pre_tid, pre_exam_id)

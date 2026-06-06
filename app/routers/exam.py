@@ -724,6 +724,16 @@ async def log_event(event: EventIn, request: Request):
     if event.event_type == "submit_failed":
         _exam_log.error("[ALERT] SUBMIT FAILED for session %s — use /api/v1/admin-submit/%s to recover", safe(event.session_id), safe(event.session_id))
 
+    # End the room camera when the exam ends abruptly. Submit / force-submit
+    # flip the session status terminal, which the room-cam WS loop detects on
+    # its own; a panic/emergency exit doesn't, so close the phone stream here.
+    if event.event_type in ("panic_unlock", "emergency_exit", "exam_exit"):
+        try:
+            from .sse import close_room_cam_ws
+            await close_room_cam_ws(event.session_id)
+        except Exception:
+            _exam_log.debug("room-cam close on %s failed", event.event_type, exc_info=True)
+
     viol_row = {
         "session_key":    event.session_id,
         "violation_type": event.event_type,

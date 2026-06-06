@@ -245,6 +245,19 @@ _ws_room_conns: dict[str, WebSocket] = {}
 _last_room_frame: dict[str, float] = {}
 _last_live_frame_ts: dict[str, float] = {}
 MAX_WS_PER_SESSION = 3
+
+
+async def close_room_cam_ws(session_id: str, code: int = 4004, reason: str = "session_ended"):
+    """Force-close the phone's room-cam WS for a session (e.g. on panic exit,
+    where the session may not be terminal yet). The phone stops reconnecting on
+    the 4004 code; the WS receive loop's finally block marks the cam offline."""
+    ws = _ws_room_conns.get(session_id)
+    if ws is None:
+        return
+    try:
+        await ws.close(code=code, reason=reason)
+    except Exception:
+        logger.debug("close_room_cam_ws failed", exc_info=True)
 MAX_WS_MSG_BYTES = 200 * 1024  # 200 KB — laptop cam JPEG
 MAX_ROOM_FRAME_BYTES = 400 * 1024  # 400 KB — phone cam (higher res)
 
@@ -586,6 +599,8 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
         logger.warning("sse: room_cam_status='pending' update failed", exc_info=True)
 
 
+    _ROOM_TERMINAL = {"submitted", "force_submitted", "abandoned", "rejected", "completed"}
+    _frame_since_check = 0
     try:
         while True:
             msg = await websocket.receive()
@@ -596,6 +611,22 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
                         continue
                     await _store_room_frame(session_id, data)
                     _last_room_frame[session_id] = time.time()
+                    # Stop the room cam once the exam is over (submit/force-submit/
+                    # abandon). Frames arrive ~1/s, so checking every 3rd closes
+                    # the phone stream within a few seconds of exam end. The phone
+                    # stops reconnecting on the 4004 close code.
+                    _frame_since_check += 1
+                    if _frame_since_check >= 3:
+                        _frame_since_check = 0
+                        try:
+                            from ..database import async_table as _atbl
+                            srow = (await _atbl("exam_sessions").select("status")
+                                    .eq("session_key", session_id).limit(1).execute()).data or []
+                            if srow and srow[0].get("status") in _ROOM_TERMINAL:
+                                await websocket.close(code=4004, reason="session_ended")
+                                break
+                        except Exception:
+                            logger.debug("sse: room-cam terminal check failed", exc_info=True)
                 elif "text" in msg:
                     try:
                         payload = json.loads(msg["text"])

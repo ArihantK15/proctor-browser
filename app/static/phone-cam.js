@@ -16,6 +16,7 @@ let heartbeatTimer = null;
 let wakeLock = null;
 let stream = null;
 let consentGiven = false;
+let _stopped = false;   // set on a terminal WS close (exam ended) — no reconnect
 
 function setStatus(state, msg){
   statusDot.className = state;
@@ -112,12 +113,12 @@ let wsReconnectDelay = 1000;
 let wsReconnectTimer = null;
 
 function _scheduleWsReconnect(){
-  if(wsReconnectTimer) return;
+  if(wsReconnectTimer || _stopped) return;
   const d = Math.min(wsReconnectDelay, 30000);
   wsReconnectTimer = setTimeout(() => {
     wsReconnectTimer = null;
     wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
-    if(consentGiven) connectWs();
+    if(consentGiven && !_stopped) connectWs();
   }, d);
 }
 
@@ -144,12 +145,24 @@ function connectWs(){
   };
 
   ws.onclose = (e) => {
-    // Include the close code so a failed pairing is diagnosable (4001 auth,
-    // 4002 rate, 4003 sid mismatch, 1006 abnormal/proxy, …).
-    const code = (e && e.code) ? ` (code ${e.code})` : '';
-    setStatus('connecting', `Disconnected${code} — reconnecting in ${Math.round(Math.min(wsReconnectDelay, 30000)/1000)}s...`);
     if(sendTimer){ clearInterval(sendTimer); sendTimer = null; }
     if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    const code = e && e.code;
+    // Terminal closes — the exam is over (4004) or this phone was reconnected
+    // elsewhere (4000). Stop streaming and do NOT reconnect.
+    if(code === 4004){
+      _stopped = true;
+      if(stream) stream.getTracks().forEach(t => t.stop());
+      warningBanner.style.display = 'none';
+      setStatus('inactive', '✅ Exam ended — room camera stopped. You can close this page.');
+      return;
+    }
+    if(code === 4000){
+      _stopped = true;
+      setStatus('inactive', 'Reconnected on another tab/device — this one stopped.');
+      return;
+    }
+    setStatus('connecting', `Disconnected${code?` (code ${code})`:''} — reconnecting in ${Math.round(Math.min(wsReconnectDelay, 30000)/1000)}s...`);
     _scheduleWsReconnect();
   };
 
@@ -161,16 +174,41 @@ function connectWs(){
 
 function sendFrame(){
   if(!ws || ws.readyState !== WebSocket.OPEN) return;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if(!vw || !vh) return;   // stream not ready yet
+
+  // iOS draws the camera's INTRINSIC (unrotated) buffer to canvas, ignoring
+  // the display orientation — so the old fixed 320x240 canvas squished portrait
+  // and flipped landscape upside-down. Capture at the video's natural aspect
+  // (scaled down for bandwidth) and rotate by the device orientation so the
+  // teacher always gets an upright frame regardless of how the phone is held.
+  const MAX = 480;
+  const scale = Math.min(1, MAX / Math.max(vw, vh));
+  const w = Math.max(1, Math.round(vw * scale));
+  const h = Math.max(1, Math.round(vh * scale));
+
+  let angle = 0;
+  try {
+    angle = (screen.orientation && typeof screen.orientation.angle === 'number')
+      ? screen.orientation.angle
+      : (typeof window.orientation === 'number' ? window.orientation : 0);
+  } catch(_) {}
+  angle = ((angle % 360) + 360) % 360;
+
   const canvas = document.createElement('canvas');
-  canvas.width = 320;
-  canvas.height = 240;
+  // 90°/270° swap width<->height.
+  if(angle === 90 || angle === 270){ canvas.width = h; canvas.height = w; }
+  else { canvas.width = w; canvas.height = h; }
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, 320, 240);
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(angle * Math.PI / 180);
+  ctx.drawImage(video, -w / 2, -h / 2, w, h);
+
   canvas.toBlob(blob => {
     if(blob && ws.readyState === WebSocket.OPEN){
       ws.send(blob);
     }
-  }, 'image/jpeg', 0.4);
+  }, 'image/jpeg', 0.5);
 }
 
 function sendHeartbeat(){

@@ -72,7 +72,13 @@ _NON_VIOLATION_TYPES = {
     # publish_critical_alert — they just don't penalise the student.
     "proctor_boot", "model_load_failed", "restart_attempt",
     "event_queue_full", "proctor_failed", "proctor_camera_failed",
-    "system_check", "proctoring_tier",
+    "system_check", "proctoring_tier", "client_throttled",
+    # Session lifecycle / teacher-admin / room-cam plumbing — state changes,
+    # not student behaviour. They were leaking into the scorecard "Violation
+    # Summary" (e.g. "Session Reset", "Session Abandoned", "Room Cam Offline")
+    # and must not count toward risk either.
+    "session_paused", "session_resumed", "session_reset", "session_abandoned",
+    "room_cam_offline", "room_cam_pending", "room_cam_approved", "room_cam_rejected",
 }
 
 BLOCKING_TYPES = {"vm_detected", "remote_desktop_detected", "vpn_detected", "proxy_detected", "debugger_detected"}

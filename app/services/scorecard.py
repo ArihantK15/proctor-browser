@@ -5,14 +5,121 @@ Extracted from app/routers/admin.py to reduce the god module.
 
 import io
 import logging
+from pathlib import Path
 
 from ..repositories.sessions import assert_session_owned as _assert_session_owned
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
 from ..database import async_table as _atable
-from ..services.risk import compute_risk_score
+from ..services.risk import compute_risk_score, _is_violation
 from ..utils import _safe_filename, fmt_ist, now_ist
 
 logger = logging.getLogger(__name__)
+
+# Procta brand
+_PROCTA_BLUE = "#4a78dc"
+_PROCTA_NAVY = "#1a1a2e"
+_PROCTA_LOGO = Path(__file__).resolve().parent.parent / "static" / "icon-192.png"
+
+
+def _procta_brand_header():
+    """A Procta-branded header band (logo + wordmark) for the top of a
+    scorecard when the teacher's org has no white-label logo of its own, so the
+    report visibly comes from Procta. Falls back to a text-only wordmark if the
+    icon asset can't be read."""
+    from reportlab.lib import colors as _c
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Table, TableStyle, Paragraph, Image
+    from reportlab.lib.styles import ParagraphStyle
+
+    word = Paragraph(
+        f'<font color="{_PROCTA_BLUE}"><b>Procta</b></font>'
+        f'<font size="9" color="#94a3b8">&nbsp;&nbsp;AI-proctored exams</font>',
+        ParagraphStyle("brand", fontName="Helvetica-Bold", fontSize=18, leading=20))
+    try:
+        logo = Image(str(_PROCTA_LOGO), width=0.42 * inch, height=0.42 * inch, kind="proportional")
+        row = [[logo, word]]
+        widths = [0.55 * inch, 5.0 * inch]
+    except Exception:
+        row = [[word]]
+        widths = [5.5 * inch]
+    t = Table(row, colWidths=widths)
+    t.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBELOW", (0, 0), (-1, -1), 1.4, _c.HexColor(_PROCTA_BLUE)),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (0, 0), 0),
+    ]))
+    return t
+
+
+def _build_scorecard_evidence(session_id: str, exam: dict, real_violations: list,
+                              tid, styles) -> list:
+    """Flowables for the 'Visual Evidence' section — the proof screenshots
+    captured at each flagged moment, matched from disk (same source the
+    dashboard timeline + full report use). Returns [] when there's nothing to
+    show. Best-effort throughout: a missing/unreadable image never raises."""
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (Paragraph, Spacer, Image, KeepTogether,
+                                    PageBreak, Table, TableStyle)
+    from reportlab.lib.styles import ParagraphStyle
+    from .sessions import (collect_session_screenshots,
+                           match_screenshot_for_violation,
+                           match_room_screenshot_for_violation)
+
+    roll = exam.get("roll_number") or (
+        session_id.rsplit("_", 1)[0] if "_" in session_id else session_id)
+    try:
+        shots = collect_session_screenshots(roll, str(tid))
+    except Exception:
+        shots = {}
+    if not shots:
+        return []
+
+    items = []
+    for v in real_violations:
+        img = match_screenshot_for_violation(v, shots)
+        if not img:
+            continue
+        items.append((v, img, match_room_screenshot_for_violation(v, shots)))
+        if len(items) >= 20:
+            break
+    if not items:
+        return []
+
+    cap_style = ParagraphStyle("evcap", parent=styles["Normal"], fontSize=9,
+                               leading=12, spaceAfter=4)
+    sub_cap = ParagraphStyle("evsub", parent=cap_style, fontSize=8, alignment=1)
+    flow = [
+        PageBreak(),
+        Paragraph(f"Visual Evidence ({len(items)} captures)", styles["Heading2"]),
+        Paragraph("Screenshots captured at flagged moments, in chronological order.",
+                  styles["Italic"]),
+        Spacer(1, 10),
+    ]
+    for v, img, room in items:
+        sev = (v.get("severity") or "low").upper()
+        sev_color = "#c0392b" if v.get("severity") == "high" else "#d68910"
+        vtype_pretty = (v.get("violation_type") or "").replace("_", " ").title()
+        ts = fmt_ist(v.get("created_at", ""))
+        caption = (f'<b>{vtype_pretty}</b> &middot; '
+                   f'<font color="{sev_color}"><b>{sev}</b></font> &middot; {ts}')
+        try:
+            if room is not None:
+                primary = Image(str(img), width=2.6 * inch, height=2.0 * inch, kind="proportional")
+                phone = Image(str(room), width=2.6 * inch, height=2.0 * inch, kind="proportional")
+                grid = Table([[primary, phone],
+                              [Paragraph("Primary camera", sub_cap),
+                               Paragraph("Phone camera", sub_cap)]],
+                             colWidths=[2.75 * inch, 2.75 * inch])
+                grid.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                                          ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+                flow.append(KeepTogether([Paragraph(caption, cap_style), grid, Spacer(1, 14)]))
+            else:
+                im = Image(str(img), width=4.5 * inch, height=3.4 * inch, kind="proportional")
+                flow.append(KeepTogether([Paragraph(caption, cap_style), im, Spacer(1, 14)]))
+        except Exception as e:
+            logger.warning("scorecard: unreadable screenshot %s: %s", img, e)
+    return flow
 
 
 _END_REASON_LABELS = {
@@ -189,12 +296,20 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
     passed = pct >= 40
 
     viol_rows = (await _atable("violations")
-                 .select("violation_type, severity")
+                 .select("id, violation_type, severity, details, created_at")
                  .eq("session_key", session_id)
-                 .eq("teacher_id", str(tid)).execute()).data or []
+                 .eq("teacher_id", str(tid)).order("created_at").execute()).data or []
+
+    # Only ACTUAL student-behaviour violations belong in the summary. The
+    # violations table also stores lifecycle + diagnostic events (id_verification,
+    # calibration, proctor boot/model-load, session reset/abandon, room-cam
+    # plumbing, …) which were polluting the scorecard as fake "violations". Gate
+    # on the shared _is_violation() so the scorecard, dashboard timeline and risk
+    # score all agree on what counts.
+    real_violations = [v for v in viol_rows if _is_violation(v.get("violation_type", ""))]
 
     viol_counts: dict[str, dict[str, int]] = {}
-    for v in viol_rows:
+    for v in real_violations:
         vtype = v.get("violation_type", "unknown")
         sev = v.get("severity", "low")
         if vtype not in viol_counts:
@@ -217,17 +332,27 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
     if org_logo_img is not None:
         story.append(org_logo_img)
         story.append(Spacer(1, 14))
+    else:
+        # No institute white-label logo → show Procta's own branding so the
+        # report visibly comes from us (logo + wordmark + brand rule).
+        try:
+            story.append(_procta_brand_header())
+            story.append(Spacer(1, 14))
+        except Exception:
+            logger.debug("scorecard: procta brand header failed", exc_info=True)
 
     story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
     story.append(Spacer(1, 12))
     story.append(_build_info_table(exam, score, total, pct, risk["label"], passed))
     story.append(Spacer(1, 20))
 
+    story.append(Paragraph("Proctoring Violations", styles["Heading2"]))
+    story.append(Spacer(1, 8))
     if viol_counts:
-        story.append(Paragraph("Violation Summary", styles["Heading2"]))
-        story.append(Spacer(1, 8))
         story.append(_build_violation_table(viol_counts))
-        story.append(Spacer(1, 20))
+    else:
+        story.append(Paragraph("No proctoring violations detected.", styles["Normal"]))
+    story.append(Spacer(1, 20))
 
     story.append(Paragraph("Question-wise Results", styles["Heading2"]))
     story.append(Spacer(1, 8))
@@ -235,6 +360,14 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
         story.append(_build_question_table(questions, ans_map))
     else:
         story.append(Paragraph("No questions available.", styles["Normal"]))
+
+    # Visual evidence — screenshots captured at each real violation (matched
+    # from disk the same way the dashboard timeline + full report do). Best
+    # effort: never let a missing/unreadable capture fail the scorecard.
+    try:
+        story.extend(_build_scorecard_evidence(session_id, exam, real_violations, tid, styles))
+    except Exception:
+        logger.debug("scorecard: evidence section failed", exc_info=True)
 
     story.append(Spacer(1, 20))
     story.append(Paragraph(

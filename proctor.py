@@ -154,16 +154,22 @@ except Exception as _oe:
     ORT_AVAILABLE = False
     _MODEL_ERRORS["onnxruntime"] = type(_oe).__name__
 
-# YOLOv8n cheat-object detection — runs on onnxruntime (NOT torch).
-# We ship a pre-exported weights/yolov8n.onnx and load it with the same
-# ORT session pattern as the gaze model, so the whole proctor depends on
-# a single runtime. The model is loaded lazily to avoid blocking startup
-# and to keep the resident footprint low until the first object check.
+# YOLO cheat-object detection — runs on onnxruntime (NOT torch).
+# We ship a pre-exported ONNX and load it with the same ORT session pattern
+# as the gaze model, so the whole proctor depends on a single runtime. The
+# model is loaded lazily to avoid blocking startup and to keep the resident
+# footprint low until the first object check.
 #
-# The exported graph has a STATIC 640x640 input ([1,3,640,640]) and a
-# single output "output0" of shape [1, 84, 8400] (4 box coords + 80 COCO
-# class scores per anchor; YOLOv8 has no separate objectness channel).
-# Re-export with:  yolo export model=yolov8n.pt format=onnx imgsz=640 opset=12
+# Preferred model is weights/yolo26n.onnx (YOLO26: NMS-free / end-to-end,
+# ~43% faster CPU inference than YOLO11n); we fall back to the legacy
+# weights/yolov8n.onnx if the YOLO26 file isn't present (see _find_yolo_model).
+# Both use a STATIC 640x640 input ([1,3,640,640]). They differ ONLY in the
+# output head, which _yolo_infer auto-detects:
+#   * YOLO26 end-to-end -> [1, N, 6] rows [x1,y1,x2,y2,conf,cls], deduped.
+#   * Legacy YOLOv8     -> [1, 84, 8400] (4 box + 80 COCO class scores per
+#                          anchor; no objectness) — needs argmax + NMS.
+# Re-export YOLO26 with (end-to-end is the default):
+#   yolo export model=yolo26n.pt format=onnx imgsz=640 opset=19
 _yolo_session = None
 _yolo_input_name: Optional[str] = None
 _YOLO_INPUT_SIZE = 640           # square letterbox target the .onnx expects
@@ -172,15 +178,21 @@ _YOLO_LOCK = threading.Lock()
 
 
 def _find_yolo_model() -> Optional[str]:
-    """Resolve the bundled yolov8n.onnx. Mirrors _find_gaze_model so the
-    Electron bundle (weights/ shipped via extraResources) and a dev
-    checkout both work, with a PROCTOR_YOLO_MODEL override on top."""
+    """Resolve the bundled YOLO ONNX. Prefers weights/yolo26n.onnx and falls
+    back to the legacy weights/yolov8n.onnx, so dropping the YOLO26 export
+    into weights/ switches the proctor over with no other change (and removing
+    it reverts cleanly). Mirrors _find_gaze_model so the Electron bundle
+    (weights/ shipped via extraResources) and a dev checkout both work, with a
+    PROCTOR_YOLO_MODEL override on top. The decode in _yolo_infer auto-detects
+    which head the chosen file emits."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    res = os.environ.get("ELECTRON_RESOURCES_PATH", "")
     candidates = [
         os.environ.get("PROCTOR_YOLO_MODEL", ""),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "weights", "yolov8n.onnx"),
-        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""),
-                     "weights", "yolov8n.onnx"),
+        os.path.join(here, "weights", "yolo26n.onnx"),
+        os.path.join(res,  "weights", "yolo26n.onnx"),
+        os.path.join(here, "weights", "yolov8n.onnx"),
+        os.path.join(res,  "weights", "yolov8n.onnx"),
     ]
     for p in candidates:
         if p and os.path.exists(p):
@@ -218,7 +230,8 @@ def _load_yolo():
             return None
         model_path = _find_yolo_model()
         if not model_path:
-            print("[YOLO] Not available: weights/yolov8n.onnx not found")
+            print("[YOLO] Not available: weights/yolo26n.onnx (or legacy "
+                  "weights/yolov8n.onnx) not found")
             YOLO_AVAILABLE = False
             _MODEL_ERRORS["yolo"] = "weights_missing"
             return None
@@ -239,14 +252,24 @@ def _load_yolo():
 
 
 def _yolo_infer(session, bgr_img):
-    """Run YOLOv8n on a BGR image and return detections as a list of
-    (cls_id, conf, x1, y1, x2, y2) tuples in **bgr_img's own pixel
-    coordinates**. Centralises the letterbox + decode + NMS math so the
-    two workers share one well-tested path. cls_id is the raw COCO index;
+    """Run the bundled YOLO model on a BGR image and return detections as a
+    list of (cls_id, conf, x1, y1, x2, y2) tuples in **bgr_img's own pixel
+    coordinates**. Centralises the letterbox + decode math so the two
+    workers share one well-tested path. cls_id is the raw COCO index;
     callers apply the CHEAT_IDS filter themselves.
 
-    Confidence/IoU match the ultralytics defaults this replaced:
-    conf=YOLO_CONFIDENCE (0.35), NMS IoU=0.7, per-class NMS."""
+    Two output heads are supported and auto-detected from the output shape:
+
+      * YOLO26 end-to-end / NMS-free  -> output [1, N, 6] (last dim == 6),
+        each row already deduplicated as [x1, y1, x2, y2, conf, cls] in the
+        letterboxed input space. No NMS is applied.
+      * Legacy YOLOv8                 -> output [1, 84, 8400] (4 box coords +
+        80 class scores per anchor, no objectness). Needs argmax + per-class
+        NMS (conf=YOLO_CONFIDENCE 0.35, IoU=0.7, agnostic=False).
+
+    Auto-detection keeps us correct whether weights/yolo26n.onnx or the
+    legacy weights/yolov8n.onnx is shipped, and is immune to YOLO26 exports
+    that fall back to the legacy head (ultralytics issue #23397)."""
     h0, w0 = bgr_img.shape[:2]
     if h0 == 0 or w0 == 0:
         return []
@@ -268,9 +291,31 @@ def _yolo_infer(session, bgr_img):
 
     # 3. Inference.
     name = _yolo_input_name or session.get_inputs()[0].name
-    out = session.run(None, {name: blob})[0]          # [1, 84, 8400]
+    out = session.run(None, {name: blob})[0]   # [1,84,8400] or [1,N,6]
 
-    # 4. Decode: -> [8400, 84]; first 4 = cx,cy,w,h, rest = 80 class scores.
+    # 3b. End-to-end / NMS-free head (YOLO26): [1, N, 6] rows of
+    #     [x1, y1, x2, y2, conf, cls] already in the letterboxed space and
+    #     already deduplicated. Threshold + un-letterbox, no NMS.
+    if out.ndim == 3 and out.shape[2] == 6:
+        dets = out[0]                                  # [N, 6]
+        if dets.shape[0] == 0:
+            return []
+        confs_e = dets[:, 4]
+        keep_e = confs_e >= YOLO_CONFIDENCE
+        if not np.any(keep_e):
+            return []
+        dets = dets[keep_e]
+        ex1 = np.clip((dets[:, 0] - left) / scale, 0, w0)
+        ey1 = np.clip((dets[:, 1] - top) / scale, 0, h0)
+        ex2 = np.clip((dets[:, 2] - left) / scale, 0, w0)
+        ey2 = np.clip((dets[:, 3] - top) / scale, 0, h0)
+        return [
+            (int(dets[i, 5]), float(dets[i, 4]),
+             int(ex1[i]), int(ey1[i]), int(ex2[i]), int(ey2[i]))
+            for i in range(dets.shape[0])
+        ]
+
+    # 4. Legacy decode: -> [8400, 84]; first 4 = cx,cy,w,h, rest = 80 class scores.
     preds = np.squeeze(out, 0).T
     if preds.shape[0] == 0:
         return []

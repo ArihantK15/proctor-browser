@@ -15,14 +15,18 @@
 # Gaze: weights/resnet18_gaze.onnx is loaded directly via onnxruntime.
 # Eye open/closed: OpenCV Haar cascade (ships with opencv-python).
 #
-# Objects (phone/book/laptop/…): YOLOv8n runs on onnxruntime from a
-# pre-exported, bundled weights/yolov8n.onnx — NOT ultralytics/torch.
+# Objects (phone/book/laptop/…): YOLO runs on onnxruntime from a
+# pre-exported, bundled ONNX — NOT ultralytics/torch. Preferred model is
+# weights/yolo26n.onnx (YOLO26: NMS-free / end-to-end, faster CPU inference);
+# the proctor falls back to legacy weights/yolov8n.onnx if it's absent, and
+# _yolo_infer auto-detects the output head either way.
 # Dropping ultralytics removes the ~2 GB torch dependency entirely.
 # Re-export the model offline (needs ultralytics+torch on a dev box only)
-# with:
+# with (YOLO26 end-to-end is the default):
+#     yolo export model=yolo26n.pt format=onnx imgsz=640 opset=19
+# then commit the result to weights/yolo26n.onnx (shipped via the
+# Electron extraResources weights/ mapping). The legacy export command was
 #     yolo export model=yolov8n.pt format=onnx imgsz=640 opset=12
-# then commit the result to weights/yolov8n.onnx (shipped via the
-# Electron extraResources weights/ mapping).
 
 # PINNED: uniface's detect() return shape changed across majors — 1.1.x returns
 # dicts (what detect_faces parses), 3.x returns Face OBJECTS, so face.get('bbox')

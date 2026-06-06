@@ -262,11 +262,9 @@ def _batch_risk_scores(viol_by_session: dict[str, list[dict]]) -> dict[str, tupl
             sev_mult = _SEVERITY_MULTIPLIER.get(sev, 0.4)
             raw_sum += weight * sev_mult * min(1.0, math.log(1 + n) / log_sat)
 
-        # Cap the duration span at 3h. The span is max(ts)-min(ts) across the
-    # session's violations — for a session that was RESET/RESUMED (or reaper-
-    # abandoned) it can span DAYS, which drove duration_factor → ~0 and crushed
-    # a heavily-violating session's risk to ~1. No real exam runs >3h, so cap it.
-    duration_factor = _BASELINE_DURATION_MINS / max(min(duration_mins, 180.0), 5.0)
+        # Cap the span at 3h (see compute_risk_score) so a reset/resumed/abandoned
+        # session whose violations span days can't drive duration_factor to ~0.
+        duration_factor = _BASELINE_DURATION_MINS / max(min(duration_mins, 180.0), 5.0)
         risk_score = min(100, round(raw_sum * duration_factor))
         scores[sk] = (risk_score, _risk_label(risk_score))
     return scores

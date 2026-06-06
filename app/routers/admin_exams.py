@@ -208,9 +208,13 @@ async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
         raise HTTPException(status_code=500, detail="Failed to clone config. Please try again.")
 
     try:
+        # Order by question_id (the canonical ordering load_questions uses) —
+        # the questions table has NO 'order_index' column, so ordering by it
+        # raised a DB error → every duplicate failed with "Failed to fetch
+        # source questions."
         qsrc = (await _atable("questions").select("*")
                 .eq("teacher_id", tid).eq("exam_id", exam_id)
-                .order("order_index").execute()).data or []
+                .order("question_id").execute()).data or []
     except Exception as e:
         _admin_log.error("[DuplicateExam] question fetch failed: %s", e)
         try:

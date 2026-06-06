@@ -1795,12 +1795,20 @@ async def room_cam_qr(request: Request):
     from ..invites import _get_invite_base_url
     base = _get_invite_base_url()
     url = f"{base}/phone-cam#token={token}&sid={session_id}"
+    import io
     import qrcode
     qr = qrcode.QRCode(border=2, box_size=10)
     qr.add_data(url)
-    svg = qr.make_image()
+    qr.make(fit=True)
+    # make_image() returns a Pillow image; emit a PNG. (The old code called
+    # .to_string() — an SVG-factory-only method — on that PIL image, which
+    # raised AttributeError -> 500, and the 500 lacked CORS headers so the
+    # browser misreported it as a CORS failure.)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
     from fastapi.responses import Response as _Resp
-    return _Resp(content=svg.to_string().encode(), media_type="image/svg+xml",
+    return _Resp(content=buf.getvalue(), media_type="image/png",
                  headers={"Cache-Control": "no-cache"})
 
 

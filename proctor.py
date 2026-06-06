@@ -3298,6 +3298,19 @@ def main():
     # Privacy-safe boot diagnostic: model flags + versions + OS/arch, through
     # the existing event pipeline (POST /api/v1/event). METADATA ONLY — never
     # media or identity. Makes on-device boot observable server-side.
+    # Eagerly load YOLO before the boot snapshot (exam mode only) so the
+    # readiness/tier/model_load_failed reflect REALITY. The object detector
+    # otherwise loads lazily inside YoloWorker._run (started later in the
+    # proctoring loop), so this boot snapshot ran while YOLO_AVAILABLE was still
+    # False → it reported yolo:false + a FALSE "reduced" tier + a spurious
+    # model_load_failed:yolo on every exam, and the phone wasn't detectable until
+    # the worker caught up. Calibration doesn't use objects, so skip it there.
+    if not CALIBRATION_MODE:
+        try:
+            _load_yolo()
+        except Exception as _ye:
+            _MODEL_ERRORS["yolo"] = type(_ye).__name__
+
     try:
         _boot = _collect_readiness()
         log_event("proctor_boot", "low", _json.dumps(_boot))

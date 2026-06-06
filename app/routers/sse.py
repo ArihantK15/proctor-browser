@@ -522,11 +522,15 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
       - JSON text frames → {"type": "heartbeat"}
     """
     sp = websocket.headers.get("sec-websocket-protocol", "")
-    token = sp.split(",")[0].strip() if sp else ""
-    if token.startswith("bearer."):
-        token = token[7:]
+    offered = sp.split(",")[0].strip() if sp else ""
+    token = offered[7:] if offered.startswith("bearer.") else offered
 
-    await websocket.accept(subprotocol=token or None)
+    # Echo the EXACT subprotocol the client offered (e.g. "bearer.<jwt>"). A
+    # server-selected subprotocol MUST be one the client sent — accepting with
+    # the *stripped* token (a value never offered) makes the browser fail the
+    # handshake, so the phone could never connect (endless "reconnecting…",
+    # room_cam_status never went pending, nothing on the teacher dashboard).
+    await websocket.accept(subprotocol=offered or None)
 
     client_ip = _ws_client_ip(websocket)
     if not await ws_rate_limiter.check_and_increment(client_ip):

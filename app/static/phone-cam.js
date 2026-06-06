@@ -54,7 +54,7 @@ async function startCamera(){
     // Race against a hang: in some iOS webviews getUserMedia never settles, so
     // the page would freeze with no feedback. Surface that as a real message.
     const gum = navigator.mediaDevices.getUserMedia({
-      video: {facingMode: {ideal: 'environment'}, width: {ideal: 640}, height: {ideal: 480}},
+      video: {facingMode: {ideal: 'user'}, width: {ideal: 640}, height: {ideal: 480}},
       audio: false,
     });
     stream = await Promise.race([
@@ -131,8 +131,9 @@ function connectWs(){
   ws = new WebSocket(`${proto}//${host}/ws/v1/room-frame/${encodeURIComponent(sessionId)}`, [`bearer.${token}`]);
 
   ws.onopen = () => {
-    setStatus('connected', 'Room camera connected — capturing 1 frame/second');
-    warningBanner.style.display = 'none';
+    setStatus('connected', 'Connected ✓ — position the phone, then return to your main device.');
+    warningBanner.textContent = '👉 After positioning, return to your main (exam) device — it continues automatically once your teacher approves.';
+    warningBanner.style.display = '';
     targetOverlay.style.display = '';
     // Successful open — reset backoff so future failures restart from 1s.
     wsReconnectDelay = 1000;
@@ -143,7 +144,10 @@ function connectWs(){
   };
 
   ws.onclose = (e) => {
-    setStatus('connecting', `Disconnected — reconnecting in ${Math.round(Math.min(wsReconnectDelay, 30000)/1000)}s...`);
+    // Include the close code so a failed pairing is diagnosable (4001 auth,
+    // 4002 rate, 4003 sid mismatch, 1006 abnormal/proxy, …).
+    const code = (e && e.code) ? ` (code ${e.code})` : '';
+    setStatus('connecting', `Disconnected${code} — reconnecting in ${Math.round(Math.min(wsReconnectDelay, 30000)/1000)}s...`);
     if(sendTimer){ clearInterval(sendTimer); sendTimer = null; }
     if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
     _scheduleWsReconnect();

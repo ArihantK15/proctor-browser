@@ -12,6 +12,7 @@ from .student import (
 )
 from .exam import (
     SessionStatus, VerificationStatus,
+    LIVE_STATUSES, RESULT_STATUSES, TERMINAL_STATUSES, RECOVERABLE_STATUSES,
     EventIn, FrameIn, IdVerifyIn, IdDecisionIn, ID_REJECT_REASON_CODES,
     SESSION_END_REASON_CODES, TEACHER_WARN_CHIP_CODES,
     TeacherWarnIn, SessionTerminateIn,
@@ -35,6 +36,7 @@ __all__ = [
     "StudentSignupIn", "StudentLoginIn", "BulkStudentIn",
     # exam
     "SessionStatus", "VerificationStatus",
+    "LIVE_STATUSES", "RESULT_STATUSES", "TERMINAL_STATUSES", "RECOVERABLE_STATUSES",
     "EventIn", "FrameIn", "IdVerifyIn", "IdDecisionIn", "ID_REJECT_REASON_CODES",
     "SESSION_END_REASON_CODES", "TEACHER_WARN_CHIP_CODES",
     "TeacherWarnIn", "SessionTerminateIn",

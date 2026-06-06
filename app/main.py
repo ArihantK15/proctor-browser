@@ -233,6 +233,7 @@ async def lifespan(_app) -> AsyncIterator[None]:
     _reaper_task = None
     _ttl_sweeper_task = None
     _proctor_health_task = None
+    _reconciler_task = None
 
     if os.environ.get("REMINDER_LOOP_DISABLED", "") == "1":
         print(f"[startup] reminders loop disabled by env ({worker_name})", flush=True)
@@ -275,6 +276,20 @@ async def lifespan(_app) -> AsyncIterator[None]:
         )
         print(f"[startup] ttl sweeper started ({worker_name})", flush=True)
 
+    # Session-state reconciler — self-heals exam_sessions rows that drifted
+    # (stuck SUBMITTED, completed-without-score, missing submitted_at) and
+    # alerts on drift. Redundancy layer so a transient scoring/worker failure
+    # can't silently strand a student's attempt outside Results.
+    if is_leader and os.environ.get("SESSION_RECONCILER_DISABLED", "") != "1":
+        from .services.session_reconciler import session_reconciler_loop
+        _reconciler_task = asyncio.create_task(session_reconciler_loop())
+        _reconciler_task.add_done_callback(
+            lambda t: print(f"[startup] session reconciler ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
+        print(f"[startup] session reconciler started ({worker_name})", flush=True)
+
     # Proactive fleet proctor-health alert — pages (WARNING log + Sentry when
     # configured) when on-device failures spike across recent sessions. Device
     # failures POST as 200s, so nothing else catches a fleet-wide regression.
@@ -309,9 +324,12 @@ async def lifespan(_app) -> AsyncIterator[None]:
     if _proctor_health_task is not None and not _proctor_health_task.done():
         _proctor_health_task.cancel()
         log.info("[shutdown] Cancelled proctor-health alert task")
+    if _reconciler_task is not None and not _reconciler_task.done():
+        _reconciler_task.cancel()
+        log.info("[shutdown] Cancelled session reconciler task")
 
     # Await cancelled tasks so they can run finally blocks
-    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task, _proctor_health_task]
+    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task, _proctor_health_task, _reconciler_task]
     for t in cancelled_tasks:
         if t is not None:
             try:

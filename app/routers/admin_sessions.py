@@ -25,7 +25,7 @@ from ..utils import now_ist
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..services.risk import compute_risk_score
 from ..services.scoring import recalculate_score as _recalculate_score
-from ..models import SessionStatus
+from ..models import SessionStatus, RESULT_STATUSES
 from ..models import (
     ClearSessionsIn,
     SESSION_END_REASON_CODES, TEACHER_WARN_CHIP_CODES,
@@ -99,7 +99,7 @@ async def get_all_results(request: Request, exam_id: str = None, page: int = 1, 
 async def _fetch_completed_sessions(tid: str, exam_id_scope: str | None,
                                     fields: str) -> list[dict]:
     q = _atable("exam_sessions").select(fields)\
-        .eq("teacher_id", tid).in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+        .eq("teacher_id", tid).in_("status", list(RESULT_STATUSES))
     if exam_id_scope:
         q = q.eq("exam_id", exam_id_scope)
     return (await q.execute()).data or []

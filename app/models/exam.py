@@ -20,6 +20,24 @@ class SessionStatus(StrEnum):
     REJECTED = "rejected"
 
 
+# ── Single source of truth for status classification ──────────────────────
+# Every view (live monitor, results, student history, timeline) and the
+# reconciler import these sets so they can NEVER drift apart again — the bug
+# class where a session showed in Live but was missing from Results because
+# each query hard-coded its own status list.
+#   LIVE        — the dashboard's live monitor (active students)
+#   RESULT      — a finished, scored attempt that belongs in Results/History
+#   TERMINAL    — any end state; no further proctoring/scoring expected
+#   RECOVERABLE — terminal-but-reopenable via the teacher Reset action
+LIVE_STATUSES = frozenset({SessionStatus.IN_PROGRESS, SessionStatus.PAUSED})
+RESULT_STATUSES = frozenset({SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED})
+TERMINAL_STATUSES = frozenset({
+    SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED,
+    SessionStatus.REJECTED, SessionStatus.ABANDONED,
+})
+RECOVERABLE_STATUSES = frozenset({SessionStatus.ABANDONED, SessionStatus.REJECTED})
+
+
 class VerificationStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"

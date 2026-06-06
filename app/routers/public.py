@@ -313,44 +313,56 @@ async def register_student(request: Request, body: RegisterIn):
                 detail="This registration link does not match an exam owned by this teacher.",
             )
 
-    existing = await _atable("students").select("roll_number").eq("roll_number", roll).eq("teacher_id", teacher_id).execute()
+    # The `students` row is the TEACHER-WIDE roster entry (one per roll+teacher,
+    # NO exam_id). A student takes MANY subjects/exams under the same teacher, so
+    # an existing roster entry must NOT block registering for ANOTHER exam — it's
+    # the SAME person. Only a DIFFERENT email on the same roll is a real conflict
+    # (someone trying to use another student's roll). Per-exam membership is the
+    # student_invites row written below.
+    existing = (await _atable("students").select("roll_number,email")
+                .eq("roll_number", roll).eq("teacher_id", teacher_id)
+                .limit(1).execute())
+    returning_student = False
     if existing.data:
-        raise HTTPException(
-            status_code=409,
-            detail="This roll number is already registered. If this is a mistake, contact your examiner.")
+        existing_email = (existing.data[0].get("email") or "").strip().lower()
+        if existing_email and existing_email != email:
+            raise HTTPException(
+                status_code=409,
+                detail="This roll number is already registered to a different email. "
+                       "If this is a mistake, contact your examiner.")
+        returning_student = True   # same student, another exam — allowed
 
-    # Enforce org student limit
+    # Org student limit — only a genuinely NEW roster entry counts (returning
+    # students are already on the roster and counted).
     org_id = teacher.get("org_id")
-    if org_id:
+    if org_id and not returning_student:
         from ..services.sessions import check_org_limits
         await check_org_limits({"org_id": org_id, "org_role": teacher.get("org_role", "teacher")}, delta=1)
 
-    # The students row is the TEACHER-WIDE roster entry — it has no
-    # exam_id column. Per-exam membership ("registered for THIS exam")
-    # is recorded in student_invites below, the same canonical place the
-    # teacher-side roster + registered-count read from. (Writing exam_id
-    # here used to UndefinedColumnError and silently drop the exam link,
-    # so self-registered students never appeared in the per-exam count
-    # and the lobby fell back to the teacher's first exam.)
-    row = {
-        "roll_number": roll,
-        "full_name":   name,
-        "email":       email,
-        "phone":       phone,
-        "teacher_id":  teacher_id,
-    }
-    try:
-        await _atable("students").insert(row).execute()
-    except httpx.HTTPStatusError as e:
-        msg = str(e).lower()
-        if "duplicate" in msg or "unique" in msg or e.response.status_code == 409:
-            raise HTTPException(status_code=409, detail="This roll number is already registered.")
-        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
-    except Exception as e:
-        msg = str(e).lower()
-        if "duplicate" in msg or "unique" in msg:
-            raise HTTPException(status_code=409, detail="This roll number is already registered.")
-        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+    if not returning_student:
+        row = {
+            "roll_number": roll,
+            "full_name":   name,
+            "email":       email,
+            "phone":       phone,
+            "teacher_id":  teacher_id,
+        }
+        try:
+            await _atable("students").insert(row).execute()
+        except httpx.HTTPStatusError as e:
+            msg = str(e).lower()
+            # A concurrent registration created the roster row first — that's
+            # fine, treat as returning and continue to the per-exam invite.
+            if "duplicate" in msg or "unique" in msg or e.response.status_code == 409:
+                returning_student = True
+            else:
+                raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+        except Exception as e:
+            msg = str(e).lower()
+            if "duplicate" in msg or "unique" in msg:
+                returning_student = True
+            else:
+                raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
 
     # Auto-link: if the student already has a login account, set
     # account_id immediately — otherwise they'd have to wait until

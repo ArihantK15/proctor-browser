@@ -332,6 +332,51 @@ def test_public_registration_per_exam_invite_is_idempotent(client):
     assert invs[0]["status"] == "accepted"
 
 
+def test_returning_student_registers_for_another_exam(client):
+    """Same roll + same email registering for a DIFFERENT exam under the same
+    teacher is ALLOWED — a student takes many subjects. Must not 409; the new
+    per-exam invite is created and the roster isn't duplicated."""
+    db = _TenantDB({
+        "teachers": [{"id": "teacher-1", "full_name": "Teacher One"}],
+        "exam_config": [{"teacher_id": "teacher-1", "exam_id": "exam-2"}],
+        "students": [{"roll_number": "A1", "email": "alice@test.com",
+                      "full_name": "Alice", "teacher_id": "teacher-1"}],
+        "student_invites": [],
+        "student_accounts": [],
+    })
+    sm = shared_supabase_mock()
+    with patch.object(sm, "table", side_effect=db):
+        resp = client.post("/api/v1/register-student", json={
+            "teacher_id": "teacher-1", "exam_id": "exam-2",
+            "roll_number": "A1", "full_name": "Alice", "email": "alice@test.com",
+        })
+    assert resp.status_code == 200, resp.text
+    invs = db.tables["student_invites"]
+    assert any(i["exam_id"] == "exam-2" and i["roll_number"] == "A1" for i in invs)
+    assert len(db.tables["students"]) == 1, "must not duplicate the roster entry"
+
+
+def test_same_roll_different_email_conflicts(client):
+    """Same roll with a DIFFERENT email is a real conflict (someone else's roll)
+    → 409 with an email-specific message."""
+    db = _TenantDB({
+        "teachers": [{"id": "teacher-1", "full_name": "Teacher One"}],
+        "exam_config": [{"teacher_id": "teacher-1", "exam_id": "exam-2"}],
+        "students": [{"roll_number": "A1", "email": "alice@test.com",
+                      "full_name": "Alice", "teacher_id": "teacher-1"}],
+        "student_invites": [],
+        "student_accounts": [],
+    })
+    sm = shared_supabase_mock()
+    with patch.object(sm, "table", side_effect=db):
+        resp = client.post("/api/v1/register-student", json={
+            "teacher_id": "teacher-1", "exam_id": "exam-2",
+            "roll_number": "A1", "full_name": "Bob", "email": "bob@test.com",
+        })
+    assert resp.status_code == 409, resp.text
+    assert "different email" in resp.json()["detail"].lower()
+
+
 def test_exam_launch_rejects_teacher_exam_mismatch(client):
     db = _TenantDB({
         "exam_config": [{"teacher_id": "teacher-2", "exam_id": "exam-foreign"}],

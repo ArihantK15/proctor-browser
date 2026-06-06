@@ -2682,11 +2682,19 @@ def run_proctoring(cap, W, H):
         return severity, repeat_count
 
     def log_if_allowed(etype: str, base_severity: str, details: str) -> bool:
-        _track_violation(etype)
         now = time.time()
         COOLDOWN = 8.0
         if now - state["last_logged"].get(etype, 0) >= COOLDOWN:
             state["last_logged"][etype] = now
+            # Record the repeat-offense history ONLY when we actually log an
+            # event — NOT on every frame-level poll. log_if_allowed() is called
+            # once per frame for as long as a deviation persists, so tracking
+            # per-call inflated the repeat counter 15-120x within a second,
+            # forcing _get_escalated_severity() straight to "critical" and
+            # erasing the medium tier from the dashboard/report. Tracking per
+            # logged event makes the medium→high→critical escalation reflect
+            # genuine repeat offenses (one per COOLDOWN window).
+            _track_violation(etype)
             severity, repeat = _get_escalated_severity(etype, base_severity)
             if repeat > 1:
                 details = f"[{repeat}x repeat] {details}"

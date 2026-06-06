@@ -229,7 +229,12 @@ async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
         new_rows = []
         for q in qsrc:
             row = dict(q)
-            for k in ("id", "question_id", "created_at", "updated_at"):
+            # Drop only the auto/managed columns: 'id' is the serial PK
+            # (DB regenerates), created_at/updated_at default. KEEP question_id —
+            # it's an app-managed per-exam index (1..N, NOT NULL, no DB default),
+            # unique per exam_id, so it's valid for the fresh new_exam_id.
+            # Popping it (the old behaviour) inserted NULL → NOT-NULL violation.
+            for k in ("id", "created_at", "updated_at"):
                 row.pop(k, None)
             row["exam_id"] = new_exam_id
             row["teacher_id"] = tid

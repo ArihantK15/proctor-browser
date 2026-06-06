@@ -26,7 +26,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
 
@@ -482,7 +482,9 @@ class TestInviteExamLaunch:
         )
         patches = _patch(stub)
         with patches[0] as mock_table, patches[1], \
-             patch("app.routers.exam._atable", side_effect=_atable_async_stub(stub)):
+             patch("app.routers.exam._atable", side_effect=_atable_async_stub(stub)), \
+             patch("app.routers.exam._load_questions",
+                   new=AsyncMock(return_value=[{"question_id": 1, "question": "q"}])):
             mock_table.side_effect = stub
             r = client.post("/api/v1/validate-student",
                             json={"roll_number": "LAUNCH1", "access_code": "DEMO1"})

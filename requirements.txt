@@ -1,7 +1,7 @@
 fastapi>=0.110.0,<0.136.3  # 0.136.3 was a supply-chain attack (MAL-2026-4750 — injected `fastar` dep). Re-evaluate when 0.136.4+ ships clean.
 uvicorn[standard]>=0.29.0
 supabase>=2.30.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 pydantic>=2.0.0
 python-multipart
 reportlab

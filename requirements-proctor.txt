@@ -40,7 +40,7 @@ onnxruntime>=1.19.2,<2
 opencv-python>=4.13.0.92,<5
 numpy>=1.24.0,<3
 insightface>=0.7.3,<0.8
-sounddevice>=0.4.6
+sounddevice>=0.5.5
 requests>=2.34.2
 websocket-client>=1.6.0
 # psutil — used by proctor.py's adaptive _HardwareGovernor to read

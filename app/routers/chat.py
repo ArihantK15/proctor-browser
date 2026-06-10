@@ -163,6 +163,10 @@ async def ws_chat_teacher(ws: WebSocket):
                     pass
         if not teacher:
             await ws.close(code=4401); return
+        # Superadmin is monitor-only — it must not send chat (a teacher↔student
+        # channel). Reject the connection outright; it has no business here.
+        if str(teacher.get("org_role") or "").lower() == "superadmin":
+            await ws.close(code=4403, reason="monitor_only"); return
         teacher_id = str(teacher["id"])
 
         await ws.accept(subprotocol=subproto_first or None)

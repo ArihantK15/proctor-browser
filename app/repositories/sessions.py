@@ -57,11 +57,24 @@ async def violation_counts_by_session(session_keys: list[str]) -> dict[str, int]
     return counts
 
 
-async def calibration_tiers_by_session(session_keys: list[str], teacher_id: Optional[str] = None) -> dict[str, dict]:
+async def calibration_tiers_by_session(session_keys: list[str], teacher_id: Optional[str] = None,
+                                       teacher_ids: list[str] | None = None) -> dict[str, dict]:
+    """Calibration tier per session. Scope filter precedence mirrors
+    fetch_all_results: teacher_ids (org multi) > teacher_id (single) >
+    unscoped. The session_keys constraint already bounds the result set;
+    the teacher filter is a defensive narrowing. For org-admin roll-ups
+    pass teacher_ids so co-teacher calibration rows aren't dropped."""
     if not session_keys:
         return {}
     q = (_atable("violations").select("session_key,details").eq("violation_type", "calibration_complete").in_("session_key", session_keys))
-    if teacher_id:
+    if teacher_ids is not None:
+        if not teacher_ids:
+            q = q.eq("teacher_id", "__none__")
+        elif len(teacher_ids) == 1:
+            q = q.eq("teacher_id", str(teacher_ids[0]))
+        else:
+            q = q.in_("teacher_id", teacher_ids)
+    elif teacher_id:
         q = q.eq("teacher_id", str(teacher_id))
     rows = (await q.execute()).data or []
     out: dict[str, dict] = {}
@@ -110,7 +123,7 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
     sessions = sess_result.data or []
     sks = [s["session_key"] for s in sessions]
     vcounts = await violation_counts_by_session(sks)
-    cal_tiers = await calibration_tiers_by_session(sks, teacher_id=teacher_id)
+    cal_tiers = await calibration_tiers_by_session(sks, teacher_id=teacher_id, teacher_ids=teacher_ids)
     return [{
         "session_id": s["session_key"],
         "roll_number": s["roll_number"],
@@ -128,7 +141,8 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
     } for s in sessions]
 
 
-async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_rows: int = 5000):
+async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_rows: int = 5000,
+                             teacher_ids: list[str] | None = None):
     from ..utils import fmt_ist
     from ..services.risk import _risk_label
 
@@ -139,7 +153,14 @@ async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_ro
         total_yielded = 0
         while total_yielded < max_rows:
             query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score").in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
-            if teacher_id:
+            if teacher_ids is not None:
+                if not teacher_ids:
+                    query = query.eq("teacher_id", "__none__")
+                elif len(teacher_ids) == 1:
+                    query = query.eq("teacher_id", str(teacher_ids[0]))
+                else:
+                    query = query.in_("teacher_id", teacher_ids)
+            elif teacher_id:
                 query = query.eq("teacher_id", teacher_id)
             if exam_id:
                 query = query.eq("exam_id", exam_id)

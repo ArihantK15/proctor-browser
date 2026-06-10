@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from fastapi.responses import FileResponse
 
 from ..auth import require_admin, verify_admin_token
+from ..auth.scope import resolve_scope, assert_session_accessible
 from ..limiter import limiter
 from ..constants import QUESTION_IMG_DIR, SCREENSHOTS_DIR
 from ..utils import _safe_path_component, _assert_within_directory
@@ -124,14 +125,35 @@ async def get_question_image(tid: str, filename: str, request: Request, exam_id:
 
 @router.get("/api/v1/admin/screenshot/{roll}/{filename}")
 @limiter.limit("60/minute")
-async def get_screenshot(roll: str, filename: str, request: Request):
+async def get_screenshot(roll: str, filename: str, request: Request,
+                         session_id: str = ""):
     teacher = await require_admin(request)
     safe_roll = _safe_path_component(roll)
     safe_file = _safe_path_component(filename)
-    tid = str(teacher["id"])
-    fpath = Path(SCREENSHOTS_DIR) / tid / safe_roll / safe_file
+    # Screenshots live under SCREENSHOTS_DIR/{owning_teacher_id}/{roll}/...
+    # where the owner is the teacher who set the exam (the student's exam
+    # token tid), NOT necessarily the caller. When a session_id is supplied
+    # we resolve the owner through the scope spine: assert_session_accessible
+    # 404s any session outside the caller's tenant, so an org admin can reach
+    # an org-member's screenshots, a plain teacher stays locked to their own,
+    # and a superadmin is unrestricted. Absent session_id we fall back to the
+    # caller's own tid (legacy direct links / own-scoped verification URLs).
+    if session_id:
+        scope = await resolve_scope(teacher, request)
+        sess = await assert_session_accessible(session_id, scope)
+        tid = str(sess.get("teacher_id") or "")
+        # A session with no derivable owner (orphan row) must NOT widen the
+        # search to the root screenshots dir — that would expose the whole
+        # tree across tenants. Treat as not-found.
+        if not tid:
+            raise HTTPException(status_code=404, detail="Screenshot not found")
+    else:
+        tid = str(teacher["id"])
+    safe_tid = _safe_path_component(tid)
+    base = Path(SCREENSHOTS_DIR) / safe_tid
+    fpath = base / safe_roll / safe_file
     try:
-        _assert_within_directory(fpath, Path(SCREENSHOTS_DIR) / tid)
+        _assert_within_directory(fpath, base)
     except (ValueError, RuntimeError):
         raise HTTPException(status_code=404, detail="Screenshot not found")
     if not fpath.exists() or not fpath.is_file():

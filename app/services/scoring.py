@@ -65,7 +65,33 @@ def normalise_answer_set(ans: str) -> set[str]:
     return {s.strip().upper() for s in str(ans).split(",") if s.strip()}
 
 
+def _numeric_in_range(student_ans: str, correct_ans: str) -> bool:
+    """Grade a numeric answer against a `range:MIN:MAX` correct value.
+
+    Inclusive band, decimals supported. MIN == MAX is an exact value. Bounds
+    entered in the wrong order are tolerated. Any non-numeric input → wrong
+    (never raises)."""
+    try:
+        parts = str(correct_ans).split(":")
+        lo = float(parts[1])
+        hi = float(parts[2])
+    except (ValueError, IndexError, TypeError):
+        return False
+    if lo > hi:
+        lo, hi = hi, lo
+    try:
+        x = float(str(student_ans).strip())
+    except (ValueError, TypeError):
+        return False
+    return lo <= x <= hi
+
+
 def answers_match(student_ans: str, correct_ans: str) -> bool:
+    # Numeric-range questions encode their tolerance band in `correct` as
+    # "range:MIN:MAX" (students never see `correct`). Everything else keeps
+    # the legacy case-insensitive string-set equality.
+    if str(correct_ans or "").strip().lower().startswith("range:"):
+        return _numeric_in_range(student_ans, correct_ans)
     return normalise_answer_set(student_ans) == normalise_answer_set(correct_ans)
 
 

@@ -1,12 +1,10 @@
 """Billing router — Razorpay subscription management."""
 
 from ..log_safe import safe
-import hashlib
-import hmac
 import json
 import logging
-import os
-from datetime import datetime, timedelta, timezone
+import re
+from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
 from ..auth import require_admin
 from ..database import async_table as _atable
@@ -19,6 +17,10 @@ from ..services.billing import (
     verify_webhook,
     _get_client,
     _is_live,
+    reconcile_org_entitlement,
+    record_billing_event,
+    billing_event_seen,
+    ENTITLING_STATUSES,
 )
 from .. import cache as _cache
 
@@ -44,29 +46,6 @@ def _validate_paid_plan(plan_id: str) -> dict:
     if int(plan.get("price_inr") or 0) <= 0:
         raise HTTPException(status_code=400, detail="This plan requires a sales conversation.")
     return plan
-
-
-async def _activate_org_plan(org_id: str, plan_id: str, razorpay_order_id: str):
-    period_start = datetime.now(timezone.utc)
-    period_end = period_start + timedelta(days=30)
-    sub_data = {
-        "plan": plan_id,
-        "status": "active",
-        "razorpay_subscription_id": None,
-        "razorpay_order_id": razorpay_order_id,
-        "current_period_start": period_start.isoformat(),
-        "current_period_end": period_end.isoformat(),
-    }
-    existing = await _atable("subscriptions").select("id").eq("org_id", org_id).limit(1).execute()
-    sub = (existing.data or [None])[0]
-    if sub:
-        await _atable("subscriptions").update(sub_data).eq("org_id", org_id).execute()
-    else:
-        await _atable("subscriptions").insert({"org_id": org_id, **sub_data}).execute()
-    await _atable("organizations").update({
-        "max_students": PLAN_LIMITS.get(plan_id, 30)
-    }).eq("id", org_id).execute()
-    _invalidate_billing_cache(org_id)
 
 
 def _invalidate_billing_cache(org_id: str):
@@ -117,11 +96,32 @@ async def create_subscription(body: dict, request: Request):
         raise HTTPException(status_code=403, detail="No organization associated")
 
     plan_id = (body.get("plan_id") or "").strip().lower()
-    if plan_id not in PLANS:
-        raise HTTPException(status_code=400, detail=f"Invalid plan: {plan_id}")
+    # Rejects unknown plans AND zero-price tiers (Enterprise): a ₹0 plan must
+    # never enter self-serve checkout — in sandbox it would mint a free
+    # subscription, and Enterprise is a contact-sales/manual-contract flow.
+    _validate_paid_plan(plan_id)
+
+    # Block creating a second subscription while one is already entitling. We
+    # keep ONE subscription row per org, so a new Razorpay subscription would
+    # overwrite (and orphan) the live one — and an abandoned switch would then
+    # strand the original sub's renewal webhooks as "unknown". The customer
+    # cancels the current plan first (access persists to period end) or talks
+    # to sales to change plans.
+    existing_sub = (await _atable("subscriptions").select("status")
+                    .eq("org_id", str(org_id)).limit(1).execute()).data or []
+    if existing_sub and (existing_sub[0].get("status") or "").strip().lower() in ENTITLING_STATUSES:
+        raise HTTPException(status_code=409,
+            detail="You already have an active plan. Cancel it first — you keep "
+                   "access until the end of your billing period — or contact "
+                   "sales to change plans.")
+
+    # Optional GSTIN for GST-compliant Razorpay invoices (Indian B2B).
+    gstin = (body.get("gstin") or "").strip().upper()
+    if gstin and not re.fullmatch(r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]", gstin):
+        raise HTTPException(status_code=400, detail="Invalid GSTIN format (expected 15 characters).")
 
     try:
-        result = billing_create_subscription(str(org_id), plan_id)
+        result = billing_create_subscription(str(org_id), plan_id, gstin=gstin or None)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -134,12 +134,18 @@ async def create_subscription(body: dict, request: Request):
     if result.get("_sandbox"):
         logger.info("Sandbox subscription: %s", result["_note"])
 
-    # Update subscription record in DB
+    # Record the subscription INTENT only — do NOT grant entitlement here.
+    # The Razorpay subscription is in "created" state (customer hasn't
+    # authorised payment yet). Entitlement (max_students) is granted ONLY when
+    # subscription.activated / .charged arrives, via reconcile_org_entitlement.
+    # We deliberately do NOT lower an existing active plan's cap on create
+    # (upgrade path): reconcile is not called here, so the current cap persists
+    # until the new subscription actually activates.
     try:
         existing = await _atable("subscriptions").select("id").eq("org_id", str(org_id)).limit(1).execute()
         sub_data = {
             "plan": plan_id,
-            "status": "active",
+            "status": (result.get("status") or "created").strip().lower(),
             "razorpay_subscription_id": result["subscription_id"],
         }
         sub = (existing.data or [None])[0]
@@ -150,10 +156,8 @@ async def create_subscription(body: dict, request: Request):
                 "org_id": str(org_id),
                 **sub_data,
             }).execute()
-        # Update org max_students
-        await _atable("organizations").update({
-            "max_students": PLAN_LIMITS.get(plan_id, 30)
-        }).eq("id", str(org_id)).execute()
+        if gstin:
+            await _atable("organizations").update({"gstin": gstin}).eq("id", str(org_id)).execute()
         _invalidate_billing_cache(str(org_id))
     except Exception as e:
         logger.error("Failed to update subscription in DB after provider subscription creation: %s", e)
@@ -165,170 +169,72 @@ async def create_subscription(body: dict, request: Request):
     return result
 
 
-@router.post("/api/v1/billing/checkout/order")
-@limiter.limit("10/minute")
-async def create_checkout_order(body: dict, request: Request):
-    """Create a Razorpay Standard Checkout order for a paid plan.
-
-    The browser must pass the returned `order_id` to checkout.js. We only
-    activate the subscription after `/checkout/verify` validates Razorpay's
-    HMAC signature server-side.
-    """
-    teacher = await require_admin(request)
-    org_id = _require_billing_admin(teacher)
-    plan_id = (body.get("plan_id") or "").strip().lower()
-    plan = _validate_paid_plan(plan_id)
-
-    client = _get_client()
-    key_id = os.environ.get("RAZORPAY_KEY_ID", "").strip()
-    if client is None or not key_id:
-        logger.error("Razorpay Standard Checkout requested without RAZORPAY_KEY_ID/SECRET")
-        raise HTTPException(status_code=503, detail="Billing unavailable: Razorpay credentials not configured.")
-
-    amount = int(plan["price_inr"]) * 100
-    receipt = f"procta_{str(org_id).replace('-', '')[:12]}_{int(datetime.now(timezone.utc).timestamp())}"[:40]
+def _epoch_to_iso(value) -> str | None:
+    """Razorpay sends period timestamps as Unix epoch seconds. Convert to an
+    ISO-8601 UTC string for our timestamptz columns. Pass-through ISO strings."""
+    if not value:
+        return None
     try:
-        order = client.order.create({
-            "amount": amount,
-            "currency": "INR",
-            "receipt": receipt,
-            "notes": {
-                "org_id": org_id,
-                "plan_id": plan_id,
-                "teacher_id": str(teacher.get("id") or ""),
-            },
-            "payment_capture": 1,
-        })
-    except Exception as e:
-        logger.exception("Failed to create Razorpay order for org=%s plan=%s", safe(org_id), safe(plan_id))
-        raise HTTPException(status_code=502, detail="Could not create Razorpay order. Please try again.") from e
-
-    return {
-        "key_id": key_id,
-        "order_id": order["id"],
-        "amount": order.get("amount", amount),
-        "currency": order.get("currency", "INR"),
-        "plan_id": plan_id,
-        "plan_name": plan["name"],
-        "description": f"{plan['name']} plan",
-    }
+        return datetime.fromtimestamp(int(value), tz=timezone.utc).isoformat()
+    except (TypeError, ValueError):
+        return str(value)
 
 
-@router.post("/api/v1/billing/checkout/verify")
-@limiter.limit("20/minute")
-async def verify_checkout_payment(body: dict, request: Request):
-    """Verify Razorpay Checkout success and activate the org plan.
-
-    SECURITY: the plan_id and org_id used for activation come from the
-    Razorpay Order's `notes` (pinned server-side at create time), NOT
-    from the request body. Without this, a user who pays ₹2,400 for
-    Starter could re-submit /verify with plan_id=pro and get the ₹30k
-    plan activated — the signature only proves the payment happened
-    for that order, it doesn't bind to a plan tier.
-    """
-    teacher = await require_admin(request)
-    caller_org_id = _require_billing_admin(teacher)
-
-    order_id = (body.get("razorpay_order_id") or "").strip()
-    payment_id = (body.get("razorpay_payment_id") or "").strip()
-    signature = (body.get("razorpay_signature") or "").strip()
-    if not order_id or not payment_id or not signature:
-        raise HTTPException(status_code=400, detail="Missing Razorpay payment verification fields.")
-
-    secret = os.environ.get("RAZORPAY_KEY_SECRET", "").strip()
-    if not secret:
-        logger.error("Razorpay verification requested without RAZORPAY_KEY_SECRET")
-        raise HTTPException(status_code=503, detail="Payment verification unavailable.")
-
-    expected = hmac.new(
-        secret.encode("utf-8"),
-        f"{order_id}|{payment_id}".encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(expected, signature):
-        logger.warning("Invalid Razorpay signature for org=%s order=%s payment=%s",
-                       safe(caller_org_id), safe(order_id), safe(payment_id))
-        raise HTTPException(status_code=400, detail="Invalid payment signature.")
-
-    # Re-fetch the order from Razorpay so we trust SERVER-PINNED notes
-    # (plan_id, org_id) instead of whatever the caller chose to post.
-    client = _get_client()
-    if client is None:
-        raise HTTPException(status_code=503, detail="Razorpay client not configured.")
+async def _notify_payment_issue(org_id: str) -> None:
+    """Email the org admin that a renewal payment needs attention (dunning)."""
     try:
-        order = client.order.fetch(order_id)
+        admin_rows = (await _atable("teachers").select("email,full_name")
+                      .eq("org_id", str(org_id)).eq("org_role", "admin")
+                      .limit(1).execute()).data or []
+        if admin_rows:
+            from ..emailer import send_payment_failed_notification
+            send_payment_failed_notification(
+                to_email=admin_rows[0]["email"],
+                to_name=admin_rows[0].get("full_name", ""),
+            )
     except Exception as e:
-        logger.exception("Razorpay order fetch failed during verify org=%s order=%s",
-                         safe(caller_org_id), safe(order_id))
-        raise HTTPException(status_code=502, detail="Could not confirm order with Razorpay.") from e
+        logger.warning("Payment-issue email failed for org=%s: %s", safe(org_id), safe(e))
 
-    notes = order.get("notes") or {}
-    notes_org_id = str(notes.get("org_id") or "")
-    notes_plan_id = (notes.get("plan_id") or "").strip().lower()
 
-    if notes_org_id != caller_org_id:
-        logger.warning("Cross-org checkout verify: caller org=%s order notes org=%s order=%s",
-                       safe(caller_org_id), safe(notes_org_id), safe(order_id))
-        raise HTTPException(status_code=403, detail="This order does not belong to your organization.")
-
-    if notes_plan_id not in PLANS:
-        logger.error("Razorpay order missing/invalid plan_id in notes: order=%s notes=%s",
-                     safe(order_id), safe(notes))
-        raise HTTPException(status_code=500, detail="Order plan binding missing — contact support.")
-    plan = _validate_paid_plan(notes_plan_id)
-
-    # Belt-and-suspenders: amount must match what we'd charge for that plan.
-    expected_amount = int(plan["price_inr"]) * 100
-    if int(order.get("amount") or 0) != expected_amount:
-        logger.error("Razorpay order amount mismatch: order=%s amount=%s expected=%s plan=%s",
-                     safe(order_id), order.get("amount"), expected_amount, safe(notes_plan_id))
-        raise HTTPException(status_code=400, detail="Order amount does not match plan price.")
-
-    # Status check is informational — auto-capture means the order should
-    # be "paid" by the time the handler fires. If somehow it isn't yet,
-    # the webhook (or the user's next refresh) will eventually reconcile.
-    if (order.get("status") or "").lower() not in ("paid", "attempted"):
-        logger.warning("Razorpay order verify with unexpected status: order=%s status=%s",
-                       safe(order_id), order.get("status"))
-
-    try:
-        await _activate_org_plan(caller_org_id, notes_plan_id, order_id)
-    except Exception as e:
-        logger.error("Payment verified but DB activation failed for org=%s order=%s: %s",
-                     safe(caller_org_id), safe(order_id), safe(e))
-        raise HTTPException(
-            status_code=500,
-            detail="Payment verified, but plan activation failed. Please contact support.",
-        ) from e
-
-    logger.info("Razorpay payment verified and plan activated org=%s plan=%s order=%s payment=%s",
-                safe(caller_org_id), safe(notes_plan_id), safe(order_id), safe(payment_id))
-    return {"ok": True, "plan_id": notes_plan_id, "order_id": order_id, "payment_id": payment_id}
+# Subscription event → (our status). Entitlement is reconciled afterward, never
+# set inline. GRANT events entitle; DOWNGRADE events drop to the free cap.
+_SUB_GRANT = {
+    "subscription.authenticated": "authenticated",
+    "subscription.activated": "active",
+    "subscription.charged": "active",
+    "subscription.resumed": "active",
+}
+_SUB_DOWNGRADE = {
+    "subscription.halted": "halted",
+    "subscription.cancelled": "cancelled",
+    "subscription.completed": "completed",
+    "subscription.paused": "paused",
+}
 
 
 @router.post("/api/v1/webhooks/razorpay")
 @limiter.limit("60/minute")
 async def razorpay_webhook(request: Request):
-    """Handle Razorpay webhook events.
+    """Handle Razorpay SUBSCRIPTION webhooks (recurring-subscriptions model).
 
-    Expected events: subscription.activated, subscription.completed,
-    subscription.paused, payment.failed
+    Lifecycle → entitlement (organizations.max_students is reconciled from
+    subscription state by reconcile_org_entitlement — never written inline):
+      authenticated / activated / charged / resumed → grant plan, renew period
+      pending  → past_due (Razorpay is retrying the charge): KEEP access during
+                 the grace window and email the admin — no instant downgrade
+      halted   → retries exhausted → downgrade
+      cancelled / completed / paused → downgrade
 
-    Idempotency: Razorpay retries failed deliveries with exponential
-    backoff for up to 24 hours, and the same `event.id` is reused. Without
-    dedup we'd activate the same plan twice or fire duplicate
-    side effects. We cache event_id -> processed for 24 h after a
-    successful run and short-circuit any later retry to a 200 OK so
-    Razorpay stops retrying. Dedup runs AFTER signature verification —
-    otherwise an unauthenticated caller could enumerate which event-ids
-    we've ever seen.
+    Idempotency is DB-durable: each processed event is appended to
+    billing_events with the Razorpay event.id UNIQUE. A retry of an already-
+    recorded event short-circuits to 200. Signature is verified FIRST; the
+    idempotency read runs only after. On any failure we return 500 and do NOT
+    record, so Razorpay retries.
     """
     raw_body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature", "")
-
     if not verify_webhook(raw_body, signature):
         raise HTTPException(status_code=400, detail="Invalid signature")
-
     try:
         event = json.loads(raw_body)
     except json.JSONDecodeError:
@@ -336,175 +242,98 @@ async def razorpay_webhook(request: Request):
 
     event_type = event.get("event", "")
     payload = event.get("payload", {})
-
-    # Idempotency dedup — keyed on event.id from Razorpay. Missing id
-    # is treated as "process once" with a warning; that's defensive
-    # against malformed deliveries in tests/sandbox.
     event_id = str(event.get("id") or "").strip()
-    _idem_key = f"webhook:razorpay:{event_id}" if event_id else None
-    if _idem_key:
-        try:
-            prior = _cache.get(_idem_key) if _cache else None
-            if prior:
-                logger.info(
-                    "Razorpay webhook %s already processed for event=%s — short-circuiting to 200",
-                    safe(event_type), safe(event_id),
-                )
-                return {"status": "duplicate", "event_id": event_id}
-        except Exception:
-            # Cache miss/error is safe — we'll process and re-cache.
-            logger.debug("Webhook idempotency cache read failed", exc_info=True)
-    else:
-        logger.warning(
-            "Razorpay webhook missing event.id — dedup skipped (event_type=%s)",
-            safe(event_type),
-        )
 
-    def _mark_done(status: str) -> None:
-        """Persist processed-state for the current event so any Razorpay
-        retry in the next 24 h returns the cached duplicate-200 instead
-        of re-running this handler. No-op when event_id was missing.
-        """
-        if not _idem_key:
-            return
-        try:
-            if _cache:
-                _cache.set(
-                    _idem_key,
-                    {"processed": True, "status": status, "type": event_type},
-                    ttl=86400,  # match Razorpay's max retry horizon
-                )
-        except Exception:
-            logger.debug("Webhook idempotency cache write failed", exc_info=True)
+    # DB-durable idempotency: a retry of an already-recorded event is a no-op.
+    if event_id and await billing_event_seen(event_id):
+        logger.info("Razorpay webhook %s already processed (event=%s) — 200",
+                    safe(event_type), safe(event_id))
+        return {"status": "duplicate", "event_id": event_id}
+    if not event_id:
+        logger.warning("Razorpay webhook missing event.id — idempotency weakened (type=%s)",
+                       safe(event_type))
 
-    # ── Standard Checkout (one-off Order + Payment) safety-net path ──
-    # /checkout/verify already activates the plan synchronously when the
-    # browser returns from Razorpay. These webhook events are a
-    # belt-and-suspenders reconciliation in case the user closes the tab
-    # before verify lands. We trust the `notes.plan_id` we set at order
-    # creation since the webhook is authenticated by signature.
-    if event_type in ("payment.captured", "order.paid"):
-        entity = (payload.get("payment", {}).get("entity")
-                  or payload.get("order", {}).get("entity")
-                  or {})
-        notes = entity.get("notes") or {}
-        # `order.paid` carries `notes` directly; `payment.captured` only
-        # carries the order_id, so we look up the order to read notes.
-        notes_org_id = str(notes.get("org_id") or "")
-        notes_plan_id = (notes.get("plan_id") or "").strip().lower()
-        order_id_for_log = entity.get("order_id") or entity.get("id") or ""
-
-        if not notes_org_id and entity.get("order_id"):
-            try:
-                client = _get_client()
-                if client is not None:
-                    o = client.order.fetch(entity["order_id"])
-                    o_notes = o.get("notes") or {}
-                    notes_org_id = str(o_notes.get("org_id") or "")
-                    notes_plan_id = (o_notes.get("plan_id") or "").strip().lower()
-                    order_id_for_log = entity["order_id"]
-            except Exception as e:
-                logger.warning("Webhook order-notes lookup failed for %s: %s",
-                               safe(entity.get("order_id")), safe(e))
-
-        if not notes_org_id or notes_plan_id not in PLANS:
-            logger.info("Webhook %s ignored — missing org_id/plan_id in notes (event_id=%s)",
-                        safe(event_type), safe(event.get("id", "")))
-            _mark_done("ignored_missing_notes")
-            return {"status": "ignored"}
-        try:
-            await _activate_org_plan(notes_org_id, notes_plan_id, order_id_for_log)
-            logger.info("Webhook %s reconciled org=%s plan=%s order=%s",
-                        safe(event_type), safe(notes_org_id), safe(notes_plan_id), safe(order_id_for_log))
-        except Exception as e:
-            logger.error("Webhook %s activation failed for org=%s order=%s: %s",
-                         safe(event_type), safe(notes_org_id), safe(order_id_for_log), safe(e))
-            # NB: NOT mark_done — return 500 so Razorpay retries.
-            raise HTTPException(status_code=500, detail="Webhook reconciliation failed — will retry")
-        _mark_done("ok")
-        return {"status": "ok"}
-
-    # ── Legacy subscription-based path (kept for back-compat with any
-    #    existing subscription IDs in the DB) ──
-    sub_data = payload.get("subscription", {}).get("entity", {})
-
+    sub_data = payload.get("subscription", {}).get("entity", {}) or {}
     sub_id = sub_data.get("id")
     if not sub_id:
-        _mark_done("ignored_no_sub_id")
+        # Non-subscription event (e.g. a stray payment.captured) — log to the
+        # ledger and ignore. We are subscriptions-only; Orders are deprecated.
+        await record_billing_event(event_id=event_id, org_id=None, event_type=event_type,
+                                   status="ignored_no_sub", payload=event)
         return {"status": "ignored"}
 
-    # Find the subscription in our DB
-    db_sub = await _atable("subscriptions").select("id,org_id").eq("razorpay_subscription_id", sub_id).limit(1).execute()
-    if not db_sub.data:
-        logger.warning("Unknown Razorpay subscription: %s", safe(sub_id))
-        _mark_done("ignored_unknown_sub")
+    db_sub = (await _atable("subscriptions").select("id,org_id,plan,status,past_due_since")
+              .eq("razorpay_subscription_id", sub_id).limit(1).execute()).data or []
+    if not db_sub:
+        logger.warning("Unknown Razorpay subscription %s (event=%s)",
+                       safe(sub_id), safe(event_type))
+        # A GRANT for a sub we don't have yet is almost certainly a webhook
+        # outrunning our own create_subscription DB commit (Razorpay can deliver
+        # subscription.authenticated/activated within milliseconds). Recording
+        # it as processed + 200 would dedup the activation away FOREVER, leaving
+        # the org paid-but-unentitled. Return a retryable 500 and DELIBERATELY
+        # do NOT record the event_id, so the redelivery reprocesses once the row
+        # exists. Non-granting events for a sub we never tracked are safe to drop.
+        if event_type in _SUB_GRANT:
+            raise HTTPException(status_code=500,
+                detail="Subscription not yet on record — will retry")
+        await record_billing_event(event_id=event_id, org_id=None, event_type=event_type,
+                                   status="ignored_unknown_sub",
+                                   razorpay_subscription_id=sub_id, payload=event)
         return {"status": "ignored"}
-    org_id = db_sub.data[0]["org_id"]
+    row = db_sub[0]
+    org_id = str(row["org_id"])
 
     try:
-        if event_type == "subscription.activated":
-            result = await _atable("subscriptions").update({
-                "status": "active",
-                "current_period_start": sub_data.get("current_start"),
-                "current_period_end": sub_data.get("current_end"),
-            }).eq("id", db_sub.data[0]["id"]).execute()
-            if not result.data:
-                raise RuntimeError("subscription.activated DB write returned no data")
-            _invalidate_billing_cache(str(org_id))
-            logger.info("Subscription activated for org=%s", org_id)
+        updates: dict = {}
+        if event_type in _SUB_GRANT:
+            updates["status"] = _SUB_GRANT[event_type]
+            updates["past_due_since"] = None
+            if sub_data.get("current_start"):
+                updates["current_period_start"] = _epoch_to_iso(sub_data.get("current_start"))
+            if sub_data.get("current_end"):
+                updates["current_period_end"] = _epoch_to_iso(sub_data.get("current_end"))
+            outcome = "grant"
+        elif event_type == "subscription.pending":
+            # Renewal charge failed; Razorpay keeps retrying. KEEP access (grace)
+            # and flag past_due so the dashboard/admin can act.
+            updates["status"] = "past_due"
+            if not row.get("past_due_since"):
+                updates["past_due_since"] = datetime.now(timezone.utc).isoformat()
+            outcome = "grace"
+        elif event_type in _SUB_DOWNGRADE:
+            updates["status"] = _SUB_DOWNGRADE[event_type]
+            outcome = "downgrade"
+        else:
+            await record_billing_event(event_id=event_id, org_id=org_id, event_type=event_type,
+                                       status="ignored_unhandled",
+                                       razorpay_subscription_id=sub_id, payload=event)
+            return {"status": "ignored"}
 
-        elif event_type == "subscription.completed":
-            result = await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
-            if not result.data:
-                raise RuntimeError("subscription.completed DB write returned no data")
-            await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
-            _invalidate_billing_cache(str(org_id))
-            logger.info("Subscription completed for org=%s", org_id)
-
-        elif event_type == "subscription.paused":
-            result = await _atable("subscriptions").update({"status": "paused"}).eq("id", db_sub.data[0]["id"]).execute()
-            if not result.data:
-                raise RuntimeError("subscription.paused DB write returned no data")
-            await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
-            _invalidate_billing_cache(str(org_id))
-            logger.info("Subscription paused for org=%s", org_id)
-
-        elif event_type == "subscription.cancelled":
-            result = await _atable("subscriptions").update({"status": "cancelled"}).eq("id", db_sub.data[0]["id"]).execute()
-            if not result.data:
-                raise RuntimeError("subscription.cancelled DB write returned no data")
-            await _atable("organizations").update({"max_students": PLAN_LIMITS.get("starter", 30)}).eq("id", str(org_id)).execute()
-            _invalidate_billing_cache(str(org_id))
-            logger.info("Subscription cancelled for org=%s", org_id)
-
-        elif event_type == "payment.failed":
-            logger.warning("Payment failed for org=%s sub=%s", safe(org_id), safe(sub_id))
-            result = await _atable("subscriptions").update({"status": "expired"}).eq("id", db_sub.data[0]["id"]).execute()
-            if not result.data:
-                raise RuntimeError("payment.failed DB write returned no data")
-            _invalidate_billing_cache(str(org_id))
-            # Notify the org admin by email so they can update their payment method
-            try:
-                admin_rows = await _atable("teachers").select("email,full_name")\
-                    .eq("org_id", str(org_id)).eq("org_role", "admin").limit(1).execute()
-                if admin_rows.data:
-                    admin = admin_rows.data[0]
-                    from ..emailer import send_payment_failed_notification
-                    send_payment_failed_notification(
-                        to_email=admin["email"],
-                        to_name=admin.get("full_name", ""),
-                    )
-            except Exception as notify_err:
-                logger.warning("Payment-failed email notification failed for org=%s: %s", org_id, notify_err)
-
-    except HTTPException:
-        raise
+        upd = await _atable("subscriptions").update(updates).eq("id", row["id"]).execute()
+        if not (upd.data or []):
+            raise RuntimeError(f"{event_type} DB write returned no data")
+        await reconcile_org_entitlement(org_id)
+        _invalidate_billing_cache(org_id)
+        if outcome == "grace":
+            await _notify_payment_issue(org_id)
+        logger.info("Webhook %s → org=%s status=%s (%s)",
+                    safe(event_type), safe(org_id), safe(updates.get("status")), outcome)
     except Exception as e:
-        logger.error("Webhook DB write failed for event=%s org=%s: %s", safe(event_type), safe(org_id), safe(e))
-        # NB: NOT mark_done — return 500 so Razorpay retries this delivery.
+        logger.error("Webhook %s failed for org=%s sub=%s: %s",
+                     safe(event_type), safe(org_id), safe(sub_id), safe(e))
+        # NOT recorded → 500 → Razorpay retries this delivery.
         raise HTTPException(status_code=500, detail="Webhook processing failed — will retry")
 
-    _mark_done("ok")
+    # Capture the actual charge from the payment entity (present on
+    # subscription.charged) so the ledger is a real financial record, not just
+    # a state log. Falls back to the subscription's nominal amount.
+    pay_entity = payload.get("payment", {}).get("entity", {}) or {}
+    await record_billing_event(
+        event_id=event_id, org_id=org_id, event_type=event_type, status=outcome,
+        razorpay_subscription_id=sub_id, razorpay_payment_id=pay_entity.get("id"),
+        amount=pay_entity.get("amount") or sub_data.get("amount") or None,
+        currency=pay_entity.get("currency") or "INR", payload=event)
     return {"status": "ok"}
 
 
@@ -518,9 +347,7 @@ async def cancel_subscription(request: Request):
     In sandbox mode (no Razorpay client), just marks the DB row as cancelled.
     """
     teacher = await require_admin(request)
-    org_id = teacher.get("org_id")
-    if not org_id:
-        raise HTTPException(status_code=403, detail="No organization associated")
+    org_id = _require_billing_admin(teacher)  # admin/superadmin only
 
     sub = await _atable("subscriptions").select("id,razorpay_subscription_id,status,current_period_end")\
         .eq("org_id", str(org_id)).limit(1).execute()
@@ -528,8 +355,8 @@ async def cancel_subscription(request: Request):
         raise HTTPException(status_code=404, detail="No active subscription found")
 
     sub_row = sub.data[0]
-    if sub_row.get("status") in ("cancelled", "expired"):
-        raise HTTPException(status_code=409, detail="Subscription is already cancelled or expired")
+    if sub_row.get("status") in ("cancelling", "cancelled", "expired"):
+        raise HTTPException(status_code=409, detail="Subscription is already cancelled or expiring")
 
     razorpay_sub_id = sub_row.get("razorpay_subscription_id", "")
 
@@ -559,9 +386,7 @@ async def list_invoices(request: Request):
     In sandbox mode, returns sample invoices.
     """
     teacher = await require_admin(request)
-    org_id = teacher.get("org_id")
-    if not org_id:
-        raise HTTPException(status_code=403, detail="No organization associated")
+    org_id = _require_billing_admin(teacher)  # admin/superadmin only
 
     sub = await _atable("subscriptions").select("razorpay_subscription_id").eq("org_id", str(org_id)).limit(1).execute()
     sub_id = (sub.data or [{}])[0].get("razorpay_subscription_id")
@@ -607,9 +432,7 @@ async def list_invoices(request: Request):
 async def get_usage(request: Request):
     """Return current billing period usage for the org."""
     teacher = await require_admin(request)
-    org_id = teacher.get("org_id")
-    if not org_id:
-        raise HTTPException(status_code=403, detail="No organization associated")
+    org_id = _require_billing_admin(teacher)  # admin/superadmin only
 
     # Get current plan limits
     sub = await _atable("subscriptions").select("plan,status").eq("org_id", str(org_id)).limit(1).execute()
@@ -625,13 +448,21 @@ async def get_usage(request: Request):
     # PLANS dict, fall back to 0 (= no overage charging) when missing.
     price_per_student = plan_def.get("overage_price_inr", 0)
 
+    # Billing is ORG-scoped, so usage must span EVERY teacher in the org, not
+    # just the calling admin — max_students is the org-wide cap, so the usage
+    # shown beside it has to be the org-wide figure for the two to be
+    # comparable (a per-admin count silently under-reports a multi-teacher org).
+    _tid_rows = (await _atable("teachers").select("id")
+                 .eq("org_id", str(org_id)).execute()).data or []
+    org_teacher_ids = [str(r["id"]) for r in _tid_rows] or [str(teacher["id"])]
+
     # Count current period usage
     now_utc = datetime.now(timezone.utc)
     period_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     # Count distinct students who submitted this month
     student_count_q = await _atable("exam_sessions")\
         .select("student_id", count="exact", distinct_on="student_id")\
-        .eq("teacher_id", str(teacher["id"]))\
+        .in_("teacher_id", org_teacher_ids)\
         .gte("submitted_at", period_start.isoformat())\
         .execute()
     students_used = student_count_q.count or 0
@@ -639,7 +470,7 @@ async def get_usage(request: Request):
     # Count total exam attempts this month
     attempts_q = await _atable("exam_sessions")\
         .select("session_key", count="exact")\
-        .eq("teacher_id", str(teacher["id"]))\
+        .in_("teacher_id", org_teacher_ids)\
         .in_("status", (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED))\
         .gte("submitted_at", period_start.isoformat())\
         .execute()

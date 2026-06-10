@@ -2166,7 +2166,7 @@ function buildGrid(){
 // the same save/submit pipeline as the server already expects.
 function qNormType(q){
   const t=(q&&q.question_type||'mcq_single').toString().toLowerCase();
-  return ['mcq_single','mcq_multi','true_false','short_answer'].includes(t)?t:'mcq_single';
+  return ['mcq_single','mcq_multi','true_false','short_answer','numeric'].includes(t)?t:'mcq_single';
 }
 function ansSet(qid){
   const v = answers[qid];
@@ -2210,7 +2210,9 @@ function renderQ(){
       ? 'True or False'
       : qtype==='short_answer'
         ? 'Type your answer below'
-        : 'Select one';
+        : qtype==='numeric'
+          ? 'Enter a number'
+          : 'Select one';
 
   const o=document.getElementById('qopts'); o.innerHTML='';
   if(qtype==='short_answer'){
@@ -2235,6 +2237,35 @@ function renderQ(){
 	      if(d) d.className='qdot cur'+(v.trim()?' ans':'');
     });
     o.appendChild(ta);
+    document.getElementById('btn-prev').disabled=curQ===0;
+    const last=curQ===questions.length-1;
+    document.getElementById('btn-next').style.display=last?'none':'inline-block';
+    document.getElementById('btn-sub').style.display=last?'inline-block':'none';
+    questions.forEach((qq,i)=>{
+      const d=document.getElementById(`qd-${i}`);
+      if(d) d.className='qdot'+(i===curQ?' cur':answers[qq.id]?' ans':'');
+    });
+    return;
+  }
+  if(qtype==='numeric'){
+    // Numeric answer: a single number input. Stored raw at answers[q.id]
+    // (no canonical comma-join — the server grades it against the teacher's
+    // tolerance band). The correct range is never sent to the client.
+    const ni=document.createElement('input');
+    ni.type='number'; ni.step='any'; ni.className='shortans'; ni.inputMode='decimal';
+    ni.placeholder='Type your numeric answer…';
+    ni.value=String(answers[q.id]||'');
+    ni.style.cssText='width:100%;max-width:280px;padding:12px;border-radius:10px;border:1px solid var(--border, #2a2f3a);background:var(--card, #161a22);color:inherit;font:inherit';
+    ni.setAttribute('aria-label', `Answer for question ${curQ + 1}`);
+    ni.setAttribute('aria-describedby', 'qhint');
+    ni.addEventListener('input', ()=>{
+      const v=ni.value.trim();
+      if(v!=='') answers[q.id]=v; else delete answers[q.id];
+      _persistAnswers();
+      const d=document.getElementById(`qd-${curQ}`);
+      if(d) d.className='qdot cur'+(v!==''?' ans':'');
+    });
+    o.appendChild(ni);
     document.getElementById('btn-prev').disabled=curQ===0;
     const last=curQ===questions.length-1;
     document.getElementById('btn-next').style.display=last?'none':'inline-block';

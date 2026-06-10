@@ -9,6 +9,7 @@ Extracted from main.py. Domain-specific routes have been split into sub-routers:
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request, HTTPException
 
@@ -107,8 +108,13 @@ async def get_timeline(session_id: str, request: Request):
         session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20]
     )
     screenshot_paths = _collect_session_screenshots(roll, str(tid))
+    # Carry the session_id so the screenshot endpoint can re-derive the
+    # OWNING teacher_id (str(tid) above) via the scope spine. Without it,
+    # get_screenshot falls back to the caller's own tid and an org admin's
+    # per-teacher roll-up can't reach an org-member's screenshots.
+    _sid_q = quote(session_id, safe="")
     screenshot_urls = {
-        fname: f"/api/v1/admin/screenshot/{roll}/{fname}"
+        fname: f"/api/v1/admin/screenshot/{roll}/{fname}?session_id={_sid_q}"
         for fname in screenshot_paths
     }
 
@@ -289,19 +295,28 @@ async def list_all_teachers(request: Request):
 @router.post("/api/v1/admin/sessions/{session_id}/terminate")
 @limiter.limit("10/minute")
 async def terminate_session(session_id: str, request: Request):
-    """Force-terminate a stuck session. Allowed for: session owner,
-    any admin whose org contains the session, or any superadmin."""
-    teacher = await require_admin(request)
+    """Force-terminate a stuck session. EMERGENCY RECOVERY — owner OR an org
+    admin whose org contains the session may terminate it, so a frozen session
+    can be rescued when the owning teacher is unavailable (centralised exam
+    control). The evidence row records WHO terminated it (owner vs admin).
+
+    Superadmin is deliberately EXCLUDED: it is a cross-org *monitor-only* role
+    (it can VIEW any session, but never disrupts a live exam). The routine
+    live-control actions (pause / reset / warn / force-submit / recalibration)
+    likewise stay owner-only — only this recovery action is shared, and only
+    within an org."""
+    teacher = await require_admin(request)   # superadmin POSTs are 403'd here
+    tid = str(teacher["id"])
     scope = await resolve_scope(teacher, request)
-    sess = await assert_session_accessible(session_id, scope)
-    # Capture the access-check's teacher_id so the UPDATE/INSERT below
-    # are atomically scoped. assert_session_accessible already proved
-    # ownership/org-membership; the WHERE adds defense-in-depth against
-    # a TOCTOU window where the session row gets reassigned between the
-    # check and the write. Synthetic rows (violations-only fallback) may
-    # not carry a real teacher_id — fall back to "" which the update
-    # treats as match-nothing on a real exam_sessions row.
+    sess = await assert_session_accessible(session_id, scope)  # 404s cross-tenant
+    # The write is scoped to the session OWNER's tid (defense-in-depth against a
+    # TOCTOU reassignment). Synthetic/orphan rows may carry no tid → "" makes
+    # the .eq match nothing on a real row.
     sess_tid = str(sess.get("teacher_id") or "")
+
+    # Attribution: was this the owner, or an admin acting on a co-teacher's
+    # session? Recorded in the evidence row so the forensic timeline is honest.
+    actor = "owner" if (sess_tid and sess_tid == tid) else scope.get("role", "admin")
 
     now = now_ist().isoformat()
     upd_q = _atable("exam_sessions").update({
@@ -312,15 +327,14 @@ async def terminate_session(session_id: str, request: Request):
         upd_q = upd_q.eq("teacher_id", sess_tid)
     await upd_q.execute()
 
-    actor = scope["role"]
     viol_row = {
         "session_key": session_id,
         "violation_type": "session_terminated",
         "severity": "high",
-        "details": f"Session force-terminated by {actor}",
+        "details": f"Session force-terminated by {actor} (teacher {tid})",
     }
     if sess_tid:
-        viol_row["teacher_id"] = sess_tid
+        viol_row["teacher_id"] = sess_tid     # file under the OWNER, not the actor
     await _atable("violations").insert(viol_row).execute()
 
     return {"status": "terminated", "session_id": session_id}

@@ -7,30 +7,14 @@ const PLANS = [
   { id: 'pro', name: 'Pro', price: '₹30,000', students: 500, desc: 'For large universities & institutions (₹80/student)' },
 ]
 
-let razorpayCheckoutPromise = null
-
-function loadRazorpayCheckout() {
-  if (window.Razorpay) return Promise.resolve()
-  if (razorpayCheckoutPromise) return razorpayCheckoutPromise
-  razorpayCheckoutPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')
-    if (existing) {
-      existing.addEventListener('load', resolve, { once: true })
-      existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay checkout.')), { once: true })
-      return
-    }
-    const s = document.createElement('script')
-    s.src = 'https://checkout.razorpay.com/v1/checkout.js'
-    s.async = true
-    s.onload = resolve
-    s.onerror = () => reject(new Error('Failed to load Razorpay checkout.'))
-    document.head.appendChild(s)
-  })
-  return razorpayCheckoutPromise
-}
+// Statuses that mean the org currently holds an entitling plan — mirrors the
+// server's ENTITLING_STATUSES (services/billing.py). While entitled, in-place
+// plan switching is blocked server-side (create_subscription 409s), so the
+// tiles lock to match.
+const ENTITLING_STATUSES = new Set(['trialing', 'authenticated', 'active', 'past_due', 'cancelling'])
 
 export default function BillingPanel() {
-  const { authFetch, user } = useAuth()
+  const { authFetch } = useAuth()
   const [billing, setBilling] = useState(null)
   const [invoices, setInvoices] = useState([])
   const [usage, setUsage] = useState(null)
@@ -64,78 +48,6 @@ export default function BillingPanel() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  const upgrade = async (planId) => {
-    setUpgradeStatus('Opening secure checkout...')
-    try {
-      await loadRazorpayCheckout()
-      const r = await authFetch('/api/v1/billing/checkout/order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_id: planId }),
-      })
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}))
-        throw new Error(d.detail || `Upgrade failed (${r.status})`)
-      }
-      const order = await r.json()
-      await new Promise((resolve, reject) => {
-        if (!window.Razorpay) return reject(new Error('Razorpay checkout did not load.'))
-        const rzp = new window.Razorpay({
-          key: order.key_id,
-          amount: order.amount,
-          currency: order.currency || 'INR',
-          name: 'Procta',
-          description: order.description || `${order.plan_name || 'Procta'} plan`,
-          order_id: order.order_id,
-          prefill: {
-            name: user?.full_name || '',
-            email: user?.email || '',
-          },
-          notes: { plan_id: order.plan_id || '' },
-          theme: { color: '#2563eb' },
-          modal: {
-            confirm_close: true,
-            ondismiss: () => {
-              setUpgradeStatus('Payment cancelled. No changes were made.')
-              resolve()
-            },
-          },
-          handler: async (resp) => {
-            setUpgradeStatus('Verifying payment...')
-            try {
-              const verifyR = await authFetch('/api/v1/billing/checkout/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  plan_id: order.plan_id,
-                  razorpay_order_id: resp.razorpay_order_id,
-                  razorpay_payment_id: resp.razorpay_payment_id,
-                  razorpay_signature: resp.razorpay_signature,
-                }),
-              })
-              if (!verifyR.ok) {
-                const d = await verifyR.json().catch(() => ({}))
-                throw new Error(d.detail || `Payment verification failed (${verifyR.status})`)
-              }
-              setUpgradeStatus('Payment verified. Your plan is active.')
-              await loadAll()
-              resolve()
-            } catch (e) {
-              setUpgradeStatus(e.message || 'Payment verification failed.')
-              reject(e)
-            }
-          },
-        })
-        rzp.on('payment.failed', (response) => {
-          setUpgradeStatus(response?.error?.description || 'Payment failed. Please try again.')
-        })
-        rzp.open()
-      })
-    } catch (e) {
-      setUpgradeStatus(e.message)
-    }
-  }
-
   // Subscribe — recurring monthly via Razorpay Subscriptions + UPI Autopay.
   // Backend creates the Subscription via Razorpay API and returns a hosted
   // checkout URL (`short_url`). Redirecting there lets Razorpay's own page
@@ -147,6 +59,18 @@ export default function BillingPanel() {
   // server pointing at a Razorpay-side plan ID; otherwise the endpoint 503s
   // with a clear "payment credentials not configured" message.
   const subscribe = async (planId) => {
+    // Block switching while a plan is active — matches the server's 409 guard,
+    // giving instant feedback instead of a round-trip that just errors.
+    const status = String(billing?.status || '').toLowerCase()
+    if (ENTITLING_STATUSES.has(status)) {
+      const cur = String(billing?.plan || '').toLowerCase()
+      setUpgradeStatus(
+        String(planId).toLowerCase() === cur
+          ? 'You’re already on this plan.'
+          : 'You already have an active plan. Cancel it first — you keep access until the end of your billing period — to switch plans.',
+      )
+      return
+    }
     setUpgradeStatus('Creating subscription...')
     try {
       const r = await authFetch('/api/v1/billing/create-subscription', {
@@ -196,7 +120,8 @@ export default function BillingPanel() {
   if (loading) return <div className="loading">Loading billing...</div>
   if (error) return <div className="auth-err" style={{ margin: 20 }}>{error} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>
 
-  const currentPlan = billing?.plan || 'starter'
+  const currentPlan = String(billing?.plan || 'starter').toLowerCase()
+  const entitled = ENTITLING_STATUSES.has(String(billing?.status || '').toLowerCase())
 
   return (
     <div>
@@ -221,44 +146,41 @@ export default function BillingPanel() {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginTop: 20, marginBottom: 20 }}>
-        {PLANS.map(p => (
+        {PLANS.map(p => {
+          // While a plan is active: the current plan shows "Current plan", and
+          // every other plan is locked (switching is blocked until they cancel).
+          // When not entitled (cancelled/expired/none), all tiles are buyable.
+          const isCurrent = entitled && currentPlan === p.id
+          const locked = entitled && !isCurrent
+          return (
           <div
             key={p.id}
             className="tool-card"
-            style={{ textAlign: 'center', borderColor: currentPlan === p.id ? 'var(--accent)' : undefined }}
+            style={{ textAlign: 'center', borderColor: isCurrent ? 'var(--accent)' : undefined }}
           >
             <div className="tool-card-body">
               <h3>{p.name}</h3>
               <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-high)', margin: '4px 0' }}>{p.price}</p>
               <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.students} students</p>
               <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, minHeight: 32 }}>{p.desc}</p>
-              {/* Two CTAs per plan: one-off "Buy" via Razorpay Standard Checkout
-                  for organisations that pay manually each month, and "Subscribe"
-                  via Razorpay Subscriptions for UPI Autopay / NACH recurring.
-                  Both go through `require_admin` + `require_reauth_or_403` on
-                  the server. */}
+              {/* Single recurring path: Razorpay Subscriptions (UPI Autopay /
+                  NACH). Entitlement is granted only when the subscription
+                  actually activates (server reconciles from the webhook). */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
                 <button
                   className="btn-primary"
-                  onClick={() => upgrade(p.id)}
-                  disabled={!!upgradeStatus && upgradeStatus.endsWith('...')}
-                  style={{ fontSize: 12, padding: '6px 10px' }}
-                >
-                  {currentPlan === p.id ? 'Renew (one-off)' : 'Buy (one-off)'}
-                </button>
-                <button
-                  className="btn-secondary"
                   onClick={() => subscribe(p.id)}
-                  disabled={!!upgradeStatus && upgradeStatus.endsWith('...')}
+                  disabled={isCurrent || locked || (!!upgradeStatus && upgradeStatus.endsWith('...'))}
                   style={{ fontSize: 12, padding: '6px 10px' }}
-                  title="Recurring monthly auto-debit via UPI Autopay / NACH"
+                  title={locked ? 'Cancel your current plan to switch plans' : 'Recurring monthly auto-debit via UPI Autopay / NACH'}
                 >
-                  Subscribe · UPI Autopay
+                  {isCurrent ? 'Current plan' : 'Subscribe · UPI Autopay'}
                 </button>
               </div>
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
       {upgradeStatus && <div style={{ fontSize: 13, color: 'var(--emerald)', marginBottom: 12 }}>{upgradeStatus}</div>}
       {auxError && <div className="auth-err" style={{ marginBottom: 12 }}>{auxError} <button className="btn-link" onClick={loadAll} style={{ marginLeft: 8 }}>Retry</button></div>}
@@ -306,7 +228,7 @@ export default function BillingPanel() {
             <tbody>
               {invoices.map(inv => (
                 <tr key={inv.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '8px 12px' }}>{inv.created_at ? new Date(inv.created_at * 1000).toLocaleDateString() : '--'}</td>
+                  <td style={{ padding: '8px 12px' }}>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : '--'}</td>
                   <td style={{ padding: '8px 12px', fontVariantNumeric: 'tabular-nums' }}>₹{(inv.amount / 100).toFixed(0)}</td>
                   <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                     <span style={{ color: inv.status === 'paid' ? 'var(--emerald)' : 'var(--amber)' }}>{inv.status}</span>

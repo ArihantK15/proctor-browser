@@ -32,6 +32,43 @@ from fastapi import HTTPException, Request
 from ..database import async_table as _atable
 
 
+def compute_is_solo(org_role: str | None, org_id, member_count: int) -> bool:
+    """Two-mode dashboard signal.
+
+    Solo = a non-superadmin caller who is effectively alone, so the legacy
+    dashboard should show a pure-teacher view with zero org/admin chrome:
+      • superadmin → never solo (cross-org tooling; usually no org_id);
+      • no org_id  → solo (a lone teacher account);
+      • org with ≤1 member → solo;
+      • otherwise → not solo (institute account).
+    """
+    # Normalise case to match resolve_scope()/require_admin(), which both
+    # .lower() the role — so a non-canonical "Superadmin" can't slip through
+    # and be mis-classified as a solo teacher.
+    if (org_role or "").lower() == "superadmin":
+        return False
+    if not org_id:
+        return True
+    return member_count <= 1
+
+
+async def org_is_solo(teacher: dict) -> bool:
+    """Resolve is_solo for a teacher dict (as returned by require_admin).
+
+    Short-circuits for superadmin and org-less accounts so we only hit the
+    DB for the genuine institute-vs-solo distinction. Counts org members
+    by selecting their ids — the org member set is tiny (seat-limited), so
+    a count-by-fetch is cheap and avoids a separate COUNT round-trip.
+    """
+    org_role = teacher.get("org_role", "teacher")
+    org_id = teacher.get("org_id")
+    if org_role == "superadmin" or not org_id:
+        return compute_is_solo(org_role, org_id, 0)
+    rows = (await _atable("teachers").select("id")
+            .eq("org_id", str(org_id)).execute()).data or []
+    return compute_is_solo(org_role, org_id, len(rows))
+
+
 async def resolve_scope(teacher: dict, request: Request) -> dict:
     """Build the scope dict from the authenticated teacher's role and
     any ?teacher_id= query parameter.

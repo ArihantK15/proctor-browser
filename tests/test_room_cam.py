@@ -118,7 +118,7 @@ class TestApprovalFlow:
 
     def test_approve_updates_status(self, client):
         with patch("app.auth.admin_auth._get_teacher_by_id", return_value=self.TEACHER), \
-             patch("app.routers.admin_liveview._assert_session_owned", AsyncMock()):
+             patch("app.routers.admin_liveview.assert_session_accessible", AsyncMock(return_value={})):
             resp = client.post(
                 "/api/v1/admin/sessions/ALICE001_abc/room-cam/approve",
                 headers={"Authorization": f"Bearer {make_admin_token(teacher_id='teacher-1', email='prof@test.com')}"},
@@ -128,7 +128,7 @@ class TestApprovalFlow:
 
     def test_reject_updates_status(self, client):
         with patch("app.auth.admin_auth._get_teacher_by_id", return_value=self.TEACHER), \
-             patch("app.routers.admin_liveview._assert_session_owned", AsyncMock()):
+             patch("app.routers.admin_liveview.assert_session_accessible", AsyncMock(return_value={})):
             resp = client.post(
                 "/api/v1/admin/sessions/ALICE001_abc/room-cam/reject",
                 headers={"Authorization": f"Bearer {make_admin_token(teacher_id='teacher-1', email='prof@test.com')}"},
@@ -136,10 +136,63 @@ class TestApprovalFlow:
         assert resp.status_code == 200
         assert resp.json()["status"] == "rejected"
 
+    def test_approve_co_teacher_session_uses_owner_tid(self, client):
+        """Org admin approving a co-teacher's session must key the UPDATE on
+        the SESSION OWNER's teacher_id (from assert_session_accessible), not
+        the caller's — otherwise it matches zero rows and silently no-ops."""
+        captured = {}
+
+        class _UpdChain:
+            def update(self, fields):
+                captured["fields"] = fields
+                return self
+            def eq(self, col, val):
+                captured.setdefault("eqs", {})[col] = val
+                return self
+            async def execute(self):
+                r = MagicMock()
+                r.data = [{"session_key": "ALICE001_abc"}]  # one row updated
+                return r
+
+        with patch("app.auth.admin_auth._get_teacher_by_id", return_value=self.TEACHER), \
+             patch("app.routers.admin_liveview.assert_session_accessible",
+                   AsyncMock(return_value={"teacher_id": "teacher-2"})), \
+             patch("app.routers.admin_liveview.resolve_scope",
+                   AsyncMock(return_value={"role": "admin", "teacher_id": None, "org_id": "org-1"})), \
+             patch("app.database.async_table", side_effect=lambda t: _UpdChain()):
+            resp = client.post(
+                "/api/v1/admin/sessions/ALICE001_abc/room-cam/approve",
+                headers={"Authorization": f"Bearer {make_admin_token(teacher_id='teacher-1', email='prof@test.com')}"},
+            )
+        assert resp.status_code == 200, resp.text
+        assert captured["eqs"]["teacher_id"] == "teacher-2"  # owner, not caller
+
+    def test_approve_zero_rows_updated_404s(self, client):
+        """If the UPDATE matches no rows, the endpoint must 404 instead of
+        returning ok:true on a no-op."""
+        class _EmptyChain:
+            def update(self, fields): return self
+            def eq(self, col, val): return self
+            async def execute(self):
+                r = MagicMock()
+                r.data = []  # nothing updated
+                return r
+
+        with patch("app.auth.admin_auth._get_teacher_by_id", return_value=self.TEACHER), \
+             patch("app.routers.admin_liveview.assert_session_accessible",
+                   AsyncMock(return_value={"teacher_id": "teacher-2"})), \
+             patch("app.routers.admin_liveview.resolve_scope",
+                   AsyncMock(return_value={"role": "admin", "teacher_id": None, "org_id": "org-1"})), \
+             patch("app.database.async_table", side_effect=lambda t: _EmptyChain()):
+            resp = client.post(
+                "/api/v1/admin/sessions/ALICE001_abc/room-cam/approve",
+                headers={"Authorization": f"Bearer {make_admin_token(teacher_id='teacher-1', email='prof@test.com')}"},
+            )
+        assert resp.status_code == 404, resp.text
+
     def test_status_returns_default_disabled(self, client):
         with patch("app.auth.admin_auth._get_teacher_by_id", return_value=self.TEACHER), \
-             patch("app.routers.admin_liveview._assert_session_owned", AsyncMock()), \
-             patch("app.database.async_table", side_effect=lambda t: self._mock_atable([])):
+             patch("app.routers.admin_liveview.assert_session_accessible", AsyncMock(return_value={})):
             resp = client.get(
                 "/api/v1/admin/sessions/ALICE001_abc/room-cam/status",
                 headers={"Authorization": f"Bearer {make_admin_token(teacher_id='teacher-1', email='prof@test.com')}"},

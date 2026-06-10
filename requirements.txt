@@ -42,3 +42,11 @@ cryptography>=42.0.8
 # + every internal access/refresh/reauth token decode, so we cannot
 # inherit the vulnerable version.
 pyjwt[crypto]>=2.13.0
+
+# Question-bank PDF/DOCX import (v1) — on-device, permissive licenses only.
+# Extraction runs in-server (no third-party AI, no egress for question content).
+# Deliberately NOT PyMuPDF (AGPL — incompatible with proprietary distribution).
+pdfplumber>=0.11.0      # MIT / pdfminer.six — PDF text + per-char font & bbox
+python-docx>=1.1.2      # MIT — DOCX text
+pypdfium2>=4.30.0       # BSD/Apache (PDFium) — page-region rasterization
+python-pptx>=1.0.2      # MIT — PPTX text extraction (AI-questions-from-notes)

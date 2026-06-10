@@ -198,6 +198,39 @@ class TestUpdateQuestions:
             assert resp.status_code == 400
             assert "at least 2" in resp.json()["detail"].lower()
 
+    def test_numeric_missing_range_rejected(self, client):
+        with admin_patch():
+            resp = client.post("/api/v1/admin/questions",
+                               json={"questions": [{
+                                   "id": 1, "question": "How many planets?",
+                                   "options": {}, "correct": "",
+                                   "question_type": "numeric"}]},
+                               headers=admin_headers())
+            assert resp.status_code == 400
+            assert "min and max" in resp.json()["detail"].lower()
+
+    def test_numeric_non_numeric_bounds_rejected(self, client):
+        with admin_patch():
+            resp = client.post("/api/v1/admin/questions",
+                               json={"questions": [{
+                                   "id": 1, "question": "Value of g?",
+                                   "options": {}, "correct": "range:a:b",
+                                   "question_type": "numeric"}]},
+                               headers=admin_headers())
+            assert resp.status_code == 400
+            assert "must be numbers" in resp.json()["detail"].lower()
+
+    def test_numeric_valid_range_accepted(self, client):
+        with admin_patch():
+            resp = client.post("/api/v1/admin/questions",
+                               json={"questions": [{
+                                   "id": 1, "question": "Value of g (m/s^2)?",
+                                   "options": {}, "correct": "range:9.75:9.85",
+                                   "question_type": "numeric"}]},
+                               headers=admin_headers())
+            # Validation must pass (no 400). DB layer is mocked by conftest.
+            assert resp.status_code != 400, resp.text
+
 
 # ─── Exam Schedule ────────────────────────────────────────────────────
 

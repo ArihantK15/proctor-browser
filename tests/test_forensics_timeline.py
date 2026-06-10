@@ -261,7 +261,11 @@ class TestForensicsTimeline:
             "thumbnails inline next to the event."
         )
         assert event["screenshot"].startswith("/api/v1/admin/screenshot/alice/")
-        assert event["screenshot"].endswith(fake_screenshot.name)
+        # URL now carries ?session_id=... so the owner tid can be re-derived
+        # by get_screenshot — assert on the path portion before the query.
+        _path = event["screenshot"].split("?", 1)[0]
+        assert _path.endswith(fake_screenshot.name)
+        assert "session_id=sess_alice_2" in event["screenshot"]
 
     def test_timeline_stamps_phone_camera_companion(self, client, admin_headers):
         """When a flag has BOTH a primary frame and the phone-cam companion
@@ -287,11 +291,12 @@ class TestForensicsTimeline:
             r = client.get("/api/v1/admin/timeline/sess_alice_3", headers=admin_headers)
         assert r.status_code == 200, r.text
         event = r.json()["timeline"][0]
-        assert event["screenshot"].endswith(primary.name)
-        assert event.get("room_screenshot", "").endswith(room.name), (
+        assert event["screenshot"].split("?", 1)[0].endswith(primary.name)
+        assert event.get("room_screenshot", "").split("?", 1)[0].endswith(room.name), (
             "Timeline must stamp room_screenshot (the phone-cam companion) so the "
             "dashboard can show both cameras side by side for a flag.")
         assert event["room_screenshot"].startswith("/api/v1/admin/screenshot/alice/")
+        assert "session_id=sess_alice_3" in event["room_screenshot"]
 
 
 def test_room_companion_pairing_logic():

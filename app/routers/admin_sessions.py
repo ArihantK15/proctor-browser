@@ -784,8 +784,18 @@ async def request_recalibration(session_id: str, request: Request, body: dict = 
 @limiter.limit("10/minute")
 async def live_risk_triage_endpoint(session_id: str, request: Request):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    await _assert_session_owned(session_id, tid)
+    # Org-admin roll-up: resolve via the scope spine (404s cross-tenant) and key
+    # reads on the session OWNER's tid so an admin can triage a co-teacher's
+    # live session. Matches the live-view / results roll-up.
+    from ..auth.scope import resolve_scope, assert_session_accessible
+    scope = await resolve_scope(teacher, request)
+    _sess_acc = await assert_session_accessible(session_id, scope)
+    tid = str(_sess_acc.get("teacher_id") or "")
+    # Ownerless/orphan session → no derivable owner. Empty teacher_id is treated
+    # as "no filter" by load_exam_config, so bail rather than risk leaking a
+    # co-tenant's exam config (and to avoid a pointless LLM call).
+    if not tid:
+        raise HTTPException(status_code=404, detail="Session not found")
 
     cache_key = f"triage:{session_id}"
     if _cache:

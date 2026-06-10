@@ -115,16 +115,6 @@ def _risk_label(score: int) -> str:
     return "Critical Risk"
 
 
-def _normalise_answer_set(ans: str) -> set[str]:
-    if ans is None:
-        return set()
-    return {s.strip().upper() for s in str(ans).split(",") if s.strip()}
-
-
-def _answers_match(student_ans: str, correct_ans: str) -> bool:
-    return _normalise_answer_set(student_ans) == _normalise_answer_set(correct_ans)
-
-
 # ─── ALERTS ────────────────────────────────────────────────────────
 
 async def publish_critical_alert(

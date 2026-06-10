@@ -682,6 +682,7 @@
           <button class="filter-chip" data-qtypef="mcq_single" data-action="setQTypeFilter" data-args='["mcq_single"]'>Single</button>
           <button class="filter-chip" data-qtypef="mcq_multi" data-action="setQTypeFilter" data-args='["mcq_multi"]'>Multi</button>
           <button class="filter-chip" data-qtypef="true_false" data-action="setQTypeFilter" data-args='["true_false"]'>T/F</button>
+          <button class="filter-chip" data-qtypef="numeric" data-action="setQTypeFilter" data-args='["numeric"]'>Numeric</button>
           <button class="filter-chip" data-qtypef="img" data-action="setQTypeFilter" data-args='["img"]'>Has image</button>
         </div>
         <div class="q-list-wrap" id="q-list-wrap">
@@ -738,6 +739,7 @@
           <div id="bank-generate-area" data-aipane="generate">
             <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;line-height:1.5">
               Describe a topic. Generated questions appear below as a preview — review, then click <b>Add to Bank</b>. Nothing is saved until you confirm.
+              <span style="color:var(--text-muted)">AI features send your text to our AI provider.</span>
             </p>
             <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">
               <div>
@@ -774,6 +776,19 @@
                 style="width:100%;margin-top:6px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
             </details>
             <button class="btn btn-primary btn-sm" data-action="doGenerateQuestions" id="gen-btn" style="width:100%;justify-content:center">Generate</button>
+
+            <!-- Generate from a file (notes / slides). Cloud AI — consent shown. -->
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-subtle)">
+              <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Or generate from your notes</div>
+              <p style="font-size:11px;color:var(--text-muted);margin:0 0 8px;line-height:1.5">
+                Upload <b>PDF, Word (.docx) or PowerPoint (.pptx)</b>. The text is sent to
+                our AI provider to draft questions — review before saving.
+              </p>
+              <button class="btn btn-secondary btn-sm" data-action="qbankGenFilePick" style="width:100%;justify-content:center">Generate from file</button>
+              <input type="file" id="qbank-gen-file" accept=".pdf,.docx,.pptx"
+                     data-change-action="qbankGenFileChosen" style="display:none">
+            </div>
+
             <div id="gen-status" style="font-size:12px;color:var(--text-muted);margin-top:8px"></div>
             <div id="gen-preview" style="margin-top:12px"></div>
           </div>
@@ -805,10 +820,43 @@
               <button class="btn btn-primary btn-sm" data-action="doBankImport">Import</button>
             </div>
             <div id="bank-import-status" style="font-size:12px;min-height:18px;margin-top:6px"></div>
+
+            <!-- PDF/Word import — on-device extraction into a review table. -->
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-subtle)">
+              <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px;line-height:1.5">
+                Or upload a <b>PDF</b> or <b>Word (.docx)</b> question paper. Questions are
+                extracted <b>on your server</b> — nothing leaves it — then you review before saving.
+                Math/diagram questions are preserved as images.
+              </p>
+              <button class="btn btn-secondary btn-sm" data-action="qbankPdfPick">Import from PDF/Word</button>
+              <input type="file" id="qbank-pdf-file" accept=".pdf,.docx"
+                     data-change-action="qbankPdfChosen" style="display:none">
+            </div>
           </div>
 
         </div>
       </aside>
+
+      <!-- PDF/Word import review modal (hidden until an upload is parsed). -->
+      <div id="qbank-extract-overlay"
+           style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6);
+                  align-items:center;justify-content:center;padding:24px">
+        <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-lg);
+                    width:min(900px,96vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)">
+            <h3 style="margin:0;font-size:15px;color:var(--text-high)">Review imported questions</h3>
+            <span id="qbank-extract-summary" style="font-size:12px;color:var(--text-muted)"></span>
+            <button class="btn btn-ghost btn-sm" data-action="qbankExtractClose"
+                    style="margin-left:auto;font-size:18px;line-height:1;padding:2px 8px">&times;</button>
+          </div>
+          <div id="qbank-extract-body" style="padding:14px 18px;overflow-y:auto;flex:1"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--border)">
+            <button class="btn btn-secondary btn-sm" data-action="qbankExtractClose">Cancel</button>
+            <button class="btn btn-primary btn-sm" id="qbank-extract-confirm"
+                    data-action="qbankExtractConfirm" disabled>Add to bank</button>
+          </div>
+        </div>
+      </div>
 
     </div>
     <!-- (Preview view lives inside .q-content-scroll above — not

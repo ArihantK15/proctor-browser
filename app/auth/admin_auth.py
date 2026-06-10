@@ -169,7 +169,19 @@ async def require_admin(request: Request) -> dict:
     token = _bearer_or_cookie(request, "procta_access")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return await verify_admin_token(token)
+    teacher = await verify_admin_token(token)
+    # Superadmin is a cross-org, READ-ONLY monitor role — a debug/observability
+    # panel (view flags + active sessions) that is walled off from consumer
+    # actions. It may VIEW anything (GET) but must MUTATE nothing. This single
+    # guard covers every admin endpoint, since they all flow through here.
+    # Identity/auth routes (/api/v1/auth/*: login, refresh, logout, reauth) are
+    # exempt so a superadmin can still sign in and keep its session alive.
+    if (request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and str(teacher.get("org_role") or "").lower() == "superadmin"
+            and not request.url.path.startswith("/api/v1/auth/")):
+        raise HTTPException(status_code=403,
+            detail="Superadmin is monitor-only and cannot modify product data.")
+    return teacher
 
 
 def require_reauth_or_403(

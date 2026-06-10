@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse
 
 from ..auth import require_admin
+from ..auth.scope import resolve_scope, scope_to_teacher_ids, assert_session_accessible
 from ..database import async_table as _atable
 from ..repositories.sessions import (
     assert_session_owned as _assert_session_owned,
@@ -40,8 +41,10 @@ router = APIRouter(prefix="")
 @limiter.limit("10/minute")
 async def export_csv(request: Request, exam_id: str = None):
     teacher = await require_admin(request)
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
     return StreamingResponse(
-        _stream_csv_results(teacher["id"], exam_id=exam_id, max_rows=5000),
+        _stream_csv_results(teacher["id"], exam_id=exam_id, max_rows=5000, teacher_ids=tids),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=results.csv"})
 
@@ -54,7 +57,9 @@ async def export_excel(request: Request, exam_id: str = None):
     from openpyxl.cell import WriteOnlyCell
 
     teacher = await require_admin(request)
-    results = await _fetch_all_results(teacher["id"], exam_id=exam_id)
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    results = await _fetch_all_results(teacher["id"], exam_id=exam_id, teacher_ids=tids)
 
     wb = Workbook(write_only=True)
     ws = wb.create_sheet()
@@ -342,7 +347,9 @@ def _pdf_build_evidence_section(evidence_items: list, styles, evidence_caption_s
 @limiter.limit("10/minute")
 async def export_pdf(session_id: str, request: Request):
     teacher = await require_admin(request)
-    tid = teacher["id"]
+    scope = await resolve_scope(teacher, request)
+    sess = await assert_session_accessible(session_id, scope)  # 404s cross-tenant
+    tid = str(sess["teacher_id"])  # the session OWNER's tid, not the caller's
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
@@ -453,7 +460,9 @@ async def export_pdf(session_id: str, request: Request):
 @limiter.limit("10/minute")
 async def scorecard_pdf(session_id: str, request: Request):
     teacher = await require_admin(request)
-    tid = teacher["id"]
+    scope = await resolve_scope(teacher, request)
+    sess = await assert_session_accessible(session_id, scope)  # 404s cross-tenant
+    tid = str(sess["teacher_id"])  # the session OWNER's tid, not the caller's
     try:
         pdf_bytes, fname, _ = await _build_scorecard_pdf(session_id, tid)
         return StreamingResponse(
@@ -470,7 +479,8 @@ async def scorecard_pdf(session_id: str, request: Request):
 @limiter.limit("5/minute")
 async def scorecard_zip(request: Request, exam_id: str = None):
     teacher = await require_admin(request)
-    tid = teacher["id"]
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
@@ -479,8 +489,16 @@ async def scorecard_zip(request: Request, exam_id: str = None):
         from reportlab.lib.styles import getSampleStyleSheet
 
         sess_q = _atable("exam_sessions")\
-            .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at,submitted_at,exam_id")\
-            .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED]).eq("teacher_id", str(tid))
+            .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at,submitted_at,exam_id,teacher_id")\
+            .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+        if tids is not None:
+            if not tids:
+                sess_q = sess_q.eq("teacher_id", "__none__")  # empty org → match nothing
+            elif len(tids) == 1:
+                sess_q = sess_q.eq("teacher_id", str(tids[0]))
+            else:
+                sess_q = sess_q.in_("teacher_id", tids)
+        # else (superadmin / None): no teacher filter
         if exam_id:
             sess_q = sess_q.eq("exam_id", exam_id)
         sessions = (await sess_q.execute()).data or []
@@ -488,21 +506,44 @@ async def scorecard_zip(request: Request, exam_id: str = None):
             raise HTTPException(status_code=404, detail="No completed sessions found")
 
         eid = exam_id or (sessions[0].get("exam_id") if sessions else None)
-        questions = await _load_questions(teacher_id=tid, exam_id=eid)
-        config = None
-        try:
-            config = await _load_exam_config(str(tid), exam_id=eid)
-        except Exception as e:
-            logger.debug("Failed to load exam config for ZIP export: %s", e)
-        exam_title = (config or {}).get("title", "Exam")
+        # Questions/config are exam-scoped, loaded per the owner of the
+        # first session's exam. In a multi-teacher org the question bank can
+        # differ per owner, so resolve them per-session below using each
+        # row's own teacher_id.
+        _q_cache: dict[tuple, list] = {}
+        _cfg_cache: dict[tuple, dict | None] = {}
 
+        async def _questions_for(owner_tid: str, ex_id):
+            key = (owner_tid, ex_id)
+            if key not in _q_cache:
+                _q_cache[key] = await _load_questions(teacher_id=owner_tid, exam_id=ex_id)
+            return _q_cache[key]
+
+        async def _config_for(owner_tid: str, ex_id):
+            key = (owner_tid, ex_id)
+            if key not in _cfg_cache:
+                cfg = None
+                try:
+                    cfg = await _load_exam_config(str(owner_tid), exam_id=ex_id)
+                except Exception as e:
+                    logger.debug("Failed to load exam config for ZIP export: %s", e)
+                _cfg_cache[key] = cfg
+            return _cfg_cache[key]
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for sess in sessions:
                 sid = sess["session_key"]
+                # Per-session OWNER tid — the loop can span sessions owned by
+                # different teachers in an org, so answer/question loads MUST
+                # use each row's own teacher_id, not the caller's.
+                row_tid = str(sess.get("teacher_id"))
+                row_eid = sess.get("exam_id") or eid
+                questions = await _questions_for(row_tid, row_eid)
+                config = await _config_for(row_tid, row_eid)
+                exam_title = (config or {}).get("title", "Exam")
                 ans_rows = (await _atable("answers").select("question_id,answer")
                             .eq("session_key", sid)
-                            .eq("teacher_id", str(tid)).execute()).data or []
+                            .eq("teacher_id", row_tid).execute()).data or []
                 ans_map = {str(a["question_id"]): a["answer"] for a in ans_rows}
 
                 pdf_buf = io.BytesIO()

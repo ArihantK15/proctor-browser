@@ -34,7 +34,6 @@ let issuesData = [];
 let currentIssueId = null;
 let issueReportContext = {session_id:'', exam_id:''};
 let currentTeacherProfile = null;
-let razorpayCheckoutPromise = null;
 // Restore the previously-selected exam across page refreshes. Without
 // this, F5 silently swaps you to examsList[0], and live sessions / results
 // / schedule all blank out because they filter by exam_id.
@@ -219,6 +218,7 @@ async function _onAuthed(teacher){
   document.body.classList.remove('auth-active');
   document.getElementById('auth-overlay').classList.add('hidden');
   currentTeacherProfile = teacher || null;
+  currentIsSolo = !!(teacher && teacher.is_solo);
   _onAuthDone();
   if(teacher && teacher.full_name){
     document.getElementById('teacher-name').textContent = teacher.full_name;
@@ -403,6 +403,14 @@ function onExamSwitch(examId){
   liveData = []; resultsData = []; qData = [];
   _reloadQuestionsIfActive();
   refreshAll();
+  // refreshAll() only covers a fixed set (live/results/tools/invites). The
+  // currently active tab may be outside that set (analytics, history, org,
+  // members, billing, security, …) — re-run its loader so the visible panel
+  // reflects the newly selected exam instead of staying stale until the user
+  // manually toggles tabs.
+  const _activeTabBtn = document.querySelector('.tab.active');
+  const _activeTab = _activeTabBtn && _activeTabBtn.dataset ? _activeTabBtn.dataset.tab : null;
+  if(_activeTab) _dispatchTabLoad(_activeTab);
 }
 
 function _examQuery(sep){
@@ -1029,7 +1037,12 @@ window.addEventListener('hashchange', function(){
 // ── TABS ────────────────────────────────────────────────────────
 function _tabButtonForName(tab){
   if(!/^[a-z0-9-]+$/i.test(tab || '')) return null;
-  return document.querySelector('.tab[data-tab="' + tab + '"]');
+  const btn = document.querySelector('.tab[data-tab="' + tab + '"]');
+  // Never route (via #tab- hash or keyboard) into a tab the current role
+  // can't see. Closes the hash-deeplink path to superadmin panels for a
+  // non-superadmin (e.g. #tab-all-orgs typed into the URL).
+  if(!btn || btn.style.display === 'none') return null;
+  return btn;
 }
 
 function switchTab(tab){
@@ -1047,6 +1060,20 @@ function switchTab(tab){
   // refreshPendingGradeBadge below so a missing observer can't throw
   // and break tab switching.
   if(tab!=='results' && typeof _resDisconnectObserver==='function') _resDisconnectObserver();
+  _dispatchTabLoad(tab);
+  // Persist tab in URL hash so refresh doesn't lose state
+  if (window.location.hash !== '#tab-' + tab) {
+    history.replaceState(null, '', '#tab-' + tab);
+  }
+}
+
+// Per-tab data loaders. Single source of truth shared by switchTab (when the
+// user opens a tab) and onExamSwitch (so the ACTIVE tab reloads for the newly
+// selected exam — otherwise tabs outside refreshAll()'s fixed set, e.g.
+// analytics/history/org/members/billing/security, show the previous exam's
+// data until the user manually toggles tabs). Loaders that guard on an empty
+// data array reload after onExamSwitch resets those arrays.
+function _dispatchTabLoad(tab){
   if(tab==='results' && resultsData.length===0) refreshResults();
   if(tab==='results' && typeof refreshPendingGradeBadge==='function') refreshPendingGradeBadge();
   if(tab==='questions' && qData.length===0) loadQuestions();
@@ -1071,10 +1098,6 @@ function switchTab(tab){
   if(tab==='org-settings') loadOrgSettings();
   if(tab==='all-orgs') loadAllOrgs();
   if(tab==='issues') loadIssues();
-  // Persist tab in URL hash so refresh doesn't lose state
-  if (window.location.hash !== '#tab-' + tab) {
-    history.replaceState(null, '', '#tab-' + tab);
-  }
 }
 
 // Standard ARIA tablist keyboard pattern: ArrowLeft / ArrowRight cycle
@@ -1102,13 +1125,19 @@ function switchTab(tab){
 
 // ── ORG ROLE / TABS ────────────────────────────────────────────
 let currentOrgRole = 'teacher';
+let currentIsSolo = false;  // solo account → force pure-teacher view (spec §B)
 
 function decodeJWT(token){
   try{ return JSON.parse(atob(token.split('.')[1])); }catch(e){ return null; }
 }
 
 function applyOrgRole(org_role){
-  currentOrgRole = org_role || 'teacher';
+  const requested = org_role || 'teacher';
+  // Solo accounts (no org, or an org of one) are pure teachers regardless
+  // of any stored admin role — a 30-student solo buyer must never see an
+  // "admin" concept (spec §B, two-mode UI). Superadmin is exempt: it is
+  // never solo (see compute_is_solo) so this branch can't strip it.
+  currentOrgRole = (currentIsSolo && requested !== 'superadmin') ? 'teacher' : requested;
   // Tabs use inline `style.display = ''` / 'none' since they belong to a
   // flex row. Other role-gated elements (teacher-filter dropdowns,
   // analytics filter row) get the same treatment so admin-only UI
@@ -1117,6 +1146,15 @@ function applyOrgRole(org_role){
     const roles = (el.dataset.roles || '').split(' ');
     el.style.display = roles.includes(currentOrgRole) ? '' : 'none';
   });
+  // Hard-gate founder-internal tooling (all-orgs / issues / debug). These
+  // tabs carry data-roles="superadmin", so the forEach above already sets
+  // them to display:none for any non-superadmin and back to visible for a
+  // superadmin — reversibly, within the same page session (a later super
+  // admin login restores them without a reload). We deliberately do NOT
+  // .remove() them: a hidden tab can't be clicked, and _tabButtonForName()
+  // returns null for a display:none tab, so the #tab- hash-deeplink path is
+  // already closed. Their panels only become visible via switchTab(), which
+  // is reachable only through those same guarded entry points.
   // Populate the teacher dropdowns the first time we discover admin role.
   if(currentOrgRole === 'admin' || currentOrgRole === 'superadmin'){
     loadOrgMembers().catch(() => {/* dropdown stays empty, filter still works */});
@@ -1155,7 +1193,7 @@ function applyOrgRole(org_role){
 function _onAuthDone(){
   const payload = decodeJWT(authToken);
   const role = (payload && payload.org_role) || (currentTeacherProfile && currentTeacherProfile.org_role);
-  if(role) applyOrgRole(role);
+  applyOrgRole(role || 'teacher');
 }
 
 // Patch into saveTokens
@@ -1809,20 +1847,6 @@ function _pollLiveFrame(){
 async function _liveViewKeepalive(){
   if(_liveViewSid){
     try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(_liveViewSid)}/live-view/keepalive`, {method:'POST'}); }catch(_){}
-  }
-}
-
-async function closeLiveView(){
-  if(_liveViewFrameTimer){ clearInterval(_liveViewFrameTimer); _liveViewFrameTimer = null; }
-  if(_liveViewKeepaliveTimer){ clearInterval(_liveViewKeepaliveTimer); _liveViewKeepaliveTimer = null; }
-  const img = document.getElementById('liveview-img');
-  if(img && img.src && img.src.startsWith('blob:')){ try{ URL.revokeObjectURL(img.src); }catch(_){} img.removeAttribute('src'); }
-  const modal = document.getElementById('liveview-modal');
-  if(modal) modal.classList.add('hidden');
-  const sid = _liveViewSid;
-  _liveViewSid = null;
-  if(sid){
-    try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/live-view/stop`, {method:'POST'}); }catch(_){}
   }
 }
 
@@ -3229,112 +3253,83 @@ function sortResults(key){
 }
 
 
+// Statuses that mean the org currently has an entitling plan — mirrors the
+// server's ENTITLING_STATUSES (services/billing.py). Used to lock plan tiles
+// and short-circuit a switch attempt with an honest message instead of a 409.
+const _ENTITLING_BILLING_STATUSES = new Set(['trialing','authenticated','active','past_due','cancelling']);
+let _billingState = { plan: '', status: '' };
+
+// Reflect the active subscription in the plan tiles: badge + lock the plan
+// they're on, and disable the others while a plan is active (in-place switching
+// is blocked server-side — they cancel first). Mirrors create_subscription's
+// 409 guard so the affordances match what the server will actually allow.
+function updateBillingTiles(plan, status){
+  const cur = String(plan || '').toLowerCase();
+  const entitled = _ENTITLING_BILLING_STATUSES.has(String(status || '').toLowerCase());
+  document.querySelectorAll('#billing-plans .plan-tile').forEach(tile => {
+    const p = String(tile.dataset.plan || '').toLowerCase();
+    const cta = tile.querySelector('.plan-cta');
+    const isCurrent = entitled && p === cur;
+    tile.classList.toggle('is-current', isCurrent);   // outline + "Current plan" badge
+    // The whole card carries data-action="upgradePlan"; a locked card should
+    // not look clickable (upgradePlan also guards on _billingState).
+    tile.style.cursor = entitled ? 'default' : 'pointer';
+    if(!cta) return;
+    if(!cta.dataset.label) cta.dataset.label = cta.textContent;  // remember original CTA text
+    if(isCurrent){
+      cta.style.display = 'none';        // the .is-current badge is the indicator
+      cta.disabled = true;
+    }else if(entitled){
+      cta.style.display = '';
+      cta.disabled = true;
+      cta.title = 'Cancel your current plan to switch plans';
+      cta.textContent = cta.dataset.label;
+    }else{
+      cta.style.display = '';
+      cta.disabled = false;
+      cta.removeAttribute('title');
+      cta.textContent = cta.dataset.label;
+    }
+  });
+}
+
 async function upgradePlan(planId){
+  // Recurring Subscriptions only — create a Razorpay subscription and redirect
+  // to its hosted checkout (UPI Autopay / NACH). Entitlement is granted on the
+  // server only when the subscription activates (webhook → reconcile).
   const resultEl = document.getElementById('upgrade-result');
-  resultEl.textContent = 'Opening secure checkout...'; resultEl.style.color = 'var(--text-secondary)';
+  // Block switching while a plan is active — matches the server's 409 guard.
+  // Gives instant feedback instead of a round-trip that just errors.
+  const cur = String(_billingState.plan || '').toLowerCase();
+  if(_ENTITLING_BILLING_STATUSES.has(String(_billingState.status || '').toLowerCase())){
+    if(resultEl){
+      resultEl.style.color = 'var(--text-secondary)';
+      resultEl.textContent = String(planId || '').toLowerCase() === cur
+        ? 'You’re already on this plan.'
+        : 'You already have an active plan. Cancel it first — you keep access until the end of your billing period — to switch plans.';
+    }
+    return;
+  }
+  if(resultEl){ resultEl.textContent = 'Creating subscription...'; resultEl.style.color = 'var(--text-secondary)'; }
   try{
-    await loadRazorpayCheckout();
-    const r = await authFetch(`${BASE}/api/v1/billing/checkout/order`, {
+    const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({plan_id:planId})
     });
-    if(!r.ok){
-      const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail||'Upgrade failed');
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){ throw new Error(d.detail||'Subscription failed'); }
+    if(d.short_url){
+      if(resultEl){ resultEl.textContent = 'Redirecting to Razorpay for UPI Autopay setup...'; }
+      window.location.href = d.short_url;
+    }else if(resultEl){
+      resultEl.textContent = d._note || 'Subscription created.';
+      resultEl.style.color = 'var(--emerald)';
+      if(typeof loadBilling === 'function') loadBilling();
     }
-    const d = await r.json();
-    await openRazorpayCheckout(d, resultEl);
   }catch(e){
-    resultEl.textContent = e.message; resultEl.style.color = 'var(--red)';
+    if(resultEl){ resultEl.textContent = e.message; resultEl.style.color = 'var(--red)'; }
   }
-}
-
-function loadRazorpayCheckout(){
-  if(window.Razorpay) return Promise.resolve();
-  if(razorpayCheckoutPromise) return razorpayCheckoutPromise;
-  razorpayCheckoutPromise = new Promise((resolve, reject)=>{
-    const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
-    if(existing){
-      existing.addEventListener('load', resolve, {once:true});
-      existing.addEventListener('error', ()=>reject(new Error('Failed to load Razorpay checkout.')), {once:true});
-      return;
-    }
-    const s = document.createElement('script');
-    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    s.async = true;
-    s.onload = resolve;
-    s.onerror = ()=>reject(new Error('Failed to load Razorpay checkout.'));
-    document.head.appendChild(s);
-  });
-  return razorpayCheckoutPromise;
-}
-
-function openRazorpayCheckout(order, resultEl){
-  return new Promise((resolve, reject)=>{
-    if(!window.Razorpay) return reject(new Error('Razorpay checkout did not load.'));
-    const profile = currentTeacherProfile || {};
-    const rzp = new window.Razorpay({
-      key: order.key_id,
-      amount: order.amount,
-      currency: order.currency || 'INR',
-      name: 'Procta',
-      description: order.description || `${order.plan_name || 'Procta'} plan`,
-      order_id: order.order_id,
-      prefill: {
-        name: profile.full_name || '',
-        email: profile.email || '',
-      },
-      notes: {
-        plan_id: order.plan_id || '',
-      },
-      theme: {color: '#2563eb'},
-      modal: {
-        confirm_close: true,
-        ondismiss: ()=> {
-          resultEl.textContent = 'Payment cancelled. No changes were made.';
-          resultEl.style.color = 'var(--text-secondary)';
-          resolve();
-        },
-      },
-      handler: async function(resp){
-        resultEl.textContent = 'Verifying payment...';
-        resultEl.style.color = 'var(--text-secondary)';
-        try{
-          const verifyRes = await authFetch(`${BASE}/api/v1/billing/checkout/verify`, {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-              plan_id: order.plan_id,
-              razorpay_order_id: resp.razorpay_order_id,
-              razorpay_payment_id: resp.razorpay_payment_id,
-              razorpay_signature: resp.razorpay_signature,
-            })
-          });
-          if(!verifyRes.ok){
-            const d = await verifyRes.json().catch(()=>({}));
-            throw new Error(d.detail || `Payment verification failed (${verifyRes.status})`);
-          }
-          resultEl.textContent = 'Payment verified. Your plan is active.';
-          resultEl.style.color = 'var(--emerald)';
-          await loadBilling();
-          resolve();
-        }catch(e){
-          resultEl.textContent = e.message || 'Payment verification failed.';
-          resultEl.style.color = 'var(--red)';
-          reject(e);
-        }
-      }
-    });
-    rzp.on('payment.failed', function(response){
-      const msg = response && response.error && response.error.description
-        ? response.error.description
-        : 'Payment failed. Please try again.';
-      resultEl.textContent = msg;
-      resultEl.style.color = 'var(--red)';
-    });
-    rzp.open();
-  });
 }
 
 async function loadBilling(){
@@ -3358,6 +3353,8 @@ async function loadBilling(){
     planEl.textContent = (b.plan || '--').toUpperCase();
     statusEl.textContent = b.status || '--';
     usageEl.textContent = `${b.student_count || 0}/${b.max_students || 0}`;
+    _billingState = { plan: b.plan || '', status: b.status || '' };
+    updateBillingTiles(b.plan, b.status);
     if(resultEl) resultEl.textContent = '';
 
     if(invoiceRes && invoiceRes.ok){
@@ -4131,7 +4128,7 @@ function qSetCorrectSet(q, setOrArr){
 }
 function qNormaliseType(q){
   let t=(q.question_type||'mcq_single').toString().trim().toLowerCase();
-  if(!['mcq_single','mcq_multi','true_false','short_answer'].includes(t)) t='mcq_single';
+  if(!['mcq_single','mcq_multi','true_false','short_answer','numeric'].includes(t)) t='mcq_single';
   q.question_type=t;
   return t;
 }
@@ -4139,7 +4136,17 @@ function qTypeLabel(t){
   if(t==='mcq_multi') return 'Multi-select';
   if(t==='true_false') return 'True / False';
   if(t==='short_answer') return 'Short answer (AI-graded)';
+  if(t==='numeric') return 'Numeric (range)';
   return 'Single choice';
+}
+// Parse a "range:MIN:MAX" correct value into {min, max} display strings.
+function qParseRange(correct){
+  const c = String(correct||'');
+  if(c.toLowerCase().startsWith('range:')){
+    const p = c.split(':');
+    return { min: p[1]!=null?p[1]:'', max: p[2]!=null?p[2]:'' };
+  }
+  return { min:'', max:'' };
 }
 function qBuildImageUrl(u){
   if(!u) return '';
@@ -4193,6 +4200,8 @@ function renderQEditor(){
       }
     }
     const isShort = qtype==='short_answer';
+    const isNumeric = qtype==='numeric';
+    const _range = qParseRange(q.correct);
     const optKeys = Object.keys(q.options||{});
     const correctSet = qGetCorrectSet(q);
     const isMulti = qtype==='mcq_multi';
@@ -4224,6 +4233,7 @@ function renderQEditor(){
           <option value="mcq_single" ${qtype==='mcq_single'?'selected':''}>Single choice (MCQ)</option>
           <option value="mcq_multi"  ${qtype==='mcq_multi'?'selected':''}>Multi-select (2+ correct)</option>
           <option value="true_false" ${qtype==='true_false'?'selected':''}>True / False</option>
+          <option value="numeric" ${qtype==='numeric'?'selected':''}>Numeric / Integer (range)</option>
           <option value="short_answer" ${qtype==='short_answer'?'selected':''}>Short answer (AI-graded)</option>
         </select>
       </div>
@@ -4258,6 +4268,23 @@ function renderQEditor(){
                style="width:80px;padding:4px 6px">
         <span class="q-correct-status" style="color:var(--muted);font-size:11px;margin-left:8px">
           Students type a free-text answer. The AI suggests a score; you confirm it from the Results tab.
+        </span>
+      </div>
+      `:isNumeric?`
+      <div class="q-field">
+        <label>Accepted answer range (inclusive)</label>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input type="number" step="any" id="qmin-${i}" value="${escAttr(_range.min)}"
+                 data-input-action="_setQRange" data-qidx='${i}'
+                 placeholder="Min" style="width:120px;padding:4px 6px">
+          <span style="color:var(--muted)">to</span>
+          <input type="number" step="any" id="qmax-${i}" value="${escAttr(_range.max)}"
+                 data-input-action="_setQRange" data-qidx='${i}'
+                 placeholder="Max" style="width:120px;padding:4px 6px">
+        </div>
+        <span class="q-correct-status" style="color:var(--muted);font-size:11px">
+          The student types a number; it's marked correct if it falls within this range.
+          For an exact answer, set min = max. Decimals allowed (e.g. 9.75 to 9.85).
         </span>
       </div>
       `:`
@@ -4321,6 +4348,10 @@ function setQType(idx, val){
   }else if(val==='true_false'){
     q.options = {'True':'True','False':'False'};
     qSetCorrectSet(q, ['True']);
+  }else if(val==='numeric'){
+    // No options. The tolerance band lives in `correct` as "range:MIN:MAX".
+    q.options = {};
+    if(typeof q.correct!=='string' || !q.correct.toLowerCase().startsWith('range:')) q.correct = '';
   }else if(val==='mcq_single'){
     const cs = qGetCorrectSet(q);
     if(cs.size>1){
@@ -4735,6 +4766,18 @@ function renderQPreview(){
         ${q.rubric?`<div style="margin-top:4px;font-size:12px;color:var(--muted)"><strong>Rubric:</strong> ${escAttr(q.rubric)}</div>`:''}
       </div>`;
     }
+    if(qtype==='numeric'){
+      const r=qParseRange(q.correct);
+      return `<div class="preview-q">
+        <div class="pq-num">Question ${i+1} of ${qData.length} · ${escAttr(qTypeLabel(qtype))}</div>
+        ${q.image_url?`<img class="pq-image" id="pqimg-${i}" alt="Q${i+1}">`:''}
+        <div class="pq-text">${escAttr(q.question||'(empty)')}</div>
+        <div style="border:1px dashed var(--border);border-radius:8px;padding:10px 12px;margin-top:8px;color:var(--muted);font-size:12px">
+          Student types a number here.
+          <span style="color:var(--emerald)">Accepted: ${escAttr(r.min||'?')} to ${escAttr(r.max||'?')}</span>
+        </div>
+      </div>`;
+    }
     return `<div class="preview-q">
       <div class="pq-num">Question ${i+1} of ${qData.length} · ${escAttr(qTypeLabel(qtype))}</div>
       ${q.image_url?`<img class="pq-image" id="pqimg-${i}" alt="Q${i+1}">`:''}
@@ -4891,6 +4934,16 @@ async function saveQuestions(){
       }
       const ms = parseFloat(q.max_score);
       if(!ms || ms<=0) errors.push(`Q${i+1}: max score must be greater than 0`);
+      return; // skip the MCQ option/correct validation below
+    }
+    if(qtype==='numeric'){
+      const r = qParseRange(q.correct);
+      const lo = parseFloat(r.min), hi = parseFloat(r.max);
+      if(r.min===''||r.max===''||isNaN(lo)||isNaN(hi)){
+        errors.push(`Q${i+1}: numeric question needs a min and max value`);
+      }else if(lo>hi){
+        errors.push(`Q${i+1}: numeric min must be ≤ max`);
+      }
       return; // skip the MCQ option/correct validation below
     }
     const optKeys=Object.keys(q.options||{});
@@ -5769,7 +5822,7 @@ function setAITab(name){
 // Sidebar question-list filter state — module-level so the sidebar
 // can re-render itself on search input + chip click without
 // disturbing the editor (#q-editor) which renders all questions.
-let _qListFilter = 'all';   // 'all' | 'mcq_single' | 'mcq_multi' | 'true_false' | 'img'
+let _qListFilter = 'all';   // 'all' | 'mcq_single' | 'mcq_multi' | 'true_false' | 'numeric' | 'short_answer' | 'img'
 
 function setQTypeFilter(name){
   _qListFilter = name;
@@ -6040,6 +6093,51 @@ async function doGenerateQuestions(){
   }
 }
 
+// Generate questions from an uploaded notes file (PDF/DOCX/PPTX). Reuses the
+// same preview → Add-to-Bank flow as topic-based generation; only the source
+// (file vs typed topic) differs.
+function qbankGenFilePick(){ document.getElementById('qbank-gen-file')?.click(); }
+
+async function qbankGenFileChosen(){
+  const f = this.files && this.files[0];
+  if(!f) return;
+  this.value = '';
+  const count = parseInt(document.getElementById('gen-count').value || '10', 10);
+  const difficulty = document.getElementById('gen-difficulty').value;
+  const topic = document.getElementById('gen-topic').value.trim();
+  const status = document.getElementById('gen-status');
+  const preview = document.getElementById('gen-preview');
+  preview.innerHTML = '';
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Reading your file and calling AI (typically 2-5 seconds)…';
+  const fd = new FormData();
+  fd.append('file', f);
+  const qs = `?count=${encodeURIComponent(count)}&difficulty=${encodeURIComponent(difficulty)}`
+           + (topic ? `&topic=${encodeURIComponent(topic)}` : '');
+  let r;
+  try{
+    r = await authFetch(`${BASE}/api/v1/admin/question-bank/generate-from-file${qs}`,
+                        { method: 'POST', body: fd });
+  }catch(_){ r = null; }
+  if(!r){ status.style.color='var(--red)'; status.textContent='Network error.'; return; }
+  const data = await r.json().catch(() => ({}));
+  if(!r.ok){
+    status.style.color='var(--red)';
+    status.textContent = data.detail || 'Generation failed.';
+    return;
+  }
+  _genPreview = data.questions || [];
+  if(!_genPreview.length){
+    status.style.color='var(--red)';
+    status.textContent = 'Couldn’t generate questions from this file — try a clearer section.';
+    return;
+  }
+  status.style.color='var(--emerald)';
+  status.textContent = `Generated ${_genPreview.length}. Review below, then click "Add to Bank".`
+    + (data.truncated ? ' (Used the first ~15 pages — upload a smaller section for the rest.)' : '');
+  _renderGenPreview();
+}
+
 function _renderGenPreview(){
   const preview = document.getElementById('gen-preview');
   if(!_genPreview.length){ preview.innerHTML=''; return; }
@@ -6217,6 +6315,159 @@ function loadBankFile(input){
     }
   };
   reader.readAsText(file);
+}
+
+// ── Question-bank PDF/DOCX import (on-device extraction → review) ──────
+let _qbankExtracted = [];
+const _QBANK_BLOCKING = ['no_answer', 'low_confidence', 'few_options', 'parse_error'];
+
+function _qbankBlocked(q){ return (q.flags || []).some(f => _QBANK_BLOCKING.includes(f)); }
+
+function qbankPdfPick(){ document.getElementById('qbank-pdf-file')?.click(); }
+
+async function qbankPdfChosen(){
+  const f = this.files && this.files[0];
+  if(!f) return;
+  this.value = '';                                  // allow re-picking the same file
+  const fd = new FormData();
+  fd.append('file', f);
+  document.getElementById('qbank-extract-overlay').style.display = 'flex';
+  document.getElementById('qbank-extract-summary').textContent = '';
+  document.getElementById('qbank-extract-confirm').disabled = true;
+  document.getElementById('qbank-extract-body').innerHTML =
+    '<p style="color:var(--text-muted)">Reading your document… on-device, nothing leaves your server.</p>';
+  let res;
+  try{
+    res = await authFetch('/api/v1/admin/question-bank/extract', { method: 'POST', body: fd });
+  }catch(_){ res = null; }
+  if(!res || !res.ok){
+    let msg = 'Could not read this file.';
+    if(res){ try{ msg = (await res.json()).detail || msg; }catch(_){ } }
+    document.getElementById('qbank-extract-body').innerHTML =
+      `<p style="color:var(--red)">${_escHtml(msg)}</p>`;
+    return;
+  }
+  const data = await res.json();
+  _qbankExtracted = data.questions || [];
+  _qbankRenderTable(data);
+}
+
+function _qbankRenderTable(data){
+  const body = document.getElementById('qbank-extract-body');
+  document.getElementById('qbank-extract-summary').textContent =
+    `${data.found} found — ${data.ready} ready, ${data.found - data.ready} need attention`;
+  if(!_qbankExtracted.length){
+    body.innerHTML = '<p style="color:var(--text-muted)">No questions detected — check the document format.</p>';
+    return;
+  }
+  body.innerHTML = _qbankExtracted.map((q, i) => _qbankRowHtml(q, i)).join('');
+  _qbankRefreshConfirm();
+}
+
+function _qbankRowHtml(q, i){
+  const blocked = _qbankBlocked(q);
+  const flagTxt = (q.flags || []).join(', ');
+  const img = q.image_url
+    ? `<img src="${escAttr(q.image_url)}" alt="" style="max-width:160px;max-height:90px;border:1px solid var(--border);border-radius:4px;margin:4px 0">`
+    : '';
+  const opts = Object.entries(q.options || {}).map(([k, v]) =>
+    `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+       <b style="width:16px">${_escHtml(k)}.</b>
+       <input data-input-action="_qbankEditOpt" data-i="${i}" data-opt="${escAttr(k)}"
+              value="${escAttr(String(v))}"
+              style="flex:1;background:var(--surface-2);border:1px solid var(--border-subtle);
+                     border-radius:4px;padding:4px 6px;color:var(--text);font-size:12px"></div>`).join('');
+  return `<div id="qbank-row-${i}" data-qbank-row="${i}"
+       style="display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--border);
+              ${blocked ? 'background:rgba(245,158,11,.08)' : ''}">
+      <input type="checkbox" data-change-action="_qbankPickToggle" data-i="${i}"
+             ${blocked ? 'disabled' : 'checked'}
+             class="qbank-pick" style="margin-top:6px;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        ${img}
+        <textarea data-input-action="_qbankEditStem" data-i="${i}" rows="2"
+                  style="width:100%;background:var(--surface-2);border:1px solid var(--border-subtle);
+                         border-radius:4px;padding:6px;color:var(--text);font-size:13px;resize:vertical;
+                         box-sizing:border-box">${_escHtml(q.question)}</textarea>
+        <div style="margin-top:4px">${opts}</div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--text-muted)">Correct:</span>
+          <input data-input-action="_qbankEditCorrect" data-i="${i}" value="${escAttr(q.correct || '')}"
+                 placeholder="e.g. C"
+                 style="width:80px;background:var(--surface-2);border:1px solid var(--border-subtle);
+                        border-radius:4px;padding:4px 6px;color:var(--emerald);font-size:12px">
+          <span style="font-size:10px;color:var(--text-muted)">${_escHtml(q.type)}</span>
+          <span id="qbank-flags-${i}" style="font-size:10px;color:var(--amber,#fbbf24)">${_escHtml(flagTxt)}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Mirror the server's _recompute_blocking so fixed rows unlock live.
+function _qbankRecheck(i){
+  const q = _qbankExtracted[i];
+  const flags = [];
+  const opts = q.options || {};
+  if(!String(q.correct || '').trim()) flags.push('no_answer');
+  if(['mcq_single', 'mcq_multi'].includes(q.type) && Object.keys(opts).length < 2) flags.push('few_options');
+  if(!String(q.question || '').trim() && !q.image_url) flags.push('low_confidence');
+  // preserve non-blocking informational flags (has_image / math_review)
+  (q.flags || []).forEach(f => { if(!_QBANK_BLOCKING.includes(f) && !flags.includes(f)) flags.push(f); });
+  q.flags = flags;
+  const blocked = _qbankBlocked(q);
+  const row = document.getElementById(`qbank-row-${i}`);
+  const pick = row ? row.querySelector('.qbank-pick') : null;
+  const flagEl = document.getElementById(`qbank-flags-${i}`);
+  if(row) row.style.background = blocked ? 'rgba(245,158,11,.08)' : '';
+  if(flagEl) flagEl.textContent = (q.flags || []).join(', ');
+  if(pick){ pick.disabled = blocked; if(blocked) pick.checked = false; }
+  _qbankRefreshConfirm();
+}
+
+function _qbankEditStem(){ const i = +this.dataset.i; _qbankExtracted[i].question = this.value; _qbankRecheck(i); }
+function _qbankEditCorrect(){ const i = +this.dataset.i; _qbankExtracted[i].correct = this.value.trim(); _qbankRecheck(i); }
+function _qbankEditOpt(){
+  const i = +this.dataset.i;
+  _qbankExtracted[i].options = _qbankExtracted[i].options || {};
+  _qbankExtracted[i].options[this.dataset.opt] = this.value;
+}
+function _qbankPickToggle(){ _qbankRefreshConfirm(); }
+
+function _qbankRefreshConfirm(){
+  const picked = [...document.querySelectorAll('.qbank-pick')].filter(c => c.checked && !c.disabled);
+  document.getElementById('qbank-extract-confirm').disabled = picked.length === 0;
+}
+
+async function qbankExtractConfirm(){
+  const rows = [...document.querySelectorAll('.qbank-pick')];
+  const picked = rows.filter(c => c.checked && !c.disabled).map(c => _qbankExtracted[+c.dataset.i]);
+  if(!picked.length) return;
+  const btn = document.getElementById('qbank-extract-confirm');
+  btn.disabled = true;
+  let res;
+  try{
+    res = await authFetch('/api/v1/admin/question-bank/extract/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questions: picked }),
+    });
+  }catch(_){ res = null; }
+  const data = res ? await res.json().catch(() => ({})) : {};
+  if(!res || !res.ok){
+    alert((data && data.detail) || 'Import failed.');
+    btn.disabled = false;
+    return;
+  }
+  qbankExtractClose();
+  if(typeof loadBank === 'function') loadBank();
+  const status = document.getElementById('bank-import-status');
+  if(status) status.textContent = `Imported ${data.imported} question(s) from your document.`;
+}
+
+function qbankExtractClose(){
+  const ov = document.getElementById('qbank-extract-overlay');
+  if(ov) ov.style.display = 'none';
+  _qbankExtracted = [];
 }
 
 // Quote-aware CSV parser — naive split-on-comma corrupts any question
@@ -7653,6 +7904,16 @@ function _setQRefAnswer(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return
 function _setQRubric(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].rubric=this.value; markQDirty(); }
 function _setQMaxScore(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].max_score=parseFloat(this.value)||1; markQDirty(); }
 function _setQOption(){ var i=parseInt(this.dataset.qidx); if(isNaN(i)||!this.dataset.okey)return; qData[i].options[this.dataset.okey]=this.value; markQDirty(); }
+// Numeric-range editor: rebuild "range:MIN:MAX" from both inputs. Reads the
+// sibling field straight from the DOM so a single keystroke doesn't need a
+// full re-render (which would steal focus mid-typing).
+function _setQRange(){
+  var i=parseInt(this.dataset.qidx); if(isNaN(i))return;
+  var lo=(document.getElementById('qmin-'+i)?.value||'').trim();
+  var hi=(document.getElementById('qmax-'+i)?.value||'').trim();
+  qData[i].correct = (lo!=='' || hi!=='') ? ('range:'+lo+':'+hi) : '';
+  markQDirty();
+}
 
 // ── Wrapper for onerror (this.style.display) ─────────────────────
 function _hideSelf(){ this.style.display='none'; }

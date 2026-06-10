@@ -62,6 +62,11 @@ loadtest/reports/
 Procta_Development_Report.pdf
 generate_report.py
 
+# Root-level PDFs are scratch / question-paper samples used while developing
+# the question-bank import — never ship them. Keep real fixtures in
+# tests/fixtures/ (subdirs are unaffected by this root-only rule).
+/*.pdf
+
 # Build outputs — generated during Docker build
 app/static/dashboard-react/
 app/static/student-react/

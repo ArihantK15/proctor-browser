@@ -51,8 +51,13 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
             rows = []
     out = []
     for q in rows:
+        # Preserve every valid type. A too-narrow allowlist here silently
+        # rewrites short_answer/numeric to mcq_single, which (a) breaks student
+        # delivery — a numeric/short-answer question reaches the renderer as an
+        # optionless MCQ the student can't answer — and (b) defeats the
+        # scoring filter that excludes short_answer from auto-grading.
         qtype = (q.get("question_type") or "mcq_single").strip().lower()
-        if qtype not in ("mcq_single", "mcq_multi", "true_false"):
+        if qtype not in ("mcq_single", "mcq_multi", "true_false", "short_answer", "numeric"):
             qtype = "mcq_single"
         # `options` lands as a dict on Supabase REST (PostgREST decodes
         # jsonb → object) but as a JSON-encoded string on the plain

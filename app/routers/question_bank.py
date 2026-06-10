@@ -1,14 +1,17 @@
 """Question bank CRUD and AI features router."""
 
+import asyncio
+import hashlib
 import json
 import logging
 import re
 import time
 _qbank_log = logging.getLogger("question_bank")
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
-from fastapi import Request, HTTPException, Body
+from fastapi import Request, HTTPException, Body, UploadFile, File
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, ConfigDict
 
@@ -17,8 +20,13 @@ from ..limiter import limiter
 from ..auth import require_admin
 from .. import cache as _cache
 from ..models import SessionStatus
+from ..constants import QUESTION_IMG_DIR
+from ..utils import _safe_path_component
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
 from ..repositories.sessions import assert_session_owned as _assert_session_owned
+from ..parsers.document import extract_document, ScannedPdfError, UnreadableDocError
+from ..parsers.question_parser import parse_questions, BLOCKING_FLAGS
+from ..parsers.region_render import render_region_png
 
 router = APIRouter(prefix="")
 
@@ -223,6 +231,241 @@ async def import_bank_questions(request: Request, body: ImportQuestionsIn = Body
         "imported": len(inserted),
         "inserted_ids": [r.get("id") for r in inserted if r.get("id")],
     }
+
+
+# ─── PDF/DOCX IMPORT (on-device extraction → review → bank) ────────────
+
+_MAX_UPLOAD = 20 * 1024 * 1024   # 20 MB
+
+
+async def _read_upload_capped(file: UploadFile) -> bytes:
+    """Read an upload with a hard memory cap. Reads at most _MAX_UPLOAD+1 bytes
+    so an oversized file is rejected with 413 WITHOUT buffering the whole thing
+    into a bytes object — a multi-GB POST can't balloon process memory before we
+    reject it."""
+    data = await file.read(_MAX_UPLOAD + 1)
+    if len(data) > _MAX_UPLOAD:
+        raise HTTPException(status_code=413, detail="File too large (max 20MB).")
+    return data
+
+
+def _extract_parse_render(data: bytes, name: str, tid: str) -> dict:
+    """CPU/IO-bound import pipeline (PDF/DOCX parse + region rasterization).
+
+    Pure of the request loop so it can run under asyncio.to_thread — pdfplumber
+    / pypdfium2 are synchronous and CPU-heavy, and a large paper would otherwise
+    block every other API request (incl. live exams) for the parse duration.
+    Raises ScannedPdfError / UnreadableDocError for the caller to translate."""
+    doc = extract_document(data, name)
+    questions = parse_questions(doc.text, lines=doc.lines)
+    for q in questions:
+        if q._region and doc.pdf_bytes is not None:
+            png = render_region_png(doc.pdf_bytes, q._region["page"], q._region["bbox"])
+            if png:
+                q.image_url = _store_region_png(tid, png)
+            else:
+                if "has_image" in q.flags:
+                    q.flags.remove("has_image")
+                if "math_review" not in q.flags:
+                    q.flags.append("math_review")
+    public = [q.to_public() for q in questions]
+    ready = sum(1 for q in public if not (set(q["flags"]) & BLOCKING_FLAGS))
+    return {"found": len(public), "ready": ready, "questions": public}
+
+
+def _store_region_png(tid: str, png: bytes) -> str:
+    """Persist a rasterized question region under the teacher's own image dir,
+    reusing the existing /api/v1/question-image/{tid}/{file} serve route."""
+    digest = hashlib.sha256(png, usedforsecurity=False).hexdigest()[:24]
+    safe_tid = _safe_path_component(str(tid))
+    tdir = Path(QUESTION_IMG_DIR) / safe_tid
+    tdir.mkdir(parents=True, exist_ok=True)
+    fpath = tdir / f"{digest}.png"
+    if not fpath.exists():
+        with open(fpath, "wb") as f:
+            f.write(png)
+    return f"/api/v1/question-image/{tid}/{digest}.png"
+
+
+def _recompute_blocking(item: dict) -> list:
+    """Server-side truth for blocking flags — never trusts client-sent flags."""
+    flags: list = []
+    qtype = str(item.get("type") or item.get("question_type") or "mcq_single").lower()
+    options = item.get("options") or {}
+    correct = str(item.get("correct") or "").strip()
+    has_image = bool(item.get("image_url"))
+    if not correct:
+        flags.append("no_answer")
+    if qtype in ("mcq_single", "mcq_multi") and len(options) < 2:
+        flags.append("few_options")
+    if not str(item.get("question") or "").strip() and not has_image:
+        flags.append("low_confidence")
+    return flags
+
+
+class ExtractConfirmIn(BaseModel):
+    model_config = ConfigDict(strict=False)
+    questions: list[dict]
+
+
+@router.post("/api/v1/admin/question-bank/extract")
+@limiter.limit("20/minute")
+async def extract_questions(request: Request, file: UploadFile = File(...)):
+    """Upload a text PDF or DOCX → on-device extraction → review PREVIEW.
+
+    Nothing is persisted here; the teacher reviews and confirms via
+    /extract/confirm. Question content never leaves the server."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    name = (file.filename or "").lower()
+    if not (name.endswith(".pdf") or name.endswith(".docx")):
+        raise HTTPException(status_code=415,
+            detail="Only PDF and Word (.docx) files are supported.")
+    data = await _read_upload_capped(file)
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    # Heavy parse/raster runs off the event loop so it can't stall live exams.
+    try:
+        return await asyncio.to_thread(_extract_parse_render, data, name, tid)
+    except ScannedPdfError:
+        raise HTTPException(status_code=422,
+            detail="This looks like a scanned PDF — text extraction isn't supported yet.")
+    except UnreadableDocError as e:
+        raise HTTPException(status_code=422, detail=str(e) or "Couldn't open this file.")
+
+
+@router.post("/api/v1/admin/question-bank/extract/confirm")
+@limiter.limit("20/minute")
+async def confirm_extracted(request: Request, body: ExtractConfirmIn = Body(...)):
+    """Persist reviewed questions into the bank. Re-validates blocking flags
+    server-side (defense in depth — never trusts the client's 'this is clean')."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    items = body.questions or []
+    if not items:
+        raise HTTPException(status_code=400, detail="No questions to import.")
+    if len(items) > 2000:
+        raise HTTPException(status_code=413,
+            detail=f"Too many questions ({len(items)}). Max 2000 — split the file.")
+    # Egress guard: only the CALLER's own locally-served image paths may be
+    # persisted. Our extraction only ever emits this exact prefix; anything
+    # else is client tampering — either an external beacon that would fire in
+    # the student's browser, or a cross-teacher path that the serve route would
+    # 401 (leaving a permanently-broken image baked into the saved exam).
+    img_prefix = f"/api/v1/question-image/{tid}/"
+    for idx, item in enumerate(items):
+        img = str(item.get("image_url") or "")
+        if img and not img.startswith(img_prefix):
+            raise HTTPException(status_code=400,
+                detail=f"Question {idx + 1} has an invalid image reference.")
+        blocking = set(_recompute_blocking(item)) & BLOCKING_FLAGS
+        if blocking:
+            raise HTTPException(status_code=400,
+                detail=f"Question {idx + 1} still needs attention "
+                       f"({', '.join(sorted(blocking))}). Resolve all flagged "
+                       f"questions before importing.")
+    rows = []
+    for item in items:
+        options = item.get("options") or {}
+        raw_tags = item.get("tags", [])
+        if isinstance(raw_tags, list):
+            tags = [str(t).strip() for t in raw_tags if t is not None and str(t).strip()]
+        else:
+            tags = [t.strip() for t in str(raw_tags).split(",") if t.strip()]
+        rows.append({
+            "teacher_id": tid,
+            "question": str(item.get("question", "") or ""),
+            # Accept either key: the extract preview emits `type` (to_public),
+            # but other bank APIs use `question_type` — honour whichever the
+            # client sends so a numeric/short_answer item isn't silently stored
+            # as an MCQ.
+            "question_type": str(item.get("type") or item.get("question_type") or "mcq_single"),
+            "options": json.dumps(options),
+            "correct": str(item.get("correct", "")),
+            "image_url": str(item.get("image_url", "") or ""),
+            "tags": tags,
+        })
+    try:
+        result = await _atable("question_bank").insert(rows).execute()
+    except Exception as e:
+        _qbank_log.error("[bank.confirm] insert failed tid=%s rows=%d: %s",
+                         tid, len(rows), e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to import questions.")
+    inserted = result.data or []
+    return {"imported": len(inserted),
+            "inserted_ids": [r.get("id") for r in inserted if r.get("id")]}
+
+
+def _clean_source_text(text: str) -> str:
+    """Light, safe normalisation of extracted notes before sending to the LLM.
+
+    Removes standalone ligature/bullet artifacts that some PDFs emit (e.g. an
+    arrow/bullet glyph mis-decoded to a lone "fi"/"fl"/"ff" line) and collapses
+    runaway whitespace for a tighter prompt. Deliberately conservative: it never
+    touches inline tokens (a lone "n" could be a real code variable), so it can't
+    corrupt code snippets in the notes."""
+    text = re.sub(r"(?im)^[ \t]*(fi|fl|ff)[ \t]*$", "", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+@router.post("/api/v1/admin/question-bank/generate-from-file")
+@limiter.limit("10/minute")
+async def generate_questions_from_file(
+    request: Request,
+    file: UploadFile = File(...),
+    count: int = 10,
+    difficulty: str = "mixed",
+    question_type: str = "mcq_single",
+    topic: str = "",
+):
+    """Upload notes (PDF/DOCX/PPTX) → extract text → LLM-generate a PREVIEW.
+
+    The extracted text is sent to the configured AI provider (same path as
+    /generate). Nothing is persisted; the teacher reviews and adds to the bank
+    through the existing generate-preview flow."""
+    teacher = await require_admin(request)
+    _ = str(teacher["id"])
+    from ..llm import is_configured, generate_questions
+    if not is_configured():
+        raise HTTPException(status_code=503,
+            detail="AI features unavailable. Set the AI provider key on the server.")
+    name = (file.filename or "").lower()
+    if not (name.endswith(".pdf") or name.endswith(".docx") or name.endswith(".pptx")):
+        raise HTTPException(status_code=415,
+            detail="Only PDF, Word (.docx) and PowerPoint (.pptx) files are supported.")
+    data = await _read_upload_capped(file)
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    try:
+        doc = await asyncio.to_thread(extract_document, data, name)
+    except ScannedPdfError:
+        raise HTTPException(status_code=422,
+            detail="This looks like a scanned PDF — text extraction isn't supported yet.")
+    except UnreadableDocError as e:
+        raise HTTPException(status_code=422, detail=str(e) or "Couldn't open this file.")
+
+    source_text = _clean_source_text(doc.text or "")
+    if len(source_text) < 40:
+        raise HTTPException(status_code=422,
+            detail="Couldn't find enough text in this file to generate questions.")
+    truncated = len(source_text) > 20000
+    source_text = source_text[:20000]
+
+    try:
+        questions = await generate_questions(
+            topic=topic.strip(),
+            count=count,
+            difficulty=difficulty.strip().lower(),
+            question_type=question_type.strip(),
+            source_text=source_text,
+        )
+    except Exception as e:
+        _qbank_log.error("[gen-from-file] generation failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail="AI provider error. Try again.")
+    return {"questions": questions or [], "count": len(questions or []),
+            "truncated": truncated}
 
 
 @router.get("/api/v1/admin/question-bank/export")
@@ -437,11 +680,15 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
             q_text = (bq.get("question") or "").strip()
             correct = (bq.get("correct") or "").strip()
             opts = bq.get("options") or {}
-            if not q_text or not correct or not opts:
+            # Numeric questions legitimately carry no options (their tolerance
+            # band lives in `correct` as "range:MIN:MAX") — don't reject them.
+            bq_type = str(bq.get("question_type") or "mcq_single").lower()
+            needs_opts = bq_type != "numeric"
+            if not q_text or not correct or (needs_opts and not opts):
                 bad.append({"id": bq.get("id"), "reason":
                     f"missing fields: question={'OK' if q_text else 'MISSING'}, "
                     f"correct={'OK' if correct else 'MISSING'}, "
-                    f"options={'OK' if opts else 'MISSING'}"})
+                    f"options={'OK' if (opts or not needs_opts) else 'MISSING'}"})
                 continue
             # `questions.options` is TEXT on the legacy schema (per 9ce75f4)
             # so asyncpg needs an explicit json.dumps. opts here comes
@@ -531,23 +778,32 @@ async def get_admin_questions(request: Request):
 async def get_admin_answers(session_id: str, request: Request):
     """Return student answers merged with correct answers for the detail modal."""
     teacher = await require_admin(request)
-    tid = teacher["id"]
-
-    await _assert_session_owned(session_id, tid)
+    # Org-admin roll-up: resolve the session through the scope spine (404s
+    # cross-tenant) and key reads on the session OWNER's tid, not the caller's,
+    # so an admin viewing a co-teacher's session sees the answers instead of an
+    # empty list. Matches the screenshot/scorecard/results roll-up.
+    from ..auth.scope import resolve_scope, assert_session_accessible
+    scope = await resolve_scope(teacher, request)
+    sess = await assert_session_accessible(session_id, scope)
+    tid = str(sess.get("teacher_id") or "")
+    # Ownerless/orphan session → no derivable owner. NEVER call _load_questions("")
+    # or query answers with an empty teacher_id: load_questions treats a falsy
+    # teacher_id as "no filter" and would return EVERY teacher's questions across
+    # all orgs (cross-tenant leak). Return an empty review instead.
+    if not tid:
+        return {"answers": [], "total": 0, "correct_count": 0}
 
     questions = await _load_questions(tid)
     ans_result = await _atable("answers").select("question_id,answer")\
         .eq("session_key", session_id)\
-        .eq("teacher_id", str(tid))\
+        .eq("teacher_id", tid)\
         .execute()
     ans_map = {str(r["question_id"]): str(r["answer"]) for r in (ans_result.data or [])}
 
-    def _answers_match(student_ans: str, correct_ans: str) -> bool:
-        def _normalise_answer_set(ans: str) -> set:
-            if ans is None:
-                return set()
-            return {s.strip().upper() for s in str(ans).split(",") if s.strip()}
-        return _normalise_answer_set(student_ans) == _normalise_answer_set(correct_ans)
+    # Delegate to the authoritative grader so the admin "is_correct" display
+    # matches the actual score — including numeric-range ("range:MIN:MAX")
+    # questions, which a local set-equality copy would always mark wrong.
+    from ..services.scoring import answers_match as _answers_match
 
     answer_review = []
     for q in questions:
@@ -579,7 +835,7 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
     if not isinstance(questions, list) or len(questions) == 0:
         raise HTTPException(status_code=400, detail="'questions' must be a non-empty list")
 
-    ALLOWED_TYPES = {"mcq_single", "mcq_multi", "true_false", "short_answer"}
+    ALLOWED_TYPES = {"mcq_single", "mcq_multi", "true_false", "short_answer", "numeric"}
     required_fields = {"id", "question", "options", "correct"}
     normalised: list[dict] = []
     for i, q in enumerate(questions):
@@ -627,6 +883,33 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
                 "reference_answer": ref,
                 "rubric":           str(q.get("rubric") or ""),
                 "max_score":        max_score,
+            })
+            continue
+
+        if qtype == "numeric":
+            # Numeric/integer questions carry no options; the tolerance band is
+            # encoded in `correct` as "range:MIN:MAX". Students never see it.
+            correct_raw = str(q.get("correct") or "").strip()
+            parts = correct_raw.split(":")
+            if len(parts) != 3 or parts[0].lower() != "range":
+                raise HTTPException(status_code=400,
+                    detail=f"Question {i+1}: numeric question needs a min and max value")
+            try:
+                lo = float(parts[1])
+                hi = float(parts[2])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400,
+                    detail=f"Question {i+1}: numeric min/max must be numbers")
+            lo_s, hi_s = parts[1].strip(), parts[2].strip()
+            if lo > hi:                    # tolerate bounds entered in reverse
+                lo_s, hi_s = hi_s, lo_s
+            normalised.append({
+                "question_id":   q["id"],
+                "question":      q["question"],
+                "options":       "{}",
+                "correct":       f"range:{lo_s}:{hi_s}",
+                "question_type": "numeric",
+                "image_url":     str(q.get("image_url") or "") or None,
             })
             continue
 

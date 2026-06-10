@@ -430,6 +430,22 @@ class TestCreateSubscription:
                                json={"plan_id": "growth"}, headers=admin_headers())
         assert resp.status_code == 200
 
+    def test_blocks_switch_while_active(self, client):
+        # An org with an already-ENTITLING subscription cannot create a second
+        # one (it would orphan the live sub). Must 409 and never reach Razorpay.
+        data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1", "status": "active"}],
+                    "organizations": []}
+        with _admin_patch(), \
+             patch("app.routers.billing.billing_create_subscription",
+                   return_value=self.MOCK_RESULT) as mk, \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/create-subscription",
+                               json={"plan_id": "pro"}, headers=admin_headers())
+        assert resp.status_code == 409
+        mk.assert_not_called()   # no Razorpay subscription created
+
     def test_value_error_400(self, client):
         with _admin_patch(), \
              patch("app.routers.billing.billing_create_subscription",
@@ -483,104 +499,6 @@ class TestBillingServiceConfiguration:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  Razorpay Standard Checkout billing flow
-# ═══════════════════════════════════════════════════════════════════
-class TestBillingCheckout:
-    def test_create_order_non_admin_403(self, client):
-        with _admin_patch(NON_ADMIN):
-            resp = client.post("/api/v1/billing/checkout/order",
-                               json={"plan_id": "growth"}, headers=admin_headers())
-        assert resp.status_code == 403
-
-    def test_create_order_invalid_plan_400(self, client):
-        with _admin_patch():
-            resp = client.post("/api/v1/billing/checkout/order",
-                               json={"plan_id": "enterprise"}, headers=admin_headers())
-        assert resp.status_code == 400
-
-    def test_create_order_missing_credentials_503(self, client, monkeypatch):
-        monkeypatch.delenv("RAZORPAY_KEY_ID", raising=False)
-        monkeypatch.delenv("RAZORPAY_KEY_SECRET", raising=False)
-        with _admin_patch(), patch("app.routers.billing._get_client", return_value=None):
-            resp = client.post("/api/v1/billing/checkout/order",
-                               json={"plan_id": "growth"}, headers=admin_headers())
-        assert resp.status_code == 503
-
-    def test_create_order_returns_checkout_payload(self, client, monkeypatch):
-        monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_key")
-        fake_client = MagicMock()
-        fake_client.order.create.return_value = {
-            "id": "order_123",
-            "amount": 1200000,
-            "currency": "INR",
-        }
-        with _admin_patch(), patch("app.routers.billing._get_client", return_value=fake_client):
-            resp = client.post("/api/v1/billing/checkout/order",
-                               json={"plan_id": "growth"}, headers=admin_headers())
-        assert resp.status_code == 200, resp.text
-        d = resp.json()
-        assert d["key_id"] == "rzp_test_key"
-        assert d["order_id"] == "order_123"
-        assert d["amount"] == 1200000
-        fake_client.order.create.assert_called_once()
-
-    def test_verify_invalid_signature_400(self, client, monkeypatch):
-        monkeypatch.setenv("RAZORPAY_KEY_SECRET", "test_secret")
-        with _admin_patch():
-            resp = client.post("/api/v1/billing/checkout/verify", json={
-                "plan_id": "growth",
-                "razorpay_order_id": "order_123",
-                "razorpay_payment_id": "pay_123",
-                "razorpay_signature": "bad",
-            }, headers=admin_headers())
-        assert resp.status_code == 400
-
-    def test_verify_valid_signature_activates_plan(self, client, monkeypatch):
-        secret = "test_secret"
-        order_id = "order_123"
-        payment_id = "pay_123"
-        signature = hmac.new(
-            secret.encode(),
-            f"{order_id}|{payment_id}".encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        monkeypatch.setenv("RAZORPAY_KEY_SECRET", secret)
-        # Server now re-fetches the order from Razorpay after signature
-        # passes (so the plan_id can't be forged from the request body).
-        # Mock the client so the test asserts the new server-pinned path.
-        fake_client = MagicMock()
-        fake_client.order.fetch.return_value = {
-            "id": order_id,
-            "amount": 12000 * 100,  # ₹12,000 = growth plan
-            "status": "paid",
-            "notes": {"org_id": "org-1", "plan_id": "growth"},
-        }
-        data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1"}], "organizations": []}
-        with _admin_patch(), \
-             patch("app.routers.billing._get_client", return_value=fake_client), \
-             contextlib.ExitStack() as es:
-            for p in _apply_atable_patches(data_map):
-                es.enter_context(p)
-            resp = client.post("/api/v1/billing/checkout/verify", json={
-                # plan_id in body is now IGNORED — server reads it from
-                # order.notes. Pass a wrong value to confirm activation
-                # still uses the server-pinned tier.
-                "plan_id": "pro",
-                "razorpay_order_id": order_id,
-                "razorpay_payment_id": payment_id,
-                "razorpay_signature": signature,
-            }, headers=admin_headers())
-        assert resp.status_code == 200, resp.text
-        d = resp.json()
-        assert d["ok"] is True
-        # Despite the body claiming `pro`, server activates `growth`
-        # because that's what notes.plan_id said.
-        assert d["plan_id"] == "growth"
-        assert d["payment_id"] == payment_id
-        fake_client.order.fetch.assert_called_once_with(order_id)
-
-
-# ═══════════════════════════════════════════════════════════════════
 #  POST /api/v1/webhooks/razorpay
 # ═══════════════════════════════════════════════════════════════════
 class TestRazorpayWebhook:
@@ -622,12 +540,27 @@ class TestRazorpayWebhook:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ignored"
 
-    def test_unknown_subscription_ignored(self, client):
+    def test_unknown_subscription_grant_is_retryable(self, client):
+        # A GRANT (activated/charged/…) for a sub not yet in our DB is almost
+        # certainly a webhook outrunning create_subscription's DB write. It must
+        # return a retryable 500 (NOT a swallowed 200) so the redelivery lands
+        # the activation once the row exists — otherwise the org pays but never
+        # gets entitled.
         with patch("app.routers.billing.verify_webhook", return_value=True), \
              contextlib.ExitStack() as es:
             for p in _apply_atable_patches({"subscriptions": []}):
                 es.enter_context(p)
             resp = self._post(client, "subscription.activated")
+        assert resp.status_code == 500
+
+    def test_unknown_subscription_non_grant_ignored(self, client):
+        # A non-granting event (cancel/pause/…) for a sub we never tracked is
+        # safe to drop with 200/ignored — there's nothing to retry into.
+        with patch("app.routers.billing.verify_webhook", return_value=True), \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches({"subscriptions": []}):
+                es.enter_context(p)
+            resp = self._post(client, "subscription.cancelled")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ignored"
 

@@ -1494,6 +1494,7 @@ html,body{overflow-x:hidden;max-width:100vw}
   background:var(--accent);box-shadow:0 0 6px var(--accent-glow);opacity:0.85}
 
 .plan-cta{width:100%;justify-content:center;margin-top:auto}
+.plan-cta:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
 
 .plan-result-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
 #upgrade-result{font-size:13px;flex:1;color:var(--text-muted)}

@@ -242,6 +242,28 @@ websockets==15.0.1
     #   uvicorn
 wrapt==2.1.2
     # via deprecated
+# Question-bank import deps (versions from `pip-compile requirements.txt`).
+# Added surgically to avoid churning the rest of the resolved graph in this
+# deploy; run a full `pip-compile` later to re-sort and reconcile the
+# pre-existing supabase pin drift (lock 2.29 vs requirements.txt >=2.30).
+lxml==6.1.1
+    # via
+    #   python-docx
+    #   python-pptx
+pdfminer-six==20251230
+    # via pdfplumber
+pdfplumber==0.11.9
+    # via -r requirements.txt
+pypdfium2==5.9.0
+    # via
+    #   -r requirements.txt
+    #   pdfplumber
+python-docx==1.2.0
+    # via -r requirements.txt
+python-pptx==1.0.2
+    # via -r requirements.txt
+xlsxwriter==3.2.9
+    # via python-pptx
 yarl==1.23.0
     # via
     #   postgrest

@@ -42,10 +42,11 @@ baseline, and their **filename-sort order is not dependency-correct** (e.g.
 depends on). So `run_postgres_migrations.py` against an *empty* database fails —
 it only works because prod already has the baseline + history recorded.
 
-**To close this (needs prod access):** capture the live schema with
-`pg_dump --schema-only --no-owner --no-privileges $DATABASE_URL >
-migrations/baseline/000_baseline.sql`, commit it, and either squash the existing
-phase files into the baseline or record them as already-applied. Until then,
-`integration_tests/schema.sql` is a focused, hand-built fixture (NOT the prod
-schema) that lets the integration suite exercise real Postgres — see
-`docs/superpowers/specs/2026-06-10-deploy-safety-and-db-tests.md`.
+**The wiring to close this is built and waiting for the dump** — see
+`migrations/baseline/README.md`. Capture the schema + the already-applied set
+from prod, commit them, and the `schema-from-scratch` CI gate self-activates and
+proves the DB rebuilds from zero on every push. `scripts/bootstrap_db_from_baseline.sh`
+is the same path for disaster recovery. Until the dump lands, that gate is a
+no-op (green) and `integration_tests/schema.sql` is a focused, hand-built fixture
+(NOT the prod schema) that lets the integration suite exercise real Postgres —
+see `docs/superpowers/specs/2026-06-10-deploy-safety-and-db-tests.md`.

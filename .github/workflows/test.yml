@@ -377,3 +377,55 @@ jobs:
         # `python -m pytest` (not the bare console script) so CWD is on sys.path
         # and `import app` resolves; conftest also inserts the repo root.
         run: python -m pytest integration_tests/ -p no:cacheprovider -q
+
+  # Migrations-from-scratch gate. Proves the database can be rebuilt from zero:
+  # load the committed prod baseline, mark pre-baseline migrations as applied,
+  # then apply any migrations added since. Catches a new migration that doesn't
+  # cleanly apply on top of the real schema. NO-OP (green) until the baseline is
+  # captured into migrations/baseline/000_baseline.sql — then it self-activates.
+  schema-from-scratch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: procta
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:test@localhost:5432/procta
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check for committed baseline
+        id: gate
+        run: |
+          if [ -f migrations/baseline/000_baseline.sql ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No migrations/baseline/000_baseline.sql yet — schema-from-scratch gate is a no-op. See migrations/baseline/README.md."
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install psql client + asyncpg
+        if: steps.gate.outputs.present == 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          python -m pip install --upgrade pip
+          pip install asyncpg
+
+      - name: Build schema from scratch (baseline + migrations)
+        if: steps.gate.outputs.present == 'true'
+        run: bash scripts/bootstrap_db_from_baseline.sh

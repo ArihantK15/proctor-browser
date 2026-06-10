@@ -56,6 +56,32 @@ jobs:
           set -euo pipefail
           cd /root/proctor-browser
 
+          # ── Rollback capture ──────────────────────────────────────────
+          # Record the image each service is running on RIGHT NOW (ref + id)
+          # so a failed healthcheck can revert to the last-known-good image
+          # instead of leaving prod on a broken build. Name-agnostic: resolves
+          # the running container per compose service (worker/autosave have no
+          # fixed container_name). All best-effort — capture must never fail
+          # the deploy, so every step is guarded.
+          capture_img() {            # echoes "ref|id" for service $1, or nothing
+            local cid ref id
+            cid=$(docker compose --compatibility ps -q "$1" 2>/dev/null | head -1 || true)
+            [ -z "$cid" ] && return 0
+            ref=$(docker inspect --format='{{.Config.Image}}' "$cid" 2>/dev/null || true)
+            id=$(docker inspect  --format='{{.Image}}'        "$cid" 2>/dev/null || true)
+            [ -n "$ref" ] && [ -n "$id" ] && echo "${ref}|${id}"
+            return 0
+          }
+          rollback_one() {           # retag old image id back onto its ref ($1="ref|id")
+            local ref="${1%%|*}" id="${1##*|}"
+            { [ -z "$ref" ] || [ -z "$id" ] || [ "$ref" = "$1" ]; } && return 0
+            docker tag "$id" "$ref" 2>/dev/null || true
+          }
+          API_PREV=$(capture_img api || true)
+          WORKER_PREV=$(capture_img worker || true)
+          AUTOSAVE_PREV=$(capture_img autosave-worker || true)
+          echo "==> rollback points: api='${API_PREV:-none}' worker='${WORKER_PREV:-none}' autosave='${AUTOSAVE_PREV:-none}'"
+
           echo "==> git fetch + reset to ${GIT_SHA}"
           git fetch origin
           git reset --hard origin/main
@@ -85,11 +111,37 @@ jobs:
             sleep 5
           done
 
-          echo "ERROR: API did not become healthy within 180s"
-          docker compose --compatibility logs --tail=80 api
+          # ── Automated rollback ────────────────────────────────────────
+          # New build never went healthy. Revert api+workers to their previous
+          # images and bring them back up so prod stays on the last-known-good
+          # release. Migrations are expand-contract (additive only — see
+          # migrations/MIGRATIONS.md), so rolling code back over an already-
+          # applied migration is safe. We still exit non-zero: the *release*
+          # failed and must be visible, even though prod was rescued.
+          echo "ERROR: API did not become healthy within 180s — rolling back"
+          docker compose --compatibility logs --tail=80 api || true
+          if [ -n "${API_PREV}" ]; then
+            rollback_one "${API_PREV}"
+            rollback_one "${WORKER_PREV}"
+            rollback_one "${AUTOSAVE_PREV}"
+            docker compose --compatibility up -d --no-deps api worker autosave-worker || true
+            echo "==> reverted to previous images; verifying healthcheck (max 120s)..."
+            for i in $(seq 1 24); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' proctor-api 2>/dev/null || echo unknown)
+              if [ "$STATUS" = "healthy" ]; then
+                echo "==> ROLLBACK OK: prod healthy on previous image after $((i * 5))s"
+                break
+              fi
+              sleep 5
+            done
+          else
+            echo "WARNING: no previous image captured (first deploy?) — cannot auto-rollback"
+          fi
           exit 1
 
       - name: Prune old images
-        if: always()
+        # Only on a clean deploy — never prune after a failed/rolled-back run,
+        # or we could delete the rollback image we just reverted onto.
+        if: success()
         continue-on-error: true
         run: docker image prune -f --filter "until=24h" 2>/dev/null || true

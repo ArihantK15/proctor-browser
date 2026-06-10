@@ -98,6 +98,11 @@ const plans = [
   },
 ]
 
+// The three self-serve tiers render in the 3-up grid; Enterprise renders as a
+// full-width banner below so a 4th card doesn't orphan in the grid.
+const tierPlans = plans.filter(p => p.id !== 'enterprise')
+const enterprise = plans.find(p => p.id === 'enterprise')
+
 const faqs = [
   {
     q: 'Is there a free trial?',
@@ -160,7 +165,7 @@ export default function Pricing() {
       <section className="pb-16">
         <div className="mx-auto max-w-6xl px-6">
           <div className="grid gap-6 md:grid-cols-3 md:items-start">
-            {plans.map(p => (
+            {tierPlans.map(p => (
               <div
                 key={p.id}
                 className={`relative rounded-2xl border ${p.popular ? 'border-accent/40 bg-accent/[0.03]' : 'border-white/[0.08] bg-white/[0.02]'} p-8 flex flex-col`}
@@ -217,6 +222,38 @@ export default function Pricing() {
               </div>
             ))}
           </div>
+
+          {/* Enterprise — full-width banner so it doesn't orphan in the 3-up grid */}
+          {enterprise && (
+            <div className="mt-6 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-8 md:p-10">
+              <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_2fr] md:items-center">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">{enterprise.name}</h2>
+                  <p className="mt-1 text-sm text-slate-400">{enterprise.desc}</p>
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className="font-display text-4xl font-bold text-white">{enterprise.price}</span>
+                    <span className="text-sm text-slate-500">{enterprise.period}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">Up to {enterprise.students} students</p>
+                  <a
+                    href={enterprise.href}
+                    className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-6 py-3.5 text-sm font-semibold text-slate-300 no-underline transition-all hover:border-accent/30"
+                  >
+                    {enterprise.cta}
+                    <ArrowRight size={16} />
+                  </a>
+                </div>
+                <ul className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+                  {enterprise.features.map((f, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
+                      <Check size={16} className="mt-0.5 shrink-0 text-accent" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
 
           {/* Enterprise note */}
           <div className="mt-12 text-center">

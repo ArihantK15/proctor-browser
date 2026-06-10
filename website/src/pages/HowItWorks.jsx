@@ -9,7 +9,7 @@ const steps = [
   {
     icon: UserPlus,
     title: '1. Teacher sets up the exam',
-    body: 'Create the exam, set duration and access rules, add MCQ or short-answer questions, import students by CSV with auto-detection of CBSE, JEE, and NTA roll-number formats, assign groups, duplicate exams across batches, and send invite/reminder emails. Org admins can manage members, billing, security, and support without touching teacher-only exam tools.'
+    body: 'Create the exam and set duration and access rules. Add questions by importing an existing PDF or Word paper, generating them from your notes, or typing them in — MCQ, multi-select, true/false, numeric/integer with a tolerance range, and AI-graded short answer, all reusable from a question bank. Import students by CSV with auto-detection of CBSE, JEE, and NTA roll-number formats, assign groups, duplicate exams across batches, and send invite/reminder emails. Org admins can manage members, billing, security, and support without touching teacher-only exam tools.'
   },
   {
     icon: Monitor,

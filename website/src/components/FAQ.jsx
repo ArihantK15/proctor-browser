@@ -13,7 +13,15 @@ const faqs = [
   },
   {
     q: 'Can students cheat using their phone?',
-    a: 'Procta uses YOLOv8n object detection to identify phones, tablets, and other unauthorized devices in the camera frame. Any detected device triggers a real-time violation log entry.'
+    a: 'Procta uses YOLO26 object detection to identify phones, tablets, and other unauthorized devices in the camera frame. Any detected device triggers a real-time violation log entry.'
+  },
+  {
+    q: 'Do I have to re-type all my questions?',
+    a: 'No. Import existing question papers from PDF or Word — extraction runs on your own server and parses questions, options, and answer keys, even for JEE/NEET-style numbered papers. Math and diagrams are preserved as images. You can also generate fresh questions from a topic or from your notes (PDF, Word, or PowerPoint), and you review everything before it is saved.'
+  },
+  {
+    q: 'What question types are supported?',
+    a: 'Multiple choice (single and multi-answer), true/false, numeric and integer answers with a tolerance range (for JEE-style numerical-value questions), and short answer with AI-assisted grading and teacher confirmation.'
   },
   {
     q: 'Is Procta privacy-safe?',

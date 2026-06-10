@@ -138,7 +138,8 @@ export default function CompareHonorlock() {
               </MigrationStep>
               <MigrationStep n="4" title="Re-create your top exam template">
                 Most institutions run 3-10 recurring exam formats. Recreate your most-used one in Procta
-                as a smoke test. Question bank import is on the roadmap; paste in questions directly for now.
+                as a smoke test. Import your questions straight from a PDF or Word paper, generate them from
+                your notes, or paste them in — and reuse them from the question bank across exams.
               </MigrationStep>
               <MigrationStep n="5" title="Run a parallel proctored sitting">
                 Schedule the same exam on both platforms with 5-10 trusted students. Compare the

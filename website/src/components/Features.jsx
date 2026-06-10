@@ -2,7 +2,8 @@ import {
   Lock, MonitorOff, Save, Eye, ScanFace, Box, Volume2,
   BarChart3, FileText, Activity, Sliders, Download, Users,
   Smartphone, MessageSquare, GraduationCap, ReceiptIndianRupee,
-  BadgeCheck, ServerCog, UploadCloud, Layers3
+  BadgeCheck, ServerCog, UploadCloud, Layers3,
+  FileQuestion, FileInput, Sparkles, Calculator, ListChecks, Building2
 } from 'lucide-react'
 
 const groups = [
@@ -20,9 +21,19 @@ const groups = [
     items: [
       { icon: ScanFace, name: 'Face Detection', desc: 'MediaPipe-powered face presence monitoring with absence tracking' },
       { icon: Eye, name: 'Gaze Tracking', desc: 'Detects prolonged off-screen gaze patterns indicating external reference' },
-      { icon: Box, name: 'Object Detection', desc: 'YOLOv8n identifies phones, books, and unauthorized items in real-time' },
+      { icon: Box, name: 'Object Detection', desc: 'YOLO26 identifies phones, books, laptops, and unauthorized items in real-time — NMS-free and CPU-optimized for student laptops' },
       { icon: Volume2, name: 'Audio Analysis', desc: 'RMS-based voice detection flags conversations and dictation' },
       { icon: Smartphone, name: 'Phone Room Camera', desc: 'QR pairing turns a student phone into a second room-scan camera' },
+    ]
+  },
+  {
+    label: 'Question Authoring',
+    items: [
+      { icon: FileQuestion, name: 'Reusable Question Bank', desc: 'Build a tagged pool of questions once, reuse it across exams, import and export in bulk' },
+      { icon: FileInput, name: 'Import from PDF & Word', desc: 'Upload existing question papers — extraction runs on your own server and parses questions, options, and answer keys. Math and diagrams are preserved as images' },
+      { icon: Sparkles, name: 'AI Question Generation', desc: 'Generate questions from a topic, or straight from your notes (PDF, Word, PowerPoint). Every question is reviewed before it is saved — nothing auto-publishes' },
+      { icon: Calculator, name: 'Numeric & Integer Answers', desc: 'JEE-style numeric questions with a tolerance range, alongside MCQ, multi-select, true/false, and AI-graded short answer' },
+      { icon: ListChecks, name: 'AI Lint & Rubrics', desc: 'One-click question quality checks, auto-generated grading rubrics, and tag suggestions' },
     ]
   },
   {
@@ -50,6 +61,7 @@ const groups = [
       { icon: Layers3, name: 'LTI 1.3 + Classroom', desc: 'Canvas/Moodle launch support and Google Classroom sync paths' },
       { icon: ReceiptIndianRupee, name: 'Razorpay Billing', desc: 'INR plans, UPI Autopay subscription path, quotas, and overage logic' },
       { icon: BadgeCheck, name: 'Issues & Appeals', desc: 'Teacher issue reports and human-in-the-loop review for fairness' },
+      { icon: Building2, name: 'Organizations & Roles', desc: 'Many teachers under one institution, with admin oversight — a roll-up across every teacher’s exams, results, and evidence, and strict per-teacher isolation' },
       { icon: ServerCog, name: 'Scale Headroom', desc: '1,500 clean VU run, 3,500-student architecture target, 6,500 live-frame cache cap' },
     ]
   },

@@ -4,6 +4,9 @@ export default function Comparison() {
   const rows = [
     { feature: 'Behavioral Risk Score (0-100)', procta: true, others: false },
     { feature: 'Explainable AI Decisions', procta: true, others: false },
+    { feature: 'Import Questions from PDF / Word', procta: true, others: false },
+    { feature: 'AI Question Generation from Notes', procta: true, others: 'partial' },
+    { feature: 'Numeric / Integer Answers with Tolerance', procta: true, others: false },
     { feature: 'Offline-Resilient Exams', procta: true, others: false },
     { feature: 'No Video Recording Required', procta: true, others: false },
     { feature: 'Real-Time Object Detection', procta: true, others: 'partial' },

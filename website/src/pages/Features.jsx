@@ -19,12 +19,24 @@ const featureGroups = [
     ]
   },
   {
+    title: 'Question Authoring & Banks',
+    desc: 'Build exams fast — reuse a question bank, import existing papers, or generate questions from your own notes.',
+    features: [
+      'Reusable question bank: tag, search, import/export, and pull questions into any exam',
+      'Import questions from PDF and Word — extraction runs on your own server and parses questions, options, and answer keys, including JEE/NEET-style numbered papers',
+      'Math and diagrams are preserved as images, so equations never come out garbled',
+      'Generate questions from a topic, or straight from your notes (PDF, Word, or PowerPoint) — every question is reviewed before it is saved',
+      'Numeric and integer answers with a tolerance range for numerical-value questions, plus MCQ, multi-select, true/false, and AI-graded short answer',
+      'AI question lint, auto-generated rubrics, and tag suggestions to speed up authoring',
+    ]
+  },
+  {
     title: 'AI-Powered Proctoring',
     desc: 'Real-time detection that runs entirely on the student\'s device — no cloud latency, no privacy exposure.',
     features: [
       'Gaze tracking detects prolonged off-screen looks that indicate external references',
       'Face detection (uniface / RetinaFace ONNX) ensures the registered candidate stays present',
-      'Object detection (YOLOv8n) identifies phones, books, earphones, and other unauthorized items',
+      'Object detection (YOLO26, NMS-free and CPU-optimized) identifies phones, books, earphones, and other unauthorized items',
       'On-device speech-to-text keyword detection (Vosk en-IN + hi-IN) flags spoken cheat phrases like "the answer is" or per-exam custom keywords — raw audio never leaves the device',
       'Multi-voice detection via Silero VAD + MFCC clustering catches a second person helping in the room without storing any audio',
       'RMS audio anomaly detection covers sustained voice, conversation patterns, and dictation-style speech',

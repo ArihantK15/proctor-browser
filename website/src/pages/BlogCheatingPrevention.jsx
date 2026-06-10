@@ -67,7 +67,7 @@ export default function BlogCheatingPrevention() {
             <p>Opening browser tabs to Google, ChatGPT, or other AI tools to find answers during the exam. <strong className="text-white">Kiosk-mode lockdown browsers</strong> prevent alt-tabbing, opening new windows, or accessing other applications. The Procta browser enforces full-screen mode and detects any window-switch or screenshot attempt within 100ms.</p>
 
             <h3 className="text-white font-display text-xl font-bold mt-8 mb-3">3. Hidden Notes & Cheat Sheets</h3>
-            <p>Physical notes placed near or behind the monitor, written on hands or surfaces. <strong className="text-white">Gaze tracking</strong> technology monitors the student's eye direction and flags prolonged off-screen looks. Combined with object detection (YOLOv8n), the system can identify phones, books, and printed materials within the camera's field of view.</p>
+            <p>Physical notes placed near or behind the monitor, written on hands or surfaces. <strong className="text-white">Gaze tracking</strong> technology monitors the student's eye direction and flags prolonged off-screen looks. Combined with object detection (YOLO26), the system can identify phones, books, and printed materials within the camera's field of view.</p>
 
             <h3 className="text-white font-display text-xl font-bold mt-8 mb-3">4. Impersonation & Proxy Test-Takers</h3>
             <p>A more sophisticated method where someone else takes the exam in the student's place. Multi-step identity verification at exam start — including selfie capture, ID card upload, and teacher-side manual approval — prevents this. Continuous face detection ensures the registered candidate remains present throughout the exam.</p>

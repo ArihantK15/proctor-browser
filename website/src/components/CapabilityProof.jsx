@@ -37,7 +37,7 @@ const proofStats = [
     detail: 'env-tunable cap for camera thumbnails and pop-in review',
   },
   {
-    value: '628',
+    value: '890+',
     label: 'backend tests passing',
     detail: 'plus CI security scans and zero open CodeQL alerts',
   },

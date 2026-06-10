@@ -134,7 +134,8 @@ export default function CompareProctortrack() {
               </MigrationStep>
               <MigrationStep n="4" title="Re-create your top exam template">
                 Most institutions have 3-10 recurring exam formats. Recreate the most-used one in Procta.
-                Question bank import is on the roadmap; paste-in questions directly for now.
+                Import your questions from a PDF or Word paper, generate them from your notes, or paste
+                them in — then reuse them from the question bank across exams.
               </MigrationStep>
               <MigrationStep n="5" title="Run a parallel proctored sitting">
                 Schedule the same exam on both platforms with a small group of students. Compare the

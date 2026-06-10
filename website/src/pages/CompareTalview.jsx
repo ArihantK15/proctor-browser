@@ -132,8 +132,8 @@ export default function CompareTalview() {
               </MigrationStep>
               <MigrationStep n="4" title="Re-create your top exam template">
                 Most institutes run 3-10 recurring exam formats. Recreate your most-used one in Procta
-                as a smoke test. Question bank import is on the roadmap; for now paste-in questions
-                directly.
+                as a smoke test. Import your questions from a PDF or Word paper, generate them from your
+                notes, or paste them in — then reuse them from the question bank across exams.
               </MigrationStep>
               <MigrationStep n="5" title="Run a parallel proctored sitting">
                 Schedule the same exam on both platforms with 5 trusted students. Compare the flagged

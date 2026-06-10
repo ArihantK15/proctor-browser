@@ -146,8 +146,10 @@ export default function MigrateFromMettl() {
               </MigrationStep>
               <MigrationStep n="4" title="Re-create your most-used exam">
                 Most coaching institutes have 3-10 recurring exam templates. Re-create the top one
-                in Procta as a smoke-test. Question bank import is on the roadmap; for now the
-                fastest path is paste-in.
+                in Procta as a smoke-test. Import your existing question papers straight from PDF or
+                Word — extraction handles JEE/NEET-style numbered papers with answer keys, and preserves
+                math and diagrams as images — or generate fresh questions from your notes. Everything
+                lands in a reusable question bank.
               </MigrationStep>
               <MigrationStep n="5" title="Run a 5-student parallel proctored sitting">
                 Pick 5 students you trust. Schedule the same exam on Mettl and Procta on the

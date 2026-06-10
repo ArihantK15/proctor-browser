@@ -48,12 +48,15 @@ _HERE = pathlib.Path(__file__).parent
 _SCHEMA = _HERE / "schema.sql"
 _PHASE96 = _HERE.parent / "migrations" / "phase96_billing_enterprise.sql"
 
-# Truncate order doesn't matter with CASCADE, but list every table the suite
-# writes so state never leaks between tests.
-_TABLES = [
-    "billing_events", "answers", "violations", "exam_sessions",
-    "question_bank", "subscriptions", "teachers", "organizations",
-]
+# Every table the suite writes, truncated between tests so state never leaks.
+# Written as a single STATIC string literal (no runtime concatenation / no
+# variables) — the table set is hardcoded, never user input — so static
+# analysis sees a constant query, not a raw-SQL-injection risk.
+_TRUNCATE_SQL = (
+    "TRUNCATE billing_events, answers, violations, exam_sessions, "
+    "question_bank, subscriptions, teachers, organizations "
+    "RESTART IDENTITY CASCADE"
+)
 
 
 def _database_url() -> str:
@@ -99,7 +102,7 @@ async def _clean_db():
         return
     conn = await asyncpg.connect(_database_url(), statement_cache_size=0)
     try:
-        await conn.execute("TRUNCATE " + ", ".join(_TABLES) + " RESTART IDENTITY CASCADE")
+        await conn.execute(_TRUNCATE_SQL)  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
     finally:
         await conn.close()
     yield

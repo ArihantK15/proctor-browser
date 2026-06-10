@@ -374,4 +374,6 @@ jobs:
           pip install pytest pytest-asyncio
 
       - name: Integration tests (real Postgres)
-        run: pytest integration_tests/ -p no:cacheprovider -q
+        # `python -m pytest` (not the bare console script) so CWD is on sys.path
+        # and `import app` resolves; conftest also inserts the repo root.
+        run: python -m pytest integration_tests/ -p no:cacheprovider -q

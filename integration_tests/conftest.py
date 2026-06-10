@@ -15,6 +15,12 @@ leak in via collection order):
 Skips cleanly when DATABASE_URL is unset, so a plain `pytest` run is unaffected.
 """
 import os
+import sys
+
+# Make the repo root (containing app/) importable no matter how pytest is
+# launched: the `pytest` console script does NOT put CWD on sys.path the way
+# `python -m pytest` does, so `import app` would fail in CI without this.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import-time env so `app.constants` (and friends) load. Procta is Postgres-only
 # now (DATABASE_BACKEND=supabase hard-fails), so these are just satisfy-the-gate
@@ -23,7 +29,6 @@ os.environ.setdefault("DATABASE_BACKEND", "postgres")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-long!!")
 os.environ.setdefault("SUPABASE_URL", "https://fake.local")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role-key")
-os.environ.setdefault("TOTP_ENCRYPTION_KEY", "dGVzdC1mZXJuZXQta2V5LTIzLWNoYXJzLWxvbmchISE=")
 os.environ.setdefault("SCREENSHOTS_DIR", "/tmp/procta_it_shots")
 os.environ.setdefault("QUESTION_IMG_DIR", "/tmp/procta_it_qimg")
 os.environ.setdefault("LOG_DIR", "/tmp/procta_it_logs")

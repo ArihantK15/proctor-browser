@@ -613,7 +613,21 @@ async def assign_exam_groups(exam_id: str, request: Request, body: ExamGroupAssi
     group_ids = body.group_ids
     if not group_ids:
         raise HTTPException(status_code=400, detail="group_ids list is required")
-    rows = [{"exam_id": exam_id, "group_id": gid, "teacher_id": tid} for gid in group_ids]
+    clean_gids = [str(g).strip() for g in group_ids if str(g).strip()]
+    # Verify every group belongs to this teacher before assigning — mirrors
+    # the ownership check in add_group_members. Without it a teacher could
+    # bind another tenant's group_id to their exam; even though reads
+    # re-filter by teacher_id, the assignment row should never reference a
+    # group the caller doesn't own.
+    owned = (await _atable("student_groups")
+             .select("id").eq("teacher_id", tid)
+             .in_("id", clean_gids).execute()).data or []
+    owned_ids = {str(g["id"]) for g in owned}
+    invalid = [g for g in clean_gids if g not in owned_ids]
+    if invalid:
+        raise HTTPException(status_code=404,
+            detail=f"Group(s) not found: {', '.join(invalid[:5])}")
+    rows = [{"exam_id": exam_id, "group_id": gid, "teacher_id": tid} for gid in clean_gids]
     await _atable("exam_group_assignments").upsert(rows).execute()
     return {"assigned": len(rows)}
 

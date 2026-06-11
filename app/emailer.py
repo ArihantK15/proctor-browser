@@ -118,7 +118,7 @@ def verify_webhook(raw_body: bytes, headers) -> bool:
 
     secret = os.environ.get("RESEND_WEBHOOK_SECRET", "")
     if not secret:
-        _log.warning("RESEND_WEBHOOK_SECRET not configured — webhook verification disabled")
+        log.warning("RESEND_WEBHOOK_SECRET not configured — webhook verification disabled")
         return False
     if not svix_id or not svix_ts:
         return False
@@ -367,7 +367,7 @@ This link expires in 24 hours. If you did not sign up for Procta, you can ignore
           <div style="color:#ffffff;font-size:18px;font-weight:700;">Verify your email</div>
         </td></tr>
         <tr><td style="padding:28px;color:#0f172a;">
-          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{to_name}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{_esc(to_name)}</strong>,</p>
           <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Please verify your email address to continue using Procta. Click the button below:</p>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td align="center" style="padding:8px 0 20px;">
             <a href="{verify_url}" target="_blank" style="display:inline-block;padding:12px 32px;border-radius:6px;background:#5b8af0;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Verify Email</a>
@@ -464,7 +464,7 @@ This code expires in 10 minutes. Enter it on the Procta website to {label_action
           <div style="color:#ffffff;font-size:18px;font-weight:700;">Your {label_subject} code</div>
         </td></tr>
         <tr><td style="padding:28px;color:#0f172a;">
-          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{display_name}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{_esc(display_name)}</strong>,</p>
           <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Use this code to {label_action}:</p>
           <div style="text-align:center;margin:24px 0;">
             <div style="display:inline-block;padding:18px 32px;background:#f1f5f9;border-radius:8px;font-size:32px;font-weight:700;letter-spacing:8px;font-family:'SFMono-Regular',Menlo,Consolas,monospace;color:#0f172a;">{code}</div>
@@ -530,16 +530,16 @@ If it was NOT you:
           <div style="color:#ffffff;font-size:18px;font-weight:700;">New sign-in detected</div>
         </td></tr>
         <tr><td style="padding:28px;color:#0f172a;">
-          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{to_name}</strong>,</p>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hello <strong>{_esc(to_name)}</strong>,</p>
           <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">We noticed a new sign-in to your Procta account from a device or location we haven't seen before:</p>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
                  style="background:#f8fafc;border-radius:8px;margin:0 0 20px;font-size:13px;">
             <tr><td style="padding:8px 12px;color:#64748b;width:80px;">When</td>
                 <td style="padding:8px 12px;color:#0f172a;"><strong>{when_str}</strong></td></tr>
             <tr><td style="padding:8px 12px;color:#64748b;">IP address</td>
-                <td style="padding:8px 12px;color:#0f172a;font-family:monospace;font-size:12px;">{ip or 'unknown'}</td></tr>
+                <td style="padding:8px 12px;color:#0f172a;font-family:monospace;font-size:12px;">{_esc(ip or 'unknown')}</td></tr>
             <tr><td style="padding:8px 12px;color:#64748b;">Browser</td>
-                <td style="padding:8px 12px;color:#0f172a;font-size:12px;">{ua_short}</td></tr>
+                <td style="padding:8px 12px;color:#0f172a;font-size:12px;">{_esc(ua_short)}</td></tr>
           </table>
           <p style="margin:0 0 12px;font-size:14px;line-height:1.5;"><strong>If this was you</strong>, no action is needed.</p>
           <p style="margin:0 0 8px;font-size:14px;line-height:1.5;"><strong>If it was NOT you:</strong></p>

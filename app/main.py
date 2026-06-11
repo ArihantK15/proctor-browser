@@ -438,11 +438,22 @@ _XSS_PATTERNS = [
     re.compile(r'expression\s*\(', re.I),
 ]
 
+# Only high-confidence injection shapes. The DB layer is fully
+# parameterized (app/postgres_table.py: identifier allowlist + $N
+# params), so this middleware is defense-in-depth — and its real cost
+# is false positives on exam content. The previous patterns blocked
+# ordinary student answers: "'apples' and 'oranges'" (quote-AND-quote),
+# code comments "/* ... */", and values ending in "--" (including
+# base64url LTI id_tokens). A blocked save-answer is silent data loss,
+# which is strictly worse than the marginal value of regex SQLi
+# screening over parameterized queries.
 _SQLI_PATTERNS = [
-    re.compile(r"'\s*(OR|AND)\s+'", re.I),
-    re.compile(r';\s*(DROP|DELETE|UPDATE|INSERT)', re.I),
-    re.compile(r'--\s*$', re.I),
-    re.compile(r'/\*.*\*/', re.I),
+    # Tautology: ' OR '1'='1  /  ' OR 1=1 — requires the comparison so
+    # quoted prose joined by and/or doesn't match.
+    re.compile(r"'\s*(OR|AND)\s+(['\"]?)[\w@.]+\2\s*=", re.I),
+    # Stacked queries: '; DROP TABLE x / ; DELETE FROM x / ; INSERT INTO x
+    # / ; UPDATE x SET — requires the full statement shape.
+    re.compile(r";\s*(DROP\s+TABLE|DELETE\s+FROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET)\b", re.I),
 ]
 
 _MAX_BODY_BYTES = 10 * 1024 * 1024  # 10 MB

@@ -49,6 +49,11 @@ class _FakeTable:
         result = MagicMock()
         if self.name == "exam_sessions" and self.op == "select":
             result.data = self.db.stale_rows
+        elif self.op == "update":
+            # Mirror the real builder: UPDATE ... RETURNING * yields the
+            # matched rows. The reaper's compare-and-set checks this to
+            # know whether the abandon transition actually applied.
+            result.data = [{"status": "abandoned"}]
         else:
             result.data = []
         return result
@@ -134,3 +139,49 @@ def test_reaper_does_not_force_submit_when_no_autosave_snapshot(monkeypatch):
     ]
     assert len(exam_updates) == 1
     assert exam_updates[0][2]["status"] == "abandoned"
+
+def test_reaper_cas_miss_skips_flush_and_violation(monkeypatch):
+    """If the abandon UPDATE matches no row (the session was submitted
+    between the SELECT and the UPDATE), the reaper must not write a
+    violation, flush stale autosave answers, or force-submit — any of
+    those would clobber the student's real submission."""
+    from app.services import heartbeat_reaper, autosave, scoring
+    from app import database
+
+    fake_db = _FakeDb([
+        {
+            "session_key": "ROLL002_xyz",
+            "roll_number": "ROLL002",
+            "teacher_id": "teacher-1",
+            "exam_id": "exam-1",
+            "student_id": "student-2",
+            "last_heartbeat": "2026-05-18T00:00:00+00:00",
+        }
+    ])
+
+    # Make every UPDATE return no matched rows (CAS miss).
+    orig_execute = _FakeTable.execute
+
+    async def execute_cas_miss(self):
+        result = await orig_execute(self)
+        if self.op == "update":
+            result.data = []
+        return result
+
+    monkeypatch.setattr(_FakeTable, "execute", execute_cas_miss)
+
+    flushed = {}
+
+    async def fake_flush(session_id, answers, **kwargs):
+        flushed["session_id"] = session_id
+
+    monkeypatch.setattr(database, "async_table", fake_db.table)
+    monkeypatch.setattr(autosave, "load_autosave_snapshot", lambda _sid: {"answers": {"q1": "A"}})
+    monkeypatch.setattr(autosave, "flush_answers_to_db", fake_flush)
+
+    asyncio.run(heartbeat_reaper._reap_once())
+
+    exam_updates = [c for c in fake_db.calls if c[0] == "exam_sessions" and c[1] == "update"]
+    assert len(exam_updates) == 1  # only the abandon attempt, no force_submit
+    assert not any(c[0] == "violations" for c in fake_db.calls)
+    assert flushed == {}  # autosave flush never ran

@@ -861,7 +861,11 @@ async def delete_student_from_roster(
     ids = [r.get("id") for r in rows if r.get("id")]
     if ids:
         try:
-            await _atable("students").delete().in_("id", ids).execute()
+            # teacher_id re-filter is redundant with the scoped SELECT above
+            # but applied as the same TOCTOU defence used on every other
+            # destructive admin UPDATE/DELETE — a row whose ownership changed
+            # between SELECT and DELETE can't be removed cross-tenant.
+            await _atable("students").delete().in_("id", ids).eq("teacher_id", tid).execute()
         except Exception as e:
             logger.error("[roster.delete] delete failed: %s", e, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Delete failed: {type(e).__name__}")

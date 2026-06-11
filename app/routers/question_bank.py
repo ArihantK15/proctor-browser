@@ -156,6 +156,11 @@ async def update_bank_question(qid: str, request: Request, body: UpdateQuestionI
             fields[k] = v
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
+    # question_bank.options is JSONB and no asyncpg codec is registered, so
+    # a raw dict fails parameter binding ("expected str, got dict") — the
+    # same constraint every insert path in this file handles via json.dumps.
+    if isinstance(fields.get("options"), dict):
+        fields["options"] = json.dumps(fields["options"])
     fields["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = await (_atable("question_bank")
                     .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
@@ -993,9 +998,15 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
         if exam_id:
             extra["exam_id"] = exam_id
         records = [{**r, **extra} for r in normalised]
-        # Insert first, delete after (C16 fix — prevents data loss on crash)
+        # UPSERT, not INSERT: the questions table has
+        # UNIQUE (teacher_id, exam_id, question_id), so a plain INSERT
+        # collides with the existing rows on every re-save of an exam
+        # that already has questions — the whole save would 500 and roll
+        # back. Upsert updates the surviving rows in place, which also
+        # preserves the C16 guarantee (no window where the exam has no
+        # questions).
         try:
-            await _atable("questions").insert(records).execute()
+            await _atable("questions").upsert(records).execute()
         except Exception as e:
             msg = str(e).lower()
             if "question_type" in msg or "image_url" in msg or "column" in msg \
@@ -1007,16 +1018,30 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
                                   "reference_answer", "rubric", "max_score")}
                     for r in records
                 ]
-                await _atable("questions").insert(legacy).execute()
+                await _atable("questions").upsert(legacy).execute()
             else:
                 raise
-        # Delete old questions now that new ones are safely inserted
-        del_q = _atable("questions").delete()
-        if tid:
-            del_q = del_q.eq("teacher_id", tid)
+        # Delete only the STALE old rows — the ones whose question_id left
+        # the new set — addressed by primary key from the backup snapshot.
+        # The previous filter (teacher_id + exam_id alone) matched the rows
+        # just written too and would have wiped the exam.
         if exam_id:
-            del_q = del_q.eq("exam_id", exam_id)
-        await del_q.execute() if tid or exam_id else del_q.neq("question_id", -1).execute()
+            new_qids = {str(r["question_id"]) for r in normalised}
+            stale_ids = [r["id"] for r in backup_rows
+                         if r.get("id") is not None
+                         and str(r.get("question_id")) not in new_qids]
+        else:
+            # Legacy single-exam mode: rows have NULL exam_id, which never
+            # matches the (teacher_id, exam_id, question_id) conflict
+            # target (NULLs are distinct), so the upsert inserted fresh
+            # rows rather than updating in place — every backup row is
+            # stale and must go, or the exam doubles its questions.
+            stale_ids = [r["id"] for r in backup_rows if r.get("id") is not None]
+        if stale_ids:
+            del_q = _atable("questions").delete().in_("id", stale_ids)
+            if tid:
+                del_q = del_q.eq("teacher_id", tid)
+            await del_q.execute()
     except Exception as e:
         _qbank_log.error("[Questions] Insert failed, rolling back: %s", e)
         if backup_rows:

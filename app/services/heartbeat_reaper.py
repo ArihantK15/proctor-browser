@@ -2,7 +2,7 @@
 
 A session is considered ABANDONED when its ``last_heartbeat`` timestamp is
 more than HEARTBEAT_TIMEOUT_SECS seconds in the past AND the session status
-is still ACTIVE or IN_PROGRESS.
+is still IN_PROGRESS (PAUSED sessions are exempt — their clock is stopped).
 
 On detection the reaper:
 1. Marks the exam session status = 'ABANDONED'.
@@ -110,16 +110,24 @@ async def _mark_abandoned(row: dict, _atable) -> None:
     except Exception as e:
         logger.warning("[reaper] status re-check failed for %s: %s", sid, e)
 
-    # 1. Mark ABANDONED — atomic with teacher_id filter so a stale UPDATE
-    # cannot bleed across tenants if the session row got reassigned
-    # between our initial SELECT and now. Matches the TOCTOU defence
-    # applied to admin_sessions / admin_org destructive UPDATEs.
+    # 1. Mark ABANDONED — compare-and-set on status so a submission that
+    # lands between the re-check above and this UPDATE can't be reverted
+    # to ABANDONED (submit flips IN_PROGRESS → terminal; only a row still
+    # IN_PROGRESS may transition here). teacher_id filter is the same
+    # cross-tenant TOCTOU defence applied to admin destructive UPDATEs.
     upd_q = _atable("exam_sessions").update({
         "status": SessionStatus.ABANDONED,
-    }).eq("session_key", sid)
+    }).eq("session_key", sid).eq("status", SessionStatus.IN_PROGRESS)
     if teacher_id:
         upd_q = upd_q.eq("teacher_id", teacher_id)
-    await upd_q.execute()
+    upd_res = await upd_q.execute()
+    if not (upd_res.data or []):
+        # CAS missed: the session progressed (submitted/paused) since the
+        # SELECT. Touch nothing — especially not the autosave flush below,
+        # which would overwrite the student's real answers with a stale
+        # snapshot.
+        logger.info("[reaper] session %s changed state before abandon, skipping", sid)
+        return
 
     logger.info("[reaper] session %s (%s) marked ABANDONED", sid, roll)
 
@@ -182,7 +190,7 @@ async def _mark_abandoned(row: dict, _atable) -> None:
             # (see cutoff above) need a real datetime to satisfy the
             # prepared-statement parameter type check.
             "submitted_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("session_key", sid)
+        }).eq("session_key", sid).eq("status", SessionStatus.ABANDONED)
         if teacher_id:
             final_upd_q = final_upd_q.eq("teacher_id", teacher_id)
         await final_upd_q.execute()

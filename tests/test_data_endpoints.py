@@ -343,3 +343,89 @@ class TestSaveAnswer:
                                      "question_id": "1", "answer": "A"},
                                headers={"Authorization": f"Bearer {token}"})
             assert resp.status_code == 200
+
+
+class TestUpdateQuestionsPersistence:
+    """Regression: the save path must UPSERT (a plain INSERT collides with
+    UNIQUE (teacher_id, exam_id, question_id) on every re-save) and must
+    delete ONLY stale old rows — the old delete-by-(tid,exam) filter wiped
+    the freshly written rows too."""
+
+    class _FakeTable:
+        def __init__(self, name, db):
+            self.name, self.db = name, db
+            self.op, self.payload, self.filters = None, None, []
+
+        def select(self, *a, **k): self.op = "select"; return self
+        def insert(self, payload): self.op = "insert"; self.payload = payload; return self
+        def upsert(self, payload, **k): self.op = "upsert"; self.payload = payload; return self
+        def update(self, payload): self.op = "update"; self.payload = payload; return self
+        def delete(self): self.op = "delete"; return self
+        def eq(self, *a): self.filters.append(("eq", a)); return self
+        def in_(self, *a): self.filters.append(("in", a)); return self
+        def order(self, *a, **k): return self
+        def limit(self, *a): return self
+
+        async def execute(self):
+            self.db.calls.append((self.name, self.op, self.payload, list(self.filters)))
+            result = MagicMock()
+            if self.name == "questions" and self.op == "select":
+                result.data = self.db.existing_rows
+            else:
+                result.data = [{"id": 999}]
+            return result
+
+    def _fake_db(self, existing_rows):
+        class _Db:
+            pass
+        db = _Db()
+        db.existing_rows = existing_rows
+        db.calls = []
+        return db
+
+    def test_resave_upserts_and_deletes_only_stale(self, client):
+        db = self._fake_db([
+            {"id": 11, "question_id": 1},
+            {"id": 12, "question_id": 2},
+            {"id": 13, "question_id": 3},   # dropped in the new set → stale
+        ])
+        fake_atable = lambda name: self._FakeTable(name, db)
+        with admin_patch(), \
+             patch("app.routers.question_bank._atable", fake_atable):
+            resp = client.post("/api/v1/admin/questions",
+                               json={"exam_id": "22222222-2222-2222-2222-222222222222",
+                                     "questions": [
+                                         {"id": 1, "question": "Q1?",
+                                          "options": {"A": "a", "B": "b"}, "correct": "A"},
+                                         {"id": 2, "question": "Q2?",
+                                          "options": {"A": "a", "B": "b"}, "correct": "B"},
+                                     ]},
+                               headers=admin_headers())
+        assert resp.status_code == 200, resp.text
+        q_writes = [c for c in db.calls if c[0] == "questions" and c[1] in ("insert", "upsert")]
+        assert q_writes and all(c[1] == "upsert" for c in q_writes)
+        deletes = [c for c in db.calls if c[0] == "questions" and c[1] == "delete"]
+        assert len(deletes) == 1
+        in_filters = [f for f in deletes[0][3] if f[0] == "in"]
+        assert in_filters and in_filters[0][1] == ("id", [13])  # only the stale PK
+
+    def test_resave_same_set_deletes_nothing(self, client):
+        db = self._fake_db([
+            {"id": 11, "question_id": 1},
+            {"id": 12, "question_id": 2},
+        ])
+        fake_atable = lambda name: self._FakeTable(name, db)
+        with admin_patch(), \
+             patch("app.routers.question_bank._atable", fake_atable):
+            resp = client.post("/api/v1/admin/questions",
+                               json={"exam_id": "22222222-2222-2222-2222-222222222222",
+                                     "questions": [
+                                         {"id": 1, "question": "Q1?",
+                                          "options": {"A": "a", "B": "b"}, "correct": "A"},
+                                         {"id": 2, "question": "Q2?",
+                                          "options": {"A": "a", "B": "b"}, "correct": "B"},
+                                     ]},
+                               headers=admin_headers())
+        assert resp.status_code == 200, resp.text
+        deletes = [c for c in db.calls if c[0] == "questions" and c[1] == "delete"]
+        assert deletes == []  # every old row survives in place

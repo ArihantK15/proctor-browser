@@ -88,6 +88,14 @@ jobs:
         # api.py and lti/deeplink.py. Stdlib-only; no DB access.
         run: python scripts/check_pg_select_syntax.py
 
+      - name: Tenant-scoping guard
+        # Fails the build if an authed endpoint reads/writes a tenant table with
+        # NO tenancy scoping (scope spine / owner teacher_id|org_id filter /
+        # ownership check) — the cross-tenant-leak class. Endpoints scoped by a
+        # non-teacher axis (student account / invite token / health probe) are
+        # allow-listed in the script with a reason. Stdlib-only; no DB access.
+        run: python scripts/check_tenant_scoping.py
+
       - name: Install + lint Electron dependencies
         run: |
           npm ci

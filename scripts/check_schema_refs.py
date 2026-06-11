@@ -49,13 +49,11 @@ IGNORE_TABLES = {
 # query sits inside try/except, so it degrades rather than 500s) and likely
 # mis-attributions from chained multi-table queries. Remove each entry once the
 # ref is fixed, a migration adds the column, or it's confirmed a false positive.
-IGNORE_REFS = {
-    # students/teachers.lti_user_id exist in prod (added by phase97) but aren't
-    # in the committed columns.json snapshot yet — keep baselined until the
-    # snapshot is refreshed (scripts/dump_schema.py), then drop these two.
-    ("students", "lti_user_id"),
-    ("teachers", "lti_user_id"),
-}
+# Per-(table, column) refs to exempt. Currently EMPTY — every app column ref
+# resolves against the live schema snapshot. Add entries here only to baseline a
+# genuinely-pre-existing ref while it's triaged; prefer fixing the ref or the
+# schema. (Keep the AST-scoped extractor honest: a real drift should fail loud.)
+IGNORE_REFS: set[tuple[str, str]] = set()
 
 _TBL = re.compile(r'_atable\(\s*"([^"]+)"\s*\)')
 _SEL = re.compile(r'\.select\(\s*"([^"]+)"')

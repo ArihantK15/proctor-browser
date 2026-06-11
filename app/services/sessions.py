@@ -68,8 +68,21 @@ async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
     except Exception:
         raise HTTPException(status_code=404, detail="Organization not found")
     try:
-        count_result = await _atable("students").select("id", count="exact").eq("org_id", str(org_id)).execute()
-        current_count = count_result.count if hasattr(count_result, 'count') else len(count_result.data or [])
+        # Count an org's students the way the phase90/91 quota trigger does —
+        # through the teacher join, NOT students.org_id. Public self-registration
+        # writes {roll_number, email, teacher_id} with NO org_id (only the admin
+        # roster-import path sets it), so counting `students WHERE org_id = X`
+        # under-counts and UNDER-ENFORCES the seat cap, disagreeing with the DB
+        # trigger (which then rejects the insert). Mirror the trigger here.
+        teacher_rows = (await _atable("teachers").select("id")
+                        .eq("org_id", str(org_id)).execute()).data or []
+        org_tids = [str(t["id"]) for t in teacher_rows if t.get("id")]
+        if org_tids:
+            count_result = await _atable("students").select("id", count="exact")\
+                .in_("teacher_id", org_tids).execute()
+            current_count = count_result.count if hasattr(count_result, 'count') else len(count_result.data or [])
+        else:
+            current_count = 0
     except Exception:
         current_count = 0
     max_students = int(org.get("max_students", 30))

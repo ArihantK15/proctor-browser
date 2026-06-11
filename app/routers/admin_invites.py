@@ -5,6 +5,7 @@ import uuid as _uuid
 from typing import Optional
 from fastapi import APIRouter, Request, HTTPException, Body
 from ..auth import require_admin
+from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_exam_config as _load_exam_config, load_questions as _load_questions
@@ -351,14 +352,16 @@ async def invite_cap_reset(request: Request):
 @router.get("/api/v1/admin/invites")
 @limiter.limit("30/minute")
 async def list_invites(request: Request, exam_id: Optional[str] = None):
+    # Org-rollup, scope-aware: an org admin sees co-teachers' invites (so a
+    # co-teacher's exam selected in the org-wide dropdown shows its invites); a
+    # plain teacher stays locked to their own.
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
     base_url = _get_invite_base_url()
 
-    query = (_atable("student_invites")
-             .select("*")
-             .eq("teacher_id", tid)
-             .order("sent_at", desc=True))
+    query = apply_teacher_scope(
+        _atable("student_invites").select("*").order("sent_at", desc=True), tids)
     if exam_id:
         query = query.eq("exam_id", exam_id)
     result = await query.execute()

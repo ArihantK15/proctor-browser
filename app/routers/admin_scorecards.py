@@ -13,7 +13,7 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse
 
 from ..auth import require_admin
-from ..auth.scope import resolve_scope, scope_to_teacher_ids, assert_session_accessible
+from ..auth.scope import resolve_scope, scope_to_teacher_ids, assert_session_accessible, apply_teacher_scope
 from ..database import async_table as _atable
 from ..repositories.sessions import (
     assert_session_owned as _assert_session_owned,
@@ -639,27 +639,46 @@ async def scorecard_zip(request: Request, exam_id: str = None):
 @limiter.limit("5/minute")
 async def email_scorecards(exam_id: str, request: Request, body: EmailScorecardsIn = Body(default=EmailScorecardsIn())):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
+    # Scope-aware (matches failed_sessions / export_csv): an org admin may email
+    # scorecards for a co-teacher's exam. Reads roll up org-wide; the per-session
+    # claim + enqueue key on each session's OWNER teacher_id (a single exam_id is
+    # owned by one teacher) so the job is filed under the owner and the student
+    # sees their own teacher's name — not the acting admin's.
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
 
     resend_all = body.resend_all
     custom_message = body.custom_message.strip() or None
-    teacher_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
+    actor_name = teacher.get("full_name") or teacher.get("email") or "Your teacher"
 
     # Build the query (NOT awaited — the PostgresTable chain is not awaitable;
     # only .execute() is). The stray `await` here was the email-scorecards 500:
     # "object PostgresTable can't be used in 'await' expression".
-    sess_q = (_atable("exam_sessions").select(
-        "session_key,roll_number,full_name,exam_id,scorecard_emailed_at"
-    ).eq("teacher_id", tid).in_("status", list(RESULT_STATUSES)).eq("exam_id", exam_id)
+    sess_q = (apply_teacher_scope(_atable("exam_sessions").select(
+        "session_key,roll_number,full_name,exam_id,scorecard_emailed_at,teacher_id"
+    ), tids).in_("status", list(RESULT_STATUSES)).eq("exam_id", exam_id)
         .limit(1000))
     sessions = (await sess_q.execute()).data or []
     if not sessions:
         raise HTTPException(status_code=404, detail="No completed sessions found for this exam")
 
+    # Resolve each owner teacher's display name once so the email signs off as
+    # the student's real teacher even when an admin triggers the send.
+    owner_names: dict[str, str] = {}
+    owner_tids = sorted({str(s.get("teacher_id") or "") for s in sessions if s.get("teacher_id")})
+    if owner_tids:
+        try:
+            t_rows = (await _atable("teachers").select("id,full_name,email")
+                      .in_("id", owner_tids).execute()).data or []
+            for t in t_rows:
+                owner_names[str(t["id"])] = t.get("full_name") or t.get("email") or actor_name
+        except Exception as e:
+            _admin_log.warning("[email-scorecards] owner-name lookup failed: %s", e)
+
     roll_emails: dict[str, str] = {}
     try:
-        inv_rows = (await _atable("student_invites").select("roll_number,email")
-                    .eq("teacher_id", tid).eq("exam_id", exam_id).execute()).data or []
+        inv_rows = (await apply_teacher_scope(_atable("student_invites").select("roll_number,email"), tids)
+                    .eq("exam_id", exam_id).execute()).data or []
         for r in inv_rows:
             roll = str(r.get("roll_number") or "").strip().upper()
             email = str(r.get("email") or "").strip().lower()
@@ -668,8 +687,8 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
     except Exception as e:
         _admin_log.warning("[email-scorecards] invite lookup failed: %s", e)
     try:
-        stud_rows = (await _atable("students").select("roll_number,email")
-                     .eq("teacher_id", tid).execute()).data or []
+        stud_rows = (await apply_teacher_scope(_atable("students").select("roll_number,email"), tids)
+                     .execute()).data or []
         for r in stud_rows:
             roll = str(r.get("roll_number") or "").strip().upper()
             email = str(r.get("email") or "").strip().lower()
@@ -688,6 +707,8 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
         sid = sess["session_key"]
         roll = str(sess.get("roll_number") or "").strip().upper()
         full_name = sess.get("full_name") or "Student"
+        owner_tid = str(sess.get("teacher_id") or "")
+        teacher_name = owner_names.get(owner_tid, actor_name)
 
         if sess.get("scorecard_emailed_at") and not resend_all:
             already_sent += 1
@@ -704,13 +725,13 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             if is_postgres_backend():
                 claim = await _atable("exam_sessions").update({
                     "scorecard_emailed_at": now_ist().isoformat(),
-                }).eq("session_key", sid).eq("teacher_id", tid).is_("scorecard_emailed_at", "null").execute()
+                }).eq("session_key", sid).eq("teacher_id", owner_tid).is_("scorecard_emailed_at", "null").execute()
                 claimed = bool(claim.data)
             else:
                 from ..database import supabase
                 claim = await asyncio.to_thread(
                     lambda: supabase.rpc("claim_scorecard_email",
-                        {"p_session_key": sid, "p_teacher_id": tid}).execute()
+                        {"p_session_key": sid, "p_teacher_id": owner_tid}).execute()
                 )
                 claimed = claim.data
                 if isinstance(claimed, list):
@@ -723,7 +744,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             job_result = enqueue_job(
                 send_scorecard_email_job,
                 session_key=sid,
-                teacher_id=tid,
+                teacher_id=owner_tid,
                 email=email,
                 full_name=full_name,
                 teacher_name=teacher_name,
@@ -760,24 +781,28 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
 @router.get("/api/v1/admin-failed-sessions")
 @limiter.limit("30/minute")
 async def failed_sessions(request: Request, exam_id: str = None):
+    # Org-rollup, scope-aware (matches export_csv / scorecard_zip): an org admin
+    # sees co-teachers' failed submissions; a plain teacher stays own-scoped.
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    failed = await _atable("violations").select("session_key")\
-        .eq("violation_type", "submit_failed")\
-        .eq("teacher_id", tid)\
-        .execute()
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    failed = await apply_teacher_scope(
+        _atable("violations").select("session_key").eq("violation_type", "submit_failed"),
+        tids).execute()
     failed_keys = {r["session_key"] for r in (failed.data or [])}
-    sub_query = _atable("exam_sessions").select("session_key")\
-        .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])\
-        .eq("teacher_id", tid)\
-        .in_("session_key", list(failed_keys) or ["__none__"])
+    sub_query = apply_teacher_scope(
+        _atable("exam_sessions").select("session_key")
+            .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+            .in_("session_key", list(failed_keys) or ["__none__"]),
+        tids)
     if exam_id:
         sub_query = sub_query.eq("exam_id", exam_id)
     submitted = await sub_query.execute()
     submitted_keys = {r["session_key"] for r in (submitted.data or [])}
     if exam_id:
-        es = await _atable("exam_sessions").select("session_key")\
-            .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+        es = await apply_teacher_scope(
+            _atable("exam_sessions").select("session_key").eq("exam_id", exam_id),
+            tids).execute()
         exam_skeys = {r["session_key"] for r in (es.data or [])}
         failed_keys = failed_keys & exam_skeys
     unrecovered = [k for k in failed_keys if k not in submitted_keys]

@@ -133,6 +133,27 @@ async def scope_to_teacher_ids(scope: dict) -> Optional[list[str]]:
     return None  # superadmin, no filter
 
 
+def apply_teacher_scope(query, tids: Optional[list[str]]):
+    """Apply a scope_to_teacher_ids() result to a query's teacher_id filter.
+
+    The single place every org-rollup endpoint should pipe its scope through, so
+    they all narrow identically (plain teacher → own; admin → org-wide; super-
+    admin → unfiltered) instead of each hardcoding the caller's teacher_id.
+
+      None → no filter (superadmin sees everything)
+      []   → match nothing (defensive; an org always has ≥1 teacher)
+      one  → .eq("teacher_id", ...)
+      many → .in_("teacher_id", [...])
+    """
+    if tids is None:
+        return query
+    if not tids:
+        return query.eq("teacher_id", "__none__")
+    if len(tids) == 1:
+        return query.eq("teacher_id", str(tids[0]))
+    return query.in_("teacher_id", tids)
+
+
 async def assert_session_accessible(session_id: str, scope: dict) -> dict:
     """Single-session access check for endpoints that operate on a
     specific session_key (timeline, risk-score, terminate, etc.).

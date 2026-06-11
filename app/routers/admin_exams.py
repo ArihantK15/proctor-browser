@@ -4,6 +4,7 @@ import logging
 import uuid as _uuid
 from fastapi import APIRouter, Request, HTTPException, Body
 from ..auth import require_admin
+from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_questions as _load_questions
@@ -25,26 +26,36 @@ router = APIRouter(prefix="")
 @limiter.limit("60/minute")
 async def list_exams(request: Request):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
     try:
         limit = min(max(int(request.query_params.get("limit", "500")), 1), 500)
         offset = max(int(request.query_params.get("offset", "0")), 0)
     except ValueError:
         raise HTTPException(status_code=400, detail="limit and offset must be integers")
 
-    result = await _atable("exam_config").select(
+    # Scope roll-up (matches live-sessions / results / analytics): an org-admin
+    # sees every teacher's exams in their org, and an optional ?teacher_id=
+    # narrows to one teacher — "teacher first, then exam". Previously this was
+    # hardcoded to the caller's own teacher_id, so an admin's exam selector
+    # never showed (or could filter to) a co-teacher's exams the way the other
+    # views could. A plain teacher still resolves to just their own id.
+    scope = await resolve_scope(teacher, request)
+    teacher_ids = await scope_to_teacher_ids(scope)  # None = superadmin, no filter
+
+    def _scoped(q):
+        return q if teacher_ids is None else q.in_("teacher_id", teacher_ids)
+
+    result = await _scoped(_atable("exam_config").select(
         "exam_id,exam_title,duration_minutes,starts_at,ends_at,access_code,"
-        "proctoring_sensitivity,created_at"
-    ).eq("teacher_id", tid).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        "proctoring_sensitivity,created_at,teacher_id"
+    )).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     exams = result.data or []
     exam_ids = [e.get("exam_id") for e in exams if e.get("exam_id")]
     qcounts: dict[str, int] = {}
     scounts: dict[str, int] = {}
     if exam_ids:
         try:
-            qrows = (await _atable("questions").select("exam_id")
-                     .eq("teacher_id", tid).in_("exam_id", exam_ids)
-                     .limit(50000).execute()).data or []
+            qrows = (await _scoped(_atable("questions").select("exam_id"))
+                     .in_("exam_id", exam_ids).limit(50000).execute()).data or []
             for r in qrows:
                 eid = r.get("exam_id")
                 if eid:
@@ -52,9 +63,8 @@ async def list_exams(request: Request):
         except Exception as e:
             logger.debug("Failed to batch-count questions for exams: %s", e)
         try:
-            srows = (await _atable("exam_sessions").select("exam_id")
-                     .eq("teacher_id", tid).in_("exam_id", exam_ids)
-                     .limit(50000).execute()).data or []
+            srows = (await _scoped(_atable("exam_sessions").select("exam_id"))
+                     .in_("exam_id", exam_ids).limit(50000).execute()).data or []
             for r in srows:
                 eid = r.get("exam_id")
                 if eid:
@@ -75,6 +85,7 @@ async def list_exams(request: Request):
             "question_count":   qcounts.get(eid, 0),
             "session_count":    scounts.get(eid, 0),
             "created_at":       ex.get("created_at", ""),
+            "teacher_id":       str(ex.get("teacher_id") or ""),
         })
     return {"exams": out, "limit": limit, "offset": offset, "count": len(out)}
 
@@ -445,17 +456,16 @@ async def get_analytics(request: Request):
 @limiter.limit("60/minute")
 async def list_groups(request: Request):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    rows = (await _atable("student_groups")
-            .select("*").eq("teacher_id", tid)
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    rows = (await apply_teacher_scope(_atable("student_groups").select("*"), tids)
             .order("created_at").execute()).data or []
     counts: dict[str, int] = {}
     if rows:
         gids = [g["id"] for g in rows]
-        members = (await _atable("student_group_members")
+        members = (await apply_teacher_scope(_atable("student_group_members")
                    .select("group_id")
-                   .in_("group_id", gids)
-                   .eq("teacher_id", tid)
+                   .in_("group_id", gids), tids)
                    .limit(50000).execute()).data or []
         for m in members:
             gid = m.get("group_id")
@@ -526,17 +536,16 @@ async def delete_group(group_id: str, request: Request):
 @limiter.limit("60/minute")
 async def list_group_members(group_id: str, request: Request):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    rows = (await _atable("student_group_members")
-            .select("*").eq("group_id", group_id)
-            .eq("teacher_id", tid).execute()).data or []
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    rows = (await apply_teacher_scope(_atable("student_group_members")
+            .select("*").eq("group_id", group_id), tids).execute()).data or []
     if not rows:
         return []
     rolls = [r["roll_number"] for r in rows if r.get("roll_number")]
     if rolls:
-        students = (await _atable("students")
-                    .select("roll_number,email,full_name")
-                    .eq("teacher_id", tid)
+        students = (await apply_teacher_scope(_atable("students")
+                    .select("roll_number,email,full_name"), tids)
                     .in_("roll_number", rolls).execute()).data or []
         by_roll = {s["roll_number"]: s for s in students}
         for r in rows:
@@ -593,15 +602,15 @@ async def remove_group_members(group_id: str, request: Request, body: GroupMembe
 @limiter.limit("60/minute")
 async def list_exam_groups(exam_id: str, request: Request):
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
-    assignments = (await _atable("exam_group_assignments")
-                   .select("group_id").eq("exam_id", exam_id)
-                   .eq("teacher_id", tid).execute()).data or []
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    assignments = (await apply_teacher_scope(_atable("exam_group_assignments")
+                   .select("group_id").eq("exam_id", exam_id), tids).execute()).data or []
     if not assignments:
         return []
     gids = [a["group_id"] for a in assignments]
-    groups = (await _atable("student_groups")
-              .select("*").in_("id", gids).eq("teacher_id", tid).execute()).data or []
+    groups = (await apply_teacher_scope(_atable("student_groups")
+              .select("*").in_("id", gids), tids).execute()).data or []
     return groups
 
 

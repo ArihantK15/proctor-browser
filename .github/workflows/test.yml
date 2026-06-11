@@ -96,6 +96,15 @@ jobs:
         # allow-listed in the script with a reason. Stdlib-only; no DB access.
         run: python scripts/check_tenant_scoping.py
 
+      - name: Admin-rollup guard
+        # Sibling of the tenant-scoping guard. Fails the build if a require_admin
+        # endpoint filters a tenant table by the caller's OWN teacher_id without
+        # the rollup scope spine — the "org admin silently sees only their own
+        # slice" class (failed-sessions, invites, pending-grades, groups, …).
+        # Deliberate owner-only mutations + the private question-bank library are
+        # allow-listed in the script with a reason. Stdlib-only; no DB access.
+        run: python scripts/check_admin_rollup.py
+
       - name: Install + lint Electron dependencies
         run: |
           npm ci

@@ -99,13 +99,15 @@ async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> d
 async def pending_grades(request: Request):
     """List answers to short-answer questions that haven't been
     teacher-confirmed yet. Optionally filtered by exam_id."""
+    from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
     exam_id = request.query_params.get("exam_id")
 
-    q_query = _atable("questions").select(
+    q_query = apply_teacher_scope(_atable("questions").select(
         "id,question_id,exam_id,question,reference_answer,rubric,max_score"
-    ).eq("teacher_id", tid).eq("question_type", "short_answer")
+    ), tids).eq("question_type", "short_answer")
     if exam_id:
         q_query = q_query.eq("exam_id", exam_id)
     questions = (await q_query.execute()).data or []
@@ -114,9 +116,9 @@ async def pending_grades(request: Request):
 
     qid_to_meta = {str(q["question_id"]): q for q in questions}
 
-    a_query = _atable("answers").select(
+    a_query = apply_teacher_scope(_atable("answers").select(
         "id,session_key,question_id,answer,ai_score,ai_feedback,ai_confidence,teacher_score,exam_id"
-    ).eq("teacher_id", tid).is_("teacher_score", "null")
+    ), tids).is_("teacher_score", "null")
     if exam_id:
         a_query = a_query.eq("exam_id", exam_id)
     all_answers = (await a_query.execute()).data or []
@@ -126,9 +128,8 @@ async def pending_grades(request: Request):
     roll_map = {}
     if session_keys:
         try:
-            sess_rows = (await _atable("exam_sessions")
-                .select("session_key,roll_number,full_name")
-                .eq("teacher_id", tid)
+            sess_rows = (await apply_teacher_scope(_atable("exam_sessions")
+                .select("session_key,roll_number,full_name"), tids)
                 .in_("session_key", session_keys).execute()).data or []
             roll_map = {s["session_key"]: s for s in sess_rows}
         except Exception as e:
@@ -495,19 +496,22 @@ async def grade_confirm_bulk(body: dict, request: Request):
 @router.get("/api/v1/admin/grading-audit")
 @limiter.limit("30/minute")
 async def grading_audit(request: Request):
-    """Return the grading audit trail for this teacher, most recent first."""
+    """Return the grading audit trail for the caller's scope, most recent first
+    (own for a teacher, org-wide for an admin)."""
+    from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
     exam_id = request.query_params.get("exam_id")
     limit = min(int(request.query_params.get("limit", "100")), 500)
 
-    q = _atable("grading_audit").select("*").eq("teacher_id", tid)
+    q = apply_teacher_scope(_atable("grading_audit").select("*"), tids)
     if exam_id:
         q = q.eq("exam_id", exam_id)
     rows = await q.order("created_at", desc=True).limit(limit).execute()
 
     # Summary stats
-    stats_q = _atable("grading_audit").select("*").eq("teacher_id", tid)
+    stats_q = apply_teacher_scope(_atable("grading_audit").select("*"), tids)
     if exam_id:
         stats_q = stats_q.eq("exam_id", exam_id)
     all_rows = (await stats_q.execute()).data or []

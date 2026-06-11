@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException
 
 from ..auth import require_admin
-from ..auth.scope import resolve_scope, scope_to_teacher_ids
+from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
 from ..utils import fmt_ist, now_ist
 from ..database import async_table as _atable
 from ..limiter import limiter
@@ -22,19 +22,23 @@ router = APIRouter(prefix="")
 @router.get("/api/v1/admin/pending-verifications")
 @limiter.limit("30/minute")
 async def pending_verifications(request: Request, exam_id: str = None):
+    # Org-rollup, scope-aware (matches live monitoring / results): an org admin
+    # sees co-teachers' pending ID reviews; a plain teacher stays own-scoped.
     teacher = await require_admin(request)
-    tid = teacher["id"]
-    query = _atable("violations")\
-        .select("*")\
-        .eq("teacher_id", str(tid))\
-        .eq("violation_type", "id_verification")\
-        .order("created_at", desc=True)
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    query = apply_teacher_scope(
+        _atable("violations").select("*")
+            .eq("violation_type", "id_verification")
+            .order("created_at", desc=True),
+        tids)
     result = await query.execute()
 
     legacy_session_keys = None
     if exam_id:
-        es = await _atable("exam_sessions").select("session_key")\
-            .eq("teacher_id", str(tid)).eq("exam_id", exam_id).execute()
+        es = await apply_teacher_scope(
+            _atable("exam_sessions").select("session_key").eq("exam_id", exam_id),
+            tids).execute()
         legacy_session_keys = {r["session_key"] for r in (es.data or [])}
 
     pending = []
@@ -73,7 +77,6 @@ async def pending_verifications(request: Request, exam_id: str = None):
 @limiter.limit("20/minute")
 async def id_decision(data: IdDecisionIn, request: Request):
     teacher = await require_admin(request)
-    tid = teacher["id"]
     if data.decision not in ("approved", "retake", "rejected"):
         raise HTTPException(status_code=400, detail="Invalid decision")
     # Reason validation. Both fields are optional. reason_code must be in
@@ -84,15 +87,20 @@ async def id_decision(data: IdDecisionIn, request: Request):
     if reason_code and reason_code not in ID_REJECT_REASON_CODES:
         raise HTTPException(status_code=400, detail="Invalid reason_code")
     reason_text = (data.reason_text or "").strip()[:500]
-    result = await _atable("violations")\
-        .select("*")\
-        .eq("id", data.violation_id)\
-        .eq("teacher_id", str(tid))\
-        .limit(1)\
-        .execute()
+    # Scope-aware: an org admin may decide a co-teacher's pending ID review
+    # (centralised live proctoring — consistent with the rolled-up pending list),
+    # a plain teacher only their own. All subsequent writes key on the verification
+    # row's OWNER teacher_id (not the actor's) so audit rows never cross ownership;
+    # the actor is recorded in details.decided_by.
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    result = await apply_teacher_scope(
+        _atable("violations").select("*").eq("id", data.violation_id), tids)\
+        .limit(1).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Verification not found")
     row = result.data[0]
+    owner_tid = str(row.get("teacher_id") or "")   # writes key on the OWNER, not the actor
     try:
         obj = json.loads(row.get("details", "{}"))
     except Exception:
@@ -107,11 +115,10 @@ async def id_decision(data: IdDecisionIn, request: Request):
     # already proved ownership but a bare .eq("id", ...) UPDATE
     # leaves a TOCTOU window if a row gets reassigned. Matches the
     # tenant-guard pattern applied to admin_invites / admin_org.
-    await _atable("violations")\
-        .update({"details": json.dumps(obj)})\
-        .eq("id", data.violation_id)\
-        .eq("teacher_id", str(tid))\
-        .execute()
+    upd_q = _atable("violations").update({"details": json.dumps(obj)}).eq("id", data.violation_id)
+    if owner_tid:
+        upd_q = upd_q.eq("teacher_id", owner_tid)
+    await upd_q.execute()
 
     if data.decision == "rejected":
         # Embed the reason in the audit-trail violation so a timeline
@@ -132,20 +139,23 @@ async def id_decision(data: IdDecisionIn, request: Request):
             "severity":       "high",
             "details":        audit_detail,
         }
-        if tid:
-            reject_row["teacher_id"] = str(tid)
+        if owner_tid:
+            reject_row["teacher_id"] = owner_tid
         await _atable("violations").insert(reject_row).execute()
         if _cache:
             _cache.delete(f"risk_score:{data.session_key}")
         try:
             # session_key on its own is effectively scoped (it encodes
             # the roll which is unique per teacher) but adding the
-            # teacher_id filter makes the tenant guarantee structural
+            # owner teacher_id filter makes the tenant guarantee structural
             # rather than dependent on session-key composition.
-            await _atable("exam_sessions").update({
+            sess_q = _atable("exam_sessions").update({
                 "status":       SessionStatus.REJECTED,
                 "submitted_at": now_ist().isoformat(),
-            }).eq("session_key", data.session_key).eq("teacher_id", str(tid)).execute()
+            }).eq("session_key", data.session_key)
+            if owner_tid:
+                sess_q = sess_q.eq("teacher_id", owner_tid)
+            await sess_q.execute()
         except Exception as e:
             logger.debug("Failed to update session status to rejected: %s", e)
 

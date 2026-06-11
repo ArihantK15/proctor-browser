@@ -198,11 +198,13 @@ async def student_session_evidence(session_key: str, request: Request):
 @router.get("/admin/appeals")
 @limiter.limit("30/minute")
 async def list_appeals(request: Request, exam_id: str = None, status: str = None):
-    """List appeals for the teacher's exams."""
+    """List appeals for the caller's scope (own for a teacher, org-wide for an admin)."""
+    from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
     teacher = await require_admin(request)
-    tid = str(teacher["id"])
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
 
-    q = _atable("appeals").select("*").eq("teacher_id", tid)
+    q = apply_teacher_scope(_atable("appeals").select("*"), tids)
     if exam_id:
         q = q.eq("exam_id", exam_id)
     if status:

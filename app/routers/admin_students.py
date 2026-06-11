@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException, Body, UploadFile, File, Form
 from fastapi.responses import PlainTextResponse
 from ..auth import require_admin
-from ..auth.scope import resolve_scope, scope_to_teacher_ids
+from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_exam_config as _load_exam_config, get_access_code as _get_access_code, set_access_code as _set_access_code
@@ -720,37 +720,30 @@ async def registered_count(request: Request, exam_id: str | None = None):
     teacher-wide count, never the per-exam one.
     """
     teacher = await require_admin(request)
-    tid = teacher.get("id")
     eid = (exam_id or "").strip()
 
-    # Hardening — no cross-teacher leak. Both queries below MUST be
-    # scoped to the authenticated teacher. exam_id is client-supplied,
-    # so an UNscoped student_invites query would let any teacher read
-    # another teacher's per-exam roster size simply by guessing/knowing
-    # their exam_id. require_admin guarantees a teacher dict, but if the
-    # id is ever absent we refuse to run an unscoped query and return a
-    # safe 0 rather than a global count. (The teacher_id filter is now
-    # unconditional — never gated behind `if tid:`.)
-    if not tid:
-        return {"count": 0, "scope": "exam" if eid else "teacher",
-                **({"exam_id": eid} if eid else {})}
+    # Org-rollup, scope-aware: an org admin's count spans the whole org (so it
+    # matches the seat count the quota enforces, and a co-teacher's exam selected
+    # in the org-wide dropdown reports the right number); a plain teacher stays
+    # locked to their own (scope_to_teacher_ids → [own]). The client-supplied
+    # exam_id can never widen scope — apply_teacher_scope bounds it to the
+    # caller's allowed teacher_ids, so no cross-teacher leak.
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
 
     if eid:
         active_statuses = [s.value for s in InviteStatus if s != InviteStatus.REVOKED]
-        result = await (_atable("student_invites")
-                        .select("email", count="exact")
-                        .eq("teacher_id", tid)
-                        .eq("exam_id", eid)
-                        .in_("status", active_statuses)).execute()
+        result = await apply_teacher_scope(
+            _atable("student_invites").select("email", count="exact")
+                .eq("exam_id", eid).in_("status", active_statuses), tids).execute()
         return {
             "count": result.count if result.count is not None else len(result.data or []),
             "exam_id": eid,
             "scope": "exam",
         }
 
-    result = await (_atable("students")
-                    .select("roll_number", count="exact")
-                    .eq("teacher_id", tid)).execute()
+    result = await apply_teacher_scope(
+        _atable("students").select("roll_number", count="exact"), tids).execute()
     return {
         "count": result.count if result.count is not None else len(result.data or []),
         "scope": "teacher",

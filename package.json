@@ -18,7 +18,7 @@
     "lint:py": "pip-audit -r requirements.txt 2>/dev/null; echo '---'; python3 -c \"import ast,os,sys;bad=[]; [bad.append(f'{p}:{e.lineno}:{e.msg}') for root,_,files in os.walk('app') if '__pycache__' not in root for f in files if f.endswith('.py') for p in [os.path.join(root,f)] for c in [open(p).read()] for e in [ast.parse(c)] if type(e)==SyntaxError]; [print(b) for b in bad]; sys.exit(1) if bad else print('Python clean')\"",
     "type-check": "npm run lint",
     "test": "node scripts/electron-smoke-test.mjs",
-    "test:unit": "node --test scripts/system-check.test.mjs",
+    "test:unit": "node --test scripts/*.test.mjs",
     "verify:mac": "node scripts/verify-macos-build.mjs",
     "test:e2e": "node --test scripts/electron-e2e.mjs"
   },

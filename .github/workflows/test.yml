@@ -111,6 +111,9 @@ jobs:
           npm run lint
           npm audit --audit-level=low
 
+      - name: Run Electron/Node unit tests
+        run: npm run test:unit
+
       - name: Build dashboard
         run: |
           cd app/dashboard-ui

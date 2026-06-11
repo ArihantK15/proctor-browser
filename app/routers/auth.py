@@ -1,4 +1,4 @@
-from ..log_safe import safe
+from ..log_safe import mask_email, safe
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 import asyncio
@@ -548,7 +548,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         except Exception as demo_err:
             _auth_log.warning("[TeacherSignup] demo seed failed (non-fatal): %s", demo_err)
 
-        _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", safe(name), safe(email), safe(org_name))
+        _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", safe(name), mask_email(email), safe(org_name))
         await record_auth_event("signup", request, "teacher", teacher["id"], email)
         enqueue_job(send_new_account_notification_job,
                     account_type="teacher", name=name, email=email)
@@ -658,7 +658,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
         raise HTTPException(status_code=500, detail="Failed to create account")
 
-    _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", safe(name), safe(email), safe(org_name))
+    _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", safe(name), mask_email(email), safe(org_name))
 
     await record_auth_event("signup", request, "teacher", teacher["id"], email)
 
@@ -775,7 +775,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             "email_verified_at": now_ist().isoformat(),
         }).eq("id", teacher["id"]).execute()
         clear_teacher_cache(str(teacher["id"]))
-        _auth_log.info("[TeacherLogin] Auto-verified existing account %s <%s>", safe(teacher.get("full_name", "")), safe(email))
+        _auth_log.info("[TeacherLogin] Auto-verified existing account %s <%s>", safe(teacher.get("full_name", "")), mask_email(email))
         await record_auth_event("email_verified", request, "teacher", teacher["id"], email)
 
     if teacher.get("email_2fa_enabled_at"):
@@ -804,7 +804,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             except Exception as e:
                 # Sending failed — surface a clean error so the user doesn't
                 # sit forever waiting for an email that never comes.
-                _auth_log.error("[TeacherLogin] 2FA email send failed for %s: %s", safe(email), safe(e))
+                _auth_log.error("[TeacherLogin] 2FA email send failed for %s: %s", mask_email(email), safe(e))
                 raise HTTPException(status_code=502, detail="Could not send 2FA code. Please try again.")
             await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "email_2fa_required"})
             return JSONResponse(
@@ -1246,7 +1246,7 @@ async def accept_org_invite(body: dict, request: Request):
     from ..invites import _get_invite_base_url
     base = _get_invite_base_url()
     send_email_verification(email, resolved_name, f"{base}/verify-email?token={vtoken}")
-    _auth_log.info("[AcceptInvite] %s <%s> pending verification for org %s", safe(resolved_name), safe(email), safe(org_id))
+    _auth_log.info("[AcceptInvite] %s <%s> pending verification for org %s", safe(resolved_name), mask_email(email), safe(org_id))
     enqueue_job(send_new_account_notification_job, account_type="teacher", name=resolved_name, email=email)
 
     return {
@@ -1377,7 +1377,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
     # via OTP / verify-email. See _auto_link_student_enrollments() and
     # the call sites in student_verify_signup_otp + verify_email.
 
-    _auth_log.info("[StudentSignup] %s <%s> created", safe(name), safe(email))
+    _auth_log.info("[StudentSignup] %s <%s> created", safe(name), mask_email(email))
     try:
         await _track_a_issue_signup_otp(account, email)
     except Exception:
@@ -1750,7 +1750,7 @@ async def student_exams(request: Request):
     except Exception as e:
         rid = getattr(request.state, "request_id", "") or "-"
         _auth_log.error("[student/exams] enrollment lookup failed (rid=%s, email=%s): %s",
-                        rid, email or "<none>", e, exc_info=True)
+                        rid, mask_email(email) if email else "<none>", e, exc_info=True)
         raise HTTPException(status_code=500,
             detail=f"Failed to load enrollments ({type(e).__name__}). request_id: {rid}")
 
@@ -2634,7 +2634,7 @@ async def _auto_link_student_enrollments(account_id: str, email: str) -> None:
             .is_("account_id", "null")\
             .execute()
     except Exception as e:
-        _auth_log.warning("[Verify] auto-link warning for %s: %s", safe(email), e)
+        _auth_log.warning("[Verify] auto-link warning for %s: %s", mask_email(email), e)
 
 
 @router.post("/api/v1/student/auth/verify-signup-otp")

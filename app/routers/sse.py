@@ -211,13 +211,30 @@ class LiveFrameIn(BaseModel):
 
 
 @router.post("/api/v1/proctor/live-frame")
-async def upload_live_frame_http(body: LiveFrameIn):
+async def upload_live_frame_http(body: LiveFrameIn, request: Request):
     """Legacy endpoint: proctor.py POSTs a base64 JPEG every ~1.5s.
 
     Stored in Redis via LRU-capped cache so the teacher dashboard
     can poll via GET /api/v1/admin/sessions/{sid}/live-frame.
     v2.2.0 clients still use this — new clients prefer WS binary.
+
+    AUTH: the proctor app already sends the student's exam bearer token on
+    every request, so we verify it (and that it matches this session) — the
+    WS path does the same. Without this anyone who knows a session_id could
+    inject/forge camera frames into a live proctoring session.
     """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not token:
+        return Response(status_code=401, content="Missing token")
+    try:
+        claims = _decode_token(token, EXAM_TOKEN_SIGNING_KEYS)
+        await _assert_exam_ws_session_access(claims, body.session_id)
+    except HTTPException:
+        return Response(status_code=403, content="Access denied")
+    except Exception:
+        return Response(status_code=401, content="Invalid token")
+
     try:
         jpeg_bytes = base64.b64decode(body.jpeg_b64)
     except Exception:

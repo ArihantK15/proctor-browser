@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from .database import async_table as _atable
 from .constants import REMINDER_1H_WINDOW_MIN, REMINDER_24H_WINDOW_MIN
 from .logger import get_logger
+from .log_safe import mask_email, safe
 
 _dep_log = get_logger("reminders")
 
@@ -39,9 +40,9 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
         _dep_log.error("[reminders] send raised: %s", e)
         result = None
     if result is None or not getattr(result, "ok", False):
-        _dep_log.warning("[reminders] FAILED %dh reminder to=%s err=%r", hours_until, inv.get('email'), getattr(result,'error',None))
+        _dep_log.warning("[reminders] FAILED %dh reminder to=%s err=%r", hours_until, mask_email(inv.get('email')), getattr(result,'error',None))
         return False
-    _dep_log.info("[reminders] SENT %dh reminder to=%s exam=%s", hours_until, inv.get('email'), exam_cfg.get('exam_id') or '?')
+    _dep_log.info("[reminders] SENT %dh reminder to=%s exam=%s", hours_until, mask_email(inv.get('email')), safe(exam_cfg.get('exam_id') or '?'))
     return True
 
 
@@ -64,7 +65,7 @@ async def _student_allows_email_reminders(email: str) -> bool:
         msg = str(e).lower()
         if "email_reminders_enabled" in msg and ("column" in msg or "schema cache" in msg):
             return True
-        _dep_log.warning("[reminders] preference lookup failed for %s: %s", email, e)
+        _dep_log.warning("[reminders] preference lookup failed for %s: %s", mask_email(email), e)
         return True
     if not rows:
         return True
@@ -102,7 +103,7 @@ async def _reminder_tick():
                     now_iso = datetime.now(timezone.utc).isoformat()
                     if not await _student_allows_email_reminders(inv.get("email") or ""):
                         await _atable("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute()
-                        _dep_log.info("[reminders] SKIPPED %dh reminder to=%s preference=off", hours_until, inv.get("email"))
+                        _dep_log.info("[reminders] SKIPPED %dh reminder to=%s preference=off", hours_until, mask_email(inv.get("email")))
                         continue
                     claim = await _atable("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute()
                     if not claim.data:

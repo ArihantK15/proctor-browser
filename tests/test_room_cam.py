@@ -231,3 +231,35 @@ class TestApprovalStatusEndpoint:
             )
         assert resp.status_code == 200
         assert resp.json()["status"] == "pending"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  /api/v1/proctor/live-frame — must authenticate (frame-injection guard)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestLiveFrameAuth:
+    """The legacy HTTP live-frame endpoint must verify the proctor's exam
+    bearer token (the client already sends it). Closes an unauthenticated
+    camera-frame-injection / forgery hole on any live session."""
+
+    def test_no_token_401(self, client):
+        resp = client.post("/api/v1/proctor/live-frame",
+                           json={"session_id": "ALICE001_abc", "jpeg_b64": "Zm9v"})
+        assert resp.status_code == 401
+
+    def test_invalid_token_401(self, client):
+        resp = client.post("/api/v1/proctor/live-frame",
+                           json={"session_id": "ALICE001_abc", "jpeg_b64": "Zm9v"},
+                           headers={"Authorization": "Bearer not-a-real-token"})
+        assert resp.status_code == 401
+
+    def test_token_for_other_session_denied(self, client):
+        # Valid exam token, but its roll doesn't match the target session_id.
+        token = _jwt.encode({
+            "roll": "ALICE001", "tid": "teacher-1",
+            "exp": datetime.now(timezone.utc) + timedelta(hours=2),
+        }, EXAM_TOKEN_SIGNING_KEY, algorithm="HS256")
+        resp = client.post("/api/v1/proctor/live-frame",
+                           json={"session_id": "BOB002_xyz", "jpeg_b64": "Zm9v"},
+                           headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code in (401, 403)

@@ -37,7 +37,10 @@ from urllib.parse import quote
 # neutralises control characters and keeps non-ASCII readable when
 # possible — non-ASCII printables get percent-encoded, which is a
 # minor readability hit but acceptable for log lines.
-_SAFE_CHARS = "@.-_:/?&=,+%[]()"
+# ``*`` is included so the mask token from :func:`mask_email`
+# (``a***@domain``) renders readably instead of percent-encoded; it is a
+# printable with no control-character / log-forging significance.
+_SAFE_CHARS = "@.-_:/?&=,+%[]()*"
 
 _MAX = 200
 
@@ -64,4 +67,28 @@ def safe(value: Any) -> str:
     return sanitised
 
 
-__all__ = ["safe"]
+def mask_email(value: Any) -> str:
+    """Return an email reduced to a non-identifying log token: ``a***@domain``.
+
+    Logging full teacher/student email addresses writes PII into log files
+    that may be shipped off-box or retained — inconsistent with a product
+    whose posture is "no PII egress". The masked form keeps the first local
+    char and the full domain, which preserves enough to correlate and debug
+    (which provider, which tenant) without persisting the identifier.
+
+    None-safe and exception-safe; never raises. Non-email values (no ``@``)
+    fall through to :func:`safe` so call sites can pass any value uniformly.
+    The masked result is itself run through :func:`safe`, so it remains
+    log-injection-safe like every other value at the log site.
+    """
+    try:
+        text = "" if value is None else str(value)
+    except Exception:
+        return "<unprintable>"
+    if "@" not in text:
+        return safe(text)
+    local, _, domain = text.partition("@")
+    return safe(f"{(local[:1] or '')}***@{domain}")
+
+
+__all__ = ["safe", "mask_email"]

@@ -438,7 +438,14 @@ async def get_usage(request: Request):
     sub = await _atable("subscriptions").select("plan,status").eq("org_id", str(org_id)).limit(1).execute()
     plan_id = (sub.data or [{}])[0].get("plan", "starter") if sub.data else "starter"
     sub_status = (sub.data or [{}])[0].get("status", "unknown") if sub.data else "unknown"
-    plan_limit = PLAN_LIMITS.get(plan_id, 30)
+    # Enforced cap (organizations.max_students, kept current by
+    # reconcile_org_entitlement) — NOT the nominal plan limit. For a cancelled
+    # or past-grace org this is the free floor, which is the real cap to show.
+    _org_row = (await _atable("organizations").select("max_students")
+                .eq("id", str(org_id)).limit(1).execute()).data or []
+    plan_limit = (int(_org_row[0]["max_students"])
+                  if _org_row and _org_row[0].get("max_students") is not None
+                  else PLAN_LIMITS.get(plan_id, 30))
     plan_def = PLANS.get(plan_id, {})
     base_price = plan_def.get("price_inr", 0)
     # `overage_price_inr` is the per-EXTRA-STUDENT charge above the

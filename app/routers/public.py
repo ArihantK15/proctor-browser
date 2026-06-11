@@ -1,4 +1,4 @@
-from ..log_safe import safe
+from ..log_safe import mask_email, safe
 from pathlib import Path
 import json
 import logging
@@ -416,8 +416,11 @@ async def register_student(request: Request, body: RegisterIn):
 
 
 @router.get("/api/v1/exam-schedule")
-async def get_public_schedule(t: str = None):
-    """Public endpoint — returns exam title and schedule for download/register pages."""
+@limiter.limit("30/minute")
+async def get_public_schedule(request: Request, t: str = None):
+    """Public endpoint — returns exam title and schedule for download/register pages.
+
+    Rate-limited to deter scraping/enumeration of exam schedules by teacher_id."""
     config = await _load_exam_config(teacher_id=t)
     return {
         "exam_title":  config.get("exam_title", "Exam"),
@@ -880,7 +883,7 @@ async def submit_demo_request(req: DemoRequest, request: Request):
         _pub_log.error("[DemoRequest] Failed to store: %s", e)
         raise HTTPException(status_code=500, detail="Failed to store request")
 
-    _pub_log.info("[DemoRequest] %s <%s> from %s", safe(req.name), safe(req.email), safe(req.institution))
+    _pub_log.info("[DemoRequest] %s <%s> from %s", safe(req.name), mask_email(req.email), safe(req.institution))
 
     # Notify super admin (fire-and-forget — the form response should
     # not depend on the email provider being available).

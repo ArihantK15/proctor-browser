@@ -821,30 +821,53 @@ class TestLtiContextStorage:
 class TestAgsHttpEndpoints:
     """Tests for the HTTP endpoints for AGS grade push and NRPS sync."""
 
-    def test_ags_push_grades_missing_params(self, client):
+    TEACHER = {"id": "teacher-1", "email": "t@x.com", "org_id": "org-1",
+               "org_role": "admin", "full_name": "T", "status": "active"}
+
+    def _auth(self):
+        return patch("app.auth.admin_auth._get_teacher_by_id", return_value=self.TEACHER)
+
+    def _hdr(self):
+        return {"Authorization": f"Bearer {make_admin_token(teacher_id='teacher-1')}"}
+
+    # These push to / pull from the LMS using Procta's OWN tool credentials —
+    # they MUST require admin auth (closed an unauthenticated grade-tampering hole).
+    def test_ags_push_grades_requires_auth(self, client):
         resp = client.post("/lti/ags/push-grades", json={})
+        assert resp.status_code == 401
+
+    def test_nrps_sync_membership_requires_auth(self, client):
+        resp = client.post("/lti/ags/sync-membership", json={})
+        assert resp.status_code == 401
+
+    def test_ags_push_grades_missing_params(self, client):
+        with self._auth():
+            resp = client.post("/lti/ags/push-grades", json={}, headers=self._hdr())
         assert resp.status_code == 400
 
     def test_ags_push_grades_no_context(self, client):
-        resp = client.post("/lti/ags/push-grades", json={
-            "iss": "https://test.canvas.edu",
-            "client_id": "test-client-1",
-            "deployment_id": "deployment-1",
-            "user_id": "user-1",
-            "score_given": 85,
-        })
+        with self._auth():
+            resp = client.post("/lti/ags/push-grades", json={
+                "iss": "https://test.canvas.edu",
+                "client_id": "test-client-1",
+                "deployment_id": "deployment-1",
+                "user_id": "user-1",
+                "score_given": 85,
+            }, headers=self._hdr())
         assert resp.status_code == 404
 
     def test_nrps_sync_membership_missing_params(self, client):
-        resp = client.post("/lti/ags/sync-membership", json={})
+        with self._auth():
+            resp = client.post("/lti/ags/sync-membership", json={}, headers=self._hdr())
         assert resp.status_code == 400
 
     def test_nrps_sync_membership_no_context(self, client):
-        resp = client.post("/lti/ags/sync-membership", json={
-            "iss": "https://test.canvas.edu",
-            "client_id": "test-client-1",
-            "deployment_id": "deployment-1",
-        })
+        with self._auth():
+            resp = client.post("/lti/ags/sync-membership", json={
+                "iss": "https://test.canvas.edu",
+                "client_id": "test-client-1",
+                "deployment_id": "deployment-1",
+            }, headers=self._hdr())
         assert resp.status_code == 404
 
     def test_ags_lineitems_stub(self, client):

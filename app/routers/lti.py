@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
 
+from ..auth import require_admin
 from ..lti.key import generate_jwks
 from ..lti.registration import load_registrations, find_registration
 from ..lti.launch import (
@@ -31,6 +32,7 @@ from ..lti.ags import (
 )
 from ..lti.nrps import fetch_membership, sync_learner_roster
 from ..limiter import limiter
+from ..log_safe import mask_email, safe
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +184,7 @@ async def lti_launch(request: Request):
     else:
         redirect_to = f"/student#access_token={token}&token_type=Bearer"
 
-    logger.info("LTI launch successful: role=%s email=%s", user.get("role"), user.get("email"))
+    logger.info("LTI launch successful: role=%s email=%s", safe(user.get("role")), mask_email(user.get("email")))
     return RedirectResponse(url=redirect_to, status_code=302)
 
 
@@ -312,6 +314,9 @@ async def lti_sync_membership(request: Request):
     This is used to pre-provision student accounts from the course
     roster after an instructor's LTI launch.
     """
+    # Admin-only: pulls a roster from the LMS using Procta's tool credentials —
+    # must not be anonymously triggerable.
+    await require_admin(request)
     try:
         body = await request.json()
     except Exception:
@@ -369,6 +374,10 @@ async def lti_push_grades(request: Request):
       - timestamp: ISO 8601 timestamp
       - comment: Optional comment
     """
+    # Admin-only: this pushes a grade to the LMS using Procta's OWN tool
+    # credentials, so it must never be anonymous — otherwise anyone who knows an
+    # issuer + LTI user_id could set arbitrary grades. (No frontend caller.)
+    await require_admin(request)
     try:
         body = await request.json()
     except Exception:

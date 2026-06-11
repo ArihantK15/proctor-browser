@@ -13,6 +13,7 @@ from ..database import async_table as _atable
 from ..limiter import limiter
 from ..services.crypto import encrypt_token, decrypt_token
 from ..utils import now_ist
+from ..log_safe import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +207,6 @@ async def google_sync_roster(body: dict, request: Request):
             await _atable("students").insert(row).execute()
             imported += 1
         except Exception as e:
-            logger.warning("[google] roster import failed for %s: %s", email, e)
+            logger.warning("[google] roster import failed for %s: %s", mask_email(email), e)
 
     return {"ok": True, "imported": imported, "total": len(students)}

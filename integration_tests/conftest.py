@@ -64,12 +64,15 @@ def _database_url() -> str:
 
 
 def pytest_collection_modifyitems(config, items):
-    """No DATABASE_URL → skip the whole suite (don't fail a DB-less `pytest`)."""
+    """No DATABASE_URL → skip only THIS package's integration tests (don't fail
+    a DB-less `pytest`). Must NOT skip the whole session — a bare `pytest` also
+    collects the unit suite under tests/, which has no DB dependency."""
     if _database_url():
         return
     skip = pytest.mark.skip(reason="integration tests require DATABASE_URL (a real Postgres)")
     for item in items:
-        item.add_marker(skip)
+        if "integration_tests" in str(getattr(item, "fspath", "")):
+            item.add_marker(skip)
 
 
 @pytest.fixture(scope="session", autouse=True)

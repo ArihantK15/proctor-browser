@@ -24,7 +24,7 @@ chat_hub = ChatHub()
 async def _chat_verify_session_owned(session_id: str, teacher_id: str, roll: str):
     """Verify the session exists, belongs to the teacher, and matches the roll number."""
     rows = (await _atable("exam_sessions")
-            .select("id,session_key,roll_number,status,teacher_id")
+            .select("session_key,roll_number,status,teacher_id")
             .eq("session_key", session_id)
             .eq("teacher_id", str(teacher_id))
             .execute()).data or []

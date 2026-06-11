@@ -50,14 +50,11 @@ IGNORE_TABLES = {
 # mis-attributions from chained multi-table queries. Remove each entry once the
 # ref is fixed, a migration adds the column, or it's confirmed a false positive.
 IGNORE_REFS = {
-    ("exam_sessions", "current_question"),     # admin_sessions triage select; wrapped in try/except
-    ("exam_sessions", "id"),                   # PK is session_key — triage the ref
-    ("students", "lti_user_id"),               # added by phase97 — drop after prod applies + columns.json refresh
-    ("teachers", "lti_user_id"),               # added by phase97 — drop after prod applies + columns.json refresh
-    ("students", "status"),                    # likely mis-attributed .eq("status") from a chained exam_sessions query
-    ("student_accounts", "updated_at"),        # pre-existing; triage
-    ("auth_sessions", "id"),                   # PK is jti — triage the ref
-    ("auth_sessions", "password_changed_at"),  # pre-existing; triage
+    # students/teachers.lti_user_id exist in prod (added by phase97) but aren't
+    # in the committed columns.json snapshot yet — keep baselined until the
+    # snapshot is refreshed (scripts/dump_schema.py), then drop these two.
+    ("students", "lti_user_id"),
+    ("teachers", "lti_user_id"),
 }
 
 _TBL = re.compile(r'_atable\(\s*"([^"]+)"\s*\)')
@@ -145,24 +142,33 @@ def extract_refs() -> dict[str, set[str]]:
         src = p.read_text()
         consts = _resolve_constants(src)
 
-        # ---- reads: chain string-literal .select()/.eq() to nearest table
-        events = ([(m.start(), "tbl", m.group(1)) for m in _TBL.finditer(src)]
-                  + [(m.start(), "sel", m.group(1)) for m in _SEL.finditer(src)]
-                  + [(m.start(), "eq", m.group(1)) for m in _EQ.finditer(src)])
-        events.sort()
-        cur = None
-        for _, kind, val in events:
-            if kind == "tbl":
-                cur = val
-            elif cur:
-                if kind == "sel":
-                    for c in _cols_from_select(val):
-                        refs[cur].add(c)
-                else:
-                    refs[cur].add(val)
+        tree = ast.parse(src, str(p))
+
+        # ---- reads: scope each string-literal .select()/.eq()/.in_()/… to the
+        # table at the BASE of ITS OWN call chain (via _table_of), NOT the
+        # nearest _atable() by file position. The old position-ordered scan
+        # mis-attributed columns across chained / sibling queries in long files
+        # (e.g. a teachers .select("…,password_changed_at,…") landing on
+        # auth_sessions because an _atable("auth_sessions") appeared earlier).
+        _FILTER_METHS = {"eq", "neq", "gt", "gte", "lt", "lte",
+                         "like", "ilike", "is_", "in_"}
+        for c in ast.walk(tree):
+            if not (isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.args):
+                continue
+            a0 = c.args[0]
+            if not (isinstance(a0, ast.Constant) and isinstance(a0.value, str)):
+                continue
+            if c.func.attr == "select":
+                tbl = _table_of(c)
+                if tbl:
+                    for col in _cols_from_select(a0.value):
+                        refs[tbl].add(col)
+            elif c.func.attr in _FILTER_METHS:
+                tbl = _table_of(c)
+                if tbl:
+                    refs[tbl].add(a0.value)
 
         # ---- reads via .select(CONSTANT)
-        tree = ast.parse(src, str(p))
         for c in ast.walk(tree):
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) \
                and c.func.attr == "select" and c.args \

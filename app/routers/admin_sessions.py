@@ -804,8 +804,11 @@ async def live_risk_triage_endpoint(session_id: str, request: Request):
             return {**cached, "cached": True}
 
     try:
+        # NB: do NOT add current_question here — exam_sessions has no such column
+        # and nothing writes it, so including it made this whole select raise
+        # UndefinedColumnError, silently breaking the triage lookup entirely.
         sess = (await _atable("exam_sessions").select(
-                "session_key,roll_number,full_name,exam_id,started_at,current_question")
+                "session_key,roll_number,full_name,exam_id,started_at")
                 .eq("session_key", session_id).eq("teacher_id", tid)
                 .limit(1).execute()).data or []
     except Exception as e:

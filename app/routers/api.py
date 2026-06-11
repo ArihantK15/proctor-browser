@@ -66,15 +66,30 @@ async def api_get_exam(exam_id: str, request: Request, tid: str = Depends(_requi
     return result.data[0]
 
 
-# `students` has no `exam_id` column (per-exam link lives in
-# student_invites / exam_sessions — see commit a99797b). Selecting it
-# raised UndefinedColumnError → 500 on these API-key endpoints.
-STUDENT_COLS = "roll_number,full_name,email,teacher_id,status,created_at,account_id"
-# exam_sessions stores roll_number / full_name / submitted_at (the write
-# side proves it). The public API advertises student_roll_number /
-# student_name / ended_at, so alias the real columns back to those names:
-# fixes the UndefinedColumnError 500 while keeping the documented response.
-SESSION_COLS = "session_key,exam_id,student_roll_number:roll_number,student_name:full_name,started_at,ended_at:submitted_at,status,score,total,percentage"
+# `students` has neither an `exam_id` nor a `status` column (per-exam link +
+# status live in student_invites / exam_sessions). Selecting either raised
+# UndefinedColumnError → 500 on these API-key endpoints.
+STUDENT_COLS = "roll_number,full_name,email,teacher_id,created_at,account_id"
+# exam_sessions stores roll_number / full_name / submitted_at. The public API
+# advertises student_roll_number / student_name / ended_at. The postgres backend
+# does NOT support PostgREST `alias:col` select syntax (it raises ValueError), so
+# select the REAL columns and rename the keys in Python via _shape_api_session()
+# — keeping the documented response shape without a 500.
+SESSION_COLS = "session_key,exam_id,roll_number,full_name,started_at,submitted_at,status,score,total,percentage"
+
+# Real column -> documented public-API field name. Applied to every session
+# response so the advertised contract holds without the unsupported select alias.
+_API_SESSION_ALIASES = {
+    "roll_number":  "student_roll_number",
+    "full_name":    "student_name",
+    "submitted_at": "ended_at",
+}
+
+
+def _shape_api_session(row: dict) -> dict:
+    """Rename real exam_sessions columns to the documented API field names."""
+    return {_API_SESSION_ALIASES.get(k, k): v for k, v in row.items()}
+
 
 @router.get("/exams/{exam_id}/students")
 @limiter.limit("30/minute")
@@ -90,7 +105,7 @@ async def api_exam_sessions(exam_id: str, request: Request, tid: str = Depends(_
     result = await _atable("exam_sessions").select(SESSION_COLS)\
         .eq("exam_id", exam_id).eq("teacher_id", tid)\
         .order("started_at", desc=True).execute()
-    return result.data or []
+    return [_shape_api_session(r) for r in (result.data or [])]
 
 
 @router.get("/exams/{exam_id}/sessions/{session_key}")
@@ -100,7 +115,7 @@ async def api_session_detail(exam_id: str, session_key: str, request: Request, t
         .eq("session_key", session_key).eq("teacher_id", tid).limit(1).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Session not found")
-    return result.data[0]
+    return _shape_api_session(result.data[0])
 
 
 @router.get("/students/{roll_number}")

@@ -3067,7 +3067,6 @@ async def student_email_change_confirm(request: Request, body: dict = Body(defau
     try:
         await _atable("student_accounts").update({
             "email": new_email,
-            "updated_at": now_ist().isoformat(),
         }).eq("id", account_id).execute()
     except Exception as exc:
         # A concurrent signup/change could have claimed new_email between the

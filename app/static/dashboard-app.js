@@ -160,7 +160,10 @@ async function doLogin(){
       credentials:'include',
       body:JSON.stringify(body)
     });
-    const data = await r.json();
+    // Tolerate a non-JSON body (e.g. a 502/503 HTML error page from the proxy):
+    // parsing before the !r.ok check used to throw, masking the real status with
+    // a generic parse error.
+    const data = await r.json().catch(()=>({}));
     if(!r.ok){
       _resetTurnstile();
       // Email-OTP 2FA — server emailed a code and is asking the user
@@ -550,7 +553,10 @@ async function _tryAutoLogin(){
       credentials:'include',
       headers: authToken ? {'Authorization':'Bearer '+authToken} : {},
     });
-    if(r.ok){ await _ensureCsrfToken(true); _onAuthed(await r.json()); return; }
+    if(r.ok){
+      const me = await r.json().catch(()=>null);
+      if(me){ await _ensureCsrfToken(true); _onAuthed(me); return; }
+    }
 
     // Token/cookie expired — try refresh. Modern sessions refresh via
     // HttpOnly cookies; legacy refreshToken is accepted during migration.
@@ -3540,7 +3546,7 @@ async function syncGoogleRoster(){
   try{
     const r = await authFetch(`${BASE}/api/v1/google/sync-roster`, {
       method:'POST',
-      body: JSON.stringify({course_id: courseId.dataset.cid, exam_id: examId}),
+      body: JSON.stringify({course_id: courseId.dataset.courseId, exam_id: examId}),
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
@@ -7553,7 +7559,7 @@ function populateTemplateSourceExams(){
   if(!sel || !examsList) return;
   sel.innerHTML = '<option value="">Select exam to save as template…</option>';
   examsList.forEach(ex=>{
-    sel.innerHTML += `<option value="${escAttr(ex.id)}">${_escHtml(ex.exam_title||ex.id)}</option>`;
+    sel.innerHTML += `<option value="${escAttr(ex.exam_id)}">${_escHtml(ex.exam_title||ex.exam_id)}</option>`;
   });
 }
 
@@ -7661,9 +7667,20 @@ function _getAlertContainer(){
   return c;
 }
 
+let _alertAudioCtx = null;
 function _playAlertTone(){
   try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    // Reuse ONE AudioContext. Creating a new one per alert never closed them;
+    // browsers cap concurrent contexts (~6) and then throw, so after a handful
+    // of alerts the tone silently stopped. A persistent ctx avoids the cap;
+    // resume() handles the autoplay-policy suspended state.
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    if(!_alertAudioCtx || _alertAudioCtx.state === 'closed'){
+      _alertAudioCtx = new AC();
+    }
+    if(_alertAudioCtx.state === 'suspended'){ _alertAudioCtx.resume().catch(()=>{}); }
+    const ctx = _alertAudioCtx;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);

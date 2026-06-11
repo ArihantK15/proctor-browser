@@ -412,14 +412,17 @@ class YoloWorker:
             pass  # queue full, skip this frame
 
     def get_result(self, frame_count: int):
+        # Async inference lags the capture loop by 2-5 frames (~100-300ms), so a
+        # ready result is ALWAYS tagged with an earlier frame_count than the one
+        # being processed now. The old `== frame_count` check therefore discarded
+        # EVERY result — cheat-object detections (phones, etc.) never reached the
+        # dashboard. result_q has maxsize=1 and is drained each frame, so what's
+        # here is the most recent completed inference; a few frames of lag is
+        # immaterial for "is there a phone in view". (frame_count kept for API.)
         try:
-            result = self.result_q.get_nowait()
-            if result["frame_count"] == frame_count:
-                return result
-            # Stale or future result — discard
+            return self.result_q.get_nowait()
         except Empty:
-            pass
-        return None
+            return None
 
     def _run(self):
         session = _load_yolo()
@@ -507,13 +510,13 @@ class SahiYoloWorker:
             pass
 
     def get_result(self, frame_count: int):
+        # Same async-lag fix as YoloWorker.get_result: never require an exact
+        # frame_count match or every SAHI result is discarded. Return the most
+        # recent completed inference (maxsize=1 queue, drained each frame).
         try:
-            result = self.result_q.get_nowait()
-            if result["frame_count"] == frame_count:
-                return result
+            return self.result_q.get_nowait()
         except Empty:
-            pass
-        return None
+            return None
 
     @staticmethod
     def _generate_tiles(frame: np.ndarray):
@@ -2312,11 +2315,17 @@ def _process_sahi_results(
         return
     sahi_detections = sahi_result["detections"]
     sahi_seen = {det[0] for det in sahi_detections}
-    _history = state.setdefault("object_history", {})
+    # SAHI keeps its OWN accumulation history. It used to share
+    # state["object_history"] with YOLO, but YOLO's decay loop drops any name
+    # not in YOLO's seen-set — including SAHI-only objects (earbuds) — so a
+    # YOLO pass on an overlapping frame kept knocking SAHI's count back below
+    # threshold, suppressing it. Separate dicts; cross-detector duplicate events
+    # are already prevented by the shared can_log() cooldown.
+    _history = state.setdefault("sahi_object_history", {})
     for name in sahi_seen:
         _history[name] = _history.get(name, 0) + 1
     for name in list(_history):
-        if name not in sahi_seen and name not in yolo_seen:
+        if name not in sahi_seen:
             _history[name] = max(0, _history[name] - 1)
             if _history[name] == 0:
                 del _history[name]
@@ -2389,6 +2398,11 @@ def _process_voice_detection(
                           f"Voice sustained (rms:{rms:.3f})")
             _bursts = state.setdefault("_voice_burst_times", [])
             _bursts.append(now)
+            # Bound it: this list is only reset when a full conversation pattern
+            # fires, so sparse bursts that never reach that threshold would grow
+            # it for the whole session. Keep the recent tail.
+            if len(_bursts) > 64:
+                del _bursts[:-64]
             state["voice_start_time"] = None
             _silence_start = state.get("_silence_start")
             if _silence_start is not None:

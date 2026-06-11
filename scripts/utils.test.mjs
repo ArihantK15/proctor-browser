@@ -17,8 +17,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { authHeaders, extractInviteToken, scanProcessOutput } = require('../lib/utils');
+const { authHeaders, extractInviteToken, scanProcessOutput, fetchWithTimeout } = require('../lib/utils');
 const { ALL_PROCESSES, SCAN_TYPE_MAP, INVITE_REGEX } = require('../config');
+
+const _realFetch = global.fetch;
 
 describe('authHeaders', () => {
   test('with a token → Content-Type + Bearer Authorization', () => {
@@ -111,5 +113,24 @@ describe('scanProcessOutput — cheat / remote-desktop / screen-share detection'
       'a TeamViewer.exe\nb TeamViewer.exe\nc TeamViewer.exe',
       ALL_PROCESSES, SCAN_TYPE_MAP);
     assert.equal(flags.filter(f => f.type === 'remote_desktop_detected').length, 1);
+  });
+});
+
+describe('fetchWithTimeout', () => {
+  test('resolves with the response when fetch returns before the timeout', async (t) => {
+    t.after(() => { global.fetch = _realFetch; });
+    global.fetch = async () => ({ ok: true, status: 200 });
+    const r = await fetchWithTimeout('http://x', {}, 1000);
+    assert.equal(r.status, 200);
+  });
+
+  test('passes an abort signal through and aborts after the timeout', async (t) => {
+    t.after(() => { global.fetch = _realFetch; });
+    // Simulate a real fetch that never resolves until its signal aborts.
+    global.fetch = (_url, opts) => new Promise((_resolve, reject) => {
+      assert.ok(opts.signal, 'expected an AbortSignal to be passed');
+      opts.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+    await assert.rejects(fetchWithTimeout('http://x', {}, 30), /abort/i);
   });
 });

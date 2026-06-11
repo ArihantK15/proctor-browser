@@ -81,6 +81,13 @@ jobs:
         # scripts/dump_schema.py — so this is safe to land before seeding.
         run: python scripts/check_schema_refs.py
 
+      - name: Postgres select-syntax guard
+        # Fails the build if any .select("…") uses PostgREST syntax the postgres
+        # backend rejects (column aliases "a:b", embedded resources "x(y)") →
+        # ValueError → 500. The mocked unit suite can't see it; we hit this in
+        # api.py and lti/deeplink.py. Stdlib-only; no DB access.
+        run: python scripts/check_pg_select_syntax.py
+
       - name: Install + lint Electron dependencies
         run: |
           npm ci

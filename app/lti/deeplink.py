@@ -163,10 +163,11 @@ async def get_teacher_exams_as_content_items(teacher_id: str) -> list[dict]:
     """
     exams = (await _atable("exam_config")
         # exam_config has no `title`/`description` columns — the title lives in
-        # `exam_title` (aliased back to `title` so the loop below is unchanged);
-        # there is no description column, so it's dropped and the
-        # `exam.get("description") or "Duration: …"` fallback handles it.
-        .select("exam_id,title:exam_title,duration_minutes")
+        # `exam_title`. The postgres backend does NOT support PostgREST
+        # `alias:col` select syntax (it raises ValueError → 500), so select the
+        # real column and read exam_title directly below. No description column
+        # exists; the `Duration: …` fallback handles it.
+        .select("exam_id,exam_title,duration_minutes")
         .eq("teacher_id", teacher_id)
         .order("created_at", desc=True)
         .execute()).data or []
@@ -174,7 +175,7 @@ async def get_teacher_exams_as_content_items(teacher_id: str) -> list[dict]:
     items = []
     for exam in exams:
         eid = exam.get("exam_id", "")
-        title = exam.get("title", "Untitled Exam")
+        title = exam.get("exam_title", "Untitled Exam")
         desc = exam.get("description") or f"Duration: {exam.get('duration_minutes', 0)} min"
 
         items.append({

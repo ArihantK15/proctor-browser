@@ -544,9 +544,11 @@ class TestDeepLinking:
         jwt_token = self._build_deeplink_jwt({
             "nonce": secrets.token_urlsafe(32),
         })
+        # Real exam_config column is `exam_title` (the code reads it directly;
+        # the old PostgREST `title:exam_title` alias never worked on postgres).
         fake_exams = [
-            {"exam_id": "exam-1", "title": "Midterm", "description": "Midterm exam", "duration_minutes": 60},
-            {"exam_id": "exam-2", "title": "Final", "description": "Final exam", "duration_minutes": 120},
+            {"exam_id": "exam-1", "exam_title": "Midterm", "duration_minutes": 60},
+            {"exam_id": "exam-2", "exam_title": "Final", "duration_minutes": 120},
         ]
         with patch("app.lti.deeplink._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as launch_atable, \

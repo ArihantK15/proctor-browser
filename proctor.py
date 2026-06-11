@@ -822,6 +822,7 @@ CONFIDENCE = {
     "face_too_small":        0.80,
     "cheat_phone_in_hand":   0.90,
     "cheat_phone_on_desk":   0.85,
+    "cheat_phone_detected":  0.88,
     "sustained_voice":       0.88,
     "conversation_detected": 0.92,
     "virtual_camera_detected": 0.95,
@@ -2357,7 +2358,10 @@ def _process_ear_detection(
     if not (EAR_CLASSIFIER_AVAILABLE and _ear_classifier is not None
             and num_faces == 1 and frame_count % EAR_EVERY_N == 0):
         return
-    _history = state.setdefault("object_history", {})
+    # Own history dict — same reason as SAHI: sharing state["object_history"]
+    # let YOLO's decay loop (which drops any name not in YOLO's seen-set) knock
+    # the left_earbud/right_earbud counts back down before they reach threshold.
+    _history = state.setdefault("ear_object_history", {})
     try:
         left_conf, right_conf = _ear_classifier.classify(frame, lm_2d, W, H)
         for side, conf in [("left_earbud", left_conf), ("right_earbud", right_conf)]:

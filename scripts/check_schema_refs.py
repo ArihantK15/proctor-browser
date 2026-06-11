@@ -42,6 +42,24 @@ IGNORE_TABLES = {
     "table_name",      # literal in a docstring example (repositories/base.py)
 }
 
+# Per-(table, column) refs that already existed in the code when the schema
+# snapshot was first seeded from prod (2026-06-11). Baselined so the guard
+# ENFORCES against NEW drift immediately, while these pre-existing ones are
+# triaged separately — they are a mix of real-but-wrapped soft-failures (the
+# query sits inside try/except, so it degrades rather than 500s) and likely
+# mis-attributions from chained multi-table queries. Remove each entry once the
+# ref is fixed, a migration adds the column, or it's confirmed a false positive.
+IGNORE_REFS = {
+    ("exam_sessions", "current_question"),     # admin_sessions triage select; wrapped in try/except
+    ("exam_sessions", "id"),                   # PK is session_key — triage the ref
+    ("students", "lti_user_id"),               # LTI AGS passback; wrapped — verify column/table
+    ("teachers", "lti_user_id"),               # LTI; verify column/table
+    ("students", "status"),                    # likely mis-attributed .eq("status") from a chained exam_sessions query
+    ("student_accounts", "updated_at"),        # pre-existing; triage
+    ("auth_sessions", "id"),                   # PK is jti — triage the ref
+    ("auth_sessions", "password_changed_at"),  # pre-existing; triage
+}
+
 _TBL = re.compile(r'_atable\(\s*"([^"]+)"\s*\)')
 _SEL = re.compile(r'\.select\(\s*"([^"]+)"')
 _EQ = re.compile(r'\.eq\(\s*"([^"]+)"')
@@ -201,7 +219,7 @@ def main(argv: list[str]) -> int:
             unknown_tables.add(table)
             continue
         for col in sorted(refs[table]):
-            if col not in schema[table]:
+            if col not in schema[table] and (table, col) not in IGNORE_REFS:
                 missing.append((table, col))
 
     if unknown_tables:

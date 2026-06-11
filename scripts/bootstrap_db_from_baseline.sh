@@ -31,6 +31,28 @@ if [ ! -f "$BASELINE" ]; then
   exit 2
 fi
 
+# The prod dump carries Supabase-legacy RLS policies (CREATE POLICY ... TO anon)
+# that reference roles a pristine Postgres doesn't have. --no-privileges strips
+# GRANTs but NOT policy role references, so create the roles first (existence is
+# all the policies need; NOLOGIN, no privileges). Idempotent.
+echo "[bootstrap] 0/3 creating legacy roles referenced by dumped policies"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$
+DECLARE r text;
+BEGIN
+  FOREACH r IN ARRAY ARRAY[
+    'anon','authenticated','service_role','authenticator','dashboard_user',
+    'pgbouncer','supabase_admin','supabase_auth_admin','supabase_storage_admin',
+    'supabase_read_only_user','supabase_replication_admin','pgsodium_keyholder'
+  ] LOOP
+    BEGIN
+      EXECUTE format('CREATE ROLE %I NOLOGIN', r);
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+  END LOOP;
+END $$;
+SQL
+
 echo "[bootstrap] 1/3 loading baseline schema → $(basename "$BASELINE")"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$BASELINE"
 

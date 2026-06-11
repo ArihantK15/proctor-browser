@@ -469,8 +469,11 @@ yolo_worker = YoloWorker()
 # ─── SAHI TILING for YOLO (small object detection) ───────────────────────────
 # Slicing Aided Hyper Inference: splits the frame into overlapping tiles,
 # runs YOLO on each tile at full resolution, then merges detections.
-# This dramatically improves recall for small objects like earbuds without
-# retraining the model. Runs on a separate background thread.
+# It improves recall for SMALL/DISTANT instances of the COCO classes YOLO
+# already knows (phone, laptop, book, keyboard, TV). It does NOT add classes,
+# so it cannot detect earbuds/headphones — those aren't COCO classes (the
+# ear-crop classifier handles earbuds). OFF by default (PROCTOR_ENABLE_SAHI);
+# see _sahi_available. Runs on a separate background thread.
 # SAHI_EVERY_N is defined after YOLO_EVERY_N (line ~634) to avoid
 # forward-reference errors at module load time.
 
@@ -594,8 +597,12 @@ class SahiYoloWorker:
 
 sahi_worker = SahiYoloWorker()
 def _sahi_available() -> bool:
-    """Check whether SAHI tiled detection is usable (YOLO must be loaded)."""
-    return YOLO_AVAILABLE and not SKIP_ENROLLMENT
+    """SAHI is usable only when YOLO is loaded AND it's explicitly enabled
+    (PROCTOR_ENABLE_SAHI). Default off: on a 640x480 laptop webcam its
+    small-object benefit is marginal and tiled inference adds CPU. (The room
+    camera is where it would pay off, but that's a separate, privacy-gated
+    design — not the laptop.)"""
+    return YOLO_AVAILABLE and SAHI_ENABLED
 
 # ─── EAR-CROP CLASSIFIER (earphone/earbud detection) ──────────────────────────
 # Uses face landmarks from RetinaFace to crop the ear regions, then runs
@@ -779,6 +786,11 @@ EVIDENCE_UPLOAD_URL = f"{SERVER_BASE}/api/v1/analyze-frame"
 HEADLESS          = platform.system() == "Windows" or \
                     os.environ.get("PROCTOR_HEADLESS","0") == "1"
 SKIP_ENROLLMENT   = os.environ.get("PROCTOR_SKIP_ENROLLMENT","0") == "1"
+# SAHI tiled detection: OFF by default, its own flag. It was previously coupled
+# to `not SKIP_ENROLLMENT`, which (a) silently disabled it in ALL of production
+# — the launcher always sets SKIP_ENROLLMENT=1 — and (b) wrongly tied object
+# detection to face enrollment. Decoupled so it's controllable on its own.
+SAHI_ENABLED      = os.environ.get("PROCTOR_ENABLE_SAHI","0") == "1"
 CALIBRATION_MODE  = os.environ.get("PROCTOR_CALIBRATION_MODE","0") == "1"
 
 # Pre-set biases from renderer dot-calibration (skip self-calibration if present).

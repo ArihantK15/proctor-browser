@@ -61,7 +61,19 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
         pass
     from .database import is_postgres_backend
     if is_postgres_backend():
-        return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
+        # Production backend. Use the atomic row-locked claim (NOT the racy
+        # legacy read-then-write). We run the SQL inline via asyncpg rather
+        # than calling the claim_invite_cap() PG function, because that
+        # function declares p_teacher_id as `text` and compares it to the
+        # `uuid` teacher_id column (uuid = text has no built-in operator) —
+        # which is why this path historically fell back to the racy version.
+        # The inline statements cast explicitly with $1::uuid.
+        try:
+            return await _claim_and_bump_cap_postgres(teacher_id, batch_size)
+        except Exception as e:
+            _dep_log.error("[invites] atomic postgres cap claim failed — "
+                           "falling back to legacy: %s", e)
+            return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
     try:
         from .database import supabase
         result = await asyncio.to_thread(
@@ -105,6 +117,50 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
         else:
             _dep_log.error("[invites] RPC errored — falling back to legacy path: %s", e)
         return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
+
+
+async def _claim_and_bump_cap_postgres(teacher_id: str, batch_size: int) -> tuple[bool, int]:
+    """Atomic daily-cap claim on the Postgres backend.
+
+    Equivalent to the claim_invite_cap() PG function, run inline via asyncpg
+    so we control the parameter casts (the deployed function compares a
+    ``text`` parameter against the ``uuid`` teacher_id column, which has no
+    operator). The single conditional UPDATE — ``count + $batch <= cap`` under
+    Postgres's per-row write lock — is the atomic primitive: two concurrent
+    callers serialise, and the one that would overshoot matches no row and is
+    denied. No read-then-write window.
+
+    Returns ``(allowed, remaining_after_claim)``.
+    """
+    from .postgres_table import get_pool
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Ensure today's counter row exists (no-op if a concurrent caller
+            # already created it). Separate from the UPDATE so the UPDATE's
+            # predicate does the cap enforcement under the row lock.
+            await conn.execute(
+                "INSERT INTO invite_send_counters (teacher_id, day, count) "
+                "VALUES ($1::uuid, current_date, 0) "
+                "ON CONFLICT (teacher_id, day) DO NOTHING",
+                str(teacher_id),
+            )
+            new_count = await conn.fetchval(
+                "UPDATE invite_send_counters SET count = count + $2 "
+                "WHERE teacher_id = $1::uuid AND day = current_date "
+                "AND count + $2 <= $3 RETURNING count",
+                str(teacher_id), int(batch_size), int(INVITE_DAILY_CAP),
+            )
+            if new_count is None:
+                # Denied — read the live count so the caller can report an
+                # accurate "N remaining" instead of a guess.
+                used = await conn.fetchval(
+                    "SELECT count FROM invite_send_counters "
+                    "WHERE teacher_id = $1::uuid AND day = current_date",
+                    str(teacher_id),
+                )
+                return (False, max(INVITE_DAILY_CAP - int(used or 0), 0))
+            return (True, max(INVITE_DAILY_CAP - int(new_count), 0))
 
 
 async def _claim_and_bump_cap_legacy(teacher_id: str, batch_size: int) -> tuple[bool, int]:

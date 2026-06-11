@@ -98,22 +98,47 @@ async def _store_connect_token(token: str, teacher_id: str) -> None:
 
 
 async def _consume_connect_token(token: str) -> str | None:
-    """Single-use lookup: returns teacher_id and deletes the entry."""
+    """Single-use lookup: returns teacher_id and deletes the entry.
+
+    Uses Redis GETDEL (atomic get-and-delete, Redis ≥ 6.2) so two
+    concurrent EventSource opens can't both consume the same token — the
+    same single-use guarantee the LTI nonce path relies on. Falls back to
+    GET-then-DELETE on older Redis, then to the in-process dict.
+    """
     if _cache is not None:
+        key = _ct_key(token)
         try:
-            tid = _cache.get(_ct_key(token))
-            if tid:
-                # Best-effort delete — even if it fails, the 30s TTL
-                # bounds replay-attack window.
+            r = _cache._client()
+        except Exception:
+            r = None
+        if r is not None:
+            try:
+                raw = r.getdel(key)
+                if not raw:
+                    return None
+                # cache.set() stores json.dumps(value), so the raw entry is
+                # JSON text ('"<tid>"'); decode it the same way cache.get()
+                # would rather than returning the quoted string.
                 try:
-                    _cache.delete(_ct_key(token))
-                except Exception:
-                    logger.debug("sse: connect-token cache delete failed", exc_info=True)
-                return str(tid)
-        except Exception as e:
-            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak
-            # `e` is the Redis read failure, not the token value.
-            logger.warning("[sse] redis read fallback: %s", e)
+                    import json as _json
+                    return str(_json.loads(raw))
+                except (ValueError, TypeError):
+                    return str(raw)
+            except Exception:
+                # Older Redis without GETDEL, or a transient error — fall
+                # back to non-atomic GET+DELETE (bounded by the 30s TTL).
+                try:
+                    tid = _cache.get(key)
+                    if tid:
+                        try:
+                            _cache.delete(key)
+                        except Exception:
+                            logger.debug("sse: connect-token cache delete failed", exc_info=True)
+                        return str(tid)
+                except Exception as e:
+                    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak
+                    # `e` is the Redis read failure, not the token value.
+                    logger.warning("[sse] redis read fallback: %s", e)
     async with _connect_tokens_lock:
         return _connect_tokens.pop(token, None)
 
@@ -372,23 +397,23 @@ async def _room_cam_offline_check():
     now = time.time()
     stale_threshold = now - 300  # 5 minutes — cleanup stale in-memory entries
 
-    # Periodic stale Redis key cleanup (every 5 minutes)
-    if not hasattr(_room_cam_offline_check, "_last_cleanup"):
-        _room_cam_offline_check._last_cleanup = 0
-    if now - _room_cam_offline_check._last_cleanup > 300:
-        _room_cam_offline_check._last_cleanup = now
-        try:
-            from .. import cache as _cache
-            if _cache:
-                await _cache.adelete_pattern(f"{_cache.ROOMFRAME_PREFIX}*")
-                await _cache.adelete_pattern(f"{_cache.ROOMCAM_PREFIX}*")
-                logger.debug("[room_cam] flushed stale roomframe/roomcam keys from Redis")
-        except Exception as e:
-            logger.warning("[room_cam] stale key flush failed: %s", e)
     for sid, last_beat in list(_last_room_frame.items()):
         if last_beat < stale_threshold:
             _last_room_frame.pop(sid, None)
             _ROOM_CAM_OFFLINE_FIRED.discard(sid)
+            # Drop only THIS stale session's Redis keys. The previous code
+            # pattern-deleted roomframe:* / roomcam:* wholesale every 5 min,
+            # which wiped the live frames of every concurrent exam (a
+            # sub-second blank on every room-cam tile). Frames already self-
+            # expire on a ~10s TTL and main.py's daily sweep is the FERPA/DPDP
+            # backstop, so scoped per-session deletion is all that's needed.
+            try:
+                from .. import cache as _cache
+                if _cache:
+                    await _cache.adelete(f"{_cache.ROOMFRAME_PREFIX}{sid}")
+                    await _cache.adelete(f"{_cache.ROOMCAM_PREFIX}{sid}")
+            except Exception as e:
+                logger.debug("[room_cam] stale key delete failed for %s: %s", sid, e)
             continue
         if now - last_beat < _ROOM_CAM_OFFLINE_TIMEOUT:
             _ROOM_CAM_OFFLINE_FIRED.discard(sid)

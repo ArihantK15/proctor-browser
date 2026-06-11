@@ -46,7 +46,13 @@ import pytest_asyncio
 
 _HERE = pathlib.Path(__file__).parent
 _SCHEMA = _HERE / "schema.sql"
-_PHASE96 = _HERE.parent / "migrations" / "phase96_billing_enterprise.sql"
+_MIGRATIONS = _HERE.parent / "migrations"
+_PHASE96 = _MIGRATIONS / "phase96_billing_enterprise.sql"
+# Real per-org student-quota trigger DDL (phase90 creates it, phase91 makes it
+# race-free via a per-org advisory lock). Applied on top of the fixture schema
+# so the integration suite validates the ACTUAL production trigger, not a copy.
+_PHASE90 = _MIGRATIONS / "phase90_org_student_quota_trigger.sql"
+_PHASE91 = _MIGRATIONS / "phase91_quota_trigger_race_fix.sql"
 
 # Every table the suite writes, truncated between tests so state never leaks.
 # Written as a single STATIC string literal (no runtime concatenation / no
@@ -54,7 +60,8 @@ _PHASE96 = _HERE.parent / "migrations" / "phase96_billing_enterprise.sql"
 # analysis sees a constant query, not a raw-SQL-injection risk.
 _TRUNCATE_SQL = (
     "TRUNCATE billing_events, answers, violations, exam_sessions, "
-    "question_bank, questions, exam_config, subscriptions, teachers, organizations "
+    "question_bank, questions, exam_config, invite_send_counters, students, "
+    "subscriptions, teachers, organizations "
     "RESTART IDENTITY CASCADE"
 )
 
@@ -89,6 +96,12 @@ def _build_schema():
         try:
             await conn.execute(_SCHEMA.read_text())
             await conn.execute(_PHASE96.read_text())  # validates the real migration
+            # Quota trigger: phase90 attaches it to students, phase91 replaces
+            # the body with the advisory-lock (race-free) version. Applying both
+            # in order proves the real migration DDL and the trigger fires in
+            # the quota integration test.
+            await conn.execute(_PHASE90.read_text())
+            await conn.execute(_PHASE91.read_text())
         finally:
             await conn.close()
 

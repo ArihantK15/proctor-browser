@@ -83,6 +83,9 @@ CREATE TABLE IF NOT EXISTS violations (
   violation_type TEXT,
   severity       TEXT,
   details        TEXT,
+  -- compute_risk_score filters `WHERE dismissed_at IS NULL`; without the
+  -- column the risk path silently errors on every submit.
+  dismissed_at   TIMESTAMPTZ,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -90,7 +93,9 @@ CREATE TABLE IF NOT EXISTS answers (
   session_key TEXT,
   question_id TEXT,
   teacher_id  UUID,
+  exam_id     TEXT,
   answer      TEXT,
+  created_at  TIMESTAMPTZ DEFAULT now(),
   PRIMARY KEY (session_key, question_id)
 );
 
@@ -126,12 +131,51 @@ CREATE TABLE IF NOT EXISTS questions (
   UNIQUE (teacher_id, exam_id, question_id)
 );
 
+-- Columns mirror what app/repositories/questions.py:_EXAM_CONFIG_COLUMNS
+-- actually SELECTs; load_exam_config reads all of them, so a minimal table
+-- 500s with UndefinedColumnError instead of exercising the real read path.
 CREATE TABLE IF NOT EXISTS exam_config (
-  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  teacher_id       UUID,
-  exam_id          TEXT,
-  exam_title       TEXT,
-  duration_minutes INTEGER,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id              UUID,
+  exam_id                 TEXT,
+  exam_title              TEXT,
+  duration_minutes        INTEGER,
+  access_code             TEXT,
+  starts_at               TIMESTAMPTZ,
+  ends_at                 TIMESTAMPTZ,
+  shuffle_questions       BOOLEAN DEFAULT TRUE,
+  shuffle_options         BOOLEAN DEFAULT TRUE,
+  phone_camera_enabled    BOOLEAN DEFAULT FALSE,
+  proctoring_sensitivity  TEXT DEFAULT 'balanced',
+  audio_keywords          TEXT,
+  audio_keywords_language TEXT DEFAULT 'en',
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (teacher_id, exam_id)
+);
+
+-- Mirrors the production invite_send_counters: teacher_id is UUID, so the
+-- atomic cap claim must cast its text param ($1::uuid). The (teacher_id, day)
+-- UNIQUE is what makes the INSERT ... ON CONFLICT DO NOTHING idempotent.
+CREATE TABLE IF NOT EXISTS invite_send_counters (
+  teacher_id UUID NOT NULL,
+  day        DATE NOT NULL,
+  count      INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (teacher_id, day)
+);
+
+-- Student roster. id is BIGSERIAL to match production (the quota trigger and
+-- the AGS grade-passback path both resolve org via teacher_id → teachers.org_id,
+-- so teacher_id is the column that matters). The phase90/91 quota trigger is
+-- attached to this table in conftest.py so the REAL trigger DDL is exercised.
+CREATE TABLE IF NOT EXISTS students (
+  id          BIGSERIAL PRIMARY KEY,
+  roll_number TEXT NOT NULL,
+  full_name   TEXT,
+  email       TEXT,
+  teacher_id  UUID,
+  account_id  UUID,
+  org_id      UUID,
+  created_at  TIMESTAMPTZ DEFAULT now(),
+  removed_at  TIMESTAMPTZ,
+  UNIQUE (roll_number, teacher_id)
 );

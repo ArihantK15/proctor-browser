@@ -69,9 +69,11 @@ if SENTRY_DSN:
         })
         # URL/body keys whose VALUES are PII or auth material.
         _SENTRY_REDACT_KEYS = frozenset({
-            "password", "code", "otp", "token", "reauth_token",
+            "password", "code", "otp", "token", "reauth_token", "refresh_token",
             "captcha_token", "access_code", "key", "secret",
             "answer", "answers", "email", "roll_number", "full_name",
+            # Student PII (Indian exam context): never ship to error tracking.
+            "phone", "address", "dob", "aadhaar",
         })
         _SENTRY_REDACT_QS_RE = _re.compile(
             r"(?i)(\b(?:" + "|".join(_SENTRY_REDACT_KEYS) + r")=)[^&]*"

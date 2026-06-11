@@ -52,8 +52,8 @@ IGNORE_TABLES = {
 IGNORE_REFS = {
     ("exam_sessions", "current_question"),     # admin_sessions triage select; wrapped in try/except
     ("exam_sessions", "id"),                   # PK is session_key — triage the ref
-    ("students", "lti_user_id"),               # LTI AGS passback; wrapped — verify column/table
-    ("teachers", "lti_user_id"),               # LTI; verify column/table
+    ("students", "lti_user_id"),               # added by phase97 — drop after prod applies + columns.json refresh
+    ("teachers", "lti_user_id"),               # added by phase97 — drop after prod applies + columns.json refresh
     ("students", "status"),                    # likely mis-attributed .eq("status") from a chained exam_sessions query
     ("student_accounts", "updated_at"),        # pre-existing; triage
     ("auth_sessions", "id"),                   # PK is jti — triage the ref

@@ -44,7 +44,6 @@ let _liveViewSid = null;
 let _liveViewLastFrameAt = 0;
 let _liveViewFrameTimer = null;
 let _liveViewKeepaliveTimer = null;
-let _liveViewStaleTimer = null;
 let _csrfTokenMemory = '';
 
 // ── AUTH ─────────────────────────────────────────────────────────
@@ -1063,11 +1062,6 @@ function switchTab(tab){
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
-  // Defensive: _resDisconnectObserver was removed during an earlier
-  // refactor but this call site was missed. Guarded the same way as
-  // refreshPendingGradeBadge below so a missing observer can't throw
-  // and break tab switching.
-  if(tab!=='results' && typeof _resDisconnectObserver==='function') _resDisconnectObserver();
   _dispatchTabLoad(tab);
   // Persist tab in URL hash so refresh doesn't lose state
   if (window.location.hash !== '#tab-' + tab) {
@@ -2818,7 +2812,6 @@ async function closeLiveView(){
   _liveViewLastFrameAt = 0;
   if(_liveViewFrameTimer){ clearInterval(_liveViewFrameTimer); _liveViewFrameTimer = null; }
   if(_liveViewKeepaliveTimer){ clearInterval(_liveViewKeepaliveTimer); _liveViewKeepaliveTimer = null; }
-  if(_liveViewStaleTimer){ clearInterval(_liveViewStaleTimer); _liveViewStaleTimer = null; }
   // Release the current blob URL so the browser doesn't hold the
   // last-frame bytes in memory after the panel closes.
   const img = document.getElementById('liveview-img');
@@ -4454,6 +4447,7 @@ function escAttr(s){
 function _escHtml(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
+const esc = _escHtml;
 
 function escJs(s){
   return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/`/g,'\\`').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/</g,'\\x3c');

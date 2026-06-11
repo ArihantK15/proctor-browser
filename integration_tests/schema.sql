@@ -105,3 +105,33 @@ CREATE TABLE IF NOT EXISTS question_bank (
   tags          TEXT[],
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Per-exam delivered questions. options is TEXT (the writer json.dumps it).
+-- The UNIQUE(teacher_id,exam_id,question_id) is the constraint update_questions
+-- upserts against — the whole point of the re-save test.
+CREATE TABLE IF NOT EXISTS questions (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id       UUID,
+  exam_id          TEXT,
+  question_id      TEXT,
+  question         TEXT,
+  options          TEXT,
+  correct          TEXT,
+  question_type    TEXT,
+  image_url        TEXT,
+  reference_answer TEXT,
+  rubric           TEXT,
+  max_score        NUMERIC,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (teacher_id, exam_id, question_id)
+);
+
+CREATE TABLE IF NOT EXISTS exam_config (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id       UUID,
+  exam_id          TEXT,
+  exam_title       TEXT,
+  duration_minutes INTEGER,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (teacher_id, exam_id)
+);

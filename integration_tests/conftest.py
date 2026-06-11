@@ -54,7 +54,7 @@ _PHASE96 = _HERE.parent / "migrations" / "phase96_billing_enterprise.sql"
 # analysis sees a constant query, not a raw-SQL-injection risk.
 _TRUNCATE_SQL = (
     "TRUNCATE billing_events, answers, violations, exam_sessions, "
-    "question_bank, subscriptions, teachers, organizations "
+    "question_bank, questions, exam_config, subscriptions, teachers, organizations "
     "RESTART IDENTITY CASCADE"
 )
 

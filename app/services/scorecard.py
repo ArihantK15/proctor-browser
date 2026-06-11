@@ -237,12 +237,17 @@ def _build_violation_table(viol_counts: dict):
 def _build_question_table(questions: list, ans_map: dict):
     from reportlab.lib import colors as _c
     from reportlab.platypus import Table, TableStyle
+    # Use the authoritative grader so the per-question result matches the actual
+    # score. Raw `==` marked multi-select (set-equal but reordered) and
+    # numeric-range ("range:MIN:MAX") answers wrong, contradicting the summary
+    # score printed on the same page.
+    from .scoring import answers_match as _answers_match
     qd = [["#", "Question", "Your Answer", "Correct Answer", "Result"]]
     for i, q in enumerate(questions, 1):
         qid = str(q.get("question_id", q.get("id", "")))
         correct_ans = str(q.get("correct", ""))
         student_ans = ans_map.get(qid, "\u2014")
-        is_right = str(student_ans) == correct_ans
+        is_right = _answers_match(str(student_ans), correct_ans)
         q_text = q.get("question", "")
         if len(q_text) > 60:
             q_text = q_text[:57] + "..."

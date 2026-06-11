@@ -102,12 +102,16 @@ def _get_env() -> str:
 
 
 def _rate_limit_key(request: Request) -> str:
-    # Load-test bypass is disabled in production even if the secret is set,
-    # so a leaked LOADTEST_SECRET cannot be exploited on live traffic.
+    # Load-test bypass is honoured ONLY outside production, so a leaked
+    # LOADTEST_SECRET cannot disable rate limits on live traffic. The bypass
+    # (a unique per-request key → its own bucket) must stay INSIDE the
+    # non-production branch; previously it ran unconditionally and only the
+    # warning was env-gated, which silently defeated every limit in prod.
     if _LOADTEST_SECRET and request.headers.get("X-Loadtest-Key") == _LOADTEST_SECRET:
         if _get_env() != "production":
             _log.warning("[rate-limit] Load-test bypass used in %s environment", _get_env())
-        return f"loadtest-{id(request)}"
+            return f"loadtest-{id(request)}"
+        _log.warning("[rate-limit] Load-test bypass header REJECTED in production")
     jwt_key = _jwt_rate_limit_key(request)
     if jwt_key:
         return jwt_key

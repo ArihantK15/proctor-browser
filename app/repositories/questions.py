@@ -95,8 +95,10 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
         query = query.eq("exam_id", exam_id)
     if teacher_id:
         query = query.eq("teacher_id", teacher_id)
-    result = await query.limit(1).execute()
-    if result.data:
+    # With NEITHER filter the query would .limit(1) an arbitrary row and leak
+    # another tenant's config — a caller with no identifying key gets defaults.
+    result = (await query.limit(1).execute()) if (exam_id or teacher_id) else None
+    if result and result.data:
         if _cache:
             _cache.set(cache_key, result.data[0], ttl=86400)  # 24h — invalidation keeps it fresh
         return result.data[0]

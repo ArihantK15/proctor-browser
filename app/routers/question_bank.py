@@ -798,7 +798,12 @@ async def get_admin_answers(session_id: str, request: Request):
     if not tid:
         return {"answers": [], "total": 0, "correct_count": 0}
 
-    questions = await _load_questions(tid)
+    # Scope questions to THIS session's exam. question_id is unique only within
+    # (teacher_id, exam_id), so loading every exam's questions and merging by
+    # qid would collide across exams — pulling in wrong question text / correct
+    # answers and duplicate rows. The session row carries its exam_id.
+    exam_id = sess.get("exam_id")
+    questions = await _load_questions(tid, exam_id=exam_id)
     ans_result = await _atable("answers").select("question_id,answer")\
         .eq("session_key", session_id)\
         .eq("teacher_id", tid)\

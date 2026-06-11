@@ -34,3 +34,24 @@ def test_rate_limit_key_falls_back_to_ip_for_invalid_jwt():
     req = _request({"Authorization": "Bearer not-a-valid-token"})
 
     assert _rate_limit_key(req) == "203.0.113.10"
+
+
+def test_loadtest_bypass_honoured_outside_production(monkeypatch):
+    import app.limiter as lim
+    monkeypatch.setattr(lim, "_LOADTEST_SECRET", "s3cret")
+    monkeypatch.setenv("APP_ENV", "staging")
+    req = _request({"X-Loadtest-Key": "s3cret"})
+    # Per-request unique bucket → effectively unlimited, only outside prod.
+    assert lim._rate_limit_key(req).startswith("loadtest-")
+
+
+def test_loadtest_bypass_rejected_in_production(monkeypatch):
+    import app.limiter as lim
+    monkeypatch.setattr(lim, "_LOADTEST_SECRET", "s3cret")
+    monkeypatch.setenv("APP_ENV", "production")
+    req = _request({"X-Loadtest-Key": "s3cret"})
+    key = lim._rate_limit_key(req)
+    # A leaked secret must NOT disable limits in prod: no per-request bucket,
+    # falls through to the normal IP/JWT key.
+    assert not key.startswith("loadtest-")
+    assert key == "203.0.113.10"

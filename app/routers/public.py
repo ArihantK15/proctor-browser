@@ -421,6 +421,13 @@ async def get_public_schedule(request: Request, t: str = None):
     """Public endpoint — returns exam title and schedule for download/register pages.
 
     Rate-limited to deter scraping/enumeration of exam schedules by teacher_id."""
+    # Without a teacher_id there is no exam to describe. Never fall through to
+    # load_exam_config(None) — with no filters it returns the FIRST row in the
+    # table, leaking an arbitrary teacher's exam title/schedule on this public
+    # unauthenticated endpoint.
+    if not (t or "").strip():
+        return {"exam_title": "Exam", "duration_minutes": 60,
+                "starts_at": None, "ends_at": None}
     config = await _load_exam_config(teacher_id=t)
     return {
         "exam_title":  config.get("exam_title", "Exam"),

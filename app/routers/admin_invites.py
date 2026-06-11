@@ -509,8 +509,13 @@ async def create_exam_from_template(template_id: str, request: Request):
 
     questions = tmpl.get("questions") or []
     if questions:
+        # Re-stamp every question onto the NEW exam + owner. Without this the
+        # rows carry the template's stale teacher_id/exam_id (or none at all)
+        # and orphan — invisible to the new exam and to every teacher.
         for q in questions:
             q["id"] = str(_uuid_mod.uuid4())
+            q["teacher_id"] = tid
+            q["exam_id"] = new_exam_id
         (await _atable("questions")
          .insert(questions)
          .execute())

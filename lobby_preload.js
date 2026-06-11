@@ -69,4 +69,9 @@ contextBridge.exposeInMainWorld('procta_native', {
       try { cb(info); } catch(e) { console.error('[invite] malformed cb failed', e); }
     });
   },
+  // In-banner "Restart now" button for the update banner. Called from
+  // injected JS in the lobby page (auto-update.js) — avoids the fragile
+  // postMessage → console.log → console-message chain that silently
+  // broke in earlier versions when Electron changed the event signature.
+  quitAndInstall: () => ipcRenderer.send('procta-quit-and-install'),
 });

@@ -131,14 +131,7 @@ async function _scanProcesses() {
 }
 
 setMonitorFns(startProcessMonitor, stopProcessMonitor);
-setPollingFns(
-  (sessionId, mainWindow, token, forceCb, violationCb) => {
-    setStudentToken(token);
-    setCurrentSessionId(sessionId);
-    startPolling(sessionId, getMainWindow(), token, forceCb, violationCb);
-  },
-  stopPolling
-);
+setPollingFns(stopPolling);
 setPythonFns(
   async (sessionId) => {
     setCurrentSessionId(sessionId);
@@ -713,8 +706,8 @@ ipcMain.handle('start-proctor', async (event, data) => {
   }
   const sessionId = data && data.sessionId;
   if (sessionId) setCurrentSessionId(sessionId);
-  await startPython(sessionId, SERVER_URL, getStudentToken(), getCalBiases());
-  return { started: true };
+  const ok = await startPython(sessionId, SERVER_URL, getStudentToken(), getCalBiases());
+  return { started: ok };
 });
 
 // Lobby polls this (and receives `setup-state` pushes) to reflect the

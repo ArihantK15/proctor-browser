@@ -1461,10 +1461,13 @@ async def student_login(body: StudentLoginIn, request: Request):
 
     # Opportunistic auto-link on every login in case the student was
     # registered by a teacher AFTER they created their account.
+    # Case-insensitive to match the exams-page auto-link (_student_exams) and
+    # catch legacy roster rows written before emails were lowercased on write —
+    # otherwise the student sees zero exams until the exams endpoint relinks.
     try:
         await _atable("students")\
             .update({"account_id": account["id"]})\
-            .eq("email", email)\
+            .ilike("email", email)\
             .is_("account_id", "null")\
             .execute()
     except Exception as e:
@@ -2122,6 +2125,13 @@ async def verify_email(request: Request, token: str = ""):
                 else:
                     await _atable("teachers").update({"status": "active"}).eq("id", user_id).execute()
                     clear_teacher_cache(str(user_id))
+                    # Teacher already belongs to an org — this invite can never
+                    # be fulfilled, so retire it instead of leaving it stuck in
+                    # pending_verification forever (pollutes org-invite listings
+                    # and blocks a clean re-invite).
+                    await _atable("org_invites").update({
+                        "status": "expired",
+                    }).eq("id", invite["id"]).execute()
             else:
                 await _atable("org_invites").update({"status": "expired"}).eq("id", invite["id"]).execute()
         else:
@@ -2630,7 +2640,7 @@ async def _auto_link_student_enrollments(account_id: str, email: str) -> None:
     try:
         await _atable("students")\
             .update({"account_id": account_id})\
-            .eq("email", email)\
+            .ilike("email", email)\
             .is_("account_id", "null")\
             .execute()
     except Exception as e:

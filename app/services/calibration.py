@@ -123,7 +123,7 @@ async def get_calibration_quality(session_id: str, teacher_id: Optional[str] = N
     out = classify_calibration(parsed)
     if _cache:
         try:
-            _cache.set(cache_key, out, ex=300)
+            _cache.set(cache_key, out, ttl=300)
         except Exception:
             logger.debug("calibration: cache set failed", exc_info=True)
     return out

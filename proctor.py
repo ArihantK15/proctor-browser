@@ -2830,7 +2830,13 @@ def run_proctoring(cap, W, H):
 
             if num_faces == 0:
                 state["_last_face_bbox"] = None
-                multi_face_count = 0
+                # Decay, don't hard-reset: a 0-face frame is ambiguous (camera
+                # briefly occluded), so flashing a second face then blocking the
+                # lens must not zero the accumulating evidence each cycle and
+                # dodge the threshold. Matches the decay every other counter uses
+                # below. A *single* face (the else branch) still hard-resets,
+                # since one face is positive proof there aren't multiple.
+                multi_face_count   = max(0, multi_face_count - 1)
                 gaze_away_count    = max(0, gaze_away_count - 1)
                 gaze_extreme_count = max(0, gaze_extreme_count - 2)
                 eyes_closed_count  = max(0, eyes_closed_count - 1)

@@ -177,7 +177,13 @@ async def validate_student(request: Request, body: ValidateIn):
     try:
         student, student_tid, matched_invite_id = await _find_or_enroll_student(
             roll_upper, pre_tid, pre_exam_id)
-        await _validate_access_code(provided_code, student_tid, student, exam_id)
+        # _validate_access_code returns the invite the student matched via a
+        # per-student access code; capture it. matched_invite_id from enrollment
+        # is always None (that path marks its own invite internally), so without
+        # this the acceptance update below was dead code and access-code invites
+        # were never recorded as accepted.
+        matched_invite_id = await _validate_access_code(
+            provided_code, student_tid, student, exam_id) or matched_invite_id
         await _check_group_restrictions(student, student_tid, exam_id)
         existing_key = await _check_existing_session(student, student_tid, exam_id)
     except HTTPException as exc:

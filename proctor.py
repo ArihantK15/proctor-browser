@@ -2598,13 +2598,7 @@ def _proctor_frame_init_state() -> dict:
         "_fps_warned": False,
         "lazy_enroll_done": False,
         "_last_face_bbox": None,
-        "gaze_away_count": 0,
-        "gaze_extreme_count": 0,
-        "head_away_count": 0,
-        "head_extreme_count": 0,
-        "eyes_closed_count": 0,
-        "face_missing_count": 0,
-        "multi_face_count": 0,
+
         "voice_start_time": None,
         "_voice_burst_times": [],
         "_sustained_voice_start": None,
@@ -2722,12 +2716,12 @@ def run_proctoring(cap, W, H):
     # ── Severity escalation tracking ─────────────────────────────────────
     # Tracks (timestamp, original_severity) per violation type. Escalates
     # when the same type fires repeatedly within ESCALATION_WINDOW_SECS.
-    def _track_violation(etype: str):
+    def _track_violation(etype: str, severity: str):
         now = time.time()
         cutoff = now - ESCALATION_WINDOW_SECS
         history = state["_violation_history"].get(etype, [])
         history = [(t, s) for t, s in history if t > cutoff]
-        history.append((now, "medium"))
+        history.append((now, severity))
         state["_violation_history"][etype] = history
 
     def _get_escalated_severity(etype: str, base_severity: str) -> Tuple[str, int]:
@@ -2757,7 +2751,7 @@ def run_proctoring(cap, W, H):
             # erasing the medium tier from the dashboard/report. Tracking per
             # logged event makes the medium→high→critical escalation reflect
             # genuine repeat offenses (one per COOLDOWN window).
-            _track_violation(etype)
+            _track_violation(etype, base_severity)
             severity, repeat = _get_escalated_severity(etype, base_severity)
             if repeat > 1:
                 details = f"[{repeat}x repeat] {details}"

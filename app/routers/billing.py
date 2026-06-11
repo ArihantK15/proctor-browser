@@ -286,6 +286,7 @@ async def razorpay_webhook(request: Request):
 
     try:
         updates: dict = {}
+        newly_past_due = False
         if event_type in _SUB_GRANT:
             updates["status"] = _SUB_GRANT[event_type]
             updates["past_due_since"] = None
@@ -298,7 +299,13 @@ async def razorpay_webhook(request: Request):
             # Renewal charge failed; Razorpay keeps retrying. KEEP access (grace)
             # and flag past_due so the dashboard/admin can act.
             updates["status"] = "past_due"
-            if not row.get("past_due_since"):
+            # Notify only on the actual transition INTO past_due. The event_id
+            # is recorded last (so an unrecorded event reprocesses on retry —
+            # see the docstring); a redelivery re-runs this block, and without
+            # this guard it would email the admin a duplicate payment-issue
+            # notice. The status/reconcile side effects are already idempotent.
+            newly_past_due = not row.get("past_due_since")
+            if newly_past_due:
                 updates["past_due_since"] = datetime.now(timezone.utc).isoformat()
             outcome = "grace"
         elif event_type in _SUB_DOWNGRADE:
@@ -315,7 +322,7 @@ async def razorpay_webhook(request: Request):
             raise RuntimeError(f"{event_type} DB write returned no data")
         await reconcile_org_entitlement(org_id)
         _invalidate_billing_cache(org_id)
-        if outcome == "grace":
+        if outcome == "grace" and newly_past_due:
             await _notify_payment_issue(org_id)
         logger.info("Webhook %s → org=%s status=%s (%s)",
                     safe(event_type), safe(org_id), safe(updates.get("status")), outcome)

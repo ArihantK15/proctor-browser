@@ -311,6 +311,14 @@ class PostgresTable:
         self._filters.append((col, "ilike", pattern))
         return self
 
+    def contains(self, col: str, val) -> "PostgresTable":
+        """Array/JSONB containment: `col @> val`. For a text[] column pass a
+        list (e.g. .contains("tags", ["math"])) — asyncpg infers the array type
+        from the operator. Lets callers push membership filters into the DB
+        instead of fetching-then-filtering in Python (which races a LIMIT)."""
+        self._filters.append((col, "contains", val))
+        return self
+
     def or_(self, expr: str) -> "PostgresTable":
         """Stash a PostgREST-style or() expression. Compiled at execute() time.
 
@@ -383,6 +391,10 @@ class PostgresTable:
                 clauses.append(f"{col_sql} ILIKE {sql.add(val)}")
             elif op == "not:ilike":
                 clauses.append(f"{col_sql} NOT ILIKE {sql.add(val)}")
+            elif op == "contains":
+                clauses.append(f"{col_sql} @> {sql.add(val)}")
+            elif op == "not:contains":
+                clauses.append(f"NOT ({col_sql} @> {sql.add(val)})")
             elif op.startswith("not:"):
                 clauses.append(f"NOT ({col_sql} {op.removeprefix('not:')} {sql.add(val)})")
             else:

@@ -55,6 +55,7 @@ class _AsyncTableMock:
     def gt(self, *a, **kw): return self
     def lt(self, *a, **kw): return self
     def like(self, *a, **kw): return self
+    def contains(self, *a, **kw): return self
     def order(self, *a, **kw): return self
     def limit(self, *a, **kw): return self
     def range(self, *a, **kw): return self

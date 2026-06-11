@@ -163,8 +163,11 @@ async def reconcile_org_entitlement(org_id: str) -> int:
         if _cache:
             _cache.delete(f"org_subscription:{oid}")
             _cache.delete(f"org_limits:{oid}")
-    except Exception:
-        pass
+    except Exception as e:
+        # Best-effort bust: the cap is already persisted, so don't fail the
+        # entitlement update — but log it, since a silently-swallowed failure
+        # means a stale cap is served until the TTL expires.
+        logger.warning("Failed to clear billing cache for org %s: %s", oid, e)
     return cap
 
 

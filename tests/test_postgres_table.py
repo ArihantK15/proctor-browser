@@ -59,6 +59,15 @@ def test_where_eq_simple():
     assert sql.params == ["abc-123"]
 
 
+def test_postgres_table_contains():
+    # Array/JSONB containment: col @> $1, with the list bound as the param.
+    t = PostgresTable("question_bank").select("*").eq("teacher_id", "t1").contains("tags", ["math"])
+    sql = _SQL()
+    where = t._where(sql)
+    assert where == ' WHERE "teacher_id" = $1 AND "tags" @> $2'
+    assert sql.params == ["t1", ["math"]]
+
+
 def test_sql_params_normalize_uuid_to_string():
     """Postgres returns UUIDs natively, while Supabase REST returned strings.
 

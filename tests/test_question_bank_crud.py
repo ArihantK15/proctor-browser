@@ -41,7 +41,7 @@ def _table_side_effect(mapping):
         for attr in ("select", "eq", "neq", "is_", "in_", "order",
                      "limit", "single", "range", "insert", "upsert",
                      "update", "delete", "gte", "lte", "gt", "lt",
-                     "like", "count"):
+                     "like", "contains", "count"):
             getattr(m, attr).return_value = m
 
         async def _execute():
@@ -99,10 +99,14 @@ class TestListBankQuestions:
         assert data[0]["id"] == "bq1"
 
     def test_filter_by_tag(self, client):
+        # Tag filtering now happens at the DB (.contains("tags", [tag]) — see
+        # question_bank.list_bank_questions), so the stub returns the already-
+        # filtered set the real query would. The builder's @> SQL is covered in
+        # test_postgres_table_contains.
         sm = shared_supabase_mock()
         with patch.object(sm, "table", side_effect=_table_side_effect({
             "teachers": [TEACHER],
-            "question_bank": BANK_QUESTIONS,
+            "question_bank": [BANK_QUESTIONS[0]],   # math row only
         })):
             resp = client.get("/api/v1/admin/question-bank?tag=math", headers=_admin_headers())
         assert resp.status_code == 200

@@ -98,13 +98,13 @@ async def list_bank_questions(request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     tag = request.query_params.get("tag")
-    q = (_atable("question_bank").select("*")
-         .eq("teacher_id", tid)
-         .order("created_at", desc=True)
-         .limit(5000))
-    rows = (await q.execute()).data or []
+    q = _atable("question_bank").select("*").eq("teacher_id", tid)
     if tag:
-        rows = [r for r in rows if tag in (r.get("tags") or [])]
+        # Filter at the DB (tags is text[]) so the LIMIT applies AFTER the tag
+        # match. The old Python post-filter ran after .limit(5000), silently
+        # dropping tagged rows beyond the 5000 newest.
+        q = q.contains("tags", [tag])
+    rows = (await q.order("created_at", desc=True).limit(5000).execute()).data or []
     return rows
 
 

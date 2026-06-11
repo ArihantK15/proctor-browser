@@ -355,7 +355,9 @@ async function _connectSSE(){
 // ── EXAM SELECTOR ──────────────────────────────────────────────
 async function loadExams(){
   try{
-    const r = await authFetch(`${BASE}/api/v1/admin/exams`);
+    // Scope the exam list to the selected teacher ("teacher first, then exam").
+    // Empty filter → all in-scope teachers' exams (org-admin roll-up).
+    const r = await authFetch(`${BASE}/api/v1/admin/exams${_teacherQuery('?')}`);
     if(!r.ok){
       document.getElementById('exam-bar').style.display='flex';
       document.getElementById('exam-count').textContent='Failed to load exams';
@@ -1230,11 +1232,15 @@ async function loadOrgMembers(){
   });
 }
 
-function applyTeacherFilter(source){
+async function applyTeacherFilter(source){
   const sel = document.getElementById(`${source}-teacher-filter`);
   currentTeacherFilter = sel ? sel.value : '';
   document.querySelectorAll('.teacher-filter').forEach(other => { other.value = currentTeacherFilter; });
   _analyticsCache = {};
+  // Teacher-first: re-scope the exam selector to the chosen teacher. If the
+  // currently-selected exam doesn't belong to them, loadExams() falls back to
+  // that teacher's first exam, so the view below renders coherent data.
+  try{ await loadExams(); }catch(_){}
   if(source === 'live') refreshLive();
   else if(source === 'results') refreshResults();
   else if(source === 'history') refreshStudentList();

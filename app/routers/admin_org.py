@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException
 
 from ..auth import require_admin
+from ..constants import SUPER_ADMIN_EMAIL
 from ..database import async_table as _atable
 from ..limiter import limiter
 from ..utils import now_ist, fmt_ist
@@ -18,6 +19,27 @@ from ..jobs import enqueue_job, send_org_invite_email_job
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="")
+
+
+async def _count_org_students(org_id: str) -> int:
+    """Count an org's students the way the quota trigger does — via the teacher
+    join, NOT students.org_id.
+
+    students.org_id is only set by the admin roster-import path; public
+    self-registration writes {roll_number, email, teacher_id} with no org_id, so
+    counting `students WHERE org_id = X` reports 0 for self-registered students.
+    The org's true membership runs through the teacher (phase90 trigger:
+    students JOIN teachers ON teachers.id = students.teacher_id WHERE
+    teachers.org_id = X), so we replicate that here to stay consistent with what
+    the quota actually enforces.
+    """
+    teacher_rows = (await _atable("teachers").select("id")
+                    .eq("org_id", str(org_id)).execute()).data or []
+    teacher_ids = [str(t["id"]) for t in teacher_rows if t.get("id")]
+    if not teacher_ids:
+        return 0
+    res = await _atable("students").select("id", count="exact").in_("teacher_id", teacher_ids).execute()
+    return res.count if getattr(res, "count", None) is not None else len(res.data or [])
 
 
 @router.get("/api/v1/org")
@@ -57,6 +79,11 @@ async def list_members(request: Request):
             {"id": str(m["id"]), "email": m["email"], "full_name": m["full_name"],
              "org_role": m["org_role"], "created_at": fmt_ist(m.get("created_at", ""))}
             for m in (result.data or [])
+            # The platform superadmin (env-pinned SUPER_ADMIN_EMAIL) may be
+            # attached to an org for support, but is NOT a real org member — it
+            # must never surface in the org's member list, the teacher-filter
+            # dropdown, or the member count (all fed by this endpoint).
+            if not (SUPER_ADMIN_EMAIL and str(m.get("email", "")).strip().lower() == SUPER_ADMIN_EMAIL)
         ]
     }
 
@@ -261,8 +288,7 @@ async def get_billing(request: Request):
         raise HTTPException(status_code=403, detail="No organization associated")
 
     sub = await get_org_subscription(str(org_id))
-    count_result = await _atable("students").select("id", count="exact").eq("org_id", str(org_id)).execute()
-    student_count = count_result.count if hasattr(count_result, 'count') else len(count_result.data or [])
+    student_count = await _count_org_students(str(org_id))
 
     plan_name = (sub or {}).get("plan", "starter")
     max_students = PLAN_LIMITS.get(plan_name, 30)
@@ -292,10 +318,13 @@ async def list_all_orgs(request: Request):
     for org in rows:
         org_id = str(org["id"])
         sub = await get_org_subscription(org_id)
-        count_result = await _atable("students").select("id", count="exact").eq("org_id", org_id).execute()
-        student_count = count_result.count if hasattr(count_result, 'count') else len(count_result.data or [])
-        teacher_result = await _atable("teachers").select("id").eq("org_id", org_id).execute()
-        teacher_count = len(teacher_result.data or [])
+        student_count = await _count_org_students(org_id)
+        teacher_result = await _atable("teachers").select("id,email").eq("org_id", org_id).execute()
+        # Exclude the platform superadmin from the org's teacher headcount.
+        teacher_count = sum(
+            1 for t in (teacher_result.data or [])
+            if not (SUPER_ADMIN_EMAIL and str(t.get("email", "")).strip().lower() == SUPER_ADMIN_EMAIL)
+        )
         result.append({
             "id": org_id,
             "name": org["name"],

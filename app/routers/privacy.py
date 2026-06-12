@@ -34,6 +34,7 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from pydantic import BaseModel, ConfigDict
 
 from ..auth import require_admin, require_student_account
+from .. import cache as _cache
 from ..database import async_table as _atable
 from ..limiter import limiter
 
@@ -377,6 +378,25 @@ async def _revoke_sessions(user_type: str, user_id: str) -> list[str]:
     return errs
 
 
+async def _cleanup_redis_frames(user_type: str, user_id: str) -> None:
+    """Delete Redis room-frame keys for a user's exam sessions."""
+    try:
+        if user_type == "teacher":
+            rows = await _atable("exam_sessions").select("session_key")\
+                .eq("teacher_id", user_id).execute()
+        else:
+            rows = await _atable("exam_sessions").select("session_key")\
+                .eq("student_id", user_id).execute()
+        keys = [r["session_key"] for r in (rows.data or []) if r.get("session_key")]
+        if not keys:
+            return
+        for sk in keys:
+            _cache.delete(f"{_cache.ROOMFRAME_PREFIX}{sk}")
+            _cache.delete(f"{_cache.ROOMCAM_PREFIX}{sk}")
+    except Exception as e:
+        _log.warning("[privacy.delete] Redis frame cleanup failed: %s", e)
+
+
 @router.post("/delete")
 @limiter.limit("2/hour")
 async def delete_account(request: Request, body: dict = Body(default_factory=dict)):
@@ -411,6 +431,7 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
 
     # Revoke sessions FIRST so even if subsequent steps fail, auth is dead.
     errors.extend(await _revoke_sessions(user_type, user_id))
+    await _cleanup_redis_frames(user_type, user_id)
 
     if user_type == "teacher":
         # Anonymise teacher profile (retained as the "actor" link on

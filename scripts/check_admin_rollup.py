@@ -58,6 +58,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     # ── exam-config / exam-authoring mutations (own exam content) ──
     ("admin.py", "backfill_risk_scores"):        "maintenance recompute over own sessions",
     ("admin_exams.py", "set_phone_camera_config"): "mutates own exam_config",
+    ("admin_exams.py", "set_pass_mark"):         "mutates own exam_config pass mark",
     ("admin_exams.py", "delete_exam"):           "deletes own exam + questions",
     ("admin_exams.py", "duplicate_exam"):        "clones own exam + questions",
     ("admin_invites.py", "create_exam_from_template"): "creates exam from own template",

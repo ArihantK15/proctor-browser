@@ -217,7 +217,13 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
         raise HTTPException(status_code=403, detail="No organization associated")
 
     role = (body.get("role") or "").strip().lower()
-    valid_roles = {"admin", "teacher", "viewer"}
+    # 'viewer' is intentionally NOT accepted: the teachers_org_role_check DB
+    # constraint only permits 'admin'/'teacher', and a viewer role has no
+    # defined permissions anywhere (resolve_scope handles teacher/admin/super
+    # only). Accepting it would 500 on the constraint. A real read-only viewer
+    # role is a feature (enum + constraint migration + scope/UI gating), not a
+    # string in this set.
+    valid_roles = {"admin", "teacher"}
     if role not in valid_roles:
         raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(sorted(valid_roles))}")
     # P1.2 helper — same fail-closed semantics, accepts body field or

@@ -8,7 +8,9 @@ class OrgRole(StrEnum):
     ADMIN = "admin"
     TEACHER = "teacher"
     SUPERADMIN = "superadmin"
-    VIEWER = "viewer"
+    # No VIEWER: the DB teachers_org_role_check constraint only permits
+    # 'admin'/'teacher' and a viewer role has no defined permissions. A real
+    # read-only role would need the constraint migration + scope/UI work first.
 
 
 class OrgInviteStatus(StrEnum):

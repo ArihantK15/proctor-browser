@@ -39,6 +39,19 @@ let currentTeacherProfile = null;
 // / schedule all blank out because they filter by exam_id.
 let currentExamId = localStorage.getItem('procta_current_exam') || null;
 let examsList = [];
+let _examsLoaded = false; // true once loadExams() has run (so the exam bar only shows after)
+// Tabs that are NOT scoped to a single exam — the exam selector / +New / Duplicate
+// / Delete bar is meaningless clutter on these, so it's hidden (see _syncExamBar).
+const _NON_EXAM_TABS = new Set([
+  'history', 'org', 'security', 'members', 'billing', 'org-settings',
+  'all-orgs', 'issues', 'debug',
+]);
+function _syncExamBar(tab){
+  const bar = document.getElementById('exam-bar');
+  if(!bar) return;
+  tab = tab || document.querySelector('.tab.active')?.dataset.tab || 'live';
+  bar.style.display = (_examsLoaded && !_NON_EXAM_TABS.has(tab)) ? 'flex' : 'none';
+}
 let _refreshGen = 0; // incremented on exam switch to discard stale responses
 let _liveViewSid = null;
 let _liveViewLastFrameAt = 0;
@@ -361,7 +374,8 @@ async function loadExams(){
     // Empty filter → all in-scope teachers' exams (org-admin roll-up).
     const r = await authFetch(`${BASE}/api/v1/admin/exams${_teacherQuery('?')}`);
     if(!r.ok){
-      document.getElementById('exam-bar').style.display='flex';
+      _examsLoaded = true;
+      _syncExamBar();
       document.getElementById('exam-count').textContent='Failed to load exams';
       document.getElementById('exam-count').style.color='var(--red)';
       return;
@@ -385,7 +399,8 @@ async function loadExams(){
       try{ localStorage.setItem('procta_current_exam', currentExamId || ''); }catch(_){}
       sel.value = currentExamId;
     }
-    document.getElementById('exam-bar').style.display = 'flex';
+    _examsLoaded = true;
+    _syncExamBar();
     document.getElementById('exam-count').textContent = `${examsList.length} exam${examsList.length!==1?'s':''}`;
     // Show delete button only if >1 exam
     document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
@@ -626,6 +641,7 @@ async function doLogout(){
   document.body.classList.add('auth-active');
   document.getElementById('auth-overlay').classList.remove('hidden');
   document.getElementById('teacher-name').textContent = '';
+  _examsLoaded = false;
   document.getElementById('exam-bar').style.display = 'none';
   toggleAuthForm('login');
 }
@@ -1062,6 +1078,7 @@ function switchTab(tab){
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
+  _syncExamBar(tab);   // hide the exam selector/management bar on non-exam-scoped tabs
   _dispatchTabLoad(tab);
   // Persist tab in URL hash so refresh doesn't lose state
   if (window.location.hash !== '#tab-' + tab) {

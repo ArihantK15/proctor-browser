@@ -112,15 +112,15 @@ controls. Controls reference existing, shipped mechanisms.
 | R2 | One user reading another's data (IDOR) | Low | High | Tenant scoping (`apply_teacher_scope`) + CI guard `check_tenant_scoping`; Privacy Center actions scoped to `_resolve_caller` (no body-supplied IDs) | Low |
 | R3 | Over-retention of personal data | Low | Med | Code-enforced windows (screenshots 30d, billing 7y purge, TTL sweeper); retention matrix published | Low |
 | R4 | Unfair automated decision against a student | Low | High | AI grading + risk score are **advisory**; mandatory teacher override + audit trail; appeals flow | Low |
-| R5 | Processing a minor without valid consent | Med | High | Explicit consent capture (`consent_records`); school-as-controller obtains/verifies guardian consent per its basis; documented in DPA | Med |
+| R5 | Processing a minor without valid consent | Med | High | DOB captured at registration; under-18 auto-requires a guardian email and a **verifiable consent** link (tokened, sha256-stored) before exam access — minor-aware gate in `validate-student`; grant recorded in `consent_records` (phase106) | Low |
 | R6 | False-positive proctoring flag harming a student | Med | Med | Human review of every flag; sensitivity presets; evidence retained 30d for dispute; appeals | Low |
 | R7 | Excessive surveillance (webcam/screen/audio) beyond purpose | Med | Med | Per-exam opt-in features; on-device analysis; phone frames transient; minimised server payload | Low |
 | R8 | Sub-processor exposure (LLM, hosting) | Low | Med | Zero-shot prompts, no training; sub-processor list published; data-residency choices documented | Low |
 | R9 | Loss of availability (evidence lost mid-dispute) | Low | Med | Daily pg_dump backups (14-day retention); 30-day screenshot window | Low |
 
-**Highest residual risks: R1 and R5 (Med).** Both are inherent to the
-product category and held at Med — not Low — by design; they warrant the
-ongoing controls below rather than further build.
+**Highest residual risk: R1 (Med)** — inherent to the product category and
+held at Med by the ongoing controls below. R5 was reduced Med→Low by the
+phase106 DOB-gated guardian-consent flow (2026-06-13).
 
 ---
 
@@ -135,8 +135,8 @@ routing, daily backups.
 **Recommended follow-ups (tracked, not blocking):**
 - R1: activate object-storage (B2) with lifecycle expiry + at-rest
   encryption for screenshots, so retention isn't filesystem-only.
-- R5: surface an explicit minor/guardian-consent attestation in the
-  enrolment flow rather than relying solely on the school's basis.
+- R5: **done** (phase106) — DOB at registration auto-gates under-18s behind
+  verifiable guardian consent before exam access.
 - R1/R9: confirm disk headroom now that screenshots are retained 30×
   longer than before (see the retention-alignment change).
 
@@ -144,11 +144,11 @@ routing, daily backups.
 
 ## 7. Residual risk acceptance
 
-After controls, the highest residual risk is **Medium (R1, R5)**,
-proportionate to the purpose (defensible exam integrity) and not requiring
-prior consultation with a supervisory authority under Art 36 (no *high*
-residual risk remains). Accepted, subject to the §6 follow-ups and §9
-review cadence.
+After controls, the highest residual risk is **Medium (R1)** — proportionate
+to the purpose (defensible exam integrity) and not requiring prior
+consultation with a supervisory authority under Art 36 (no *high* residual
+risk remains). R5 reduced to Low via phase106. Accepted, subject to the §6
+follow-ups and §9 review cadence.
 
 ---
 

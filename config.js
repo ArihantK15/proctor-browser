@@ -165,9 +165,21 @@ function getPythonCandidates() {
     'C:\\Python311\\python.exe', 'C:\\Python312\\python.exe', 'C:\\Python310\\python.exe',
     path.join(os.homedir(),'AppData','Local','Microsoft','WindowsApps','python3.exe'),
   ] : [
+    // Production: the bundled relocatable venv (these two win).
     path.join(__dirname, 'venv', 'bin', 'python3'),
     path.join(process.resourcesPath || '', 'venv', 'bin', 'python3'),
-    '/usr/local/bin/python3', '/usr/bin/python3',
+    // Dev / no-bundle fallbacks. /opt/homebrew is the Apple-Silicon Homebrew
+    // prefix (the default on every M-series Mac) and was MISSING — only the
+    // Intel /usr/local prefix was listed, so a bundle-less Apple-Silicon Mac
+    // relying on Homebrew python never found it. Add the common managers;
+    // system /usr/bin/python3 stays LAST (PEP 668 "externally managed" — we
+    // never want to pip into it if anything else is available).
+    '/opt/homebrew/bin/python3',                                          // Apple Silicon Homebrew
+    '/usr/local/bin/python3',                                             // Intel Homebrew / manual
+    '/opt/local/bin/python3',                                             // MacPorts
+    path.join(os.homedir(), '.pyenv', 'shims', 'python3'),               // pyenv
+    '/Library/Frameworks/Python.framework/Versions/Current/bin/python3', // python.org installer
+    '/usr/bin/python3',
   ];
 }
 

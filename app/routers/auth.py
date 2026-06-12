@@ -858,6 +858,39 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     except Exception:
         _auth_log.warning("auth: auth_sessions insert failed on login", exc_info=True)
 
+    # Evict oldest active auth sessions if org has a concurrent cap.
+    try:
+        org_id = teacher.get("org_id")
+        if jti and org_id:
+            org_row = (await _atable("organizations")
+                       .select("max_concurrent_auth_sessions")
+                       .eq("id", str(org_id)).limit(1).execute()).data or []
+            cap = org_row[0].get("max_concurrent_auth_sessions") if org_row else None
+            if cap and int(cap) > 0:
+                active = await _atable("auth_sessions").select("jti,last_seen_at,issued_at")\
+                    .eq("user_kind", "teacher").eq("user_id", str(teacher["id"]))\
+                    .is_("revoked_at", "null")\
+                    .order("last_seen_at", desc=True).execute()
+                if len(active.data or []) > int(cap):
+                    to_evict = (active.data or [])[int(cap):]
+                    for row in to_evict:
+                        evict_jti = row["jti"]
+                        if evict_jti == jti:
+                            continue
+                        await _atable("auth_sessions").update({
+                            "revoked_at": now_ist().isoformat(),
+                        }).eq("jti", evict_jti).execute()
+                        try:
+                            from ..cache import _cache
+                            if _cache:
+                                from ..constants import ADMIN_TOKEN_TTL_MINUTES
+                                _cache.set(f"session:{evict_jti}", {"revoked": True},
+                                           ttl=ADMIN_TOKEN_TTL_MINUTES * 60)
+                        except Exception:
+                            pass
+    except Exception:
+        _auth_log.warning("auth: concurrent-session eviction failed", exc_info=True)
+
     # Always issue our own persisted refresh token so the revocation table
     # covers both Supabase-auth and local-auth sessions equally.
     # (Previously the Supabase path handed out a raw Supabase token that we

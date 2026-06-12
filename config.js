@@ -8,7 +8,10 @@ const KIOSK_ALLOWED = !process.argv.includes('--no-kiosk') &&
                        process.env.PROCTOR_DEBUG !== '1';
 
 // ── Kiosk lockdown shortcuts ──────────────────────────────────────
-const BLOCKED_SHORTCUTS = [
+// Base set registered on every platform. Cmd+* accelerators simply fail to
+// register on Windows/Linux (no Command key) and are skipped — the arming
+// loop only tracks successful registrations — so a shared base is safe.
+const _BLOCKED_BASE = [
   'Alt+F4','Cmd+Q','Cmd+W','Cmd+M','Cmd+H',
   'Cmd+Tab','Alt+Tab','F11','F12','Escape',
   'Cmd+Shift+I','Ctrl+Shift+I',
@@ -17,6 +20,25 @@ const BLOCKED_SHORTCUTS = [
   'Cmd+C','Cmd+V','Cmd+X',
   'Ctrl+C','Ctrl+V','Ctrl+X',
 ];
+
+// macOS-only kiosk escapes the base list missed — each one lets a student
+// leave the locked exam window on a Mac (Windows had no equivalent hole):
+//   Cmd+Space          → Spotlight: search the web / launch any app
+//   Cmd+Shift+5        → screen-recording toolbar (3/4 were blocked, the
+//                        record UI was not)
+//   Control+Up/Down    → Mission Control / App Exposé (see & pick other windows)
+//   Control+Left/Right → switch to another Space/Desktop (cheat sheet there)
+//   F3                 → Mission Control hardware key
+// Gated to darwin: Control+Arrow is legitimate word/line navigation on
+// Windows and must NOT be blocked there.
+const _BLOCKED_MAC = [
+  'Cmd+Space', 'Cmd+Shift+5',
+  'Control+Up', 'Control+Down', 'Control+Left', 'Control+Right', 'F3',
+];
+
+const BLOCKED_SHORTCUTS = process.platform === 'darwin'
+  ? [..._BLOCKED_BASE, ..._BLOCKED_MAC]
+  : _BLOCKED_BASE;
 
 const PANIC_SHORTCUT = 'CommandOrControl+Shift+F12';
 const EMERGENCY_SHORTCUT = 'CommandOrControl+Shift+Alt+E';

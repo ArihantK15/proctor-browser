@@ -30,7 +30,14 @@ def _make_client():
         _client = False
         return _client
 
-    import boto3
+    try:
+        import boto3
+    except ImportError:
+        # Optional dependency — if boto3 isn't installed, S3 degrades to
+        # disabled rather than crashing the screenshot path.
+        _log.warning("S3_ENABLED but boto3 is not installed — S3 disabled")
+        _client = False
+        return _client
 
     session = boto3.Session(
         aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", ""),

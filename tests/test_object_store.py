@@ -17,23 +17,29 @@ from app.services.object_store import (
 
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch):
-    """Ensure a clean S3_ENABLED state before each test."""
-    monkeypatch.delenv("S3_ENABLED", raising=False)
+    """Clean S3 env before each test. delenv on ALL three vars — leaking
+    S3_BUCKET/S3_REGION (via raw os.environ) into later test files flipped
+    S3 'on' for unrelated tests and broke CI."""
+    for var in ("S3_ENABLED", "S3_BUCKET", "S3_REGION"):
+        monkeypatch.delenv(var, raising=False)
     reset_client()
 
 
 @pytest.fixture
-def mock_s3():
-    """Create a mock boto3 S3 client patched into object_store."""
+def mock_s3(monkeypatch):
+    """Create a mock boto3 S3 client patched into object_store.
+
+    Uses monkeypatch for env + the client patch so everything is auto-
+    restored at test end — no raw os.environ writes that leak across files.
+    """
     client = MagicMock()
-    patcher = patch("app.services.object_store._make_client", return_value=client)
-    patcher.start()
-    os.environ["S3_ENABLED"] = "1"
-    os.environ["S3_BUCKET"] = "test-bucket"
-    os.environ["S3_REGION"] = "ap-south-1"
+    monkeypatch.setattr("app.services.object_store._make_client", lambda: client)
+    monkeypatch.setenv("S3_ENABLED", "1")
+    monkeypatch.setenv("S3_BUCKET", "test-bucket")
+    monkeypatch.setenv("S3_REGION", "ap-south-1")
     reset_client()
     yield client
-    patcher.stop()
+    reset_client()
 
 
 # ── is_enabled ────────────────────────────────────────────────────────────────

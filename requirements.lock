@@ -19,6 +19,18 @@ asyncpg==0.31.0
     # via -r requirements.txt
 bcrypt==5.0.0
     # via -r requirements.txt
+boto3==1.41.5
+    # via -r requirements.txt
+botocore==1.41.5
+    # via
+    #   boto3
+    #   s3transfer
+jmespath==1.0.1
+    # via
+    #   boto3
+    #   botocore
+s3transfer==0.15.0
+    # via boto3
 cachetools==6.2.6
     # via pyiceberg
 certifi==2026.4.22

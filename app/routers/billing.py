@@ -181,16 +181,31 @@ def _epoch_to_iso(value) -> str | None:
 
 
 async def _notify_payment_issue(org_id: str) -> None:
-    """Email the org admin that a renewal payment needs attention (dunning)."""
+    """Email the org admin that a renewal payment needs attention (dunning).
+
+    Delivery order:
+      1. organizations.billing_email (dedicated billing contact, if set)
+      2. First teacher with org_role='admin' in the org (fallback)
+    """
     try:
-        admin_rows = (await _atable("teachers").select("email,full_name")
-                      .eq("org_id", str(org_id)).eq("org_role", "admin")
-                      .limit(1).execute()).data or []
-        if admin_rows:
+        to_email: str | None = None
+        to_name: str = ""
+        org_row = (await _atable("organizations").select("billing_email")
+                    .eq("id", str(org_id)).limit(1).execute()).data or []
+        if org_row and org_row[0].get("billing_email"):
+            to_email = org_row[0]["billing_email"]
+        if not to_email:
+            admin_rows = (await _atable("teachers").select("email,full_name")
+                          .eq("org_id", str(org_id)).eq("org_role", "admin")
+                          .limit(1).execute()).data or []
+            if admin_rows:
+                to_email = admin_rows[0]["email"]
+                to_name = admin_rows[0].get("full_name", "")
+        if to_email:
             from ..emailer import send_payment_failed_notification
             send_payment_failed_notification(
-                to_email=admin_rows[0]["email"],
-                to_name=admin_rows[0].get("full_name", ""),
+                to_email=to_email,
+                to_name=to_name,
             )
     except Exception as e:
         logger.warning("Payment-issue email failed for org=%s: %s", safe(org_id), safe(e))

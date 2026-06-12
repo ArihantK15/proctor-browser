@@ -196,6 +196,14 @@ def _find_yolo_model() -> Optional[str]:
     ]
     for p in candidates:
         if p and os.path.exists(p):
+            # Loud signal when we fall back to the legacy model despite
+            # preferring YOLO26 — otherwise "thought we swapped but didn't" is
+            # invisible (the chosen path is the only clue, and it looks normal).
+            # Skip when PROCTOR_YOLO_MODEL was set (an explicit, deliberate choice).
+            if p.endswith("yolov8n.onnx") and not os.environ.get("PROCTOR_YOLO_MODEL"):
+                print("[YOLO] ⚠ yolo26n.onnx not found in weights/ — running "
+                      "LEGACY yolov8n. Run scripts/export_yolo26.py to produce "
+                      "weights/yolo26n.onnx and activate the YOLO26 swap.")
             return p
     return None
 

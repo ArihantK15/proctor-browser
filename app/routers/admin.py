@@ -175,7 +175,9 @@ async def admin_cleanup(request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     deleted = 0
-    cutoff  = now_ist() - timedelta(hours=48)
+    # Manual "free disk" purge must not delete below the published 30-day
+    # screenshot retention floor (Privacy Policy / DPA / Trust Center).
+    cutoff  = now_ist() - timedelta(days=30)
     teacher_root = Path(SCREENSHOTS_DIR) / tid
     if not teacher_root.is_dir():
         return {"deleted": 0}

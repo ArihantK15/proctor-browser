@@ -110,7 +110,7 @@ th{font-weight:600;color:#0f172a;background:#f8fafc}
 
 <table>
   <tr><th>Data Type</th><th>Retention Period</th><th>Deletion Mechanism</th></tr>
-  <tr><td>Exam screenshots</td><td>90 days</td><td>Automatic cleanup on startup + every 6 hours</td></tr>
+  <tr><td>Exam screenshots</td><td>30 days</td><td>Hourly background cleanup thread; deleted after 30 days</td></tr>
   <tr><td>Phone camera frames</td><td>24 hours</td><td>Redis TTL expiry</td></tr>
   <tr><td>Violation logs</td><td>1 year</td><td>Account deletion anonymizes</td></tr>
   <tr><td>Exam answers &amp; scores</td><td>Duration of account</td><td>Account deletion anonymizes</td></tr>

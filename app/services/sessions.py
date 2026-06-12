@@ -551,7 +551,9 @@ def cleanup_screenshots(stop_event=None):
         if stop_event and stop_event.wait(3600):
             break
         try:
-            cutoff = now_ist() - timedelta(hours=48)
+            # Screenshot retention window — must match the figure published
+            # in the Privacy Policy / DPA / Trust Center (30 days).
+            cutoff = now_ist() - timedelta(days=30)
             for student_dir in Path(SCREENSHOTS_DIR).iterdir():
                 if student_dir.is_dir():
                     for f in student_dir.iterdir():

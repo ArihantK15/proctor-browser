@@ -4447,7 +4447,10 @@ function escAttr(s){
 function _escHtml(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
-const esc = _escHtml;
+// Do NOT declare `esc` here. _safe.js (loaded BEFORE this file, non-module, same
+// global scope) already defines `function esc`. A `const esc` re-declaration
+// throws "Identifier 'esc' has already been declared" and breaks the ENTIRE
+// dashboard at parse time. Call sites use the _safe.js global esc.
 
 function escJs(s){
   return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/`/g,'\\`').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/</g,'\\x3c');

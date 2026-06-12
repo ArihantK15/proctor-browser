@@ -54,12 +54,36 @@ router = APIRouter(prefix="")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 # Cache-bust version stamp for static asset URLs.
-# Computed once at module import — every API restart (CI deploy) gets
-# a new value, forcing browsers + Cloudflare to fetch fresh CSS/JS
-# instead of serving stale cached copies. Cheap and self-maintaining.
+# Derived from the NEWEST mtime of the static CSS/JS — NOT a per-process
+# time.time(). That timestamp differed per worker / per restart, which (a)
+# defeated caching (re-downloaded everything on every deploy even if unchanged)
+# and (b) let the HTML reference two differently-versioned copies of the same
+# script across a restart. The mtime is identical across all workers for a
+# given deploy and changes ONLY when an asset actually changes — so caching
+# works and there's one canonical ?v= per asset set.
+import os as _os
 import time as _time
 import re as _re
-_ASSET_VERSION = str(int(_time.time()))
+
+
+def _compute_asset_version() -> str:
+    try:
+        static_dir = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "static")
+        latest = 0.0
+        for _root, _dirs, _files in _os.walk(static_dir):
+            for _fn in _files:
+                if _fn.endswith((".js", ".css")):
+                    try:
+                        latest = max(latest, _os.path.getmtime(_os.path.join(_root, _fn)))
+                    except OSError:
+                        pass
+        return str(int(latest)) if latest else str(int(_time.time()))
+    except Exception:
+        return str(int(_time.time()))
+
+
+_ASSET_VERSION = _compute_asset_version()
 _ASSET_VERSION_RE = _re.compile(
     r'(<(?:link|script)\b[^>]*\b(?:href|src)\s*=\s*["\'])(/static/[^"\']+\.(?:css|js))(["\'])'
 )

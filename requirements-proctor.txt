@@ -48,7 +48,7 @@ websocket-client>=1.6.0
 # laptop is heat-throttling. Soft-imported; if it's missing the
 # governor permanently returns TARGET_FPS (i.e. behaves like the old
 # code).
-psutil>=5.9
+psutil>=7.2.2
 
 # ── Phase 75 — on-device audio detection ──────────────────────────
 # Soft-imported in audio_processor.py: if either dep is missing the

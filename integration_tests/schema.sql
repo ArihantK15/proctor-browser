@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS organizations (
   name         TEXT,
   slug         TEXT,
   max_students INTEGER NOT NULL DEFAULT 30,
+  billing_email                TEXT,             -- phase100
+  auth_session_timeout_minutes INTEGER,          -- phase102
+  max_concurrent_auth_sessions INTEGER,          -- phase102
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96
 );
@@ -149,6 +152,7 @@ CREATE TABLE IF NOT EXISTS exam_config (
   proctoring_sensitivity  TEXT DEFAULT 'balanced',
   audio_keywords          TEXT,
   audio_keywords_language TEXT DEFAULT 'en',
+  pass_mark               SMALLINT NOT NULL DEFAULT 40,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (teacher_id, exam_id)
 );

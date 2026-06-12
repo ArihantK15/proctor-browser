@@ -432,6 +432,60 @@ async def reactivate_subscription(request: Request):
     return {"ok": True, "message": "Subscription reactivated."}
 
 
+@router.post("/api/v1/billing/portal-link")
+@limiter.limit("10/minute")
+async def billing_portal_link(request: Request):
+    """Generate a Razorpay customer portal session URL for managing
+    payment methods, invoices, and billing details.
+
+    In live mode, fetches the subscription from Razorpay to resolve the
+    customer_id, then creates a portal session. In sandbox mode, returns
+    a mock URL pointing to the Razorpay test dashboard.
+    """
+    teacher = await require_admin(request)
+    org_id = _require_billing_admin(teacher)
+
+    sub = await _atable("subscriptions").select("id,razorpay_subscription_id,status")\
+        .eq("org_id", str(org_id)).limit(1).execute()
+    if not sub.data:
+        raise HTTPException(status_code=404, detail="No subscription found")
+
+    sub_row = sub.data[0]
+    razorpay_sub_id = sub_row.get("razorpay_subscription_id", "")
+
+    client = _get_client()
+    if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
+        try:
+            rp_sub = client.subscription.fetch(razorpay_sub_id)
+            customer_id = rp_sub.get("customer_id")
+            if not customer_id:
+                raise HTTPException(status_code=502,
+                    detail="No customer associated with this subscription")
+            result = client.post(
+                f"/customers/{customer_id}/portal_sessions",
+                {"redirect_url": "https://app.procta.net/dashboard#billing"},
+            )
+            session_url = (result or {}).get("session_url", "")
+            if not session_url:
+                raise HTTPException(status_code=502,
+                    detail="Failed to create portal session")
+            logger.info("Portal session created for org=%s customer=%s", org_id, customer_id)
+            return {"portal_url": session_url}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Portal session failed for sub=%s: %s", razorpay_sub_id, e)
+            raise HTTPException(status_code=502,
+                detail="Failed to create portal session with payment provider")
+    else:
+        logger.info("Sandbox: returning mock portal URL for org=%s", org_id)
+        return {
+            "portal_url": f"https://dashboard.razorpay.com/app/portal/mock_{org_id[:8]}",
+            "sandbox": True,
+            "note": "Sandbox mode — no live portal available",
+        }
+
+
 @router.get("/api/v1/billing/invoices")
 @limiter.limit("10/minute")
 async def list_invoices(request: Request):

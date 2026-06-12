@@ -651,3 +651,34 @@ class TestReactivateSubscription:
         d = resp.json()
         assert d["ok"] is True
         rec.assert_awaited_once_with("org-1")
+
+
+class TestBillingPortalLink:
+    def test_non_admin_403(self, client):
+        with _admin_patch(NON_ADMIN):
+            resp = client.post("/api/v1/billing/portal-link", headers=admin_headers())
+        assert resp.status_code == 403
+
+    def test_no_subscription_404(self, client):
+        data_map = {"subscriptions": []}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/portal-link", headers=admin_headers())
+        assert resp.status_code == 404
+
+    def test_happy_path_sandbox(self, client):
+        data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1",
+                                       "status": "active", "razorpay_subscription_id": "mock_sub_1"}],
+                    "organizations": []}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/portal-link", headers=admin_headers())
+        print(f"DEBUG: status={resp.status_code} text={resp.text!r}", flush=True)
+        assert resp.status_code == 200
+        d = resp.json()
+        assert "portal_url" in d
+        assert "sandbox" in d
+        assert d["sandbox"] is True
+        assert "note" in d

@@ -84,6 +84,13 @@ class SARExportIn(BaseModel):
     ticket_id: str | None = None
 
 
+class SARRevokeSessionsIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    target_user_type: str = Field(..., pattern="^(teacher|student)$")
+    target_user_id: str | None = None
+    target_email: str | None = None
+
+
 async def _require_superadmin(request: Request) -> dict:
     """Reject anyone who isn't the platform owner.
 
@@ -406,3 +413,35 @@ async def sar_export(body: SARExportIn, request: Request):
         _log.exception("[sar.export] audit write failed")
 
     return data
+
+
+@router.post("/revoke-sessions")
+@limiter.limit("20/hour")
+async def sar_revoke_sessions(body: SARRevokeSessionsIn, request: Request):
+    """Superadmin: revoke all auth sessions + refresh tokens for a user.
+
+    The user can be identified by either their UUID (preferred) or email
+    (fallback). This does NOT delete the account — it only kills every
+    active access token and refresh token so the user is signed out of
+    all devices immediately. No reauth required for the operator (the
+    superadmin gate is already the strongest auth we have).
+    """
+    operator = await _require_superadmin(request)
+    target = await _resolve_target(body.target_user_type, body.target_user_id, body.target_email)
+    target_id = str(target["id"])
+    errs = await _revoke_target_sessions(body.target_user_type, target_id)
+
+    from ..services.admin_audit import log_admin_action
+    try:
+        await log_admin_action(
+            teacher_id=str(operator["id"]),
+            action="revoke_sessions",
+            target_type=body.target_user_type,
+            target_id=target_id,
+            details={"target_email": target.get("email")},
+            request=request,
+        )
+    except Exception:
+        _log.exception("[sar.revoke] audit write failed")
+
+    return {"ok": True, "revoked": True, "errors": errs or None}

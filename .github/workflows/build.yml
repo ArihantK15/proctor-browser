@@ -310,7 +310,7 @@ jobs:
       # a build that silently failed to emit a manifest.
       - name: Stash macOS manifest for merge
         if: matrix.target == 'mac'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mac-manifest-${{ matrix.arch }}
           path: dist/latest-mac.yml

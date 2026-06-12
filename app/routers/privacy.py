@@ -34,7 +34,9 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from pydantic import BaseModel, ConfigDict
 
 from ..auth import require_admin, require_student_account
+from pathlib import Path as _Path
 from .. import cache as _cache
+from ..constants import SCREENSHOTS_DIR as _SCREENSHOTS_DIR
 from ..database import async_table as _atable
 from ..limiter import limiter
 
@@ -397,6 +399,32 @@ async def _cleanup_redis_frames(user_type: str, user_id: str) -> None:
         _log.warning("[privacy.delete] Redis frame cleanup failed: %s", e)
 
 
+async def _cleanup_screenshots(user_type: str, user_id: str) -> None:
+    """Delete screenshot files for a user's exam sessions."""
+    try:
+        if user_type == "teacher":
+            teacher_dir = _Path(_SCREENSHOTS_DIR) / str(user_id)
+            if teacher_dir.is_dir():
+                import shutil as _shutil
+                _shutil.rmtree(teacher_dir, ignore_errors=True)
+        else:
+            rows = await _atable("exam_sessions").select("teacher_id,roll_number")\
+                .eq("student_id", user_id).execute()
+            seen: set = set()
+            for r in (rows.data or []):
+                tid = r.get("teacher_id")
+                roll = r.get("roll_number")
+                if not tid or not roll or (tid, roll) in seen:
+                    continue
+                seen.add((tid, roll))
+                student_dir = _Path(_SCREENSHOTS_DIR) / str(tid) / str(roll)
+                if student_dir.is_dir():
+                    import shutil as _shutil
+                    _shutil.rmtree(student_dir, ignore_errors=True)
+    except Exception as e:
+        _log.warning("[privacy.delete] screenshot cleanup failed: %s", e)
+
+
 @router.post("/delete")
 @limiter.limit("2/hour")
 async def delete_account(request: Request, body: dict = Body(default_factory=dict)):
@@ -516,6 +544,9 @@ async def delete_account(request: Request, body: dict = Body(default_factory=dic
                 }).eq("student_id", user_id).execute()
             except Exception as e:
                 errors.append(f"exam_sessions: {type(e).__name__}")
+
+    # Delete screenshot files for both teacher and student paths.
+    await _cleanup_screenshots(user_type, user_id)
 
     # Audit trail — required regardless of which path ran.
     await _record_privacy_event(

@@ -65,6 +65,84 @@ def _table_side_effect(mapping):
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  DELETE /api/v1/admin/exams/{exam_id}
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestDeleteExam:
+    DEL_HEADERS = {
+        **_admin_headers(),
+        "X-Reauth-Token": "test-reauth-token",
+    }
+
+    @staticmethod
+    def _mock_chain(data=None, count=None):
+        m = MagicMock()
+        for attr in ("select", "eq", "neq", "is_", "in_", "order",
+                     "limit", "single", "range", "insert", "upsert",
+                     "update", "delete", "gte", "lte", "gt", "lt",
+                     "like"):
+            getattr(m, attr).return_value = m
+
+        async def _execute():
+            r = MagicMock()
+            r.data = data if data is not None else []
+            r.count = count
+            return r
+
+        m.execute = _execute
+        return m
+
+    @staticmethod
+    def _mk_patch(data_map):
+        def _side_effect(name):
+            cfg = data_map.get(name, {})
+            return TestDeleteExam._mock_chain(
+                data=cfg.get("data", []),
+                count=cfg.get("count"),
+            )
+        return patch("app.routers.admin_exams._atable", side_effect=_side_effect)
+
+    def test_active_sessions_block_deletion(self, client):
+        # exam_config found, >=2 exams, but exam_sessions has active ones.
+        from unittest.mock import patch as _mpatch
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.auth.admin_auth.require_reauth_or_403"), \
+             _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._cache"), \
+             self._mk_patch({
+                 "exam_config": {"data": [{"exam_id": "exam-1"}]},
+                 "exam_sessions": {"count": 3},
+             }):
+            resp = client.delete("/api/v1/admin/exams/exam-1",
+                                 headers=self.DEL_HEADERS)
+        assert resp.status_code == 409
+        assert "active sessions" in resp.json().get("detail", "").lower()
+
+    def test_happy_path_deletes_exam(self, client):
+        from unittest.mock import patch as _mpatch
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.auth.admin_auth.require_reauth_or_403"), \
+             _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._cache"), \
+             _mpatch("app.services.admin_audit.log_admin_action"), \
+             self._mk_patch({
+                 "exam_config": {"data": [
+                     {"exam_id": "exam-1", "exam_title": "Midterm"},
+                     {"exam_id": "exam-2", "exam_title": "Final"},
+                 ]},
+                 "exam_sessions": {"count": 0},
+                 "questions": {"data": []},
+             }):
+            resp = client.delete("/api/v1/admin/exams/exam-1",
+                                 headers=self.DEL_HEADERS)
+        assert resp.status_code == 200
+        assert resp.json().get("status") == "deleted"
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  POST /api/v1/admin/exams/{exam_id}/duplicate
 # ═══════════════════════════════════════════════════════════════════
 

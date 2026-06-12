@@ -149,6 +149,15 @@ async def delete_exam(exam_id: str, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     require_reauth_or_403(None, tid, request=request)
+    # Block deletion while any live session is in progress. The cascade
+    # would orphan active proctoring sessions, leaving students in a
+    # broken state mid-exam.
+    live_count = await _atable("exam_sessions").select("session_key", count="exact")\
+        .eq("exam_id", exam_id).in_("status", [SessionStatus.IN_PROGRESS, SessionStatus.PAUSED])\
+        .execute()
+    if (live_count.count or 0) > 0:
+        raise HTTPException(status_code=409,
+            detail="Cannot delete an exam with active sessions. End those sessions first.")
     # Snapshot identifying fields for the audit log before we delete.
     before = await _atable("exam_config")\
         .select("exam_id,exam_title,duration_minutes,access_code,created_at")\

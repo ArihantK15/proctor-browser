@@ -428,6 +428,21 @@
     "students_used",
     "updated_at"
   ],
+  "breach_incidents": [
+    "affected_scope",
+    "authority_notified_at",
+    "controllers_notified_at",
+    "created_at",
+    "created_by",
+    "data_categories",
+    "description",
+    "discovered_at",
+    "id",
+    "risk_level",
+    "role",
+    "status",
+    "subjects_notified_at"
+  ],
   "violations": [
     "created_at",
     "details",

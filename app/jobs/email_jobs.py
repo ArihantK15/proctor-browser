@@ -57,7 +57,50 @@ def send_invite_email_job(
     _maybe_raise(result, context=f"invite to {to_email}")
     return {
         "ok": result.ok,
-        "provider_msg_id": result.provider_msg_id,
+        "provider_msg_id": getattr(result, "provider_msg_id", None),
+        "error": result.error,
+    }
+
+
+def send_controller_breach_notification_job(
+    *,
+    to_email: str,
+    to_name: str,
+    org_name: str,
+    description: str,
+    data_categories: str,
+    discovered_at: str,
+) -> dict:
+    from .. import emailer
+    result = emailer.send_controller_breach_notification(
+        to_email=to_email, to_name=to_name, org_name=org_name,
+        description=description, data_categories=data_categories,
+        discovered_at=discovered_at,
+    )
+    _maybe_raise(result, context=f"controller-breach-notice to {to_email}")
+    return {
+        "ok": result.ok,
+        "provider_msg_id": getattr(result, "provider_msg_id", None),
+        "error": result.error,
+    }
+
+
+def send_data_subject_breach_notification_job(
+    *,
+    to_email: str,
+    to_name: str,
+    description: str,
+    data_categories: str,
+) -> dict:
+    from .. import emailer
+    result = emailer.send_data_subject_breach_notification(
+        to_email=to_email, to_name=to_name,
+        description=description, data_categories=data_categories,
+    )
+    _maybe_raise(result, context=f"data-subject-breach-notice to {to_email}")
+    return {
+        "ok": result.ok,
+        "provider_msg_id": getattr(result, "provider_msg_id", None),
         "error": result.error,
     }
 

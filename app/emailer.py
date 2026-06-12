@@ -1368,3 +1368,112 @@ If you did NOT make this change, reset your password immediately and contact you
   </table>
 </body></html>"""
     return _send(to_email, subject, html, text)
+
+
+def send_controller_breach_notification(
+    *,
+    to_email: str,
+    to_name: str,
+    org_name: str,
+    description: str,
+    data_categories: str,
+    discovered_at: str,
+) -> SendResult:
+    """Notify an org controller of a personal-data breach (processor → controller)."""
+    subject = f"Security notice regarding your {org_name} Procta organization"
+    name_esc = _esc(to_name or "there")
+    text = (
+        f"Hi {to_name or 'there'},\n\n"
+        f"We are writing to inform you, without undue delay, of a personal-data incident "
+        f"affecting data we process on your behalf.\n\n"
+        f"  What happened: {description}\n"
+        f"  Data involved: {data_categories or 'See below'}\n"
+        f"  When we became aware: {discovered_at}\n\n"
+        f"As the data controller, you may have notification obligations to your supervisory "
+        f"authority and affected individuals. We are available to assist.\n\n"
+        f"Reply to this email or contact privacy@procta.net for further details.\n\n"
+        f"— The Procta Security Team"
+    )
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Security notice — {_esc(org_name)}</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#0f172a;padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:520px;">
+<tr><td style="background:#dc2626;padding:24px 28px;text-align:center;">
+<div style="color:#ffffff;font-size:18px;font-weight:700;">Security notice</div>
+<div style="color:#fca5a5;font-size:13px;margin-top:4px;">{_esc(org_name)}</div>
+</td></tr>
+<tr><td style="padding:28px;color:#0f172a;">
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hi {name_esc},</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">We are writing to inform you, without undue delay, of a personal-data incident affecting data we process on your behalf.</p>
+<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin:0 0 16px;">
+<div style="font-size:12px;color:#991b1b;font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px;">What happened</div>
+<div style="font-size:14px;color:#450a0a;">{_esc(description)}</div>
+</div>
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin:0 0 16px;font-size:13px;color:#475569;">
+<div style="margin-bottom:6px;"><strong>Data involved:</strong> {_esc(data_categories or 'Not specified')}</div>
+<div><strong>When we became aware:</strong> {_esc(discovered_at)}</div>
+</div>
+<p style="margin:0 0 16px;font-size:13px;color:#475569;line-height:1.5;">As the data controller, you may have notification obligations to your supervisory authority and affected individuals. We are available to assist.</p>
+<p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">Reply to this email or contact <a href="mailto:privacy@procta.net" style="color:#2563eb;">privacy@procta.net</a> for further details.</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>"""
+    return _send(to_email, subject, html, text)
+
+
+def send_data_subject_breach_notification(
+    *,
+    to_email: str,
+    to_name: str,
+    description: str,
+    data_categories: str,
+) -> SendResult:
+    """Notify a data subject of a high-risk personal-data breach (controller → user)."""
+    subject = "Important security notice about your Procta account"
+    name_esc = _esc(to_name or "there")
+    text = (
+        f"Hi {to_name or 'there'},\n\n"
+        f"We're contacting you about a security incident that may have affected your data.\n\n"
+        f"  What happened: {description}\n"
+        f"  What data: {data_categories or 'Not specified'}\n\n"
+        f"What we've done: We have contained the incident and are taking steps to prevent recurrence.\n\n"
+        f"What you should do: Reset your password and be vigilant for suspicious activity.\n\n"
+        f"We take this seriously and apologize for any concern this may cause.\n"
+        f"Questions: contact privacy@procta.net\n\n"
+        f"— The Procta Security Team"
+    )
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Security notice — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#0f172a;padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:520px;">
+<tr><td style="background:#dc2626;padding:24px 28px;text-align:center;">
+<div style="color:#ffffff;font-size:18px;font-weight:700;">Security notice</div>
+</td></tr>
+<tr><td style="padding:28px;color:#0f172a;">
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hi {name_esc},</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">We're contacting you about a security incident that may have affected your data.</p>
+<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin:0 0 16px;">
+<div style="font-size:12px;color:#991b1b;font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px;">What happened</div>
+<div style="font-size:14px;color:#450a0a;">{_esc(description)}</div>
+</div>
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin:0 0 16px;font-size:13px;color:#475569;">
+<div><strong>Data involved:</strong> {_esc(data_categories or 'Not specified')}</div>
+</div>
+<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px;margin:0 0 16px;">
+<div style="font-size:12px;color:#1e40af;font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px;">What you should do</div>
+<div style="font-size:13px;color:#1e3a5f;line-height:1.5;">Reset your password and be vigilant for suspicious activity.</div>
+</div>
+<p style="margin:0 0 16px;font-size:13px;color:#475569;line-height:1.5;">We take this seriously and apologize for any concern this may cause.</p>
+<p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">Questions: <a href="mailto:privacy@procta.net" style="color:#2563eb;">privacy@procta.net</a></p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>"""
+    return _send(to_email, subject, html, text)

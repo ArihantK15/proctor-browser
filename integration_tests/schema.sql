@@ -167,6 +167,23 @@ CREATE TABLE IF NOT EXISTS invite_send_counters (
   UNIQUE (teacher_id, day)
 );
 
+-- Breach incident records (phase103).
+CREATE TABLE IF NOT EXISTS breach_incidents (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  discovered_at           TIMESTAMPTZ NOT NULL,
+  description             TEXT NOT NULL,
+  data_categories         TEXT,
+  affected_scope          JSONB NOT NULL DEFAULT '{}',
+  risk_level              TEXT NOT NULL DEFAULT 'unknown',
+  role                    TEXT NOT NULL DEFAULT 'processor',
+  status                  TEXT NOT NULL DEFAULT 'open',
+  authority_notified_at   TIMESTAMPTZ,
+  controllers_notified_at TIMESTAMPTZ,
+  subjects_notified_at    TIMESTAMPTZ,
+  created_by              UUID,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Student roster. id is BIGSERIAL to match production (the quota trigger and
 -- the AGS grade-passback path both resolve org via teacher_id → teachers.org_id,
 -- so teacher_id is the column that matters). The phase90/91 quota trigger is

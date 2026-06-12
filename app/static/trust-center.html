@@ -163,8 +163,8 @@ th{font-weight:600;color:#0f172a;background:#f8fafc}
 <ol>
   <li><strong>Detection</strong> — Automated alerts via Sentry error tracking (error rate >5%, authentication anomalies). Infrastructure monitoring via health check endpoint (30s interval).</li>
   <li><strong>Classification</strong> — Severity levels: Critical (data breach, service outage), High (degraded performance, auth failures), Medium (non-critical bugs), Low (cosmetic issues).</li>
-  <li><strong>Response</strong> — On-call engineer notified via Sentry/PagerDuty integration. Incident reviewed within 15 minutes for critical severity.</li>
-  <li><strong>Containment</strong> — Rollback via <code>docker compose up -d --no-deps api</code> (previous image retained in GHCR). Database snapshots via Supabase point-in-time recovery.</li>
+  <li><strong>Response</strong> — On-call engineer notified via Sentry alerts. Incident reviewed within 15 minutes for critical severity.</li>
+  <li><strong>Containment</strong> — Rollback via <code>docker compose up -d --force-recreate api</code> (previous image retained in GHCR). Daily automated Postgres backups (pg_dump, 14-day retention) on self-hosted infrastructure.</li>
   <li><strong>Recovery</strong> — Full deploy pipeline: restore from last passing CI build, run migrations, health check, smoke test. Target: 30-minute RTO.</li>
   <li><strong>Post-mortem</strong> — Root cause analysis documented, preventive measures added to CI/test suite, deploy checklist updated.</li>
 </ol>

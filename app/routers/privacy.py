@@ -317,17 +317,15 @@ async def export_data(request: Request):
             if s.get("session_key")
         ]
         if session_keys:
-            # answer + violation pulls are session-scoped, so we run one
-            # query per session_key. Cap at 500 sessions and flag if
-            # the user has more — going past that on a synchronous
-            # export risks timeout regardless of memory.
             SESSION_CAP = 500
             if len(session_keys) > SESSION_CAP:
-                data["_truncated_tables"].append("answers")
-                data["_truncated_tables"].append("violations")
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Export exceeds {SESSION_CAP} sessions. Contact support for a full export.",
+                )
             answers: list[dict] = []
             violations: list[dict] = []
-            for sk in session_keys[:SESSION_CAP]:
+            for sk in session_keys:
                 answers.extend(await _safe_fetch("answers", eq={"session_key": sk}))
                 violations.extend(await _safe_fetch("violations", eq={"session_key": sk}))
             data["answers"] = answers

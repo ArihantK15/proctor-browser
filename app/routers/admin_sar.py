@@ -369,12 +369,14 @@ async def sar_export(body: SARExportIn, request: Request):
             if s.get("session_key")
         ]
         SESSION_CAP = 500
-        data["_truncated_tables"] = []
         if len(session_keys) > SESSION_CAP:
-            data["_truncated_tables"].extend(["answers", "violations"])
+            raise HTTPException(
+                status_code=413,
+                detail=f"Export exceeds {SESSION_CAP} sessions. Use a smaller time range or contact support.",
+            )
         answers: list[dict] = []
         violations: list[dict] = []
-        for sk in session_keys[:SESSION_CAP]:
+        for sk in session_keys:
             answers.extend(await _safe_fetch("answers", eq={"session_key": sk}))
             violations.extend(await _safe_fetch("violations", eq={"session_key": sk}))
         data["answers"] = answers

@@ -1785,10 +1785,16 @@ def _detect_virtual_camera():
                         return keyword
         elif system == "Windows":
             import subprocess
+            # wmic was removed in Windows 11 24H2 — use the supported
+            # Get-CimInstance (present on every Windows 10+ box). The old
+            # `wmic path Win32_PnPEntity` call returned nothing on current
+            # installs, so virtual-camera detection went silently dark there.
             result = subprocess.run(
-                ["wmic", "path", "Win32_PnPEntity",
-                 "where", "PNPClass='Media'", "get", "Name"],
-                capture_output=True, text=True, timeout=5)
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-CimInstance Win32_PnPEntity | "
+                 "Where-Object { $_.PNPClass -eq 'Media' } | "
+                 "Select-Object -ExpandProperty Name"],
+                capture_output=True, text=True, timeout=8)
             if result.returncode == 0:
                 for keyword in VIRTUAL_CAM_KEYWORDS:
                     if keyword.lower() in result.stdout.lower():
@@ -1857,10 +1863,16 @@ def _detect_vm() -> Optional[str]:
                         return indicator
         elif system == "Windows":
             import subprocess
+            # wmic was removed in Windows 11 24H2, so the old `wmic bios` /
+            # `wmic computersystem` calls returned nothing on current installs
+            # and Windows VM detection went silently dark. Get-CimInstance is
+            # the supported replacement, present on every Windows 10+ box —
+            # mirror of the fix already in lib/integrity.js.
             # Check BIOS serial number (VMs often use generic ones)
             result = subprocess.run(
-                ["wmic", "bios", "get", "serialnumber"],
-                capture_output=True, text=True, timeout=5)
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-CimInstance Win32_BIOS | Select-Object -ExpandProperty SerialNumber"],
+                capture_output=True, text=True, timeout=8)
             if result.returncode == 0:
                 out = result.stdout.lower()
                 for indicator in VM_INDICATORS:
@@ -1870,10 +1882,12 @@ def _detect_vm() -> Optional[str]:
                 if "vmware" in out or "virtualbox" in out or \
                    "0000" in out or "none" in out:
                     return "generic_bios_serial"
-            # Check manufacturer
+            # Check manufacturer + model (Parallels / VMware show in Model)
             result = subprocess.run(
-                ["wmic", "computersystem", "get", "manufacturer"],
-                capture_output=True, text=True, timeout=5)
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-CimInstance Win32_ComputerSystem | "
+                 "Select-Object Manufacturer,Model | Format-List"],
+                capture_output=True, text=True, timeout=8)
             if result.returncode == 0:
                 for indicator in VM_INDICATORS:
                     if indicator in result.stdout.lower():

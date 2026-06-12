@@ -223,6 +223,62 @@ CREATE TABLE IF NOT EXISTS objection_records (
   resolved_at TIMESTAMPTZ
 );
 
+-- Transient auth tables the TTL sweeper (sweep_transient_rows, phase86/101/104)
+-- DELETEs from. The phase104 sweep test invokes the WHOLE function, so every
+-- table it touches must exist here or the first DELETE aborts the call.
+CREATE TABLE IF NOT EXISTS google_oauth_states (
+  state      TEXT PRIMARY KEY,
+  teacher_id UUID,
+  expires_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS email_otps (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID,
+  user_kind  TEXT,
+  purpose    TEXT,
+  code_hash  TEXT,
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  used_at    TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  jti             TEXT PRIMARY KEY,
+  user_id         UUID,
+  kind            TEXT,
+  ip              TEXT,
+  user_agent      TEXT,
+  replaced_by_jti TEXT,
+  issued_at       TIMESTAMPTZ,
+  revoked_at      TIMESTAMPTZ,
+  expires_at      TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  jti          TEXT PRIMARY KEY,
+  user_id      UUID,
+  user_kind    TEXT,
+  ip           TEXT,
+  user_agent   TEXT,
+  issued_at    TIMESTAMPTZ,
+  last_seen_at TIMESTAMPTZ,
+  revoked_at   TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS auth_events (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID,
+  user_kind  TEXT,
+  email      TEXT,
+  event_type TEXT,
+  ip         TEXT,
+  user_agent TEXT,
+  meta       JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Student roster. id is BIGSERIAL to match production (the quota trigger and
 -- the AGS grade-passback path both resolve org via teacher_id → teachers.org_id,
 -- so teacher_id is the column that matters). The phase90/91 quota trigger is

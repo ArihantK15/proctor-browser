@@ -509,19 +509,20 @@ async def list_invoices(request: Request):
              "pdf_url": None, "description": "Growth plan — mocked (sandbox mode)"},
         ]}
 
+    # P2.5: Razorpay returns `created_at` as Unix epoch seconds (int).
+    # React clients pipe it into `new Date(value)` which expects ms or
+    # ISO — the seconds value rendered as a 1970-era date. Convert
+    # here so the contract is human-readable ISO 8601 in UTC.
+    def _to_iso(epoch_secs):
+        if not epoch_secs: return ""
+        try:
+            return datetime.fromtimestamp(int(epoch_secs), tz=timezone.utc).isoformat()
+        except (TypeError, ValueError):
+            return str(epoch_secs)  # last-resort: pass through
+
     try:
         client = _get_client()
         raw = client.invoice.all({"subscription_id": sub_id})
-        # P2.5: Razorpay returns `created_at` as Unix epoch seconds (int).
-        # React clients pipe it into `new Date(value)` which expects ms or
-        # ISO — the seconds value rendered as a 1970-era date. Convert
-        # here so the contract is human-readable ISO 8601 in UTC.
-        def _to_iso(epoch_secs):
-            if not epoch_secs: return ""
-            try:
-                return datetime.fromtimestamp(int(epoch_secs), tz=timezone.utc).isoformat()
-            except (TypeError, ValueError):
-                return str(epoch_secs)  # last-resort: pass through
         invoices = [
             {"id": inv["id"], "amount": inv["amount"], "currency": inv["currency"],
              "status": inv["status"], "created_at": _to_iso(inv.get("created_at")),
@@ -532,6 +533,32 @@ async def list_invoices(request: Request):
         return {"invoices": invoices}
     except Exception as e:
         logger.warning("Failed to fetch Razorpay invoices: %s", e)
+        try:
+            ev_rows = (await _atable("billing_events").select("payload,event_type,amount,status,created_at")
+                       .eq("org_id", str(org_id)).eq("razorpay_subscription_id", sub_id)
+                       .like("event_type", "invoice.%")
+                       .order("created_at", desc=True).execute()).data or []
+            invoices = []
+            for ev in ev_rows:
+                payload = ev.get("payload")
+                if isinstance(payload, str):
+                    import json as _json
+                    payload = _json.loads(payload)
+                inv = (payload or {}).get("payload", {}).get("invoice", {}) if isinstance(payload, dict) else {}
+                if inv.get("id"):
+                    invoices.append({
+                        "id": inv["id"],
+                        "amount": inv.get("amount", ev.get("amount", 0)),
+                        "currency": inv.get("currency", "INR"),
+                        "status": inv.get("status", ev.get("status", "unknown")),
+                        "created_at": _to_iso(inv.get("created_at")),
+                        "pdf_url": inv.get("invoice_url") or None,
+                        "description": inv.get("description", f"invoice.{ev.get('event_type', 'unknown')}"),
+                    })
+            if invoices:
+                return {"invoices": invoices, "_cached": True}
+        except Exception as e2:
+            logger.warning("Failed to reconstruct invoices from billing_events: %s", e2)
         return {"invoices": [], "error": "Failed to fetch invoices. Try again later."}
 
 

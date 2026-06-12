@@ -78,15 +78,22 @@ const MAIN_FRAME = { senderFrame: { parent: null, url: 'file:///app/renderer/ind
 
 const invoke = (ch, ev, ...args) => handlers.get(ch)(ev, ...args);
 
-// Privileged handlers that must enforce the frame-gate.
+// Privileged handlers that must enforce the frame-gate. Includes the
+// state-changing/destructive ones (kiosk panic-unlock, admin-exit, proctor
+// start/stop, exam exit, lobby launch) — an iframe must never be able to drive
+// a kiosk escape or terminate the exam — alongside the data handlers.
 const GATED = ['get-integrity-flags', 'validate-student', 'get-questions',
-               'log-event', 'submit-exam', 'get-events', 'start-calibration'];
+               'log-event', 'submit-exam', 'get-events', 'start-calibration',
+               'start-proctor', 'stop-proctor', 'panic-unlock', 'admin-exit',
+               'exit-exam-to-lobby', 'lobby-launch-exam'];
 
 describe('IPC frame-gate (security boundary)', () => {
   for (const ch of GATED) {
     test(`${ch} rejects a sub-frame caller`, async () => {
       assert.ok(handlers.has(ch), `handler ${ch} should be registered`);
-      await assert.rejects(() => invoke(ch, SUB_FRAME), /frame not allowed/i);
+      // `async () =>` so a SYNC handler's throw is surfaced as a rejection too
+      // (some gated handlers are sync, e.g. stop-proctor / admin-exit).
+      await assert.rejects(async () => invoke(ch, SUB_FRAME), /frame not allowed/i);
     });
   }
 
@@ -97,8 +104,7 @@ describe('IPC frame-gate (security boundary)', () => {
 
 describe('IPC contract registry', () => {
   test('the documented privileged channels are all registered', () => {
-    const expected = [...GATED, 'get-app-version', 'start-proctor', 'stop-proctor',
-                      'panic-unlock', 'admin-exit', 'exit-exam-to-lobby', 'get-exam-context'];
+    const expected = [...GATED, 'get-app-version', 'get-exam-context'];
     for (const ch of expected) assert.ok(handlers.has(ch), `missing handler: ${ch}`);
   });
 });

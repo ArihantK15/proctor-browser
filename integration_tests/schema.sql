@@ -45,6 +45,32 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   -- past_due_since + status CHECK added by phase96
 );
 
+-- Immutable financial event log (phase96). Swept at 7 years (phase104).
+CREATE TABLE IF NOT EXISTS billing_events (
+  id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id                   UUID REFERENCES organizations(id),
+  event_id                 TEXT,
+  event_type               TEXT,
+  razorpay_payment_id      TEXT,
+  razorpay_subscription_id TEXT,
+  amount                   INTEGER,
+  currency                 TEXT,
+  status                   TEXT,
+  payload                  JSONB,
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Per-org exam-usage snapshots. Swept at 7 years (phase104).
+CREATE TABLE IF NOT EXISTS usage_records (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID REFERENCES organizations(id),
+  exam_attempts   INTEGER NOT NULL DEFAULT 0,
+  overage         INTEGER NOT NULL DEFAULT 0,
+  overage_amount  INTEGER NOT NULL DEFAULT 0,
+  period_end      TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS teachers (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     UUID REFERENCES organizations(id),

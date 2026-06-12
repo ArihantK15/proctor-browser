@@ -53,13 +53,14 @@ _PHASE96 = _MIGRATIONS / "phase96_billing_enterprise.sql"
 # so the integration suite validates the ACTUAL production trigger, not a copy.
 _PHASE90 = _MIGRATIONS / "phase90_org_student_quota_trigger.sql"
 _PHASE91 = _MIGRATIONS / "phase91_quota_trigger_race_fix.sql"
+_PHASE104 = _MIGRATIONS / "phase104_sweep_billing_7yr.sql"
 
 # Every table the suite writes, truncated between tests so state never leaks.
 # Written as a single STATIC string literal (no runtime concatenation / no
 # variables) — the table set is hardcoded, never user input — so static
 # analysis sees a constant query, not a raw-SQL-injection risk.
 _TRUNCATE_SQL = (
-    "TRUNCATE billing_events, answers, violations, exam_sessions, "
+    "TRUNCATE billing_events, usage_records, answers, violations, exam_sessions, "
     "question_bank, questions, exam_config, invite_send_counters, students, "
     "subscriptions, teachers, organizations "
     "RESTART IDENTITY CASCADE"
@@ -102,6 +103,7 @@ def _build_schema():
             # the quota integration test.
             await conn.execute(_PHASE90.read_text())
             await conn.execute(_PHASE91.read_text())
+            await conn.execute(_PHASE104.read_text())  # validates the real migration
         finally:
             await conn.close()
 

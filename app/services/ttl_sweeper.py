@@ -1,11 +1,11 @@
 """Periodic invocation of the SQL TTL sweeper function.
 
 Calls ``public.sweep_transient_rows()`` (defined in phase86, extended in
-phase101) every TTL_SWEEPER_INTERVAL_SECS seconds. The function deletes
+phase101 and phase104) every TTL_SWEEPER_INTERVAL_SECS seconds. The function deletes
 aged rows from google_oauth_states, email_otps, refresh_tokens,
-auth_sessions, auth_events and violations using retention windows tuned
-for forensic value vs storage cost (see migrations/phase101_ttl_sweep_violations.sql
-for the per-table windows).
+auth_sessions, auth_events, violations, billing_events and usage_records
+using retention windows tuned for forensic value vs storage cost
+(see migrations/phase104_sweep_billing_7yr.sql for the per-table windows).
 
 Only the leader worker should run this loop (enforced in main.py via the
 same is_leader check the heartbeat reaper uses). Running on every worker

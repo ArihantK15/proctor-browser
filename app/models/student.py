@@ -16,6 +16,11 @@ class RegisterIn(BaseModel):
     # exam in their lobby rather than whatever exam_config happens
     # to be first for the teacher.
     exam_id:     Optional[str] = None
+    # Date of birth for minor consent gate (GDPR Art 8 / COPPA).
+    # When age < 18 the system requires guardian_email and auto-sends
+    # a consent request to the parent/guardian.
+    date_of_birth: Optional[str] = None
+    guardian_email: Optional[str] = None
 
 
 class ValidateIn(BaseModel):

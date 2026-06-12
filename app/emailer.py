@@ -1533,3 +1533,56 @@ def send_objection_to_controller_notice(
 </table>
 </body></html>"""
     return _send(to_email, subject, html, text)
+
+
+def send_guardian_consent_request(
+    *,
+    to_email: str,
+    to_name: str,
+    student_name: str,
+    consent_url: str,
+) -> SendResult:
+    """Email a guardian asking them to consent to their child's exam proctoring.
+
+    The *consent_url* is a one-click link containing a UUID token that records
+    consent when visited.
+    """
+    subject = "Action required: consent to exam proctoring for your child"
+    parent_esc = _esc(to_name or "Guardian")
+    student_esc = _esc(student_name)
+    text = (
+        f"Hi {parent_esc or 'there'},\n\n"
+        f"Your child, {student_esc}, has been registered for an online proctored exam "
+        f"through Procta. As part of our commitment to data protection, we need your "
+        f"consent before the exam can begin.\n\n"
+        f"Click the link below to give your consent:\n"
+        f"  {consent_url}\n\n"
+        f"This link expires in 7 days.\n\n"
+        f"If you did not expect this, please contact the school or teacher who "
+        f"registered your child.\n\n"
+        f"— The Procta Privacy Team"
+    )
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Consent request — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#0f172a;padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:520px;">
+<tr><td style="background:#5b8af0;padding:24px 28px;text-align:center;">
+<div style="color:#ffffff;font-size:18px;font-weight:700;">Consent request</div>
+<div style="color:#bfdbfe;font-size:13px;margin-top:4px;">Exam proctoring for {student_esc}</div>
+</td></tr>
+<tr><td style="padding:28px;color:#0f172a;">
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hi {parent_esc},</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Your child, <strong>{student_esc}</strong>, has been registered for an online proctored exam through Procta. As part of our commitment to data protection, we need your consent before the exam can begin.</p>
+<div style="text-align:center;margin:24px 0;">
+<a href="{_esc(consent_url)}" style="display:inline-block;padding:14px 32px;background:#5b8af0;color:#ffffff;border-radius:8px;font-size:15px;font-weight:600;text-decoration:none;">Give consent</a>
+</div>
+<p style="margin:0 0 16px;font-size:13px;color:#475569;line-height:1.5;">This link expires in 7 days. If you did not expect this, please contact the school or teacher who registered your child.</p>
+<p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">— The Procta Privacy Team</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>"""
+    return _send(to_email, subject, html, text)

@@ -522,7 +522,7 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
     tids = await scope_to_teacher_ids(scope)
 
     query = (_atable("students")
-             .select("roll_number,full_name,email,phone,teacher_id"))
+             .select("roll_number,full_name,email,phone,teacher_id,guardian_email,guardian_consent_granted_at,guardian_consent_requested_at,date_of_birth"))
     if tids is not None:
         query = query.in_("teacher_id", tids) if tids else query.eq("teacher_id", "__none__")
     if q:
@@ -567,6 +567,10 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
             "avg_percentage": avg_pct,
             "last_exam_date": fmt_ist(last_exam.get("submitted_at", "")) if last_exam else None,
             "last_exam_risk": last_exam.get("risk_score") if last_exam else None,
+            "guardian_email": s.get("guardian_email"),
+            "guardian_consent_granted_at": s.get("guardian_consent_granted_at"),
+            "guardian_consent_requested_at": s.get("guardian_consent_requested_at"),
+            "date_of_birth": s.get("date_of_birth"),
         })
 
     start = (page - 1) * page_size

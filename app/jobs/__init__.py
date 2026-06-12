@@ -15,6 +15,7 @@ from .email_jobs import (
     send_controller_breach_notification_job,
     send_data_subject_breach_notification_job,
     send_objection_to_controller_notice_job,
+    send_guardian_consent_request_job,
 )
 from .autosave_jobs import flush_autosave_job
 from .scoring_jobs import score_submission_job
@@ -28,6 +29,7 @@ __all__ = [
     "send_controller_breach_notification_job",
     "send_data_subject_breach_notification_job",
     "send_objection_to_controller_notice_job",
+    "send_guardian_consent_request_job",
     "flush_autosave_job",
     "score_submission_job",
     "ags_grade_passback_job",

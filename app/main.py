@@ -32,6 +32,7 @@ from .domains.proctoring import exam_router
 from .routers.admin import router as admin_router
 from .routers.admin_sar import router as admin_sar_router
 from .routers.admin_breach import router as admin_breach_router
+from .routers.admin_guardian import router as admin_guardian_router
 from .routers.issues import router as issues_router
 from .domains.exams import question_bank_router
 from .routers.grading import router as grading_router
@@ -921,3 +922,4 @@ app.include_router(appeals_router)
 app.include_router(admin_status_router)
 app.include_router(admin_sar_router)
 app.include_router(admin_breach_router)
+app.include_router(admin_guardian_router)

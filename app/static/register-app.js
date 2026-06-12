@@ -129,6 +129,26 @@ function showRegistrationForm(){
   loadSchedule();
 }
 
+function _checkMinorStatus(){
+  const dobVal = document.getElementById('inp-dob')?.value;
+  const guardianField = document.getElementById('guardian-field');
+  if(!dobVal || !guardianField) return;
+  const birth = new Date(dobVal);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if(m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  if(age < 18){
+    guardianField.style.display = '';
+    document.getElementById('inp-guardian-email').required = true;
+    document.getElementById('inp-guardian-email').setAttribute('required', '');
+  } else {
+    guardianField.style.display = 'none';
+    document.getElementById('inp-guardian-email').required = false;
+    document.getElementById('inp-guardian-email').removeAttribute('required');
+  }
+}
+
 function clearErr(){
   document.getElementById('reg-err').textContent='';
   document.querySelectorAll('.err-border').forEach(e=>e.classList.remove('err-border'));
@@ -167,6 +187,8 @@ async function doRegister(){
   const roll  = document.getElementById('inp-roll').value.trim().toUpperCase();
   const email = document.getElementById('inp-email').value.trim();
   const phone = document.getElementById('inp-phone').value.trim();
+  const dob   = document.getElementById('inp-dob')?.value?.trim() || '';
+  const guardianEmail = document.getElementById('inp-guardian-email')?.value?.trim() || '';
   const pwd   = document.getElementById('inp-pwd').value;
   const pwd2  = document.getElementById('inp-pwd2').value;
 
@@ -226,7 +248,7 @@ async function doRegister(){
       // (cookie present + no X-CSRF-Token header) and 403 the registration.
       credentials: 'omit',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, teacher_id:_teacherId, exam_id:_examId||null})
+      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, date_of_birth:dob||null, guardian_email:guardianEmail||null, teacher_id:_teacherId, exam_id:_examId||null})
     });
     if(!r1.ok){
       const err = await r1.json().catch(()=>({detail:'Registration failed'}));

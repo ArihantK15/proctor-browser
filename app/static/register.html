@@ -241,6 +241,21 @@
       <input type="tel" id="inp-phone" placeholder="e.g. 9876543210"
              autocomplete="tel">
     </div>
+    <div class="fg">
+      <label>Date of Birth <span class="opt">(required for minors)</span></label>
+      <input type="date" id="inp-dob" max="2016-01-01"
+             style="color-scheme:dark"
+             data-input-action="_checkMinorStatus">
+    </div>
+    <div class="fg" id="guardian-field" style="display:none">
+      <label>Guardian Email <span class="req">*</span></label>
+      <input type="email" id="inp-guardian-email" placeholder="e.g. parent@example.com"
+             autocomplete="email"
+             data-input-action="clearErr">
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">
+        Required when the student is under 18.
+      </div>
+    </div>
 
     <a href="#" id="have-acct-link" class="toggle-link" data-action="toggleExistingAccount"
        style="display:inline-block;margin:6px 0 2px;font-size:13px;font-weight:600;color:var(--accent,#6ea8fe);cursor:pointer;text-decoration:none">

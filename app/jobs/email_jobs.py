@@ -238,3 +238,23 @@ def send_new_account_notification_job(
         "provider_msg_id": getattr(result, "provider_msg_id", None),
         "error": result.error,
     }
+
+
+def send_guardian_consent_request_job(
+    *,
+    to_email: str,
+    to_name: str,
+    student_name: str,
+    consent_url: str,
+) -> dict:
+    from .. import emailer
+    result = emailer.send_guardian_consent_request(
+        to_email=to_email, to_name=to_name,
+        student_name=student_name, consent_url=consent_url,
+    )
+    _maybe_raise(result, context=f"guardian consent to {to_email}")
+    return {
+        "ok": result.ok,
+        "provider_msg_id": getattr(result, "provider_msg_id", None),
+        "error": result.error,
+    }

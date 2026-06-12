@@ -284,14 +284,20 @@ CREATE TABLE IF NOT EXISTS auth_events (
 -- so teacher_id is the column that matters). The phase90/91 quota trigger is
 -- attached to this table in conftest.py so the REAL trigger DDL is exercised.
 CREATE TABLE IF NOT EXISTS students (
-  id          BIGSERIAL PRIMARY KEY,
-  roll_number TEXT NOT NULL,
-  full_name   TEXT,
-  email       TEXT,
-  teacher_id  UUID,
-  account_id  UUID,
-  org_id      UUID,
-  created_at  TIMESTAMPTZ DEFAULT now(),
-  removed_at  TIMESTAMPTZ,
+  id                           BIGSERIAL PRIMARY KEY,
+  roll_number                  TEXT NOT NULL,
+  full_name                    TEXT,
+  email                        TEXT,
+  teacher_id                   UUID,
+  account_id                   UUID,
+  org_id                       UUID,
+  date_of_birth                DATE,
+  guardian_email               TEXT,
+  guardian_consent_token_hash  TEXT,
+  guardian_consent_requested_at TIMESTAMPTZ,
+  guardian_consent_granted_at  TIMESTAMPTZ,
+  guardian_consent_denied_at   TIMESTAMPTZ,
+  created_at                   TIMESTAMPTZ DEFAULT now(),
+  removed_at                   TIMESTAMPTZ,
   UNIQUE (roll_number, teacher_id)
 );

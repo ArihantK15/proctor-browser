@@ -7383,7 +7383,7 @@ async function refreshStudentList(){
     historyStudents = (data.students || []).sort(_historyCompare);
     renderHistoryList();
   }catch(e){
-    document.getElementById('history-body').innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load: '+_escHtml(e.message)+'</td></tr>';
+    document.getElementById('history-body').innerHTML = '<tr><td colspan="8" class="empty-state">Failed to load: '+_escHtml(e.message)+'</td></tr>';
   }
 }
 
@@ -7395,11 +7395,16 @@ function filterHistorySearch(){
 function renderHistoryList(){
   const body = document.getElementById('history-body');
   if(!historyStudents.length){
-    body.innerHTML = '<tr><td colspan="7" class="empty-state">No students found</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="empty-state">No students found</td></tr>';
     return;
   }
-  body.innerHTML = historyStudents.map(s=>{
+    body.innerHTML = historyStudents.map(s=>{
     const riskBadge = s.last_exam_risk != null ? _riskBadge(s.last_exam_risk) : '—';
+    const guardianHtml = _guardianBadge(s);
+    const actionHtml = guardianHtml.actionBtn
+      ? `<button class="btn btn-secondary btn-sm" data-action="sendGuardianConsent" data-args='${_jsonArgsForAttr(s.roll_number)}'>${guardianHtml.actionBtn}</button>
+         <button class="btn btn-primary btn-sm" data-action="viewStudentHistory" data-args='${_jsonArgsForAttr(s.roll_number)}'>View History</button>`
+      : `<button class="btn btn-primary btn-sm" data-action="viewStudentHistory" data-args='${_jsonArgsForAttr(s.roll_number)}'>View History</button>`;
     return `<tr>
       <td style="font-family:var(--font-mono);font-size:13px">${_escHtml(s.roll_number)}</td>
       <td>${_escHtml(s.full_name)}</td>
@@ -7407,7 +7412,8 @@ function renderHistoryList(){
       <td>${s.avg_percentage != null ? s.avg_percentage+'%' : '—'}</td>
       <td>${riskBadge}</td>
       <td style="font-size:13px;color:var(--muted)">${_escHtml(s.last_exam_date || '—')}</td>
-      <td><button class="btn btn-primary btn-sm" data-action="viewStudentHistory" data-args='${_jsonArgsForAttr(s.roll_number)}'>View History</button></td>
+      <td style="font-size:13px">${guardianHtml.badge}</td>
+      <td style="white-space:nowrap">${actionHtml}</td>
     </tr>`;
   }).join('');
 }
@@ -7427,6 +7433,38 @@ function _historyCompare(a,b){
   if(typeof va==='number' && typeof vb==='number') return historySortAsc ? va-vb : vb-va;
   const cmp = String(va).localeCompare(String(vb));
   return historySortAsc ? cmp : -cmp;
+}
+
+function _guardianBadge(s){
+  const email = s.guardian_email;
+  if(!email) return {badge: '<span style="color:var(--muted)">—</span>', actionBtn: null};
+  const granted = s.guardian_consent_granted_at;
+  if(granted){
+    return {badge: '<span style="color:var(--emerald);font-weight:600">Consented ✓</span>', actionBtn: null};
+  }
+  const requested = s.guardian_consent_requested_at;  // may not be on the object yet
+  if(requested){
+    return {badge: '<span style="color:var(--amber);font-weight:600">Pending</span>', actionBtn: 'Re-send Request'};
+  }
+  return {badge: '<span style="color:var(--amber);font-weight:600">Pending</span>', actionBtn: 'Send Request'};
+}
+
+async function sendGuardianConsent(roll){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/guardian/send-request`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roll_number: roll}),
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({detail:`HTTP ${r.status}`}));
+      showModal('Error', err.detail || 'Failed to send consent request');
+      return;
+    }
+    refreshStudentList();
+  }catch(e){
+    showModal('Error', 'Failed to send consent request: '+e.message);
+  }
 }
 
 function _riskBadge(score){

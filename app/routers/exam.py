@@ -185,6 +185,7 @@ async def validate_student(request: Request, body: ValidateIn):
         matched_invite_id = await _validate_access_code(
             provided_code, student_tid, student, exam_id) or matched_invite_id
         await _check_group_restrictions(student, student_tid, exam_id)
+        await _check_guardian_consent(student)
         existing_key = await _check_existing_session(student, student_tid, exam_id)
         if not existing_key:
             await _check_concurrent_exam_limit(student, student_tid)
@@ -296,7 +297,7 @@ async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str, pr
 async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: str) -> tuple:
     """Look up student scoped by teacher_id; auto-enroll from invite if needed.
     Returns (student_dict, teacher_id, matched_invite_id)."""
-    result_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id").eq("roll_number", roll_upper)
+    result_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,guardian_email,guardian_consent_granted_at,date_of_birth").eq("roll_number", roll_upper)
     if pre_tid:
         result_q = result_q.eq("teacher_id", str(pre_tid))
     result = await result_q.execute()
@@ -362,7 +363,7 @@ async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: st
                 }).eq("id", inv["id"]).execute()
             return student, student.get("teacher_id"), None
         # Fallback re-query
-        recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id").eq("roll_number", roll_upper)
+        recheck_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,guardian_email,guardian_consent_granted_at,date_of_birth").eq("roll_number", roll_upper)
         if "teacher_id" in student_row:
             recheck_q = recheck_q.eq("teacher_id", str(student_row["teacher_id"]))
         recheck = await recheck_q.execute()
@@ -436,6 +437,41 @@ async def _check_group_restrictions(student: dict, student_tid: str, exam_id: st
         from ..repositories.sessions import check_group_access as _check_group_access
         if not await _check_group_access(student["roll_number"], str(student_tid), exam_id):
             raise HTTPException(status_code=403, detail="You are not in a group assigned to this exam.")
+
+
+async def _check_guardian_consent(student: dict) -> None:
+    """Raise 403 if the student is a minor and consent has not been granted.
+
+    Minor = date_of_birth → age < 18. Legacy rows with NULL date_of_birth
+    are allowed through with a log warning (teacher-managed consent).
+    """
+    dob_str = student.get("date_of_birth")
+    if not dob_str:
+        return  # legacy row — allow
+    try:
+        if isinstance(dob_str, str):
+            dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
+        else:
+            dob = dob_str
+        # Calendar age — NOT days//365 (overestimates and would let a
+        # 17-year-old near their birthday skip the minor gate).
+        _today = datetime.now(timezone.utc).date()
+        age = _today.year - dob.year - ((_today.month, _today.day) < (dob.month, dob.day))
+    except (ValueError, TypeError):
+        _exam_log.warning("[consent] bad date_of_birth on roll=%s — allowing",
+                          safe(student.get("roll_number", "")))
+        return
+
+    if age >= 18:
+        return  # adult — no gate
+
+    consent_granted = student.get("guardian_consent_granted_at")
+    if not consent_granted:
+        raise HTTPException(
+            status_code=403,
+            detail="Guardian consent is required before you can start this exam. "
+                   "Please ask your parent or guardian to check their email for the consent request.",
+        )
 
 
 async def _check_concurrent_exam_limit(student: dict, student_tid: str) -> None:

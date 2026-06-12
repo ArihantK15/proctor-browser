@@ -363,6 +363,35 @@ async def register_student(request: Request, body: RegisterIn):
         from ..services.sessions import check_org_limits
         await check_org_limits({"org_id": org_id, "org_role": teacher.get("org_role", "teacher")}, delta=1)
 
+    # ── Minor consent gate ───────────────────────────────────────
+    # Server re-computes age from date_of_birth.
+    date_of_birth_str = (body.date_of_birth or "").strip()
+    dob = None
+    is_minor = False
+    if date_of_birth_str:
+        try:
+            dob = datetime.strptime(date_of_birth_str, "%Y-%m-%d").date()
+            # Calendar age — NOT days//365, which overestimates (365 vs
+            # 365.25) and would classify a 17-year-old near their birthday
+            # as an adult, skipping the minor gate.
+            _today = datetime.now(timezone.utc).date()
+            age = _today.year - dob.year - ((_today.month, _today.day) < (dob.month, dob.day))
+            if age < 0:
+                raise ValueError("negative age")
+            is_minor = age < 18
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid date_of_birth format — use YYYY-MM-DD")
+
+    guardian_email = (body.guardian_email or "").strip().lower() or None
+    if is_minor:
+        if not guardian_email:
+            raise HTTPException(
+                status_code=422,
+                detail="A guardian email is required for students under 18. Please provide a parent or guardian email.",
+            )
+        if "@" not in guardian_email:
+            raise HTTPException(status_code=400, detail="Invalid guardian email format")
+
     if not returning_student:
         row = {
             "roll_number": roll,
@@ -370,6 +399,8 @@ async def register_student(request: Request, body: RegisterIn):
             "email":       email,
             "phone":       phone,
             "teacher_id":  teacher_id,
+            "date_of_birth": date_of_birth_str if date_of_birth_str else None,
+            "guardian_email": guardian_email,
         }
         try:
             await _atable("students").insert(row).execute()
@@ -401,6 +432,45 @@ async def register_student(request: Request, body: RegisterIn):
                 .execute()
     except Exception as e:
         _pub_log.warning("[register_student] auto-link failed: %s", e)
+
+    # ── Auto-send guardian consent for minors ─────────────────────
+    # If this student is a minor with a guardian_email, generate a
+    # consent token, store its SHA-256 hash, and enqueue the email
+    # immediately — no teacher action needed.
+    if is_minor and guardian_email:
+        import hashlib
+        import uuid as _uuid
+        from ..jobs import enqueue_job, send_guardian_consent_request_job
+
+        raw_token = str(_uuid.uuid4())
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        try:
+            await (
+                _atable("students")
+                .update({
+                    "guardian_consent_token_hash": token_hash,
+                    "guardian_consent_requested_at": now_iso,
+                })
+                .eq("roll_number", roll)
+                .eq("teacher_id", teacher_id)
+                .execute()
+            )
+
+            base_url = _get_invite_base_url()
+            consent_url = f"{base_url}/guardian-consent/{raw_token}"
+
+            enqueue_job(
+                send_guardian_consent_request_job,
+                to_email=guardian_email,
+                to_name=guardian_email.split("@")[0],
+                student_name=name,
+                consent_url=consent_url,
+            )
+        except Exception as e:
+            _pub_log.warning("[register_student] guardian consent auto-send failed "
+                             "(roll=%s): %s", roll, e)
 
     # Per-exam association: record (or refresh) a student_invites row so
     # this self-registration is counted in the exam's "registered" roster

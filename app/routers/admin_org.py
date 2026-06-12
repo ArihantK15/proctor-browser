@@ -79,11 +79,16 @@ async def list_members(request: Request):
             {"id": str(m["id"]), "email": m["email"], "full_name": m["full_name"],
              "org_role": m["org_role"], "created_at": fmt_ist(m.get("created_at", ""))}
             for m in (result.data or [])
-            # The platform superadmin (env-pinned SUPER_ADMIN_EMAIL) may be
-            # attached to an org for support, but is NOT a real org member — it
-            # must never surface in the org's member list, the teacher-filter
-            # dropdown, or the member count (all fed by this endpoint).
-            if not (SUPER_ADMIN_EMAIL and str(m.get("email", "")).strip().lower() == SUPER_ADMIN_EMAIL)
+            # The platform superadmin is NOT a real org member — it must never
+            # surface in the org's member list, the teacher-filter dropdown, or
+            # the member count (all fed by this endpoint). Excluded by ROLE
+            # (org_role='superadmin' — the source of truth resolve_scope uses)
+            # AND by the env-pinned SUPER_ADMIN_EMAIL, so setting either is
+            # enough.
+            if not (
+                (m.get("org_role") or "").strip().lower() == "superadmin"
+                or (SUPER_ADMIN_EMAIL and str(m.get("email", "")).strip().lower() == SUPER_ADMIN_EMAIL)
+            )
         ]
     }
 
@@ -319,11 +324,15 @@ async def list_all_orgs(request: Request):
         org_id = str(org["id"])
         sub = await get_org_subscription(org_id)
         student_count = await _count_org_students(org_id)
-        teacher_result = await _atable("teachers").select("id,email").eq("org_id", org_id).execute()
-        # Exclude the platform superadmin from the org's teacher headcount.
+        teacher_result = await _atable("teachers").select("id,email,org_role").eq("org_id", org_id).execute()
+        # Exclude the platform superadmin from the org's teacher headcount —
+        # by role (org_role='superadmin') and by env-pinned SUPER_ADMIN_EMAIL.
         teacher_count = sum(
             1 for t in (teacher_result.data or [])
-            if not (SUPER_ADMIN_EMAIL and str(t.get("email", "")).strip().lower() == SUPER_ADMIN_EMAIL)
+            if not (
+                (t.get("org_role") or "").strip().lower() == "superadmin"
+                or (SUPER_ADMIN_EMAIL and str(t.get("email", "")).strip().lower() == SUPER_ADMIN_EMAIL)
+            )
         )
         result.append({
             "id": org_id,

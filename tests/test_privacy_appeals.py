@@ -98,6 +98,41 @@ class TestPrivacyConsent:
         assert r.json().get("status") == "recorded"
 
 
+class TestPrivacyConsentWithdrawal:
+    def test_withdraw_requires_auth(self):
+        r = client.post("/api/v1/privacy/consent/withdraw", json={
+            "consent_type": "privacy_policy",
+        })
+        assert r.status_code == 401
+
+    def test_withdraw_happy_path_teacher(self, admin_headers, mock_teacher):
+        # Record then withdraw — the mock chain accepts all calls.
+        r = client.post("/api/v1/privacy/consent", json={
+            "consent_type": "privacy_policy",
+        }, headers=admin_headers)
+        assert r.status_code == 200
+
+        r = client.post("/api/v1/privacy/consent/withdraw", json={
+            "consent_type": "privacy_policy",
+        }, headers=admin_headers)
+        assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
+        d = r.json()
+        assert d.get("status") == "withdrawn"
+        assert d.get("consent_type") == "privacy_policy"
+
+    def test_withdraw_happy_path_student(self, student_headers, mock_student_account):
+        r = client.post("/api/v1/privacy/consent", json={
+            "consent_type": "phone_camera",
+        }, headers=student_headers)
+        assert r.status_code == 200
+
+        r = client.post("/api/v1/privacy/consent/withdraw", json={
+            "consent_type": "phone_camera",
+        }, headers=student_headers)
+        assert r.status_code == 200
+        assert r.json().get("status") == "withdrawn"
+
+
 class TestStudentAppeals:
     def test_appeal_requires_auth(self):
         r = client.post("/api/v1/student/appeal", json={

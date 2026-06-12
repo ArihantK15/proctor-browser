@@ -114,6 +114,42 @@ async def record_consent(body: ConsentIn, request: Request):
     return {"status": "recorded"}
 
 
+@router.post("/consent/withdraw")
+@limiter.limit("10/minute")
+async def withdraw_consent(body: ConsentIn, request: Request):
+    """Withdraw a previously-given consent (GDPR Art 7(3) / DPDP Act §7(4)).
+
+    Marks the most-recent matching consent record with a `withdrawn_at`
+    timestamp (added by phase98 migration). The original record is kept
+    as proof that consent was once obtained, satisfying the audit burden;
+    the withdrawn_at field shows it is no longer active.
+    """
+    user_type, user_id, _ = await _resolve_caller(request)
+    ip = request.client.host if request.client else ""
+
+    rows = (await _atable("consent_records")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("user_type", user_type)
+            .eq("consent_type", body.consent_type)
+            .is_("withdrawn_at", None)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()).data or []
+    if not rows:
+        raise HTTPException(status_code=404,
+            detail="No active consent record found to withdraw.")
+
+    from datetime import datetime, timezone
+    await _atable("consent_records")\
+        .update({"withdrawn_at": datetime.now(timezone.utc).isoformat(),
+                 "withdrawn_ip": ip})\
+        .eq("id", rows[0]["id"]).execute()
+    await _record_privacy_event(request, user_type, user_id, "consent_withdrawn", {"consent_type": body.consent_type})
+
+    return {"status": "withdrawn", "consent_type": body.consent_type}
+
+
 # ── Data export ───────────────────────────────────────────────────
 
 

@@ -3,6 +3,7 @@ import logging
 import threading
 import time
 from collections import OrderedDict
+from datetime import datetime, timezone, timedelta
 
 from fastapi import Request, HTTPException
 import jwt
@@ -10,6 +11,7 @@ from jwt.exceptions import InvalidTokenError as JWTError
 
 from ..constants import (
     ADMIN_SIGNING_KEYS,
+    ADMIN_TOKEN_TTL_MINUTES,
     STUDENT_SIGNING_KEYS,
     SUPER_ADMIN_EMAIL,
     _TEACHER_CACHE_MAX,
@@ -108,6 +110,66 @@ async def _get_teacher_by_uid(uid: str) -> dict | None:
     return _maybe_promote_super_admin(result[0])
 
 
+async def _load_org_auth_settings(org_id: str) -> dict:
+    """Return (timeout_minutes, max_concurrent) for an org, cached."""
+    if not org_id:
+        return {"auth_session_timeout_minutes": None, "max_concurrent_auth_sessions": None}
+    cache_key = f"org_auth_settings:{org_id}"
+    if _cache:
+        try:
+            cached = _cache.get(cache_key)
+            if cached and isinstance(cached, dict):
+                return cached
+        except Exception:
+            pass
+    row = (await _atable("organizations")
+           .select("auth_session_timeout_minutes,max_concurrent_auth_sessions")
+           .eq("id", str(org_id)).limit(1).execute()).data or []
+    settings = row[0] if row else {}
+    if _cache:
+        try:
+            _cache.set(cache_key, settings, ttl=300)
+        except Exception:
+            pass
+    return settings
+
+
+async def _touch_and_check_idle(jti: str, org_timeout_min: int | None,
+                                user_kind: str, user_id: str) -> None:
+    """Update last_seen_at (throttled) and revoke if idle beyond timeout."""
+    if not jti or not org_timeout_min:
+        return
+    if _cache:
+        try:
+            throttle_key = f"session_seen:{jti}"
+            if _cache.get(throttle_key):
+                return
+            _cache.set(throttle_key, "1", ttl=60)
+        except Exception:
+            pass
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        await _atable("auth_sessions").update({"last_seen_at": now})\
+            .eq("jti", str(jti)).eq("user_kind", user_kind)\
+            .eq("user_id", str(user_id)).execute()
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=org_timeout_min)).isoformat()
+        stale = await _atable("auth_sessions").select("jti")\
+            .eq("jti", str(jti)).eq("user_kind", user_kind)\
+            .eq("user_id", str(user_id)).is_("revoked_at", "null")\
+            .lt("last_seen_at", cutoff).limit(1).execute()
+        if stale.data:
+            await _atable("auth_sessions").update({"revoked_at": now})\
+                .eq("jti", str(jti)).execute()
+            if _cache:
+                try:
+                    _cache.set(f"session:{jti}", {"revoked": True},
+                               ttl=ADMIN_TOKEN_TTL_MINUTES * 60)
+                except Exception:
+                    pass
+    except Exception:
+        logger.debug("admin_auth: session touch/check failed", exc_info=True)
+
+
 async def verify_admin_token(token: str) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -121,9 +183,6 @@ async def verify_admin_token(token: str) -> dict:
     if payload.get("role") != "teacher":
         raise HTTPException(status_code=403, detail="Not a teacher token")
 
-    # Session revocation check. Redis is a fast negative cache, but the
-    # Postgres auth_sessions row is the source of truth so a cache miss,
-    # expiry, or Redis outage cannot resurrect a revoked access token.
     jti = payload.get("jti", "")
     if jti:
         try:
@@ -148,6 +207,13 @@ async def verify_admin_token(token: str) -> dict:
             .not_.is_("revoked_at", "null").limit(1).execute()
         if revoked.data:
             raise HTTPException(status_code=401, detail="Session has been revoked")
+
+    org_id = teacher.get("org_id")
+    if org_id:
+        org_settings = await _load_org_auth_settings(str(org_id))
+        timeout_mins = org_settings.get("auth_session_timeout_minutes")
+        await _touch_and_check_idle(jti, timeout_mins, "teacher", str(tid))
+
     return teacher
 
 

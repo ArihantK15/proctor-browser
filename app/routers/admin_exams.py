@@ -96,6 +96,15 @@ async def list_exams(request: Request):
 async def create_exam(request: Request, body: CreateExamIn = Body(...)):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
+    # Idempotency: if the caller sends an Idempotency-Key header, check
+    # whether we've already processed this request. The key is scoped to
+    # the teacher so a key collision between two teachers is impossible.
+    idem_key = (request.headers.get("Idempotency-Key") or "").strip()
+    if idem_key and _cache:
+        cache_key = f"idem:create_exam:{tid}:{idem_key}"
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return cached
     title = body.exam_title.strip() or "New Exam"
     duration = body.duration_minutes
     exam_id = str(_uuid.uuid4())
@@ -112,7 +121,11 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
         _admin_log.error("[CreateExam] DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create exam. Please try again.")
     row = result.data[0] if result.data else {}
-    return {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration, "phone_camera": body.phone_camera}
+    resp_data = {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration, "phone_camera": body.phone_camera}
+    if idem_key and _cache:
+        cache_key = f"idem:create_exam:{tid}:{idem_key}"
+        _cache.set(cache_key, resp_data, ttl=3600)  # 1-hour window
+    return resp_data
 
 
 @router.post("/api/v1/admin/phone-camera-config")

@@ -253,3 +253,84 @@ class TestDuplicateExam:
         assert resp.status_code == 200
         body = resp.json()
         assert body["questions_copied"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  POST /api/v1/admin/exams (idempotency)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestCreateExamIdempotency:
+
+    def test_idempotency_key_returns_cached(self, client):
+        from unittest.mock import MagicMock, patch as _mpatch
+        cache_store = {}
+        mock_cache = MagicMock()
+        def _cached_get(key):
+            return cache_store.get(key)
+        def _cached_set(key, value, ttl=None):
+            cache_store[key] = value
+        mock_cache.get.side_effect = _cached_get
+        mock_cache.set.side_effect = _cached_set
+
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+
+        m = MagicMock()
+        for attr in ("select", "eq", "neq", "is_", "in_", "order",
+                     "limit", "single", "range", "insert", "upsert",
+                     "update", "delete", "gte", "lte", "gt", "lt",
+                     "like"):
+            getattr(m, attr).return_value = m
+        async def _fake_exec():
+            r = MagicMock()
+            r.data = [{"exam_id": "exam-idem-1"}]
+            return r
+        m.execute = _fake_exec
+
+        with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._cache", mock_cache), \
+             _mpatch("app.routers.admin_exams._atable", return_value=m):
+
+            h = {**_admin_headers(), "Idempotency-Key": "idem-1"}
+            r1 = client.post("/api/v1/admin/exams", json={"exam_title": "Test"}, headers=h)
+            r2 = client.post("/api/v1/admin/exams", json={"exam_title": "Test"}, headers=h)
+
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        # Second call should return the cached response (same exam_id)
+        assert r1.json()["exam_id"] == r2.json()["exam_id"]
+
+    def test_no_idempotency_key_creates_new(self, client):
+        from unittest.mock import MagicMock, patch as _mpatch
+        call_count = 0
+
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+
+        m = MagicMock()
+        for attr in ("select", "eq", "neq", "is_", "in_", "order",
+                     "limit", "single", "range", "insert", "upsert",
+                     "update", "delete", "gte", "lte", "gt", "lt",
+                     "like"):
+            getattr(m, attr).return_value = m
+
+        async def _fake_exec():
+            nonlocal call_count
+            call_count += 1
+            r = MagicMock()
+            r.data = [{"exam_id": f"exam-{call_count}"}]
+            return r
+        m.execute = _fake_exec
+
+        with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._atable", return_value=m):
+
+            h = _admin_headers()
+            r1 = client.post("/api/v1/admin/exams", json={"exam_title": "Test"}, headers=h)
+            r2 = client.post("/api/v1/admin/exams", json={"exam_title": "Test"}, headers=h)
+
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        # Without idempotency key, each call creates a new exam (different IDs)
+        assert r1.json()["exam_id"] != r2.json()["exam_id"]

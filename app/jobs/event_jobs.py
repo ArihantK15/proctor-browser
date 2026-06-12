@@ -42,21 +42,31 @@ async def _record_violation_async(viol_row: dict[str, Any]) -> dict:
     """Insert a single violation row asynchronously."""
     from ..database import async_table as _atable
 
+    sk = viol_row.get("session_key")
+    vt = viol_row.get("violation_type")
+    cooldown_key = f"vio_cd:{sk}:{vt}" if (sk and vt) else None
+    if cooldown_key:
+        try:
+            from .. import cache as _cache
+            if _cache and _cache.get(cooldown_key):
+                return {"status": "suppressed", "reason": "cooldown"}
+        except Exception:
+            pass
+
     try:
         await _atable("violations").insert(viol_row).execute()
+        if cooldown_key:
+            try:
+                from .. import cache as _cache
+                if _cache:
+                    _cache.set(cooldown_key, "1", ttl=30)
+            except Exception:
+                pass
         return {"status": "recorded"}
     except Exception as e:
-        # Don't raise — we don't want RQ to retry indefinitely on a
-        # bad row. Log + return so the worker stays clean. The audit
-        # row is best-effort; if a single insert fails the SSE event
-        # has already gone out and the operator sees real-time
-        # signal. Retries would only ever matter for transient DB
-        # blips, which RQ's outer retry policy handles separately.
         logger.warning(
             "[event_job] insert failed for session=%s type=%s: %s",
-            viol_row.get("session_key"),
-            viol_row.get("violation_type"),
-            e,
+            sk, vt, e,
         )
         return {"status": "failed", "error": str(e)}
 

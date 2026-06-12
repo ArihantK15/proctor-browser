@@ -355,6 +355,16 @@ jobs:
           if [ "$sz" -lt 10000000 ]; then echo "✗ installer suspiciously small ($sz bytes)"; exit 1; fi
           echo "✓ Windows artifacts present (${exe[0]}, $sz bytes, blockmap ${bmap[0]})"
 
+      # THE GATE (Windows counterpart of verify-macos-build). Inspects the
+      # PACKAGED app under dist/win-unpacked — PE header, app.asar integrity,
+      # Electron fuses (runAsNode must stay disabled), update-manifest keys, and
+      # a 4s launch smoke — and fails the job (blocking publish) if the build
+      # would crash on a student PC. Previously Windows only checked that files
+      # existed, so a corrupt asar / missing DLL / fuse regression shipped green.
+      - name: Verify Windows build (blocks publish on failure)
+        if: matrix.target == 'win'
+        run: node scripts/verify-windows-build.mjs
+
       - name: Publish Windows release (only after verification)
         if: matrix.target == 'win' && startsWith(github.ref, 'refs/tags/')
         shell: bash

@@ -30,6 +30,15 @@ on:
           - production
           - staging
 
+# Serialize prod deploys — never run two at once. Six deploys overlapping (from
+# merging 6 PRs back-to-back) restarted the origin repeatedly and produced a
+# Cloudflare 525 (origin TLS handshake failing mid-restart). Queue instead;
+# cancel-in-progress:false so a running deploy ALWAYS finishes cleanly — a
+# half-cancelled `docker compose up` could leave the origin in a broken state.
+concurrency:
+  group: deploy-api-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   security-events: write

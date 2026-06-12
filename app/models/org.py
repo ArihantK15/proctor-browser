@@ -8,6 +8,7 @@ class OrgRole(StrEnum):
     ADMIN = "admin"
     TEACHER = "teacher"
     SUPERADMIN = "superadmin"
+    VIEWER = "viewer"
 
 
 class OrgInviteStatus(StrEnum):

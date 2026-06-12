@@ -293,7 +293,7 @@ jobs:
           pip-audit -r requirements.lock
 
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # gitleaks-action@v2 (currently v2.3.9) still ships a node20

@@ -175,6 +175,13 @@
 </head>
 <body class="auth-active">
 
+<!-- COOKIE NOTICE — essential-cookies disclosure, no accept/reject -->
+<div id="cookie-notice" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#0f172a;color:#e2e8f0;padding:12px 20px;font-size:13px;line-height:1.5;text-align:center;border-top:1px solid #1e293b;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)">
+  <span>Procta uses essential cookies to keep you signed in and protect your account.</span>
+  <a href="/cookie-policy" style="color:#60a5fa;text-decoration:underline;margin:0 6px">Learn more</a>
+  <button id="cookie-notice-dismiss" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:12px;cursor:pointer;font-weight:500">Got it</button>
+</div>
+
 <!-- AUTH OVERLAY -->
 <div id="auth-overlay">
   <!-- Decorative accent glow behind the card — matches the marketing
@@ -2041,6 +2048,7 @@
   </div>
 </div>
 
+<script src="/static/cookie-notice.js" defer></script>
 <script src="/static/dashboard-app.js" defer></script>
 <div id="app-modal-overlay" class="modal-overlay" style="display:none" data-action="closeAppModal" data-guard-self role="dialog" aria-modal="true" aria-labelledby="app-modal-title">
   <div class="modal-box">

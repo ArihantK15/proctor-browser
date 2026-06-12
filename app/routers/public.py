@@ -592,6 +592,11 @@ def privacy_policy_page():
     return _static_html_response("privacy-policy.html", "Privacy policy not found")
 
 
+@router.get("/cookie-policy")
+def cookie_policy_redirect():
+    return RedirectResponse(url="/privacy-policy#cookies")
+
+
 @router.get("/privacy")
 def privacy_page():
     return _static_html_response("privacy.html", "Privacy center not found")

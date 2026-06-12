@@ -158,6 +158,13 @@
 </head>
 <body>
 
+<!-- COOKIE NOTICE -->
+<div id="cookie-notice" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#0f172a;color:#e2e8f0;padding:12px 20px;font-size:13px;line-height:1.5;text-align:center;border-top:1px solid #1e293b;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)">
+  <span>Procta uses essential cookies to keep you signed in and protect your account.</span>
+  <a href="/cookie-policy" style="color:#60a5fa;text-decoration:underline;margin:0 6px">Learn more</a>
+  <button id="cookie-notice-dismiss" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:12px;cursor:pointer;font-weight:500">Got it</button>
+</div>
+
 <div class="container">
   <div class="header">
     <div class="procta-logo" style="justify-content:center">
@@ -369,6 +376,7 @@
   </div>
 </div>
 
+<script src="/static/cookie-notice.js" defer></script>
 <script src="/static/register-app.js" defer></script>
 </body>
 </html>

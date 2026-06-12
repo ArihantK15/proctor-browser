@@ -242,7 +242,18 @@ jobs:
             export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
             export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
             export CSC_IDENTITY_AUTO_DISCOVERY=true
-            npx electron-builder --mac --${{ matrix.arch }} --publish never
+            # Notarize on the signed path. electron-builder 26 dropped the
+            # automatic notarization that older versions did (removed in v24),
+            # so without an explicit mac.notarize the APPLE_* creds exported
+            # above are never used: the app ships Developer-ID-SIGNED but
+            # NOT NOTARIZED, which Gatekeeper still blocks on a downloaded app
+            # ("Apple could not verify ... is free of malware"). teamId comes
+            # from the exported APPLE_TEAM_ID; @electron/notarize reads
+            # APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD from the env. This flag is
+            # ONLY on the cert branch — the ad-hoc path below must never try to
+            # notarize (it has no Developer ID identity and would fail).
+            npx electron-builder --mac --${{ matrix.arch }} --publish never \
+              -c.mac.notarize.teamId="$APPLE_TEAM_ID"
           else
             echo "No CSC_LINK secret — ad-hoc signing via identity=-."
             export CSC_IDENTITY_AUTO_DISCOVERY=false

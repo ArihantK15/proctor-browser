@@ -21,6 +21,8 @@ from ..constants import (
     SCREENSHOTS_DIR, PLANS,
 )
 from ..utils import now_ist, fmt_ist, _safe_path_component
+from ..constants import S3_LOCAL_CACHE_DAYS
+from ..services.object_store import is_enabled as _s3_enabled
 from .risk import _is_violation, _risk_label, _batch_risk_scores
 from .calibration import parse_calibration_details, classify_calibration
 
@@ -551,13 +553,58 @@ def cleanup_screenshots(stop_event=None):
         if stop_event and stop_event.wait(3600):
             break
         try:
-            # Screenshot retention window — must match the figure published
-            # in the Privacy Policy / DPA / Trust Center (30 days).
-            cutoff = now_ist() - timedelta(days=30)
-            for student_dir in Path(SCREENSHOTS_DIR).iterdir():
-                if student_dir.is_dir():
-                    for f in student_dir.iterdir():
-                        if f.is_file() and f.stat().st_mtime < cutoff.timestamp():
-                            f.unlink()
+            _sweep_screenshots_once()
         except Exception as e:
             logger.warning("[Cleanup] %s", e)
+
+
+def _sweep_screenshots_once() -> int:
+    """Delete aged screenshot files. Returns the number removed.
+
+    Files live at SCREENSHOTS_DIR/{teacher_id}/{roll}/{file} (a 3-level
+    tree), so we must os.walk — the old two-level iterdir checked
+    `is_file()` on the roll DIRECTORIES and so never deleted anything,
+    silently breaking the published 30-day retention.
+
+    Retention:
+      - S3 off: local is the system-of-record → delete after 30 days.
+      - S3 on:  local is a cache → evict after S3_LOCAL_CACHE_DAYS (7d),
+                but ONLY once a durable S3 copy is confirmed. A failed
+                upload's only copy is kept until the 30-day floor rather
+                than lost before its retention period.
+    """
+    import os as _os
+    from .object_store import exists as _s3_exists
+
+    s3_on = _s3_enabled()
+    now_ts = now_ist().timestamp()
+    cache_secs = S3_LOCAL_CACHE_DAYS * 86400
+    floor_secs = 30 * 86400
+    root = Path(SCREENSHOTS_DIR)
+    removed = 0
+    if not root.is_dir():
+        return 0
+    for dirpath, _dirs, files in _os.walk(root):
+        for name in files:
+            fp = Path(dirpath) / name
+            try:
+                age = now_ts - fp.stat().st_mtime
+            except OSError:
+                continue
+            should_delete = False
+            if age >= floor_secs:
+                should_delete = True            # absolute floor (bounds disk)
+            elif s3_on and age >= cache_secs:
+                # Cache eviction — only if the durable copy is really on S3.
+                try:
+                    key = str(fp.relative_to(root))
+                except ValueError:
+                    key = None
+                should_delete = bool(key) and _s3_exists(key)
+            if should_delete:
+                try:
+                    fp.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+    return removed

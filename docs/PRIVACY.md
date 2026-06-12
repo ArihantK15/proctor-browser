@@ -35,7 +35,7 @@ Access Request, what to retain after deletion, legal basis).
 | Exam sessions | `exam_sessions` | Proctoring evidence for the teacher who ran the exam | Anonymised — name → "Deleted User", email blanked, roll → anon_roll |
 | Violations + answers | `violations`, `answers` | Per-session evidence | Anonymised (referenced by anonymised session) |
 | Appeals filed | `appeals` | Dispute handling | Anonymised (student_id → anon_id) |
-| Forensic frames (screenshots) | `screenshots/` filesystem dir | Manual review by the teacher in cheating disputes | Retained 30 days (hourly cleanup thread, `app/services/sessions.py:cleanup_screenshots`) — covered separately, not in this DB-level erasure flow |
+| Forensic frames (screenshots) | `screenshots/` filesystem dir + S3 (Workstream B) | Manual review by the teacher in cheating disputes | Local cache retained 7 days (S3-enabled) / 30 days (S3-disabled); S3 is durable store with SSE-S3 at-rest encryption. Hourly cleanup thread (`app/services/sessions.py:cleanup_screenshots`) — covered separately, not in this DB-level erasure flow |
 | Phone-camera frames | Redis (transient) | Real-time room monitoring | Auto-expire (Redis TTL) |
 | Consent records | `consent_records` | Proof we obtained consent | **Retained** — required as proof under DPDP §7(2) |
 | Audit trail | `auth_events` | Security forensics | Retained; user_id set to NULL |
@@ -180,7 +180,7 @@ Be ready to justify each retained category:
 | auth_events, admin_audit_log | Security forensics + DPDP §10 (reasonable security safeguards) — we need an audit trail of who accessed what. Logs are pseudonymised (user_id NULL'd) on erasure. |
 | anonymised exam outputs | Once name/email are anonymised, the row is no longer personal data under DPDP §2(t) — the data subject is no longer identifiable. Retained for the *teacher's* legitimate analytics use. |
 | Payment / billing records | Indian Income-tax Act §44AA requires 7-year retention of financial records. GDPR Art 17(3)(b) similarly exempts data needed for legal obligations. |
-| Forensic frames (screenshots/) | Retained 30 days for dispute resolution; deleted by an hourly cleanup thread (`app/services/sessions.py:cleanup_screenshots`) once a file's mtime passes 30 days. Filesystem-only — no B2 lifecycle is wired. |
+| Forensic frames (screenshots/) | Local cache retained 7 days (S3-enabled) / 30 days (S3-disabled). Deleted by an hourly cleanup thread (`app/services/sessions.py:cleanup_screenshots`) once a file's mtime passes the retention window. When S3 is enabled (`S3_ENABLED=1`), screenshots are also written to an AWS S3 bucket (ap-south-1) with SSE-S3 server-side encryption; the upload job (`upload_screenshot_job`) removes the local file on successful S3 write. S3 bucket policy blocks public access; reads stream through the backend (no presigned URLs). |
 
 ## What's NOT retained (full hard-delete on erasure)
 

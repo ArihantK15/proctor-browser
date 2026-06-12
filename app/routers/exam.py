@@ -35,6 +35,7 @@ from ..services.autosave import (
 from ..services.risk import compute_risk_score, publish_critical_alert
 from ..jobs import enqueue_job, flush_autosave_job, _rq_enabled
 from ..constants import ROOM_CAM_SIGNING_KEY, SCREENSHOTS_DIR
+from ..services.object_store import is_enabled as _s3_enabled
 
 
 async def _bus_async_publish(channel: str, payload: dict) -> None:
@@ -1574,12 +1575,33 @@ async def session_status(request: Request, session_id: str):
     }
 
 
-def _save_frame(student_dir: str, data: FrameIn, room_jpeg: bytes | None = None) -> str:
-    """Decode and save a frame to disk. Returns filename.
+def _enqueue_s3_upload(safe_teacher_id: str, roll: str, filename: str,
+                       local_path: str, content_type: str = "image/jpeg") -> None:
+    """If S3 is enabled, enqueue a background upload of *local_path* to S3.
+
+    The worker reads the file from local disk (it's already been written by
+    *_save_frame* / *_save_id_verification_images*).  Never blocks or raises.
+    Key = {safe_teacher_id}/{roll}/{filename}.
+    """
+    if not _s3_enabled():
+        return
+    if not safe_teacher_id:
+        return
+    s3_key = f"{safe_teacher_id}/{roll}/{filename}"
+    try:
+        from ..jobs import enqueue_job as _ej, upload_screenshot_job
+        _ej(upload_screenshot_job, s3_key=s3_key,
+            local_path=local_path, content_type=content_type)
+    except Exception:
+        _exam_log.warning("[S3] failed to enqueue upload for %s", s3_key)
+
+
+def _save_frame(student_dir: str, data: FrameIn, room_jpeg: bytes | None = None) -> tuple[str, str | None]:
+    """Decode and save a frame to disk. Returns (primary_filename, room_filename_or_None).
 
     When a phone-cam frame is supplied (captured at the same instant from the
-    roomframe cache), it's written as a `room_<label>_<ts>.jpg` companion with
-    the SAME timestamp as the primary `evt_<label>_<ts>.jpg`, so the evidence
+    roomframe cache), it's written as a ``room_<label>_<ts>.jpg`` companion with
+    the SAME timestamp as the primary ``evt_<label>_<ts>.jpg``, so the evidence
     PDF and the live timeline can show both cameras side by side for a flag.
     """
     os.makedirs(student_dir, exist_ok=True)
@@ -1604,13 +1626,15 @@ def _save_frame(student_dir: str, data: FrameIn, room_jpeg: bytes | None = None)
     # Companion phone-cam frame at the SAME moment. Best-effort: a missing
     # phone (not paired) just means no companion and the UI shows the primary
     # frame alone.
+    room_fname = None
     if room_jpeg:
         try:
-            with open(os.path.join(student_dir, f"room_{label}_{ts}.jpg"), "wb") as rf:
+            room_fname = f"room_{label}_{ts}.jpg"
+            with open(os.path.join(student_dir, room_fname), "wb") as rf:
                 rf.write(room_jpeg)
         except Exception:
-            pass
-    return fname
+            room_fname = None
+    return fname, room_fname
 
 
 @router.post("/api/v1/analyze-frame")
@@ -1660,10 +1684,17 @@ async def analyze_frame(data: FrameIn, request: Request):
         room_jpeg = None
 
     try:
-        await asyncio.to_thread(_save_frame, student_dir, data, room_jpeg)
+        fname, room_fname = await asyncio.to_thread(_save_frame, student_dir, data, room_jpeg)
     except Exception as e:
         _exam_log.error("[Frame] Error saving frame for %s: %s", safe(data.session_id), safe(e))
         raise HTTPException(status_code=500, detail="Failed to save frame")
+
+    # Dual-write to S3 (best-effort background upload)
+    _enqueue_s3_upload(safe_teacher_id, roll, fname,
+                       os.path.join(student_dir, fname), "image/jpeg")
+    if room_fname:
+        _enqueue_s3_upload(safe_teacher_id, roll, room_fname,
+                           os.path.join(student_dir, room_fname), "image/jpeg")
     return {"status": "received"}
 
 
@@ -1719,6 +1750,12 @@ async def id_verification(data: IdVerifyIn, request: Request):
     except Exception as e:
         _exam_log.error("[ID Verify] File save error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save verification images")
+
+    # Dual-write ID verification images to S3 (best-effort background upload)
+    _enqueue_s3_upload(safe_teacher_id, roll, selfie_fname,
+                       os.path.join(student_dir, selfie_fname), "image/jpeg")
+    _enqueue_s3_upload(safe_teacher_id, roll, id_fname,
+                       os.path.join(student_dir, id_fname), "image/jpeg")
 
     # The violations table has a FK to exam_sessions(session_key) (phase80).
     # ID verification is the student's FIRST exam-start step — it runs BEFORE

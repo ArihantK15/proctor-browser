@@ -40,6 +40,7 @@ from ..constants import SCREENSHOTS_DIR as _SCREENSHOTS_DIR
 from ..database import async_table as _atable
 from ..jobs import enqueue_job
 from ..limiter import limiter
+from ..services.object_store import delete_prefix as _s3_delete_prefix
 
 _log = logging.getLogger("privacy")
 
@@ -505,13 +506,15 @@ async def _cleanup_redis_frames(user_type: str, user_id: str) -> None:
 
 
 async def _cleanup_screenshots(user_type: str, user_id: str) -> None:
-    """Delete screenshot files for a user's exam sessions."""
+    """Delete screenshot files for a user's exam sessions (local + S3)."""
     try:
         if user_type == "teacher":
             teacher_dir = _Path(_SCREENSHOTS_DIR) / str(user_id)
             if teacher_dir.is_dir():
                 import shutil as _shutil
                 _shutil.rmtree(teacher_dir, ignore_errors=True)
+            # Also delete from S3
+            _s3_delete_prefix(f"{user_id}/")
         else:
             rows = await _atable("exam_sessions").select("teacher_id,roll_number")\
                 .eq("student_id", user_id).execute()
@@ -526,6 +529,10 @@ async def _cleanup_screenshots(user_type: str, user_id: str) -> None:
                 if student_dir.is_dir():
                     import shutil as _shutil
                     _shutil.rmtree(student_dir, ignore_errors=True)
+                # Trailing slash is required: a bare "{tid}/{roll}" prefix
+                # also matches sibling rolls (R1 → R10, R12…) and would
+                # over-erase other students' screenshots.
+                _s3_delete_prefix(f"{tid}/{roll}/")
     except Exception as e:
         _log.warning("[privacy.delete] screenshot cleanup failed: %s", e)
 

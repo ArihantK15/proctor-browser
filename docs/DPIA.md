@@ -48,8 +48,8 @@ grading suggestions** that a teacher can override.
 
 | Category | Sensitivity | Where | Retention (authoritative: PRIVACY.md) |
 |----------|-------------|-------|----------------------------------------|
-| Webcam / facial images (identity verification) | **Biometric (Art 9)** | Client → screenshots dir | Screenshots **30 days**, then deleted (hourly cleanup thread) |
-| Screen / exam screenshots | Personal | `screenshots/` filesystem | **30 days** |
+| Webcam / facial images (identity verification) | **Biometric (Art 9)** | Client → screenshots dir → S3 | Local **7d** (S3-enabled) / **30d** (S3-disabled); S3 kept per policy (default 30d) |
+| Screen / exam screenshots | Personal | `screenshots/` filesystem + S3 | Local **7d** (S3-enabled) / **30d** (S3-disabled); S3 kept per policy (default 30d) |
 | Phone-camera frames | Personal | Redis (transient) | **24h** (Redis TTL) |
 | Audio keyword hits | Personal | Violation events | Violation logs **1 year** |
 | Violations / answers / scores | Personal (assessment) | Postgres | 1 year / duration of account, anonymised on delete |
@@ -86,7 +86,10 @@ data. This split governs breach + objection routing (see INCIDENT_RESPONSE.md
 - **Storage limitation.** Retention windows are enforced in code (screenshot
   cleanup thread; TTL sweeper for transient auth rows; 7-year billing purge
   — phase104). The 30-day screenshot window balances dispute-resolution
-  utility against minimisation.
+  utility against minimisation. When S3 is enabled, the local filesystem
+  becomes a short-lived cache (default 7d via `S3_LOCAL_CACHE_DAYS`) and
+  S3 is the durable system-of-record — with SSE-S3 at-rest encryption,
+  IAM-scoped access, and a bucket policy enforcing TLS + public-block.
 
 ---
 
@@ -116,6 +119,7 @@ controls. Controls reference existing, shipped mechanisms.
 | R6 | False-positive proctoring flag harming a student | Med | Med | Human review of every flag; sensitivity presets; evidence retained 30d for dispute; appeals | Low |
 | R7 | Excessive surveillance (webcam/screen/audio) beyond purpose | Med | Med | Per-exam opt-in features; on-device analysis; phone frames transient; minimised server payload | Low |
 | R8 | Sub-processor exposure (LLM, hosting) | Low | Med | Zero-shot prompts, no training; sub-processor list published; data-residency choices documented | Low |
+| R10 | S3 cloud provider access to encrypted screenshot data | Low | Med | SSE-S3 at rest; TLS 1.3 in transit; bucket policy blocks public access + enforces `aws:SecureTransport`; IAM-scoped user with least-privilege (s3:PutObject, s3:GetObject, s3:ListBucket, s3:DeleteObject on single bucket); no presigned URLs — all reads stream through backend (CSP + auth gate preserved); bucket in ap-south-1 (Mumbai) for India data residency | Low |
 | R9 | Loss of availability (evidence lost mid-dispute) | Low | Med | Daily pg_dump backups (14-day retention); 30-day screenshot window | Low |
 
 **Highest residual risk: R1 (Med)** — inherent to the product category and
@@ -133,8 +137,13 @@ grading + appeals, breach runbook + Art 33(5) record, right-to-object
 routing, daily backups.
 
 **Recommended follow-ups (tracked, not blocking):**
-- R1: activate object-storage (B2) with lifecycle expiry + at-rest
-  encryption for screenshots, so retention isn't filesystem-only.
+- R1: **implemented, pending activation** (Workstream B) — SSE-S3 encrypted
+  screenshot storage in ap-south-1 with IAM-scoped access, local 7d cache,
+  bucket policy enforcing TLS + public-block is built and feature-flagged.
+  **Until `S3_ENABLED` + bucket/keys are set in prod, storage is still
+  filesystem-only and R1 residual stays Med; it drops to Low once S3 is
+  live.** Operator action: create the ap-south-1 bucket (default SSE +
+  block-public + 30-day expiry lifecycle) and add the IAM key to `.env`.
 - R5: **done** (phase106) — DOB at registration auto-gates under-18s behind
   verifiable guardian consent before exam access.
 - R1/R9: confirm disk headroom now that screenshots are retained 30×

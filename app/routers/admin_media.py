@@ -11,6 +11,7 @@ from ..auth import require_admin, verify_admin_token
 from ..auth.scope import resolve_scope, assert_session_accessible
 from ..limiter import limiter
 from ..constants import QUESTION_IMG_DIR, SCREENSHOTS_DIR
+from ..services.object_store import is_enabled as _s3_enabled, fetch_screenshot as _s3_fetch
 from ..utils import _safe_path_component, _assert_within_directory
 from ..models import UploadQuestionImageIn
 
@@ -157,6 +158,16 @@ async def get_screenshot(roll: str, filename: str, request: Request,
     except (ValueError, RuntimeError):
         raise HTTPException(status_code=404, detail="Screenshot not found")
     if not fpath.exists() or not fpath.is_file():
+        # Fall back to S3 when S3 is enabled and the local file is absent
+        if _s3_enabled():
+            s3_key = f"{safe_tid}/{safe_roll}/{safe_file}"
+            blob = _s3_fetch(s3_key)
+            if blob is not None:
+                suffix = fpath.suffix.lower()
+                media = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
+                from fastapi.responses import Response
+                return Response(content=blob, media_type=media,
+                                headers={"Cache-Control": "private, max-age=3600"})
         raise HTTPException(status_code=404, detail="Screenshot not found")
     suffix = fpath.suffix.lower()
     media = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"

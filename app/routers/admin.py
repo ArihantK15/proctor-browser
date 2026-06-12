@@ -30,7 +30,8 @@ from ..services.sessions import match_screenshot_for_violation as _match_screens
 from ..services.sessions import match_room_screenshot_for_violation as _match_room_screenshot_for_violation
 from ..database import supabase, async_table as _atable
 from ..limiter import limiter
-from ..constants import SCREENSHOTS_DIR
+from ..constants import SCREENSHOTS_DIR, S3_LOCAL_CACHE_DAYS
+from ..services.object_store import is_enabled as _s3_enabled
 from ..models import SessionStatus
 
 from .admin_settings import router as settings_router
@@ -175,9 +176,11 @@ async def admin_cleanup(request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     deleted = 0
-    # Manual "free disk" purge must not delete below the published 30-day
-    # screenshot retention floor (Privacy Policy / DPA / Trust Center).
-    cutoff  = now_ist() - timedelta(days=30)
+    # Manual "free disk" purge: when S3 is the system-of-record, local is a
+    # short-lived cache (default 7d).  Without S3, the local disk is the
+    # one-and-only copy and retention matches the DPA (30d).
+    retention = S3_LOCAL_CACHE_DAYS if _s3_enabled() else 30
+    cutoff  = now_ist() - timedelta(days=retention)
     teacher_root = Path(SCREENSHOTS_DIR) / tid
     if not teacher_root.is_dir():
         return {"deleted": 0}

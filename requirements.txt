@@ -50,3 +50,6 @@ pdfplumber>=0.11.0      # MIT / pdfminer.six — PDF text + per-char font & bbox
 python-docx>=1.1.2      # MIT — DOCX text
 pypdfium2>=4.30.0       # BSD/Apache (PDFium) — page-region rasterization
 python-pptx>=1.0.2      # MIT — PPTX text extraction (AI-questions-from-notes)
+
+# AWS S3 SDK — encrypted screenshot storage (Workstream B, ap-south-1)
+boto3>=1.35.0

@@ -43,6 +43,11 @@ only exceptions are `app/dashboard-ui/.env.production` and
 | ~~`SUPABASE_SERVICE_ROLE_KEY`~~ | **Legacy** — Procta migrated off Supabase in early 2026 and now runs on native Postgres. The env var slot may still exist in old `.env` files; safe to delete. The auth.uid() shim in scripts/run_postgres_migrations.py returns NULL so any leftover RLS policies referencing it never fire. | — | — | — |
 | `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` | Backblaze B2 for off-site backups | backblaze.com → Account → Application Keys | 12 months | Lives in `/etc/procta/secrets.env`, not main `.env`. Scope key to bucket `Procta-Backup` with read+write only. |
 | `SENTRY_DSN` (4 of them) | Sends errors to Sentry projects | sentry.io project settings → Client Keys | rotate only on compromise; DSNs are project identifiers, not auth tokens | Three live in committed `.env.production`/`main.js` (browser-side, public by design); one in `/root/proctor-browser/.env` (server-side, also not really secret) |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | AWS IAM credentials for S3 screenshot storage (ap-south-1, SSE-S3) | AWS IAM → Users → procta-s3-screenshot-writer → Security credentials | 12 months | Scope policy to `s3:PutObject`, `s3:GetObject`, `s3:ListBucket`, `s3:DeleteObject` on the screenshot bucket only. Stores screenshots with SSE-S3 server-side encryption at rest. |
+| `S3_BUCKET` | S3 bucket name for encrypted screenshot storage (e.g. `procta-screenshots-<env>`) | created via `aws s3api create-bucket --region ap-south-1 --create-bucket-configuration LocationConstraint=ap-south-1` | never (bucket name is public) | Must be unique globally. Bucket policy must block public access + enforce `aws:SecureTransport` + require `x-amz-server-side-encryption: AES256`. |
+| `S3_REGION` | AWS region for S3 bucket (default: `ap-south-1`) | n/a (env var mirrors infra config) | never | Update if you migrate regions. |
+| `S3_ENABLED` | Feature flag — set to `1` or `true` to enable S3 screenshot offload | n/a | n/a | When unset or `0`, all S3 operations are no-ops and everything stays on local disk (previous behaviour). |
+| `S3_LOCAL_CACHE_DAYS` | Days to retain local screenshot cache when S3 is system-of-record (default: `7`) | n/a | n/a | Only meaningful when `S3_ENABLED=1`. Without the flag the cleanup sweep defaults to 30d. |
 
 ## Rotation playbook
 

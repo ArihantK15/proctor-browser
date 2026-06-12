@@ -70,6 +70,26 @@ pre{font-size:12px;background:#f1f5f9;padding:12px;border-radius:8px;overflow:au
 </div>
 
 <div class="section">
+  <h2>Object to processing</h2>
+  <div class="card" id="objection-card">
+    <p>You have the right to object to processing of your personal data (GDPR Art 21 / DPDP Act §9).</p>
+    <div style="margin-top:12px">
+      <label for="objection-grounds" style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Grounds (optional)</label>
+      <textarea id="objection-grounds" rows="3" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;resize:vertical" placeholder="Explain why you object to the processing of your data&hellip;"></textarea>
+    </div>
+    <div style="margin-top:8px">
+      <label for="objection-scope" style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Scope</label>
+      <select id="objection-scope" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;background:#fff">
+        <option value="all">All processing</option>
+        <option value="proctoring">Proctoring only</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" id="objection-btn" data-action="submitObjection" style="margin-top:12px">Submit objection</button>
+    <div id="objection-status" style="font-size:13px;margin-top:8px;min-height:20px"></div>
+  </div>
+</div>
+
+<div class="section">
   <h2>Export your data</h2>
   <div class="card">
     <p>Download all personal data we hold about you as a JSON file.</p>

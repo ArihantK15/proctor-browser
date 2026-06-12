@@ -94,6 +94,33 @@ async function _getPrivacyReauthToken(){
   }
   throw new Error('Password verification failed.');
 }
+// Objection
+async function submitObjection(){
+  const btn = document.getElementById('objection-btn');
+  const status = document.getElementById('objection-status');
+  btn.disabled = true;
+  status.innerHTML = 'Submitting objection...';
+  try{
+    const grounds = document.getElementById('objection-grounds').value;
+    const scope = document.getElementById('objection-scope').value;
+    const r = await authFetch('/api/v1/privacy/object', {
+      method:'POST',
+      body:JSON.stringify({grounds, scope}),
+    });
+    const d = await r.json();
+    if(r.ok){
+      status.innerHTML = '<span class="ok">Objection submitted. You will be contacted by the controller.</span>';
+      document.getElementById('objection-grounds').value = '';
+      document.getElementById('objection-scope').value = 'all';
+    }else{
+      status.innerHTML = '<span class="err">' + _esc(d.detail || 'Failed to submit objection.') + '</span>';
+    }
+  }catch(e){
+    status.innerHTML = '<span class="err">Error: ' + _esc(e.message) + '</span>';
+  }
+  btn.disabled = false;
+}
+
 async function confirmDelete(){
   const btn = document.querySelector('#delete-modal .btn-danger');
   const err = document.getElementById('delete-modal-err');

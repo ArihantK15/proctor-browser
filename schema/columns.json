@@ -243,6 +243,17 @@
     "superadmin_note",
     "teacher_id"
   ],
+  "objection_records": [
+    "created_at",
+    "grounds",
+    "id",
+    "resolved_at",
+    "routed_to",
+    "scope",
+    "status",
+    "user_id",
+    "user_type"
+  ],
   "org_invites": [
     "accepted_at",
     "created_at",

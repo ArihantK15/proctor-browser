@@ -31,13 +31,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request, HTTPException, Body
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..auth import require_admin, require_student_account
 from pathlib import Path as _Path
 from .. import cache as _cache
 from ..constants import SCREENSHOTS_DIR as _SCREENSHOTS_DIR
 from ..database import async_table as _atable
+from ..jobs import enqueue_job
 from ..limiter import limiter
 
 _log = logging.getLogger("privacy")
@@ -48,6 +49,19 @@ router = APIRouter(prefix="/api/v1/privacy", tags=["privacy"])
 class ConsentIn(BaseModel):
     model_config = ConfigDict(strict=True)
     consent_type: str  # 'signup_terms' | 'privacy_policy' | 'phone_camera'
+
+
+class ObjectionIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    grounds: str = ""
+    scope: str = "all"
+
+    @field_validator("scope")
+    @classmethod
+    def _validate_scope(cls, v):
+        if v not in ("proctoring", "all"):
+            raise ValueError(f"scope must be 'proctoring' or 'all', got {v!r}")
+        return v
 
 
 async def _resolve_caller(request: Request) -> tuple[str, str, dict]:
@@ -151,6 +165,97 @@ async def withdraw_consent(body: ConsentIn, request: Request):
     await _record_privacy_event(request, user_type, user_id, "consent_withdrawn", {"consent_type": body.consent_type})
 
     return {"status": "withdrawn", "consent_type": body.consent_type}
+
+
+@router.post("/object")
+@limiter.limit("10/minute")
+async def object_to_processing(body: ObjectionIn, request: Request):
+    """Lodge a right-to-object request (GDPR Art 21 / DPDP Act §9).
+
+    * Students → routed to their controller (teacher) via email.
+    * Teachers → routed to privacy@procta.net for DPO handling.
+    """
+    user_type, user_id, profile = await _resolve_caller(request)
+    ip = request.client.host if request.client else ""
+
+    row = await _atable("objection_records").insert({
+        "user_id": user_id,
+        "user_type": user_type,
+        "grounds": body.grounds or None,
+        "scope": body.scope,
+        "status": "open",
+    }).execute()
+    obj_id = row.data[0]["id"] if row.data else None
+
+    from ..jobs.email_jobs import send_objection_to_controller_notice_job
+
+    async def _org_name(org_id: str | None) -> str:
+        if not org_id:
+            return "Unknown"
+        rows = (await _atable("organizations")
+                .select("name").eq("id", org_id).limit(1).execute()).data or []
+        return (rows[0].get("name") if rows else None) or "Unknown"
+
+    if user_type == "student":
+        # Procta is a processor for student exam data — it cannot action the
+        # objection itself; it routes to every controller (teacher) the
+        # subject is linked to. Resolve via the two proven links: the
+        # exam_sessions the student sat, and the roster account mapping.
+        # (students.id is a BIGSERIAL roster PK, NOT the caller's account
+        # UUID — never join on it.)
+        teacher_ids: set[str] = set()
+        sessions = (await _atable("exam_sessions")
+                    .select("teacher_id").eq("student_id", user_id).execute()).data or []
+        roster = (await _atable("students")
+                  .select("teacher_id").eq("account_id", user_id).execute()).data or []
+        for r in (*sessions, *roster):
+            if r.get("teacher_id"):
+                teacher_ids.add(str(r["teacher_id"]))
+
+        notified: list[str] = []
+        for tid in teacher_ids:
+            trows = (await _atable("teachers")
+                     .select("email, full_name, org_id").eq("id", tid).limit(1).execute()).data or []
+            teacher = trows[0] if trows else None
+            if not teacher or not teacher.get("email"):
+                continue
+            enqueue_job(send_objection_to_controller_notice_job,
+                to_email=teacher["email"],
+                to_name=teacher.get("full_name") or "",
+                org_name=await _org_name(teacher.get("org_id")),
+                user_type="student",
+                grounds=body.grounds or "",
+                scope=body.scope,
+            )
+            notified.append(teacher["email"])
+
+        if notified:
+            await _atable("objection_records")\
+                .update({"status": "routed", "routed_to": ",".join(notified)})\
+                .eq("id", obj_id).execute()
+        await _record_privacy_event(
+            request, user_type, user_id, "right_to_object",
+            {"scope": body.scope, "grounds": body.grounds or "", "objection_id": str(obj_id)},
+        )
+        return {"status": "objection_recorded", "objection_id": str(obj_id), "notified": notified}
+
+    # Teacher: Procta is the controller — route to the DPO for manual handling.
+    await _atable("objection_records")\
+        .update({"status": "routed", "routed_to": "privacy@procta.net"})\
+        .eq("id", obj_id).execute()
+    enqueue_job(send_objection_to_controller_notice_job,
+        to_email="privacy@procta.net",
+        to_name="Privacy Team",
+        org_name=await _org_name(profile.get("org_id")),
+        user_type="teacher",
+        grounds=body.grounds or "",
+        scope=body.scope,
+    )
+    await _record_privacy_event(
+        request, user_type, user_id, "right_to_object",
+        {"scope": body.scope, "grounds": body.grounds or "", "objection_id": str(obj_id)},
+    )
+    return {"status": "objection_recorded", "objection_id": str(obj_id), "notified": ["privacy@procta.net"]}
 
 
 # ── Data export ───────────────────────────────────────────────────

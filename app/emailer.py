@@ -1477,3 +1477,59 @@ def send_data_subject_breach_notification(
 </table>
 </body></html>"""
     return _send(to_email, subject, html, text)
+
+
+def send_objection_to_controller_notice(
+    *,
+    to_email: str,
+    to_name: str,
+    org_name: str,
+    user_type: str,
+    grounds: str,
+    scope: str,
+) -> SendResult:
+    """Notify a controller that a data subject has objected to processing."""
+    subject = "Data subject objection — Procta"
+    name_esc = _esc(to_name or "there")
+    text = (
+        f"Hi {to_name or 'there'},\n\n"
+        f"A data subject has objected to processing of their personal data.\n\n"
+        f"  Role: {user_type}\n"
+        f"  Grounds: {grounds or 'Not provided'}\n"
+        f"  Scope: {scope}\n\n"
+        f"As the controller, you are responsible for assessing and deciding on "
+        f"this objection (GDPR Art 21 / DPDP Act).\n\n"
+        f"Organization: {org_name}\n\n"
+        f"We are available to assist — contact privacy@procta.net\n\n"
+        f"— The Procta Privacy Team"
+    )
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Data subject objection — Procta</title></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#0f172a;padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:520px;">
+<tr><td style="background:#f59e0b;padding:24px 28px;text-align:center;">
+<div style="color:#ffffff;font-size:18px;font-weight:700;">Data subject objection</div>
+<div style="color:#fde68a;font-size:13px;margin-top:4px;">{_esc(org_name)}</div>
+</td></tr>
+<tr><td style="padding:28px;color:#0f172a;">
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Hi {name_esc},</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">A data subject has objected to processing of their personal data.</p>
+<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px;margin:0 0 16px;">
+<div style="font-size:12px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px;">Objection details</div>
+<div style="font-size:13px;color:#78350f;line-height:1.5;">
+<div><strong>Role:</strong> {_esc(user_type)}</div>
+<div style="margin-top:4px;"><strong>Scope:</strong> {_esc(scope)}</div>
+<div style="margin-top:4px;"><strong>Grounds:</strong> {_esc(grounds or 'Not provided')}</div>
+</div>
+</div>
+<p style="margin:0 0 16px;font-size:13px;color:#475569;line-height:1.5;">As the controller, you are responsible for assessing and deciding on this objection (GDPR Art 21 / DPDP Act).</p>
+<p style="margin:0 0 16px;font-size:13px;color:#475569;line-height:1.5;">Organization: <strong>{_esc(org_name)}</strong></p>
+<p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">We are available to assist — <a href="mailto:privacy@procta.net" style="color:#2563eb;">privacy@procta.net</a></p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>"""
+    return _send(to_email, subject, html, text)

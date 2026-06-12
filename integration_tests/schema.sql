@@ -210,6 +210,19 @@ CREATE TABLE IF NOT EXISTS breach_incidents (
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Right-to-object records (phase105). Retained after account deletion.
+CREATE TABLE IF NOT EXISTS objection_records (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL,
+  user_type   TEXT NOT NULL,
+  grounds     TEXT,
+  scope       TEXT NOT NULL DEFAULT 'all',
+  status      TEXT NOT NULL DEFAULT 'open',
+  routed_to   TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ
+);
+
 -- Student roster. id is BIGSERIAL to match production (the quota trigger and
 -- the AGS grade-passback path both resolve org via teacher_id → teachers.org_id,
 -- so teacher_id is the column that matters). The phase90/91 quota trigger is

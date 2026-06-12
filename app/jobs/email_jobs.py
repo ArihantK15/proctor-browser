@@ -105,6 +105,28 @@ def send_data_subject_breach_notification_job(
     }
 
 
+def send_objection_to_controller_notice_job(
+    *,
+    to_email: str,
+    to_name: str,
+    org_name: str,
+    user_type: str,
+    grounds: str,
+    scope: str,
+) -> dict:
+    from .. import emailer
+    result = emailer.send_objection_to_controller_notice(
+        to_email=to_email, to_name=to_name, org_name=org_name,
+        user_type=user_type, grounds=grounds, scope=scope,
+    )
+    _maybe_raise(result, context=f"objection-notice to {to_email}")
+    return {
+        "ok": result.ok,
+        "provider_msg_id": getattr(result, "provider_msg_id", None),
+        "error": result.error,
+    }
+
+
 def send_demo_request_notification_job(
     *,
     name: str,

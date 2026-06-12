@@ -814,10 +814,15 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
                     "message": "We sent a 6-digit code to your email. Enter it to finish signing in.",
                 },
             )
+        locked, _ = await check_lockout("otp_verify", str(teacher["id"]))
+        if locked:
+            await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "otp_locked_out"})
+            raise HTTPException(status_code=429, detail="Too many failed 2FA attempts. Please wait and try again.")
         if not await otp_verify("teacher", str(teacher["id"]), "2fa_login", body.email_otp_code.strip()):
-            await record_failure("teacher", email)
+            await record_failure("otp_verify", str(teacher["id"]))
             await record_auth_event("login_failed", request, "teacher", teacher["id"], email, {"reason": "email_2fa_invalid"})
             raise HTTPException(status_code=401, detail="Invalid or expired 2FA code")
+        await clear_failures("otp_verify", str(teacher["id"]))
 
     await record_auth_event("login_success", request, "teacher", teacher["id"], email)
 

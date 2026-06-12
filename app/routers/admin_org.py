@@ -179,6 +179,7 @@ async def remove_member(teacher_id: str, request: Request):
     if not target.data:
         raise HTTPException(status_code=404, detail="Member not found in this org")
 
+    before = target.data[0]
     # Atomic update — include org_id in the WHERE so a teacher who got
     # reassigned to another org between the SELECT above and this UPDATE
     # is NOT wiped from their new org by mistake. The session/refresh
@@ -192,6 +193,15 @@ async def remove_member(teacher_id: str, request: Request):
         .eq("user_id", teacher_id).eq("user_kind", "teacher").is_("revoked_at", "null").execute()
     await _atable("refresh_tokens").update({"revoked_at": now_ist().isoformat()})\
         .eq("user_id", teacher_id).eq("kind", "teacher").is_("revoked_at", "null").execute()
+    from ..services.admin_audit import log_admin_action
+    await log_admin_action(
+        teacher_id=str(admin["id"]),
+        action="remove_member",
+        target_type="teacher",
+        target_id=teacher_id,
+        before_data=before,
+        request=request,
+    )
     return {"ok": True}
 
 
@@ -223,12 +233,23 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
     if str(teacher_id) == str(teacher["id"]):
         raise HTTPException(status_code=400, detail="Cannot change your own role")
 
+    before = target.data[0]
     # Atomic update with org_id guard — without this, a teacher who
     # transferred orgs between the existence check and the UPDATE would
     # have their role changed by an admin who no longer manages them.
     await _atable("teachers").update({"org_role": role})\
         .eq("id", teacher_id).eq("org_id", str(org_id)).execute()
     clear_teacher_cache(teacher_id)
+    from ..services.admin_audit import log_admin_action
+    await log_admin_action(
+        teacher_id=str(teacher["id"]),
+        action="set_member_role",
+        target_type="teacher",
+        target_id=teacher_id,
+        before_data={"org_role": before.get("org_role")},
+        after_data={"org_role": role},
+        request=request,
+    )
     return {"ok": True, "role": role}
 
 

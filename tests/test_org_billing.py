@@ -609,3 +609,45 @@ class TestRazorpayWebhook:
                 es.enter_context(p)
             resp = self._post(client, "payment.failed")
         assert resp.status_code == 200
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  POST /api/v1/billing/reactivate
+# ═══════════════════════════════════════════════════════════════════
+class TestReactivateSubscription:
+    def test_non_admin_403(self, client):
+        with _admin_patch(NON_ADMIN):
+            resp = client.post("/api/v1/billing/reactivate", headers=admin_headers())
+        assert resp.status_code == 403
+
+    def test_no_subscription_404(self, client):
+        data_map = {"subscriptions": []}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/reactivate", headers=admin_headers())
+        assert resp.status_code == 404
+
+    def test_not_cancelling_409(self, client):
+        data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1", "status": "active"}]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/reactivate", headers=admin_headers())
+        assert resp.status_code == 409
+
+    def test_happy_path_sandbox(self, client):
+        data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1",
+                                       "status": "cancelling", "razorpay_subscription_id": "mock_sub_1",
+                                       "plan": "growth"}],
+                    "organizations": []}
+        with _admin_patch(), \
+             patch("app.routers.billing.reconcile_org_entitlement") as rec, \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/reactivate", headers=admin_headers())
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d["ok"] is True
+        rec.assert_awaited_once_with("org-1")

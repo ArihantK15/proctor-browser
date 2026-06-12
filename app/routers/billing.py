@@ -385,6 +385,53 @@ async def cancel_subscription(request: Request):
     return {"ok": True, "message": "Subscription cancelled. You retain access until the end of your billing period."}
 
 
+@router.post("/api/v1/billing/reactivate")
+@limiter.limit("5/minute")
+async def reactivate_subscription(request: Request):
+    """Reactivate a subscription that was cancelled at cycle end.
+
+    Reverses a prior cancel-at-cycle-end by telling Razorpay to reset the
+    flag, then restores the subscription status to 'active' and reconciles
+    entitlement. Only works while the subscription is still in its current
+    billing period (status == 'cancelling'); once the period expires and
+    Razorpay delivers subscription.cancelled, the org must create a fresh
+    subscription.
+    """
+    teacher = await require_admin(request)
+    org_id = _require_billing_admin(teacher)
+
+    sub = await _atable("subscriptions").select("id,razorpay_subscription_id,status,plan")\
+        .eq("org_id", str(org_id)).limit(1).execute()
+    if not sub.data:
+        raise HTTPException(status_code=404, detail="No subscription found")
+
+    sub_row = sub.data[0]
+    if sub_row.get("status") != "cancelling":
+        raise HTTPException(status_code=409,
+            detail="Only a subscription cancelled at cycle end (status 'cancelling') can be reactivated. "
+                   "Expired subscriptions should create a new subscription.")
+
+    razorpay_sub_id = sub_row.get("razorpay_subscription_id", "")
+
+    client = _get_client()
+    if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
+        try:
+            client.subscription.update(razorpay_sub_id, {"cancel_at_cycle_end": 0})
+            logger.info("Subscription %s reactivated for org=%s", razorpay_sub_id, org_id)
+        except Exception as e:
+            logger.error("Razorpay reactivate failed for sub=%s: %s", razorpay_sub_id, e)
+            raise HTTPException(status_code=502, detail="Failed to reactivate with payment provider")
+    else:
+        logger.info("Sandbox: reactivating sub for org=%s without Razorpay API call", org_id)
+
+    await _atable("subscriptions").update({"status": "active", "past_due_since": None})\
+        .eq("id", sub_row["id"]).execute()
+    _invalidate_billing_cache(str(org_id))
+    await reconcile_org_entitlement(str(org_id))
+
+    return {"ok": True, "message": "Subscription reactivated."}
+
+
 @router.get("/api/v1/billing/invoices")
 @limiter.limit("10/minute")
 async def list_invoices(request: Request):

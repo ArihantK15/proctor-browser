@@ -186,6 +186,8 @@ async def validate_student(request: Request, body: ValidateIn):
             provided_code, student_tid, student, exam_id) or matched_invite_id
         await _check_group_restrictions(student, student_tid, exam_id)
         existing_key = await _check_existing_session(student, student_tid, exam_id)
+        if not existing_key:
+            await _check_concurrent_exam_limit(student, student_tid)
     except HTTPException as exc:
         if exc.status_code in (403, 404):
             raise HTTPException(
@@ -434,6 +436,20 @@ async def _check_group_restrictions(student: dict, student_tid: str, exam_id: st
         from ..repositories.sessions import check_group_access as _check_group_access
         if not await _check_group_access(student["roll_number"], str(student_tid), exam_id):
             raise HTTPException(status_code=403, detail="You are not in a group assigned to this exam.")
+
+
+async def _check_concurrent_exam_limit(student: dict, student_tid: str) -> None:
+    """Reject if the student already has an IN_PROGRESS or PAUSED session
+    in ANY exam. Prevents taking two exams simultaneously in separate tabs.
+    """
+    q = _atable("exam_sessions").select("session_key").eq("roll_number", student["roll_number"])\
+        .in_("status", [SessionStatus.IN_PROGRESS, SessionStatus.PAUSED])
+    if student_tid:
+        q.eq("teacher_id", str(student_tid))
+    active = (await q.limit(1).execute()).data
+    if active:
+        raise HTTPException(status_code=409,
+            detail="You already have an active exam session. Complete or submit it before starting a new exam.")
 
 
 async def _check_existing_session(student: dict, student_tid: str, exam_id: str) -> str | None:

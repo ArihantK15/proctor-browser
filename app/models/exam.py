@@ -238,3 +238,8 @@ class SaveTemplateIn(BaseModel):
 class DuplicateExamIn(BaseModel):
     model_config = ConfigDict(strict=True)
     new_title: str = ""
+
+class PassMarkIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    exam_id: str
+    pass_mark: int

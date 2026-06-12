@@ -298,7 +298,7 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
     total = exam.get("total", 0)
     pct = exam.get("percentage", 0)
     risk = await compute_risk_score(session_id, teacher_id=tid)
-    passed = pct >= 40
+    passed = pct >= (config.get("pass_mark") or 40)
 
     viol_rows = (await _atable("violations")
                  .select("id, violation_type, severity, details, created_at")

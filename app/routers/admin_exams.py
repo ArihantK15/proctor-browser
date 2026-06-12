@@ -12,7 +12,7 @@ from ..models import SessionStatus
 from ..limiter import limiter
 from ..models import (
     CreateExamIn, CreateGroupIn, RenameGroupIn,
-    GroupMembersIn, ExamGroupAssignIn, DuplicateExamIn,
+    GroupMembersIn, ExamGroupAssignIn, DuplicateExamIn, PassMarkIn,
 )
 from ..services.false_positive import normalize_sensitivity
 
@@ -46,7 +46,7 @@ async def list_exams(request: Request):
 
     result = await _scoped(_atable("exam_config").select(
         "exam_id,exam_title,duration_minutes,starts_at,ends_at,access_code,"
-        "proctoring_sensitivity,created_at,teacher_id"
+        "proctoring_sensitivity,created_at,teacher_id,pass_mark"
     )).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     exams = result.data or []
     exam_ids = [e.get("exam_id") for e in exams if e.get("exam_id")]
@@ -82,6 +82,7 @@ async def list_exams(request: Request):
             "ends_at":          ex.get("ends_at"),
             "access_code":      ex.get("access_code", ""),
             "proctoring_sensitivity": normalize_sensitivity(ex.get("proctoring_sensitivity")),
+            "pass_mark":        ex.get("pass_mark", 40),
             "question_count":   qcounts.get(eid, 0),
             "session_count":    scounts.get(eid, 0),
             "created_at":       ex.get("created_at", ""),
@@ -132,6 +133,22 @@ async def set_phone_camera_config(body: dict, request: Request):
         tid = str(teacher["id"])
         _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
     return {"exam_id": exam_id, "phone_camera": enabled}
+
+
+@router.post("/api/v1/admin/exams/pass-mark")
+@limiter.limit("30/minute")
+async def set_pass_mark(body: PassMarkIn, request: Request):
+    teacher = await require_admin(request)
+    exam_id = body.exam_id.strip()
+    pm = body.pass_mark
+    if pm < 0 or pm > 100:
+        raise HTTPException(status_code=400, detail="pass_mark must be between 0 and 100")
+    tid = str(teacher["id"])
+    await _atable("exam_config").update({"pass_mark": pm})\
+        .eq("exam_id", exam_id).eq("teacher_id", tid).execute()
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
+    return {"exam_id": exam_id, "pass_mark": pm}
 
 
 @router.delete("/api/v1/admin/exams/{exam_id}")

@@ -557,7 +557,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
                 score = sess.get("score", 0)
                 total = sess.get("total", 0)
                 pct = sess.get("percentage", 0)
-                passed = pct >= 40
+                passed = pct >= ((config or {}).get("pass_mark") or 40)
 
                 info = [
                     ["Field", "Value"],

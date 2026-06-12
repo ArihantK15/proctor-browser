@@ -143,6 +143,42 @@ class TestDeleteExam:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  POST /api/v1/admin/exams/pass-mark
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestSetPassMark:
+
+    def test_sets_pass_mark(self, client):
+        from unittest.mock import MagicMock, patch as _mpatch
+        m = MagicMock()
+        for attr in ("update", "eq"):
+            getattr(m, attr).return_value = m
+        async def _fake_execute():
+            return MagicMock()
+        m.execute = _fake_execute
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._atable", return_value=m):
+            resp = client.post("/api/v1/admin/exams/pass-mark",
+                               json={"exam_id": "exam-1", "pass_mark": 60},
+                               headers=TestDeleteExam.DEL_HEADERS)
+        assert resp.status_code == 200
+        assert resp.json().get("pass_mark") == 60
+
+    def test_rejects_invalid_range(self, client):
+        from unittest.mock import patch as _mpatch
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin):
+            resp = client.post("/api/v1/admin/exams/pass-mark",
+                               json={"exam_id": "exam-1", "pass_mark": 150},
+                               headers=TestDeleteExam.DEL_HEADERS)
+        assert resp.status_code == 400
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  POST /api/v1/admin/exams/{exam_id}/duplicate
 # ═══════════════════════════════════════════════════════════════════
 

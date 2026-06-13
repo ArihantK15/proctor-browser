@@ -163,7 +163,7 @@ async def get_org_subscription(org_id: str) -> dict | None:
         # the organizations table directly (see app/services/sessions.py:54,
         # app/routers/admin_org.py:39, etc.).
         result = await _atable("subscriptions").select(
-            "id,org_id,plan,status,trial_end,current_period_start,current_period_end,razorpay_subscription_id"
+            "id,org_id,plan,status,trial_end,current_period_start,current_period_end,razorpay_subscription_id,scheduled_plan,scheduled_plan_effective_at"
         ).eq("org_id", str(org_id)).limit(1).execute()
         sub = (result.data or [None])[0]
         if _cache:

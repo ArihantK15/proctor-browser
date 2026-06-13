@@ -172,6 +172,49 @@ async def compute_overage(org_id: str, period_start: datetime, period_end: datet
             "overage_count": overage, "amount_inr": amount}
 
 
+def razorpay_plan_key(plan_id: str) -> str | None:
+    """Map an internal tier (e.g. 'growth') to the Razorpay plan id configured
+    in the dashboard via RAZORPAY_PLAN_GROWTH etc. Razorpay's subscription APIs
+    want THAT id, not our internal name."""
+    return os.environ.get(f"RAZORPAY_PLAN_{(plan_id or '').upper()}")
+
+
+def compute_proration(old_plan: str, new_plan: str, period_start, period_end, now=None) -> int:
+    """Prorated upgrade catch-up in INR for the rest of the current cycle:
+    (new_price - old_price) * remaining/cycle.
+
+    Returns 0 when it isn't an upgrade, the cycle window is unknown, or the
+    cycle is already over. period_start/end may be datetime OR ISO string (the
+    postgres_table layer returns TIMESTAMPTZ as a string), so coerce both.
+    """
+    from datetime import datetime as _dtmod, timezone as _tz
+
+    def _aware(v):
+        if v is None:
+            return None
+        if not isinstance(v, str) and hasattr(v, "isoformat"):
+            dt = v
+        else:
+            try:
+                dt = _dtmod.fromisoformat(str(v))
+            except ValueError:
+                return None
+        return dt.replace(tzinfo=_tz.utc) if dt.tzinfo is None else dt
+
+    ps, pe = _aware(period_start), _aware(period_end)
+    if ps is None or pe is None:
+        return 0
+    now = _aware(now) or _dtmod.now(_tz.utc)
+    cycle = (pe - ps).total_seconds()
+    remaining = (pe - now).total_seconds()
+    if cycle <= 0 or remaining <= 0:
+        return 0
+    diff = PLANS.get(new_plan, {}).get("price_inr", 0) - PLANS.get(old_plan, {}).get("price_inr", 0)
+    if diff <= 0:
+        return 0
+    return round(diff * remaining / cycle)
+
+
 async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
     """Create a Razorpay add-on for the overage in the cycle that just ended.
 

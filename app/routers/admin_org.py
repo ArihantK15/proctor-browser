@@ -335,6 +335,8 @@ async def get_billing(request: Request):
         "current_period_end": fmt_ist((sub or {}).get("current_period_end", "")),
         "student_count": student_count,
         "max_students": max_students,
+        "scheduled_plan": (sub or {}).get("scheduled_plan"),
+        "scheduled_plan_effective_at": fmt_ist((sub or {}).get("scheduled_plan_effective_at", "")),
     }
 
 

@@ -411,6 +411,8 @@
     "plan",
     "razorpay_order_id",
     "razorpay_subscription_id",
+    "scheduled_plan",
+    "scheduled_plan_effective_at",
     "status",
     "trial_end",
     "updated_at"

@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   razorpay_order_id        TEXT,
   current_period_start     TIMESTAMPTZ,
   current_period_end       TIMESTAMPTZ,
-  created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+  scheduled_plan           TEXT,
+  scheduled_plan_effective_at TIMESTAMPTZ
   -- past_due_since + status CHECK added by phase96
 );
 

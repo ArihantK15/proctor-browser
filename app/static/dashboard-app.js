@@ -3281,10 +3281,20 @@ function sortResults(key){
 const _ENTITLING_BILLING_STATUSES = new Set(['trialing','authenticated','active','past_due','cancelling']);
 let _billingState = { plan: '', status: '' };
 
-// Reflect the active subscription in the plan tiles: badge + lock the plan
-// they're on, and disable the others while a plan is active (in-place switching
-// is blocked server-side — they cancel first). Mirrors create_subscription's
-// 409 guard so the affordances match what the server will actually allow.
+// Client-side plan helpers (mirrors app/constants.py PLANS)
+const _PLAN_PRICE = {starter:2400, growth:12000, pro:30000, enterprise:0};
+const _PLAN_NAMES = {starter:'Starter', growth:'Growth', pro:'Pro', enterprise:'Enterprise'};
+function planName(id){ return _PLAN_NAMES[String(id||'').toLowerCase()] || (id||'Unknown'); }
+function fmtINR(paise){ return '\u20b9'+(paise||0).toLocaleString('en-IN'); }
+function fmtDate(isoStr){
+  if(!isoStr) return '';
+  try{ return new Date(isoStr).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
+  catch(e){ return isoStr; }
+}
+
+// Reflect the active subscription in the plan tiles. When entitled, non-current
+// tiles get an enabled CTA (Upgrade/Downgrade) wired to changePlan(). When not
+// entitled (no subscription yet), tiles keep the original upgradePlan handler.
 function updateBillingTiles(plan, status){
   const cur = String(plan || '').toLowerCase();
   const entitled = _ENTITLING_BILLING_STATUSES.has(String(status || '').toLowerCase());
@@ -3292,25 +3302,40 @@ function updateBillingTiles(plan, status){
     const p = String(tile.dataset.plan || '').toLowerCase();
     const cta = tile.querySelector('.plan-cta');
     const isCurrent = entitled && p === cur;
-    tile.classList.toggle('is-current', isCurrent);   // outline + "Current plan" badge
-    // The whole card carries data-action="upgradePlan"; a locked card should
-    // not look clickable (upgradePlan also guards on _billingState).
-    tile.style.cursor = entitled ? 'default' : 'pointer';
+    tile.classList.toggle('is-current', isCurrent);
+    tile.style.cursor = (entitled && !isCurrent) ? 'pointer' : (entitled ? 'default' : 'pointer');
     if(!cta) return;
-    if(!cta.dataset.label) cta.dataset.label = cta.textContent;  // remember original CTA text
     if(isCurrent){
-      cta.style.display = 'none';        // the .is-current badge is the indicator
+      cta.style.display = 'none';
       cta.disabled = true;
     }else if(entitled){
       cta.style.display = '';
-      cta.disabled = true;
-      cta.title = 'Cancel your current plan to switch plans';
-      cta.textContent = cta.dataset.label;
+      cta.disabled = false;
+      cta.removeAttribute('title');
+      cta.className = cta.className.replace(/\bis-downgrade\b/g,'').trim();
+      const curPrice = _PLAN_PRICE[cur] || 0;
+      const tilePrice = _PLAN_PRICE[p] || 0;
+      if(tilePrice > curPrice){
+        cta.textContent = 'Upgrade';
+        cta.classList.remove('is-downgrade');
+      }else{
+        cta.textContent = 'Downgrade';
+        cta.classList.add('is-downgrade');
+      }
+      tile.dataset.action = 'changePlan';
+      tile.dataset.args = JSON.stringify([p]);
+      if(cta.dataset.action !== 'changePlan') cta.dataset.action = 'changePlan';
+      if(!cta.dataset.args) cta.dataset.args = tile.dataset.args;
     }else{
       cta.style.display = '';
       cta.disabled = false;
       cta.removeAttribute('title');
-      cta.textContent = cta.dataset.label;
+      cta.className = cta.className.replace(/\bis-downgrade\b/g,'').trim();
+      cta.textContent = cta.dataset.label || cta.textContent;
+      tile.dataset.action = 'upgradePlan';
+      tile.dataset.args = JSON.stringify([p]);
+      if(cta.dataset.action !== 'upgradePlan') cta.dataset.action = 'upgradePlan';
+      if(!cta.dataset.args) cta.dataset.args = tile.dataset.args;
     }
   });
 }
@@ -3354,6 +3379,52 @@ async function upgradePlan(planId){
   }
 }
 
+async function changePlan(planId){
+  const cur = String(_billingState.plan || '').toLowerCase();
+  const curPrice = _PLAN_PRICE[cur] || 0;
+  const newPrice = _PLAN_PRICE[planId] || 0;
+  const isUpgrade = newPrice > curPrice;
+  const pName = planName(planId);
+  const msg = isUpgrade
+    ? `Upgrade to ${pName} now? You'll be charged a prorated amount for the rest of this cycle, then ${fmtINR(newPrice)}/cycle from the next renewal.`
+    : `Downgrade to ${pName}? You keep ${planName(cur)} until your current cycle ends, then it switches. No refund.`;
+  if(!(await appConfirm(msg, 'Change plan?', {okText:'Continue'}))) return;
+  const reauth = await _getReauthToken('change your plan');
+  if(!reauth) return;
+  const r = await authFetch(`${BASE}/api/v1/billing/change-plan`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Reauth-Token':reauth},
+    body:JSON.stringify({plan_id:planId})
+  });
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ showModal('Plan change failed', d.detail||'Plan change failed'); return; }
+  if(d.cleared){
+    showModal('Schedule cleared', 'The pending plan change has been cancelled.');
+  }else if(isUpgrade){
+    showModal('Upgraded', `Upgraded to ${pName}. Prorated charge: ${fmtINR(d.proration_inr||0)}.`);
+  }else{
+    showModal('Downgrade scheduled', `Downgrade to ${pName} scheduled for ${fmtDate(d.scheduled_plan_effective_at)}.`);
+  }
+  loadBilling();
+}
+
+async function cancelScheduledChange(){
+  // Reuse changePlan with the current plan = cancel the schedule
+  const cur = String(_billingState.plan || '').toLowerCase();
+  if(!(await appConfirm('Keep your current plan? The scheduled downgrade will be cancelled.','Cancel downgrade',{okText:'Keep current plan'}))) return;
+  const reauth = await _getReauthToken('change your plan');
+  if(!reauth) return;
+  const r = await authFetch(`${BASE}/api/v1/billing/change-plan`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Reauth-Token':reauth},
+    body:JSON.stringify({plan_id:cur})
+  });
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ showModal('Error', d.detail||'Failed to cancel scheduled change'); return; }
+  showModal('Schedule cleared', 'Your plan will stay the same. The scheduled downgrade has been cancelled.');
+  loadBilling();
+}
+
 async function loadBilling(){
   const planEl = document.getElementById('billing-plan');
   const statusEl = document.getElementById('billing-status');
@@ -3377,6 +3448,20 @@ async function loadBilling(){
     usageEl.textContent = `${b.student_count || 0}/${b.max_students || 0}`;
     _billingState = { plan: b.plan || '', status: b.status || '' };
     updateBillingTiles(b.plan, b.status);
+
+    // Scheduled-downgrade banner
+    const schedEl = document.getElementById('billing-scheduled');
+    if(schedEl){
+      if(b.scheduled_plan && b.scheduled_plan_effective_at){
+        schedEl.hidden = false;
+        schedEl.innerHTML = `<span class="billing-scheduled-icon">\u23F3</span>
+          <span class="billing-scheduled-text">Scheduled to downgrade to <strong>${escAttr(planName(b.scheduled_plan))}</strong> on <strong>${escAttr(fmtDate(b.scheduled_plan_effective_at))}</strong>.</span>
+          <button class="btn btn-secondary btn-sm billing-scheduled-btn" type="button" data-action="cancelScheduledChange">Keep current plan</button>`;
+      }else{
+        schedEl.hidden = true;
+      }
+    }
+
     if(resultEl) resultEl.textContent = '';
 
     if(invoiceRes && invoiceRes.ok){

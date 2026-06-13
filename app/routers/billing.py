@@ -4,7 +4,7 @@ from ..log_safe import safe
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException
 from ..auth import require_admin
 from ..database import async_table as _atable
@@ -21,8 +21,11 @@ from ..services.billing import (
     record_billing_event,
     billing_event_seen,
     ENTITLING_STATUSES,
+    compute_proration,
+    razorpay_plan_key,
 )
 from .. import cache as _cache
+from ..auth.admin_auth import require_reauth_or_403
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +183,22 @@ def _epoch_to_iso(value) -> str | None:
         return str(value)
 
 
+def _effective_due(value) -> bool:
+    """True when a scheduled_plan_effective_at (datetime or ISO string — the
+    postgres_table layer returns TIMESTAMPTZ as a string) is at or before now."""
+    if not value:
+        return False
+    eff = value
+    if isinstance(eff, str):
+        try:
+            eff = datetime.fromisoformat(eff)
+        except ValueError:
+            return False
+    if getattr(eff, "tzinfo", None) is None:
+        eff = eff.replace(tzinfo=timezone.utc)
+    return eff <= datetime.now(timezone.utc)
+
+
 async def _notify_payment_issue(org_id: str) -> None:
     """Email the org admin that a renewal payment needs attention (dunning).
 
@@ -283,7 +302,8 @@ async def razorpay_webhook(request: Request):
     # silently no-ops.
     db_sub = (await _atable("subscriptions")
               .select("id,org_id,plan,status,past_due_since,"
-                      "current_period_start,current_period_end,razorpay_subscription_id")
+                      "current_period_start,current_period_end,razorpay_subscription_id,"
+                      "scheduled_plan,scheduled_plan_effective_at")
               .eq("razorpay_subscription_id", sub_id).limit(1).execute()).data or []
     if not db_sub:
         logger.warning("Unknown Razorpay subscription %s (event=%s)",
@@ -318,6 +338,17 @@ async def razorpay_webhook(request: Request):
                 updates["current_period_start"] = _epoch_to_iso(sub_data.get("current_start"))
             if sub_data.get("current_end"):
                 updates["current_period_end"] = _epoch_to_iso(sub_data.get("current_end"))
+            # Apply a scheduled plan change (downgrade) once its effective time
+            # has passed. Done on the renewal charge, in the SAME update so the
+            # following reconcile_org_entitlement lowers the cap — and #4's
+            # bill_cycle_overage then bills any students over the new cap.
+            if event_type == "subscription.charged":
+                _sched = (_sub_before.get("scheduled_plan") or "").strip().lower() or None
+                if _sched and _effective_due(_sub_before.get("scheduled_plan_effective_at")):
+                    updates["plan"] = _sched
+                    updates["scheduled_plan"] = None
+                    updates["scheduled_plan_effective_at"] = None
+                    logger.info("Applied scheduled plan change org=%s -> %s", org_id, _sched)
             outcome = "grant"
         elif event_type == "subscription.pending":
             # Renewal charge failed; Razorpay keeps retrying. KEEP access (grace)
@@ -463,6 +494,168 @@ async def reactivate_subscription(request: Request):
     await reconcile_org_entitlement(str(org_id))
 
     return {"ok": True, "message": "Subscription reactivated."}
+
+
+@router.post("/api/v1/billing/change-plan")
+@limiter.limit("5/minute")
+async def change_plan(request: Request):
+    """Change the org's plan — upgrade now (prorated) or downgrade at cycle end.
+
+    Body: { "plan_id": "growth" }
+
+    Requires X-Reauth-Token header.
+
+    Returns:
+      - upgrade:   {"ok":true, "plan_id": "...", "proration_inr": <int>}
+      - downgrade: {"ok":true, "plan_id": "...", "scheduled_plan_effective_at": "..."}
+      - cancel scheduled change (same plan): {"ok":true, "cleared":true}
+    """
+    teacher = await require_admin(request)
+    if teacher.get("org_role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only admins can manage billing")
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+
+    # Parse body safely per §7.4 guardrail
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    require_reauth_or_403(body, str(teacher["id"]), request=request)
+
+    plan_id = (body.get("plan_id") or "").strip().lower()
+    if plan_id not in PLANS:
+        raise HTTPException(status_code=400, detail=f"Unknown plan: {plan_id}")
+
+    sub = await _atable("subscriptions").select(
+        "id,plan,status,razorpay_subscription_id,scheduled_plan,scheduled_plan_effective_at,"
+        "current_period_start,current_period_end"
+    ).eq("org_id", str(org_id)).limit(1).execute()
+    if not sub.data:
+        raise HTTPException(status_code=404, detail="No active subscription found")
+    sub_row = sub.data[0]
+    current_plan = (sub_row.get("plan") or "").strip().lower()
+    sub_status = (sub_row.get("status") or "").strip().lower()
+    razorpay_sub_id = sub_row.get("razorpay_subscription_id", "")
+    scheduled_plan = (sub_row.get("scheduled_plan") or "").strip().lower() or None
+    scheduled_effective = sub_row.get("scheduled_plan_effective_at")
+
+    # Enterprise is custom-priced and sales-managed — never self-serve into or
+    # out of it (price_inr=0 would otherwise read as a "downgrade" and hand out
+    # the 999999-student cap for free).
+    if plan_id == "enterprise" or current_plan == "enterprise":
+        raise HTTPException(status_code=400, detail="Enterprise plans are managed by sales")
+
+    # Same-plan = cancel scheduled change if one exists, else no-op
+    if plan_id == current_plan:
+        if scheduled_plan and scheduled_effective:
+            # Cancel the pending downgrade
+            client = _get_client()
+            if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
+                try:
+                    client.subscription.update(razorpay_sub_id, {
+                        "plan_id": razorpay_plan_key(current_plan) or current_plan,
+                        "schedule_change_at": "cycle_end",
+                    })
+                    logger.info("Cancelled schedule change for sub=%s, org=%s", razorpay_sub_id, org_id)
+                except Exception as exc:
+                    logger.error("Razorpay cancel-schedule failed for sub=%s: %s", razorpay_sub_id, exc)
+                    raise HTTPException(status_code=502, detail="Failed to cancel schedule with payment provider")
+            else:
+                logger.info("Sandbox: clearing schedule for org=%s", org_id)
+
+            await _atable("subscriptions").update({
+                "scheduled_plan": None,
+                "scheduled_plan_effective_at": None,
+            }).eq("id", sub_row["id"]).execute()
+            _invalidate_billing_cache(str(org_id))
+            return {"ok": True, "cleared": True}
+        else:
+            raise HTTPException(status_code=409, detail="You are already on this plan.")
+
+    # Must have an entitling status to switch
+    if sub_status not in ENTITLING_STATUSES:
+        raise HTTPException(status_code=409, detail="Your subscription must be active to change plans. Create a new subscription instead.")
+
+    current_price = PLANS.get(current_plan, {}).get("price_inr", 0)
+    new_price = PLANS.get(plan_id, {}).get("price_inr", 0)
+    is_upgrade = new_price > current_price
+
+    client = _get_client()
+    if is_upgrade:
+        # Recurring rate flips to the new plan NEXT cycle; charge the prorated
+        # difference for the REMAINDER of this cycle now via an add-on — don't
+        # lean on Razorpay's own opaque subscription proration.
+        proration_inr = compute_proration(
+            current_plan, plan_id,
+            sub_row.get("current_period_start"), sub_row.get("current_period_end"),
+        )
+        proration_charged = False
+        if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
+            try:
+                client.subscription.update(razorpay_sub_id, {
+                    "plan_id": razorpay_plan_key(plan_id) or plan_id,
+                    "schedule_change_at": "cycle_end",
+                })
+            except Exception as exc:
+                logger.error("Razorpay upgrade (plan switch) failed for sub=%s: %s", razorpay_sub_id, exc)
+                raise HTTPException(status_code=502, detail="Failed to upgrade with payment provider")
+            if proration_inr > 0:
+                try:
+                    client.subscription.createAddon(razorpay_sub_id, {
+                        "item": {"name": f"Upgrade proration {current_plan}->{plan_id}",
+                                 "amount": proration_inr * 100, "currency": "INR"},
+                        "quantity": 1,
+                    })
+                    proration_charged = True
+                except Exception as exc:
+                    # Non-fatal: the plan still upgrades; the catch-up charge just
+                    # didn't land. Surface it so the caller/ops can follow up.
+                    logger.error("Razorpay proration add-on failed for sub=%s: %s", razorpay_sub_id, exc)
+        else:
+            logger.info("Sandbox: upgrading org=%s to %s (proration INR %s, no API call)",
+                        org_id, plan_id, proration_inr)
+
+        await _atable("subscriptions").update({
+            "plan": plan_id,
+            "scheduled_plan": None,
+            "scheduled_plan_effective_at": None,
+        }).eq("id", sub_row["id"]).execute()
+        _invalidate_billing_cache(str(org_id))
+        await reconcile_org_entitlement(str(org_id))
+
+        return {"ok": True, "plan_id": plan_id, "proration_inr": proration_inr,
+                "proration_charged": proration_charged}
+
+    else:
+        # Downgrade — schedule at cycle end
+        effective_at = sub_row.get("current_period_end")
+        if not effective_at:
+            effective_at = datetime.now(timezone.utc) + timedelta(days=30)
+        effective_str = effective_at.isoformat() if hasattr(effective_at, "isoformat") else str(effective_at)
+
+        if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
+            try:
+                client.subscription.update(razorpay_sub_id, {
+                    "plan_id": razorpay_plan_key(plan_id) or plan_id,
+                    "schedule_change_at": "cycle_end",
+                })
+                logger.info("Scheduled downgrade sub=%s to %s at cycle end for org=%s",
+                            razorpay_sub_id, plan_id, org_id)
+            except Exception as exc:
+                logger.error("Razorpay downgrade schedule failed for sub=%s: %s", razorpay_sub_id, exc)
+                raise HTTPException(status_code=502, detail="Failed to schedule downgrade with payment provider")
+        else:
+            logger.info("Sandbox: scheduling downgrade for org=%s to %s", org_id, plan_id)
+
+        await _atable("subscriptions").update({
+            "scheduled_plan": plan_id,
+            "scheduled_plan_effective_at": effective_at,
+        }).eq("id", sub_row["id"]).execute()
+        _invalidate_billing_cache(str(org_id))
+
+        return {"ok": True, "plan_id": plan_id, "scheduled_plan_effective_at": effective_str}
 
 
 @router.post("/api/v1/billing/portal-link")

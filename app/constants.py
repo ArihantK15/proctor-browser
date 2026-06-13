@@ -282,6 +282,12 @@ LTI_LOGIN_URL = os.getenv("LTI_LOGIN_URL", "")
 LTI_LAUNCH_URL = os.getenv("LTI_LAUNCH_URL", "")
 LTI_DEEP_LINKING_URL = os.getenv("LTI_DEEP_LINKING_URL", "")
 
+# ─── Overage billing (Gap #4) ──────────────────────────────────────
+# Feature-flag: must be deliberately 1/true to actually charge add-ons.
+OVERAGE_BILLING_ENABLED = os.environ.get("OVERAGE_BILLING_ENABLED", "").lower() in ("1", "true", "yes")
+# Grace count: overage <= OVERAGE_GRACE is recorded but not charged.
+OVERAGE_GRACE = int(os.getenv("OVERAGE_GRACE", "0"))
+
 # ─── S3 Object Store (Workstream B — encrypted screenshot storage) ──
 S3_ENABLED = os.environ.get("S3_ENABLED", "").lower() in ("1", "true", "yes")
 S3_BUCKET = os.getenv("S3_BUCKET", "")

@@ -277,7 +277,13 @@ async def razorpay_webhook(request: Request):
                                    status="ignored_no_sub", payload=event)
         return {"status": "ignored"}
 
-    db_sub = (await _atable("subscriptions").select("id,org_id,plan,status,past_due_since")
+    # current_period_start/end + razorpay_subscription_id are needed for the
+    # _sub_before snapshot that bill_cycle_overage reads (the just-ended cycle
+    # + the sub to add the overage add-on to). Without them overage billing
+    # silently no-ops.
+    db_sub = (await _atable("subscriptions")
+              .select("id,org_id,plan,status,past_due_since,"
+                      "current_period_start,current_period_end,razorpay_subscription_id")
               .eq("razorpay_subscription_id", sub_id).limit(1).execute()).data or []
     if not db_sub:
         logger.warning("Unknown Razorpay subscription %s (event=%s)",
@@ -298,6 +304,9 @@ async def razorpay_webhook(request: Request):
         return {"status": "ignored"}
     row = db_sub[0]
     org_id = str(row["org_id"])
+    # Snapshot the pre-update subscription row so bill_cycle_overage can
+    # read the just-ended cycle's period_start/period_end.
+    _sub_before = dict(row)
 
     try:
         updates: dict = {}
@@ -337,6 +346,15 @@ async def razorpay_webhook(request: Request):
             raise RuntimeError(f"{event_type} DB write returned no data")
         await reconcile_org_entitlement(org_id)
         _invalidate_billing_cache(org_id)
+        # Overage billing (Gap #4): for subscription.charged events, compute
+        # and charge for the just-ended cycle's overage.  Best-effort: a
+        # failure here never fails the webhook (Razordpay must get its 200).
+        if event_type == "subscription.charged":
+            try:
+                from ..services.billing import bill_cycle_overage
+                await bill_cycle_overage(org_id, _sub_before)
+            except Exception as exc:
+                logger.warning("Overage billing failed for org=%s: %s", safe(org_id), safe(exc))
         if outcome == "grace" and newly_past_due:
             await _notify_payment_issue(org_id)
         logger.info("Webhook %s → org=%s status=%s (%s)",
@@ -636,6 +654,20 @@ async def get_usage(request: Request):
     overage = max(0, students_used - plan_limit)
     overage_amount = overage * price_per_student
 
+    # Surface recent overage charges so the admin sees what's been billed.
+    _oc_rows = (await _atable("overage_charges")
+                .select("period_start,period_end,overage_count,amount_inr,status,created_at")
+                .eq("org_id", str(org_id))
+                .order("created_at", desc=True)
+                .limit(5).execute()).data or []
+    overage_charges = [
+        {"period_start": r["period_start"], "period_end": r["period_end"],
+         "overage_count": r["overage_count"], "amount_inr": r["amount_inr"],
+         "status": r["status"], "created_at": r["created_at"]}
+        for r in _oc_rows
+    ]
+
+    from ..constants import OVERAGE_BILLING_ENABLED as _OBE
     return {
         "plan_id": plan_id,
         "plan_limit": plan_limit,
@@ -647,4 +679,6 @@ async def get_usage(request: Request):
         "exam_attempts": exam_attempts,
         "overage": overage,
         "overage_amount": overage_amount,
+        "overage_billing_enabled": _OBE,
+        "overage_charges": overage_charges,
     }

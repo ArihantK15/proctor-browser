@@ -77,6 +77,22 @@ CREATE TABLE IF NOT EXISTS usage_records (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Overage charge ledger (phase109). Idempotent per (org_id, period_start).
+CREATE TABLE IF NOT EXISTS overage_charges (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id           UUID NOT NULL REFERENCES organizations(id),
+  period_start     TIMESTAMPTZ NOT NULL,
+  period_end       TIMESTAMPTZ NOT NULL,
+  students_used    INTEGER NOT NULL,
+  plan_limit       INTEGER NOT NULL,
+  overage_count    INTEGER NOT NULL,
+  amount_inr       INTEGER NOT NULL,
+  razorpay_addon_id TEXT,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT overage_charges_period_uniq UNIQUE (org_id, period_start)
+);
+
 CREATE TABLE IF NOT EXISTS teachers (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     UUID REFERENCES organizations(id),

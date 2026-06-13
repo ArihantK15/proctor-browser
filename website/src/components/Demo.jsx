@@ -296,6 +296,7 @@ export default function Demo() {
                   poster={VIDEO_POSTER}
                   controls
                   autoPlay
+                  muted
                   playsInline
                   preload="auto"
                   onEnded={handleEnded}

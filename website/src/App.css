@@ -1,1 +1,12 @@
 /* Intentionally empty - styles handled by Tailwind */
+
+/* Demo video: permanently muted — hide the volume control so users can't unmute */
+#demo video::-webkit-media-controls-volume-control-container {
+  display: none !important;
+}
+#demo video::-webkit-media-controls-mute-button {
+  display: none !important;
+}
+#demo video::-moz-volume-bar {
+  display: none !important;
+}

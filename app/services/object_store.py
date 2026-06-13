@@ -64,8 +64,28 @@ def is_enabled() -> bool:
     return os.environ.get("S3_ENABLED", "").lower() in ("1", "true", "yes")
 
 
+def _encryption_args() -> dict:
+    """Server-side-encryption kwargs for put_object.
+
+    Prefer SSE-KMS with our customer-managed key when ``S3_KMS_KEY_ID`` is set
+    — that gives a CloudTrail decrypt audit trail and key control/revocation,
+    the defensible choice for student face images under DPDP. Fall back to
+    SSE-S3 (AES256) when no key is configured so the path still works.
+
+    NOTE: an explicit ServerSideEncryption on the request OVERRIDES the bucket's
+    default encryption, so this is the single place the screenshot encryption
+    mode is actually decided. The app's IAM user therefore needs
+    kms:GenerateDataKey (writes) + kms:Decrypt (reads) on the key.
+    """
+    kms_key = os.environ.get("S3_KMS_KEY_ID", "").strip()
+    if kms_key:
+        return {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": kms_key}
+    return {"ServerSideEncryption": "AES256"}
+
+
 def upload_screenshot(s3_key: str, data: bytes, content_type: str = "image/jpeg") -> bool:
-    """Upload *data* to S3 at *s3_key* with SSE-S3 encryption.
+    """Upload *data* to S3 at *s3_key*, encrypted with SSE-KMS (if
+    ``S3_KMS_KEY_ID`` is set) or SSE-S3 otherwise.
 
     Key scheme mirrors the local path: ``{teacher_id}/{roll}/{filename}``.
     Never raises — returns True on success, False + log on failure.
@@ -85,7 +105,7 @@ def upload_screenshot(s3_key: str, data: bytes, content_type: str = "image/jpeg"
             Key=s3_key,
             Body=data,
             ContentType=content_type,
-            ServerSideEncryption="AES256",
+            **_encryption_args(),
         )
         return True
     except Exception:

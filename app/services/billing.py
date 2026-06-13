@@ -17,8 +17,11 @@ import hashlib
 import hmac
 import logging
 import os
+from datetime import datetime
 
-from ..constants import PLANS
+from ..constants import PLANS, OVERAGE_BILLING_ENABLED, OVERAGE_GRACE
+from ..database import async_table as _atable
+from ..services.sessions import PLAN_LIMITS as _PLAN_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +124,211 @@ def verify_webhook(raw_body: bytes, signature: str) -> bool:
 def get_plan_details(plan_id: str) -> dict | None:
     """Return plan details or None for unknown plan."""
     return PLANS.get(plan_id)
+
+
+# ─── Overage computation ──────────────────────────────────────────
+
+async def compute_overage(org_id: str, period_start: datetime, period_end: datetime) -> dict:
+    """Count distinct students across all org teachers within [period_start,
+    period_end) and compute overage (used − cap) × overage_price_inr.
+
+    Returns {students_used, plan_limit, overage_count, amount_inr}.
+    """
+    oid = str(org_id)
+
+    # Resolve plan + effective cap from the subscription row at call time.
+    sub_rows = (await _atable("subscriptions").select("plan")
+                .eq("org_id", oid).limit(1).execute()).data or []
+    plan_id = (sub_rows[0].get("plan") or "starter").strip().lower() if sub_rows else "starter"
+    org_rows = (await _atable("organizations").select("max_students")
+                .eq("id", oid).limit(1).execute()).data or []
+    plan_limit = int(org_rows[0]["max_students"]) if org_rows else _PLAN_LIMITS.get(plan_id, 30)
+    price_per_student = PLANS.get(plan_id, {}).get("overage_price_inr", 0)
+
+    # All teacher ids for this org.
+    tid_rows = (await _atable("teachers").select("id")
+                .eq("org_id", oid).execute()).data or []
+    org_teacher_ids = [str(r["id"]) for r in tid_rows]
+    if not org_teacher_ids:
+        return {"students_used": 0, "plan_limit": plan_limit,
+                "overage_count": 0, "amount_inr": 0}
+
+    # Count distinct students who submitted in [period_start, period_end).
+    # period_start/end may arrive as datetime (unit callers) OR as ISO strings
+    # (the postgres_table layer returns TIMESTAMPTZ columns as strings, which is
+    # how they reach us from the subscription.charged webhook snapshot).
+    ps = period_start.isoformat() if hasattr(period_start, "isoformat") else str(period_start)
+    pe = period_end.isoformat() if hasattr(period_end, "isoformat") else str(period_end)
+    q = (await _atable("exam_sessions")
+         .select("student_id", count="exact", distinct_on="student_id")
+         .in_("teacher_id", org_teacher_ids)
+         .gte("submitted_at", ps)
+         .lt("submitted_at", pe)
+         .execute())
+    students_used = q.count or 0
+    overage = max(0, students_used - plan_limit)
+    amount = overage * price_per_student
+    return {"students_used": students_used, "plan_limit": plan_limit,
+            "overage_count": overage, "amount_inr": amount}
+
+
+def razorpay_plan_key(plan_id: str) -> str | None:
+    """Map an internal tier (e.g. 'growth') to the Razorpay plan id configured
+    in the dashboard via RAZORPAY_PLAN_GROWTH etc. Razorpay's subscription APIs
+    want THAT id, not our internal name."""
+    return os.environ.get(f"RAZORPAY_PLAN_{(plan_id or '').upper()}")
+
+
+def compute_proration(old_plan: str, new_plan: str, period_start, period_end, now=None) -> int:
+    """Prorated upgrade catch-up in INR for the rest of the current cycle:
+    (new_price - old_price) * remaining/cycle.
+
+    Returns 0 when it isn't an upgrade, the cycle window is unknown, or the
+    cycle is already over. period_start/end may be datetime OR ISO string (the
+    postgres_table layer returns TIMESTAMPTZ as a string), so coerce both.
+    """
+    from datetime import datetime as _dtmod, timezone as _tz
+
+    def _aware(v):
+        if v is None:
+            return None
+        if not isinstance(v, str) and hasattr(v, "isoformat"):
+            dt = v
+        else:
+            try:
+                dt = _dtmod.fromisoformat(str(v))
+            except ValueError:
+                return None
+        return dt.replace(tzinfo=_tz.utc) if dt.tzinfo is None else dt
+
+    ps, pe = _aware(period_start), _aware(period_end)
+    if ps is None or pe is None:
+        return 0
+    now = _aware(now) or _dtmod.now(_tz.utc)
+    cycle = (pe - ps).total_seconds()
+    remaining = (pe - now).total_seconds()
+    if cycle <= 0 or remaining <= 0:
+        return 0
+    diff = PLANS.get(new_plan, {}).get("price_inr", 0) - PLANS.get(old_plan, {}).get("price_inr", 0)
+    if diff <= 0:
+        return 0
+    return round(diff * remaining / cycle)
+
+
+async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
+    """Create a Razorpay add-on for the overage in the cycle that just ended.
+
+    Called from the ``subscription.charged`` webhook branch **after** the
+    subscription DB row has been updated but **before** the billing_event is
+    recorded, so that if this function raises the webhook properly 500s and
+    Razorpay retries.  Internal failures (add-on API error) are swallowed
+    and logged — the base webhook must still succeed.
+
+    *sub_row_before* is the subscription-row snapshot taken **before** the
+    webhook applied its status/period update — its ``current_period_start`` /
+    ``current_period_end`` represent the just-ended cycle.
+
+    Idempotency: the ``overage_charges_period_uniq`` UNIQUE constraint on
+    ``(org_id, period_start)`` prevents double-billing on webhook retry.
+    """
+    oid = str(org_id)
+
+    period_start = sub_row_before.get("current_period_start")
+    period_end = sub_row_before.get("current_period_end")
+    if not period_start or not period_end:
+        logger.warning("bill_cycle_overage: missing period for org=%s — skipping", oid)
+        return {"status": "skipped", "reason": "no_period"}
+
+    res = await compute_overage(oid, period_start, period_end)
+    if not res["overage_count"]:
+        return {"status": "skipped", "reason": "no_overage"}
+
+    ps_iso = period_start.isoformat() if hasattr(period_start, "isoformat") else period_start
+    pe_iso = period_end.isoformat() if hasattr(period_end, "isoformat") else period_end
+
+    # Will this overage actually be charged, or only recorded? (grace band,
+    # feature flag, and live-Razorpay all have to hold.)
+    client = _get_client() if (res["overage_count"] > OVERAGE_GRACE
+                               and OVERAGE_BILLING_ENABLED and _is_live()) else None
+    will_charge = client is not None
+
+    # CLAIM-THEN-CHARGE: insert the ledger row BEFORE any money moves. The
+    # (org_id, period_start) UNIQUE constraint is the idempotency guard — a
+    # webhook redelivery for the same cycle trips it here and we return
+    # WITHOUT creating a second Razorpay add-on. Charging first (the previous
+    # ordering) would double-bill on a redelivery that lacks an event id,
+    # which the webhook handler explicitly tolerates.
+    claim = {
+        "org_id": oid,
+        "period_start": ps_iso,
+        "period_end": pe_iso,
+        "students_used": res["students_used"],
+        "plan_limit": res["plan_limit"],
+        "overage_count": res["overage_count"],
+        "amount_inr": res["amount_inr"],
+        "razorpay_addon_id": None,
+        "status": "pending" if will_charge else "skipped",
+    }
+    try:
+        await _atable("overage_charges").insert(claim).execute()
+    except Exception as exc:
+        err = str(exc).lower()
+        if "unique" in err or "duplicate" in err or "23505" in err:
+            logger.info("bill_cycle_overage: duplicate period for org=%s — idempotent skip", oid)
+            return {"status": "duplicate"}
+        logger.exception("bill_cycle_overage: claim insert failed for org=%s", oid)
+        return {"status": "error"}
+
+    if not will_charge:
+        return {"status": "skipped", "overage_count": res["overage_count"],
+                "amount_inr": res["amount_inr"]}
+
+    # We hold the claim — now create the add-on. A failure here is recorded
+    # ('failed', visible in the usage endpoint) but NEVER raised: the base
+    # subscription.charged webhook must still return 200. The claim row blocks
+    # an automatic retry from double-charging; a stuck 'failed' row is settled
+    # manually (follow-up #4c: safe retry of failed overage add-ons).
+    sub_id = sub_row_before.get("razorpay_subscription_id")
+    addon_id = None
+    status = "charged"
+    try:
+        addon = client.subscription.createAddon(sub_id, {
+            "item": {
+                "name": f"Overage: {res['overage_count']} student{'s' if res['overage_count'] != 1 else ''}",
+                "amount": res["amount_inr"] * 100,  # paise
+                "currency": "INR",
+            },
+            "quantity": 1,
+        })
+        addon_id = str(addon.get("id", "")) or None
+    except Exception:
+        logger.exception("Razorpay add-on creation failed for org=%s", oid)
+        status = "failed"
+
+    # Settle the claim with the outcome.
+    try:
+        await _atable("overage_charges").update(
+            {"status": status, "razorpay_addon_id": addon_id}
+        ).eq("org_id", oid).eq("period_start", ps_iso).execute()
+    except Exception as exc:
+        logger.warning("bill_cycle_overage: status update failed for org=%s: %s", oid, exc)
+
+    if status == "charged":
+        try:
+            await record_billing_event(
+                event_id=None,
+                org_id=oid,
+                event_type="overage.addon",
+                amount=res["amount_inr"],
+                status="charged",
+                razorpay_subscription_id=sub_id,
+                payload={"overage_charges": {**claim, "razorpay_addon_id": addon_id, "status": status},
+                         "subscription_id": sub_id},
+            )
+        except Exception as exc:
+            logger.warning("bill_cycle_overage: billing_event record failed for org=%s: %s", oid, exc)
+
+    return {"status": status, "overage_count": res["overage_count"], "amount_inr": res["amount_inr"]}
 
 
 # ─── Entitlement: single source of truth ──────────────────────────────

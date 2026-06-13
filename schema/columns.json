@@ -270,6 +270,9 @@
     "auth_session_timeout_minutes",
     "billing_email",
     "created_at",
+    "delete_reason",
+    "deleted_at",
+    "deleted_by",
     "gstin",
     "id",
     "logo_url",
@@ -408,6 +411,8 @@
     "plan",
     "razorpay_order_id",
     "razorpay_subscription_id",
+    "scheduled_plan",
+    "scheduled_plan_effective_at",
     "status",
     "trial_end",
     "updated_at"
@@ -424,6 +429,7 @@
     "lti_user_id",
     "org_id",
     "org_role",
+    "org_suspended_at",
     "password_changed_at",
     "password_hash",
     "status",
@@ -471,5 +477,18 @@
     "severity",
     "teacher_id",
     "violation_type"
+  ],
+  "overage_charges": [
+    "amount_inr",
+    "created_at",
+    "id",
+    "org_id",
+    "overage_count",
+    "period_end",
+    "period_start",
+    "plan_limit",
+    "razorpay_addon_id",
+    "status",
+    "students_used"
   ]
 }

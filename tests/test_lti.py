@@ -826,6 +826,29 @@ class TestAgsHttpEndpoints:
     TEACHER = {"id": "teacher-1", "email": "t@x.com", "org_id": "org-1",
                "org_role": "admin", "full_name": "T", "status": "active"}
 
+    TEST_REG_JSON = json.dumps([{
+        "issuer": "https://test.canvas.edu",
+        "client_id": "test-client-1",
+        "auth_login_url": "https://test.canvas.edu/api/lti/authorize_redirect",
+        "auth_token_url": "https://test.canvas.edu/login/oauth2/token",
+        "key_set_url": "https://test.canvas.edu/api/lti/security/jwks",
+        "deployment_ids": ["deployment-1"],
+    }])
+
+    @pytest.fixture(autouse=True)
+    def _setup_registration(self):
+        # The "no context" tests expect 404 (registration exists, no NRPS
+        # context) — that requires the platform registration to be present.
+        # Register it explicitly (and clear the module cache) so these tests
+        # are self-contained and don't rely on a sibling test running first
+        # under a given order. Without this they 400 ("no registration") when
+        # shuffled ahead of whatever else used to populate the cache.
+        with patch.dict(os.environ, {"LTI_REGISTRATIONS": self.TEST_REG_JSON}):
+            from app.lti.registration import clear_cache
+            clear_cache()
+            yield
+            clear_cache()
+
     def _auth(self):
         return patch("app.auth.admin_auth._get_teacher_by_id", return_value=self.TEACHER)
 

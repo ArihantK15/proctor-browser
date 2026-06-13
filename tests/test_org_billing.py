@@ -682,3 +682,215 @@ class TestBillingPortalLink:
         assert "sandbox" in d
         assert d["sandbox"] is True
         assert "note" in d
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  POST /api/v1/billing/change-plan
+# ═══════════════════════════════════════════════════════════════════
+class TestChangePlan:
+    SUB_ROW = {"id": "sub_1", "org_id": "org-1", "plan": "starter",
+               "status": "active", "razorpay_subscription_id": "mock_sub_1",
+               "scheduled_plan": None, "scheduled_plan_effective_at": None}
+
+    @staticmethod
+    def _reauth_headers(tid="teacher-1"):
+        from app.auth.tokens import issue_reauth_token
+        h = dict(admin_headers())
+        h["X-Reauth-Token"] = issue_reauth_token(tid)
+        return h
+
+    def test_non_admin_403(self, client):
+        with _admin_patch(NON_ADMIN):
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "growth"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 403
+
+    def test_missing_reauth_403(self, client):
+        with _admin_patch():
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "growth"},
+                               headers=admin_headers())
+        assert resp.status_code == 403
+
+    def test_unknown_plan_400(self, client):
+        with _admin_patch():
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "bogus"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 400
+
+    def test_no_subscription_404(self, client):
+        data_map = {"subscriptions": []}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "growth"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 404
+
+    def test_same_plan_no_schedule_409(self, client):
+        data_map = {"subscriptions": [self.SUB_ROW]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "starter"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 409
+
+    def test_same_plan_with_schedule_clears(self, client):
+        """Same plan id when a scheduled_plan exists = cancel the pending change."""
+        row = dict(self.SUB_ROW)
+        row["scheduled_plan"] = "growth"
+        from datetime import datetime, timezone
+        row["scheduled_plan_effective_at"] = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        data_map = {"subscriptions": [row]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "starter"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d.get("ok") is True
+        assert d.get("cleared") is True
+
+    def test_upgrade_returns_proration_inr(self, client):
+        """Upgrade from starter to growth returns proration_inr."""
+        data_map = {"subscriptions": [self.SUB_ROW]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "growth"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d.get("ok") is True
+        assert d.get("plan_id") == "growth"
+        assert "proration_inr" in d
+
+    def test_downgrade_returns_scheduled_effective_at(self, client):
+        """Downgrade from growth to starter returns scheduled_plan_effective_at."""
+        row = dict(self.SUB_ROW)
+        row["plan"] = "growth"
+        data_map = {"subscriptions": [row]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "starter"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d.get("ok") is True
+        assert d.get("plan_id") == "starter"
+        assert "scheduled_plan_effective_at" in d
+
+    def test_change_plan_updates_db(self, client):
+        """Verify the DB subscription row is updated."""
+        data_map = {"subscriptions": [self.SUB_ROW]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "growth"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 200
+
+    def test_get_billing_surfaces_scheduled_plan(self, client):
+        """GET /api/v1/org/billing returns scheduled_plan and
+        scheduled_plan_effective_at fields."""
+        from datetime import datetime, timezone
+        row = dict(self.SUB_ROW)
+        row["plan"] = "growth"
+        row["scheduled_plan"] = "starter"
+        row["scheduled_plan_effective_at"] = datetime(2025, 7, 1, tzinfo=timezone.utc)
+        data_map = {
+            "subscriptions": [row],
+            "organizations": [{"id": "org-1", "max_students": 150}],
+        }
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.get("/api/v1/org/billing", headers=admin_headers())
+        assert resp.status_code == 200
+        d = resp.json()
+        assert "scheduled_plan" in d
+        assert d["scheduled_plan"] == "starter"
+        assert "scheduled_plan_effective_at" in d
+        assert d["scheduled_plan_effective_at"] != ""
+
+    def test_enterprise_target_400(self, client):
+        data_map = {"subscriptions": [dict(self.SUB_ROW, plan="pro")]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "enterprise"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 400
+        assert "sales" in resp.json()["detail"].lower()
+
+    def test_from_enterprise_400(self, client):
+        data_map = {"subscriptions": [dict(self.SUB_ROW, plan="enterprise")]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "growth"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 400
+
+    def test_upgrade_charges_prorated_addon(self, client):
+        """Live upgrade: recurring plan deferred to cycle end + prorated add-on
+        charged now (amount in paise == returned proration_inr * 100)."""
+        from datetime import datetime, timezone, timedelta
+        from unittest.mock import MagicMock
+        now = datetime.now(timezone.utc)
+        row = dict(self.SUB_ROW, plan="starter",
+                   razorpay_subscription_id="sub_real_1",
+                   current_period_start=now - timedelta(days=15),
+                   current_period_end=now + timedelta(days=15))
+        data_map = {"subscriptions": [row]}
+        mock_client = MagicMock()
+        mock_client.subscription.update = MagicMock(return_value={})
+        mock_client.subscription.createAddon = MagicMock(return_value={"id": "addon_1"})
+        with _admin_patch(), \
+             patch("app.routers.billing._get_client", return_value=mock_client), \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "growth"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 200, resp.text
+        d = resp.json()
+        assert d["proration_inr"] > 0
+        assert d.get("proration_charged") is True
+        # recurring switch deferred (NOT Razorpay's own immediate proration)
+        upd_payload = mock_client.subscription.update.call_args.args[1]
+        assert upd_payload.get("schedule_change_at") == "cycle_end"
+        # prorated catch-up billed via add-on
+        addon_payload = mock_client.subscription.createAddon.call_args.args[1]
+        assert addon_payload["item"]["amount"] == d["proration_inr"] * 100
+
+
+def test_compute_proration_math():
+    """The headline calc: (new-old) price * remaining/cycle, robust to ISO
+    strings, zero when not an upgrade / no period / cycle over."""
+    from datetime import datetime, timezone
+    from app.services.billing import compute_proration
+    start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2025, 2, 1, tzinfo=timezone.utc)          # 31-day cycle
+    mid = datetime(2025, 1, 16, 12, tzinfo=timezone.utc)     # ~half remaining
+    val = compute_proration("growth", "pro", start, end, now=mid)   # diff 18000
+    assert 8000 < val < 10000                                       # ≈ 9000
+    assert compute_proration("pro", "growth", start, end, now=mid) == 0   # downgrade
+    assert compute_proration("growth", "pro", None, None, now=mid) == 0   # no period
+    assert compute_proration("growth", "pro", start, end,
+                             now=datetime(2025, 3, 1, tzinfo=timezone.utc)) == 0  # cycle over
+    assert compute_proration("growth", "pro", start.isoformat(), end.isoformat(), now=mid) > 0

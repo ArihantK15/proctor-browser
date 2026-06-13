@@ -1,0 +1,17 @@
+# gitleaks false-positives — verified fake test fixtures, not real secrets.
+# (gitleaks full-history scans on workflow_dispatch/schedule flag these old
+# commits; push/PR diff scans don't. Listed by fingerprint so the scan is clean
+# in every trigger mode.)
+#
+# integration_tests/conftest.py:26 — TOTP_ENCRYPTION_KEY set to a base64 test
+# value ("test-fernet-key-23-chars-long!!!"); a satisfy-the-gate fixture.
+1cbd71ae3ecfd28b56fbe0694e57f62e8a47d4cf:integration_tests/conftest.py:generic-api-key:26
+# tests/test_endpoints_coverage.py:576 — a mock exam_sessions session_key
+# string ("STU001_1234567890") inside a test fixture.
+50e9c7ad3badf59cb366136b32dfb2709790eac5:tests/test_endpoints_coverage.py:generic-api-key:576
+# tests/conftest.py:29 — TOTP_ENCRYPTION_KEY base64 test value (same fake key
+# as the integration conftest), a satisfy-the-gate fixture.
+9a15cd0e167b84ed2bd8c3dcd4b4fc7fc8b18d89:tests/conftest.py:generic-api-key:29
+# app/static/api-docs.html:53 — a documentation curl example with a placeholder
+# X-API-Key, not a real credential.
+bcdaf03b312628d83fb5bca876a83cc92444048f:app/static/api-docs.html:curl-auth-header:53

@@ -100,6 +100,28 @@ class TestUploadScreenshot:
         result = upload_screenshot("t1/roll/frame.jpg", b"data")
         assert result is False
 
+    def test_uses_sse_kms_when_key_configured(self, mock_s3, monkeypatch):
+        # When S3_KMS_KEY_ID is set, the upload must use SSE-KMS with that key
+        # (an explicit ServerSideEncryption overrides the bucket default, so
+        # this is the only thing that makes the customer-managed key actually
+        # encrypt the screenshots).
+        key = "arn:aws:kms:ap-south-1:900360460966:key/abc-123"
+        monkeypatch.setenv("S3_KMS_KEY_ID", key)
+        mock_s3.put_object.return_value = {}
+        assert upload_screenshot("t1/roll/frame.jpg", b"\xff\xd8") is True
+        kwargs = mock_s3.put_object.call_args.kwargs
+        assert kwargs["ServerSideEncryption"] == "aws:kms"
+        assert kwargs["SSEKMSKeyId"] == key
+
+    def test_falls_back_to_sse_s3_without_kms_key(self, mock_s3, monkeypatch):
+        # No S3_KMS_KEY_ID → SSE-S3 (AES256), unchanged behaviour.
+        monkeypatch.delenv("S3_KMS_KEY_ID", raising=False)
+        mock_s3.put_object.return_value = {}
+        assert upload_screenshot("t1/roll/frame.jpg", b"\xff\xd8") is True
+        kwargs = mock_s3.put_object.call_args.kwargs
+        assert kwargs["ServerSideEncryption"] == "AES256"
+        assert "SSEKMSKeyId" not in kwargs
+
 
 # ── fetch_screenshot ──────────────────────────────────────────────────────────
 

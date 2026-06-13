@@ -28,9 +28,19 @@ CREATE TABLE IF NOT EXISTS organizations (
   billing_email                TEXT,             -- phase100
   auth_session_timeout_minutes INTEGER,          -- phase102
   max_concurrent_auth_sessions INTEGER,          -- phase102
+  deleted_at   TIMESTAMPTZ,                    -- phase107
+  -- FK to teachers(id) is intentionally omitted in this fixture: teachers is
+  -- created later in this file (it FKs org_id back to organizations), so an
+  -- inline REFERENCES here would be a forward reference and fail to build.
+  -- The prod migration (phase107) keeps the real FK — teachers exists there.
+  deleted_by   UUID,                           -- phase107
+  delete_reason TEXT,                          -- phase107
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96
 );
+
+CREATE INDEX IF NOT EXISTS idx_organizations_active
+  ON organizations (id) WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS subscriptions (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -41,7 +51,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   razorpay_order_id        TEXT,
   current_period_start     TIMESTAMPTZ,
   current_period_end       TIMESTAMPTZ,
-  created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+  scheduled_plan           TEXT,
+  scheduled_plan_effective_at TIMESTAMPTZ
   -- past_due_since + status CHECK added by phase96
 );
 
@@ -71,12 +83,30 @@ CREATE TABLE IF NOT EXISTS usage_records (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Overage charge ledger (phase109). Idempotent per (org_id, period_start).
+CREATE TABLE IF NOT EXISTS overage_charges (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id           UUID NOT NULL REFERENCES organizations(id),
+  period_start     TIMESTAMPTZ NOT NULL,
+  period_end       TIMESTAMPTZ NOT NULL,
+  students_used    INTEGER NOT NULL,
+  plan_limit       INTEGER NOT NULL,
+  overage_count    INTEGER NOT NULL,
+  amount_inr       INTEGER NOT NULL,
+  razorpay_addon_id TEXT,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT overage_charges_period_uniq UNIQUE (org_id, period_start)
+);
+
 CREATE TABLE IF NOT EXISTS teachers (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id     UUID REFERENCES organizations(id),
   org_role   TEXT NOT NULL DEFAULT 'teacher',
   email      TEXT,
   full_name  TEXT,
+  status     TEXT DEFAULT 'active',          -- phase62
+  org_suspended_at TIMESTAMPTZ,              -- phase108
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

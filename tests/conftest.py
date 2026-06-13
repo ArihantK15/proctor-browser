@@ -33,10 +33,38 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # Supabase client — shared mock referenced by ALL modules
 _mock_supabase = MagicMock()
-_mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
-_mock_supabase.table.return_value.select.return_value.execute.return_value = MagicMock(data=[])
-_mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
-_mock_supabase.table.return_value.upsert.return_value.execute.return_value = MagicMock(data=[])
+
+
+def _install_default_supabase_chain():
+    """(Re)establish the shared supabase mock's default fluent chain.
+
+    Every app module imported a *reference* to this single module-global
+    mock (via sys.modules['app.database'].supabase), so we can never swap
+    the object — only reset it in place. A test that replaces a chain
+    attribute or attaches a ``side_effect`` (e.g. AsyncMock(side_effect=
+    RuntimeError(...))) leaves that mutation on the shared object; a plain
+    ``reset_mock()`` does NOT clear side_effects or directly-assigned child
+    mocks, so the next test to reach the shared mock inherits the poison.
+    The ``_isolate_shared_supabase`` autouse fixture calls this before every
+    test to guarantee order-independence regardless of which test misbehaves.
+    """
+    _mock_supabase.reset_mock(return_value=True, side_effect=True)
+    # reset_mock() alone is NOT enough: a test that *assigns* a child mock
+    # onto the chain (e.g. `sm.table.return_value...limit.return_value.execute
+    # = AsyncMock(side_effect=RuntimeError(...))`) stores it in the mock's
+    # __dict__, not in _mock_children, so reset_mock cannot reach it and the
+    # side_effect leaks into later tests. Replacing `.table` with a fresh mock
+    # orphans any such assignment and guarantees a clean fluent chain. App
+    # modules call `supabase.table(...)` at call time, so they pick up the new
+    # one through the reference they hold.
+    _mock_supabase.table = MagicMock()
+    _mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+    _mock_supabase.table.return_value.select.return_value.execute.return_value = MagicMock(data=[])
+    _mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+    _mock_supabase.table.return_value.upsert.return_value.execute.return_value = MagicMock(data=[])
+
+
+_install_default_supabase_chain()
 
 # Pre-populate sys.modules so `from .database import supabase` resolves
 class _AsyncTableMock:
@@ -162,6 +190,20 @@ def shared_supabase_mock():
 
 # Now we can import from the app
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_supabase():
+    """Reset the shared supabase mock to its default chain before EVERY test.
+
+    Without this, a test that attaches a side_effect or replaces a chain
+    attribute on the module-global mock leaks that state into every later
+    test that reaches it (e.g. via app.auth.admin_auth._atable, which most
+    tests don't patch) — surfacing as intermittent 500s under randomised
+    test order. Resetting up-front makes the suite order-independent.
+    """
+    _install_default_supabase_chain()
+    yield
 
 
 @pytest.fixture

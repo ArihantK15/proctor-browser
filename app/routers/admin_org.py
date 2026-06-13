@@ -14,7 +14,10 @@ from ..utils import now_ist, fmt_ist
 from ..services.sessions import get_org_subscription, PLAN_LIMITS
 from ..invites import _get_invite_base_url
 from ..models import OrgInviteIn
+from ..models.exam import LIVE_STATUSES as _LIVE_STATUSES
 from ..jobs import enqueue_job, send_org_invite_email_job
+from ..services.admin_audit import log_admin_action
+from ..auth.admin_auth import clear_teacher_cache, require_reauth_or_403
 
 logger = logging.getLogger(__name__)
 
@@ -332,18 +335,236 @@ async def get_billing(request: Request):
         "current_period_end": fmt_ist((sub or {}).get("current_period_end", "")),
         "student_count": student_count,
         "max_students": max_students,
+        "scheduled_plan": (sub or {}).get("scheduled_plan"),
+        "scheduled_plan_effective_at": fmt_ist((sub or {}).get("scheduled_plan_effective_at", "")),
     }
+
+
+@router.delete("/api/v1/admin/orgs/{org_id}")
+@limiter.limit("10/hour")
+async def delete_org(org_id: str, request: Request):
+    """Soft-delete / suspend an organization (superadmin only, reversible).
+
+    Sets ``deleted_at`` on the org, suspends all member teachers (which
+    triggers immediate 401 on next API call), revokes their auth sessions,
+    stops billing, and revokes pending invites.  Fails with 409 if the org
+    has active exam sessions unless ``{"force": true}`` is supplied.
+
+    The optional JSON body ({"reason": str, "force": bool}) is parsed
+    defensively rather than via a Body(...) param: a declared body field made
+    request validation order-sensitive under the randomised test suite (a
+    benign body intermittently 422'd). Reading it by hand — like the webhook
+    does — keeps the endpoint tolerant of a missing/empty/non-JSON body.
+    """
+    admin = await require_admin(request)
+    if admin.get("org_role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    require_reauth_or_403(None, str(admin["id"]), request=request)
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+
+    org = (await _atable("organizations").select("id,name,slug,deleted_at")
+           .eq("id", str(org_id)).limit(1).execute()).data
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org = org[0]
+
+    if org.get("deleted_at"):
+        raise HTTPException(status_code=409, detail="Organization already deleted")
+
+    # Self-protection: refuse to delete an org that contains the platform
+    # superadmin (same exclusion logic used by list_members).
+    members = (await _atable("teachers").select("id,email,org_role")
+               .eq("org_id", str(org_id)).execute()).data or []
+    for m in members:
+        role = (m.get("org_role") or "").strip().lower()
+        email = str(m.get("email", "")).strip().lower()
+        if role == "superadmin" or (SUPER_ADMIN_EMAIL and email == SUPER_ADMIN_EMAIL):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete the platform admin org",
+            )
+
+    # Active-session guard (mirrors gap #7).
+    if not body.get("force"):
+        member_ids = [str(m["id"]) for m in members if m.get("id")]
+        if member_ids:
+            live = (await _atable("exam_sessions")
+                    .select("session_key", count="exact")
+                    .in_("teacher_id", member_ids)
+                    .in_("status", _LIVE_STATUSES)
+                    .execute())
+            if (live.count or 0) > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Org has active exam sessions; end them first",
+                )
+
+    errors: list[str] = []
+    now_val = now_ist().isoformat()
+
+    # 1. Soft-delete the org row.
+    try:
+        await _atable("organizations").update({
+            "deleted_at": now_val,
+            "deleted_by": str(admin["id"]),
+            "delete_reason": (body.get("reason") or "").strip() or None,
+        }).eq("id", str(org_id)).execute()
+    except Exception as e:
+        errors.append(f"organizations.update: {type(e).__name__}")
+
+    # 2. Suspend all active member teachers.  Only ``status='active'`` rows
+    # are touched so independently deleted/already-suspended members are never
+    # clobbered, and we stamp ``org_suspended_at`` so restore can re-activate
+    # ONLY the teachers this org-delete suspended (not someone suspended on
+    # their own merits before the delete). See phase108.
+    suspended = 0
+    for m in members:
+        mid = str(m["id"])
+        try:
+            await _atable("teachers").update({"status": "suspended", "org_suspended_at": now_val}) \
+                .eq("id", mid).eq("status", "active").execute()
+            suspended += 1
+        except Exception as e:
+            errors.append(f"teachers.suspend({mid[:8]}): {type(e).__name__}")
+            continue
+        try:
+            clear_teacher_cache(mid)
+        except Exception:
+            pass
+        try:
+            await _atable("auth_sessions").update({"revoked_at": now_val}) \
+                .eq("user_id", mid).eq("user_kind", "teacher") \
+                .is_("revoked_at", "null").execute()
+        except Exception as e:
+            errors.append(f"auth_sessions({mid[:8]}): {type(e).__name__}")
+        try:
+            await _atable("refresh_tokens").update({"revoked_at": now_val}) \
+                .eq("user_id", mid).eq("kind", "teacher") \
+                .is_("revoked_at", "null").execute()
+        except Exception as e:
+            errors.append(f"refresh_tokens({mid[:8]}): {type(e).__name__}")
+
+    # 5. Stop billing (local only — Razorpay-side cancellation is follow-up).
+    try:
+        await _atable("subscriptions").update({"status": "cancelled"}) \
+            .eq("org_id", str(org_id)).execute()
+    except Exception as e:
+        errors.append(f"subscriptions.cancel: {type(e).__name__}")
+
+    # 6. Revoke pending invites.
+    try:
+        await _atable("org_invites").update({"status": "revoked"}) \
+            .eq("org_id", str(org_id)) \
+            .in_("status", ["pending", "pending_verification"]).execute()
+    except Exception as e:
+        errors.append(f"org_invites.revoke: {type(e).__name__}")
+
+    # 7. Audit.
+    try:
+        await log_admin_action(
+            teacher_id=str(admin["id"]),
+            action="delete_org",
+            target_type="organization",
+            target_id=str(org_id),
+            before_data={"name": org.get("name"), "slug": org.get("slug"),
+                         "member_count": len(members)},
+            request=request,
+        )
+    except Exception as e:
+        errors.append(f"audit: {type(e).__name__}")
+
+    return {"ok": True, "org_id": str(org_id),
+            "members_suspended": suspended, "errors": errors}
+
+
+@router.post("/api/v1/admin/orgs/{org_id}/restore")
+@limiter.limit("10/hour")
+async def restore_org(org_id: str, request: Request):
+    """Restore a previously soft-deleted org (superadmin only).
+
+    Reverses delete_org: clears ``deleted_at``, sets member teacher
+    status back to active, clears caches.  Billing status is NOT
+    automatically restored (left for manual re-activation).
+    """
+    admin = await require_admin(request)
+    if admin.get("org_role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    require_reauth_or_403(None, str(admin["id"]), request=request)
+
+    org = (await _atable("organizations").select("id,name,slug,deleted_at")
+           .eq("id", str(org_id)).limit(1).execute()).data
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org = org[0]
+    if not org.get("deleted_at"):
+        raise HTTPException(status_code=409, detail="Organization is not deleted")
+
+    errors: list[str] = []
+
+    # 1. Clear deleted_at.
+    try:
+        await _atable("organizations").update({
+            "deleted_at": None, "deleted_by": None, "delete_reason": None,
+        }).eq("id", str(org_id)).execute()
+    except Exception as e:
+        errors.append(f"organizations.restore: {type(e).__name__}")
+
+    # 2. Re-activate ONLY the members this org-delete suspended — identified
+    # by the org_suspended_at marker (phase108). A teacher suspended on their
+    # own merits before the delete (marker NULL) or since moved to 'deleted'
+    # is left untouched. Filter in Python so we also clear each member's cache.
+    rows = (await _atable("teachers").select("id,status,org_suspended_at")
+            .eq("org_id", str(org_id)).execute()).data or []
+    for m in rows:
+        if (m.get("status") != "suspended") or not m.get("org_suspended_at"):
+            continue
+        mid = str(m["id"])
+        try:
+            await _atable("teachers").update({"status": "active", "org_suspended_at": None}) \
+                .eq("id", mid).execute()
+            clear_teacher_cache(mid)
+        except Exception as e:
+            errors.append(f"teachers.restore({mid[:8]}): {type(e).__name__}")
+
+    # 3. Audit.
+    try:
+        await log_admin_action(
+            teacher_id=str(admin["id"]),
+            action="restore_org",
+            target_type="organization",
+            target_id=str(org_id),
+            before_data={"deleted_at": org.get("deleted_at")},
+            request=request,
+        )
+    except Exception as e:
+        errors.append(f"audit: {type(e).__name__}")
+
+    return {"ok": True, "org_id": str(org_id), "errors": errors}
 
 
 @router.get("/api/v1/admin/all-orgs")
 @limiter.limit("30/minute")
-async def list_all_orgs(request: Request):
-    """Superadmin: list all organizations."""
+async def list_all_orgs(request: Request, include_deleted: bool = False):
+    """Superadmin: list all organizations.
+
+    By default excludes soft-deleted orgs.  Pass ``?include_deleted=true``
+    to include them (each row will carry a ``deleted_at`` field).
+    """
     teacher = await require_admin(request)
     if teacher.get("org_role") != "superadmin":
         raise HTTPException(status_code=403, detail="Super admin access required")
 
-    orgs = await _atable("organizations").select("id,name,slug,max_students,created_at").execute()
+    query = _atable("organizations").select("id,name,slug,max_students,created_at,"
+                                            "deleted_at,deleted_by,delete_reason")
+    if not include_deleted:
+        query = query.is_("deleted_at", "null")
+    orgs = await query.execute()
     rows = orgs.data or []
 
     result = []
@@ -371,6 +592,8 @@ async def list_all_orgs(request: Request):
             "student_count": student_count,
             "teacher_count": teacher_count,
             "created_at": fmt_ist(org.get("created_at", "")),
+            "deleted_at": fmt_ist(org.get("deleted_at", "")) or None,
+            "delete_reason": org.get("delete_reason"),
         })
 
     return {"orgs": result}

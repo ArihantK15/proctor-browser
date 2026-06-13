@@ -48,7 +48,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.lock
-          pip install pytest pytest-asyncio pytest-cov
+          pip install -r requirements-test.txt
 
       - name: Compile-check Python sources
         # Catches syntax errors before pytest tries to collect — gives
@@ -172,6 +172,10 @@ jobs:
         #   the suite. We want to see ALL failures on each push so a
         #   regression in one area doesn't hide one in another.
         run: |
+          # Shuffle ON (pytest-randomly, pinned in requirements-test.txt): the
+          # suite is verified order-independent, so randomised order each run
+          # catches test pollution / hidden ordering deps. A failure prints
+          # its seed; reproduce with `--randomly-seed=<seed>`.
           pytest tests/ \
             --ignore=tests/browser \
             --ignore=tests/test_proctor_e2e.py \
@@ -398,12 +402,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.lock
-          pip install pytest pytest-asyncio
+          pip install -r requirements-test.txt
 
       - name: Integration tests (real Postgres)
         # `python -m pytest` (not the bare console script) so CWD is on sys.path
         # and `import app` resolves; conftest also inserts the repo root.
-        run: python -m pytest integration_tests/ -p no:cacheprovider -q
+        # -p no:randomly: the unit suite is verified order-independent, but the
+        # real-Postgres integration suite shares DB state across tests and its
+        # order-independence hasn't been audited — keep it deterministic until
+        # it has.
+        run: python -m pytest integration_tests/ -p no:cacheprovider -p no:randomly -q
 
   # Migrations-from-scratch gate. Proves the database can be rebuilt from zero:
   # load the committed prod baseline, mark pre-baseline migrations as applied,

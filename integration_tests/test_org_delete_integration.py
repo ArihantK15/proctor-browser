@@ -42,11 +42,15 @@ async def _small_pool(monkeypatch):
     await close_pool()
 
 
-def _req() -> Request:
+def _req(body=None) -> Request:
+    # delete_org reads its optional {"reason","force"} body via request.json(),
+    # so the body must live ON the request (not a positional arg).
+    raw = json.dumps(body).encode() if body is not None else b""
+    headers = [(b"content-type", b"application/json")] if body is not None else []
     scope = {"type": "http", "method": "POST", "path": "/x",
-             "query_string": b"", "headers": []}
+             "query_string": b"", "headers": headers}
     async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.request", "body": raw, "more_body": False}
     return Request(scope, receive)
 
 
@@ -81,9 +85,7 @@ async def _call(fn, org_id, body=...):
              patch.object(org_mod, "require_reauth_or_403", lambda *a, **k: None), \
              patch.object(org_mod, "clear_teacher_cache", lambda *a, **k: None), \
              patch.object(org_mod, "log_admin_action", AsyncMock(return_value=None)):
-            if body is ...:
-                return await fn(org_id, _req())
-            return await fn(org_id, _req(), body)
+            return await fn(org_id, _req(None if body is ... else body))
     finally:
         limiter.enabled = prev
 

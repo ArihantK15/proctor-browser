@@ -38,6 +38,14 @@ except Exception:
 
 PLAN_LIMITS = {p: v["students"] for p, v in PLANS.items()}
 
+# Upper bound on rows pulled for the live-sessions payload. Without an explicit
+# cap the exam_sessions query falls back to the backend's default row limit
+# (Supabase REST caps at 1000) and silently returns an arbitrary subset — which
+# can omit an actively-testing student. Ordering by last_heartbeat DESC keeps the
+# currently-/recently-active sessions (the only ones the live monitor shows)
+# inside the cap; only stale months-old history is shed.
+_LIVE_SESSION_FETCH_CAP = 5000
+
 
 async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
     if teacher.get("org_role") == "superadmin":
@@ -383,16 +391,20 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
         sess_query = _apply_tids(sess_query, tids)
     elif tid:
         sess_query = sess_query.eq("teacher_id", str(tid))
-    # NOTE: the LIVE view intentionally shows ALL of a teacher's active
-    # sessions, regardless of the dashboard's selected exam. A proctor must
-    # never miss a student who is currently testing just because that
-    # student is enrolled in a different exam — or because the session row
-    # has no exam_id at all (which the old `eq("exam_id", …)` filter silently
-    # dropped, making live monitoring appear empty). The `exam_id` arg is
-    # kept for signature/back-compat but deliberately NOT applied here;
-    # per-exam scoping stays on the results/history endpoints. Tenant
-    # isolation is unaffected — it comes from the teacher_id/tids filter above.
-    sess_result = await sess_query.execute()
+    # Strict per-exam scoping: when an exam is selected, the live monitor shows
+    # ONLY that exam's sessions, so two/three exams running at the same time
+    # never bleed into each other's view. This is only safe because exam_id is
+    # hardened to always be populated on session rows — the token is minted with
+    # the RESOLVED exam id in validate_student, and the heartbeat handler
+    # self-heals any row that still has a NULL exam_id (see app/routers/exam.py).
+    # A row that nonetheless slips through with a blank exam_id is surfaced
+    # below rather than silently lost. With no exam selected (exam_id is None)
+    # the view is unfiltered (every active session for the scope).
+    if exam_id:
+        sess_query = sess_query.eq("exam_id", exam_id)
+    # Bound the fetch (see _LIVE_SESSION_FETCH_CAP) so a large session history
+    # can't exceed the backend row cap and silently drop active students.
+    sess_result = await sess_query.order("last_heartbeat", desc=True).limit(_LIVE_SESSION_FETCH_CAP).execute()
     sess_meta = {r["session_key"]: r for r in (sess_result.data or [])}
     submitted = {
         sk for sk, m in sess_meta.items()
@@ -408,6 +420,12 @@ async def build_sessions_payload(tid: str, exam_id: str = None,
     sessions: dict = {}
     for e in events:
         sk = e["session_key"]
+        # Strict exam scope: the violations (events) query is teacher-scoped, not
+        # exam-scoped, so a flag may belong to a session in a DIFFERENT exam. When
+        # an exam is selected, only build rows for sessions that passed the exam
+        # filter above (i.e. are present in the exam-scoped sess_meta).
+        if exam_id and sk not in sess_meta:
+            continue
         if sk not in sessions:
             meta = sess_meta.get(sk, {})
             cached_risk = meta.get("risk_score")

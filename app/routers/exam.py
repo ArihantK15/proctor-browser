@@ -198,7 +198,7 @@ async def validate_student(request: Request, body: ValidateIn):
             ) from exc
         raise
     if existing_key:
-        resp = _build_validate_response(student, student_tid, exam_id, existing_key)
+        resp = _build_validate_response(student, student_tid, _q_exam_id, existing_key)
         _cache_validate(cache_key, resp)
         return resp
 
@@ -211,7 +211,7 @@ async def validate_student(request: Request, body: ValidateIn):
         except Exception as e:
             logger.debug("Failed to mark invite as accepted: %s", e)
 
-    resp = _build_validate_response(student, student_tid, exam_id)
+    resp = _build_validate_response(student, student_tid, _q_exam_id)
     _cache_validate(cache_key, resp)
     return resp
 
@@ -548,7 +548,7 @@ def _build_validate_response(student: dict, student_tid: str, exam_id: str, exis
     elif not exam_id:
         _exam_log.warning(
             "[validate] no exam_id minting token for roll=%s (teacher=%s) — session "
-            "will be un-tagged for per-exam results/history",
+            "will be un-tagged for per-exam results/history/live",
             safe(student.get("roll_number")), safe(student_tid))
     resp = {
         "valid": True,
@@ -556,6 +556,12 @@ def _build_validate_response(student: dict, student_tid: str, exam_id: str, exis
         "email": student.get("email", ""),
         "phone": student.get("phone", ""),
         "roll_number": student["roll_number"],
+        # Mint with the RESOLVED exam id the caller passes in (body.exam_id or the
+        # exam resolved from the invite/enrollment), NOT a raw null. A null here
+        # left the token — and every session row created from it — un-tagged
+        # whenever the student validated without an explicit exam but their invite
+        # carried one, which is exactly what made strict per-exam live filtering
+        # drop the student.
         "token": create_token(student["roll_number"], student_tid, exam_id=exam_id,
                               student_id=student.get("account_id")),
     }
@@ -880,7 +886,7 @@ async def heartbeat(event: EventIn, request: Request):
     eid = claims.get("eid")
 
     # Check if session already exists and is in a terminal state
-    existing = await _atable("exam_sessions").select("status")\
+    existing = await _atable("exam_sessions").select("status,exam_id")\
         .eq("session_key", event.session_id).execute()
 
     if existing.data and existing.data[0].get("status") in (
@@ -890,12 +896,19 @@ async def heartbeat(event: EventIn, request: Request):
         return {"ok": True}
 
     if existing.data:
-        # Session exists — UPDATE only heartbeat + status
+        # Session exists — UPDATE heartbeat + status. Self-heal: if the row was
+        # created with a NULL exam_id (e.g. an ID-verify ensure-session row, or a
+        # legacy untagged session) and this token carries one, backfill it now so
+        # strict per-exam live filtering never loses the student. Costs nothing on
+        # the common path (already-tagged rows skip the write).
+        upd = {
+            "last_heartbeat": now_ist().isoformat(),
+            "status":         SessionStatus.IN_PROGRESS,
+        }
+        if eid and not existing.data[0].get("exam_id"):
+            upd["exam_id"] = eid
         await _atable("exam_sessions").eq("session_key", event.session_id)\
-            .update({
-                "last_heartbeat": now_ist().isoformat(),
-                "status":         SessionStatus.IN_PROGRESS,
-            }).execute()
+            .update(upd).execute()
     else:
         # No session row yet — INSERT
         row = {

@@ -61,15 +61,18 @@ async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1,
     try:
         # tids=None for superadmin unrestricted; list of ids otherwise.
         payload = await _build_sessions_payload(str(teacher["id"]), exam_id=exam_id, tids=tids)
-        start = (page - 1) * page_size
-        end = start + page_size
-        all_sessions = payload.get("sessions", [])
+        # The live monitor needs the COMPLETE active list, never a page of it.
+        # `all_sessions` is already returned in full and the dashboard renders the
+        # table from it; slicing `sessions` (the active list) only capped the
+        # "Live Now" count at page_size and made it flicker against the SSE path,
+        # which always sends the full list. Return both in full. page/page_size
+        # remain accepted for back-compat but no longer truncate the live view.
+        active = payload.get("sessions", [])
         return {
             **payload,
-            "sessions": all_sessions[start:end],
-            "page": page,
-            "page_size": page_size,
-            "total": len(all_sessions),
+            "page": 1,
+            "page_size": len(active),
+            "total": len(active),
         }
     except Exception as e:
         _admin_log.error("[Sessions] ERROR: %s", e, exc_info=True)

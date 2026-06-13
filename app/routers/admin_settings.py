@@ -247,4 +247,44 @@ async def admin_set_audio_keywords(request: Request, body: AudioKeywordsIn = Bod
     }
 
 
+# ─── Per-org MFA enforcement (gap #20) ───────────────────────────────
+#
+# Org-level toggle that forces every member through the email-OTP 2FA
+# step at login (see enforcement in app/routers/auth.py). Admin/superadmin
+# only — a regular teacher must not be able to weaken or strengthen the
+# org's security posture. Writes to organizations.require_2fa (phase103).
+
+
+class Require2faIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    require_2fa: bool
+
+
+@router.get("/api/v1/admin/require-2fa")
+@limiter.limit("60/minute")
+async def admin_get_require_2fa(request: Request):
+    teacher = await require_admin(request)
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+    row = (await _atable("organizations").select("require_2fa")
+           .eq("id", str(org_id)).limit(1).execute()).data
+    enabled = bool(row and row[0].get("require_2fa"))
+    return {"require_2fa": enabled}
+
+
+@router.post("/api/v1/admin/require-2fa")
+@limiter.limit("20/minute")
+async def admin_set_require_2fa(request: Request, body: Require2faIn = Body(...)):
+    teacher = await require_admin(request)
+    if teacher.get("org_role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only admins can change the MFA policy")
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+    await _atable("organizations").update({"require_2fa": body.require_2fa})\
+        .eq("id", str(org_id)).execute()
+    return {"status": "updated", "require_2fa": body.require_2fa}
+
+
 __all__ = ["router"]

@@ -1834,6 +1834,10 @@
       <div class="plan-result-row">
         <div id="upgrade-result"></div>
       </div>
+      <div class="billing-portal-row" style="margin-top:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button id="billing-portal-btn" class="btn btn-secondary btn-sm" type="button" data-action="openBillingPortal">Manage payment method</button>
+        <span style="color:var(--text-muted);font-size:12px">Update your card or view billing details in the secure payment portal.</span>
+      </div>
       <div id="billing-invoices" style="margin-top:24px;display:none">
         <h3 style="font-size:var(--text-sm,13px);font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin:0 0 12px">Invoice History</h3>
         <table style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">
@@ -1907,6 +1911,19 @@
         <div class="tool-card-actions">
           <button class="btn btn-secondary btn-sm" data-action="revokeOtherSessions">Sign out other devices</button>
           <span id="security-sessions-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+        </div>
+      </div>
+      <!-- Org-wide MFA policy card — admin/superadmin only (gap #20) -->
+      <div class="tool-card" data-roles="admin superadmin">
+        <div class="tool-card-body">
+          <h3>Organization MFA Policy</h3>
+          <p>Require every member of your organization to pass an email code at sign-in — even those who haven't turned on 2FA for themselves.</p>
+          <div id="security-org-2fa-status" style="font-size:13px;color:var(--text-muted);margin:8px 0"></div>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn btn-primary btn-sm" id="security-org-2fa-enable-btn" data-action="setOrgRequire2fa" data-args='[true]' style="display:none">Require 2FA for everyone</button>
+          <button class="btn btn-secondary btn-sm" id="security-org-2fa-disable-btn" data-action="setOrgRequire2fa" data-args='[false]' style="display:none;color:var(--red)">Make 2FA optional</button>
+          <span id="security-org-2fa-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
         </div>
       </div>
     </div>

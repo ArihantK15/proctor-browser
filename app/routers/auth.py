@@ -778,7 +778,26 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         _auth_log.info("[TeacherLogin] Auto-verified existing account %s <%s>", safe(teacher.get("full_name", "")), mask_email(email))
         await record_auth_event("email_verified", request, "teacher", teacher["id"], email)
 
-    if teacher.get("email_2fa_enabled_at"):
+    # Gap #20 — per-org MFA enforcement. If the teacher's org has
+    # `require_2fa` set, run the email-OTP 2FA step even when the user
+    # never opted in individually. Procta's 2FA is email-OTP (no enrolled
+    # secret), so org-wide enforcement is simply "always challenge". A
+    # missing column / lookup error falls back to opt-in (fail-open on the
+    # policy lookup, never the auth check itself) so a schema lag can't
+    # lock an entire org out of login.
+    org_requires_2fa = False
+    if not teacher.get("email_2fa_enabled_at") and teacher.get("org_id"):
+        try:
+            _orow = (await _atable("organizations")
+                     .select("require_2fa")
+                     .eq("id", str(teacher["org_id"]))
+                     .limit(1).execute()).data
+            org_requires_2fa = bool(_orow and _orow[0].get("require_2fa"))
+        except Exception as e:
+            _auth_log.warning("[TeacherLogin] require_2fa lookup failed for org=%s: %s",
+                              safe(str(teacher.get("org_id"))), safe(e))
+
+    if teacher.get("email_2fa_enabled_at") or org_requires_2fa:
         # Email-OTP 2FA (replaced TOTP/Google Authenticator on 2026-05-23).
         # First call (no code yet): generate a fresh OTP, email it, return
         # 401 EMAIL_2FA_REQUIRED. The browser shows a code-input UI and

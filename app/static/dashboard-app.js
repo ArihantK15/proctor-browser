@@ -662,6 +662,12 @@ async function doLogout(){
   document.getElementById('teacher-name').textContent = '';
   _examsLoaded = false;
   document.getElementById('exam-bar').style.display = 'none';
+  // Clear the login form so the previous user's email/password aren't left
+  // sitting in the fields after logout.
+  ['login-email','login-pwd','login-2fa-code'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  const otpRow = document.getElementById('login-2fa-row'); if(otpRow) otpRow.style.display = 'none';
   toggleAuthForm('login');
 }
 
@@ -1396,6 +1402,53 @@ function trialBannerClick(){
 function loadSecurity(){
   load2FAStatus();
   loadSessions();
+  // Org-wide MFA policy is admin/superadmin-only (gap #20). The card is
+  // hidden for plain teachers via data-roles, so only fetch when relevant.
+  if(currentOrgRole === 'admin' || currentOrgRole === 'superadmin') loadOrgMfaPolicy();
+}
+
+// ── Org-wide MFA policy (gap #20) ────────────────────────────────────
+// Admin toggle that forces every member through the email-OTP step at
+// login (enforced in app/routers/auth.py via organizations.require_2fa).
+async function loadOrgMfaPolicy(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/require-2fa`);
+    if(!r.ok) return;
+    const d = await r.json();
+    renderOrgMfaPolicy(!!d.require_2fa);
+  }catch(_){}
+}
+
+function renderOrgMfaPolicy(on){
+  const statusEl = document.getElementById('security-org-2fa-status');
+  const enableBtn = document.getElementById('security-org-2fa-enable-btn');
+  const disableBtn = document.getElementById('security-org-2fa-disable-btn');
+  if(statusEl){
+    statusEl.innerHTML = on
+      ? '✅ Org-wide 2FA is <strong style="color:var(--emerald)">required</strong>. Every member gets an email code at sign-in.'
+      : 'ℹ️ Org-wide 2FA is <strong style="color:var(--amber)">optional</strong> — each member chooses for themselves.';
+  }
+  if(enableBtn) enableBtn.style.display = on ? 'none' : '';
+  if(disableBtn) disableBtn.style.display = on ? '' : 'none';
+}
+
+async function setOrgRequire2fa(value){
+  const resultEl = document.getElementById('security-org-2fa-result');
+  if(resultEl){ resultEl.style.color = 'var(--text-muted)'; resultEl.textContent = value ? 'Enabling…' : 'Disabling…'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/require-2fa`, {
+      method: 'POST',
+      body: JSON.stringify({require_2fa: !!value})
+    });
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Update failed'); }
+    if(resultEl){
+      resultEl.textContent = value ? '✅ Now required for all members.' : 'Now optional for members.';
+      resultEl.style.color = 'var(--emerald)';
+    }
+    renderOrgMfaPolicy(!!value);
+  }catch(e){
+    if(resultEl){ resultEl.textContent = e.message || 'Update failed'; resultEl.style.color = 'var(--red)'; }
+  }
 }
 
 // 2FA UI — email-OTP (replaced TOTP/Google Authenticator 2026-05-23).
@@ -3442,6 +3495,29 @@ async function cancelScheduledChange(){
   if(!r.ok){ showModal('Error', d.detail||'Failed to cancel scheduled change'); return; }
   showModal('Schedule cleared', 'Your plan will stay the same. The scheduled downgrade has been cancelled.');
   loadBilling();
+}
+
+// Gap #2b — self-serve payment-method management. Opens a Razorpay
+// customer portal session so an admin whose card expired can update it
+// without a support ticket. Backend (/api/v1/billing/portal-link) was
+// already shipped; this wires the live (vanilla) dashboard to it.
+async function openBillingPortal(){
+  const btn = document.getElementById('billing-portal-btn');
+  const prevText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Opening…'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/portal-link`, { method: 'POST' });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok || !d.portal_url){
+      showModal('Billing portal', d.detail || 'Could not open the billing portal. Please try again.');
+      return;
+    }
+    window.open(d.portal_url, '_blank', 'noopener');
+  }catch(e){
+    showModal('Billing portal', e.message || 'Could not open the billing portal.');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = prevText; }
+  }
 }
 
 async function loadBilling(){

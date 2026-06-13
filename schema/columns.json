@@ -279,6 +279,7 @@
     "max_concurrent_auth_sessions",
     "max_students",
     "name",
+    "require_2fa",
     "slug"
   ],
   "question_bank": [

@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   -- The prod migration (phase107) keeps the real FK — teachers exists there.
   deleted_by   UUID,                           -- phase107
   delete_reason TEXT,                          -- phase107
+  require_2fa  BOOLEAN NOT NULL DEFAULT FALSE,  -- phase111
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96
 );

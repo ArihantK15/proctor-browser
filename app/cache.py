@@ -158,6 +158,32 @@ def set(key: str, value, ttl: int = 300) -> None:
         _log.exception("Unexpected cache set failure for key=%s", safe(key))
 
 
+def set_if_absent(key: str, ttl: int = 60) -> bool:
+    """Atomic SET key NX EX ttl. Returns True if the key was newly set
+    (i.e. it did NOT already exist), False if it was already present.
+
+    Used as a distributed cooldown/lock: the first caller in a window
+    gets True and proceeds; subsequent callers within `ttl` get False
+    and back off. Fails OPEN — if Redis is unavailable we return True so
+    the caller is never wrongly suppressed (e.g. an alert still fires).
+    """
+    global _r_healthy
+    if ttl <= 0:
+        return True
+    try:
+        r = _client()
+        if r is None:
+            return True
+        # redis-py returns True when set, None when NX prevented the set.
+        return bool(r.set(key, "1", ex=ttl, nx=True))
+    except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
+        _r_healthy = False
+        return True
+    except Exception:
+        _log.exception("Unexpected cache set_if_absent failure for key=%s", safe(key))
+        return True
+
+
 def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
     """Store a live camera frame with enforced LRU cap + size cap.
 

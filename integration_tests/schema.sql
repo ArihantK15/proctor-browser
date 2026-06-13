@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS teachers (
   full_name  TEXT,
   status     TEXT DEFAULT 'active',          -- phase62
   org_suspended_at TIMESTAMPTZ,              -- phase108
+  notification_prefs JSONB NOT NULL DEFAULT '{}'::jsonb,  -- phase112
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

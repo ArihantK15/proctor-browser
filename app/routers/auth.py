@@ -2834,15 +2834,18 @@ async def _track_a_hybrid_delete_student_account(account: dict, request: Request
 
     if teacher and teacher.get("email"):
         try:
-            from ..emailer import send_student_account_deleted_to_teacher
-            send_student_account_deleted_to_teacher(
-                to_email=teacher.get("email"),
-                to_name=teacher.get("full_name") or "",
-                student_name=student_name,
-                student_email=student_email,
-                student_roll=student_roll,
-                deleted_at_str=fmt_ist(now_ist()),
-            )
+            from ..services.notification_prefs import teacher_wants
+            tid = str(teacher.get("id") or "")
+            if not tid or await teacher_wants(tid, "student_activity"):
+                from ..emailer import send_student_account_deleted_to_teacher
+                send_student_account_deleted_to_teacher(
+                    to_email=teacher.get("email"),
+                    to_name=teacher.get("full_name") or "",
+                    student_name=student_name,
+                    student_email=student_email,
+                    student_roll=student_roll,
+                    deleted_at_str=fmt_ist(now_ist()),
+                )
         except Exception:
             _auth_log.warning("[StudentDelete] teacher notification failed", exc_info=True)
 
@@ -3161,6 +3164,71 @@ async def student_email_change_confirm(request: Request, body: dict = Body(defau
     await record_auth_event("email_changed", request, "student_account", account_id, new_email, {"old_email": old_email})
     clear_student_account_cache(account_id)
     return {"ok": True, "email": new_email}
+
+
+# ─── TEACHER NOTIFICATION PREFERENCES ──────────────────────────
+
+
+@router.get("/api/v1/notification-preferences")
+@limiter.limit("30/minute")
+async def get_notification_preferences(request: Request):
+    teacher = await require_admin(request)
+    from ..services.notification_prefs import get_prefs
+    try:
+        prefs = await get_prefs(str(teacher["id"]))
+    except Exception as e:
+        msg = str(e).lower()
+        if "notification_prefs" in msg and ("column" in msg or "schema cache" in msg):
+            raise HTTPException(status_code=503, detail="Notification preferences are not available until the latest migration is applied.")
+        raise
+    return prefs
+
+
+@router.patch("/api/v1/notification-preferences")
+@limiter.limit("20/minute")
+async def update_notification_preferences(request: Request):
+    teacher = await require_admin(request)
+    from ..services.notification_prefs import get_prefs, KNOWN_CATEGORIES
+    body = await request.json()
+    unknown = set(body.keys()) - KNOWN_CATEGORIES
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown categories: {', '.join(sorted(unknown))}")
+    for k, v in body.items():
+        if not isinstance(v, bool):
+            raise HTTPException(status_code=400, detail=f"Value for '{k}' must be a boolean")
+    tid = str(teacher["id"])
+    try:
+        current_raw = (await _atable("teachers").select("notification_prefs")
+                       .eq("id", tid).limit(1).execute()).data or []
+        current = {}
+        if current_raw and current_raw[0].get("notification_prefs"):
+            raw = current_raw[0]["notification_prefs"]
+            if isinstance(raw, dict):
+                current = dict(raw)
+            elif isinstance(raw, str):
+                import json
+                current = json.loads(raw)
+        current.update(body)
+        import json as _json
+        await (_atable("teachers")
+               .update({"notification_prefs": _json.dumps(current)})
+               .eq("id", tid)
+               .execute())
+    except Exception as e:
+        msg = str(e).lower()
+        if "notification_prefs" in msg and ("column" in msg or "schema cache" in msg):
+            raise HTTPException(status_code=503, detail="Notification preferences are not available until the latest migration is applied.")
+        raise
+    await record_auth_event(
+        "preference_updated",
+        request,
+        "teacher",
+        tid,
+        teacher.get("email", ""),
+        {"notification_prefs": current},
+    )
+    merged = await get_prefs(tid)
+    return merged
 
 
 # ─── OAUTH SIGN-IN — REMOVED 2026-05-23 ──────────────────────────

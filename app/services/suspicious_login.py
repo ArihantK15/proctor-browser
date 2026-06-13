@@ -135,16 +135,21 @@ async def check_and_notify(
         if not _is_new_device(events, cur_subnet, cur_ua):
             return
 
-        # Send the heads-up email. Import lazily so this module
-        # doesn't pull the emailer into every test.
-        from ..emailer import send_suspicious_login_email
-        send_suspicious_login_email(
-            to_email=user_email,
-            to_name=user_name or user_email.split("@", 1)[0],
-            ip=request_ip,
-            user_agent=user_agent,
-            when=datetime.now(timezone.utc),
-        )
+        # Check teacher's notification preference before sending.
+        # Only gate for "teacher" kind (students don't have notification_prefs).
+        wants = True
+        if user_kind == "teacher":
+            from ..services.notification_prefs import teacher_wants
+            wants = await teacher_wants(user_id, "security")
+        if wants:
+            from ..emailer import send_suspicious_login_email
+            send_suspicious_login_email(
+                to_email=user_email,
+                to_name=user_name or user_email.split("@", 1)[0],
+                ip=request_ip,
+                user_agent=user_agent,
+                when=datetime.now(timezone.utc),
+            )
     except Exception as e:
         # Never raise — a failed suspicious-login email shouldn't
         # affect the user's actual login flow.

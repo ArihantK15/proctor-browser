@@ -428,6 +428,7 @@
     "full_name",
     "id",
     "lti_user_id",
+    "notification_prefs",
     "org_id",
     "org_role",
     "org_suspended_at",

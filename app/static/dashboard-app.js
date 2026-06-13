@@ -1402,6 +1402,7 @@ function trialBannerClick(){
 function loadSecurity(){
   load2FAStatus();
   loadSessions();
+  loadNotifPrefs();
   // Org-wide MFA policy is admin/superadmin-only (gap #20). The card is
   // hidden for plain teachers via data-roles, so only fetch when relevant.
   if(currentOrgRole === 'admin' || currentOrgRole === 'superadmin') loadOrgMfaPolicy();
@@ -1448,6 +1449,61 @@ async function setOrgRequire2fa(value){
     renderOrgMfaPolicy(!!value);
   }catch(e){
     if(resultEl){ resultEl.textContent = e.message || 'Update failed'; resultEl.style.color = 'var(--red)'; }
+  }
+}
+
+// ── Notification preferences (gap #28) ──────────────────────────────
+const _NOTIF_CATEGORIES = {
+  billing: 'Billing alerts — payment failures',
+  security: 'Security alerts — suspicious sign-ins',
+  student_activity: 'Student activity — account deletions'
+};
+
+async function loadNotifPrefs(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/notification-preferences`);
+    if(!r.ok){ document.getElementById('notification-prefs-card')?.remove(); return; }
+    const d = await r.json();
+    renderNotifPrefs(d);
+  }catch(_){ document.getElementById('notification-prefs-card')?.remove(); }
+}
+
+function renderNotifPrefs(prefs){
+  const container = document.getElementById('notification-prefs-list');
+  if(!container) return;
+  container.innerHTML = '';
+  for(const [key, label] of Object.entries(_NOTIF_CATEGORIES)){
+    const on = prefs[key] !== false;
+    const wrapper = document.createElement('label');
+    wrapper.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:13px';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = on;
+    cb.dataset.notifCategory = key;
+    cb.addEventListener('change', ()=> toggleNotifPref(key, cb.checked));
+    wrapper.appendChild(cb);
+    wrapper.appendChild(document.createTextNode(label));
+    container.appendChild(wrapper);
+  }
+}
+
+async function toggleNotifPref(category, enabled){
+  const resultEl = document.getElementById('notification-prefs-result');
+  if(resultEl){ resultEl.textContent = 'Saving…'; resultEl.style.color = 'var(--text-muted)'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/notification-preferences`, {
+      method: 'PATCH',
+      body: JSON.stringify({[category]: !!enabled})
+    });
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Update failed'); }
+    if(resultEl){
+      resultEl.textContent = enabled ? `${category} notifications ON` : `${category} notifications OFF`;
+      resultEl.style.color = 'var(--emerald)';
+      setTimeout(()=>{ if(resultEl) resultEl.textContent = ''; }, 3000);
+    }
+  }catch(e){
+    if(resultEl){ resultEl.textContent = e.message || 'Save failed'; resultEl.style.color = 'var(--red)'; }
+    loadNotifPrefs(); // reload to reset checkbox
   }
 }
 

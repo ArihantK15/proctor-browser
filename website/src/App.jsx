@@ -25,15 +25,38 @@ const CompareHonorlock = lazy(() => import('./pages/CompareHonorlock'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
 function RouteFallback() {
+  // A lazy route's chunk is downloading. Show branded content instead of a
+  // bare navy void so a slow load never reads as a broken page. The spinner
+  // keyframes live in index.css (route-fallback-spin).
   return (
     <div
       style={{
         minHeight: '100vh',
-        background: '#0d1117',
+        background: '#0F1629',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '20px',
+        color: '#e2e8f0',
+        fontFamily: 'system-ui, sans-serif',
       }}
       aria-busy="true"
       aria-live="polite"
-    />
+    >
+      <img src="/logo.svg" alt="Procta" width={140} height={40} style={{ opacity: 0.95 }} />
+      <div
+        style={{
+          width: 28,
+          height: 28,
+          border: '3px solid rgba(226,232,240,0.25)',
+          borderTopColor: '#e2e8f0',
+          borderRadius: '50%',
+          animation: 'route-fallback-spin 0.8s linear infinite',
+        }}
+      />
+      <div style={{ fontSize: 14, color: '#94a3b8' }}>Loading Procta…</div>
+    </div>
   )
 }
 

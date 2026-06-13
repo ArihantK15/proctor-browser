@@ -204,3 +204,10 @@ textarea:focus:not(:focus-visible) {
 .animate-fadeIn {
   animation: fadeIn 0.6s ease-out forwards;
 }
+
+/* Spinner for the lazy-route loading fallback (src/App.jsx RouteFallback).
+   Defined here so it works the moment the fallback paints, independent of any
+   route chunk. */
+@keyframes route-fallback-spin {
+  to { transform: rotate(360deg); }
+}

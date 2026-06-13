@@ -25,6 +25,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Full history so `git diff origin/main...HEAD` resolves for the
+          # migration-safety guard — a shallow clone has no origin/main ref,
+          # which would send the guard down its (skipped) no-git path.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v6
         with:
@@ -80,6 +85,16 @@ jobs:
         # notice until the snapshot is seeded from prod via
         # scripts/dump_schema.py — so this is safe to land before seeding.
         run: python scripts/check_schema_refs.py
+
+      - name: Migration-safety guard
+        # Fails the build if a NEW migration file uses destructive DDL
+        # (DROP COLUMN, DROP TABLE, ALTER COLUMN … TYPE, RENAME, SET NOT NULL,
+        # DROP CONSTRAINT) without a `-- migration:contract <reason>` marker + a
+        # matching reverse script in migrations/down/. Enforces the expand-contract
+        # convention documented in migrations/MIGRATIONS.md. Stdlib-only; no DB
+        # access. Git-diff vs origin/main; falls back to scanning all files if the
+        # git range is unavailable (shallow clones).
+        run: python scripts/check_migration_safety.py
 
       - name: Postgres select-syntax guard
         # Fails the build if any .select("…") uses PostgREST syntax the postgres

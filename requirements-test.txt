@@ -1,0 +1,17 @@
+# Pinned test-only dependencies.
+#
+# Separate from requirements.txt (runtime) and requirements.lock
+# (pip-compiled runtime lock) — these never ship in the app image.
+#
+# Why pinned exactly: an unpinned bump to pytest 9.0.1 + pytest-randomly
+# 4.1.0 surfaced an intermittent "ValueError: Seed must be between 0 and
+# 2**32 - 1". pytest-randomly reseeds every 'pytest_randomly.random_seeder'
+# entry point with a per-test seed of base + crc32(nodeid) (often > 2**32);
+# thinc's reseeder (transitive, via the ML stack) forwards it straight to
+# numpy.random.seed(), which rejects seeds >= 2**32. The crash is
+# neutralised by the numpy-seed clamp in the repo-root conftest.py; these
+# pins stop the toolchain from drifting back into the surprise silently.
+pytest==9.0.1
+pytest-asyncio==1.3.0
+pytest-cov==7.1.0
+pytest-randomly==4.1.0

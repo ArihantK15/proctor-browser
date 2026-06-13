@@ -252,6 +252,12 @@ async function _onAuthed(teacher){
 }
 
 let _sseSource = null;
+// The exam_id the live SSE stream is currently scoped to. The filter is baked
+// into the EventSource URL at connect time, so it goes stale when the user
+// switches exams — we track it here to detect+heal that (see _connectSSE and
+// the init/refresh handlers). The poll path reads currentExamId live, so it
+// never drifts; this keeps the SSE path in lockstep.
+let _sseExamId = null;
 let _sseFallbackTimer = null;
 let _liveRefreshTimer = null;
 
@@ -296,11 +302,16 @@ async function _connectSSE(){
     if(!ctr.ok) throw new Error('connect-token failed');
     const { connect_token } = await ctr.json();
 
+    _sseExamId = currentExamId;   // stamp the scope this connection is opened for
     const examParam = currentExamId ? `&exam_id=${encodeURIComponent(currentExamId)}` : '';
     _sseSource = new EventSource(`${BASE}/api/v1/sse/sessions?token=${encodeURIComponent(connect_token)}${examParam}`);
 
     _sseSource.addEventListener('init', (e)=>{
       try{
+        // Stale-scope guard: if the exam changed since this stream opened, this
+        // payload is for the wrong exam — drop it and reconnect for the current
+        // one (covers any exam-change path that didn't reconnect explicitly).
+        if(_sseExamId !== currentExamId){ _connectSSE(); return; }
         const d=JSON.parse(e.data);
         liveData=d.all_sessions||[];
         renderLiveStats(d.sessions||[],liveData);
@@ -328,6 +339,9 @@ async function _connectSSE(){
     _sseSource.addEventListener('refresh', (e)=>{
       // Full refresh (fallback mode when no Redis)
       try{
+        // Stale-scope guard (see 'init'): a degraded-mode refresh tick must not
+        // overwrite liveData with the previously-selected exam's sessions.
+        if(_sseExamId !== currentExamId){ _connectSSE(); return; }
         const d=JSON.parse(e.data);
         liveData=d.all_sessions||[];
         renderLiveStats(d.sessions||[],liveData);
@@ -420,6 +434,11 @@ function onExamSwitch(examId){
   if (_shareLinkTeacherId) _populateShareLinks(_shareLinkTeacherId);
   // Reset data and reload everything for the new exam
   liveData = []; resultsData = []; qData = [];
+  // Re-scope the live SSE stream to the new exam. The stream's exam_id is fixed
+  // at connect time, so without this it keeps pushing the PREVIOUS exam's
+  // sessions (the bug where live filtering ignored the selected exam). The poll
+  // path below already reads currentExamId live; this keeps the stream in sync.
+  if(typeof _connectSSE === 'function') _connectSSE();
   _reloadQuestionsIfActive();
   refreshAll();
   // refreshAll() only covers a fixed set (live/results/tools/invites). The

@@ -4,7 +4,7 @@ import hashlib
 import logging
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Request, HTTPException, Body
+from fastapi import APIRouter, Request, HTTPException
 
 from ..auth import require_admin
 from ..constants import SUPER_ADMIN_EMAIL
@@ -340,18 +340,31 @@ async def get_billing(request: Request):
 
 @router.delete("/api/v1/admin/orgs/{org_id}")
 @limiter.limit("10/hour")
-async def delete_org(org_id: str, request: Request, body: dict = Body(default_factory=dict)):
+async def delete_org(org_id: str, request: Request):
     """Soft-delete / suspend an organization (superadmin only, reversible).
 
     Sets ``deleted_at`` on the org, suspends all member teachers (which
     triggers immediate 401 on next API call), revokes their auth sessions,
     stops billing, and revokes pending invites.  Fails with 409 if the org
     has active exam sessions unless ``{"force": true}`` is supplied.
+
+    The optional JSON body ({"reason": str, "force": bool}) is parsed
+    defensively rather than via a Body(...) param: a declared body field made
+    request validation order-sensitive under the randomised test suite (a
+    benign body intermittently 422'd). Reading it by hand — like the webhook
+    does — keeps the endpoint tolerant of a missing/empty/non-JSON body.
     """
     admin = await require_admin(request)
     if admin.get("org_role") != "superadmin":
         raise HTTPException(status_code=403, detail="Super admin access required")
     require_reauth_or_403(None, str(admin["id"]), request=request)
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
 
     org = (await _atable("organizations").select("id,name,slug,deleted_at")
            .eq("id", str(org_id)).limit(1).execute()).data

@@ -154,11 +154,16 @@ async def compute_overage(org_id: str, period_start: datetime, period_end: datet
                 "overage_count": 0, "amount_inr": 0}
 
     # Count distinct students who submitted in [period_start, period_end).
+    # period_start/end may arrive as datetime (unit callers) OR as ISO strings
+    # (the postgres_table layer returns TIMESTAMPTZ columns as strings, which is
+    # how they reach us from the subscription.charged webhook snapshot).
+    ps = period_start.isoformat() if hasattr(period_start, "isoformat") else str(period_start)
+    pe = period_end.isoformat() if hasattr(period_end, "isoformat") else str(period_end)
     q = (await _atable("exam_sessions")
          .select("student_id", count="exact", distinct_on="student_id")
          .in_("teacher_id", org_teacher_ids)
-         .gte("submitted_at", period_start.isoformat())
-         .lt("submitted_at", period_end.isoformat())
+         .gte("submitted_at", ps)
+         .lt("submitted_at", pe)
          .execute())
     students_used = q.count or 0
     overage = max(0, students_used - plan_limit)

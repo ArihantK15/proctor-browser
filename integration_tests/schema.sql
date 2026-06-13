@@ -29,7 +29,11 @@ CREATE TABLE IF NOT EXISTS organizations (
   auth_session_timeout_minutes INTEGER,          -- phase102
   max_concurrent_auth_sessions INTEGER,          -- phase102
   deleted_at   TIMESTAMPTZ,                    -- phase107
-  deleted_by   UUID REFERENCES teachers(id),   -- phase107
+  -- FK to teachers(id) is intentionally omitted in this fixture: teachers is
+  -- created later in this file (it FKs org_id back to organizations), so an
+  -- inline REFERENCES here would be a forward reference and fail to build.
+  -- The prod migration (phase107) keeps the real FK — teachers exists there.
+  deleted_by   UUID,                           -- phase107
   delete_reason TEXT,                          -- phase107
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96

@@ -13,6 +13,7 @@ import sys
 
 import asyncpg
 import pytest
+import pytest_asyncio
 
 # Make scripts/ importable
 _HERE = pathlib.Path(__file__).parent
@@ -66,7 +67,7 @@ def _skip_without_db():
         pytest.skip("integration tests require DATABASE_URL (a real Postgres)")
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def conn():
     c = await asyncpg.connect(_database_url(), statement_cache_size=0)
     await _ensure_bookkeeping(c)

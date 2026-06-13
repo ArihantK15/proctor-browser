@@ -449,6 +449,7 @@ function onExamSwitch(examId){
   const _activeTabBtn = document.querySelector('.tab.active');
   const _activeTab = _activeTabBtn && _activeTabBtn.dataset ? _activeTabBtn.dataset.tab : null;
   if(_activeTab) _dispatchTabLoad(_activeTab);
+  reloadExtensions();
 }
 
 function _examQuery(sep){
@@ -7241,10 +7242,65 @@ async function refreshInviteCapStatus(){
   } catch(_) {}
 }
 
-// Removes a single student's roster row (NOT their login account)
-// under the calling teacher. Backed by DELETE /api/v1/admin/students/roster.
-// Confirmation modal first because a typo'd email/roll could remove
-// the wrong student.
+// ── Time Extensions (Gap #22) ──────────────────────────────────────
+
+async function setTimeExtension(){
+  const status = document.getElementById('ext-status');
+  const rollEl = document.getElementById('ext-roll');
+  const minsEl = document.getElementById('ext-minutes');
+  const roll = (rollEl?.value || '').trim().toUpperCase();
+  const mins = parseInt(minsEl?.value || '0', 10);
+  if(!roll){ status.textContent = 'Enter a roll number.'; return; }
+  if(isNaN(mins) || mins < 0 || mins > 600){ status.textContent = 'Minutes must be 0–600.'; return; }
+  const eid = typeof currentExamId !== 'undefined' ? currentExamId : null;
+  if(!eid){ status.textContent = 'Select an exam first.'; return; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/time-extension`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roll_number: roll, extra_minutes: mins}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || `HTTP ${r.status}`);
+    }
+    status.style.color = 'var(--emerald)';
+    status.textContent = mins > 0 ? `+${mins} min set for ${roll}.` : `Extension removed for ${roll}.`;
+    rollEl.value = '';
+    minsEl.value = '';
+    reloadExtensions();
+  }catch(e){
+    status.style.color = 'var(--red)';
+    status.textContent = e.message;
+  }
+}
+
+async function reloadExtensions(){
+  const list = document.getElementById('ext-list');
+  if(!list) return;
+  const eid = typeof currentExamId !== 'undefined' ? currentExamId : null;
+  if(!eid){ list.textContent = 'Select an exam to see extensions.'; return; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/time-extensions`);
+    if(!r.ok){ list.textContent = 'Failed to load.'; return; }
+    const data = await r.json();
+    const entries = Object.entries(data || {});
+    if(!entries.length){
+      list.textContent = 'No extensions set for this exam.';
+      return;
+    }
+    list.innerHTML = entries.map(([roll, mins]) =>
+      `<div style="display:flex;justify-content:space-between;padding:4px 0">
+        <span style="font-family:var(--font-mono);font-size:13px">${_escHtml(roll)}</span>
+        <span style="color:var(--accent-light);font-size:13px">+${mins} min</span>
+      </div>`
+    ).join('');
+  }catch(_){
+    list.textContent = 'Failed to load extensions.';
+  }
+}
+
+// Remove student from roster — kept separate from time-extensions above.
 async function removeStudentFromRoster(){
   const status = document.getElementById('roster-remove-status');
   const emailEl = document.getElementById('roster-remove-email');

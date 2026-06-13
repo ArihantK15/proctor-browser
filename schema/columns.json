@@ -480,6 +480,15 @@
     "teacher_id",
     "violation_type"
   ],
+  "exam_time_extensions": [
+    "created_at",
+    "created_by",
+    "exam_id",
+    "extra_minutes",
+    "id",
+    "roll_number",
+    "teacher_id"
+  ],
   "overage_charges": [
     "amount_inr",
     "created_at",

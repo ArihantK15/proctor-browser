@@ -692,4 +692,70 @@ async def unassign_exam_group(exam_id: str, group_id: str, request: Request):
     return {"ok": True}
 
 
+@router.get("/api/v1/admin/exams/{exam_id}/time-extensions")
+@limiter.limit("60/minute")
+async def list_time_extensions(exam_id: str, request: Request):
+    """List per-student time extensions for an exam (roll_number → extra_minutes)."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    rows = (await _atable("exam_time_extensions")
+            .select("roll_number,extra_minutes")
+            .eq("teacher_id", tid)
+            .eq("exam_id", exam_id)
+            .execute()).data or []
+    return {r["roll_number"]: r["extra_minutes"] for r in rows}
+
+
+@router.post("/api/v1/admin/exams/{exam_id}/time-extension")
+@limiter.limit("30/minute")
+async def set_time_extension(exam_id: str, request: Request):
+    """Set (or clear) a per-student time extension for the exam.
+
+    Body: {roll_number, extra_minutes}.
+    extra_minutes=0 removes the row (no extension). Valid range 0–600.
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    body = await request.json()
+    roll_number = (body.get("roll_number") or "").strip().upper()
+    extra_minutes = body.get("extra_minutes", 0)
+    try:
+        extra_minutes = int(extra_minutes)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="extra_minutes must be an integer")
+    if not roll_number:
+        raise HTTPException(status_code=400, detail="roll_number is required")
+    if not (0 <= extra_minutes <= 600):
+        raise HTTPException(status_code=400, detail="extra_minutes must be between 0 and 600")
+
+    exam_check = await _atable("exam_config").select("exam_id")\
+        .eq("exam_id", exam_id).eq("teacher_id", tid).limit(1).execute()
+    if not exam_check.data:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    if extra_minutes == 0:
+        await _atable("exam_time_extensions").delete()\
+            .eq("teacher_id", tid).eq("exam_id", exam_id)\
+            .eq("roll_number", roll_number).execute()
+    else:
+        await _atable("exam_time_extensions").upsert({
+            "teacher_id": tid,
+            "exam_id": exam_id,
+            "roll_number": roll_number,
+            "extra_minutes": extra_minutes,
+            "created_by": tid,
+        }, on_conflict=["teacher_id", "exam_id", "roll_number"]).execute()
+
+    from ..services.admin_audit import log_admin_action
+    await log_admin_action(
+        teacher_id=tid,
+        action="set_time_extension",
+        target_type="exam_time_extension",
+        target_id=f"{exam_id}:{roll_number}",
+        details={"exam_id": exam_id, "roll_number": roll_number, "extra_minutes": extra_minutes},
+        request=request,
+    )
+    return {"ok": True, "roll_number": roll_number, "extra_minutes": extra_minutes}
+
+
 __all__ = ["router"]

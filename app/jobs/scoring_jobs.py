@@ -45,6 +45,7 @@ async def _score_submission_async(
     from ..models import SessionStatus
     from ..utils import now_ist
     from ..event_bus import async_publish as _bus_async_publish
+    from ..services.time_extension import get_time_extension
 
     # Idempotency guard — if another retry already completed it, bail.
     existing = await _atable("exam_sessions")\
@@ -146,7 +147,9 @@ async def _score_submission_async(
     # The student's clock was stopped while paused; that time should not
     # count toward their allowed_secs budget. paused_secs_total
     # accumulates across multiple pause/resume cycles.
-    allowed_secs = config.get("duration_minutes", 60) * 60
+    # Phase 113: add per-student time extension (accommodations).
+    extra = await get_time_extension(teacher_id, exam_id, roll_number) if teacher_id and exam_id else 0
+    allowed_secs = (config.get("duration_minutes", 60) + extra) * 60
     server_elapsed = time_taken_secs
     started_at_str = sess.get("started_at")
     if started_at_str:

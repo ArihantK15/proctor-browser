@@ -1179,6 +1179,28 @@
         </div>
       </div>
 
+      <div class="tool-card" style="grid-column:1/-1" data-section="students">
+        <div class="tool-card-body">
+          <h3>Time Extensions</h3>
+          <p>Grant extra minutes to a specific student for the selected exam (accommodations, makeup-time, tech-issue). The student's on-screen timer and the server's time-exceeded enforcement both reflect the extension. Set to 0 to remove.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <input type="text" id="ext-roll" placeholder="Roll number"
+              style="width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;text-transform:uppercase">
+            <input type="number" id="ext-minutes" placeholder="Extra minutes" min="0" max="600"
+              style="width:130px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <button class="btn btn-primary btn-sm" data-action="setTimeExtension">Set</button>
+          </div>
+          <div id="ext-status" style="font-size:12px;min-height:18px;margin-top:8px"></div>
+          <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Current Extensions</div>
+              <button class="btn btn-ghost btn-sm" data-action="reloadExtensions" style="font-size:11px">↻</button>
+            </div>
+            <div id="ext-list" style="font-size:13px;color:var(--muted)">Select an exam and set an extension to see it here.</div>
+          </div>
+        </div>
+      </div>
+
       <div class="tool-card" data-section="exam">
         <div class="tool-card-body">
           <h3>Per-Student Randomization</h3>

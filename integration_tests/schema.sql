@@ -28,9 +28,15 @@ CREATE TABLE IF NOT EXISTS organizations (
   billing_email                TEXT,             -- phase100
   auth_session_timeout_minutes INTEGER,          -- phase102
   max_concurrent_auth_sessions INTEGER,          -- phase102
+  deleted_at   TIMESTAMPTZ,                    -- phase107
+  deleted_by   UUID REFERENCES teachers(id),   -- phase107
+  delete_reason TEXT,                          -- phase107
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96
 );
+
+CREATE INDEX IF NOT EXISTS idx_organizations_active
+  ON organizations (id) WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS subscriptions (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -77,6 +83,8 @@ CREATE TABLE IF NOT EXISTS teachers (
   org_role   TEXT NOT NULL DEFAULT 'teacher',
   email      TEXT,
   full_name  TEXT,
+  status     TEXT DEFAULT 'active',          -- phase62
+  org_suspended_at TIMESTAMPTZ,              -- phase108
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

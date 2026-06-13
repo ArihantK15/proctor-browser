@@ -14,6 +14,7 @@ values rather than mock wiring:
     org_suspended_at marker, phase108), leaving a teacher who was suspended on
     their own merits before the delete still suspended.
 """
+import json
 import uuid
 
 import pytest

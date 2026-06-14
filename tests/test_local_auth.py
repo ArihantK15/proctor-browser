@@ -52,12 +52,14 @@ def test_local_auth_enabled_case_insensitive(monkeypatch):
     assert local_auth_enabled() is True
 
 
-def test_hybrid_auth_enables_local_passwords_and_supabase_fallback(monkeypatch):
+def test_hybrid_auth_local_passwords_on_supabase_fallback_decommissioned(monkeypatch):
+    # Gap #38: even in hybrid mode the Supabase-Auth fallback is permanently
+    # off — local password auth is the only login path.
     monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
 
     assert local_auth_enabled() is False
     assert local_password_auth_enabled() is True
-    assert supabase_auth_fallback_enabled() is True
+    assert supabase_auth_fallback_enabled() is False
 
 
 def test_new_auth_uid_is_valid_uuid():

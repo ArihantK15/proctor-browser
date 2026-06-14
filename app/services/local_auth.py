@@ -46,8 +46,15 @@ def local_password_auth_enabled() -> bool:
 
 
 def supabase_auth_fallback_enabled() -> bool:
-    """True when login may call Supabase Auth for legacy no-hash users."""
-    return auth_provider_mode() in {"supabase", HYBRID_AUTH_PROVIDER}
+    """Legacy Supabase-Auth fallback — DECOMMISSIONED (gap #38).
+
+    The bcrypt-bypassing Supabase login path could cause auth divergence, so it
+    is permanently disabled regardless of AUTH_PROVIDER. Local password auth is
+    the only path; the `supabase`/`hybrid` branches downstream are now dead code
+    kept only until a follow-up cleanup removes them. Any genuinely legacy
+    no-hash user must complete a password reset to log in.
+    """
+    return False
 
 
 def new_auth_uid() -> str:

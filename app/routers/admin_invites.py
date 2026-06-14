@@ -9,12 +9,13 @@ from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scop
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_exam_config as _load_exam_config, load_questions as _load_questions
+from ..repositories.sessions import cohort_roll_numbers as _cohort_roll_numbers
 from ..invites import _get_invite_base_url, _new_invite_token, _new_access_code, _claim_and_bump_cap
 from ..utils import now_ist, fmt_ist
 from ..models import InviteStatus
 from ..limiter import limiter
 from ..jobs import send_invite_email_job
-from ..models import SendInvitesBody, SaveTemplateIn
+from ..models import InviteRecipient, SendInvitesBody, SaveTemplateIn
 
 logger = logging.getLogger(__name__)
 
@@ -182,11 +183,37 @@ async def send_invites(body: SendInvitesBody, request: Request):
 
     base_url = _get_invite_base_url()
 
-    ok, remaining = await _claim_and_bump_cap(tid, len(body.recipients))
+    # Expand cohort (group_id / batch) into additional invite recipients.
+    # Merged with explicit recipients, deduplicated by email.
+    recipients = list(body.recipients)
+    if body.group_id or body.batch:
+        try:
+            tids = [tid]
+            rolls = await _cohort_roll_numbers(tids, group_id=body.group_id, batch=body.batch)
+            if rolls and "__none__" not in rolls:
+                cohort_rows = (await _atable("students")
+                               .select("full_name,email,roll_number")
+                               .in_("roll_number", list(rolls))
+                               .eq("teacher_id", tid)
+                               .execute()).data or []
+                seen_emails = {r.email.strip().lower() for r in recipients if r.email}
+                for s in cohort_rows:
+                    email = (s.get("email") or "").strip().lower()
+                    if email and email not in seen_emails:
+                        recipients.append(InviteRecipient(
+                            email=email,
+                            full_name=s.get("full_name") or "",
+                            roll_number=str(s.get("roll_number") or ""),
+                        ))
+                        seen_emails.add(email)
+        except Exception:
+            logger.exception("send_invites: cohort expansion failed")
+
+    ok, remaining = await _claim_and_bump_cap(tid, len(recipients))
     if not ok:
         raise HTTPException(
             status_code=429,
-            detail=f"Daily cap exceeded. {remaining} remaining, {len(body.recipients)} requested."
+            detail=f"Daily cap exceeded. {remaining} remaining, {len(recipients)} requested."
         )
 
     exam_cfg = (await _atable("exam_config")
@@ -199,7 +226,7 @@ async def send_invites(body: SendInvitesBody, request: Request):
     ends_at = fmt_ist(cfg.get("ends_at")) if cfg.get("ends_at") else None
 
     results = {"sent": 0, "failed": 0, "skipped": 0, "failures": []}
-    for rec in body.recipients:
+    for rec in recipients:
         email = rec.email.strip().lower()
         token = _new_invite_token()
         invite_url = f"{base_url}/invite/{token}"

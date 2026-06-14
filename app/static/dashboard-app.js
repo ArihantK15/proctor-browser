@@ -38,6 +38,8 @@ let currentTeacherProfile = null;
 // this, F5 silently swaps you to examsList[0], and live sessions / results
 // / schedule all blank out because they filter by exam_id.
 let currentExamId = localStorage.getItem('procta_current_exam') || null;
+let currentGroupFilter = '';
+let currentBatchFilter = '';
 let examsList = [];
 let _examsLoaded = false;
 let _showArchived = false; // true once loadExams() has run (so the exam bar only shows after)
@@ -459,6 +461,8 @@ function _examQuery(sep){
   const params = [];
   if(currentExamId) params.push(`exam_id=${encodeURIComponent(currentExamId)}`);
   if(currentTeacherFilter) params.push(`teacher_id=${encodeURIComponent(currentTeacherFilter)}`);
+  if(currentGroupFilter) params.push(`group_id=${encodeURIComponent(currentGroupFilter)}`);
+  if(currentBatchFilter) params.push(`batch=${encodeURIComponent(currentBatchFilter)}`);
   return params.length ? `${sep}${params.join('&')}` : '';
 }
 
@@ -2619,7 +2623,13 @@ function renderResults(){
   }).join('');
 }
 
-function filterResults(){renderResults();}
+function filterResults(){
+  currentGroupFilter = document.getElementById('results-group-filter')?.value || '';
+  currentBatchFilter = document.getElementById('results-batch-filter')?.value || '';
+  renderResults();
+  // When cohort filters are active the server must re-filter.
+  if(currentGroupFilter || currentBatchFilter) refreshResults();
+}
 
 // Tracks the prior pending count so we can auto-focus the first card
 // only on the transition from 0 → N. Avoids scroll-jumping every poll.
@@ -7250,9 +7260,23 @@ async function removeOrgMember(memberId){
 }
 
 function populateGroupSelect(){
-  const sel = document.getElementById('assign-group-select');
-  sel.innerHTML = '<option value="">Select a group to restrict access...</option>' +
-    _groupsData.map(g=>`<option value="${escAttr(g.id)}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
+  const assignSel = document.getElementById('assign-group-select');
+  if(assignSel){
+    assignSel.innerHTML = '<option value="">Select a group to restrict access...</option>' +
+      _groupsData.map(g=>`<option value="${escAttr(g.id)}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
+  }
+  const resultsSel = document.getElementById('results-group-filter');
+  if(resultsSel){
+    const cur = resultsSel.value;
+    resultsSel.innerHTML = '<option value="">All groups</option>' +
+      _groupsData.map(g=>`<option value="${escAttr(g.id)}"${g.id===cur?' selected':''}>${_escHtml(g.group_name)}</option>`).join('');
+  }
+  const inviteSel = document.getElementById('invite-from-group');
+  if(inviteSel){
+    const cur = inviteSel.value;
+    inviteSel.innerHTML = '<option value="">— or pull from a group —</option>' +
+      _groupsData.map(g=>`<option value="${escAttr(g.id)}"${g.id===cur?' selected':''}>${_escHtml(g.group_name)}</option>`).join('');
+  }
 }
 
 async function loadExamGroups(){
@@ -7334,6 +7358,12 @@ function populateBatchSelects(){
   if(cohortSel){
     const cur = cohortSel.value;
     cohortSel.innerHTML = '<option value="">Select a batch…</option>' +
+      _allBatchesCache.map(b=>`<option value="${escAttr(b)}"${b===cur?' selected':''}>${_escHtml(b)}</option>`).join('');
+  }
+  const resultsBatch = document.getElementById('results-batch-filter');
+  if(resultsBatch){
+    const cur = resultsBatch.value;
+    resultsBatch.innerHTML = '<option value="">All batches</option>' +
       _allBatchesCache.map(b=>`<option value="${escAttr(b)}"${b===cur?' selected':''}>${_escHtml(b)}</option>`).join('');
   }
 }
@@ -7470,6 +7500,8 @@ async function sendInvites(){
     recipients: rows,
     custom_message: document.getElementById('invite-message').value.trim(),
     per_invite_code: document.getElementById('invite-per-code').checked,
+    group_id: currentGroupFilter || null,
+    batch: currentBatchFilter || null,
   };
   const exp = document.getElementById('invite-expires').value;
   if(exp) payload.expires_at = new Date(exp).toISOString();

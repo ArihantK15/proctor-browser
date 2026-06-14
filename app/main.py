@@ -48,6 +48,7 @@ from .routers.lti_config import router as lti_config_router
 from .domains.ops import admin_status_router
 from .domains.compliance import privacy_router
 from .domains.compliance import appeals_router
+from .routers.unsubscribe import router as unsubscribe_router
 
 # ── structured logger ─────────────────────────────────────────────
 logger = logging.getLogger("proctor.api")
@@ -923,3 +924,4 @@ app.include_router(admin_sar_router)
 app.include_router(admin_breach_router)
 app.include_router(admin_coupons_router)
 app.include_router(admin_guardian_router)
+app.include_router(unsubscribe_router)

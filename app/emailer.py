@@ -150,6 +150,7 @@ def send_exam_reminder(
     exam_starts_at_display: str,  # already-formatted IST string
     access_code: Optional[str] = None,
     teacher_name: Optional[str] = None,
+    student_id: Optional[str] = None,
 ) -> SendResult:
     """Send a "your exam starts in N hours" reminder.
 
@@ -157,7 +158,12 @@ def send_exam_reminder(
     SendResult(ok=False) on provider failure so the reminder loop can
     retry on the next tick (the ``reminder_XX_at`` timestamp is only
     written AFTER this returns ok, so a failed send leaves the row
-    claimable again)."""
+    claimable again).
+
+    Bulk (reminder) emails include a List-Unsubscribe header with a
+    one-click unsubscribe token so recipients can opt out of future
+    reminders without logging in.
+    """
     html, text = _render_reminder(
         to_name=to_name,
         exam_title=exam_title,
@@ -172,6 +178,20 @@ def send_exam_reminder(
         subject = f"{exam_title} — starts tomorrow"
     else:
         subject = f"{exam_title} — starts in 1 hour"
+
+    headers = None
+    try:
+        from .services.local_auth import issue_unsubscribe_token
+        from .constants import APP_URL
+        token = issue_unsubscribe_token(student_id or "", to_email)
+        unsubscribe_url = f"{APP_URL}/api/v1/unsubscribe?token={token}"
+        headers = {
+            "List-Unsubscribe": f"<{unsubscribe_url}>, <mailto:unsubscribe@procta.net>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
+    except Exception:
+        log.exception("send_exam_reminder: failed to build unsubscribe header")
+
     try:
         backend = _pick_backend()
         return backend.send(
@@ -180,6 +200,7 @@ def send_exam_reminder(
             subject=subject,
             html=html,
             text=text,
+            headers=headers,
         )
     except Exception as e:
         log.exception("send_exam_reminder failed: %s", e)
@@ -811,14 +832,14 @@ class _Backend:
     """Abstract base for email provider backends."""
     def send(
         self, *, to_email: str, to_name: str, subject: str,
-        html: str, text: str, attachments=None,
+        html: str, text: str, attachments=None, headers=None,
     ) -> SendResult:
         raise NotImplementedError
 
 
 class _ResendBackend(_Backend):
     def send(self, *, to_email: str, to_name: str, subject: str,
-             html: str, text: str, attachments=None) -> SendResult:
+             html: str, text: str, attachments=None, headers=None) -> SendResult:
         try:
             import resend  # type: ignore
         except ImportError:
@@ -839,6 +860,8 @@ class _ResendBackend(_Backend):
         }
         if reply_to:
             params["reply_to"] = reply_to
+        if headers:
+            params["headers"] = headers
         if attachments:
             import base64 as _b64
             params["attachments"] = [
@@ -856,7 +879,7 @@ class _ResendBackend(_Backend):
 
 class _SmtpBackend(_Backend):
     def send(self, *, to_email: str, to_name: str, subject: str,
-             html: str, text: str, attachments=None) -> SendResult:
+             html: str, text: str, attachments=None, headers=None) -> SendResult:
         import smtplib
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
@@ -873,6 +896,9 @@ class _SmtpBackend(_Backend):
         msg["To"] = f"{to_name} <{to_email}>" if to_name else to_email
         msg.attach(MIMEText(text, "plain"))
         msg.attach(MIMEText(html, "html"))
+        if headers:
+            for name, value in headers.items():
+                msg[name] = value
         if attachments:
             for a in attachments:
                 part = MIMEBase("application", "octet-stream")
@@ -894,7 +920,7 @@ class _SmtpBackend(_Backend):
 
 class _NoopBackend(_Backend):
     def send(self, *, to_email: str, to_name: str, subject: str,
-             html: str, text: str, attachments=None) -> SendResult:
+             html: str, text: str, attachments=None, headers=None) -> SendResult:
         log.info("[noop-email] to=%s subject=%r", safe(to_email), safe(subject))
         return SendResult(ok=True, provider_msg_id="noop")
 

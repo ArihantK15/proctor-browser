@@ -1117,7 +1117,7 @@ _INVITE_PAGE = """\
   <h1>Join {org_name}</h1>
   <div class="org-badge">You've been invited to <strong>{org_name}</strong></div>
   <div class="error" id="error"></div>
-  <form id="acceptForm">
+  <form id="acceptForm" data-token="{token}">
     <div class="field">
       <label for="full_name">Full name</label>
       <input type="text" id="full_name" name="full_name" required placeholder="Your full name">
@@ -1132,30 +1132,7 @@ _INVITE_PAGE = """\
     Already have an account? <a href="https://app.procta.net/dashboard" style="color:#5b8af0;">Go to dashboard</a>
   </p>
 </div>
-<script>
-document.getElementById('acceptForm').addEventListener('submit', async function(e){
-  e.preventDefault();
-  const errEl = document.getElementById('error');
-  errEl.style.display = 'none';
-  const full_name = document.getElementById('full_name').value.trim();
-  const password = document.getElementById('password').value;
-  if (!full_name) { errEl.textContent='Name is required'; errEl.style.display='block'; return; }
-  if (password.length < 10) { errEl.textContent='Password must be at least 10 characters'; errEl.style.display='block'; return; }
-  try {
-    const r = await fetch('/api/v1/auth/accept-org-invite', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:'{token}',full_name,password})
-    });
-    if (!r.ok) { const d=await r.json(); errEl.textContent=d.detail||'Failed to accept invite'; errEl.style.display='block'; return; }
-    const d = await r.json().catch(()=>({}));
-    errEl.style.display='block';
-    errEl.style.background='#ecfdf5';
-    errEl.style.color='#065f46';
-    errEl.textContent=d.message||'Invitation accepted. Check your email to verify before signing in.';
-  } catch(e) { errEl.textContent='Network error'; errEl.style.display='block'; }
-});
-</script>
+<script src="/static/invite-accept.js" defer></script>
 </body>
 </html>
 """
@@ -1203,7 +1180,7 @@ async def get_org_invite_page(token: str, request: Request):
             return HTMLResponse("<h1>This invitation has expired</h1>", status_code=410)
     org_result = await _atable("organizations").select("name").eq("id", str(invite["org_id"])).limit(1).execute()
     org_name = org_result.data[0]["name"] if org_result.data else "an organization"
-    page = _INVITE_PAGE.replace("{org_name}", _esc(org_name)).replace("{token}", token)
+    page = _INVITE_PAGE.replace("{org_name}", _esc(org_name)).replace("{token}", _esc(token))
     return HTMLResponse(page)
 
 

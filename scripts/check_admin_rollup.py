@@ -59,6 +59,8 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("admin.py", "backfill_risk_scores"):        "maintenance recompute over own sessions",
     ("admin_exams.py", "set_phone_camera_config"): "mutates own exam_config",
     ("admin_exams.py", "set_pass_mark"):         "mutates own exam_config pass mark",
+    ("admin_exams.py", "archive_exam"):           "archives own exam",
+    ("admin_exams.py", "unarchive_exam"):         "unarchives own exam",
     ("admin_exams.py", "delete_exam"):           "deletes own exam + questions",
     ("admin_exams.py", "duplicate_exam"):        "clones own exam + questions",
     ("admin_exams.py", "set_time_extension"):    "mutates own exam's per-student time extension",

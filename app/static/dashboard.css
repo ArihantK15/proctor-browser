@@ -82,6 +82,12 @@ body.auth-active > :not(#auth-overlay):not(script):not(style){display:none !impo
 .exam-bar .exam-label{font-size:12px;font-weight:600;color:var(--muted);
   text-transform:uppercase;letter-spacing:0.04em}
 .exam-bar .exam-count{font-size:11px;color:var(--muted)}
+.exam-archived-badge{display:inline-block;font-size:10px;font-weight:600;
+  color:var(--accent);margin-left:4px;text-transform:uppercase;
+  letter-spacing:0.03em;background:rgba(99,102,241,0.12);
+  padding:0 5px;border-radius:4px;line-height:1.6}
+.archived-toggle{user-select:none}
+.archived-toggle input{accent-color:var(--accent)}
 
 /* ── Create Exam Modal ───────────────────────────────────────── */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9998;

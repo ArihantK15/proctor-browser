@@ -127,6 +127,7 @@
   ],
   "exam_config": [
     "access_code",
+    "archived_at",
     "audio_keywords",
     "audio_keywords_language",
     "created_at",

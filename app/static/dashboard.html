@@ -366,7 +366,13 @@
   <select id="exam-select" data-change-action="_onExamSwitchWrap"></select>
   <button class="btn btn-primary btn-sm" data-action="showCreateExamModal" style="height:32px;font-size:12px">+ New Exam</button>
   <button class="btn btn-secondary btn-sm" data-action="duplicateCurrentExam" id="duplicate-exam-btn" style="height:32px;font-size:12px;display:none" title="Clone this exam's config + questions into a new exam">Duplicate</button>
+  <button class="btn btn-secondary btn-sm" data-action="archiveCurrentExam" id="archive-exam-btn" style="height:32px;font-size:12px;display:none">Archive</button>
+  <button class="btn btn-secondary btn-sm" data-action="unarchiveCurrentExam" id="unarchive-exam-btn" style="height:32px;font-size:12px;display:none">Unarchive</button>
   <button class="btn btn-secondary btn-sm" data-action="confirmDeleteExam" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
+  <label class="archived-toggle" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:11px;cursor:pointer;white-space:nowrap">
+    <input type="checkbox" id="show-archived-input" data-change-action="toggleShowArchived">
+    <span>Show archived</span>
+  </label>
   <span class="exam-count" id="exam-count"></span>
 </div>
 

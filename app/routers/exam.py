@@ -161,6 +161,10 @@ async def validate_student(request: Request, body: ValidateIn):
     pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code, provided_teacher_id)
     config = await _load_exam_config(pre_tid, exam_id=exam_id)
     _check_exam_time_window(config)
+    # Block entry to an archived exam. In-flight sessions are unaffected
+    # because this check only runs during validate_student (new start).
+    if config.get("archived_at"):
+        raise HTTPException(status_code=403, detail="This exam is no longer available.")
     # Block entry to an exam that has NO questions. Otherwise the student passes
     # ID-verify + calibration and only then hits get-questions' 404, getting
     # stuck on a cryptic "Could not load questions" with no way forward. Fail

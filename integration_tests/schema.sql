@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS exam_config (
   proctoring_sensitivity  TEXT DEFAULT 'balanced',
   audio_keywords          TEXT,
   audio_keywords_language TEXT DEFAULT 'en',
+  archived_at             TIMESTAMPTZ,
   pass_mark               SMALLINT NOT NULL DEFAULT 40,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (teacher_id, exam_id)

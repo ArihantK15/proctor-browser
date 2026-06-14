@@ -39,7 +39,8 @@ let currentTeacherProfile = null;
 // / schedule all blank out because they filter by exam_id.
 let currentExamId = localStorage.getItem('procta_current_exam') || null;
 let examsList = [];
-let _examsLoaded = false; // true once loadExams() has run (so the exam bar only shows after)
+let _examsLoaded = false;
+let _showArchived = false; // true once loadExams() has run (so the exam bar only shows after)
 // Tabs that are NOT scoped to a single exam — the exam selector / +New / Duplicate
 // / Delete bar is meaningless clutter on these, so it's hidden (see _syncExamBar).
 const _NON_EXAM_TABS = new Set([
@@ -384,9 +385,10 @@ async function _connectSSE(){
 // ── EXAM SELECTOR ──────────────────────────────────────────────
 async function loadExams(){
   try{
-    // Scope the exam list to the selected teacher ("teacher first, then exam").
-    // Empty filter → all in-scope teachers' exams (org-admin roll-up).
-    const r = await authFetch(`${BASE}/api/v1/admin/exams${_teacherQuery('?')}`);
+    const query = _teacherQuery('?');
+    const includeArchived = _showArchived ? 'include_archived=1' : '';
+    const sep = query ? '&' : '?';
+    const r = await authFetch(`${BASE}/api/v1/admin/exams${query}${includeArchived ? sep + includeArchived : ''}`);
     if(!r.ok){
       _examsLoaded = true;
       _syncExamBar();
@@ -402,7 +404,8 @@ async function loadExams(){
     examsList.forEach(ex=>{
       const opt = document.createElement('option');
       opt.value = ex.exam_id;
-      opt.textContent = `${ex.exam_title || 'Untitled'} (${ex.question_count}Q, ${ex.session_count} sessions)`;
+      const badge = ex.archived_at ? ' <span class="exam-archived-badge">Archived</span>' : '';
+      opt.innerHTML = `${ex.exam_title || 'Untitled'} (${ex.question_count}Q, ${ex.session_count} sessions)${badge}`;
       sel.appendChild(opt);
     });
     // Restore previous selection or default to first
@@ -416,9 +419,8 @@ async function loadExams(){
     _examsLoaded = true;
     _syncExamBar();
     document.getElementById('exam-count').textContent = `${examsList.length} exam${examsList.length!==1?'s':''}`;
-    // Show delete button only if >1 exam
+    _updateArchiveButtons();
     document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
-    // Duplicate is always available once an exam is selected
     document.getElementById('duplicate-exam-btn').style.display = currentExamId ? '' : 'none';
   }catch(e){ console.error('loadExams', e); }
 }
@@ -426,6 +428,7 @@ async function loadExams(){
 function onExamSwitch(examId){
   currentExamId = examId;
   try{ localStorage.setItem('procta_current_exam', examId || ''); }catch(_){}
+  _updateArchiveButtons();
   document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
   document.getElementById('duplicate-exam-btn').style.display = currentExamId ? '' : 'none';
   // Refresh the Share-link so /register?t=...&e=<new-exam> stays in
@@ -577,6 +580,43 @@ async function duplicateCurrentExam(){
   } catch (e) {
     showModal('Duplicate failed: ' + e.message);
   }
+}
+
+function _updateArchiveButtons(){
+  const ex = examsList.find(e => e.exam_id === currentExamId);
+  const isArchived = !!(ex && ex.archived_at);
+  document.getElementById('archive-exam-btn').style.display = (!isArchived && currentExamId) ? '' : 'none';
+  document.getElementById('unarchive-exam-btn').style.display = (isArchived && currentExamId) ? '' : 'none';
+}
+
+function toggleShowArchived(){
+  _showArchived = document.getElementById('show-archived-input').checked;
+  // Re-load with the new filter; preserve the selected exam if it's still visible.
+  loadExams();
+}
+
+async function archiveCurrentExam(){
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
+  const ex = examsList.find(e => e.exam_id === currentExamId);
+  const name = ex ? ex.exam_title : 'this exam';
+  if(!(await appConfirm(`Archive "${name}"? It will be hidden from the exam list and students won't be able to start it. Live sessions are unaffected.`, 'Archive exam', {okText:'Archive'}))) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(currentExamId)}/archive`, {method:'POST'});
+    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    await loadExams();
+  }catch(e){ showModal('Archive failed: '+e.message); }
+}
+
+async function unarchiveCurrentExam(){
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
+  const ex = examsList.find(e => e.exam_id === currentExamId);
+  const name = ex ? ex.exam_title : 'this exam';
+  if(!(await appConfirm(`Unarchive "${name}"? It will reappear in the exam list and students can start it again.`, 'Unarchive exam', {okText:'Unarchive'}))) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(currentExamId)}/unarchive`, {method:'POST'});
+    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    await loadExams();
+  }catch(e){ showModal('Unarchive failed: '+e.message); }
 }
 
 async function _tryAutoLogin(){

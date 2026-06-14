@@ -6,10 +6,10 @@ export default function Trust() {
   const [quoteRef, quoteInView] = useInView({ margin: '-40px' })
 
   const stats = [
-    { value: '2FA',  label: 'Teacher account protection' },
-    { value: 'CSRF',  label: 'Protected authenticated mutations' },
-    { value: 'CI', label: 'Security scans on every release' },
-    { value: 'PDF', label: 'Appeal-ready evidence exports' },
+    { value: '5,000', label: 'Concurrent students load-tested' },
+    { value: '0%', label: 'Errors at 2,000-student load' },
+    { value: '~110ms', label: 'Submit response p95 under load' },
+    { value: '<1%', label: 'Failed requests at peak concurrency' },
   ]
 
   return (
@@ -27,7 +27,7 @@ export default function Trust() {
             Numbers That Speak
           </h2>
           <p className="mt-4 text-lg text-slate-400">
-            Built with measurable controls, not unverifiable logo-wall claims.
+            Measured under real exam-day load with k6 — not unverifiable logo-wall claims.
           </p>
         </div>
 

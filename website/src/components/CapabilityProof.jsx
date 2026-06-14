@@ -140,13 +140,6 @@ const capabilities = [
   { icon: Database, title: 'Live-frame cache', body: '6,500-session LRU with frame caps and admin observability.' },
 ]
 
-const examDayWorkflow = [
-  'Faculty creates exam and imports students',
-  'Students install secure browser and pair phone cam',
-  'Teacher monitors live risk and evidence',
-  'Students submit; scorecards and exports are ready',
-]
-
 function VisualPanel({ type }) {
   if (type === 'workflow') {
     return (
@@ -326,18 +319,6 @@ export default function CapabilityProof() {
             </motion.article>
           ))}
         </div>
-
-        <motion.div {...reveal} className="mt-16 rounded-2xl border border-accent/20 bg-accent/[0.04] p-6 md:p-8">
-          <div className="label-mono text-accent-light">Exam-day workflow</div>
-          <div className="mt-5 grid gap-3 md:grid-cols-4">
-            {examDayWorkflow.map((step, i) => (
-              <div key={step} className="scroll-reveal-card">
-                <div className="font-mono text-xs text-accent">0{i + 1}</div>
-                <p className="mt-2 text-sm font-medium leading-relaxed text-slate-200">{step}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
 
         <motion.div {...reveal} className="mt-16">
           <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-end">

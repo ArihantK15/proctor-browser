@@ -198,9 +198,9 @@ class TestLimitOverrideEndpoint:
     @pytest.mark.asyncio
     async def test_non_superadmin_returns_403(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=REGULAR_ADMIN):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/limit-override",
                                      json={"max_students_override": 100},
                                      headers=self._headers())
@@ -209,11 +209,11 @@ class TestLimitOverrideEndpoint:
     @pytest.mark.asyncio
     async def test_no_reauth_returns_403(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=TEACHER), \
              patch("app.routers.admin_org.require_reauth_or_403",
                    side_effect=__import__("fastapi").HTTPException(403)):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/limit-override",
                                      json={"max_students_override": 100},
                                      headers=self._headers())
@@ -222,11 +222,11 @@ class TestLimitOverrideEndpoint:
     @pytest.mark.asyncio
     async def test_unknown_org_returns_404(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=TEACHER), \
              patch("app.routers.admin_org.require_reauth_or_403", return_value=None), \
              patch("app.routers.admin_org._atable", side_effect=_table_side_effect({"organizations": []})):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post("/api/v1/admin/orgs/unknown/limit-override",
                                      json={"max_students_override": 100},
                                      headers=self._headers())
@@ -235,11 +235,11 @@ class TestLimitOverrideEndpoint:
     @pytest.mark.asyncio
     async def test_out_of_range_returns_400(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=TEACHER), \
              patch("app.routers.admin_org.require_reauth_or_403", return_value=None), \
              patch("app.routers.admin_org._atable", side_effect=_table_side_effect({"organizations": [BASE_ORG]})):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/limit-override",
                                      json={"max_students_override": 200000},
                                      headers=self._headers())
@@ -248,7 +248,7 @@ class TestLimitOverrideEndpoint:
     @pytest.mark.asyncio
     async def test_sets_override_and_reconciles(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         data_map = {
             "organizations": [BASE_ORG],
             "subscriptions": [dict(SUBSCRIPTION_GROWTH)],
@@ -258,7 +258,7 @@ class TestLimitOverrideEndpoint:
              patch("app.routers.admin_org._atable", side_effect=_table_side_effect(data_map)), \
              patch("app.services.billing._atable", side_effect=_table_side_effect(data_map)), \
              patch("app.services.admin_audit.log_admin_action", new_callable=AsyncMock):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/limit-override",
                                      json={"max_students_override": 42},
                                      headers=self._headers())
@@ -271,7 +271,7 @@ class TestLimitOverrideEndpoint:
     @pytest.mark.asyncio
     async def test_clears_override(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         data_map = {
             "organizations": [dict(BASE_ORG, max_students_override=50)],
             "subscriptions": [dict(SUBSCRIPTION_GROWTH)],
@@ -281,7 +281,7 @@ class TestLimitOverrideEndpoint:
              patch("app.routers.admin_org._atable", side_effect=_table_side_effect(data_map)), \
              patch("app.services.billing._atable", side_effect=_table_side_effect(data_map)), \
              patch("app.services.admin_audit.log_admin_action", new_callable=AsyncMock):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/limit-override",
                                      json={"max_students_override": None},
                                      headers=self._headers())
@@ -302,9 +302,9 @@ class TestCreditEndpoint:
     @pytest.mark.asyncio
     async def test_non_superadmin_returns_403(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=REGULAR_ADMIN):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/credit",
                                      json={"amount_inr": 500, "reason": "Goodwill"},
                                      headers=self._headers())
@@ -313,11 +313,11 @@ class TestCreditEndpoint:
     @pytest.mark.asyncio
     async def test_no_reauth_returns_403(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=TEACHER), \
              patch("app.routers.admin_org.require_reauth_or_403",
                    side_effect=__import__("fastapi").HTTPException(403)):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/credit",
                                      json={"amount_inr": 500, "reason": "Goodwill"},
                                      headers=self._headers())
@@ -326,11 +326,11 @@ class TestCreditEndpoint:
     @pytest.mark.asyncio
     async def test_unknown_org_returns_404(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=TEACHER), \
              patch("app.routers.admin_org.require_reauth_or_403", return_value=None), \
              patch("app.routers.admin_org._atable", side_effect=_table_side_effect({"organizations": []})):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post("/api/v1/admin/orgs/unknown/credit",
                                      json={"amount_inr": 500, "reason": "Goodwill"},
                                      headers=self._headers())
@@ -339,12 +339,12 @@ class TestCreditEndpoint:
     @pytest.mark.asyncio
     async def test_missing_reason_returns_400(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=TEACHER), \
              patch("app.routers.admin_org.require_reauth_or_403", return_value=None), \
              patch("app.routers.admin_org._atable",
                    side_effect=_table_side_effect({"organizations": [BASE_ORG]})):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/credit",
                                      json={"amount_inr": 500, "reason": ""},
                                      headers=self._headers())
@@ -353,14 +353,14 @@ class TestCreditEndpoint:
     @pytest.mark.asyncio
     async def test_grants_credit(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=TEACHER), \
              patch("app.routers.admin_org.require_reauth_or_403", return_value=None), \
              patch("app.routers.admin_org._atable", side_effect=_table_side_effect(
                  {"organizations": [{"id": ORG_ID, "name": "Test Org",
                                      "billing_credit_inr": 0}]})), \
              patch("app.services.admin_audit.log_admin_action", new_callable=AsyncMock):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/credit",
                                      json={"amount_inr": 1000, "reason": "Goodwill credit"},
                                      headers=self._headers())
@@ -373,14 +373,14 @@ class TestCreditEndpoint:
     @pytest.mark.asyncio
     async def test_negative_credit_floors_at_0(self):
         from app.main import app as _app
-        from httpx import AsyncClient
+        from httpx import AsyncClient, ASGITransport
         with patch("app.routers.admin_org.require_admin", new_callable=AsyncMock, return_value=TEACHER), \
              patch("app.routers.admin_org.require_reauth_or_403", return_value=None), \
              patch("app.routers.admin_org._atable", side_effect=_table_side_effect(
                  {"organizations": [{"id": ORG_ID, "name": "Test Org",
                                      "billing_credit_inr": 200}]})), \
              patch("app.services.admin_audit.log_admin_action", new_callable=AsyncMock):
-            async with AsyncClient(app=_app, base_url="http://test") as ac:
+            async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
                 resp = await ac.post(f"/api/v1/admin/orgs/{ORG_ID}/credit",
                                      json={"amount_inr": -500, "reason": "Correction"},
                                      headers=self._headers())

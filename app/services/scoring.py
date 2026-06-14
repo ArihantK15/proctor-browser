@@ -144,7 +144,7 @@ async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: 
             saved = await _atable("answers").select("question_id,answer").eq("session_key", session_id).execute()
             ans_map = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
             for qid, ans in (payload_answers or {}).items():
-                ans_map[str(qid)] = await canonicalise_student_answer(session_id, str(teacher_id or ""), str(qid), str(ans))
+                ans_map[str(qid)] = await canonicalise_student_answer(session_id, str(teacher_id or ""), str(qid), str(ans), exam_id=exam_id)
             score = sum(1 for q in auto_qs if answers_match(ans_map.get(str(q["id"]), ""), str(q["correct"])))
             return score, total
         except Exception as e:

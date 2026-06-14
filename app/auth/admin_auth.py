@@ -231,20 +231,37 @@ def clear_teacher_cache(teacher_id: str) -> None:
         _teacher_cache_ttl.pop(teacher_id, None)
 
 
+# Path prefixes a superadmin (org_role) IS allowed to mutate — its own
+# cross-org operational tooling, never tenant product data. str.startswith
+# accepts this tuple directly. Keep additions narrow and admin-namespaced.
+_SUPERADMIN_WRITE_ALLOW = (
+    "/api/v1/auth/",
+    "/api/v1/admin/issues",
+    "/api/v1/admin/coupons",
+)
+
+
 async def require_admin(request: Request) -> dict:
     token = _bearer_or_cookie(request, "procta_access")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     teacher = await verify_admin_token(token)
-    # Superadmin is a cross-org, READ-ONLY monitor role — a debug/observability
-    # panel (view flags + active sessions) that is walled off from consumer
-    # actions. It may VIEW anything (GET) but must MUTATE nothing. This single
-    # guard covers every admin endpoint, since they all flow through here.
-    # Identity/auth routes (/api/v1/auth/*: login, refresh, logout, reauth) are
-    # exempt so a superadmin can still sign in and keep its session alive.
+    # Superadmin is a cross-org, READ-ONLY monitor for TENANT product data
+    # (exams, students, grades, org settings, billing). It may VIEW anything
+    # (GET) but must not MUTATE a tenant's data. This single guard covers every
+    # admin endpoint, since they all flow through here.
+    #
+    # Narrow exceptions — paths that are the superadmin's OWN cross-org
+    # operational tools, not tenant product data, so writing them is exactly the
+    # superadmin's job:
+    #   /api/v1/auth/*          sign in / refresh / logout / reauth
+    #   /api/v1/admin/issues*   triage the cross-org support inbox (resolve/note)
+    #   /api/v1/admin/coupons*  manage global discount codes
+    # Anything outside this allowlist (a tenant's exams, students, scores, org
+    # settings, billing) stays blocked.
     if (request.method in ("POST", "PUT", "PATCH", "DELETE")
             and str(teacher.get("org_role") or "").lower() == "superadmin"
-            and not request.url.path.startswith("/api/v1/auth/")):
+            and not request.url.path.startswith(_SUPERADMIN_WRITE_ALLOW)):
         raise HTTPException(status_code=403,
             detail="Superadmin is monitor-only and cannot modify product data.")
     return teacher

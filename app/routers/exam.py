@@ -139,7 +139,9 @@ async def _require_attested(session_id: str, tid: str | None) -> None:
         pass
     raise HTTPException(
         status_code=403,
-        detail="Please use the latest Procta secure browser to take this exam.",
+        detail="Please update to the latest Procta secure browser to take this "
+               "exam. Download it at https://procta.net/download — the app also "
+               "auto-updates when you reopen it.",
     )
 
 

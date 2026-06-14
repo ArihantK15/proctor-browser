@@ -3619,7 +3619,7 @@ function updateBillingTiles(plan, status){
   });
 }
 
-async function upgradePlan(planId, billingCycle){
+async function upgradePlan(planId, billingCycle, couponCode){
   // Recurring Subscriptions only — create a Razorpay subscription and redirect
   // to its hosted checkout (UPI Autopay / NACH). Entitlement is granted on the
   // server only when the subscription activates (webhook → reconcile).
@@ -3639,10 +3639,13 @@ async function upgradePlan(planId, billingCycle){
   }
   if(resultEl){ resultEl.textContent = 'Creating subscription...'; resultEl.style.color = 'var(--text-secondary)'; }
   try{
+  const body = {plan_id:planId, billing_cycle: cycle};
+  const cc = couponCode || _getCouponCode();
+  if(cc){ body.coupon_code = cc; }
     const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({plan_id:planId, billing_cycle: cycle})
+      body:JSON.stringify(body)
     });
     const d = await r.json().catch(()=>({}));
     if(!r.ok){ throw new Error(d.detail||'Subscription failed'); }
@@ -3672,6 +3675,54 @@ function toggleBillingCycle(){
   if(badge) badge.style.display = checked ? '' : 'none';
   // Re-render plan tiles with the new cycle
   updateBillingTiles(_billingState.plan, _billingState.status);
+}
+
+// ── Coupon helpers ───────────────────────────────────────────
+let _validatedCouponCode = null;
+
+function _getCouponCode(){
+  return _validatedCouponCode;
+}
+
+function _clearCoupon(){
+  _validatedCouponCode = null;
+  document.getElementById('coupon-status').textContent = '';
+  document.getElementById('upgrade-coupon-status').textContent = '';
+}
+
+async function _validateCouponUI(inputId, statusId){
+  const input = document.getElementById(inputId);
+  const statusEl = document.getElementById(statusId);
+  if(!input || !statusEl) return;
+  const code = input.value.trim();
+  if(!code){ statusEl.textContent = ''; _validatedCouponCode = null; return; }
+  statusEl.textContent = 'Validating...';
+  statusEl.style.color = 'var(--text-muted)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/validate-coupon?code=${encodeURIComponent(code)}`);
+    const d = await r.json().catch(()=>({}));
+    if(d.valid){
+      _validatedCouponCode = code;
+      statusEl.textContent = d.description || 'Coupon applied!';
+      statusEl.style.color = 'var(--emerald)';
+    }else{
+      _validatedCouponCode = null;
+      statusEl.textContent = 'Invalid or expired coupon code.';
+      statusEl.style.color = 'var(--red)';
+    }
+  }catch(e){
+    _validatedCouponCode = null;
+    statusEl.textContent = 'Could not validate coupon.';
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+function applyCoupon(){
+  _validateCouponUI('upgrade-coupon-input', 'upgrade-coupon-status');
+}
+
+function applyCouponBilling(){
+  _validateCouponUI('coupon-input', 'coupon-status');
 }
 
 async function changePlan(planId, billingCycle){

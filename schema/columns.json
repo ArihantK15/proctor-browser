@@ -88,6 +88,18 @@
     "razorpay_subscription_id",
     "status"
   ],
+  "coupons": [
+    "active",
+    "code",
+    "created_at",
+    "created_by",
+    "description",
+    "expires_at",
+    "id",
+    "max_redemptions",
+    "razorpay_offer_id",
+    "times_redeemed"
+  ],
   "consent_records": [
     "consent_type",
     "created_at",

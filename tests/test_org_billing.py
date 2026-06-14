@@ -388,7 +388,7 @@ class TestCreateSubscription:
         "subscription_id": "mock_sub_org-1",
         "short_url": "",
         "status": "created",
-        "_sandbox": True,
+        "_is_sandbox": True,
         "_note": "Sandbox: would charge ₹999/mo for 150 students (Growth)",
     }
 
@@ -483,7 +483,7 @@ class TestBillingServiceConfiguration:
 
         result = create_subscription("org-1", "growth")
 
-        assert result["_sandbox"] is True
+        assert result["_is_sandbox"] is True
         assert result["subscription_id"].startswith("mock_sub_")
         assert result["short_url"] == ""
 

@@ -1694,6 +1694,12 @@
         </div>
       </div>
     </div>
+    <div class="coupon-row" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="upgrade-coupon-input" placeholder="Have a coupon? Enter code"
+             style="flex:1;min-width:120px;padding:6px 10px;font-size:12px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-1);color:var(--text-high)">
+      <button class="btn btn-secondary btn-sm" type="button" data-action="applyCoupon">Apply</button>
+      <span id="upgrade-coupon-status" style="font-size:11px;color:var(--text-muted)"></span>
+    </div>
     <div id="upgrade-modal-status" style="font-size:12px;text-align:center;color:var(--text-muted)"></div>
     <div style="margin-top:12px;text-align:center">
       <button class="btn btn-secondary btn-sm" data-action="closeUpgradeModal" style="margin-right:8px">Later</button>
@@ -1906,6 +1912,12 @@
           </ul>
           <button class="btn btn-secondary plan-cta" type="button" data-action="upgradePlan" data-args='["pro"]'>Choose Pro</button>
         </article>
+      </div>
+      <div class="coupon-row" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="coupon-input" placeholder="Have a coupon? Enter code"
+               style="flex:1;min-width:140px;padding:6px 10px;font-size:12px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-1);color:var(--text-high)">
+        <button class="btn btn-secondary btn-sm" type="button" data-action="applyCouponBilling">Apply</button>
+        <span id="coupon-status" style="font-size:11px;color:var(--text-muted)"></span>
       </div>
       <div class="plan-result-row">
         <div id="upgrade-result"></div>

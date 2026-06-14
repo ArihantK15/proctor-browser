@@ -14,6 +14,7 @@ from ..services.sessions import PLAN_LIMITS
 from ..constants import PLANS
 from ..services.billing import (
     create_subscription as billing_create_subscription,
+    validate_coupon as billing_validate_coupon,
     verify_webhook,
     _get_client,
     _is_live,
@@ -136,9 +137,21 @@ async def create_subscription(body: dict, request: Request):
     if gstin and not re.fullmatch(r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]", gstin):
         raise HTTPException(status_code=400, detail="Invalid GSTIN format (expected 15 characters).")
 
+    # Optional coupon code.
+    coupon_code = (body.get("coupon_code") or "").strip()
+    coupon_offer_id: str | None = None
+    if coupon_code:
+        coupon = await billing_validate_coupon(coupon_code)
+        if not coupon:
+            raise HTTPException(status_code=400,
+                detail="Invalid or expired coupon code.")
+        coupon_offer_id = coupon["razorpay_offer_id"]
+
     try:
         result = billing_create_subscription(str(org_id), plan_id, gstin=gstin or None,
-                                              billing_cycle=billing_cycle)
+                                              billing_cycle=billing_cycle,
+                                              coupon_code=coupon_code or None,
+                                              coupon_offer_id=coupon_offer_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -148,7 +161,7 @@ async def create_subscription(body: dict, request: Request):
         logger.exception("Failed to create subscription")
         raise HTTPException(status_code=500, detail="Failed to create subscription")
 
-    if result.get("_sandbox"):
+    if result.get("_is_sandbox"):
         logger.info("Sandbox subscription: %s", result["_note"])
 
     # Record the subscription INTENT only — do NOT grant entitlement here.
@@ -183,6 +196,16 @@ async def create_subscription(body: dict, request: Request):
             status_code=500,
             detail="Subscription was created by the payment provider, but could not be recorded. Please contact support.",
         )
+
+    # Increment coupon redemption after subscription is created.
+    if coupon_code:
+        try:
+            cur = await _atable("coupons").select("times_redeemed").eq("code", coupon_code.lower()).limit(1).execute()
+            if cur.data:
+                new_val = int(cur.data[0].get("times_redeemed", 0)) + 1
+                await _atable("coupons").update({"times_redeemed": new_val}).eq("code", coupon_code.lower()).execute()
+        except Exception as e:
+            logger.warning("Failed to increment coupon redemption for %s: %s", coupon_code, e)
 
     return result
 
@@ -273,6 +296,27 @@ _SUB_DOWNGRADE = {
     "subscription.completed": "completed",
     "subscription.paused": "paused",
 }
+
+
+# ── GET /api/v1/billing/validate-coupon ────────────────────────────
+@router.get("/api/v1/billing/validate-coupon")
+@limiter.limit("30/minute")
+async def validate_coupon(request: Request, code: str = ""):
+    """Preview coupon validity for the UI — no redemption side-effect.
+
+    Public endpoint (no auth required) so the checkout page can show
+    the discount before the user is logged in or has an org.
+    Returns {valid: bool, description, ...} for valid; {valid: false}
+    for invalid / expired / exhausted.
+    """
+    coupon = await billing_validate_coupon(code)
+    if not coupon:
+        return {"valid": False}
+    return {
+        "valid": True,
+        "description": coupon.get("description") or "",
+        "razorpay_offer_id": coupon["razorpay_offer_id"],
+    }
 
 
 @router.post("/api/v1/webhooks/razorpay")

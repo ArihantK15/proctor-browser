@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "prebuild": "puppeteer browsers install chrome",
     "build": "vite build",
     "postbuild": "node scripts/prerender.mjs",
     "lint": "eslint .",

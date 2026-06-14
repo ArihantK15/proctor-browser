@@ -392,6 +392,12 @@ async def register_student(request: Request, body: RegisterIn):
         if "@" not in guardian_email:
             raise HTTPException(status_code=400, detail="Invalid guardian email format")
 
+    # Cohort/batch (gap #59): a cohort-enrollment link (?t=&b=<batch>) stamps
+    # the registrant with this batch. Capped to the column width.
+    batch = ((body.batch or "").strip() or None)
+    if batch and len(batch) > 120:
+        batch = batch[:120]
+
     if not returning_student:
         row = {
             "roll_number": roll,
@@ -402,6 +408,8 @@ async def register_student(request: Request, body: RegisterIn):
             "date_of_birth": date_of_birth_str if date_of_birth_str else None,
             "guardian_email": guardian_email,
         }
+        if batch:
+            row["batch"] = batch
         try:
             await _atable("students").insert(row).execute()
         except httpx.HTTPStatusError as e:
@@ -418,6 +426,15 @@ async def register_student(request: Request, body: RegisterIn):
                 returning_student = True
             else:
                 raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
+
+    # Returning student via a cohort link → (re)stamp their batch. Only when a
+    # batch was supplied, so a plain exam/registration link never clears it.
+    if returning_student and batch:
+        try:
+            await _atable("students").update({"batch": batch})\
+                .eq("roll_number", roll).eq("teacher_id", teacher_id).execute()
+        except Exception:
+            logger.warning("[register] batch update failed for roll=%s", roll)
 
     # Auto-link: if the student already has a login account, set
     # account_id immediately — otherwise they'd have to wait until

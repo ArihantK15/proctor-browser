@@ -445,7 +445,7 @@ async def _check_group_restrictions(student: dict, student_tid: str, exam_id: st
     if exam_id and student_tid:
         from ..repositories.sessions import check_group_access as _check_group_access
         if not await _check_group_access(student["roll_number"], str(student_tid), exam_id):
-            raise HTTPException(status_code=403, detail="You are not in a group assigned to this exam.")
+            raise HTTPException(status_code=403, detail="You are not in a group or batch assigned to this exam.")
 
 
 async def _check_guardian_consent(student: dict) -> None:

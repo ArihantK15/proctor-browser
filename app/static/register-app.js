@@ -4,6 +4,9 @@ let _teacherId = new URLSearchParams(location.search).get('t') || null;
 // students row gets exam_id set — student lobby then surfaces THAT
 // specific exam instead of "the teacher's first exam_config."
 let _examId = new URLSearchParams(location.search).get('e') || null;
+// Cohort enrollment link (gap #59): ?b=<batch> stamps the registrant with this
+// cohort, giving standing access to any exam later assigned to that batch.
+let _batch = new URLSearchParams(location.search).get('b') || null;
 let _teacherName = '';
 
 let _turnstileToken = null;
@@ -55,6 +58,20 @@ function _resetTurnstile() {
 if(!_teacherId){
   document.getElementById('teacher-lookup').style.display = '';
   document.getElementById('reg-form').style.display = 'none';
+}
+
+// Cohort enrollment context (gap #59): tell the student which cohort this link
+// enrols them into, so it's not a mystery what they're joining.
+if(_batch && _teacherId){
+  try{
+    const _form = document.getElementById('reg-form');
+    if(_form){
+      const _note = document.createElement('div');
+      _note.style.cssText = 'margin:0 0 14px;padding:10px 12px;border-radius:8px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:#a7f3d0;font-size:13px';
+      _note.textContent = "You're enrolling in cohort: " + _batch;
+      _form.prepend(_note);
+    }
+  }catch(_){}
 }
 
 function clearLookupErr(){
@@ -248,7 +265,7 @@ async function doRegister(){
       // (cookie present + no X-CSRF-Token header) and 403 the registration.
       credentials: 'omit',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, date_of_birth:dob||null, guardian_email:guardianEmail||null, teacher_id:_teacherId, exam_id:_examId||null})
+      body: JSON.stringify({full_name:name, roll_number:roll, email:email, phone:phone||null, date_of_birth:dob||null, guardian_email:guardianEmail||null, teacher_id:_teacherId, exam_id:_examId||null, batch:_batch||null})
     });
     if(!r1.ok){
       const err = await r1.json().catch(()=>({detail:'Registration failed'}));

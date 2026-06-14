@@ -560,8 +560,9 @@ async def list_all_orgs(request: Request, include_deleted: bool = False):
     if teacher.get("org_role") != "superadmin":
         raise HTTPException(status_code=403, detail="Super admin access required")
 
-    query = _atable("organizations").select("id,name,slug,max_students,created_at,"
-                                            "deleted_at,deleted_by,delete_reason")
+    query = _atable("organizations").select("id,name,slug,max_students,"
+                                            "max_students_override,billing_credit_inr,"
+                                            "created_at,deleted_at,deleted_by,delete_reason")
     if not include_deleted:
         query = query.is_("deleted_at", "null")
     orgs = await query.execute()
@@ -587,6 +588,8 @@ async def list_all_orgs(request: Request, include_deleted: bool = False):
             "name": org["name"],
             "slug": org["slug"],
             "max_students": org["max_students"],
+            "max_students_override": org.get("max_students_override"),
+            "billing_credit_inr": org.get("billing_credit_inr", 0),
             "plan": (sub or {}).get("plan", "starter"),
             "status": (sub or {}).get("status", "unknown"),
             "student_count": student_count,
@@ -597,3 +600,100 @@ async def list_all_orgs(request: Request, include_deleted: bool = False):
         })
 
     return {"orgs": result}
+
+
+@router.post("/api/v1/admin/orgs/{org_id}/limit-override")
+@limiter.limit("10/hour")
+async def set_limit_override(org_id: str, body: dict, request: Request):
+    """Set or clear an org's max_students_override (superadmin only).
+
+    The override persists across reconcile cycles because
+    ``reconcile_org_entitlement`` reads it.  ``null`` clears the override
+    (reverting to the plan-derived cap on the next reconcile).
+    Returns the new effective ``max_students``.
+    """
+    admin = await require_admin(request)
+    if admin.get("org_role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    require_reauth_or_403(body, str(admin["id"]), request=request)
+
+    org = (await _atable("organizations").select("id,name")
+           .eq("id", str(org_id)).limit(1).execute()).data
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    raw = body.get("max_students_override")
+    if raw is not None:
+        try:
+            val = int(raw)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="max_students_override must be an integer or null")
+        if val < 0 or val > 100000:
+            raise HTTPException(status_code=400, detail="max_students_override must be between 0 and 100000")
+    else:
+        val = None
+
+    await _atable("organizations").update({"max_students_override": val}).eq("id", str(org_id)).execute()
+
+    # Reconcile immediately so the effective max_students reflects the override.
+    from ..services.billing import reconcile_org_entitlement
+    new_cap = await reconcile_org_entitlement(org_id)
+
+    await log_admin_action(
+        teacher_id=str(admin["id"]),
+        action="set_limit_override",
+        target_type="organization",
+        target_id=str(org_id),
+        before_data={"name": org[0].get("name")},
+        after_data={"max_students_override": val, "effective_max_students": new_cap},
+        request=request,
+    )
+
+    return {"ok": True, "max_students_override": val, "effective_max_students": new_cap}
+
+
+@router.post("/api/v1/admin/orgs/{org_id}/credit")
+@limiter.limit("10/hour")
+async def grant_credit(org_id: str, body: dict, request: Request):
+    """Grant or adjust billing credit for an org (superadmin only).
+
+    ``amount_inr`` (int): positive adds to balance, negative subtracts
+    (floor at 0).  ``reason`` (str, required): audited description of why.
+    Returns the new ``billing_credit_inr`` balance.
+    """
+    admin = await require_admin(request)
+    if admin.get("org_role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    require_reauth_or_403(body, str(admin["id"]), request=request)
+
+    org = (await _atable("organizations").select("id,name,billing_credit_inr")
+           .eq("id", str(org_id)).limit(1).execute()).data
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    try:
+        delta = int(body.get("amount_inr", 0))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="amount_inr must be an integer")
+
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+
+    old_balance = int(org[0].get("billing_credit_inr", 0))
+    new_balance = max(0, old_balance + delta)
+
+    await _atable("organizations").update({"billing_credit_inr": new_balance}).eq("id", str(org_id)).execute()
+
+    await log_admin_action(
+        teacher_id=str(admin["id"]),
+        action="grant_credit",
+        target_type="organization",
+        target_id=str(org_id),
+        before_data={"name": org[0].get("name"), "billing_credit_inr": old_balance},
+        after_data={"billing_credit_inr": new_balance, "delta": delta, "reason": reason},
+        details={"reason": reason, "delta": delta},
+        request=request,
+    )
+
+    return {"ok": True, "billing_credit_inr": new_balance, "delta": delta}

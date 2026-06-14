@@ -283,6 +283,30 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
         return {"status": "skipped", "overage_count": res["overage_count"],
                 "amount_inr": res["amount_inr"]}
 
+    # Gap #13: apply billing credit before creating the add-on.
+    org_credit = 0
+    credit_consumed = 0
+    try:
+        org_rows = (await _atable("organizations").select("billing_credit_inr")
+                    .eq("id", oid).limit(1).execute()).data or []
+        if org_rows:
+            org_credit = int(org_rows[0].get("billing_credit_inr") or 0)
+    except Exception:
+        logger.warning("bill_cycle_overage: failed to read credit for org=%s", oid)
+    if org_credit > 0:
+        amount = res["amount_inr"]
+        credit_consumed = min(org_credit, amount)
+        net = amount - credit_consumed
+        new_balance = org_credit - credit_consumed
+        try:
+            await _atable("organizations").update({"billing_credit_inr": new_balance}).eq("id", oid).execute()
+        except Exception as exc:
+            logger.warning("bill_cycle_overage: debit credit failed for org=%s: %s", oid, exc)
+            credit_consumed = 0
+            net = amount
+    else:
+        net = res["amount_inr"]
+
     # We hold the claim — now create the add-on. A failure here is recorded
     # ('failed', visible in the usage endpoint) but NEVER raised: the base
     # subscription.charged webhook must still return 200. The claim row blocks
@@ -290,45 +314,51 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
     # manually (follow-up #4c: safe retry of failed overage add-ons).
     sub_id = sub_row_before.get("razorpay_subscription_id")
     addon_id = None
-    status = "charged"
-    try:
-        addon = client.subscription.createAddon(sub_id, {
-            "item": {
-                "name": f"Overage: {res['overage_count']} student{'s' if res['overage_count'] != 1 else ''}",
-                "amount": res["amount_inr"] * 100,  # paise
-                "currency": "INR",
-            },
-            "quantity": 1,
-        })
-        addon_id = str(addon.get("id", "")) or None
-    except Exception:
-        logger.exception("Razorpay add-on creation failed for org=%s", oid)
-        status = "failed"
+    if net <= 0:
+        # Fully comped by credit — no add-on to create.
+        status = "comped"
+    else:
+        status = "charged"
+        try:
+            addon = client.subscription.createAddon(sub_id, {
+                "item": {
+                    "name": f"Overage: {res['overage_count']} student{'s' if res['overage_count'] != 1 else ''}",
+                    "amount": net * 100,  # paise (net of credit)
+                    "currency": "INR",
+                },
+                "quantity": 1,
+            })
+            addon_id = str(addon.get("id", "")) or None
+        except Exception:
+            logger.exception("Razorpay add-on creation failed for org=%s", oid)
+            status = "failed"
 
     # Settle the claim with the outcome.
     try:
         await _atable("overage_charges").update(
-            {"status": status, "razorpay_addon_id": addon_id}
+            {"status": status, "razorpay_addon_id": addon_id,
+             "credit_applied_inr": credit_consumed}
         ).eq("org_id", oid).eq("period_start", ps_iso).execute()
     except Exception as exc:
         logger.warning("bill_cycle_overage: status update failed for org=%s: %s", oid, exc)
 
-    if status == "charged":
+    if status in ("charged", "comped"):
         try:
             await record_billing_event(
                 event_id=None,
                 org_id=oid,
                 event_type="overage.addon",
-                amount=res["amount_inr"],
-                status="charged",
+                amount=credit_consumed if status == "comped" else net,
+                status=status,
                 razorpay_subscription_id=sub_id,
-                payload={"overage_charges": {**claim, "razorpay_addon_id": addon_id, "status": status},
+                payload={"overage_charges": {**claim, "razorpay_addon_id": addon_id, "status": status,
+                         "credit_applied_inr": credit_consumed},
                          "subscription_id": sub_id},
             )
         except Exception as exc:
             logger.warning("bill_cycle_overage: billing_event record failed for org=%s: %s", oid, exc)
 
-    return {"status": status, "overage_count": res["overage_count"], "amount_inr": res["amount_inr"]}
+    return {"status": status, "overage_count": res["overage_count"], "amount_inr": net}
 
 
 # ─── Entitlement: single source of truth ──────────────────────────────
@@ -350,7 +380,12 @@ ENTITLING_STATUSES = frozenset({
 
 async def reconcile_org_entitlement(org_id: str) -> int:
     """Recompute and persist organizations.max_students from the org's
-    subscription state. The ONLY writer of max_students. Returns the cap."""
+    subscription state. The ONLY writer of max_students. Returns the cap.
+
+    If ``max_students_override`` is set on the org, it takes precedence
+    over the plan-derived cap — this is how a support override survives
+    the next reconcile cycle. Setting the override back to NULL reverts
+    to the plan-derived behaviour."""
     from ..database import async_table as _atable
     oid = str(org_id)
     rows = (await _atable("subscriptions").select("plan,status")
@@ -361,7 +396,13 @@ async def reconcile_org_entitlement(org_id: str) -> int:
     else:
         plan, status = "starter", "none"
     entitled = status in ENTITLING_STATUSES
-    cap = _PLAN_CAPS.get(plan, FREE_CAP) if entitled else FREE_CAP
+    plan_cap = _PLAN_CAPS.get(plan, FREE_CAP) if entitled else FREE_CAP
+    # Gap #13: max_students_override takes precedence over the
+    # plan-derived cap.  NULL = use plan, non-NULL = use override.
+    org_rows = (await _atable("organizations").select("max_students_override")
+                .eq("id", oid).limit(1).execute()).data or []
+    override = org_rows[0].get("max_students_override") if org_rows else None
+    cap = int(override) if override is not None else plan_cap
     await _atable("organizations").update({"max_students": cap}).eq("id", oid).execute()
     # Self-contained: the single entitlement writer also drops the stale
     # billing/limit cache so callers can't forget to (which would serve an

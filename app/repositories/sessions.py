@@ -87,12 +87,43 @@ async def calibration_tiers_by_session(session_keys: list[str], teacher_id: Opti
 
 
 async def check_group_access(roll_number: str, teacher_id: str, exam_id: str) -> bool:
-    assignments = (await _atable("exam_group_assignments").select("group_id").eq("exam_id", exam_id).eq("teacher_id", teacher_id).execute()).data or []
-    if not assignments:
+    """Exam access gate for both cohort axes (gap #59).
+
+    An exam may be restricted to explicit student_groups AND/OR to derived
+    batches (students.batch). Semantics:
+      * NO group assignments AND NO batch assignments → open to everyone.
+      * Otherwise the student may enter iff they are a member of an assigned
+        group OR their students.batch matches an assigned batch.
+    Batch membership is DERIVED from the students row, so a cohort gets standing
+    access with no per-student member rows to maintain.
+    """
+    group_assignments = (await _atable("exam_group_assignments").select("group_id").eq("exam_id", exam_id).eq("teacher_id", teacher_id).execute()).data or []
+    batch_assignments = (await _atable("exam_batch_assignments").select("batch").eq("exam_id", exam_id).eq("teacher_id", teacher_id).execute()).data or []
+
+    # Unrestricted exam → open to everyone (unchanged default).
+    if not group_assignments and not batch_assignments:
         return True
-    gids = [a["group_id"] for a in assignments]
-    member = (await _atable("student_group_members").select("id").in_("group_id", gids).eq("roll_number", roll_number).eq("teacher_id", teacher_id).limit(1).execute()).data
-    return bool(member)
+
+    # Group membership (explicit member rows).
+    if group_assignments:
+        gids = [a["group_id"] for a in group_assignments]
+        member = (await _atable("student_group_members").select("id").in_("group_id", gids).eq("roll_number", roll_number).eq("teacher_id", teacher_id).limit(1).execute()).data
+        if member:
+            return True
+
+    # Batch membership (derived from the student's cohort label). Matched
+    # case-insensitively + whitespace-trimmed (casefold) so a label entered as
+    # "CS-2024" on the assignment and "cs-2024 " on the student still matches —
+    # a case/whitespace mismatch must never silently lock a cohort out.
+    if batch_assignments:
+        assigned = {(a.get("batch") or "").strip().casefold() for a in batch_assignments if (a.get("batch") or "").strip()}
+        if assigned:
+            srow = (await _atable("students").select("batch").eq("roll_number", roll_number).eq("teacher_id", teacher_id).limit(1).execute()).data
+            student_batch = ((srow[0].get("batch") if srow else "") or "").strip().casefold()
+            if student_batch and student_batch in assigned:
+                return True
+
+    return False
 
 
 async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: int = 5000,

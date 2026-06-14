@@ -595,6 +595,11 @@
                title="Filter by teacher" style="display:none">
          <option value="">All teachers</option>
        </select>
+       <select class="filter-select" id="history-batch-filter"
+               data-change-action="filterHistoryBatch"
+               title="Filter by batch / cohort">
+         <option value="">All batches</option>
+       </select>
        <div class="toolbar-right">
          <button class="btn btn-primary btn-sm" data-action="refreshStudentList">Refresh</button>
        </div>
@@ -605,6 +610,7 @@
          <thead><tr>
            <th data-action="sortHistory" data-args='["roll_number"]'>Roll # <span class="arrow"></span></th>
            <th data-action="sortHistory" data-args='["full_name"]'>Name <span class="arrow"></span></th>
+           <th data-action="sortHistory" data-args='["batch"]'>Batch <span class="arrow"></span></th>
            <th data-action="sortHistory" data-args='["total_exams"]'>Exams <span class="arrow"></span></th>
            <th data-action="sortHistory" data-args='["avg_percentage"]'>Avg Score <span class="arrow"></span></th>
            <th data-action="sortHistory" data-args='["last_exam_risk"]'>Last Risk <span class="arrow"></span></th>
@@ -1403,6 +1409,35 @@
               <button class="btn btn-primary btn-sm" data-action="assignGroupToExam" style="white-space:nowrap">Assign</button>
             </div>
           </div>
+
+          <!-- Exam batch (cohort) assignment (gap #59) -->
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Restrict to Batches / Cohorts</div>
+            <div id="exam-batches-list" style="margin-bottom:8px"></div>
+            <div id="exam-batches-none" style="color:var(--muted);font-size:12px;margin-bottom:8px">No batch restriction on this exam.</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="assign-batch-select"
+                style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+                <option value="">Select a batch to restrict access...</option>
+              </select>
+              <button class="btn btn-primary btn-sm" data-action="assignBatchToExam" style="white-space:nowrap">Assign</button>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px">Students in an assigned batch get standing access — no per-exam re-registration.</div>
+          </div>
+
+          <!-- Cohort enrollment link (gap #59) -->
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Cohort Enrollment Link</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Share a link that enrolls students straight into a batch (no exam needed). They're then eligible for every exam you assign to that batch.</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="cohort-link-batch-select"
+                style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+                <option value="">Select a batch…</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" data-action="copyCohortLink" style="white-space:nowrap">Copy link</button>
+            </div>
+            <div id="cohort-link-preview" style="font-size:11px;color:var(--muted);margin-top:6px;word-break:break-all"></div>
+          </div>
         </div>
       </div>
 
@@ -1980,7 +2015,7 @@
       <span style="font-size:var(--text-lg,16px);font-weight:600;letter-spacing:-0.01em;color:var(--text-primary)">All Organizations</span>
     </div>
     <table id="all-orgs-table" style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">
-      <thead><tr style="background:var(--surface-1);border-bottom:1px solid var(--border-subtle)"><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Name</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Teachers</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Students</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Plan</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Status</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Created</th></tr></thead>
+      <thead><tr style="background:var(--surface-1);border-bottom:1px solid var(--border-subtle)"><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Name</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Teachers</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Students</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Plan</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Status</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Cap Ovrd</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Credit</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Actions</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Created</th></tr></thead>
       <tbody id="all-orgs-tbody"></tbody>
     </table>
   </div>

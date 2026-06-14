@@ -118,6 +118,13 @@
     "user_id",
     "user_kind"
   ],
+  "exam_batch_assignments": [
+    "batch",
+    "created_at",
+    "exam_id",
+    "id",
+    "teacher_id"
+  ],
   "exam_config": [
     "access_code",
     "audio_keywords",
@@ -268,6 +275,7 @@
   ],
   "organizations": [
     "auth_session_timeout_minutes",
+    "billing_credit_inr",
     "billing_email",
     "created_at",
     "delete_reason",
@@ -278,6 +286,7 @@
     "logo_url",
     "max_concurrent_auth_sessions",
     "max_students",
+    "max_students_override",
     "name",
     "require_2fa",
     "slug"
@@ -385,6 +394,7 @@
   ],
   "students": [
     "account_id",
+    "batch",
     "created_at",
     "date_of_birth",
     "email",
@@ -492,6 +502,7 @@
   "overage_charges": [
     "amount_inr",
     "created_at",
+    "credit_applied_inr",
     "id",
     "org_id",
     "overage_count",

@@ -35,8 +35,10 @@ CREATE TABLE IF NOT EXISTS organizations (
   -- The prod migration (phase107) keeps the real FK — teachers exists there.
   deleted_by   UUID,                           -- phase107
   delete_reason TEXT,                          -- phase107
-  require_2fa  BOOLEAN NOT NULL DEFAULT FALSE,  -- phase111
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  require_2fa          BOOLEAN NOT NULL DEFAULT FALSE,  -- phase111
+  max_students_override INTEGER,                          -- phase114 (gap #13)
+  billing_credit_inr    INTEGER NOT NULL DEFAULT 0,       -- phase114 (gap #13)
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96
 );
 
@@ -93,10 +95,11 @@ CREATE TABLE IF NOT EXISTS overage_charges (
   students_used    INTEGER NOT NULL,
   plan_limit       INTEGER NOT NULL,
   overage_count    INTEGER NOT NULL,
-  amount_inr       INTEGER NOT NULL,
-  razorpay_addon_id TEXT,
-  status           TEXT NOT NULL DEFAULT 'pending',
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  amount_inr         INTEGER NOT NULL,
+  credit_applied_inr INTEGER NOT NULL DEFAULT 0,        -- phase114 (gap #13)
+  razorpay_addon_id  TEXT,
+  status             TEXT NOT NULL DEFAULT 'pending',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT overage_charges_period_uniq UNIQUE (org_id, period_start)
 );
 

@@ -1845,6 +1845,25 @@ async def student_exams(request: Request):
                               roll, enr_tid, e)
             inv_rows = []
         eids = [eid for eid in (str(r.get("exam_id") or "").strip() for r in inv_rows) if eid]
+        # Standing access (gap #59): also surface exams assigned to the student's
+        # batch/cohort, even with no per-exam invite row — so cohort students SEE
+        # their exams in the lobby instead of needing the access code to discover
+        # them. Best-effort: never break the lobby on a batch lookup hiccup.
+        try:
+            srow = (await _atable("students").select("batch")
+                    .eq("roll_number", roll).eq("teacher_id", enr_tid)
+                    .limit(1).execute()).data
+            sbatch = ((srow[0].get("batch") if srow else "") or "").strip()
+            if sbatch:
+                bx = (await _atable("exam_batch_assignments").select("exam_id")
+                      .eq("teacher_id", enr_tid).eq("batch", sbatch).execute()).data or []
+                for r in bx:
+                    e = str(r.get("exam_id") or "").strip()
+                    if e and e not in eids:
+                        eids.append(e)
+        except Exception as e:
+            _auth_log.warning("[student/exams] batch exam lookup failed (roll=%s tid=%s): %s",
+                              roll, enr_tid, e)
         if not eids:
             eids = [None]  # fallback: resolve the teacher's exam in the loop
         for eid in eids:

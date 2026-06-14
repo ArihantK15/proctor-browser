@@ -47,47 +47,7 @@ _STATUS_PAGE_HTML = """\
 <h1>System Status</h1>
 <p class="sub" id="ts">Loading...</p>
 <div class="grid" id="grid"></div>
-<script>
-const STATUS_URL = '/api/v1/admin/status';
-const CHECK_ORDER = [
-  ['supabase','Supabase Database'],
-  ['redis','Redis Cache'],
-  ['email','Email Service'],
-  ['worker','Background Worker'],
-  ['disk','Disk Space'],
-  ['storage_write','Storage Write'],
-  ['memory_pct','Memory'],
-];
-
-function cls(s){return (s||'').toLowerCase()}
-async function load(){
-  const ts=document.getElementById('ts');
-  const grid=document.getElementById('grid');
-  try{
-    const r=await fetch(STATUS_URL,{credentials:'include'});
-    if(!r.ok){grid.innerHTML='<p style="color:red">Failed to load status (HTTP '+r.status+'). Check your admin session.</p>';return}
-    const d=await r.json();
-    ts.textContent='Last updated: '+new Date().toLocaleString()+'  •  Uptime: '+d.uptime_sec+'s  •  '+d.health_checks+' checks';
-    let html='';
-    for(const [key,label] of CHECK_ORDER){
-      const v=d.checks[key];
-      if(v===undefined) continue;
-      const s=cls(v);
-      const dot=s=='ok'?'ok':s=='warning'?'warning':'critical';
-      html+='<div class="card"><h3>'+label+'</h3><div><span class="status-dot '+dot+'"></span><span class="value">'+v+'</span></div></div>';
-    }
-    // remaining checks not in ORDER
-    for(const k of Object.keys(d.checks)){
-      if(CHECK_ORDER.findIndex(o=>o[0]===k)!==-1) continue;
-      html+='<div class="card"><h3>'+k.replace(/_/g,' ')+'</h3><div><span class="value">'+JSON.stringify(d.checks[k])+'</span></div></div>';
-    }
-    grid.innerHTML=html;
-  }catch(e){
-    grid.innerHTML='<p style="color:red">Error: '+e.message+'</p>';
-  }
-}
-load();
-</script>
+<script src="/static/admin-status.js" defer></script>
 </body>
 </html>
 """

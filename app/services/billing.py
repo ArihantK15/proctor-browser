@@ -8,9 +8,12 @@ Environment variables:
   RAZORPAY_KEY_ID         (live mode)
   RAZORPAY_KEY_SECRET     (live mode)
   RAZORPAY_WEBHOOK_SECRET (live mode — validates webhook signatures)
-  RAZORPAY_PLAN_STARTER   plan ID in Razorpay dashboard
-  RAZORPAY_PLAN_GROWTH    plan ID in Razorpay dashboard
-  RAZORPAY_PLAN_PRO       plan ID in Razorpay dashboard
+    RAZORPAY_PLAN_STARTER   plan ID in Razorpay dashboard (monthly)
+    RAZORPAY_PLAN_STARTER_ANNUAL  plan ID for annual/yearly billing
+    RAZORPAY_PLAN_GROWTH    plan ID in Razorpay dashboard (monthly)
+    RAZORPAY_PLAN_GROWTH_ANNUAL   plan ID for annual/yearly billing
+    RAZORPAY_PLAN_PRO       plan ID in Razorpay dashboard (monthly)
+    RAZORPAY_PLAN_PRO_ANNUAL      plan ID for annual/yearly billing
 """
 
 import hashlib
@@ -47,8 +50,15 @@ def _sandbox_enabled() -> bool:
     return os.environ.get("RAZORPAY_SANDBOX_MODE", "").lower().strip() in {"1", "true", "yes", "on"}
 
 
-def create_subscription(org_id: str, plan_id: str, gstin: str | None = None) -> dict:
+def create_subscription(org_id: str, plan_id: str, gstin: str | None = None,
+                        billing_cycle: str = "monthly") -> dict:
     """Create a Razorpay subscription and return checkout details.
+
+    ``billing_cycle`` may be ``"monthly"`` (default) or ``"annual"``.
+    Annual pricing is ``monthly_price × 10`` (2 months free) via a separate
+    Razorpay yearly plan. The price the customer sees at checkout is the
+    annual price; Razorpay's hosted page renders the plan's configured
+    amount and period.
 
     Live mode requires Razorpay credentials and a configured Razorpay plan ID.
     Sandbox mode is explicit via RAZORPAY_SANDBOX_MODE=1 and never returns a
@@ -62,8 +72,10 @@ def create_subscription(org_id: str, plan_id: str, gstin: str | None = None) -> 
         raise ValueError(f"Unknown plan: {plan_id}")
 
     plan = PLANS[plan_id]
-    plan_key = os.environ.get(f"RAZORPAY_PLAN_{plan_id.upper()}")
-    notes = {"org_id": org_id}
+    is_annual = billing_cycle == "annual"
+    suffix = "_ANNUAL" if is_annual else ""
+    plan_key = os.environ.get(f"RAZORPAY_PLAN_{plan_id.upper()}{suffix}")
+    notes = {"org_id": org_id, "billing_cycle": billing_cycle}
     if gstin:
         notes["gstin"] = gstin
 
@@ -71,7 +83,7 @@ def create_subscription(org_id: str, plan_id: str, gstin: str | None = None) -> 
         client = _get_client()
         sub = client.subscription.create({
             "plan_id": plan_key,
-            "total_count": 12,
+            "total_count": 5 if is_annual else 12,
             "customer_notify": 1,
             "notes": notes,
         })
@@ -79,11 +91,12 @@ def create_subscription(org_id: str, plan_id: str, gstin: str | None = None) -> 
             "subscription_id": sub["id"],
             "short_url": sub.get("short_url", ""),
             "status": sub.get("status", "created"),
+            "billing_cycle": billing_cycle,
         }
 
     if _is_live() and not plan_key:
         raise RuntimeError(
-            f"RAZORPAY_PLAN_{plan_id.upper()} not configured — cannot create subscription"
+            f"RAZORPAY_PLAN_{plan_id.upper()}{suffix} not configured — cannot create subscription"
         )
 
     if not _sandbox_enabled():
@@ -91,12 +104,15 @@ def create_subscription(org_id: str, plan_id: str, gstin: str | None = None) -> 
             "RAZORPAY_KEY_ID/SECRET not configured — cannot create live subscription"
         )
 
+    price = plan.get("annual_price_inr" if is_annual else "price_inr", plan["price_inr"])
+    period_label = "/ yr" if is_annual else "/ mo"
     return {
         "subscription_id": f"mock_sub_{org_id[:8]}",
         "short_url": "",
         "status": "created",
         "_sandbox": True,
-        "_note": f"Sandbox: would charge ₹{plan['price_inr']}/mo for {plan['students']} students ({plan['name']})",
+        "billing_cycle": billing_cycle,
+        "_note": f"Sandbox: would charge ₹{price}{period_label} for {plan['students']} students ({plan['name']})",
     }
 
 
@@ -172,11 +188,15 @@ async def compute_overage(org_id: str, period_start: datetime, period_end: datet
             "overage_count": overage, "amount_inr": amount}
 
 
-def razorpay_plan_key(plan_id: str) -> str | None:
+def razorpay_plan_key(plan_id: str, billing_cycle: str = "monthly") -> str | None:
     """Map an internal tier (e.g. 'growth') to the Razorpay plan id configured
     in the dashboard via RAZORPAY_PLAN_GROWTH etc. Razorpay's subscription APIs
-    want THAT id, not our internal name."""
-    return os.environ.get(f"RAZORPAY_PLAN_{(plan_id or '').upper()}")
+    want THAT id, not our internal name.
+
+    For annual billing, appends ``_ANNUAL`` to the env var name so e.g.
+    ``RAZORPAY_PLAN_GROWTH_ANNUAL`` is read for the yearly plan."""
+    suffix = "_ANNUAL" if billing_cycle == "annual" else ""
+    return os.environ.get(f"RAZORPAY_PLAN_{(plan_id or '').upper()}{suffix}")
 
 
 def compute_proration(old_plan: str, new_plan: str, period_start, period_end, now=None) -> int:

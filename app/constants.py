@@ -226,9 +226,9 @@ _CAL_LOOSE_HEAD = 30.0
 # student overage price → a single student over Growth = ₹12,000
 # extra. Audit P1.4.
 PLANS = {
-    "starter":    {"name": "Starter",  "students": 30,  "price_inr": 2400,  "overage_price_inr": 80,  "desc": "For small classes & tutorials (₹80/student)"},
-    "growth":     {"name": "Growth",   "students": 150, "price_inr": 12000, "overage_price_inr": 80,  "desc": "For departments & mid-size programs (₹80/student)"},
-    "pro":        {"name": "Pro",      "students": 500, "price_inr": 30000, "overage_price_inr": 80,  "desc": "For large universities & institutions (₹80/student)"},
+    "starter":    {"name": "Starter",  "students": 30,  "price_inr": 2400,  "overage_price_inr": 80,  "annual_price_inr": 24000,  "desc": "For small classes & tutorials (₹80/student)"},
+    "growth":     {"name": "Growth",   "students": 150, "price_inr": 12000, "overage_price_inr": 80,  "annual_price_inr": 120000, "desc": "For departments & mid-size programs (₹80/student)"},
+    "pro":        {"name": "Pro",      "students": 500, "price_inr": 30000, "overage_price_inr": 80,  "annual_price_inr": 300000, "desc": "For large universities & institutions (₹80/student)"},
     "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "overage_price_inr": 0,   "desc": "Custom pricing — contact sales"},
 }
 TRIAL_DAYS = 14

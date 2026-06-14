@@ -413,6 +413,7 @@
     "teacher_id"
   ],
   "subscriptions": [
+    "billing_cycle",
     "created_at",
     "current_period_end",
     "current_period_start",

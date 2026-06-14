@@ -3475,11 +3475,19 @@ function sortResults(key){
 // and short-circuit a switch attempt with an honest message instead of a 409.
 const _ENTITLING_BILLING_STATUSES = new Set(['trialing','authenticated','active','past_due','cancelling']);
 let _billingState = { plan: '', status: '' };
+let _billingCycle = 'monthly';
 
 // Client-side plan helpers (mirrors app/constants.py PLANS)
 const _PLAN_PRICE = {starter:2400, growth:12000, pro:30000, enterprise:0};
+const _PLAN_ANNUAL_PRICE = {starter:24000, growth:120000, pro:300000, enterprise:0};
 const _PLAN_NAMES = {starter:'Starter', growth:'Growth', pro:'Pro', enterprise:'Enterprise'};
 function planName(id){ return _PLAN_NAMES[String(id||'').toLowerCase()] || (id||'Unknown'); }
+function planPrice(id, cycle){
+  id = String(id||'').toLowerCase();
+  cycle = String(cycle||_billingCycle).toLowerCase();
+  const prices = cycle === 'annual' ? _PLAN_ANNUAL_PRICE : _PLAN_PRICE;
+  return prices[id] || 0;
+}
 function fmtINR(paise){ return '\u20b9'+(paise||0).toLocaleString('en-IN'); }
 function fmtDate(isoStr){
   if(!isoStr) return '';
@@ -3490,15 +3498,51 @@ function fmtDate(isoStr){
 // Reflect the active subscription in the plan tiles. When entitled, non-current
 // tiles get an enabled CTA (Upgrade/Downgrade) wired to changePlan(). When not
 // entitled (no subscription yet), tiles keep the original upgradePlan handler.
+// Respects _billingCycle to show monthly or annual pricing.
 function updateBillingTiles(plan, status){
   const cur = String(plan || '').toLowerCase();
   const entitled = _ENTITLING_BILLING_STATUSES.has(String(status || '').toLowerCase());
+  const cycle = String(_billingCycle || 'monthly').toLowerCase();
+  const isAnnual = cycle === 'annual';
   document.querySelectorAll('#billing-plans .plan-tile').forEach(tile => {
     const p = String(tile.dataset.plan || '').toLowerCase();
     const cta = tile.querySelector('.plan-cta');
     const isCurrent = entitled && p === cur;
     tile.classList.toggle('is-current', isCurrent);
     tile.style.cursor = (entitled && !isCurrent) ? 'pointer' : (entitled ? 'default' : 'pointer');
+
+    // Update price display
+    const monthlyAmtEl = tile.querySelector('.plan-amount');
+    const periodEl = tile.querySelector('.plan-period');
+    const savingsEl = tile.querySelector('.plan-savings');
+    if(monthlyAmtEl && periodEl){
+      const monthlyPrice = _PLAN_PRICE[p] || 0;
+      const annualPrice = _PLAN_ANNUAL_PRICE[p] || 0;
+      if(isAnnual && annualPrice){
+        monthlyAmtEl.textContent = fmtINR(annualPrice).replace(/^\u20b9/,'');
+        if(periodEl) periodEl.textContent = '/ year';
+      }else{
+        monthlyAmtEl.textContent = fmtINR(monthlyPrice).replace(/^\u20b9/,'');
+        if(periodEl) periodEl.textContent = '/ month';
+      }
+    }
+    // Show/hide savings badge
+    if(savingsEl){
+      const monthlyPrice = _PLAN_PRICE[p] || 0;
+      const annualPrice = _PLAN_ANNUAL_PRICE[p] || 0;
+      if(isAnnual && annualPrice){
+        const savings = monthlyPrice * 12 - annualPrice;
+        if(savings > 0){
+          savingsEl.textContent = 'Save '+fmtINR(savings)+' / 2 months free';
+          savingsEl.style.display = '';
+        }else{
+          savingsEl.style.display = 'none';
+        }
+      }else{
+        savingsEl.style.display = 'none';
+      }
+    }
+
     if(!cta) return;
     if(isCurrent){
       cta.style.display = 'none';
@@ -3508,8 +3552,8 @@ function updateBillingTiles(plan, status){
       cta.disabled = false;
       cta.removeAttribute('title');
       cta.className = cta.className.replace(/\bis-downgrade\b/g,'').trim();
-      const curPrice = _PLAN_PRICE[cur] || 0;
-      const tilePrice = _PLAN_PRICE[p] || 0;
+      const curPrice = planPrice(cur, cycle);
+      const tilePrice = planPrice(p, cycle);
       if(tilePrice > curPrice){
         cta.textContent = 'Upgrade';
         cta.classList.remove('is-downgrade');
@@ -3518,7 +3562,7 @@ function updateBillingTiles(plan, status){
         cta.classList.add('is-downgrade');
       }
       tile.dataset.action = 'changePlan';
-      tile.dataset.args = JSON.stringify([p]);
+      tile.dataset.args = JSON.stringify([p, cycle]);
       if(cta.dataset.action !== 'changePlan') cta.dataset.action = 'changePlan';
       if(!cta.dataset.args) cta.dataset.args = tile.dataset.args;
     }else{
@@ -3528,18 +3572,19 @@ function updateBillingTiles(plan, status){
       cta.className = cta.className.replace(/\bis-downgrade\b/g,'').trim();
       cta.textContent = cta.dataset.label || cta.textContent;
       tile.dataset.action = 'upgradePlan';
-      tile.dataset.args = JSON.stringify([p]);
+      tile.dataset.args = JSON.stringify([p, cycle]);
       if(cta.dataset.action !== 'upgradePlan') cta.dataset.action = 'upgradePlan';
       if(!cta.dataset.args) cta.dataset.args = tile.dataset.args;
     }
   });
 }
 
-async function upgradePlan(planId){
+async function upgradePlan(planId, billingCycle){
   // Recurring Subscriptions only — create a Razorpay subscription and redirect
   // to its hosted checkout (UPI Autopay / NACH). Entitlement is granted on the
   // server only when the subscription activates (webhook → reconcile).
   const resultEl = document.getElementById('upgrade-result');
+  const cycle = String(billingCycle || _billingCycle || 'monthly').toLowerCase();
   // Block switching while a plan is active — matches the server's 409 guard.
   // Gives instant feedback instead of a round-trip that just errors.
   const cur = String(_billingState.plan || '').toLowerCase();
@@ -3557,7 +3602,7 @@ async function upgradePlan(planId){
     const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({plan_id:planId})
+      body:JSON.stringify({plan_id:planId, billing_cycle: cycle})
     });
     const d = await r.json().catch(()=>({}));
     if(!r.ok){ throw new Error(d.detail||'Subscription failed'); }
@@ -3574,7 +3619,22 @@ async function upgradePlan(planId){
   }
 }
 
-async function changePlan(planId){
+function toggleBillingCycle(){
+  const input = document.getElementById('billing-cycle-input');
+  const checked = input ? input.checked : false;
+  _billingCycle = checked ? 'annual' : 'monthly';
+  // Update toggle label active state
+  document.querySelectorAll('.billing-cycle-label').forEach(lbl => {
+    lbl.classList.toggle('is-active', lbl.dataset.cycle === _billingCycle);
+  });
+  // Show/hide savings badge
+  const badge = document.getElementById('billing-cycle-savings-badge');
+  if(badge) badge.style.display = checked ? '' : 'none';
+  // Re-render plan tiles with the new cycle
+  updateBillingTiles(_billingState.plan, _billingState.status);
+}
+
+async function changePlan(planId, billingCycle){
   const cur = String(_billingState.plan || '').toLowerCase();
   const curPrice = _PLAN_PRICE[cur] || 0;
   const newPrice = _PLAN_PRICE[planId] || 0;

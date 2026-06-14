@@ -68,13 +68,17 @@ def _invalidate_billing_cache(org_id: str):
 @router.get("/api/v1/billing/plans")
 @limiter.limit("30/minute")
 async def list_plans(request: Request):
-    """Return available plans — public, no auth needed."""
+    """Return available plans — public, no auth needed.
+    Each plan includes ``annual_price_inr`` (monthly × 10, 2 months free)
+    and ``annual_savings_inr`` (savings vs 12 months of monthly pricing)."""
     return {
         "plans": [
             {
                 "id": pid,
                 "name": p["name"],
                 "price_inr": p["price_inr"],
+                "annual_price_inr": p.get("annual_price_inr", 0),
+                "annual_savings_inr": p["price_inr"] * 12 - p.get("annual_price_inr", p["price_inr"] * 12),
                 "students": p["students"],
                 "description": p["desc"],
             }
@@ -88,7 +92,8 @@ async def list_plans(request: Request):
 async def create_subscription(body: dict, request: Request):
     """Create a Razorpay subscription for the org.
 
-    Body: { "plan_id": "growth" }
+    Body: { "plan_id": "growth", "billing_cycle": "monthly"|"annual" }
+    ``billing_cycle`` defaults to ``"monthly"``.
     Returns Razorpay checkout URL.
     """
     teacher = await require_admin(request)
@@ -99,6 +104,14 @@ async def create_subscription(body: dict, request: Request):
         raise HTTPException(status_code=403, detail="No organization associated")
 
     plan_id = (body.get("plan_id") or "").strip().lower()
+    billing_cycle = (body.get("billing_cycle") or "monthly").strip().lower()
+    if billing_cycle not in ("monthly", "annual"):
+        raise HTTPException(status_code=400,
+            detail="billing_cycle must be 'monthly' or 'annual'.")
+    if billing_cycle == "annual" and plan_id in ("enterprise",):
+        raise HTTPException(status_code=400,
+            detail="Enterprise plans are custom-priced — annual billing is managed by sales.")
+
     # Rejects unknown plans AND zero-price tiers (Enterprise): a ₹0 plan must
     # never enter self-serve checkout — in sandbox it would mint a free
     # subscription, and Enterprise is a contact-sales/manual-contract flow.
@@ -124,7 +137,8 @@ async def create_subscription(body: dict, request: Request):
         raise HTTPException(status_code=400, detail="Invalid GSTIN format (expected 15 characters).")
 
     try:
-        result = billing_create_subscription(str(org_id), plan_id, gstin=gstin or None)
+        result = billing_create_subscription(str(org_id), plan_id, gstin=gstin or None,
+                                              billing_cycle=billing_cycle)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -150,6 +164,7 @@ async def create_subscription(body: dict, request: Request):
             "plan": plan_id,
             "status": (result.get("status") or "created").strip().lower(),
             "razorpay_subscription_id": result["subscription_id"],
+            "billing_cycle": billing_cycle,
         }
         sub = (existing.data or [None])[0]
         if sub:

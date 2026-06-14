@@ -1829,6 +1829,16 @@
            active subscription. data-plan attrs let updateBillingTiles()
            in dashboard-app.js toggle .is-current without rebuilding the
            DOM. -->
+      <!-- Billing cycle toggle: monthly ↔ annual -->
+      <div class="billing-cycle-toggle" style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <span id="billing-cycle-label-monthly" class="billing-cycle-label is-active" data-cycle="monthly">Monthly</span>
+        <label class="billing-cycle-switch">
+          <input type="checkbox" id="billing-cycle-input" data-change-action="toggleBillingCycle">
+          <span class="billing-cycle-slider"></span>
+        </label>
+        <span id="billing-cycle-label-annual" class="billing-cycle-label" data-cycle="annual">Annual</span>
+        <span id="billing-cycle-savings-badge" class="badge" style="background:var(--emerald);color:#fff;font-size:10px;display:none">Save 2 months</span>
+      </div>
       <div id="billing-plans" class="plan-grid">
         <article class="plan-tile" data-plan="starter" data-action="upgradePlan" data-args='["starter"]'>
           <header class="plan-head">
@@ -1840,6 +1850,7 @@
             <span class="plan-amount">2,400</span>
             <span class="plan-period">/ month</span>
           </div>
+          <div class="plan-savings" style="display:none;font-size:11px;color:var(--emerald);margin-top:4px;font-weight:600"></div>
           <ul class="plan-features">
             <li>Up to 30 students</li>
             <li>Unlimited exams</li>
@@ -1860,6 +1871,7 @@
             <span class="plan-amount">12,000</span>
             <span class="plan-period">/ month</span>
           </div>
+          <div class="plan-savings" style="display:none;font-size:11px;color:var(--emerald);margin-top:4px;font-weight:600"></div>
           <ul class="plan-features">
             <li>Up to 150 students</li>
             <li>Everything in Starter</li>
@@ -1879,6 +1891,7 @@
             <span class="plan-amount">30,000</span>
             <span class="plan-period">/ month</span>
           </div>
+          <div class="plan-savings" style="display:none;font-size:11px;color:var(--emerald);margin-top:4px;font-weight:600"></div>
           <ul class="plan-features">
             <li>Up to 500 students</li>
             <li>Everything in Growth</li>

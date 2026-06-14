@@ -20,7 +20,7 @@ Vite + React app served at `procta.net`
 | Terms of Service | `Terms.jsx` | `/terms` |
 | Download | `Download.jsx` | `/download` |
 
-Components: `Navbar`, `Hero`, `Features`, `HowItWorks`, `Problem`, `USPs`, `Comparison`, `UseCases`, `Trust`, `FAQ`, `CTA`, `Demo`, `Footer`, `PrivacySection`, `RazorpayCheckoutButton`, `auth/OAuthButtons.jsx`
+Components: `Navbar`, `Hero`, `Features`, `HowItWorks`, `Problem`, `USPs`, `Comparison`, `UseCases`, `Trust`, `FAQ`, `CTA`, `Demo`, `Footer`, `PrivacySection`, `auth/OAuthButtons.jsx`
 
 ---
 

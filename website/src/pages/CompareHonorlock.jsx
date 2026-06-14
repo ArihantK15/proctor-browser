@@ -163,7 +163,7 @@ export default function CompareHonorlock() {
                 Start free trial
               </Link>
               <a
-                href="mailto:arihantkaul@outlook.com?subject=Honorlock%20comparison%20enquiry"
+                href="mailto:support@procta.net?subject=Honorlock%20comparison%20enquiry"
                 className="inline-flex justify-center rounded-xl border border-white/10 bg-white/[0.03] px-7 py-3.5 text-sm font-semibold text-slate-300 hover:border-accent/30 no-underline"
               >
                 Email a migration request

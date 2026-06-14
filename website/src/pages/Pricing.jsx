@@ -93,7 +93,7 @@ const plans = [
       'Onboarding + training included',
     ],
     cta: 'Contact Sales',
-    href: 'mailto:arihantkaul@outlook.com?subject=Procta%20Enterprise%20enquiry',
+    href: 'mailto:support@procta.net?subject=Procta%20Enterprise%20enquiry',
     popular: false,
   },
 ]

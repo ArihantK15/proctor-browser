@@ -1,5 +1,6 @@
 import { useState, useId } from 'react'
 import { motion } from 'framer-motion'
+import { Helmet } from 'react-helmet-async'
 import { ChevronDown } from 'lucide-react'
 
 const faqs = [
@@ -33,7 +34,7 @@ const faqs = [
   },
   {
     q: 'Can I use Procta for hiring assessments?',
-    a: 'Absolutely. Procta works for any timed assessment — university exams, certification tests, or candidate screening. The secure browser and AI monitoring apply equally across all use cases.'
+    a: 'Absolutely. Procta works for any timed assessment — university exams, certification tests, or candidate screening. Procta Secure Browser (PSB) and AI monitoring apply equally across all use cases.'
   },
   {
     q: 'How long does setup take?',
@@ -82,6 +83,20 @@ function FAQItem({ item }) {
 export default function FAQ() {
   return (
     <section id="faq" className="relative py-24 md:py-32">
+      {/* FAQPage structured data — earns People-Also-Ask / FAQ rich results on
+          proctoring queries. Built from the same `faqs` array rendered below so
+          the markup and the schema can never drift apart. */}
+      <Helmet>
+        <script type="application/ld+json">{JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          "mainEntity": faqs.map((f) => ({
+            "@type": "Question",
+            "name": f.q,
+            "acceptedAnswer": { "@type": "Answer", "text": f.a },
+          })),
+        })}</script>
+      </Helmet>
       <div className="mx-auto max-w-3xl px-6">
         <motion.div
           initial={{ opacity: 0, y: 24 }}

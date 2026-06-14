@@ -71,7 +71,7 @@ const capabilities = [
   },
   {
     icon: ShieldCheck,
-    title: 'Secure Electron browser',
+    title: 'Procta Secure Browser (PSB)',
     body: 'Kiosk mode, fullscreen enforcement, process checks, VM/remote-desktop detection, local autosave, and crash-resilient submit flow.',
   },
   {

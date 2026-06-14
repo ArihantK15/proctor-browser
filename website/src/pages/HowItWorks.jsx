@@ -13,8 +13,8 @@ const steps = [
   },
   {
     icon: Monitor,
-    title: '2. Student launches the secure browser',
-    body: 'Students install the Electron browser for Windows or macOS, enter the exam, complete camera and face calibration, and continue inside a locked-down runtime that watches fullscreen, copy/paste, app switching, remote-desktop tools, VMs, and crashes. Answers autosave locally and sync to the server.'
+    title: '2. Student launches Procta Secure Browser',
+    body: 'Students install Procta Secure Browser (PSB) for Windows or macOS, enter the exam, complete camera and face calibration, and continue inside a locked-down runtime that watches fullscreen, copy/paste, app switching, remote-desktop tools, VMs, and crashes. Answers autosave locally and sync to the server.'
   },
   {
     icon: Smartphone,
@@ -43,7 +43,7 @@ export default function HowItWorksPage() {
     <div className="min-h-screen bg-navy-950">
       <Helmet>
         <title>How Procta Works — Complete Secure Exam Workflow | Procta</title>
-        <meta name="description" content="See Procta's secure exam workflow: exam setup, Electron browser, phone camera room scan, on-device AI proctoring, live teacher intervention, AI grading, scorecards, and evidence packets." />
+        <meta name="description" content="See Procta's secure exam workflow: exam setup, Procta Secure Browser (PSB), phone camera room scan, on-device AI proctoring, live teacher intervention, AI grading, scorecards, and evidence packets." />
         <link rel="canonical" href="https://www.procta.net/how-it-works" />
         <meta property="og:title" content="How AI Proctoring Works — 4-Step Exam Flow | Procta" />
         <meta property="og:description" content="Learn how Procta's AI proctoring works: exam creation, secure browser launch, real-time AI monitoring, and automated scoring." />

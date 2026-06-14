@@ -21,6 +21,8 @@ const ROUTES = [
   '/privacy',
   '/terms',
   '/lti-setup',
+  '/coaching',
+  '/secure-browser',
   '/migrate-from-mettl',
   '/compare/talview-vs-procta',
   '/compare/proctortrack-vs-procta',

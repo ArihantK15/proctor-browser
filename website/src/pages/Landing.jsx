@@ -19,14 +19,37 @@ export default function Landing() {
   return (
     <div className="min-h-screen">
       <Helmet>
-        <title>Procta — AI Proctored Exams, Secure Browser, Phone Cam & Automated Grading</title>
-        <meta name="description" content="Procta runs secure online exams for colleges and coaching institutes: Electron lockdown browser, on-device AI proctoring, phone-camera room scan, live teacher dashboard, AI grading, scorecards, LTI, Razorpay billing, and 3,500-student architecture headroom." />
-        <meta property="og:title" content="Procta — AI Proctored Exams, Secure Browser, Phone Cam & Automated Grading" />
-        <meta property="og:description" content="Complete exam workflow: secure browser, on-device AI proctoring, phone cam, live dashboard, AI grading, scorecards, LTI, and 3,500-student architecture headroom." />
+        <title>Procta — AI Online Proctoring & Secure Exam Browser (India)</title>
+        <meta name="description" content="AI online proctoring for Indian colleges & coaching institutes: Procta Secure Browser (PSB), on-device AI monitoring, phone-cam room scan, live invigilation & auto-grading." />
+        <meta property="og:title" content="Procta — AI Online Proctoring & Secure Exam Browser (India)" />
+        <meta property="og:description" content="AI-powered online exam proctoring for India — Procta Secure Browser (PSB) lockdown, on-device AI monitoring, phone-camera room scan, live invigilation and automated grading." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.procta.net" />
         <meta property="og:image" content="https://www.procta.net/og-image.png" />
         <link rel="canonical" href="https://www.procta.net" />
+        {/* Structured data: protects the brand result (Organization) and earns
+            product rich-results for proctoring queries (SoftwareApplication). */}
+        <script type="application/ld+json">{JSON.stringify({
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "Organization",
+              "name": "Procta",
+              "url": "https://www.procta.net",
+              "logo": "https://www.procta.net/icon-512.png",
+              "description": "AI-powered online exam proctoring platform for colleges and coaching institutes in India.",
+              "sameAs": []
+            },
+            {
+              "@type": "SoftwareApplication",
+              "name": "Procta",
+              "applicationCategory": "EducationalApplication",
+              "operatingSystem": "Windows, macOS",
+              "description": "AI online proctoring with the Procta Secure Browser (PSB) lockdown, on-device AI monitoring, phone-camera room scan, live invigilation, and automated grading.",
+              "url": "https://www.procta.net"
+            }
+          ]
+        })}</script>
       </Helmet>
       <Navbar />
       <Hero />

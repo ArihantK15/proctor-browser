@@ -34,6 +34,8 @@ export default function Footer() {
             <ul className="space-y-2.5 list-none p-0">
               <li><Link to="/features" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Features</Link></li>
               <li><Link to="/how-it-works" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">How It Works</Link></li>
+              <li><Link to="/secure-browser" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Secure Browser (PSB)</Link></li>
+              <li><Link to="/coaching" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">For Coaching Institutes</Link></li>
               <li><a href="/#use-cases" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Use Cases</a></li>
               <li><a href="/#demo" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Demo</a></li>
             </ul>

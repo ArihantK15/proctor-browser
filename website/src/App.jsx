@@ -22,6 +22,8 @@ const MigrateFromMettl = lazy(() => import('./pages/MigrateFromMettl'))
 const CompareTalview = lazy(() => import('./pages/CompareTalview'))
 const CompareProctortrack = lazy(() => import('./pages/CompareProctortrack'))
 const CompareHonorlock = lazy(() => import('./pages/CompareHonorlock'))
+const CoachingInstitutes = lazy(() => import('./pages/CoachingInstitutes'))
+const SecureBrowser = lazy(() => import('./pages/SecureBrowser'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
 function RouteFallback() {
@@ -96,6 +98,9 @@ export default function App() {
           <Route path="/compare/talview-vs-procta"><LazyRoute Component={CompareTalview} /></Route>
           <Route path="/compare/proctortrack-vs-procta"><LazyRoute Component={CompareProctortrack} /></Route>
           <Route path="/compare/honorlock-vs-procta"><LazyRoute Component={CompareHonorlock} /></Route>
+          {/* SEO landing pages — ICP + brandable PSB term (gap #59 / SEO pass). */}
+          <Route path="/coaching"><LazyRoute Component={CoachingInstitutes} /></Route>
+          <Route path="/secure-browser"><LazyRoute Component={SecureBrowser} /></Route>
           <Route><LazyRoute Component={NotFound} /></Route>
         </Switch>
       </div>

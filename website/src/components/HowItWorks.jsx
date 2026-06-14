@@ -11,7 +11,7 @@ export default function HowItWorks() {
     {
       icon: Monitor,
       step: '02',
-      title: 'Student Launches Secure Browser',
+      title: 'Student Launches Procta Secure Browser',
       desc: 'Candidates download the Procta desktop app. Kiosk mode locks down the system — no tab switching, no screen sharing.',
     },
     {

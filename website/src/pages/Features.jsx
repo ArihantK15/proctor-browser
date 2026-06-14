@@ -141,7 +141,7 @@ export default function FeaturesPage() {
     <div className="min-h-screen bg-navy-950">
       <Helmet>
         <title>AI Proctoring Features — Gaze Tracking, Object Detection &amp; More | Procta</title>
-        <meta name="description" content="Explore Procta's complete exam platform: secure Electron browser, on-device AI proctoring, phone camera room scan, live dashboard, AI grading, evidence packets, LTI, Razorpay billing, and 3,500-student architecture target." />
+        <meta name="description" content="Explore Procta's complete exam platform: Procta Secure Browser (PSB), on-device AI proctoring, phone camera room scan, live dashboard, AI grading, evidence packets, LTI, Razorpay billing, and 3,500-student architecture target." />
         <link rel="canonical" href="https://www.procta.net/features" />
         <meta property="og:title" content="AI Proctoring Features — Gaze Tracking, Object Detection & More | Procta" />
         <meta property="og:description" content="Complete AI proctoring feature set: gaze tracking, face detection, object recognition, kiosk-mode lockdown, automated grading, live monitoring, and forensics." />

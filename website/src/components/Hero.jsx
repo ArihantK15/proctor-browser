@@ -48,7 +48,7 @@ export default function Hero() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400 md:text-xl">
-            Procta is the full exam workflow: secure Electron browser, on-device
+            Procta is the full exam workflow: Procta Secure Browser (PSB), on-device
             AI proctoring, phone-camera room scan, live teacher dashboard,
             AI grading suggestions, scorecards, LTI, and Razorpay billing.
           </p>

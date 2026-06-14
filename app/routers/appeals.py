@@ -52,8 +52,15 @@ async def submit_appeal(body: AppealIn, request: Request):
     if not session.data:
         raise HTTPException(status_code=404, detail="Session not found")
     s = session.data[0]
-    if str(s.get("student_id", "")).upper() != student_id.upper() or \
-       str(s.get("email", "")).lower() != student_email.lower():
+    # Ownership: a match on EITHER the account's student_id OR email proves the
+    # session is theirs (both are unique to the account). Requiring BOTH — the
+    # old behaviour — wrongly 403'd sessions created via the exam/invite flow that
+    # stored only one (e.g. a null `email` on the session row), even though the
+    # student's own history (roll + teacher based) lists the session — so the
+    # "Why flagged?" and "Appeal" buttons appeared but their endpoints rejected.
+    _sid_ok = bool(student_id) and str(s.get("student_id", "")).upper() == student_id.upper()
+    _email_ok = bool(student_email) and str(s.get("email", "")).lower() == student_email.lower()
+    if not (_sid_ok or _email_ok):
         raise HTTPException(status_code=403, detail="Session does not belong to you")
 
     teacher_id = s.get("teacher_id", "")
@@ -140,8 +147,15 @@ async def student_session_evidence(session_key: str, request: Request):
     if not session.data:
         raise HTTPException(status_code=404, detail="Session not found")
     s = session.data[0]
-    if str(s.get("student_id", "")).upper() != student_id.upper() or \
-       str(s.get("email", "")).lower() != student_email.lower():
+    # Ownership: a match on EITHER the account's student_id OR email proves the
+    # session is theirs (both are unique to the account). Requiring BOTH — the
+    # old behaviour — wrongly 403'd sessions created via the exam/invite flow that
+    # stored only one (e.g. a null `email` on the session row), even though the
+    # student's own history (roll + teacher based) lists the session — so the
+    # "Why flagged?" and "Appeal" buttons appeared but their endpoints rejected.
+    _sid_ok = bool(student_id) and str(s.get("student_id", "")).upper() == student_id.upper()
+    _email_ok = bool(student_email) and str(s.get("email", "")).lower() == student_email.lower()
+    if not (_sid_ok or _email_ok):
         raise HTTPException(status_code=403, detail="Session does not belong to you")
     teacher_id = str(s.get("teacher_id", ""))
 

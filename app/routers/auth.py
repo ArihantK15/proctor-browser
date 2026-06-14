@@ -316,6 +316,33 @@ def _stringify_pwc(value) -> str | None:
     return str(value)
 
 
+def _pwc_equal(a: str | None, b: str | None) -> bool:
+    """Compare two ``password_changed_at`` representations as the SAME instant.
+
+    The column is written as ``now_ist().isoformat()`` (an IST ``+05:30``
+    offset) but is read back through different code paths/backends that may
+    render the same instant with a different offset (``+05:30`` vs ``+00:00``)
+    or different microsecond precision. A raw string compare therefore produces
+    false mismatches that wrongly reject a *legitimate first-use* reset token
+    with "already used"/"invalid" — the reset-always-fails bug. Compare the
+    parsed instants; fall back to exact-string only when either side cannot be
+    parsed (so behaviour never regresses for already-matching values)."""
+    if a == b:
+        return True
+    if not a or not b:
+        return False
+    try:
+        da = datetime.fromisoformat(a)
+        db = datetime.fromisoformat(b)
+    except (TypeError, ValueError):
+        return False
+    if da.tzinfo is None or db.tzinfo is None:
+        # Can't compare a naive against an aware instant safely — require the
+        # exact-string match already checked above.
+        return False
+    return da == db
+
+
 async def _issue_and_persist_refresh_token(
     user_id: str, kind: str, request: Request
 ) -> str:
@@ -2557,57 +2584,141 @@ async def student_password_reset(body: dict, request: Request):
 
 
 RESET_PASSWORD_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><title>Reset password — Procta</title>
+<html lang="en"><head><meta charset="utf-8"><title>Reset password — Procta</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style>body{margin:0;padding:40px 20px;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-.card{max-width:420px;margin:0 auto;background:#fff;border-radius:16px;padding:32px;color:#0f172a}
-h1{font-size:22px;margin:0 0 8px}p{color:#64748b;font-size:14px;line-height:1.5}
-label{display:block;font-size:13px;font-weight:600;margin:16px 0 6px}
-input{width:100%;box-sizing:border-box;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px}
-button{width:100%;margin-top:18px;padding:12px;border:0;border-radius:8px;background:#3b82f6;color:#fff;font-weight:700;cursor:pointer}
-.err{display:none;margin-top:12px;color:#991b1b;background:#fef2f2;padding:10px;border-radius:8px;font-size:13px}
-.ok{display:none;margin-top:12px;color:#065f46;background:#ecfdf5;padding:10px;border-radius:8px;font-size:13px}</style></head>
-<body><div class="card">
-<h1>Reset your password</h1>
-<p>Choose a new password for your Procta account.</p>
-<form id="f">
-<label>New password</label>
-<input id="password" type="password" minlength="10" autocomplete="new-password" required>
-<button id="btn" type="submit">Update password</button>
-</form>
-<div class="err" id="err"></div><div class="ok" id="ok">Password updated. You can close this page and log in.</div>
+<style>
+:root{--accent:#5b8af0;--accent-dark:#4a78e0;--navy:#0f172a;--ink:#0f172a;--muted:#64748b}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;
+  background:radial-gradient(1100px 520px at 50% -10%,#1c2742 0%,#0f172a 55%,#0a0d12 100%);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--ink)}
+.wrap{width:100%;max-width:420px;animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+.brand{display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:18px}
+.brand .mark{width:34px;height:34px;border-radius:9px;background:var(--accent);display:flex;align-items:center;
+  justify-content:center;box-shadow:0 6px 20px rgba(91,138,240,.45)}
+.brand .name{color:#fff;font-size:18px;font-weight:700;letter-spacing:-.01em}
+.card{background:#fff;border-radius:18px;padding:30px 30px 26px;
+  box-shadow:0 24px 60px rgba(2,6,23,.55),0 0 0 1px rgba(255,255,255,.04)}
+h1{font-size:21px;margin:0 0 6px;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13.5px;line-height:1.5;margin:0 0 18px}
+label{display:block;font-size:12.5px;font-weight:600;margin:0 0 6px;color:#334155}
+.field{position:relative}
+input{width:100%;padding:12px 44px 12px 13px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px;
+  color:var(--ink);outline:none;transition:border-color .15s,box-shadow .15s;background:#fff}
+input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(91,138,240,.18)}
+.toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;
+  color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;padding:6px 8px;border-radius:7px}
+.toggle:hover{color:var(--accent);background:#f1f5f9}
+.hint{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:8px 2px 0}
+.hint .dot{width:7px;height:7px;border-radius:50%;background:#cbd5e1;transition:background .15s}
+.hint.good .dot{background:#10b981}.hint.good{color:#047857}
+button.submit{width:100%;margin-top:18px;padding:13px;border:0;border-radius:10px;background:var(--accent);
+  color:#fff;font-weight:600;font-size:15px;cursor:pointer;transition:background .15s,transform .06s,box-shadow .15s;
+  box-shadow:0 8px 20px rgba(91,138,240,.32)}
+button.submit:hover:not(:disabled){background:var(--accent-dark);box-shadow:0 10px 26px rgba(91,138,240,.42)}
+button.submit:active:not(:disabled){transform:translateY(1px)}
+button.submit:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
+.msg{display:none;margin-top:14px;padding:11px 13px;border-radius:10px;font-size:13px;line-height:1.45}
+.err{color:#b91c1c;background:#fef2f2;border:1px solid #fecaca}
+.ok{color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0}
+.login-btn{display:none;width:100%;margin-top:16px;padding:12px;border-radius:10px;text-align:center;
+  text-decoration:none;font-weight:600;font-size:14px;color:#fff;background:var(--navy)}
+.foot{text-align:center;color:#64748b;font-size:11.5px;margin-top:16px}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+</style></head>
+<body><div class="wrap">
+<div class="brand">
+  <span class="mark"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z" fill="none" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>
+    <circle cx="8" cy="8" r="1.5" fill="#fff"/></svg></span>
+  <span class="name">Procta</span>
 </div>
-<script>
-document.getElementById('f').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const err = document.getElementById('err');
-  const ok = document.getElementById('ok');
-  const btn = document.getElementById('btn');
-  err.style.display = 'none'; ok.style.display = 'none'; btn.disabled = true;
-  try {
-    const r = await fetch('/api/v1/auth/password-reset/confirm', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({token: '%(token)s', password: document.getElementById('password').value})
-    });
-    if (!r.ok) throw new Error((await r.json()).detail || 'Could not update password');
-    ok.style.display = 'block';
-  } catch (e) {
-    err.textContent = e.message || 'Could not update password';
-    err.style.display = 'block';
-  } finally {
-    btn.disabled = false;
-  }
-});
-</script></body></html>"""
+<div class="card">
+  <h1>Reset your password</h1>
+  <p class="sub">Choose a new password for your Procta account. Use at least 10 characters.</p>
+  <form id="f" novalidate data-token="%(token)s">
+    <label for="password">New password</label>
+    <div class="field">
+      <input id="password" type="password" minlength="10" autocomplete="new-password" required placeholder="Enter a new password">
+      <button type="button" class="toggle" id="toggle" aria-label="Show password">Show</button>
+    </div>
+    <div class="hint" id="hint"><span class="dot"></span><span id="hint-text">At least 10 characters</span></div>
+    <button class="submit" id="btn" type="submit" disabled>Update password</button>
+  </form>
+  <div class="msg err" id="err"></div>
+  <div class="msg ok" id="ok">Password updated. You can now sign in with your new password.</div>
+  <a class="login-btn" id="login-btn" href="/dashboard">Go to login</a>
+</div>
+<p class="foot">If you didn't request this, you can safely ignore the email.</p>
+</div>
+<script src="/static/reset-password.js" defer></script></body></html>"""
+
+
+RESET_ERROR_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>%(title)s — Procta</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--accent:#5b8af0;--navy:#0f172a;--muted:#64748b}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;
+  background:radial-gradient(1100px 520px at 50% -10%,#1c2742 0%,#0f172a 55%,#0a0d12 100%);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a}
+.wrap{width:100%;max-width:420px;animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+.brand{display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:18px}
+.brand .mark{width:34px;height:34px;border-radius:9px;background:var(--accent);display:flex;align-items:center;
+  justify-content:center;box-shadow:0 6px 20px rgba(91,138,240,.45)}
+.brand .name{color:#fff;font-size:18px;font-weight:700;letter-spacing:-.01em}
+.card{background:#fff;border-radius:18px;padding:32px 30px;text-align:center;
+  box-shadow:0 24px 60px rgba(2,6,23,.55),0 0 0 1px rgba(255,255,255,.04)}
+.icon{width:48px;height:48px;border-radius:50%;background:#fef2f2;display:flex;align-items:center;
+  justify-content:center;margin:0 auto 16px}
+h1{font-size:20px;margin:0 0 8px;letter-spacing:-.01em}
+p{color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 22px}
+.btn{display:block;width:100%;padding:12px;border-radius:10px;text-decoration:none;font-weight:600;
+  font-size:14px;color:#fff;background:var(--accent);box-shadow:0 8px 20px rgba(91,138,240,.32)}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+</style></head>
+<body><div class="wrap">
+<div class="brand">
+  <span class="mark"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z" fill="none" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>
+    <circle cx="8" cy="8" r="1.5" fill="#fff"/></svg></span>
+  <span class="name">Procta</span>
+</div>
+<div class="card">
+  <div class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round">
+    <circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><circle cx="12" cy="16.5" r=".5" fill="#dc2626"/></svg></div>
+  <h1>%(title)s</h1>
+  <p>%(message)s</p>
+  <a class="btn" href="/dashboard">Back to login</a>
+</div>
+</div>
+</body></html>"""
+
+
+def _reset_error_page(title: str, message: str, status_code: int) -> HTMLResponse:
+    return HTMLResponse(
+        _fill_template(RESET_ERROR_HTML, {"title": _esc(title), "message": _esc(message)}),
+        status_code=status_code,
+    )
 
 
 @router.get("/reset-password")
 async def reset_password_page(token: str = ""):
     if not local_password_auth_enabled():
-        return HTMLResponse("<h1>Password reset is handled by the auth provider.</h1>", status_code=404)
+        return _reset_error_page(
+            "Password reset unavailable",
+            "Password reset for this account is handled by your identity provider. "
+            "Open Procta and sign in from there.",
+            404,
+        )
     if not verify_password_reset_token(token):
-        return HTMLResponse("<h1>Reset link expired or invalid</h1>", status_code=400)
+        return _reset_error_page(
+            "Reset link expired",
+            "This password reset link has expired or already been used. "
+            "Request a new one from the login page and use it within 30 minutes.",
+            400,
+        )
     return HTMLResponse(_fill_template(RESET_PASSWORD_HTML, {"token": _esc(token)}))
 
 
@@ -2618,9 +2729,15 @@ async def confirm_password_reset(body: dict, request: Request):
         raise HTTPException(status_code=404, detail="Password reset is handled by the auth provider")
     token = (body.get("token") or "").strip()
     password = body.get("password") or ""
+    # Every reject path below is logged with a distinct reason. Previously all
+    # six collapsed into one opaque "Reset link expired or invalid" with NO
+    # server log, so a failing reset was undiagnosable. Keep the reasons
+    # specific (server side) and the user message accurate (client side).
     claims = verify_password_reset_token(token)
     if not claims:
-        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+        _auth_log.info("[password_reset_confirm] reject=token_verify_failed (expired/signature/scope)")
+        raise HTTPException(status_code=400,
+            detail="This reset link has expired. Request a new one from the login page.")
     try:
         await validate_password_async(password)
     except PasswordError as e:
@@ -2631,28 +2748,45 @@ async def confirm_password_reset(body: dict, request: Request):
     # would silently default to student_accounts.
     kind = claims.get("kind")
     if kind not in ("teacher", "student"):
-        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+        _auth_log.warning("[password_reset_confirm] reject=bad_kind kind=%s", safe(str(kind)))
+        raise HTTPException(status_code=400,
+            detail="This reset link is invalid. Request a new one from the login page.")
     table = "teachers" if kind == "teacher" else "student_accounts"
     user_id = str(claims.get("uid") or "")
     if not user_id:
-        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+        _auth_log.warning("[password_reset_confirm] reject=missing_uid kind=%s", kind)
+        raise HTTPException(status_code=400,
+            detail="This reset link is invalid. Request a new one from the login page.")
 
     # Single-use enforcement: when the token was minted, it embedded the
     # user's current `password_changed_at` (or None for legacy tokens
     # minted before this column was wired). Fetch the live value; if it
     # doesn't match, the token has already been used (the column moved
     # forward) OR the user changed their password through another flow.
-    # Either way, reject.
+    # The comparison is instant-based (_pwc_equal), not raw-string, so a
+    # +05:30/+00:00 or precision difference between the mint-time read and
+    # this confirm-time read does NOT falsely reject a genuine first use.
     pwc_claim = claims.get("pwc")
     live = await _atable(table).select("password_changed_at").eq("id", user_id).limit(1).execute()
     if not live.data:
-        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+        _auth_log.warning("[password_reset_confirm] reject=user_not_found kind=%s id=%s",
+                          kind, safe(user_id))
+        raise HTTPException(status_code=400,
+            detail="This reset link is invalid. Request a new one from the login page.")
     live_pwc = _stringify_pwc(live.data[0].get("password_changed_at"))
     if pwc_claim is not None:
-        if live_pwc != pwc_claim:
-            raise HTTPException(status_code=400, detail="Reset link has already been used")
+        if not _pwc_equal(live_pwc, pwc_claim):
+            _auth_log.info("[password_reset_confirm] reject=pwc_mismatch_already_used kind=%s id=%s",
+                           kind, safe(user_id))
+            raise HTTPException(status_code=400,
+                detail="This reset link has already been used. Request a new one from the login page.")
     elif live_pwc is not None:
-        raise HTTPException(status_code=400, detail="Reset link expired or invalid")
+        # Legacy token (no embedded pwc) but the account has since set a
+        # password — the link predates the current credential, treat as stale.
+        _auth_log.info("[password_reset_confirm] reject=legacy_token_stale kind=%s id=%s",
+                       kind, safe(user_id))
+        raise HTTPException(status_code=400,
+            detail="This reset link has expired. Request a new one from the login page.")
 
     await _atable(table).update({
         "password_hash": await hash_password(password),
@@ -2663,6 +2797,7 @@ async def confirm_password_reset(body: dict, request: Request):
     await _revoke_refresh_tokens_for_user(user_id, kind)
     await _revoke_auth_sessions_for_user(user_id, kind)
     await record_auth_event("password_reset_completed", request, kind, user_id, claims.get("email"))
+    _auth_log.info("[password_reset_confirm] success kind=%s id=%s", kind, safe(user_id))
     return {"ok": True}
 
 

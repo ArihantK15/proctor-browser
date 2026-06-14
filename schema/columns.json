@@ -164,10 +164,15 @@
     "teacher_id"
   ],
   "exam_sessions": [
+    "attest_nonce",
+    "attest_nonce_issued_at",
+    "attested_at",
+    "client_version",
     "created_at",
     "email",
     "exam_id",
     "full_name",
+    "kiosk_attested",
     "last_heartbeat",
     "paused_at",
     "paused_secs_total",

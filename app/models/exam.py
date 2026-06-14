@@ -51,6 +51,8 @@ class EventIn(BaseModel):
     severity:   str
     details:    Optional[str] = None
     detection_confidence: Optional[float] = None
+    att: Optional[dict] = None
+    sig: Optional[str] = None
 
 
 class FrameIn(BaseModel):
@@ -233,6 +235,12 @@ class SaveTemplateIn(BaseModel):
     exam_id: str
     template_name: str
     include_questions: bool = True
+
+
+class AttestIn(BaseModel):
+    model_config = ConfigDict(strict=True)
+    att: dict
+    sig: str
 
 
 class DuplicateExamIn(BaseModel):

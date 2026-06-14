@@ -242,6 +242,7 @@ jobs:
             export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
             export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
             export CSC_IDENTITY_AUTO_DISCOVERY=true
+            export KIOSK_ATTESTATION_SECRET="$KIOSK_ATTESTATION_SECRET"
             # Notarize on the signed path. electron-builder 26 dropped the
             # automatic notarization that older versions did (removed in v24),
             # so without an explicit mac.notarize the APPLE_* creds exported
@@ -257,6 +258,7 @@ jobs:
           else
             echo "No CSC_LINK secret — ad-hoc signing via identity=-."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            export KIOSK_ATTESTATION_SECRET="$KIOSK_ATTESTATION_SECRET"
             # hardenedRuntime requires a real Developer ID signature; it is
             # incompatible with an ad-hoc sig and would make the app fail to
             # launch. Disable it on the no-cert path. (Cert branch keeps it on.)
@@ -270,6 +272,11 @@ jobs:
           APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+          # Tier 3.4 — attestation secret, injected at build time from CI
+          # secrets. Distinct per release. NEVER committed. The client uses
+          # this to sign attestation payloads so the server can verify the
+          # student is running the secure desktop browser.
+          KIOSK_ATTESTATION_SECRET: ${{ secrets.KIOSK_ATTESTATION_SECRET }}
 
       # THE GATE. Inspects the packaged .app and fails the job if its code
       # signature is invalid — i.e. if it would SIGKILL on a student Mac.
@@ -327,14 +334,18 @@ jobs:
             echo "Signing enabled — CSC_LINK provided."
             export CSC_LINK="$CSC_LINK_SECRET"
             export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
+            export KIOSK_ATTESTATION_SECRET="$KIOSK_ATTESTATION_SECRET"
             npx electron-builder --win --x64 --publish never
           else
             echo "No CSC_LINK secret — building UNSIGNED."
+            export KIOSK_ATTESTATION_SECRET="$KIOSK_ATTESTATION_SECRET"
             npx electron-builder --win --x64 --publish never
           fi
         env:
           CSC_LINK_SECRET: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD_SECRET: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Tier 3.4 — attestation secret for signed kiosk attestation
+          KIOSK_ATTESTATION_SECRET: ${{ secrets.KIOSK_ATTESTATION_SECRET }}
 
       - name: Verify Windows artifacts exist
         if: matrix.target == 'win'

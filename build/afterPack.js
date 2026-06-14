@@ -127,4 +127,26 @@ exports.default = async function afterPack(context) {
   // v2.3.9 bug that produced "Code Signature Invalid / Invalid Page".
   signBundledPython(appPath);
   console.log('[afterPack] bundled-Python signing complete; .app sealed later by electron-builder.');
+
+  // Tier 3 — build hardening: strip .map files + optional minify
+  const appResourcesPath = path.join(appPath, 'Contents', 'Resources', 'app');
+  if (fs.existsSync(appResourcesPath)) {
+    // Recursively remove .map files
+    let removed = 0;
+    function _stripMaps(dir) {
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { _stripMaps(p); continue; }
+        if (e.name.endsWith('.map')) {
+          try { fs.unlinkSync(p); removed++; } catch {}
+        }
+      }
+    }
+    _stripMaps(appResourcesPath);
+    if (removed > 0) {
+      console.log(`[afterPack] removed ${removed} source map(s) from asar resources.`);
+    }
+  }
 };

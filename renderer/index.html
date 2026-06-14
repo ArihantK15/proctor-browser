@@ -410,6 +410,14 @@
   // ─── Prevent drag-and-drop of external content ───────────────
   document.addEventListener('drop', function(e){ e.preventDefault(); });
   document.addEventListener('dragover', function(e){ e.preventDefault(); });
+  document.addEventListener('dragstart', function(e){ e.preventDefault(); });
+
+  // Tier 1.6: block context menu, copy, cut, paste in the renderer
+  document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  document.addEventListener('copy', function(e){ e.preventDefault(); });
+  document.addEventListener('cut', function(e){ e.preventDefault(); });
+  document.addEventListener('paste', function(e){ e.preventDefault(); });
+  document.addEventListener('beforeprint', function(e){ e.preventDefault(); });
 
   // ─── Screenshot & shortcut prevention ────────────────────────
   document.addEventListener('keydown', function(e){
@@ -2041,6 +2049,31 @@ async function showPhoneCamScreen(){
 
 // ── EXAM ───────────────────────────────────────────────────────────
 async function startExam(){
+  // Command B — best-effort kiosk attestation with server-issued nonce.
+  // Runs before loading questions so the session is stamped. Rollout-safe:
+  // any failure is logged and the exam continues (the server's get-questions
+  // gate enforces attestation when KIOSK_ATTESTATION_ENFORCED=1).
+  try {
+    const examCtx = window.proctor ? await window.proctor.getExamContext() : null;
+    const examId = (examCtx && examCtx.examId) || student.exam_id || '';
+    const roll = student.roll_number || '';
+    if (sessionId && examId && roll && window.proctor && window.proctor.signAttestation) {
+      const chall = await fetch(`${SERVER}/api/v1/exam/attest-challenge?session_id=${encodeURIComponent(sessionId)}`, {
+        headers: authHdr(),
+      });
+      if (chall.ok) {
+        const { nonce } = await chall.json();
+        const { attestation, sig } = await window.proctor.signAttestation({ session_key: sessionId, exam_id: examId, roll, nonce });
+        const attResp = await fetch(`${SERVER}/api/v1/exam/attest`, {
+          method: 'POST',
+          headers: authHdr(),
+          body: JSON.stringify({ att: attestation, sig }),
+        });
+        if (!attResp.ok) console.warn('[Attest] server rejected:', attResp.status, await attResp.text().catch(()=>''));
+      }
+    }
+  } catch(e) { console.warn('[Attest] best-effort skipped:', e.message); }
+
   try{
     // Reuse the payload prefetched at the ID→calibration handoff (room cam was
     // already handled there); fall back to a fetch for any path that reaches
@@ -2555,16 +2588,27 @@ let _heartbeatFailStreak = 0;
 async function doHeartbeat(){
   if(!sessionId) return;
   if(!examActive && !_submitRetryActive) return;
+  const hbBody = {
+    session_id: sessionId,
+    event_type: 'heartbeat',
+    severity: 'low',
+    details: `answers:${Object.keys(answers).length}`
+  };
+  // Tier 1.4 / Command B — attach signed kiosk state to each heartbeat
+  try {
+    if (window.proctor && window.proctor.signKioskState) {
+      const a = await window.proctor.signKioskState();
+      if (a && a.attestation && a.sig) {
+        hbBody.att = a.attestation;
+        hbBody.sig = a.sig;
+      }
+    }
+  } catch(e) { /* attestation best-effort */ }
   try{
     const r = await fetch(`${SERVER}/api/v1/heartbeat`, {
       method: 'POST',
       headers: authHdr(),
-      body: JSON.stringify({
-        session_id: sessionId,
-        event_type: 'heartbeat',
-        severity: 'low',
-        details: `answers:${Object.keys(answers).length}`
-      })
+      body: JSON.stringify(hbBody)
     });
     if(r.ok){
       if(_heartbeatFailStreak > 0){

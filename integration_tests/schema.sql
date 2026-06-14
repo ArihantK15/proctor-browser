@@ -138,7 +138,12 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
   termination_reason_code TEXT,
   termination_reason_text TEXT,
   paused_secs_total       INTEGER,
-  paused_at               TIMESTAMPTZ
+  paused_at               TIMESTAMPTZ,
+  kiosk_attested          BOOLEAN,
+  client_version          TEXT,
+  attested_at             TIMESTAMPTZ,
+  attest_nonce            TEXT,
+  attest_nonce_issued_at  TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS violations (

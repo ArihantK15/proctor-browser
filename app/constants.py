@@ -299,6 +299,11 @@ AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 # Local screenshot retention when S3 IS the system-of-record (days)
 S3_LOCAL_CACHE_DAYS = int(os.getenv("S3_LOCAL_CACHE_DAYS", "7"))
 
+# ─── Kiosk attestation (Gap #43) ───────────────────────────────────
+KIOSK_ATTESTATION_SECRET = os.environ.get("KIOSK_ATTESTATION_SECRET", "")
+MIN_CLIENT_VERSION = os.environ.get("MIN_CLIENT_VERSION", "0.0.0")
+KIOSK_ATTESTATION_ENFORCED = os.environ.get("KIOSK_ATTESTATION_ENFORCED", "").lower() in ("1", "true", "yes")
+
 # ─── Pending verifications ────────────────────────────────────────
 _PENDING_VERIFICATION_LIMIT = 50
 _PENDING_VERIFICATION_TTL = 300

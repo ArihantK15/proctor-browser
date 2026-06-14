@@ -426,15 +426,22 @@ async def export_data(request: Request):
             if s.get("session_key")
         ]
         if session_keys:
-            SESSION_CAP = 500
+            # DPDP §11 / GDPR Art 15 give the student the right to ALL their
+            # data — so we never hard-fail a heavy export. We cap the per-
+            # session answer/violation fan-out (each session = 2 queries) to
+            # bound request time, and flag the cap in `_truncated_tables` the
+            # same way every other large table here does, rather than denying
+            # the whole export with a 413. A student over the cap still gets
+            # their full session list + the detail for the most recent
+            # SESSION_CAP sessions, with a machine-readable warning that
+            # detail beyond that is available on request.
+            SESSION_CAP = 2000
+            capped_keys = session_keys[:SESSION_CAP]
             if len(session_keys) > SESSION_CAP:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Export exceeds {SESSION_CAP} sessions. Contact support for a full export.",
-                )
+                data["_truncated_tables"].extend(["answers", "violations"])
             answers: list[dict] = []
             violations: list[dict] = []
-            for sk in session_keys:
+            for sk in capped_keys:
                 answers.extend(await _safe_fetch("answers", eq={"session_key": sk}))
                 violations.extend(await _safe_fetch("violations", eq={"session_key": sk}))
             data["answers"] = answers

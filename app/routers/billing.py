@@ -205,21 +205,35 @@ async def _notify_payment_issue(org_id: str) -> None:
     Delivery order:
       1. organizations.billing_email (dedicated billing contact, if set)
       2. First teacher with org_role='admin' in the org (fallback)
+    Respects the recipient's notification_prefs.billing opt-out.
     """
     try:
         to_email: str | None = None
         to_name: str = ""
+        recipient_teacher_id: str | None = None
         org_row = (await _atable("organizations").select("billing_email")
                     .eq("id", str(org_id)).limit(1).execute()).data or []
         if org_row and org_row[0].get("billing_email"):
             to_email = org_row[0]["billing_email"]
+            # Look up the teacher who owns this billing_email
+            owner = (await _atable("teachers").select("id,full_name")
+                     .eq("email", to_email).limit(1).execute()).data or []
+            if owner:
+                recipient_teacher_id = str(owner[0]["id"])
+                to_name = owner[0].get("full_name", "")
         if not to_email:
-            admin_rows = (await _atable("teachers").select("email,full_name")
+            admin_rows = (await _atable("teachers").select("id,email,full_name")
                           .eq("org_id", str(org_id)).eq("org_role", "admin")
                           .limit(1).execute()).data or []
             if admin_rows:
                 to_email = admin_rows[0]["email"]
+                recipient_teacher_id = str(admin_rows[0]["id"])
                 to_name = admin_rows[0].get("full_name", "")
+        if to_email and recipient_teacher_id:
+            from ..services.notification_prefs import teacher_wants
+            if not await teacher_wants(recipient_teacher_id, "billing"):
+                logger.info("Billing notification suppressed by teacher pref (org=%s)", safe(org_id))
+                return
         if to_email:
             from ..emailer import send_payment_failed_notification
             send_payment_failed_notification(

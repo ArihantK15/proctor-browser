@@ -40,7 +40,6 @@ from .domains.ops import public_router
 from .domains.sessions import sse_router
 from .routers.chat import router as chat_router
 from .domains.billing import billing_router
-# from .routers.checkout import router as checkout_router
 from .domains.lti import lti_router
 from .routers.api import router as api_router
 from .domains.lti import google_classroom_router
@@ -912,7 +911,6 @@ app.include_router(public_router)
 app.include_router(sse_router)
 app.include_router(chat_router)
 app.include_router(billing_router)
-# app.include_router(checkout_router)  # see import block — disabled until use case ships
 app.include_router(lti_router)
 app.include_router(api_router)
 app.include_router(google_classroom_router)

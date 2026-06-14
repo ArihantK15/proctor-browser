@@ -692,4 +692,120 @@ async def unassign_exam_group(exam_id: str, group_id: str, request: Request):
     return {"ok": True}
 
 
+# ── Exam ↔ batch (cohort) assignment (gap #59) ───────────────────────
+# Parallel to the group assignment endpoints above, but membership is derived
+# from students.batch — so there are no member rows to manage. Assigning an
+# exam to batches restricts it to those cohorts (strict allowlist); an exam with
+# no group AND no batch assignment stays open to all.
+
+@router.get("/api/v1/admin/exams/{exam_id}/batches")
+@limiter.limit("60/minute")
+async def list_exam_batches(exam_id: str, request: Request):
+    teacher = await require_admin(request)
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    rows = (await apply_teacher_scope(_atable("exam_batch_assignments")
+            .select("batch").eq("exam_id", exam_id), tids).execute()).data or []
+    return sorted({(r.get("batch") or "").strip() for r in rows if (r.get("batch") or "").strip()})
+
+
+@router.post("/api/v1/admin/exams/{exam_id}/batches")
+@limiter.limit("20/minute")
+async def assign_exam_batches(exam_id: str, request: Request, body: dict = Body(...)):
+    """Set the exam's assigned batches (full replace). Body: {"batches": [...]}.
+
+    Sending an empty list clears all batch restrictions for the exam.
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    raw = body.get("batches")
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="'batches' must be a list")
+    clean = sorted({str(b).strip()[:120] for b in raw if str(b).strip()})
+
+    # Diff-based replace: add the new batches FIRST, then remove only the ones
+    # that are gone. This never leaves the exam momentarily unrestricted (the
+    # fail-open window a blind delete-then-insert would create on a mid-op
+    # failure). Idempotent; an empty `clean` clears everything.
+    existing = (await _atable("exam_batch_assignments").select("batch")
+                .eq("exam_id", exam_id).eq("teacher_id", tid).execute()).data or []
+    current = {(r.get("batch") or "").strip() for r in existing if (r.get("batch") or "").strip()}
+    target = set(clean)
+    to_add = target - current
+    to_remove = current - target
+    if to_add:
+        rows = [{"exam_id": exam_id, "batch": b, "teacher_id": tid} for b in to_add]
+        await _atable("exam_batch_assignments").upsert(rows).execute()
+    for b in to_remove:
+        await _atable("exam_batch_assignments").delete()\
+            .eq("exam_id", exam_id).eq("teacher_id", tid).eq("batch", b).execute()
+    return {"assigned": clean}
+
+
+@router.get("/api/v1/admin/exams/{exam_id}/time-extensions")
+@limiter.limit("60/minute")
+async def list_time_extensions(exam_id: str, request: Request):
+    """List per-student time extensions for an exam (roll_number → extra_minutes)."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    rows = (await _atable("exam_time_extensions")
+            .select("roll_number,extra_minutes")
+            .eq("teacher_id", tid)
+            .eq("exam_id", exam_id)
+            .execute()).data or []
+    return {r["roll_number"]: r["extra_minutes"] for r in rows}
+
+
+@router.post("/api/v1/admin/exams/{exam_id}/time-extension")
+@limiter.limit("30/minute")
+async def set_time_extension(exam_id: str, request: Request):
+    """Set (or clear) a per-student time extension for the exam.
+
+    Body: {roll_number, extra_minutes}.
+    extra_minutes=0 removes the row (no extension). Valid range 0–600.
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    body = await request.json()
+    roll_number = (body.get("roll_number") or "").strip().upper()
+    extra_minutes = body.get("extra_minutes", 0)
+    try:
+        extra_minutes = int(extra_minutes)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="extra_minutes must be an integer")
+    if not roll_number:
+        raise HTTPException(status_code=400, detail="roll_number is required")
+    if not (0 <= extra_minutes <= 600):
+        raise HTTPException(status_code=400, detail="extra_minutes must be between 0 and 600")
+
+    exam_check = await _atable("exam_config").select("exam_id")\
+        .eq("exam_id", exam_id).eq("teacher_id", tid).limit(1).execute()
+    if not exam_check.data:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    if extra_minutes == 0:
+        await _atable("exam_time_extensions").delete()\
+            .eq("teacher_id", tid).eq("exam_id", exam_id)\
+            .eq("roll_number", roll_number).execute()
+    else:
+        await _atable("exam_time_extensions").upsert({
+            "teacher_id": tid,
+            "exam_id": exam_id,
+            "roll_number": roll_number,
+            "extra_minutes": extra_minutes,
+            "created_by": tid,
+        }, on_conflict=["teacher_id", "exam_id", "roll_number"]).execute()
+
+    from ..services.admin_audit import log_admin_action
+    await log_admin_action(
+        teacher_id=tid,
+        action="set_time_extension",
+        target_type="exam_time_extension",
+        target_id=f"{exam_id}:{roll_number}",
+        details={"exam_id": exam_id, "roll_number": roll_number, "extra_minutes": extra_minutes},
+        request=request,
+    )
+    return {"ok": True, "roll_number": roll_number, "extra_minutes": extra_minutes}
+
+
 __all__ = ["router"]

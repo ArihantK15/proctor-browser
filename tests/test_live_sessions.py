@@ -275,54 +275,61 @@ class TestLiveSessions:
         assert s["submitted"] is True
         assert len(d["sessions"]) == 0
 
-    def test_live_view_shows_all_active_sessions_across_exams(self, client, admin_headers):
-        """The LIVE view must show ALL of a teacher's active sessions
-        regardless of the dashboard's selected exam — a proctor can't miss
-        a student testing in a sibling exam (or a session with no exam_id).
-        The exam_id query param does NOT filter the live list; tenant
-        isolation stays via teacher_id. (Per-exam scoping lives on the
-        results/history endpoints, not here.)"""
+    def test_live_view_strictly_filters_by_selected_exam(self, client, admin_headers):
+        """Strict per-exam scoping: with ?exam_id=exam-1 the live view shows
+        ONLY exam-1's sessions, so two/three concurrent exams never bleed into
+        each other's monitor. Tenant isolation still comes from teacher_id;
+        this adds exam isolation on top. (exam_id is hardened to always be set
+        on session rows — token minted with the resolved exam id + heartbeat
+        self-heal — so strict filtering can't silently drop a student.)"""
         now = datetime.now(timezone.utc)
-        stub = _SessionsStub(
-            sessions=[
-                {
-                    "session_key":    "sess_in_exam_1",
-                    "teacher_id":     "teacher-1",
-                    "exam_id":        "exam-1",
-                    "status":         "in_progress",
-                    "risk_score":     None,
-                    "last_heartbeat": _iso(now - timedelta(seconds=5)),
-                    "started_at":     _iso(now - timedelta(minutes=2)),
-                    "submitted_at":   None,
-                },
-                {
-                    "session_key":    "sess_other_exam_1",
-                    "teacher_id":     "teacher-1",
-                    "exam_id":        "exam-2",
-                    "status":         "in_progress",
-                    "risk_score":     None,
-                    "last_heartbeat": _iso(now - timedelta(seconds=5)),
-                    "started_at":     _iso(now - timedelta(minutes=2)),
-                    "submitted_at":   None,
-                },
-            ],
-            violations=[
-                _viol("sess_in_exam_1"),
-                _viol("sess_other_exam_1"),
-            ],
-        )
+        sessions = [
+            {
+                "session_key":    "sess_in_exam_1",
+                "teacher_id":     "teacher-1",
+                "exam_id":        "exam-1",
+                "status":         "in_progress",
+                "risk_score":     None,
+                "last_heartbeat": _iso(now - timedelta(seconds=5)),
+                "started_at":     _iso(now - timedelta(minutes=2)),
+                "submitted_at":   None,
+            },
+            {
+                "session_key":    "sess_other_exam_1",
+                "teacher_id":     "teacher-1",
+                "exam_id":        "exam-2",
+                "status":         "in_progress",
+                "risk_score":     None,
+                "last_heartbeat": _iso(now - timedelta(seconds=5)),
+                "started_at":     _iso(now - timedelta(minutes=2)),
+                "submitted_at":   None,
+            },
+        ]
+        violations = [_viol("sess_in_exam_1"), _viol("sess_other_exam_1")]
+
+        # With exam-1 selected: only exam-1's session appears, even though the
+        # violations query (teacher-scoped) returns flags for exam-2 too.
         with patch.object(shared_supabase_mock(), "table") as mock_table, \
              patch("app.routers.exam.compute_risk_score",
                           return_value={"risk_score": 5}):
-            mock_table.side_effect = stub
-            # Even with ?exam_id=exam-1 selected, the live view shows BOTH
-            # of teacher-1's active sessions (exam-1 AND exam-2).
+            mock_table.side_effect = _SessionsStub(sessions=sessions, violations=violations)
             r = client.get("/api/v1/admin/sessions?exam_id=exam-1", headers=admin_headers)
         assert r.status_code == 200, r.text
-        d = r.json()
-        keys = {s["session_id"] for s in d["all_sessions"]}
-        assert keys == {"sess_in_exam_1", "sess_other_exam_1"}, (
-            f"live view must show all active sessions regardless of exam, got {keys}"
+        keys = {s["session_id"] for s in r.json()["all_sessions"]}
+        assert keys == {"sess_in_exam_1"}, (
+            f"live view must strictly filter to the selected exam, got {keys}"
+        )
+
+        # With NO exam selected: unfiltered — both of teacher-1's sessions show.
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.routers.exam.compute_risk_score",
+                          return_value={"risk_score": 5}):
+            mock_table.side_effect = _SessionsStub(sessions=sessions, violations=violations)
+            r2 = client.get("/api/v1/admin/sessions", headers=admin_headers)
+        assert r2.status_code == 200, r2.text
+        keys2 = {s["session_id"] for s in r2.json()["all_sessions"]}
+        assert keys2 == {"sess_in_exam_1", "sess_other_exam_1"}, (
+            f"with no exam selected the live view is unfiltered, got {keys2}"
         )
 
 

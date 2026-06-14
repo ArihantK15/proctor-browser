@@ -118,6 +118,13 @@
     "user_id",
     "user_kind"
   ],
+  "exam_batch_assignments": [
+    "batch",
+    "created_at",
+    "exam_id",
+    "id",
+    "teacher_id"
+  ],
   "exam_config": [
     "access_code",
     "audio_keywords",
@@ -268,6 +275,7 @@
   ],
   "organizations": [
     "auth_session_timeout_minutes",
+    "billing_credit_inr",
     "billing_email",
     "created_at",
     "delete_reason",
@@ -278,7 +286,9 @@
     "logo_url",
     "max_concurrent_auth_sessions",
     "max_students",
+    "max_students_override",
     "name",
+    "require_2fa",
     "slug"
   ],
   "question_bank": [
@@ -384,6 +394,7 @@
   ],
   "students": [
     "account_id",
+    "batch",
     "created_at",
     "date_of_birth",
     "email",
@@ -427,6 +438,7 @@
     "full_name",
     "id",
     "lti_user_id",
+    "notification_prefs",
     "org_id",
     "org_role",
     "org_suspended_at",
@@ -478,9 +490,19 @@
     "teacher_id",
     "violation_type"
   ],
+  "exam_time_extensions": [
+    "created_at",
+    "created_by",
+    "exam_id",
+    "extra_minutes",
+    "id",
+    "roll_number",
+    "teacher_id"
+  ],
   "overage_charges": [
     "amount_inr",
     "created_at",
+    "credit_applied_inr",
     "id",
     "org_id",
     "overage_count",

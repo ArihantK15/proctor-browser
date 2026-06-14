@@ -5,6 +5,7 @@ Extracted from app/dependencies.py to reduce the god module.
 
 import logging
 import math
+import os
 from datetime import datetime, timezone
 
 from ..utils import fmt_ist, now_ist
@@ -130,6 +131,23 @@ async def publish_critical_alert(
         return
     if violation_type not in _CRITICAL_TYPES and severity not in ("critical", "high"):
         return
+    # Alert-fatigue suppression (gap #50). A flapping signal (gaze_away,
+    # window_focus_lost, voice_detected…) can fire many times a minute on a
+    # single session and bury the teacher's alert feed. We throttle repeat
+    # alerts of the SAME (session, violation_type) to one per cooldown
+    # window. `severity == "critical"` is NEVER suppressed — a wrong-person
+    # / cheat-object / VM signal must always punch through. The cooldown is
+    # Redis-backed (fails open) so it holds across all API workers, not just
+    # one process. Tune via ALERT_COOLDOWN_SECONDS (0 disables).
+    if severity != "critical" and _cache is not None:
+        try:
+            cooldown = int(os.environ.get("ALERT_COOLDOWN_SECONDS", "60"))
+        except (TypeError, ValueError):
+            cooldown = 60
+        if cooldown > 0:
+            cd_key = f"alertcd:{teacher_id}:{session_id}:{violation_type}"
+            if not _cache.set_if_absent(cd_key, ttl=cooldown):
+                return
     weight = VIOLATION_WEIGHTS.get(violation_type, 0)
     alert = {
         "session_id": session_id,

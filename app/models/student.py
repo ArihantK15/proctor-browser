@@ -16,6 +16,10 @@ class RegisterIn(BaseModel):
     # exam in their lobby rather than whatever exam_config happens
     # to be first for the teacher.
     exam_id:     Optional[str] = None
+    # Cohort/batch (gap #59): when the link is a cohort-enrollment link
+    # (?t=<tid>&b=<batch>) the registrant is stamped with this batch, giving
+    # standing access to any exam later assigned to that cohort.
+    batch:       Optional[str] = None
     # Date of birth for minor consent gate (GDPR Art 8 / COPPA).
     # When age < 18 the system requires guardian_email and auto-sends
     # a consent request to the parent/guardian.

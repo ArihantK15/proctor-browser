@@ -55,6 +55,12 @@ _HEADER_ALIASES: dict[str, set[str]] = {
         "telephone", "phone no", "phone#", "phone #",
         "cell", "whatsapp",
     },
+    # Cohort/batch grouping (gap #59). Optional — institutions name cohorts
+    # however they like; we just store the label.
+    "batch": {
+        "batch", "cohort", "section", "class", "semester", "sem",
+        "group", "division", "div", "year", "stream",
+    },
 }
 
 
@@ -109,6 +115,10 @@ async def _process_student_rows(
         name = str(s.get("full_name", "")).strip()
         email = str(s.get("email", "")).strip().lower()
         phone = str(s.get("phone", "")).strip() or None
+        # Cohort/batch (gap #59) — optional label, capped to the column width.
+        batch = (str(s.get("batch", "")).strip() or None)
+        if batch and len(batch) > 120:
+            batch = batch[:120]
         errors: list[str] = []
         if not roll:
             errors.append("missing roll_number")
@@ -123,14 +133,20 @@ async def _process_student_rows(
         if errors:
             invalid.append({"roll_number": roll or "(empty)", "errors": errors})
             continue
-        validated.append({
+        vrow = {
             "roll_number": roll,
             "full_name": name,
             "email": email,
             "phone": phone,
             "teacher_id": tid,
             "org_id": str(org_id) if org_id else None,
-        })
+        }
+        # Only carry `batch` when the import actually supplied one, so a
+        # re-import of a CSV without a batch column never nulls out a
+        # cohort that was assigned earlier.
+        if batch:
+            vrow["batch"] = batch
+        validated.append(vrow)
 
     from ..services.roll_formats import detect_dominant_format, format_label
     if validated:
@@ -293,7 +309,7 @@ async def _process_student_rows(
 @router.get("/api/v1/admin/student-history")
 @limiter.limit("30/minute")
 async def list_student_history(request: Request, exam_id: str = None,
-                               page: int = 1, page_size: int = 50):
+                               batch: str = "", page: int = 1, page_size: int = 50):
     """List all students-in-scope with aggregate history stats.
 
     The React dashboard's HistoryPanel hits this for the directory view
@@ -359,6 +375,26 @@ async def list_student_history(request: Request, exam_id: str = None,
         agg.pop("_pct_sum", None); agg.pop("_pct_count", None)
         agg["last_exam_at"] = fmt_ist(agg["last_exam_at"]) if agg["last_exam_at"] else ""
         rows.append(agg)
+
+    # Cohort/batch enrichment (gap #59). This directory is session-derived, so
+    # the cohort label lives on the students table — join it in by roll_number.
+    roll_to_batch: dict[str, str] = {}
+    if rows:
+        sq = _atable("students").select("roll_number,batch")
+        if tids is not None:
+            sq = sq.eq("teacher_id", "__none__") if not tids else (
+                sq.eq("teacher_id", str(tids[0])) if len(tids) == 1 else sq.in_("teacher_id", tids))
+        for srow in (await sq.execute()).data or []:
+            b = (srow.get("batch") or "").strip()
+            if b:
+                roll_to_batch[(srow.get("roll_number") or "").upper()] = b
+    for r in rows:
+        r["batch"] = roll_to_batch.get(r["roll_number"], "")
+
+    batch_filter = (batch or "").strip()
+    if batch_filter:
+        rows = [r for r in rows if r.get("batch") == batch_filter]
+
     # Default order: most-recently-active first.
     rows.sort(key=lambda r: r["last_exam_at"] or "", reverse=True)
 
@@ -390,12 +426,12 @@ async def get_student_history(
 
     if tids is not None:
         student_q = (_atable("students")
-                     .select("roll_number,full_name,email,phone,teacher_id")
+                     .select("roll_number,full_name,email,phone,batch,teacher_id")
                      .eq("roll_number", roll))
         student_q = student_q.in_("teacher_id", tids) if tids else student_q.eq("teacher_id", "__none__")
     else:
         student_q = (_atable("students")
-                     .select("roll_number,full_name,email,phone,teacher_id")
+                     .select("roll_number,full_name,email,phone,batch,teacher_id")
                      .eq("roll_number", roll))
     student_rows = (await student_q.limit(1).execute()).data or []
     if not student_rows:
@@ -505,6 +541,7 @@ async def get_student_history(
             "full_name": student.get("full_name", ""),
             "email": student.get("email", ""),
             "phone": student.get("phone", ""),
+            "batch": student.get("batch") or "",
         },
         "aggregates": aggregates,
         "history": paginated,
@@ -516,13 +553,14 @@ async def get_student_history(
 
 @router.get("/api/v1/student-search")
 @limiter.limit("30/minute")
-async def search_students(request: Request, q: str = "", page: int = 1, page_size: int = 20):
+async def search_students(request: Request, q: str = "", batch: str = "",
+                          page: int = 1, page_size: int = 20):
     teacher = await require_admin(request)
     scope = await resolve_scope(teacher, request)
     tids = await scope_to_teacher_ids(scope)
 
     query = (_atable("students")
-             .select("roll_number,full_name,email,phone,teacher_id,guardian_email,guardian_consent_granted_at,guardian_consent_requested_at,date_of_birth"))
+             .select("roll_number,full_name,email,phone,batch,teacher_id,guardian_email,guardian_consent_granted_at,guardian_consent_requested_at,date_of_birth"))
     if tids is not None:
         query = query.in_("teacher_id", tids) if tids else query.eq("teacher_id", "__none__")
     if q:
@@ -530,6 +568,10 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
         query = query.or_(
             f"roll_number.ilike.*{q}*,full_name.ilike.*{q}*,email.ilike.*{q}*"
         )
+    # Cohort/batch filter (gap #59). Exact match on the stored label.
+    batch_filter = (batch or "").strip()
+    if batch_filter:
+        query = query.eq("batch", batch_filter)
     students = (await query.execute()).data or []
     if not students:
         return {"students": [], "page": page, "page_size": page_size, "total": 0}
@@ -563,6 +605,7 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
             "roll_number": roll,
             "full_name": s.get("full_name", ""),
             "email": s.get("email", ""),
+            "batch": s.get("batch") or "",
             "total_exams": total_count,
             "avg_percentage": avg_pct,
             "last_exam_date": fmt_ist(last_exam.get("submitted_at", "")) if last_exam else None,
@@ -581,6 +624,60 @@ async def search_students(request: Request, q: str = "", page: int = 1, page_siz
         "page_size": page_size,
         "total": len(result),
     }
+
+
+@router.post("/api/v1/admin/students/{roll_number}/batch")
+@limiter.limit("60/minute")
+async def set_student_batch(roll_number: str, request: Request, body: dict = Body(...)):
+    """Assign / change / clear a single student's cohort label (gap #59).
+
+    This is the catch-all fix for students who arrived WITHOUT a batch — e.g.
+    self-registered via an invite/share link, Google Classroom sync, or an
+    older roster import. Send {"batch": "2024-CSE-A"} to set, or {"batch": ""}
+    / {"batch": null} to clear ("Ungrouped"). Scoped to the caller's teachers,
+    so an admin can't relabel another org's students.
+    """
+    teacher = await require_admin(request)
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    roll = (roll_number or "").strip().upper()
+    if not roll:
+        raise HTTPException(status_code=400, detail="roll_number is required")
+
+    raw = body.get("batch")
+    batch = (str(raw).strip() if raw is not None else "")
+    if len(batch) > 120:
+        raise HTTPException(status_code=400, detail="batch must be 120 characters or fewer")
+    new_val = batch or None  # empty string clears the cohort
+
+    q = _atable("students").update({"batch": new_val}).eq("roll_number", roll)
+    if tids is not None:
+        q = q.eq("teacher_id", "__none__") if not tids else (
+            q.eq("teacher_id", str(tids[0])) if len(tids) == 1 else q.in_("teacher_id", tids))
+    result = (await q.execute()).data or []
+    if not result:
+        raise HTTPException(status_code=404, detail="Student not found in your scope")
+    return {"roll_number": roll, "batch": new_val or "", "updated": len(result)}
+
+
+@router.get("/api/v1/admin/student-batches")
+@limiter.limit("60/minute")
+async def list_student_batches(request: Request):
+    """Distinct cohort/batch labels in the caller's scope (gap #59).
+
+    Powers the roster's batch-filter dropdown. Scope follows the same
+    teacher_id rules as every other admin endpoint.
+    """
+    teacher = await require_admin(request)
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+
+    query = _atable("students").select("batch")
+    if tids is not None:
+        query = query.in_("teacher_id", tids) if tids else query.eq("teacher_id", "__none__")
+    rows = (await query.execute()).data or []
+    batches = sorted({(r.get("batch") or "").strip() for r in rows if (r.get("batch") or "").strip()})
+    return {"batches": batches}
 
 
 @router.post("/api/v1/admin/register-students-bulk")
@@ -664,9 +761,9 @@ async def csv_template(request: Request):
     teacher = await require_admin(request)
 
     sample = (
-        "roll_number,full_name,email,phone\n"
-        "STU001,Alice Johnson,alice@example.com,9876543210\n"
-        "STU002,Bob Smith,bob@example.com,9876543211\n"
+        "roll_number,full_name,email,phone,batch\n"
+        "STU001,Alice Johnson,alice@example.com,9876543210,2024-CSE-A\n"
+        "STU002,Bob Smith,bob@example.com,9876543211,2024-CSE-A\n"
     )
     return PlainTextResponse(
         content=sample,

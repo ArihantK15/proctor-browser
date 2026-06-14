@@ -252,6 +252,12 @@ async function _onAuthed(teacher){
 }
 
 let _sseSource = null;
+// The exam_id the live SSE stream is currently scoped to. The filter is baked
+// into the EventSource URL at connect time, so it goes stale when the user
+// switches exams — we track it here to detect+heal that (see _connectSSE and
+// the init/refresh handlers). The poll path reads currentExamId live, so it
+// never drifts; this keeps the SSE path in lockstep.
+let _sseExamId = null;
 let _sseFallbackTimer = null;
 let _liveRefreshTimer = null;
 
@@ -296,11 +302,16 @@ async function _connectSSE(){
     if(!ctr.ok) throw new Error('connect-token failed');
     const { connect_token } = await ctr.json();
 
+    _sseExamId = currentExamId;   // stamp the scope this connection is opened for
     const examParam = currentExamId ? `&exam_id=${encodeURIComponent(currentExamId)}` : '';
     _sseSource = new EventSource(`${BASE}/api/v1/sse/sessions?token=${encodeURIComponent(connect_token)}${examParam}`);
 
     _sseSource.addEventListener('init', (e)=>{
       try{
+        // Stale-scope guard: if the exam changed since this stream opened, this
+        // payload is for the wrong exam — drop it and reconnect for the current
+        // one (covers any exam-change path that didn't reconnect explicitly).
+        if(_sseExamId !== currentExamId){ _connectSSE(); return; }
         const d=JSON.parse(e.data);
         liveData=d.all_sessions||[];
         renderLiveStats(d.sessions||[],liveData);
@@ -328,6 +339,9 @@ async function _connectSSE(){
     _sseSource.addEventListener('refresh', (e)=>{
       // Full refresh (fallback mode when no Redis)
       try{
+        // Stale-scope guard (see 'init'): a degraded-mode refresh tick must not
+        // overwrite liveData with the previously-selected exam's sessions.
+        if(_sseExamId !== currentExamId){ _connectSSE(); return; }
         const d=JSON.parse(e.data);
         liveData=d.all_sessions||[];
         renderLiveStats(d.sessions||[],liveData);
@@ -420,6 +434,11 @@ function onExamSwitch(examId){
   if (_shareLinkTeacherId) _populateShareLinks(_shareLinkTeacherId);
   // Reset data and reload everything for the new exam
   liveData = []; resultsData = []; qData = [];
+  // Re-scope the live SSE stream to the new exam. The stream's exam_id is fixed
+  // at connect time, so without this it keeps pushing the PREVIOUS exam's
+  // sessions (the bug where live filtering ignored the selected exam). The poll
+  // path below already reads currentExamId live; this keeps the stream in sync.
+  if(typeof _connectSSE === 'function') _connectSSE();
   _reloadQuestionsIfActive();
   refreshAll();
   // refreshAll() only covers a fixed set (live/results/tools/invites). The
@@ -430,6 +449,7 @@ function onExamSwitch(examId){
   const _activeTabBtn = document.querySelector('.tab.active');
   const _activeTab = _activeTabBtn && _activeTabBtn.dataset ? _activeTabBtn.dataset.tab : null;
   if(_activeTab) _dispatchTabLoad(_activeTab);
+  reloadExtensions();
 }
 
 function _examQuery(sep){
@@ -643,6 +663,12 @@ async function doLogout(){
   document.getElementById('teacher-name').textContent = '';
   _examsLoaded = false;
   document.getElementById('exam-bar').style.display = 'none';
+  // Clear the login form so the previous user's email/password aren't left
+  // sitting in the fields after logout.
+  ['login-email','login-pwd','login-2fa-code'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  const otpRow = document.getElementById('login-2fa-row'); if(otpRow) otpRow.style.display = 'none';
   toggleAuthForm('login');
 }
 
@@ -1354,6 +1380,72 @@ async function loadMembers(){
   }catch(_){}
 }
 
+// ── ALL ORGS (superadmin) ──────────────────────────────────────
+async function loadAllOrgs(){
+  try{
+    const r = await authFetch(BASE + '/api/v1/admin/all-orgs');
+    if(!r.ok) return;
+    const d = await r.json();
+    const tbody = document.getElementById('all-orgs-tbody');
+    const countEl = document.getElementById('all-orgs-count');
+    const orgs = d.orgs || [];
+    if(countEl) countEl.textContent = String(orgs.length);
+    tbody.innerHTML = orgs.map(o => {
+      const ovrd = o.max_students_override != null ? String(o.max_students_override) : '—';
+      const cr = o.billing_credit_inr != null ? '₹' + String(o.billing_credit_inr) : '₹0';
+      return '<tr>' +
+        '<td>' + _escHtml(o.name||'') + '</td>' +
+        '<td>' + (o.teacher_count||0) + '</td>' +
+        '<td>' + (o.student_count||0) + '/' + _escHtml(String(o.max_students||'')) + '</td>' +
+        '<td>' + _escHtml(o.plan||'') + '</td>' +
+        '<td>' + _escHtml(o.status||'') + '</td>' +
+        '<td>' + ovrd + '</td>' +
+        '<td>' + cr + '</td>' +
+        '<td style="white-space:nowrap">' +
+          '<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:3px 6px;margin-right:4px" data-action="setCapOverride" data-args=\'' + _jsonArgsForAttr(o.id) + '\'>Cap</button>' +
+          '<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:3px 6px" data-action="grantOrgCredit" data-args=\'' + _jsonArgsForAttr(o.id) + '\'>Credit</button>' +
+        '</td>' +
+        '<td>' + (o.created_at||'') + '</td>' +
+        '</tr>';
+    }).join('');
+  }catch(_){}
+}
+
+async function setCapOverride(orgId){
+  const raw = prompt('Enter student cap override (number, or blank to clear):');
+  if(raw === null) return;
+  const val = raw.trim() === '' ? null : parseInt(raw.trim(), 10);
+  if(raw.trim() !== '' && (isNaN(val) || val < 0 || val > 100000)){
+    alert('Must be 0–100000, or blank to clear.');
+    return;
+  }
+  try{
+    const r = await authFetch(BASE + '/api/v1/admin/orgs/' + encodeURIComponent(orgId) + '/limit-override', {
+      method: 'POST',
+      body: JSON.stringify({max_students_override: val})
+    });
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Request failed'); }
+    loadAllOrgs();
+  }catch(e){ alert('Set cap failed: ' + e.message); }
+}
+
+async function grantOrgCredit(orgId){
+  const rawAmt = prompt('Enter credit amount in INR (positive=grant, negative=deduct):');
+  if(rawAmt === null) return;
+  const amt = parseInt(rawAmt.trim(), 10);
+  if(isNaN(amt)){ alert('Invalid amount.'); return; }
+  const reason = prompt('Reason for this credit adjustment:');
+  if(!reason || reason.trim() === ''){ alert('Reason is required.'); return; }
+  try{
+    const r = await authFetch(BASE + '/api/v1/admin/orgs/' + encodeURIComponent(orgId) + '/credit', {
+      method: 'POST',
+      body: JSON.stringify({amount_inr: amt, reason: reason.trim()})
+    });
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Request failed'); }
+    loadAllOrgs();
+  }catch(e){ alert('Grant credit failed: ' + e.message); }
+}
+
 // ── UPGRADE MODAL ────────────────────────────────────────────────
 function showUpgradeModal(msg){
   const title = document.getElementById('upgrade-title');
@@ -1377,6 +1469,109 @@ function trialBannerClick(){
 function loadSecurity(){
   load2FAStatus();
   loadSessions();
+  loadNotifPrefs();
+  // Org-wide MFA policy is admin/superadmin-only (gap #20). The card is
+  // hidden for plain teachers via data-roles, so only fetch when relevant.
+  if(currentOrgRole === 'admin' || currentOrgRole === 'superadmin') loadOrgMfaPolicy();
+}
+
+// ── Org-wide MFA policy (gap #20) ────────────────────────────────────
+// Admin toggle that forces every member through the email-OTP step at
+// login (enforced in app/routers/auth.py via organizations.require_2fa).
+async function loadOrgMfaPolicy(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/require-2fa`);
+    if(!r.ok) return;
+    const d = await r.json();
+    renderOrgMfaPolicy(!!d.require_2fa);
+  }catch(_){}
+}
+
+function renderOrgMfaPolicy(on){
+  const statusEl = document.getElementById('security-org-2fa-status');
+  const enableBtn = document.getElementById('security-org-2fa-enable-btn');
+  const disableBtn = document.getElementById('security-org-2fa-disable-btn');
+  if(statusEl){
+    statusEl.innerHTML = on
+      ? '✅ Org-wide 2FA is <strong style="color:var(--emerald)">required</strong>. Every member gets an email code at sign-in.'
+      : 'ℹ️ Org-wide 2FA is <strong style="color:var(--amber)">optional</strong> — each member chooses for themselves.';
+  }
+  if(enableBtn) enableBtn.style.display = on ? 'none' : '';
+  if(disableBtn) disableBtn.style.display = on ? '' : 'none';
+}
+
+async function setOrgRequire2fa(value){
+  const resultEl = document.getElementById('security-org-2fa-result');
+  if(resultEl){ resultEl.style.color = 'var(--text-muted)'; resultEl.textContent = value ? 'Enabling…' : 'Disabling…'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/require-2fa`, {
+      method: 'POST',
+      body: JSON.stringify({require_2fa: !!value})
+    });
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Update failed'); }
+    if(resultEl){
+      resultEl.textContent = value ? '✅ Now required for all members.' : 'Now optional for members.';
+      resultEl.style.color = 'var(--emerald)';
+    }
+    renderOrgMfaPolicy(!!value);
+  }catch(e){
+    if(resultEl){ resultEl.textContent = e.message || 'Update failed'; resultEl.style.color = 'var(--red)'; }
+  }
+}
+
+// ── Notification preferences (gap #28) ──────────────────────────────
+const _NOTIF_CATEGORIES = {
+  billing: 'Billing alerts — payment failures',
+  security: 'Security alerts — suspicious sign-ins',
+  student_activity: 'Student activity — account deletions'
+};
+
+async function loadNotifPrefs(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/notification-preferences`);
+    if(!r.ok){ document.getElementById('notification-prefs-card')?.remove(); return; }
+    const d = await r.json();
+    renderNotifPrefs(d);
+  }catch(_){ document.getElementById('notification-prefs-card')?.remove(); }
+}
+
+function renderNotifPrefs(prefs){
+  const container = document.getElementById('notification-prefs-list');
+  if(!container) return;
+  container.innerHTML = '';
+  for(const [key, label] of Object.entries(_NOTIF_CATEGORIES)){
+    const on = prefs[key] !== false;
+    const wrapper = document.createElement('label');
+    wrapper.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:13px';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = on;
+    cb.dataset.notifCategory = key;
+    cb.addEventListener('change', ()=> toggleNotifPref(key, cb.checked));
+    wrapper.appendChild(cb);
+    wrapper.appendChild(document.createTextNode(label));
+    container.appendChild(wrapper);
+  }
+}
+
+async function toggleNotifPref(category, enabled){
+  const resultEl = document.getElementById('notification-prefs-result');
+  if(resultEl){ resultEl.textContent = 'Saving…'; resultEl.style.color = 'var(--text-muted)'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/notification-preferences`, {
+      method: 'PATCH',
+      body: JSON.stringify({[category]: !!enabled})
+    });
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Update failed'); }
+    if(resultEl){
+      resultEl.textContent = enabled ? `${category} notifications ON` : `${category} notifications OFF`;
+      resultEl.style.color = 'var(--emerald)';
+      setTimeout(()=>{ if(resultEl) resultEl.textContent = ''; }, 3000);
+    }
+  }catch(e){
+    if(resultEl){ resultEl.textContent = e.message || 'Save failed'; resultEl.style.color = 'var(--red)'; }
+    loadNotifPrefs(); // reload to reset checkbox
+  }
 }
 
 // 2FA UI — email-OTP (replaced TOTP/Google Authenticator 2026-05-23).
@@ -3423,6 +3618,29 @@ async function cancelScheduledChange(){
   if(!r.ok){ showModal('Error', d.detail||'Failed to cancel scheduled change'); return; }
   showModal('Schedule cleared', 'Your plan will stay the same. The scheduled downgrade has been cancelled.');
   loadBilling();
+}
+
+// Gap #2b — self-serve payment-method management. Opens a Razorpay
+// customer portal session so an admin whose card expired can update it
+// without a support ticket. Backend (/api/v1/billing/portal-link) was
+// already shipped; this wires the live (vanilla) dashboard to it.
+async function openBillingPortal(){
+  const btn = document.getElementById('billing-portal-btn');
+  const prevText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Opening…'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/portal-link`, { method: 'POST' });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok || !d.portal_url){
+      showModal('Billing portal', d.detail || 'Could not open the billing portal. Please try again.');
+      return;
+    }
+    window.open(d.portal_url, '_blank', 'noopener');
+  }catch(e){
+    showModal('Billing portal', e.message || 'Could not open the billing portal.');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = prevText; }
+  }
 }
 
 async function loadBilling(){
@@ -6773,6 +6991,7 @@ async function loadGroups(){
     renderGroups();
     populateGroupSelect();
     loadExamGroups();
+    loadExamBatches();  // gap #59 — exam↔batch restriction + cohort-link selects
   }catch(e){ console.error('loadGroups:', e); }
 }
 
@@ -6915,6 +7134,87 @@ async function unassignGroup(gid){
   if(!eid) return;
   await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/groups/${gid}`,{method:'DELETE'});
   loadExamGroups();
+}
+
+// ── EXAM ↔ BATCH (cohort) assignment + cohort enrollment link (gap #59) ──
+let _examBatches = [];        // batches currently assigned to the selected exam
+let _allBatchesCache = [];    // every cohort label in scope (for the selects)
+
+async function loadExamBatches(){
+  try{
+    const br = await authFetch(`${BASE}/api/v1/admin/student-batches`);
+    _allBatchesCache = br.ok ? ((await br.json()).batches || []) : [];
+  }catch(_){ _allBatchesCache = []; }
+  const eid = currentExamId;
+  if(!eid){
+    _examBatches = [];
+  }else{
+    try{
+      const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/batches`);
+      _examBatches = r.ok ? (await r.json()) : [];
+    }catch(_){ _examBatches = []; }
+  }
+  renderExamBatches();
+  populateBatchSelects();
+}
+
+function renderExamBatches(){
+  const list = document.getElementById('exam-batches-list');
+  const none = document.getElementById('exam-batches-none');
+  if(!list || !none) return;
+  if(!_examBatches.length){ list.innerHTML=''; none.style.display=''; return; }
+  none.style.display='none';
+  list.innerHTML = _examBatches.map(b=>`
+    <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:14px;padding:3px 10px;margin:3px 3px;font-size:12px;color:var(--emerald)">
+      ${_escHtml(b)}
+      <span data-action="unassignBatch" data-args='${_jsonArgsForAttr(b)}' style="cursor:pointer;opacity:0.6;font-size:14px">&times;</span>
+    </span>`).join('');
+}
+
+function populateBatchSelects(){
+  const assignSel = document.getElementById('assign-batch-select');
+  if(assignSel){
+    const available = _allBatchesCache.filter(b => !_examBatches.includes(b));
+    assignSel.innerHTML = '<option value="">Select a batch to restrict access...</option>' +
+      available.map(b=>`<option value="${escAttr(b)}">${_escHtml(b)}</option>`).join('');
+  }
+  const cohortSel = document.getElementById('cohort-link-batch-select');
+  if(cohortSel){
+    const cur = cohortSel.value;
+    cohortSel.innerHTML = '<option value="">Select a batch…</option>' +
+      _allBatchesCache.map(b=>`<option value="${escAttr(b)}"${b===cur?' selected':''}>${_escHtml(b)}</option>`).join('');
+  }
+}
+
+async function assignBatchToExam(){
+  const eid = currentExamId;
+  if(!eid){ showModal('Select an exam first.'); return; }
+  const b = document.getElementById('assign-batch-select').value;
+  if(!b) return;
+  const next = Array.from(new Set([..._examBatches, b]));
+  const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/batches`,
+    {method:'POST', body:JSON.stringify({batches: next})});
+  if(!r.ok){ const d=await r.json().catch(()=>({})); showModal('Error', d.detail||'Failed to assign batch'); return; }
+  loadExamBatches();
+}
+
+async function unassignBatch(b){
+  const eid = currentExamId;
+  if(!eid) return;
+  const next = _examBatches.filter(x=>x!==b);
+  await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/batches`,
+    {method:'POST', body:JSON.stringify({batches: next})});
+  loadExamBatches();
+}
+
+async function copyCohortLink(){
+  const b = document.getElementById('cohort-link-batch-select').value;
+  if(!b){ showModal('Pick a batch first.'); return; }
+  if(!_shareLinkTeacherId){ showModal('Teacher link unavailable — reload and try again.'); return; }
+  const url = `${location.origin}/register?t=${encodeURIComponent(_shareLinkTeacherId)}&b=${encodeURIComponent(b)}`;
+  try{ await navigator.clipboard.writeText(url); }catch(_){}
+  const pv = document.getElementById('cohort-link-preview');
+  if(pv) pv.textContent = 'Copied: ' + url;
 }
 
 // Load groups when tools tab opens or exam switches
@@ -7090,10 +7390,65 @@ async function refreshInviteCapStatus(){
   } catch(_) {}
 }
 
-// Removes a single student's roster row (NOT their login account)
-// under the calling teacher. Backed by DELETE /api/v1/admin/students/roster.
-// Confirmation modal first because a typo'd email/roll could remove
-// the wrong student.
+// ── Time Extensions (Gap #22) ──────────────────────────────────────
+
+async function setTimeExtension(){
+  const status = document.getElementById('ext-status');
+  const rollEl = document.getElementById('ext-roll');
+  const minsEl = document.getElementById('ext-minutes');
+  const roll = (rollEl?.value || '').trim().toUpperCase();
+  const mins = parseInt(minsEl?.value || '0', 10);
+  if(!roll){ status.textContent = 'Enter a roll number.'; return; }
+  if(isNaN(mins) || mins < 0 || mins > 600){ status.textContent = 'Minutes must be 0–600.'; return; }
+  const eid = typeof currentExamId !== 'undefined' ? currentExamId : null;
+  if(!eid){ status.textContent = 'Select an exam first.'; return; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/time-extension`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({roll_number: roll, extra_minutes: mins}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || `HTTP ${r.status}`);
+    }
+    status.style.color = 'var(--emerald)';
+    status.textContent = mins > 0 ? `+${mins} min set for ${roll}.` : `Extension removed for ${roll}.`;
+    rollEl.value = '';
+    minsEl.value = '';
+    reloadExtensions();
+  }catch(e){
+    status.style.color = 'var(--red)';
+    status.textContent = e.message;
+  }
+}
+
+async function reloadExtensions(){
+  const list = document.getElementById('ext-list');
+  if(!list) return;
+  const eid = typeof currentExamId !== 'undefined' ? currentExamId : null;
+  if(!eid){ list.textContent = 'Select an exam to see extensions.'; return; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/time-extensions`);
+    if(!r.ok){ list.textContent = 'Failed to load.'; return; }
+    const data = await r.json();
+    const entries = Object.entries(data || {});
+    if(!entries.length){
+      list.textContent = 'No extensions set for this exam.';
+      return;
+    }
+    list.innerHTML = entries.map(([roll, mins]) =>
+      `<div style="display:flex;justify-content:space-between;padding:4px 0">
+        <span style="font-family:var(--font-mono);font-size:13px">${_escHtml(roll)}</span>
+        <span style="color:var(--accent-light);font-size:13px">+${mins} min</span>
+      </div>`
+    ).join('');
+  }catch(_){
+    list.textContent = 'Failed to load extensions.';
+  }
+}
+
+// Remove student from roster — kept separate from time-extensions above.
 async function removeStudentFromRoster(){
   const status = document.getElementById('roster-remove-status');
   const emailEl = document.getElementById('roster-remove-email');
@@ -7454,6 +7809,7 @@ let historyStudents = [];
 let historySortKey = 'roll_number';
 let historySortAsc = true;
 let historySearchQuery = '';
+let historyBatchFilter = '';  // gap #59 — selected cohort/batch filter
 let historyDetailData = null;
 
 function _initTabKeyboard(){
@@ -7461,14 +7817,16 @@ function _initTabKeyboard(){
 }
 
 async function refreshStudentList(){
+  loadHistoryBatches();  // keep the batch dropdown in sync with the roster
   try{
-    const r = await authFetch(`${BASE}/api/v1/student-search?q=${encodeURIComponent(historySearchQuery)}${_teacherQuery('&')}`);
+    const batchParam = historyBatchFilter ? `&batch=${encodeURIComponent(historyBatchFilter)}` : '';
+    const r = await authFetch(`${BASE}/api/v1/student-search?q=${encodeURIComponent(historySearchQuery)}${batchParam}${_teacherQuery('&')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     historyStudents = (data.students || []).sort(_historyCompare);
     renderHistoryList();
   }catch(e){
-    document.getElementById('history-body').innerHTML = '<tr><td colspan="8" class="empty-state">Failed to load: '+_escHtml(e.message)+'</td></tr>';
+    document.getElementById('history-body').innerHTML = '<tr><td colspan="9" class="empty-state">Failed to load: '+_escHtml(e.message)+'</td></tr>';
   }
 }
 
@@ -7477,10 +7835,40 @@ function filterHistorySearch(){
   refreshStudentList();
 }
 
+// Cohort/batch filter (gap #59).
+function filterHistoryBatch(){
+  const el = document.getElementById('history-batch-filter');
+  historyBatchFilter = el ? el.value : '';
+  refreshStudentList();
+}
+
+// Populate the batch dropdown from the distinct cohorts in scope, preserving
+// the current selection. Throttled: refreshStudentList runs on every search
+// keystroke, but the cohort list rarely changes and /student-batches is rate-
+// limited — so refetch at most once per 15s (and retry on failure).
+let _historyBatchesLoadedAt = 0;
+async function loadHistoryBatches(){
+  if(Date.now() - _historyBatchesLoadedAt < 15000) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/student-batches${_teacherQuery('?')}`);
+    if(!r.ok) return;
+    const data = await r.json();
+    const sel = document.getElementById('history-batch-filter');
+    if(!sel) return;
+    const current = historyBatchFilter || '';
+    const opts = ['<option value="">All batches</option>']
+      .concat((data.batches || []).map(b => `<option value="${escAttr(b)}"${b===current?' selected':''}>${_escHtml(b)}</option>`));
+    sel.innerHTML = opts.join('');
+    // If the previously-selected batch no longer exists, reset the filter.
+    if(current && !(data.batches || []).includes(current)){ historyBatchFilter = ''; }
+    _historyBatchesLoadedAt = Date.now();
+  }catch(_){}
+}
+
 function renderHistoryList(){
   const body = document.getElementById('history-body');
   if(!historyStudents.length){
-    body.innerHTML = '<tr><td colspan="8" class="empty-state">No students found</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" class="empty-state">No students found</td></tr>';
     return;
   }
     body.innerHTML = historyStudents.map(s=>{
@@ -7493,6 +7881,7 @@ function renderHistoryList(){
     return `<tr>
       <td style="font-family:var(--font-mono);font-size:13px">${_escHtml(s.roll_number)}</td>
       <td>${_escHtml(s.full_name)}</td>
+      <td>${s.batch ? `<span class="badge">${_escHtml(s.batch)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
       <td>${s.total_exams}</td>
       <td>${s.avg_percentage != null ? s.avg_percentage+'%' : '—'}</td>
       <td>${riskBadge}</td>
@@ -7564,6 +7953,26 @@ function _riskBadge(score){
   return `<span style="color:${color};font-weight:600">${safeScore} (${label})</span>`;
 }
 
+// Assign / change / clear a student's cohort (gap #59). The fix path for
+// students who registered via a link without a batch — and for re-assigning.
+async function editStudentBatch(roll){
+  const cur = (historyDetailData && historyDetailData.student && historyDetailData.student.batch) || '';
+  const val = await appPrompt('Assign a batch / cohort for this student (e.g. 2024-CSE-A). Leave blank to clear.', cur, {title:'Edit batch', okText:'Save'});
+  if(val === null) return;  // cancelled
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/students/${encodeURIComponent(roll)}/batch`, {
+      method:'POST',
+      body: JSON.stringify({batch: val.trim()})
+    });
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || `HTTP ${r.status}`); }
+    _historyBatchesLoadedAt = 0;        // a new cohort may now exist — force dropdown refresh
+    await viewStudentHistory(roll);     // re-render the detail with the new batch
+    refreshStudentList();               // keep the roster + batch dropdown in sync
+  }catch(e){
+    showModal('Error', 'Failed to set batch: ' + e.message);
+  }
+}
+
 async function viewStudentHistory(roll){
   try{
     const r = await authFetch(`${BASE}/api/v1/student-history/${encodeURIComponent(roll)}${_teacherQuery('?')}`);
@@ -7589,6 +7998,7 @@ function renderHistoryDetail(){
   document.getElementById('history-detail-stats').innerHTML = `
     <div class="stat-tile"><div class="stat-tile-label">Student</div><div class="stat-tile-value" style="font-size:14px">${_escHtml(s.full_name)}</div><div class="stat-tile-sub">${_escHtml(s.roll_number)}</div></div>
     <div class="stat-tile"><div class="stat-tile-label">Email</div><div class="stat-tile-value" style="font-size:12px">${_escHtml(s.email||'—')}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Batch</div><div class="stat-tile-value" style="font-size:13px">${s.batch ? _escHtml(s.batch) : '<span style="color:var(--muted)">Ungrouped</span>'} <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px;margin-left:4px" data-action="editStudentBatch" data-args='${_jsonArgsForAttr(s.roll_number)}'>Edit</button></div></div>
     <div class="stat-tile"><div class="stat-tile-label">Exams Taken</div><div class="stat-tile-value">${ag.total_exams}</div></div>
     <div class="stat-tile"><div class="stat-tile-label">Avg Score</div><div class="stat-tile-value">${ag.avg_percentage!=null?ag.avg_percentage+'%':'—'}</div></div>
     <div class="stat-tile"><div class="stat-tile-label">Highest</div><div class="stat-tile-value green">${ag.highest_percentage!=null?ag.highest_percentage+'%':'—'}</div></div>

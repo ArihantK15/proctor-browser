@@ -22,6 +22,7 @@ from ..models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, Fram
 from ..auth import require_auth, require_teacher_auth, create_token, _check_session_ownership, _get_teacher_by_id
 from ..utils import fmt_ist, now_ist, ts_to_id
 from ..services.practice import is_practice, _practice_validate_response, PRACTICE_QUESTIONS
+from ..services.time_extension import get_time_extension
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config, get_access_code as _get_access_code
 from ..repositories.sessions import check_group_access as _check_group_access, assert_session_owned as _assert_session_owned
 from ..services.scoring import build_shuffle_view as _build_shuffle_view, get_shuffle_flags as _get_shuffle_flags, recalculate_score as _recalculate_score, canonicalise_student_answer as _canonicalise_student_answer
@@ -197,8 +198,15 @@ async def validate_student(request: Request, body: ValidateIn):
                 detail="Invalid student details, invite status, or access code.",
             ) from exc
         raise
+    if _q_exam_id and pre_tid:
+        extra = await get_time_extension(pre_tid, _q_exam_id, roll_upper)
+    else:
+        extra = 0
+    base_duration = config.get("duration_minutes", 60)
+    effective_duration = base_duration + extra
+
     if existing_key:
-        resp = _build_validate_response(student, student_tid, exam_id, existing_key)
+        resp = _build_validate_response(student, student_tid, _q_exam_id, existing_key, duration_minutes=effective_duration)
         _cache_validate(cache_key, resp)
         return resp
 
@@ -211,7 +219,7 @@ async def validate_student(request: Request, body: ValidateIn):
         except Exception as e:
             logger.debug("Failed to mark invite as accepted: %s", e)
 
-    resp = _build_validate_response(student, student_tid, exam_id)
+    resp = _build_validate_response(student, student_tid, _q_exam_id, duration_minutes=effective_duration)
     _cache_validate(cache_key, resp)
     return resp
 
@@ -437,7 +445,7 @@ async def _check_group_restrictions(student: dict, student_tid: str, exam_id: st
     if exam_id and student_tid:
         from ..repositories.sessions import check_group_access as _check_group_access
         if not await _check_group_access(student["roll_number"], str(student_tid), exam_id):
-            raise HTTPException(status_code=403, detail="You are not in a group assigned to this exam.")
+            raise HTTPException(status_code=403, detail="You are not in a group or batch assigned to this exam.")
 
 
 async def _check_guardian_consent(student: dict) -> None:
@@ -530,14 +538,14 @@ async def _check_existing_session(student: dict, student_tid: str, exam_id: str)
     return in_progress[0]["session_key"] if in_progress else None
 
 
-def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: str = None) -> dict:
+def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: str = None, duration_minutes: int = None) -> dict:
     """Build the standard validate-student response dict."""
     # Observability for the #1 cause of "the student started but never showed
     # up on the teacher's dashboard": a token minted WITHOUT a teacher_id (tid)
     # publishes to no `sessions:{tid}` channel AND writes a teacher-less session
     # row, so it never reaches live monitoring. A token without exam_id (eid)
-    # leaves the session un-tagged, breaking per-exam results/history. create_token
-    # silently drops empty claims, so surface them loudly (Sentry-visible, now
+    # leaves the session un-tagged, breaking per-exam results/history/live.
+    # create_token silently drops empty claims, so surface them loudly (Sentry-visible, now
     # that Sentry is on) with the roll so they're traceable — but still mint the
     # token so the student can sit the exam.
     if not student_tid:
@@ -548,7 +556,7 @@ def _build_validate_response(student: dict, student_tid: str, exam_id: str, exis
     elif not exam_id:
         _exam_log.warning(
             "[validate] no exam_id minting token for roll=%s (teacher=%s) — session "
-            "will be un-tagged for per-exam results/history",
+            "will be un-tagged for per-exam results/history/live",
             safe(student.get("roll_number")), safe(student_tid))
     resp = {
         "valid": True,
@@ -556,9 +564,17 @@ def _build_validate_response(student: dict, student_tid: str, exam_id: str, exis
         "email": student.get("email", ""),
         "phone": student.get("phone", ""),
         "roll_number": student["roll_number"],
+        # Mint with the RESOLVED exam id the caller passes in (body.exam_id or the
+        # exam resolved from the invite/enrollment), NOT a raw null. A null here
+        # left the token — and every session row created from it — un-tagged
+        # whenever the student validated without an explicit exam but their invite
+        # carried one, which is exactly what made strict per-exam live filtering
+        # drop the student.
         "token": create_token(student["roll_number"], student_tid, exam_id=exam_id,
                               student_id=student.get("account_id")),
     }
+    if duration_minutes is not None:
+        resp["duration_minutes"] = duration_minutes
     if existing_session:
         resp["existing_session"] = existing_session
     return resp
@@ -589,9 +605,15 @@ async def get_questions(request: Request):
 
     # Strip correct answers — students must never see them
     safe_questions = [{k: v for k, v in q.items() if k != "correct"} for q in shuffled]
+    base = config.get("duration_minutes")
+    if base is not None and eid and tid:
+        extra = await get_time_extension(tid, eid, (claims.get("roll") or "").upper())
+        effective_duration = base + extra
+    else:
+        effective_duration = base
     return {
         "exam_title": config.get("exam_title", "Exam"),
-        "duration_minutes": config.get("duration_minutes"),
+        "duration_minutes": effective_duration,
         "questions": safe_questions,
         "phone_camera_enabled": config.get("phone_camera_enabled", False),
     }
@@ -880,7 +902,7 @@ async def heartbeat(event: EventIn, request: Request):
     eid = claims.get("eid")
 
     # Check if session already exists and is in a terminal state
-    existing = await _atable("exam_sessions").select("status")\
+    existing = await _atable("exam_sessions").select("status,exam_id")\
         .eq("session_key", event.session_id).execute()
 
     if existing.data and existing.data[0].get("status") in (
@@ -890,12 +912,19 @@ async def heartbeat(event: EventIn, request: Request):
         return {"ok": True}
 
     if existing.data:
-        # Session exists — UPDATE only heartbeat + status
+        # Session exists — UPDATE heartbeat + status. Self-heal: if the row was
+        # created with a NULL exam_id (e.g. an ID-verify ensure-session row, or a
+        # legacy untagged session) and this token carries one, backfill it now so
+        # strict per-exam live filtering never loses the student. Costs nothing on
+        # the common path (already-tagged rows skip the write).
+        upd = {
+            "last_heartbeat": now_ist().isoformat(),
+            "status":         SessionStatus.IN_PROGRESS,
+        }
+        if eid and not existing.data[0].get("exam_id"):
+            upd["exam_id"] = eid
         await _atable("exam_sessions").eq("session_key", event.session_id)\
-            .update({
-                "last_heartbeat": now_ist().isoformat(),
-                "status":         SessionStatus.IN_PROGRESS,
-            }).execute()
+            .update(upd).execute()
     else:
         # No session row yet — INSERT
         row = {
@@ -1418,7 +1447,9 @@ async def submit_exam(result: ResultIn, request: Request):
     # Time exceeded check — use server-computed elapsed time (H44).
     # Phase 74: subtract paused_secs_total so teacher-pause windows
     # don't count against the student's clock.
-    allowed_secs = config.get("duration_minutes", 60) * 60
+    # Phase 113: add per-student time extension (accommodations).
+    extra = await get_time_extension(tid, eid, trusted_roll) if tid and eid else 0
+    allowed_secs = (config.get("duration_minutes", 60) + extra) * 60
     started_at_str = existing_session.get("started_at")
     if started_at_str:
         try:

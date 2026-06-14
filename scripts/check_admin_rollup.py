@@ -61,6 +61,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("admin_exams.py", "set_pass_mark"):         "mutates own exam_config pass mark",
     ("admin_exams.py", "delete_exam"):           "deletes own exam + questions",
     ("admin_exams.py", "duplicate_exam"):        "clones own exam + questions",
+    ("admin_exams.py", "set_time_extension"):    "mutates own exam's per-student time extension",
     ("admin_invites.py", "create_exam_from_template"): "creates exam from own template",
     ("admin_settings.py", "admin_set_schedule"): "mutates own exam_config schedule",
     ("admin_settings.py", "admin_set_shuffle"):  "mutates own exam_config shuffle",

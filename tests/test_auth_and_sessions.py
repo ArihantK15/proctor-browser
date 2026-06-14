@@ -720,7 +720,7 @@ class TestHybridAuthTransition:
         assert resp.status_code == 401
         mock_supabase.auth.sign_in_with_password.assert_not_called()
 
-    def test_hybrid_teacher_without_local_hash_falls_back_to_supabase(self, client, monkeypatch):
+    def test_hybrid_teacher_without_local_hash_is_rejected_no_supabase_fallback(self, client, monkeypatch):
         monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
         auth_resp = MagicMock()
         auth_resp.user.id = "supabase-uid-1"
@@ -749,9 +749,11 @@ class TestHybridAuthTransition:
                 "password": "SupabasePassword1!",
             })
 
-        assert resp.status_code == 200
-        assert resp.json()["access_token"] == "access-1"
-        mock_supabase.auth.sign_in_with_password.assert_called_once()
+        # Gap #38: the Supabase-Auth fallback is decommissioned. A no-local-hash
+        # teacher can no longer log in via Supabase — they get a clean 401 and
+        # must password-reset (which sets a local hash). Fallback must NOT fire.
+        assert resp.status_code == 401
+        mock_supabase.auth.sign_in_with_password.assert_not_called()
 
 
 class TestStudentDashboardAuthHardening:

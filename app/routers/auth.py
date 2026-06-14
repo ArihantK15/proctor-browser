@@ -778,7 +778,26 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
         _auth_log.info("[TeacherLogin] Auto-verified existing account %s <%s>", safe(teacher.get("full_name", "")), mask_email(email))
         await record_auth_event("email_verified", request, "teacher", teacher["id"], email)
 
-    if teacher.get("email_2fa_enabled_at"):
+    # Gap #20 — per-org MFA enforcement. If the teacher's org has
+    # `require_2fa` set, run the email-OTP 2FA step even when the user
+    # never opted in individually. Procta's 2FA is email-OTP (no enrolled
+    # secret), so org-wide enforcement is simply "always challenge". A
+    # missing column / lookup error falls back to opt-in (fail-open on the
+    # policy lookup, never the auth check itself) so a schema lag can't
+    # lock an entire org out of login.
+    org_requires_2fa = False
+    if not teacher.get("email_2fa_enabled_at") and teacher.get("org_id"):
+        try:
+            _orow = (await _atable("organizations")
+                     .select("require_2fa")
+                     .eq("id", str(teacher["org_id"]))
+                     .limit(1).execute()).data
+            org_requires_2fa = bool(_orow and _orow[0].get("require_2fa"))
+        except Exception as e:
+            _auth_log.warning("[TeacherLogin] require_2fa lookup failed for org=%s: %s",
+                              safe(str(teacher.get("org_id"))), safe(e))
+
+    if teacher.get("email_2fa_enabled_at") or org_requires_2fa:
         # Email-OTP 2FA (replaced TOTP/Google Authenticator on 2026-05-23).
         # First call (no code yet): generate a fresh OTP, email it, return
         # 401 EMAIL_2FA_REQUIRED. The browser shows a code-input UI and
@@ -1826,6 +1845,25 @@ async def student_exams(request: Request):
                               roll, enr_tid, e)
             inv_rows = []
         eids = [eid for eid in (str(r.get("exam_id") or "").strip() for r in inv_rows) if eid]
+        # Standing access (gap #59): also surface exams assigned to the student's
+        # batch/cohort, even with no per-exam invite row — so cohort students SEE
+        # their exams in the lobby instead of needing the access code to discover
+        # them. Best-effort: never break the lobby on a batch lookup hiccup.
+        try:
+            srow = (await _atable("students").select("batch")
+                    .eq("roll_number", roll).eq("teacher_id", enr_tid)
+                    .limit(1).execute()).data
+            sbatch = ((srow[0].get("batch") if srow else "") or "").strip()
+            if sbatch:
+                bx = (await _atable("exam_batch_assignments").select("exam_id")
+                      .eq("teacher_id", enr_tid).eq("batch", sbatch).execute()).data or []
+                for r in bx:
+                    e = str(r.get("exam_id") or "").strip()
+                    if e and e not in eids:
+                        eids.append(e)
+        except Exception as e:
+            _auth_log.warning("[student/exams] batch exam lookup failed (roll=%s tid=%s): %s",
+                              roll, enr_tid, e)
         if not eids:
             eids = [None]  # fallback: resolve the teacher's exam in the loop
         for eid in eids:
@@ -2815,15 +2853,18 @@ async def _track_a_hybrid_delete_student_account(account: dict, request: Request
 
     if teacher and teacher.get("email"):
         try:
-            from ..emailer import send_student_account_deleted_to_teacher
-            send_student_account_deleted_to_teacher(
-                to_email=teacher.get("email"),
-                to_name=teacher.get("full_name") or "",
-                student_name=student_name,
-                student_email=student_email,
-                student_roll=student_roll,
-                deleted_at_str=fmt_ist(now_ist()),
-            )
+            from ..services.notification_prefs import teacher_wants
+            tid = str(teacher.get("id") or "")
+            if not tid or await teacher_wants(tid, "student_activity"):
+                from ..emailer import send_student_account_deleted_to_teacher
+                send_student_account_deleted_to_teacher(
+                    to_email=teacher.get("email"),
+                    to_name=teacher.get("full_name") or "",
+                    student_name=student_name,
+                    student_email=student_email,
+                    student_roll=student_roll,
+                    deleted_at_str=fmt_ist(now_ist()),
+                )
         except Exception:
             _auth_log.warning("[StudentDelete] teacher notification failed", exc_info=True)
 
@@ -3142,6 +3183,71 @@ async def student_email_change_confirm(request: Request, body: dict = Body(defau
     await record_auth_event("email_changed", request, "student_account", account_id, new_email, {"old_email": old_email})
     clear_student_account_cache(account_id)
     return {"ok": True, "email": new_email}
+
+
+# ─── TEACHER NOTIFICATION PREFERENCES ──────────────────────────
+
+
+@router.get("/api/v1/notification-preferences")
+@limiter.limit("30/minute")
+async def get_notification_preferences(request: Request):
+    teacher = await require_admin(request)
+    from ..services.notification_prefs import get_prefs
+    try:
+        prefs = await get_prefs(str(teacher["id"]))
+    except Exception as e:
+        msg = str(e).lower()
+        if "notification_prefs" in msg and ("column" in msg or "schema cache" in msg):
+            raise HTTPException(status_code=503, detail="Notification preferences are not available until the latest migration is applied.")
+        raise
+    return prefs
+
+
+@router.patch("/api/v1/notification-preferences")
+@limiter.limit("20/minute")
+async def update_notification_preferences(request: Request):
+    teacher = await require_admin(request)
+    from ..services.notification_prefs import get_prefs, KNOWN_CATEGORIES
+    body = await request.json()
+    unknown = set(body.keys()) - KNOWN_CATEGORIES
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown categories: {', '.join(sorted(unknown))}")
+    for k, v in body.items():
+        if not isinstance(v, bool):
+            raise HTTPException(status_code=400, detail=f"Value for '{k}' must be a boolean")
+    tid = str(teacher["id"])
+    try:
+        current_raw = (await _atable("teachers").select("notification_prefs")
+                       .eq("id", tid).limit(1).execute()).data or []
+        current = {}
+        if current_raw and current_raw[0].get("notification_prefs"):
+            raw = current_raw[0]["notification_prefs"]
+            if isinstance(raw, dict):
+                current = dict(raw)
+            elif isinstance(raw, str):
+                import json
+                current = json.loads(raw)
+        current.update(body)
+        import json as _json
+        await (_atable("teachers")
+               .update({"notification_prefs": _json.dumps(current)})
+               .eq("id", tid)
+               .execute())
+    except Exception as e:
+        msg = str(e).lower()
+        if "notification_prefs" in msg and ("column" in msg or "schema cache" in msg):
+            raise HTTPException(status_code=503, detail="Notification preferences are not available until the latest migration is applied.")
+        raise
+    await record_auth_event(
+        "preference_updated",
+        request,
+        "teacher",
+        tid,
+        teacher.get("email", ""),
+        {"notification_prefs": current},
+    )
+    merged = await get_prefs(tid)
+    return merged
 
 
 # ─── OAUTH SIGN-IN — REMOVED 2026-05-23 ──────────────────────────

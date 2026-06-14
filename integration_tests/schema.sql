@@ -35,7 +35,10 @@ CREATE TABLE IF NOT EXISTS organizations (
   -- The prod migration (phase107) keeps the real FK — teachers exists there.
   deleted_by   UUID,                           -- phase107
   delete_reason TEXT,                          -- phase107
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  require_2fa          BOOLEAN NOT NULL DEFAULT FALSE,  -- phase111
+  max_students_override INTEGER,                          -- phase114 (gap #13)
+  billing_credit_inr    INTEGER NOT NULL DEFAULT 0,       -- phase114 (gap #13)
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96
 );
 
@@ -92,10 +95,11 @@ CREATE TABLE IF NOT EXISTS overage_charges (
   students_used    INTEGER NOT NULL,
   plan_limit       INTEGER NOT NULL,
   overage_count    INTEGER NOT NULL,
-  amount_inr       INTEGER NOT NULL,
-  razorpay_addon_id TEXT,
-  status           TEXT NOT NULL DEFAULT 'pending',
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  amount_inr         INTEGER NOT NULL,
+  credit_applied_inr INTEGER NOT NULL DEFAULT 0,        -- phase114 (gap #13)
+  razorpay_addon_id  TEXT,
+  status             TEXT NOT NULL DEFAULT 'pending',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT overage_charges_period_uniq UNIQUE (org_id, period_start)
 );
 
@@ -107,6 +111,7 @@ CREATE TABLE IF NOT EXISTS teachers (
   full_name  TEXT,
   status     TEXT DEFAULT 'active',          -- phase62
   org_suspended_at TIMESTAMPTZ,              -- phase108
+  notification_prefs JSONB NOT NULL DEFAULT '{}'::jsonb,  -- phase112
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -330,4 +335,15 @@ CREATE TABLE IF NOT EXISTS students (
   created_at                   TIMESTAMPTZ DEFAULT now(),
   removed_at                   TIMESTAMPTZ,
   UNIQUE (roll_number, teacher_id)
+);
+
+CREATE TABLE IF NOT EXISTS exam_time_extensions (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id    UUID NOT NULL,
+    exam_id       TEXT NOT NULL,
+    roll_number   TEXT NOT NULL,
+    extra_minutes INTEGER NOT NULL DEFAULT 0,
+    created_by    UUID,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT exam_time_ext_uniq UNIQUE (teacher_id, exam_id, roll_number)
 );

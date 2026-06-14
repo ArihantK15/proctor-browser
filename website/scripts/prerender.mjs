@@ -47,6 +47,30 @@ async function startServer(dir) {
   })
 }
 
+async function launchBrowser() {
+  // Vercel/Lambda build images lack Chrome's system shared libraries
+  // (libnspr4.so, libnss3.so, …), so a Chromium downloaded by full `puppeteer`
+  // can't launch there (exit 127). @sparticuz/chromium ships a Linux Chromium
+  // with those libs bundled — use it on serverless build envs. Locally (macOS /
+  // a normal Linux dev box) the system libs exist, so fall back to full
+  // puppeteer's bundled Chromium for zero-setup local prerendering.
+  const onServerless = !!(process.env.VERCEL || process.env.AWS_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME)
+  if (onServerless) {
+    const { default: chromium } = await import('@sparticuz/chromium')
+    const { default: puppeteerCore } = await import('puppeteer-core')
+    return puppeteerCore.launch({
+      args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox'],
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    })
+  }
+  const { default: puppeteer } = await import('puppeteer')
+  return puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  })
+}
+
 async function prerender() {
   if (!existsSync(join(DIST, 'index.html'))) {
     console.error('dist/index.html not found. Run `npm run build` first.')
@@ -55,11 +79,7 @@ async function prerender() {
 
   let browser
   try {
-    const { default: puppeteer } = await import('puppeteer')
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    })
+    browser = await launchBrowser()
   } catch (err) {
     // Previously this silently returned (exit 0), so a build where puppeteer
     // failed to launch shipped an empty-#root CSR shell — the marketing site's

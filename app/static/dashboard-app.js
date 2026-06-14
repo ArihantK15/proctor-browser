@@ -6433,6 +6433,7 @@ function renderBank(data){
       <div style="display:flex;gap:4px;flex-shrink:0">
         <button class="btn btn-secondary btn-sm" data-action="saveBankToExamSingle" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px" title="Add to current exam">+Exam</button>
         <button class="btn btn-secondary btn-sm" data-action="editBankQ" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px" title="Edit question">Edit</button>
+        <button class="btn btn-secondary btn-sm" data-action="showQHistory" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px" title="Version history">History</button>
         <button class="btn btn-secondary btn-sm" data-action="deleteBankQ" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px;color:var(--red)" title="Delete">&times;</button>
       </div>
     </div>`;
@@ -8544,6 +8545,59 @@ function _closeToastParent(){
   toast?.remove();
 }
 function _focusLoginPwd(){ document.getElementById('login-pwd')?.focus(); }
+
+// ── Question version history ───────────────────────────────────
+function showQHistory(qid){
+  authFetch(`${BASE}/api/v1/admin/question-bank/${qid}/versions`).then(r=>{
+    if(!r.ok) throw new Error('Failed to load versions');
+    return r.json();
+  }).then(versions=>{
+    if(!versions.length){
+      showModal('No version history for this question.');
+      return;
+    }
+    const rows = versions.map((v,i)=>{
+      const ts = v.changed_at ? new Date(v.changed_at).toLocaleString() : '-';
+      const typeBadge = v.change_type === 'create' ? 'color:var(--emerald)' :
+                        v.change_type === 'delete' ? 'color:var(--red)' : '';
+      const restoreBtn = v.change_type === 'delete' ? '' :
+        `<button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:10px"
+                 onclick="restoreQVersion('${escAttr(qid)}',${v.version_number})">Restore</button>`;
+      return `<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1">
+          <span style="font-weight:600">v${v.version_number}</span>
+          <span style="${typeBadge};margin-left:6px;font-size:11px">${v.change_type}</span>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:8px">${ts}</span>
+          ${v.changed_by ? `<span style="font-size:10px;color:var(--text-muted)">by ${_escHtml(v.changed_by)}</span>` : ''}
+        </div>
+        ${restoreBtn}
+      </div>`;
+    }).join('');
+    _openAppDialog({
+      title: 'Version History',
+      body: `<div style="max-height:60vh;overflow-y:auto">${rows}</div>`,
+      mode: 'alert',
+      okText: 'Close',
+    });
+  }).catch(e=>{
+    console.error('showQHistory:', e);
+    showModal('Failed to load version history.');
+  });
+}
+
+function restoreQVersion(qid, version){
+  appConfirm(`Restore version ${version}? This creates a new update version.`, 'Restore Question').then(confirmed=>{
+    if(!confirmed) return;
+    authFetch(`${BASE}/api/v1/admin/question-bank/${qid}/versions/${version}/restore`, {method:'POST'}).then(r=>{
+      if(!r.ok) throw new Error('Restore failed');
+      showModal(`Restored to version ${version}.`);
+      loadBank();
+    }).catch(e=>{
+      console.error('restoreQVersion:', e);
+      showModal('Failed to restore question.');
+    });
+  });
+}
 
 const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt', 'eval', 'Function', 'fetch']);
 function _resolveDelegatedAction(name){

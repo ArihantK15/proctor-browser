@@ -101,6 +101,8 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("question_bank.py", "update_bank_question"): "mutates own bank question",
     ("question_bank.py", "delete_bank_question"): "deletes own bank question",
     ("question_bank.py", "export_bank_questions"): "exports own bank library",
+    ("question_bank.py", "list_question_versions"): "own-scoped version history",
+    ("question_bank.py", "restore_question_version"): "own-scoped version restore",
 }
 
 

@@ -333,6 +333,16 @@
     "teacher_id",
     "updated_at"
   ],
+  "question_versions": [
+    "change_type",
+    "changed_at",
+    "changed_by",
+    "id",
+    "question_id",
+    "snapshot",
+    "teacher_id",
+    "version_number"
+  ],
   "refresh_tokens": [
     "expires_at",
     "ip",

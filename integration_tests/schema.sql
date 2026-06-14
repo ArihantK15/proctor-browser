@@ -176,6 +176,19 @@ CREATE TABLE IF NOT EXISTS question_bank (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS question_versions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  question_id     TEXT NOT NULL,
+  teacher_id      TEXT NOT NULL,
+  version_number  INTEGER NOT NULL,
+  change_type     TEXT NOT NULL CHECK (change_type IN ('create','update','delete')),
+  snapshot        JSONB NOT NULL,
+  changed_by      TEXT,
+  changed_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_qversions_q
+  ON question_versions(question_id, version_number DESC);
+
 -- Per-exam delivered questions. options is TEXT (the writer json.dumps it).
 -- The UNIQUE(teacher_id,exam_id,question_id) is the constraint update_questions
 -- upserts against — the whole point of the re-save test.

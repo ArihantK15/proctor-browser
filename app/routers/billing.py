@@ -362,6 +362,33 @@ async def razorpay_webhook(request: Request):
 
     sub_data = payload.get("subscription", {}).get("entity", {}) or {}
     sub_id = sub_data.get("id")
+
+    # Invoice events (invoice.paid, invoice.expired, …) carry the invoice under
+    # payload.invoice.entity — NOT payload.subscription.entity — so sub_id above
+    # is empty for them. Record each to the ledger keyed by the invoice's
+    # subscription_id + org so list_invoices can surface them as a durable
+    # fallback when Razorpay's live invoice API is momentarily unreachable.
+    # Invoice events NEVER change entitlement — only subscription.* events do.
+    if not sub_id and event_type.startswith("invoice."):
+        inv_entity = payload.get("invoice", {}).get("entity", {}) or {}
+        inv_sub_id = inv_entity.get("subscription_id")
+        inv_org_id = None
+        if inv_sub_id:
+            _inv_rows = (await _atable("subscriptions").select("org_id")
+                         .eq("razorpay_subscription_id", inv_sub_id).limit(1).execute()).data or []
+            if _inv_rows:
+                inv_org_id = str(_inv_rows[0]["org_id"])
+        pay_entity = payload.get("payment", {}).get("entity", {}) or {}
+        await record_billing_event(
+            event_id=event_id, org_id=inv_org_id, event_type=event_type,
+            status="invoice", razorpay_subscription_id=inv_sub_id,
+            razorpay_payment_id=pay_entity.get("id"),
+            amount=inv_entity.get("amount"), currency=inv_entity.get("currency") or "INR",
+            payload=event)
+        logger.info("Recorded %s for sub=%s org=%s",
+                    safe(event_type), safe(inv_sub_id), safe(inv_org_id))
+        return {"status": "ok", "kind": "invoice"}
+
     if not sub_id:
         # Non-subscription event (e.g. a stray payment.captured) — log to the
         # ledger and ignore. We are subscriptions-only; Orders are deprecated.
@@ -825,7 +852,7 @@ async def list_invoices(request: Request):
         invoices = [
             {"id": inv["id"], "amount": inv["amount"], "currency": inv["currency"],
              "status": inv["status"], "created_at": _to_iso(inv.get("created_at")),
-             "pdf_url": inv.get("invoice_url") or None,
+             "pdf_url": inv.get("short_url") or inv.get("invoice_url") or None,
              "description": inv.get("description", "")}
             for inv in raw.get("items", [])
         ]
@@ -843,7 +870,11 @@ async def list_invoices(request: Request):
                 if isinstance(payload, str):
                     import json as _json
                     payload = _json.loads(payload)
-                inv = (payload or {}).get("payload", {}).get("invoice", {}) if isinstance(payload, dict) else {}
+                # The real invoice fields live under payload.invoice.entity —
+                # the prior code stopped at payload.invoice (the wrapper), so
+                # every field below read empty even on a matched row.
+                inv = (((payload or {}).get("payload", {}).get("invoice", {}) or {}).get("entity", {})
+                       if isinstance(payload, dict) else {})
                 if inv.get("id"):
                     invoices.append({
                         "id": inv["id"],
@@ -851,7 +882,7 @@ async def list_invoices(request: Request):
                         "currency": inv.get("currency", "INR"),
                         "status": inv.get("status", ev.get("status", "unknown")),
                         "created_at": _to_iso(inv.get("created_at")),
-                        "pdf_url": inv.get("invoice_url") or None,
+                        "pdf_url": inv.get("short_url") or inv.get("invoice_url") or None,
                         "description": inv.get("description", f"invoice.{ev.get('event_type', 'unknown')}"),
                     })
             if invoices:

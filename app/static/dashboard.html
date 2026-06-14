@@ -349,11 +349,11 @@
   </button>
   <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" data-action="switchTab" data-args='["tools"]' data-roles="teacher">Tools</button>
   <!-- Admin tabs (role-gated) -->
-  <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" data-action="switchTab" data-args='["org"]'       data-roles="admin superadmin" style="display:none">Org Overview</button>
-  <button type="button" class="tab"        data-tab="security"  role="tab" aria-selected="false" data-action="switchTab" data-args='["security"]'  data-roles="admin superadmin" style="display:none">Security</button>
-  <button type="button" class="tab"        data-tab="members"   role="tab" aria-selected="false" data-action="switchTab" data-args='["members"]'   data-roles="admin superadmin" style="display:none">Members</button>
-  <button type="button" class="tab"        data-tab="billing"   role="tab" aria-selected="false" data-action="switchTab" data-args='["billing"]'   data-roles="admin superadmin" style="display:none">Billing</button>
-  <button type="button" class="tab"        data-tab="org-settings" role="tab" aria-selected="false" data-action="switchTab" data-args='["org-settings"]' data-roles="admin superadmin" style="display:none">Org Settings</button>
+  <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" data-action="switchTab" data-args='["org"]'       data-roles="admin" style="display:none">Org Overview</button>
+  <button type="button" class="tab"        data-tab="security"  role="tab" aria-selected="false" data-action="switchTab" data-args='["security"]'  data-roles="admin" style="display:none">Security</button>
+  <button type="button" class="tab"        data-tab="members"   role="tab" aria-selected="false" data-action="switchTab" data-args='["members"]'   data-roles="admin" style="display:none">Members</button>
+  <button type="button" class="tab"        data-tab="billing"   role="tab" aria-selected="false" data-action="switchTab" data-args='["billing"]'   data-roles="admin" style="display:none">Billing</button>
+  <button type="button" class="tab"        data-tab="org-settings" role="tab" aria-selected="false" data-action="switchTab" data-args='["org-settings"]' data-roles="admin" style="display:none">Org Settings</button>
   <!-- Super admin tabs — maintenance only. -->
   <button type="button" class="tab"        data-tab="all-orgs"   role="tab" aria-selected="false" data-action="switchTab" data-args='["all-orgs"]' data-roles="superadmin" style="display:none">All Orgs</button>
   <button type="button" class="tab"        data-tab="issues"     role="tab" aria-selected="false" data-action="switchTab" data-args='["issues"]'   data-roles="superadmin" style="display:none">Issues<span class="tab-badge" id="issues-open-badge" style="display:none;background:var(--amber);color:#000">0</span></button>
@@ -366,7 +366,13 @@
   <select id="exam-select" data-change-action="_onExamSwitchWrap"></select>
   <button class="btn btn-primary btn-sm" data-action="showCreateExamModal" style="height:32px;font-size:12px">+ New Exam</button>
   <button class="btn btn-secondary btn-sm" data-action="duplicateCurrentExam" id="duplicate-exam-btn" style="height:32px;font-size:12px;display:none" title="Clone this exam's config + questions into a new exam">Duplicate</button>
+  <button class="btn btn-secondary btn-sm" data-action="archiveCurrentExam" id="archive-exam-btn" style="height:32px;font-size:12px;display:none">Archive</button>
+  <button class="btn btn-secondary btn-sm" data-action="unarchiveCurrentExam" id="unarchive-exam-btn" style="height:32px;font-size:12px;display:none">Unarchive</button>
   <button class="btn btn-secondary btn-sm" data-action="confirmDeleteExam" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
+  <label class="archived-toggle" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:11px;cursor:pointer;white-space:nowrap">
+    <input type="checkbox" id="show-archived-input" data-change-action="toggleShowArchived">
+    <span>Show archived</span>
+  </label>
   <span class="exam-count" id="exam-count"></span>
 </div>
 
@@ -531,6 +537,12 @@
               data-change-action="applyTeacherFilter" data-change-args='["results"]'
               title="Filter by teacher" style="display:none">
         <option value="">All teachers</option>
+      </select>
+      <select class="filter-select" id="results-group-filter" data-change-action="filterResults" title="Filter by group">
+        <option value="">All groups</option>
+      </select>
+      <select class="filter-select" id="results-batch-filter" data-change-action="filterResults" title="Filter by batch / cohort">
+        <option value="">All batches</option>
       </select>
       <select class="filter-select" id="results-risk-filter" data-change-action="filterResults" title="Filter by risk level">
         <option value="all">All risk levels</option>
@@ -1688,6 +1700,12 @@
         </div>
       </div>
     </div>
+    <div class="coupon-row" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="upgrade-coupon-input" placeholder="Have a coupon? Enter code"
+             style="flex:1;min-width:120px;padding:6px 10px;font-size:12px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-1);color:var(--text-high)">
+      <button class="btn btn-secondary btn-sm" type="button" data-action="applyCoupon">Apply</button>
+      <span id="upgrade-coupon-status" style="font-size:11px;color:var(--text-muted)"></span>
+    </div>
     <div id="upgrade-modal-status" style="font-size:12px;text-align:center;color:var(--text-muted)"></div>
     <div style="margin-top:12px;text-align:center">
       <button class="btn btn-secondary btn-sm" data-action="closeUpgradeModal" style="margin-right:8px">Later</button>
@@ -1829,6 +1847,16 @@
            active subscription. data-plan attrs let updateBillingTiles()
            in dashboard-app.js toggle .is-current without rebuilding the
            DOM. -->
+      <!-- Billing cycle toggle: monthly ↔ annual -->
+      <div class="billing-cycle-toggle" style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <span id="billing-cycle-label-monthly" class="billing-cycle-label is-active" data-cycle="monthly">Monthly</span>
+        <label class="billing-cycle-switch">
+          <input type="checkbox" id="billing-cycle-input" data-change-action="toggleBillingCycle">
+          <span class="billing-cycle-slider"></span>
+        </label>
+        <span id="billing-cycle-label-annual" class="billing-cycle-label" data-cycle="annual">Annual</span>
+        <span id="billing-cycle-savings-badge" class="badge" style="background:var(--emerald);color:#fff;font-size:10px;display:none">Save 2 months</span>
+      </div>
       <div id="billing-plans" class="plan-grid">
         <article class="plan-tile" data-plan="starter" data-action="upgradePlan" data-args='["starter"]'>
           <header class="plan-head">
@@ -1840,6 +1868,7 @@
             <span class="plan-amount">2,400</span>
             <span class="plan-period">/ month</span>
           </div>
+          <div class="plan-savings" style="display:none;font-size:11px;color:var(--emerald);margin-top:4px;font-weight:600"></div>
           <ul class="plan-features">
             <li>Up to 30 students</li>
             <li>Unlimited exams</li>
@@ -1860,6 +1889,7 @@
             <span class="plan-amount">12,000</span>
             <span class="plan-period">/ month</span>
           </div>
+          <div class="plan-savings" style="display:none;font-size:11px;color:var(--emerald);margin-top:4px;font-weight:600"></div>
           <ul class="plan-features">
             <li>Up to 150 students</li>
             <li>Everything in Starter</li>
@@ -1879,6 +1909,7 @@
             <span class="plan-amount">30,000</span>
             <span class="plan-period">/ month</span>
           </div>
+          <div class="plan-savings" style="display:none;font-size:11px;color:var(--emerald);margin-top:4px;font-weight:600"></div>
           <ul class="plan-features">
             <li>Up to 500 students</li>
             <li>Everything in Growth</li>
@@ -1887,6 +1918,12 @@
           </ul>
           <button class="btn btn-secondary plan-cta" type="button" data-action="upgradePlan" data-args='["pro"]'>Choose Pro</button>
         </article>
+      </div>
+      <div class="coupon-row" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="coupon-input" placeholder="Have a coupon? Enter code"
+               style="flex:1;min-width:140px;padding:6px 10px;font-size:12px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-1);color:var(--text-high)">
+        <button class="btn btn-secondary btn-sm" type="button" data-action="applyCouponBilling">Apply</button>
+        <span id="coupon-status" style="font-size:11px;color:var(--text-muted)"></span>
       </div>
       <div class="plan-result-row">
         <div id="upgrade-result"></div>

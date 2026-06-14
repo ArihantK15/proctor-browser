@@ -22,9 +22,11 @@ class InviteRecipient(BaseModel):
 
 
 class SendInvitesBody(BaseModel):
-    recipients: list[InviteRecipient]
+    recipients: list[InviteRecipient] = []
     exam_id: str
     custom_message: Optional[str] = None
     per_invite_code: bool = True
     expires_at: Optional[str] = None
     idempotency_key: Optional[str] = None
+    group_id: Optional[str] = None
+    batch: Optional[str] = None

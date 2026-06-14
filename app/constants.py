@@ -116,6 +116,7 @@ EMAIL_VERIFY_SIGNING_KEYS = _key_ring("JWT_EMAIL_VERIFY_SIGNING_KEY", "procta.em
 REAUTH_SIGNING_KEYS = _key_ring("JWT_REAUTH_SIGNING_KEY", "procta.reauth")
 EXAM_TOKEN_SIGNING_KEYS = _key_ring("JWT_EXAM_TOKEN_SIGNING_KEY", "procta.exam_token")
 ROOM_CAM_SIGNING_KEYS = _key_ring("JWT_ROOM_CAM_SIGNING_KEY", "procta.room_cam")
+UNSUBSCRIBE_SIGNING_KEYS = _key_ring("JWT_UNSUBSCRIBE_SIGNING_KEY", "procta.unsubscribe")
 
 ADMIN_SIGNING_KEY = ADMIN_SIGNING_KEYS[0]
 STUDENT_SIGNING_KEY = STUDENT_SIGNING_KEYS[0]
@@ -125,6 +126,7 @@ EMAIL_VERIFY_SIGNING_KEY = EMAIL_VERIFY_SIGNING_KEYS[0]
 REAUTH_SIGNING_KEY = REAUTH_SIGNING_KEYS[0]
 EXAM_TOKEN_SIGNING_KEY = EXAM_TOKEN_SIGNING_KEYS[0]
 ROOM_CAM_SIGNING_KEY = ROOM_CAM_SIGNING_KEYS[0]
+UNSUBSCRIBE_SIGNING_KEY = UNSUBSCRIBE_SIGNING_KEYS[0]
 
 JWT_ACCEPT_LEGACY_MASTER_TOKENS = os.environ.get("JWT_ACCEPT_LEGACY_MASTER_TOKENS", "").strip().lower() in {
     "1", "true", "yes", "on"
@@ -226,9 +228,9 @@ _CAL_LOOSE_HEAD = 30.0
 # student overage price → a single student over Growth = ₹12,000
 # extra. Audit P1.4.
 PLANS = {
-    "starter":    {"name": "Starter",  "students": 30,  "price_inr": 2400,  "overage_price_inr": 80,  "desc": "For small classes & tutorials (₹80/student)"},
-    "growth":     {"name": "Growth",   "students": 150, "price_inr": 12000, "overage_price_inr": 80,  "desc": "For departments & mid-size programs (₹80/student)"},
-    "pro":        {"name": "Pro",      "students": 500, "price_inr": 30000, "overage_price_inr": 80,  "desc": "For large universities & institutions (₹80/student)"},
+    "starter":    {"name": "Starter",  "students": 30,  "price_inr": 2400,  "overage_price_inr": 80,  "annual_price_inr": 24000,  "desc": "For small classes & tutorials (₹80/student)"},
+    "growth":     {"name": "Growth",   "students": 150, "price_inr": 12000, "overage_price_inr": 80,  "annual_price_inr": 120000, "desc": "For departments & mid-size programs (₹80/student)"},
+    "pro":        {"name": "Pro",      "students": 500, "price_inr": 30000, "overage_price_inr": 80,  "annual_price_inr": 300000, "desc": "For large universities & institutions (₹80/student)"},
     "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "overage_price_inr": 0,   "desc": "Custom pricing — contact sales"},
 }
 TRIAL_DAYS = 14
@@ -296,6 +298,11 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 # Local screenshot retention when S3 IS the system-of-record (days)
 S3_LOCAL_CACHE_DAYS = int(os.getenv("S3_LOCAL_CACHE_DAYS", "7"))
+
+# ─── Kiosk attestation (Gap #43) ───────────────────────────────────
+KIOSK_ATTESTATION_SECRET = os.environ.get("KIOSK_ATTESTATION_SECRET", "")
+MIN_CLIENT_VERSION = os.environ.get("MIN_CLIENT_VERSION", "0.0.0")
+KIOSK_ATTESTATION_ENFORCED = os.environ.get("KIOSK_ATTESTATION_ENFORCED", "").lower() in ("1", "true", "yes")
 
 # ─── Pending verifications ────────────────────────────────────────
 _PENDING_VERIFICATION_LIMIT = 50

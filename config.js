@@ -4,8 +4,17 @@ const os   = require('os');
 // ── Server / Environment ──────────────────────────────────────────
 const SERVER_URL = process.env.PROCTOR_SERVER_URL || 'https://app.procta.net';
 const ADMIN_CODE = process.env.EXIT_CODE || 'EXIT2026';
-const KIOSK_ALLOWED = !process.argv.includes('--no-kiosk') &&
-                       process.env.PROCTOR_DEBUG !== '1';
+// The `--no-kiosk` flag and `PROCTOR_DEBUG=1` are DEV-ONLY escape hatches.
+// In a packaged (shipped) build they MUST be ignored — otherwise a student can
+// launch `Procta.exe --no-kiosk` (or set PROCTOR_DEBUG=1) and run the exam fully
+// unlocked: no kiosk/fullscreen, DevTools auto-opened, blocked-shortcuts skipped
+// — defeating the secure-browser guarantee. Gate the bypass behind
+// !app.isPackaged so kiosk is ALWAYS enforced in production.
+let _IS_PACKAGED = false;
+try { _IS_PACKAGED = require('electron').app.isPackaged; } catch (_) { _IS_PACKAGED = false; }
+const KIOSK_ALLOWED = _IS_PACKAGED
+  ? true
+  : (!process.argv.includes('--no-kiosk') && process.env.PROCTOR_DEBUG !== '1');
 
 // ── Kiosk lockdown shortcuts ──────────────────────────────────────
 // Base set registered on every platform. Cmd+* accelerators simply fail to

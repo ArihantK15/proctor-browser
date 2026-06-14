@@ -18,7 +18,7 @@ _exam_log = logging.getLogger("exam")
 
 from ..database import supabase, async_table as _atable
 from .. import cache as _cache
-from ..models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, FrameIn, IdVerifyIn
+from ..models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, FrameIn, IdVerifyIn, AttestIn
 from ..auth import require_auth, require_teacher_auth, create_token, _check_session_ownership, _get_teacher_by_id
 from ..utils import fmt_ist, now_ist, ts_to_id
 from ..services.practice import is_practice, _practice_validate_response, PRACTICE_QUESTIONS
@@ -35,7 +35,8 @@ from ..services.autosave import (
 )
 from ..services.risk import compute_risk_score, publish_critical_alert
 from ..jobs import enqueue_job, flush_autosave_job, _rq_enabled
-from ..constants import ROOM_CAM_SIGNING_KEY, SCREENSHOTS_DIR
+from ..constants import ROOM_CAM_SIGNING_KEY, SCREENSHOTS_DIR, KIOSK_ATTESTATION_SECRET, KIOSK_ATTESTATION_ENFORCED
+from ..services.kiosk_attest import verify_attestation as _verify_attestation
 from ..services.object_store import is_enabled as _s3_enabled
 
 
@@ -125,6 +126,23 @@ async def _reject_if_terminal(session_id: str) -> None:
         pass
 
 
+async def _require_attested(session_id: str, tid: str | None) -> None:
+    """Raise 403 if attestation is enforced and the session is not attested."""
+    if not KIOSK_ATTESTATION_ENFORCED:
+        return
+    try:
+        row = (await _atable("exam_sessions").select("kiosk_attested")
+               .eq("session_key", session_id).limit(1).execute()).data
+        if row and row[0].get("kiosk_attested") is True:
+            return
+    except Exception:
+        pass
+    raise HTTPException(
+        status_code=403,
+        detail="Please use the latest Procta secure browser to take this exam.",
+    )
+
+
 def _cache_validate(key: str, resp: dict) -> None:
     if not _cache:
         return
@@ -161,6 +179,10 @@ async def validate_student(request: Request, body: ValidateIn):
     pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code, provided_teacher_id)
     config = await _load_exam_config(pre_tid, exam_id=exam_id)
     _check_exam_time_window(config)
+    # Block entry to an archived exam. In-flight sessions are unaffected
+    # because this check only runs during validate_student (new start).
+    if config.get("archived_at"):
+        raise HTTPException(status_code=403, detail="This exam is no longer available.")
     # Block entry to an exam that has NO questions. Otherwise the student passes
     # ID-verify + calibration and only then hits get-questions' 404, getting
     # stuck on a cryptic "Could not load questions" with no way forward. Fail
@@ -591,13 +613,14 @@ async def get_questions(request: Request):
     claims = require_auth(request)
     tid = claims.get("tid")
     eid = claims.get("eid")
+    session_id = (request.query_params.get("session_id") or "").strip()
+    await _require_attested(session_id, tid)
     questions = await _load_questions(tid, exam_id=eid)
     if not questions:
         raise HTTPException(status_code=404, detail="Questions not found")
     config = await _load_exam_config(tid, exam_id=eid)
 
     # Deterministic per-session shuffle
-    session_id = (request.query_params.get("session_id") or "").strip()
     shuffle_q, shuffle_o = _get_shuffle_flags(config)
     shuffled, _ = _build_shuffle_view(
         questions, session_id, str(tid or ""),
@@ -649,6 +672,82 @@ async def get_audio_config(request: Request):
     if lang not in ("en", "hi", "en+hi"):
         lang = "en"
     return {"audio_keywords": keywords, "audio_keywords_language": lang}
+
+
+@router.get("/api/v1/exam/attest-challenge")
+@limiter.limit("20/minute")
+async def attest_challenge(request: Request, session_id: str = ""):
+    """Issue a single-use nonce for the caller's session.
+
+    The client must call this before POST /api/v1/exam/attest to obtain
+    a fresh nonce that is included in the signed attestation payload.
+    Each nonce can be used once and expires after 300 seconds.
+    """
+    claims = require_auth(request)
+    if not session_id:
+        session_id = claims.get("sid") or ""
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    await _assert_student_session_access(claims, session_id)
+
+    nonce = secrets.token_urlsafe(32)
+    issued_at = datetime.now(timezone.utc).isoformat()
+    await _atable("exam_sessions").eq("session_key", session_id).update({
+        "attest_nonce": nonce,
+        "attest_nonce_issued_at": issued_at,
+    }).execute()
+    return {"nonce": nonce}
+
+
+@router.post("/api/v1/exam/attest")
+@limiter.limit("10/minute")
+async def attest_kiosk(body: AttestIn, request: Request):
+    """Verify a kiosk attestation and stamp the session row.
+
+    The Electron client signs a canonical payload with the shared
+    KIOSK_ATTESTATION_SECRET.  On success the session row is marked
+    as attested.  On failure a high-severity violation is recorded.
+    """
+    claims = require_auth(request)
+    session_id = body.att.get("session_key", "")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="missing session_key in attestation")
+    await _assert_student_session_access(claims, session_id)
+    tid = claims.get("tid")
+    expected_roll = (claims.get("roll") or "").upper()
+
+    # Fetch session row for nonce validation
+    sess = (await _atable("exam_sessions").select("attest_nonce,attest_nonce_issued_at")
+            .eq("session_key", session_id).limit(1).execute()).data
+    expected_nonce = sess[0].get("attest_nonce") if sess else None
+    nonce_issued_at = sess[0].get("attest_nonce_issued_at") if sess else None
+
+    ok, reason = _verify_attestation(
+        body.att, body.sig,
+        expected_session_key=session_id,
+        expected_roll=expected_roll,
+        expected_nonce=expected_nonce,
+        nonce_issued_at=nonce_issued_at,
+    )
+    if ok:
+        # Single-use: clear the nonce so replaying the same attestation fails
+        await _atable("exam_sessions").eq("session_key", session_id).update({
+            "kiosk_attested": True,
+            "client_version": body.att.get("client_version", ""),
+            "attested_at":    now_ist().isoformat(),
+            "attest_nonce":   None,
+        }).execute()
+        return {"ok": True}
+    viol_row = {
+        "session_key": session_id,
+        "violation_type": "kiosk_attestation_failed",
+        "severity":       "high",
+        "details":        reason,
+    }
+    if tid:
+        viol_row["teacher_id"] = tid
+    await _atable("violations").insert(viol_row).execute()
+    raise HTTPException(status_code=403, detail=reason)
 
 
 @router.get("/api/v1/check-session/{roll_number}")
@@ -939,6 +1038,25 @@ async def heartbeat(event: EventIn, request: Request):
             row["exam_id"] = eid
         await _atable("exam_sessions").upsert(row).execute()
 
+    # ── Heartbeat re-attestation ──────────────────────────────────────
+    # The Electron client includes a fresh signed {kiosk, ts} on each
+    # heartbeat so the server can detect a kiosk-exit mid-exam.
+    hb_att = event.att
+    hb_sig = event.sig
+    if hb_att and hb_sig:
+        if KIOSK_ATTESTATION_SECRET:
+            hb_ok, hb_reason = _verify_attestation(hb_att, hb_sig)
+            if hb_ok and hb_att.get("kiosk") is not True:
+                viol_row = {
+                    "session_key":    event.session_id,
+                    "violation_type": "kiosk_attestation_failed",
+                    "severity":       "high",
+                    "details":        "kiosk exited mid-exam",
+                }
+                if tid:
+                    viol_row["teacher_id"] = tid
+                await _atable("violations").insert(viol_row).execute()
+
     # Publish a heartbeat ping to the dashboard SSE — but COALESCE it per
     # teacher. Each student heartbeats ~every 30s, so an N-student exam would
     # otherwise fire N "refresh" pushes per cycle, and the dashboard does a
@@ -1221,6 +1339,7 @@ async def submit_exam(result: ResultIn, request: Request):
 
     claims = require_auth(request)
     await _assert_student_session_access(claims, result.session_id)
+    await _require_attested(result.session_id, claims.get("tid"))
     tid = claims.get("tid")
     eid = claims.get("eid")
     sid = claims.get("sid")

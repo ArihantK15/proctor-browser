@@ -1,4 +1,4 @@
-const { app, ipcMain, globalShortcut, screen, dialog } = require('electron');
+const { app, ipcMain, globalShortcut, screen, dialog, session: _electronSession } = require('electron');
 const path = require('path');
 
 // ── Sentry (optional — gated on SENTRY_DSN env / packaged config) ──
@@ -44,6 +44,7 @@ const {
   SERVER_URL, ADMIN_CODE, INVITE_REGEX, BLOCKING_TYPES, THREATS,
 } = require('./config');
 const { extractInviteToken, authHeaders, fetchWithTimeout, _exec } = require('./lib/utils');
+const { buildPayload, buildV2Payload, canonicalJSON, sign } = require('./lib/attestation');
 const { initAutoUpdater } = require('./lib/auto-update');
 const { runIntegrityChecks } = require('./lib/integrity');
 const {
@@ -113,6 +114,15 @@ async function _scanProcesses() {
     }
     console.log(`[Monitor] THREAT: ${label} (${type})`);
   }
+  _reportMultiDisplay();
+}
+
+// ── Multi-display reporting (Tier 1.5) ────────────────────────────
+// Shared helper that checks the current display count and reports a
+// violation if more than one display is active. Deduplicated via
+// _reportedThreats so the same event is sent at most once per
+// (session, display-count) pair.
+function _reportMultiDisplay() {
   try {
     const displays = screen.getAllDisplays();
     if (displays.length > 1 && getCurrentSessionId() && getStudentToken()) {
@@ -123,11 +133,11 @@ async function _scanProcesses() {
           method: 'POST', headers: authHeaders(getStudentToken()),
           body: JSON.stringify({ session_id: getCurrentSessionId(),
             event_type: 'multiple_monitors', severity: 'medium',
-            details: `[Live scan] ${displays.length} displays detected` }),
+            details: `[device] ${displays.length} displays detected` }),
         }, 10000).catch(() => {});
       }
     }
-  } catch(e) { console.error('[Monitor] _scanProcesses error:', e.message); }
+  } catch(e) { console.error('[MultiDisplay] report error:', e.message); }
 }
 
 setMonitorFns(startProcessMonitor, stopProcessMonitor);
@@ -431,6 +441,14 @@ function _registerLobbyProtocol() {
 // ── APP START ─────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   _registerLobbyProtocol();
+
+  // Tier 1.5 — real-time multi-display detection
+  screen.on('display-added', () => { _reportMultiDisplay(); });
+
+  // Tier 1.6 — prevent downloads in the packaged app
+  _electronSession.defaultSession.on('will-download', (e) => {
+    e.preventDefault();
+  });
 
   // Reap any proctor that survived a previous hard crash BEFORE we touch
   // Python or the camera. A crash skips before-quit/window-all-closed
@@ -774,6 +792,37 @@ ipcMain.on('get-server-url-sync', (event) => {
 // which build a student is on (e.g. when an update hasn't landed yet).
 ipcMain.handle('get-app-version', () => { try { return app.getVersion(); } catch { return ''; } });
 
+// Tier 1.4 — build attestation payload + HMAC signature for the
+// renderer. The client secret is never accessible in the sandboxed
+// renderer, so we compute it here and hand back {att, sig}.
+ipcMain.handle('build-attestation', (event, overrides) => {
+  if (!_assertMainFrame(event, 'build-attestation')) throw new Error('Frame not allowed');
+  const att = buildPayload(overrides || {});
+  const sig = sign(att);
+  return { att, sig };
+});
+
+// Command B / Tier-4 — full v2 attestation with server-issued nonce.
+// The renderer supplies {session_key, exam_id, roll, nonce} and the
+// main process builds the authoritative payload with live kiosk state
+// and signs it. Never returns the secret.
+ipcMain.handle('procta:sign-attestation', (event, { session_key, exam_id, roll, nonce }) => {
+  if (!_assertMainFrame(event, 'procta:sign-attestation')) throw new Error('Frame not allowed');
+  const attestation = buildV2Payload({ session_key, exam_id, roll, nonce });
+  const sig = sign(attestation);
+  return { attestation, sig };
+});
+
+// Command B / Tier 1.4 — signed {kiosk, ts} for the heartbeat.
+// Separated from the full attestation so the heartbeat path is not
+// coupled to the v2 nonce protocol.
+ipcMain.handle('procta:sign-kiosk-state', (event) => {
+  if (!_assertMainFrame(event, 'procta:sign-kiosk-state')) throw new Error('Frame not allowed');
+  const attestation = { kiosk: getIsKiosk(), ts: Math.floor(Date.now() / 1000) };
+  const sig = sign(attestation);
+  return { attestation, sig };
+});
+
 // ── Pre-exam System Check (Phase 1.4) ─────────────────────────────
 // The lobby ("Run system check") invokes this to exercise the full
 // on-device pipeline (Python, AI packages, every model via
@@ -857,6 +906,10 @@ ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
     try { getLobbyWindow().hide(); } catch(e) {}
   }
   createExamWindow();
+
+  // Tier 1.5 — one-time multi-display check at exam start
+  _reportMultiDisplay();
+
   return { ok: true };
 });
 

@@ -14,6 +14,7 @@ from ..services.sessions import PLAN_LIMITS
 from ..constants import PLANS
 from ..services.billing import (
     create_subscription as billing_create_subscription,
+    validate_coupon as billing_validate_coupon,
     verify_webhook,
     _get_client,
     _is_live,
@@ -68,13 +69,17 @@ def _invalidate_billing_cache(org_id: str):
 @router.get("/api/v1/billing/plans")
 @limiter.limit("30/minute")
 async def list_plans(request: Request):
-    """Return available plans — public, no auth needed."""
+    """Return available plans — public, no auth needed.
+    Each plan includes ``annual_price_inr`` (monthly × 10, 2 months free)
+    and ``annual_savings_inr`` (savings vs 12 months of monthly pricing)."""
     return {
         "plans": [
             {
                 "id": pid,
                 "name": p["name"],
                 "price_inr": p["price_inr"],
+                "annual_price_inr": p.get("annual_price_inr", 0),
+                "annual_savings_inr": p["price_inr"] * 12 - p.get("annual_price_inr", p["price_inr"] * 12),
                 "students": p["students"],
                 "description": p["desc"],
             }
@@ -88,7 +93,8 @@ async def list_plans(request: Request):
 async def create_subscription(body: dict, request: Request):
     """Create a Razorpay subscription for the org.
 
-    Body: { "plan_id": "growth" }
+    Body: { "plan_id": "growth", "billing_cycle": "monthly"|"annual" }
+    ``billing_cycle`` defaults to ``"monthly"``.
     Returns Razorpay checkout URL.
     """
     teacher = await require_admin(request)
@@ -99,6 +105,14 @@ async def create_subscription(body: dict, request: Request):
         raise HTTPException(status_code=403, detail="No organization associated")
 
     plan_id = (body.get("plan_id") or "").strip().lower()
+    billing_cycle = (body.get("billing_cycle") or "monthly").strip().lower()
+    if billing_cycle not in ("monthly", "annual"):
+        raise HTTPException(status_code=400,
+            detail="billing_cycle must be 'monthly' or 'annual'.")
+    if billing_cycle == "annual" and plan_id in ("enterprise",):
+        raise HTTPException(status_code=400,
+            detail="Enterprise plans are custom-priced — annual billing is managed by sales.")
+
     # Rejects unknown plans AND zero-price tiers (Enterprise): a ₹0 plan must
     # never enter self-serve checkout — in sandbox it would mint a free
     # subscription, and Enterprise is a contact-sales/manual-contract flow.
@@ -123,8 +137,21 @@ async def create_subscription(body: dict, request: Request):
     if gstin and not re.fullmatch(r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]", gstin):
         raise HTTPException(status_code=400, detail="Invalid GSTIN format (expected 15 characters).")
 
+    # Optional coupon code.
+    coupon_code = (body.get("coupon_code") or "").strip()
+    coupon_offer_id: str | None = None
+    if coupon_code:
+        coupon = await billing_validate_coupon(coupon_code)
+        if not coupon:
+            raise HTTPException(status_code=400,
+                detail="Invalid or expired coupon code.")
+        coupon_offer_id = coupon["razorpay_offer_id"]
+
     try:
-        result = billing_create_subscription(str(org_id), plan_id, gstin=gstin or None)
+        result = billing_create_subscription(str(org_id), plan_id, gstin=gstin or None,
+                                              billing_cycle=billing_cycle,
+                                              coupon_code=coupon_code or None,
+                                              coupon_offer_id=coupon_offer_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -134,7 +161,7 @@ async def create_subscription(body: dict, request: Request):
         logger.exception("Failed to create subscription")
         raise HTTPException(status_code=500, detail="Failed to create subscription")
 
-    if result.get("_sandbox"):
+    if result.get("_is_sandbox"):
         logger.info("Sandbox subscription: %s", result["_note"])
 
     # Record the subscription INTENT only — do NOT grant entitlement here.
@@ -150,6 +177,7 @@ async def create_subscription(body: dict, request: Request):
             "plan": plan_id,
             "status": (result.get("status") or "created").strip().lower(),
             "razorpay_subscription_id": result["subscription_id"],
+            "billing_cycle": billing_cycle,
         }
         sub = (existing.data or [None])[0]
         if sub:
@@ -168,6 +196,16 @@ async def create_subscription(body: dict, request: Request):
             status_code=500,
             detail="Subscription was created by the payment provider, but could not be recorded. Please contact support.",
         )
+
+    # Increment coupon redemption after subscription is created.
+    if coupon_code:
+        try:
+            cur = await _atable("coupons").select("times_redeemed").eq("code", coupon_code.lower()).limit(1).execute()
+            if cur.data:
+                new_val = int(cur.data[0].get("times_redeemed", 0)) + 1
+                await _atable("coupons").update({"times_redeemed": new_val}).eq("code", coupon_code.lower()).execute()
+        except Exception as e:
+            logger.warning("Failed to increment coupon redemption for %s: %s", coupon_code, e)
 
     return result
 
@@ -260,6 +298,27 @@ _SUB_DOWNGRADE = {
 }
 
 
+# ── GET /api/v1/billing/validate-coupon ────────────────────────────
+@router.get("/api/v1/billing/validate-coupon")
+@limiter.limit("30/minute")
+async def validate_coupon(request: Request, code: str = ""):
+    """Preview coupon validity for the UI — no redemption side-effect.
+
+    Public endpoint (no auth required) so the checkout page can show
+    the discount before the user is logged in or has an org.
+    Returns {valid: bool, description, ...} for valid; {valid: false}
+    for invalid / expired / exhausted.
+    """
+    coupon = await billing_validate_coupon(code)
+    if not coupon:
+        return {"valid": False}
+    return {
+        "valid": True,
+        "description": coupon.get("description") or "",
+        "razorpay_offer_id": coupon["razorpay_offer_id"],
+    }
+
+
 @router.post("/api/v1/webhooks/razorpay")
 @limiter.limit("60/minute")
 async def razorpay_webhook(request: Request):
@@ -303,6 +362,33 @@ async def razorpay_webhook(request: Request):
 
     sub_data = payload.get("subscription", {}).get("entity", {}) or {}
     sub_id = sub_data.get("id")
+
+    # Invoice events (invoice.paid, invoice.expired, …) carry the invoice under
+    # payload.invoice.entity — NOT payload.subscription.entity — so sub_id above
+    # is empty for them. Record each to the ledger keyed by the invoice's
+    # subscription_id + org so list_invoices can surface them as a durable
+    # fallback when Razorpay's live invoice API is momentarily unreachable.
+    # Invoice events NEVER change entitlement — only subscription.* events do.
+    if not sub_id and event_type.startswith("invoice."):
+        inv_entity = payload.get("invoice", {}).get("entity", {}) or {}
+        inv_sub_id = inv_entity.get("subscription_id")
+        inv_org_id = None
+        if inv_sub_id:
+            _inv_rows = (await _atable("subscriptions").select("org_id")
+                         .eq("razorpay_subscription_id", inv_sub_id).limit(1).execute()).data or []
+            if _inv_rows:
+                inv_org_id = str(_inv_rows[0]["org_id"])
+        pay_entity = payload.get("payment", {}).get("entity", {}) or {}
+        await record_billing_event(
+            event_id=event_id, org_id=inv_org_id, event_type=event_type,
+            status="invoice", razorpay_subscription_id=inv_sub_id,
+            razorpay_payment_id=pay_entity.get("id"),
+            amount=inv_entity.get("amount"), currency=inv_entity.get("currency") or "INR",
+            payload=event)
+        logger.info("Recorded %s for sub=%s org=%s",
+                    safe(event_type), safe(inv_sub_id), safe(inv_org_id))
+        return {"status": "ok", "kind": "invoice"}
+
     if not sub_id:
         # Non-subscription event (e.g. a stray payment.captured) — log to the
         # ledger and ignore. We are subscriptions-only; Orders are deprecated.
@@ -766,7 +852,7 @@ async def list_invoices(request: Request):
         invoices = [
             {"id": inv["id"], "amount": inv["amount"], "currency": inv["currency"],
              "status": inv["status"], "created_at": _to_iso(inv.get("created_at")),
-             "pdf_url": inv.get("invoice_url") or None,
+             "pdf_url": inv.get("short_url") or inv.get("invoice_url") or None,
              "description": inv.get("description", "")}
             for inv in raw.get("items", [])
         ]
@@ -784,7 +870,11 @@ async def list_invoices(request: Request):
                 if isinstance(payload, str):
                     import json as _json
                     payload = _json.loads(payload)
-                inv = (payload or {}).get("payload", {}).get("invoice", {}) if isinstance(payload, dict) else {}
+                # The real invoice fields live under payload.invoice.entity —
+                # the prior code stopped at payload.invoice (the wrapper), so
+                # every field below read empty even on a matched row.
+                inv = (((payload or {}).get("payload", {}).get("invoice", {}) or {}).get("entity", {})
+                       if isinstance(payload, dict) else {})
                 if inv.get("id"):
                     invoices.append({
                         "id": inv["id"],
@@ -792,7 +882,7 @@ async def list_invoices(request: Request):
                         "currency": inv.get("currency", "INR"),
                         "status": inv.get("status", ev.get("status", "unknown")),
                         "created_at": _to_iso(inv.get("created_at")),
-                        "pdf_url": inv.get("invoice_url") or None,
+                        "pdf_url": inv.get("short_url") or inv.get("invoice_url") or None,
                         "description": inv.get("description", f"invoice.{ev.get('event_type', 'unknown')}"),
                     })
             if invoices:

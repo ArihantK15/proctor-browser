@@ -51,4 +51,17 @@ contextBridge.exposeInMainWorld('proctor', {
     ipcRenderer.removeAllListeners('proctor-failed');
     ipcRenderer.on('proctor-failed', (_, data) => cb(data));
   },
+  // Tier 1.4 — build a signed attestation payload in the main process
+  // (the renderer is sandboxed and cannot access the secret or crypto).
+  // Pass optional overrides (e.g. {kiosk: true}) merged into the payload.
+  buildAttestation: (overrides) => ipcRenderer.invoke('build-attestation', overrides),
+
+  // Command B — v2 attestation with a server-issued nonce.
+  // Expects {session_key, exam_id, roll, nonce}. Returns {attestation, sig}
+  // with authoritative live values (kiosk state, platform, app.isPackaged).
+  signAttestation: (data) => ipcRenderer.invoke('procta:sign-attestation', data),
+
+  // Command B — signed {kiosk, ts} for heartbeat re-attestation.
+  // Returns {attestation, sig} using the live kiosk state from the main process.
+  signKioskState: () => ipcRenderer.invoke('procta:sign-kiosk-state'),
 });

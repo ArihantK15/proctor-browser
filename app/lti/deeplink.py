@@ -235,6 +235,6 @@ def build_auto_submit_html(
   <form id="dlform" method="post" action="{return_url}">
     <input type="hidden" name="JWT" value="{jwt_response}">
   </form>
-  <script>document.getElementById('dlform').submit();</script>
+  <script src="/static/lti-deeplink-submit.js" defer></script>
 </body>
 </html>"""

@@ -2,6 +2,7 @@
 
 import logging
 import uuid as _uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException, Body
 from ..auth import require_admin
 from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
@@ -31,6 +32,7 @@ async def list_exams(request: Request):
         offset = max(int(request.query_params.get("offset", "0")), 0)
     except ValueError:
         raise HTTPException(status_code=400, detail="limit and offset must be integers")
+    include_archived = request.query_params.get("include_archived") in ("1", "true", "yes")
 
     # Scope roll-up (matches live-sessions / results / analytics): an org-admin
     # sees every teacher's exams in their org, and an optional ?teacher_id=
@@ -42,11 +44,14 @@ async def list_exams(request: Request):
     teacher_ids = await scope_to_teacher_ids(scope)  # None = superadmin, no filter
 
     def _scoped(q):
-        return q if teacher_ids is None else q.in_("teacher_id", teacher_ids)
+        q = q if teacher_ids is None else q.in_("teacher_id", teacher_ids)
+        if not include_archived:
+            q = q.is_("archived_at", "null")
+        return q
 
     result = await _scoped(_atable("exam_config").select(
         "exam_id,exam_title,duration_minutes,starts_at,ends_at,access_code,"
-        "proctoring_sensitivity,created_at,teacher_id,pass_mark"
+        "proctoring_sensitivity,created_at,teacher_id,pass_mark,archived_at"
     )).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     exams = result.data or []
     exam_ids = [e.get("exam_id") for e in exams if e.get("exam_id")]
@@ -87,6 +92,7 @@ async def list_exams(request: Request):
             "session_count":    scounts.get(eid, 0),
             "created_at":       ex.get("created_at", ""),
             "teacher_id":       str(ex.get("teacher_id") or ""),
+            "archived_at":      ex.get("archived_at"),
         })
     return {"exams": out, "limit": limit, "offset": offset, "count": len(out)}
 
@@ -222,6 +228,48 @@ async def delete_exam(exam_id: str, request: Request):
         request=request,
     )
     return {"status": "deleted", "exam_id": exam_id}
+
+
+@router.post("/api/v1/admin/exams/{exam_id}/archive")
+@limiter.limit("30/minute")
+async def archive_exam(exam_id: str, request: Request):
+    """Soft-hide an exam so it disappears from the default exam list and
+    rejects new-student starts. In-flight sessions are untouched.
+    Idempotent — archiving an already-archived exam is a no-op 200.
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    before = await _atable("exam_config").select("exam_id,archived_at")\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    if not before.data:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    # ISO string (not the SQL literal "now()"): the postgres layer coerces an
+    # ISO-8601 string to a real datetime for the timestamptz bind, but would
+    # pass "now()" through as a literal string → asyncpg DataError on real DB.
+    await _atable("exam_config").update({"archived_at": datetime.now(timezone.utc).isoformat()})\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
+    return {"status": "archived", "exam_id": exam_id, "archived": True}
+
+
+@router.post("/api/v1/admin/exams/{exam_id}/unarchive")
+@limiter.limit("30/minute")
+async def unarchive_exam(exam_id: str, request: Request):
+    """Restore a previously-archived exam to full visibility and
+    re-enable new-student starts. Idempotent.
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    before = await _atable("exam_config").select("exam_id,archived_at")\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    if not before.data:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    await _atable("exam_config").update({"archived_at": None})\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    if _cache:
+        _cache.delete(f"exam_config:{tid}:{exam_id or '_'}")
+    return {"status": "unarchived", "exam_id": exam_id, "archived": False}
 
 
 @router.post("/api/v1/admin/exams/{exam_id}/duplicate")

@@ -31,6 +31,58 @@ from ..parsers.region_render import render_region_png
 router = APIRouter(prefix="")
 
 
+# ─── QUESTION VERSIONING (append-only audit trail) ──────────────
+
+async def _record_question_version(
+    question_id: str,
+    teacher_id: str,
+    change_type: str,
+    snapshot: dict,
+    changed_by: str | None = None,
+) -> None:
+    """Append a row to question_versions.
+
+    Non-blocking: logs and swallows errors so version recording never
+    breaks the main CRUD operation.
+    """
+    try:
+        cur = await (
+            _atable("question_versions")
+            .select("version_number")
+            .eq("question_id", question_id)
+            .order("version_number", desc=True)
+            .limit(1)
+            .execute()
+        )
+        max_vn = cur.data[0]["version_number"] if cur.data else 0
+        await _atable("question_versions").insert({
+            "question_id": question_id,
+            "teacher_id": teacher_id,
+            "version_number": max_vn + 1,
+            "change_type": change_type,
+            "snapshot": json.dumps(snapshot),
+            "changed_by": changed_by,
+            "changed_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception as exc:
+        _qbank_log.warning(
+            "[versions] failed to record %s for question %s: %s",
+            change_type, question_id, exc,
+        )
+
+
+def _build_snapshot(row: dict) -> dict:
+    """Build a compact snapshot dict from a question_bank row."""
+    return {
+        "question": row.get("question", ""),
+        "question_type": row.get("question_type", "mcq_single"),
+        "options": row.get("options", {}),
+        "correct": row.get("correct", ""),
+        "image_url": row.get("image_url", "") or "",
+        "tags": row.get("tags", []),
+    }
+
+
 # ─── PYDANTIC MODELS ──────────────────────────────────
 
 class BankQuestionIn(BaseModel):
@@ -140,6 +192,15 @@ async def add_bank_questions(request: Request, body: BankQuestionIn = Body(...))
                          tid, len(rows), e, exc_info=True)
         raise HTTPException(status_code=500,
             detail=f"Failed to save question(s): {type(e).__name__}")
+    # Record a 'create' version for each inserted row.
+    for inserted in (result.data or []):
+        qid = str(inserted.get("id") or "")
+        if qid:
+            await _record_question_version(
+                qid, tid, "create",
+                _build_snapshot(inserted),
+                changed_by=tid,
+            )
     return result.data or []
 
 
@@ -162,10 +223,19 @@ async def update_bank_question(qid: str, request: Request, body: UpdateQuestionI
     if isinstance(fields.get("options"), dict):
         fields["options"] = json.dumps(fields["options"])
     fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    # Fetch the pre-update row for snapshot.
+    before = (await _atable("question_bank").select("*")
+              .eq("id", qid).eq("teacher_id", tid).limit(1).execute()).data or []
     result = await (_atable("question_bank")
                     .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
     if not result.data:
         raise HTTPException(status_code=404, detail="Question not found")
+    # Record an 'update' version with the new state.
+    await _record_question_version(
+        qid, tid, "update",
+        _build_snapshot(result.data[0]),
+        changed_by=tid,
+    )
     return result.data[0]
 
 
@@ -175,8 +245,81 @@ async def delete_bank_question(qid: str, request: Request):
     """Delete a question from the bank."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
+    # Fetch before delete for final snapshot.
+    before = (await _atable("question_bank").select("*")
+              .eq("id", qid).eq("teacher_id", tid).limit(1).execute()).data or []
     await _atable("question_bank").delete().eq("id", qid).eq("teacher_id", tid).execute()
+    if before:
+        await _record_question_version(
+            qid, tid, "delete",
+            _build_snapshot(before[0]),
+            changed_by=tid,
+        )
     return {"ok": True}
+
+
+# ─── QUESTION VERSION HISTORY ───────────────────────────────────
+
+@router.get("/api/v1/admin/question-bank/{qid}/versions")
+@limiter.limit("30/minute")
+async def list_question_versions(qid: str, request: Request):
+    """Return version history for a bank question, newest first."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    # Verify ownership before exposing version history.
+    own = (await _atable("question_bank").select("id")
+           .eq("id", qid).eq("teacher_id", tid).limit(1).execute()).data or []
+    if not own:
+        raise HTTPException(status_code=404, detail="Question not found")
+    rows = (await _atable("question_versions")
+            .select("*").eq("question_id", qid)
+            .order("version_number", desc=True)
+            .limit(500).execute()).data or []
+    return rows
+
+
+@router.post("/api/v1/admin/question-bank/{qid}/versions/{version}/restore")
+@limiter.limit("10/minute")
+async def restore_question_version(qid: str, version: int, request: Request):
+    """Restore a prior snapshot (records a new update version)."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    # Verify ownership.
+    own = (await _atable("question_bank").select("id")
+           .eq("id", qid).eq("teacher_id", tid).limit(1).execute()).data or []
+    if not own:
+        raise HTTPException(status_code=404, detail="Question not found")
+    # Fetch the target version.
+    vrows = (await _atable("question_versions")
+             .select("*").eq("question_id", qid)
+             .eq("version_number", version).limit(1).execute()).data or []
+    if not vrows:
+        raise HTTPException(status_code=404, detail="Version not found")
+    snapshot = vrows[0].get("snapshot") or {}
+    if isinstance(snapshot, str):
+        snapshot = json.loads(snapshot)
+    # Apply the snapshot back to the question_bank row.
+    fields = {
+        "question": snapshot.get("question", ""),
+        "question_type": snapshot.get("question_type", "mcq_single"),
+        "correct": snapshot.get("correct", ""),
+        "image_url": snapshot.get("image_url", "") or "",
+        "tags": snapshot.get("tags", []),
+    }
+    opts = snapshot.get("options")
+    if opts is not None:
+        fields["options"] = json.dumps(opts) if isinstance(opts, dict) else str(opts)
+    fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    result = await (_atable("question_bank")
+                    .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
+    # Record the restore as a new update version.
+    if result.data:
+        await _record_question_version(
+            qid, tid, "update",
+            _build_snapshot(result.data[0]),
+            changed_by=tid,
+        )
+    return {"ok": True, "version": version}
 
 
 @router.post("/api/v1/admin/question-bank/import")

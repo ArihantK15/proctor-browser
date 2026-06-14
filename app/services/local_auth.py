@@ -16,6 +16,8 @@ from ..constants import (
     REFRESH_SIGNING_KEYS,
     RESET_SIGNING_KEY,
     RESET_SIGNING_KEYS,
+    UNSUBSCRIBE_SIGNING_KEY,
+    UNSUBSCRIBE_SIGNING_KEYS,
 )
 
 LOCAL_AUTH_PROVIDER = "local"
@@ -191,6 +193,38 @@ def verify_password_reset_token(token: str, expected_kind: str | None = None) ->
     if claims.get("scope") != "password_reset":
         return None
     if expected_kind and claims.get("kind") != expected_kind:
+        return None
+    return claims
+
+
+def issue_unsubscribe_token(student_id: str, email: str) -> str:
+    """Mint a long-lived (1 year) unsubscribe JWT.
+
+    The token is self-contained — no DB persistence needed. Scope and
+    student identity are embedded so verify_unsubscribe_token can reject
+    tokens minted for other purposes or other accounts.
+    """
+    now = datetime.now(timezone.utc)
+    return jwt.encode({
+        "scope": "unsubscribe",
+        "uid": str(student_id),
+        "email": email,
+        "iat": now,
+        "exp": now + timedelta(days=365),
+    }, UNSUBSCRIBE_SIGNING_KEY, algorithm="HS256")
+
+
+def verify_unsubscribe_token(token: str) -> dict | None:
+    """Decode and validate an unsubscribe token.
+
+    Returns the claims dict on success (scope="unsubscribe", valid
+    signature, not expired) or None on any failure.
+    """
+    try:
+        claims = _decode_with_keys(token, UNSUBSCRIBE_SIGNING_KEYS)
+    except JWTError:
+        return None
+    if claims.get("scope") != "unsubscribe":
         return None
     return claims
 

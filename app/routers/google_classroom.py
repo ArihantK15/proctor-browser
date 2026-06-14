@@ -81,7 +81,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
     await _atable("google_oauth_states").delete().eq("state", state).execute()
 
     # Return a page that closes the popup
-    return HTMLResponse("""<html><body><script>window.close();</script><h3>Google Classroom connected! You can close this window.</h3></body></html>""")
+    return HTMLResponse("""<html><body><h3>Google Classroom connected! You can close this window.</h3><script src="/static/oauth-popup-close.js" defer></script></body></html>""")
 
 
 @router.post("/disconnect")

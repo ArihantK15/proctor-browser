@@ -23,7 +23,7 @@ def _reminder_window(target_minutes: int, half_width_min: int):
     return (centre - timedelta(minutes=half_width_min), centre + timedelta(minutes=half_width_min))
 
 
-def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bool:
+def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int, student_id: str | None = None) -> bool:
     from .emailer import send_exam_reminder
     base = os.environ.get("INVITE_BASE_URL", "https://app.procta.net").rstrip("/")
     invite_url = f"{base}/invite/{inv['token']}"
@@ -35,7 +35,8 @@ def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int) -> bo
                                      exam_title=exam_cfg.get("exam_title") or "Your exam",
                                      invite_url=invite_url, roll_number=inv.get("roll_number") or "",
                                      hours_until=hours_until, exam_starts_at_display=starts_display,
-                                     access_code=inv.get("access_code") or None)
+                                     access_code=inv.get("access_code") or None,
+                                     student_id=student_id)
     except Exception as e:
         _dep_log.error("[reminders] send raised: %s", e)
         result = None
@@ -73,6 +74,21 @@ async def _student_allows_email_reminders(email: str) -> bool:
     return True if val is None else bool(val)
 
 
+async def _lookup_student_id_by_email(email: str) -> str | None:
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    try:
+        rows = (await _atable("student_accounts")
+                .select("id")
+                .eq("email", email)
+                .limit(1)
+                .execute()).data or []
+        return str(rows[0]["id"]) if rows else None
+    except Exception:
+        return None
+
+
 async def _reminder_tick():
     from .models import InviteStatus
 
@@ -108,7 +124,8 @@ async def _reminder_tick():
                     claim = await _atable("student_invites").update({col: now_iso}).eq("token", inv["token"]).is_(col, "null").execute()
                     if not claim.data:
                         continue
-                    sent = await asyncio.to_thread(_send_reminder_for_invite, inv, exam_cfg, hours_until)
+                    student_id = await _lookup_student_id_by_email(inv.get("email") or "")
+                    sent = await asyncio.to_thread(_send_reminder_for_invite, inv, exam_cfg, hours_until, student_id)
                     if not sent:
                         await _atable("student_invites").update({col: None}).eq("token", inv["token"]).execute()
                 except Exception as e:

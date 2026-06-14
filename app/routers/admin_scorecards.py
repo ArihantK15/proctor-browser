@@ -17,6 +17,7 @@ from ..auth.scope import resolve_scope, scope_to_teacher_ids, assert_session_acc
 from ..database import async_table as _atable
 from ..repositories.sessions import (
     assert_session_owned as _assert_session_owned,
+    cohort_roll_numbers as _cohort_roll_numbers,
     fetch_all_results as _fetch_all_results,
     stream_csv_results as _stream_csv_results,
 )
@@ -39,19 +40,21 @@ router = APIRouter(prefix="")
 
 @router.get("/api/v1/export-csv")
 @limiter.limit("10/minute")
-async def export_csv(request: Request, exam_id: str = None):
+async def export_csv(request: Request, exam_id: str = None, group_id: str = None, batch: str = None):
     teacher = await require_admin(request)
     scope = await resolve_scope(teacher, request)
     tids = await scope_to_teacher_ids(scope)
+    roll_numbers = await _cohort_roll_numbers(tids, group_id=group_id, batch=batch)
     return StreamingResponse(
-        _stream_csv_results(teacher["id"], exam_id=exam_id, max_rows=5000, teacher_ids=tids),
+        _stream_csv_results(teacher["id"], exam_id=exam_id, max_rows=5000, teacher_ids=tids,
+                            roll_numbers=roll_numbers),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=results.csv"})
 
 
 @router.get("/api/v1/export-excel")
 @limiter.limit("10/minute")
-async def export_excel(request: Request, exam_id: str = None):
+async def export_excel(request: Request, exam_id: str = None, group_id: str = None, batch: str = None):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.cell import WriteOnlyCell
@@ -59,7 +62,9 @@ async def export_excel(request: Request, exam_id: str = None):
     teacher = await require_admin(request)
     scope = await resolve_scope(teacher, request)
     tids = await scope_to_teacher_ids(scope)
-    results = await _fetch_all_results(teacher["id"], exam_id=exam_id, teacher_ids=tids)
+    roll_numbers = await _cohort_roll_numbers(tids, group_id=group_id, batch=batch)
+    results = await _fetch_all_results(teacher["id"], exam_id=exam_id, teacher_ids=tids,
+                                       roll_numbers=roll_numbers)
 
     wb = Workbook(write_only=True)
     ws = wb.create_sheet()

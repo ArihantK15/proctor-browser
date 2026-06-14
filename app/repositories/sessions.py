@@ -126,8 +126,45 @@ async def check_group_access(roll_number: str, teacher_id: str, exam_id: str) ->
     return False
 
 
+async def cohort_roll_numbers(teacher_ids: list[str], group_id: str | None = None,
+                              batch: str | None = None) -> set[str] | None:
+    """Resolve a group_id and/or batch label to matching roll_numbers.
+
+    * group_id → query ``student_group_members`` for roll_numbers scoped to
+      ``teacher_ids``.
+    * batch    → query ``students`` for roll_numbers whose ``batch`` matches
+      case/space-insensitively, scoped to ``teacher_ids``.
+
+    Returns the union if both are given.  Returns ``None`` when neither cohort
+    axis is provided — the caller should interpret None as "no filter" rather
+    than "empty set".
+    """
+    if not group_id and not batch:
+        return None
+    result: set[str] = set()
+    if group_id:
+        rows = (await _atable("student_group_members")
+                .select("roll_number")
+                .eq("group_id", group_id)
+                .in_("teacher_id", teacher_ids)
+                .execute()).data or []
+        result.update(r["roll_number"] for r in rows if r.get("roll_number"))
+    if batch:
+        folded = batch.strip().casefold()
+        rows = (await _atable("students")
+                .select("roll_number")
+                .in_("teacher_id", teacher_ids)
+                .execute()).data or []
+        result.update(
+            r["roll_number"] for r in rows
+            if r.get("roll_number") and (r.get("batch") or "").strip().casefold() == folded
+        )
+    return result if result else {"__none__"}
+
+
 async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: int = 5000,
-                            teacher_ids: list[str] | None = None) -> list[dict]:
+                            teacher_ids: list[str] | None = None,
+                            roll_numbers: set[str] | None = None) -> list[dict]:
     """Fetch completed-session results. Filter precedence:
        teacher_ids (multi) > teacher_id (single) > unfiltered.
     teacher_ids is the org-scope path: pass the list of teachers the
@@ -152,6 +189,8 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
         query = query.eq("exam_id", exam_id)
     sess_result = await query.order("submitted_at", desc=True).limit(limit).execute()
     sessions = sess_result.data or []
+    if roll_numbers is not None:
+        sessions = [s for s in sessions if s.get("roll_number") in roll_numbers]
     sks = [s["session_key"] for s in sessions]
     vcounts = await violation_counts_by_session(sks)
     cal_tiers = await calibration_tiers_by_session(sks, teacher_id=teacher_id, teacher_ids=teacher_ids)
@@ -173,7 +212,8 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
 
 
 async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_rows: int = 5000,
-                             teacher_ids: list[str] | None = None):
+                             teacher_ids: list[str] | None = None,
+                             roll_numbers: set[str] | None = None):
     from ..utils import fmt_ist
     from ..services.risk import _risk_label
 
@@ -198,7 +238,12 @@ async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_ro
             sess_result = await query.order("submitted_at", desc=True).range(offset, offset + batch_size - 1).execute()
             batch = sess_result.data or []
             if not batch:
-                break
+                break  # genuine end of data — terminate (not an infinite paginate)
+            if roll_numbers is not None:
+                batch = [s for s in batch if s.get("roll_number") in roll_numbers]
+                if not batch:
+                    offset += batch_size
+                    continue  # this page had rows but none matched the cohort
             sks = [s["session_key"] for s in batch]
             vcounts = await violation_counts_by_session(sks)
             if not header_written:

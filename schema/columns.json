@@ -88,6 +88,18 @@
     "razorpay_subscription_id",
     "status"
   ],
+  "coupons": [
+    "active",
+    "code",
+    "created_at",
+    "created_by",
+    "description",
+    "expires_at",
+    "id",
+    "max_redemptions",
+    "razorpay_offer_id",
+    "times_redeemed"
+  ],
   "consent_records": [
     "consent_type",
     "created_at",
@@ -127,6 +139,7 @@
   ],
   "exam_config": [
     "access_code",
+    "archived_at",
     "audio_keywords",
     "audio_keywords_language",
     "created_at",
@@ -151,10 +164,15 @@
     "teacher_id"
   ],
   "exam_sessions": [
+    "attest_nonce",
+    "attest_nonce_issued_at",
+    "attested_at",
+    "client_version",
     "created_at",
     "email",
     "exam_id",
     "full_name",
+    "kiosk_attested",
     "last_heartbeat",
     "paused_at",
     "paused_secs_total",
@@ -320,6 +338,16 @@
     "teacher_id",
     "updated_at"
   ],
+  "question_versions": [
+    "change_type",
+    "changed_at",
+    "changed_by",
+    "id",
+    "question_id",
+    "snapshot",
+    "teacher_id",
+    "version_number"
+  ],
   "refresh_tokens": [
     "expires_at",
     "ip",
@@ -413,6 +441,7 @@
     "teacher_id"
   ],
   "subscriptions": [
+    "billing_cycle",
     "created_at",
     "current_period_end",
     "current_period_start",

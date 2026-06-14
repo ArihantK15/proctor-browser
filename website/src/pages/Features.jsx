@@ -167,23 +167,30 @@ export default function FeaturesPage() {
             </p>
           </motion.div>
 
-          <div className="mt-20 space-y-24">
-            {featureGroups.map((group) => (
-              <div
-                key={group.title}
-                className="border-b border-white/[0.06] pb-16 last:border-0 last:pb-0"
-              >
-                <h2 className="font-display text-2xl font-bold text-white md:text-3xl">{group.title}</h2>
-                <p className="mt-3 text-base leading-relaxed text-slate-400 max-w-2xl">{group.desc}</p>
-                <ul className="mt-6 grid gap-3 sm:grid-cols-2">
-                  {group.features.map((f, fi) => (
-                    <li key={fi} className="flex items-start gap-3 text-sm text-slate-300">
-                      <CheckCircle size={18} className="mt-0.5 shrink-0 text-accent" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-80px' }}
+            transition={{ duration: 0.55 }}
+            className="mx-auto mt-16 max-w-5xl rounded-2xl border border-white/[0.06] bg-white/[0.025] p-4"
+          >
+            <div className="label-mono px-2 pb-3 text-slate-500">Feature map</div>
+            <div className="flex flex-wrap gap-2">
+              {featureGroups.map((group) => (
+                <a
+                  key={group.title}
+                  href={`#${slugify(group.title)}`}
+                  className="rounded-full border border-white/[0.08] bg-navy-950/70 px-4 py-2 text-sm font-medium text-slate-300 no-underline transition-colors hover:border-accent/40 hover:text-white"
+                >
+                  {group.title}
+                </a>
+              ))}
+            </div>
+          </motion.div>
+
+          <div className="mt-20 space-y-10">
+            {featureGroups.map((group, index) => (
+              <FeatureCategory key={group.title} group={group} index={index} />
             ))}
           </div>
 
@@ -197,5 +204,52 @@ export default function FeaturesPage() {
       </section>
       <Footer />
     </div>
+  )
+}
+
+function slugify(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+}
+
+function FeatureCategory({ group, index }) {
+  const [heroFeature, ...supportingFeatures] = group.features
+
+  return (
+    <motion.section
+      id={slugify(group.title)}
+      initial={{ opacity: 0, y: 26 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-80px' }}
+      transition={{ duration: 0.55, delay: Math.min(index * 0.03, 0.15) }}
+      className="story-panel scroll-mt-28"
+    >
+      <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
+        <div>
+          <div className="label-mono text-accent-light">0{index + 1}</div>
+          <h2 className="mt-3 font-display text-2xl font-bold leading-tight text-white md:text-4xl">
+            {group.title}
+          </h2>
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-400">{group.desc}</p>
+        </div>
+
+        <div className="rounded-2xl border border-accent/20 bg-accent/[0.04] p-5 md:p-6">
+          <div className="mb-3 inline-flex rounded-full border border-accent/20 bg-accent/10 px-3 py-1 font-mono text-xs text-accent-light">
+            Core capability
+          </div>
+          <p className="text-xl font-semibold leading-relaxed text-white md:text-2xl">{heroFeature}</p>
+        </div>
+      </div>
+
+      <div className="mt-8 grid gap-3 md:grid-cols-2">
+        {supportingFeatures.map((feature) => (
+          <div key={feature} className="rounded-xl border border-white/[0.06] bg-navy-950/60 p-4">
+            <div className="flex items-start gap-3 text-sm leading-relaxed text-slate-300">
+              <CheckCircle size={17} className="mt-0.5 shrink-0 text-accent" />
+              <span>{feature}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </motion.section>
   )
 }

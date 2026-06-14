@@ -56,8 +56,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   current_period_end       TIMESTAMPTZ,
   created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
   scheduled_plan           TEXT,
-  scheduled_plan_effective_at TIMESTAMPTZ
+  scheduled_plan_effective_at TIMESTAMPTZ,
   -- past_due_since + status CHECK added by phase96
+  billing_cycle            TEXT NOT NULL DEFAULT 'monthly'
 );
 
 -- Immutable financial event log (phase96). Swept at 7 years (phase104).
@@ -137,7 +138,12 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
   termination_reason_code TEXT,
   termination_reason_text TEXT,
   paused_secs_total       INTEGER,
-  paused_at               TIMESTAMPTZ
+  paused_at               TIMESTAMPTZ,
+  kiosk_attested          BOOLEAN,
+  client_version          TEXT,
+  attested_at             TIMESTAMPTZ,
+  attest_nonce            TEXT,
+  attest_nonce_issued_at  TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS violations (
@@ -174,6 +180,19 @@ CREATE TABLE IF NOT EXISTS question_bank (
   tags          TEXT[],
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS question_versions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  question_id     TEXT NOT NULL,
+  teacher_id      TEXT NOT NULL,
+  version_number  INTEGER NOT NULL,
+  change_type     TEXT NOT NULL CHECK (change_type IN ('create','update','delete')),
+  snapshot        JSONB NOT NULL,
+  changed_by      TEXT,
+  changed_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_qversions_q
+  ON question_versions(question_id, version_number DESC);
 
 -- Per-exam delivered questions. options is TEXT (the writer json.dumps it).
 -- The UNIQUE(teacher_id,exam_id,question_id) is the constraint update_questions
@@ -213,6 +232,7 @@ CREATE TABLE IF NOT EXISTS exam_config (
   proctoring_sensitivity  TEXT DEFAULT 'balanced',
   audio_keywords          TEXT,
   audio_keywords_language TEXT DEFAULT 'en',
+  archived_at             TIMESTAMPTZ,
   pass_mark               SMALLINT NOT NULL DEFAULT 40,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (teacher_id, exam_id)
@@ -226,6 +246,20 @@ CREATE TABLE IF NOT EXISTS invite_send_counters (
   day        DATE NOT NULL,
   count      INTEGER NOT NULL DEFAULT 0,
   UNIQUE (teacher_id, day)
+);
+
+-- Coupon codes for Razorpay Offers (phase120).
+CREATE TABLE IF NOT EXISTS coupons (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code              TEXT NOT NULL UNIQUE,
+  razorpay_offer_id TEXT NOT NULL,
+  description       TEXT,
+  max_redemptions   INTEGER,
+  times_redeemed    INTEGER NOT NULL DEFAULT 0,
+  expires_at        TIMESTAMPTZ,
+  active            BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by        TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Breach incident records (phase103).

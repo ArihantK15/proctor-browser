@@ -38,8 +38,11 @@ let currentTeacherProfile = null;
 // this, F5 silently swaps you to examsList[0], and live sessions / results
 // / schedule all blank out because they filter by exam_id.
 let currentExamId = localStorage.getItem('procta_current_exam') || null;
+let currentGroupFilter = '';
+let currentBatchFilter = '';
 let examsList = [];
-let _examsLoaded = false; // true once loadExams() has run (so the exam bar only shows after)
+let _examsLoaded = false;
+let _showArchived = false; // true once loadExams() has run (so the exam bar only shows after)
 // Tabs that are NOT scoped to a single exam — the exam selector / +New / Duplicate
 // / Delete bar is meaningless clutter on these, so it's hidden (see _syncExamBar).
 const _NON_EXAM_TABS = new Set([
@@ -384,9 +387,10 @@ async function _connectSSE(){
 // ── EXAM SELECTOR ──────────────────────────────────────────────
 async function loadExams(){
   try{
-    // Scope the exam list to the selected teacher ("teacher first, then exam").
-    // Empty filter → all in-scope teachers' exams (org-admin roll-up).
-    const r = await authFetch(`${BASE}/api/v1/admin/exams${_teacherQuery('?')}`);
+    const query = _teacherQuery('?');
+    const includeArchived = _showArchived ? 'include_archived=1' : '';
+    const sep = query ? '&' : '?';
+    const r = await authFetch(`${BASE}/api/v1/admin/exams${query}${includeArchived ? sep + includeArchived : ''}`);
     if(!r.ok){
       _examsLoaded = true;
       _syncExamBar();
@@ -402,7 +406,8 @@ async function loadExams(){
     examsList.forEach(ex=>{
       const opt = document.createElement('option');
       opt.value = ex.exam_id;
-      opt.textContent = `${ex.exam_title || 'Untitled'} (${ex.question_count}Q, ${ex.session_count} sessions)`;
+      const badge = ex.archived_at ? ' <span class="exam-archived-badge">Archived</span>' : '';
+      opt.innerHTML = `${ex.exam_title || 'Untitled'} (${ex.question_count}Q, ${ex.session_count} sessions)${badge}`;
       sel.appendChild(opt);
     });
     // Restore previous selection or default to first
@@ -416,9 +421,8 @@ async function loadExams(){
     _examsLoaded = true;
     _syncExamBar();
     document.getElementById('exam-count').textContent = `${examsList.length} exam${examsList.length!==1?'s':''}`;
-    // Show delete button only if >1 exam
+    _updateArchiveButtons();
     document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
-    // Duplicate is always available once an exam is selected
     document.getElementById('duplicate-exam-btn').style.display = currentExamId ? '' : 'none';
   }catch(e){ console.error('loadExams', e); }
 }
@@ -426,6 +430,7 @@ async function loadExams(){
 function onExamSwitch(examId){
   currentExamId = examId;
   try{ localStorage.setItem('procta_current_exam', examId || ''); }catch(_){}
+  _updateArchiveButtons();
   document.getElementById('delete-exam-btn').style.display = examsList.length > 1 ? '' : 'none';
   document.getElementById('duplicate-exam-btn').style.display = currentExamId ? '' : 'none';
   // Refresh the Share-link so /register?t=...&e=<new-exam> stays in
@@ -456,6 +461,8 @@ function _examQuery(sep){
   const params = [];
   if(currentExamId) params.push(`exam_id=${encodeURIComponent(currentExamId)}`);
   if(currentTeacherFilter) params.push(`teacher_id=${encodeURIComponent(currentTeacherFilter)}`);
+  if(currentGroupFilter) params.push(`group_id=${encodeURIComponent(currentGroupFilter)}`);
+  if(currentBatchFilter) params.push(`batch=${encodeURIComponent(currentBatchFilter)}`);
   return params.length ? `${sep}${params.join('&')}` : '';
 }
 
@@ -577,6 +584,43 @@ async function duplicateCurrentExam(){
   } catch (e) {
     showModal('Duplicate failed: ' + e.message);
   }
+}
+
+function _updateArchiveButtons(){
+  const ex = examsList.find(e => e.exam_id === currentExamId);
+  const isArchived = !!(ex && ex.archived_at);
+  document.getElementById('archive-exam-btn').style.display = (!isArchived && currentExamId) ? '' : 'none';
+  document.getElementById('unarchive-exam-btn').style.display = (isArchived && currentExamId) ? '' : 'none';
+}
+
+function toggleShowArchived(){
+  _showArchived = document.getElementById('show-archived-input').checked;
+  // Re-load with the new filter; preserve the selected exam if it's still visible.
+  loadExams();
+}
+
+async function archiveCurrentExam(){
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
+  const ex = examsList.find(e => e.exam_id === currentExamId);
+  const name = ex ? ex.exam_title : 'this exam';
+  if(!(await appConfirm(`Archive "${name}"? It will be hidden from the exam list and students won't be able to start it. Live sessions are unaffected.`, 'Archive exam', {okText:'Archive'}))) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(currentExamId)}/archive`, {method:'POST'});
+    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    await loadExams();
+  }catch(e){ showModal('Archive failed: '+e.message); }
+}
+
+async function unarchiveCurrentExam(){
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
+  const ex = examsList.find(e => e.exam_id === currentExamId);
+  const name = ex ? ex.exam_title : 'this exam';
+  if(!(await appConfirm(`Unarchive "${name}"? It will reappear in the exam list and students can start it again.`, 'Unarchive exam', {okText:'Unarchive'}))) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(currentExamId)}/unarchive`, {method:'POST'});
+    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    await loadExams();
+  }catch(e){ showModal('Unarchive failed: '+e.message); }
 }
 
 async function _tryAutoLogin(){
@@ -2579,7 +2623,13 @@ function renderResults(){
   }).join('');
 }
 
-function filterResults(){renderResults();}
+function filterResults(){
+  currentGroupFilter = document.getElementById('results-group-filter')?.value || '';
+  currentBatchFilter = document.getElementById('results-batch-filter')?.value || '';
+  renderResults();
+  // When cohort filters are active the server must re-filter.
+  if(currentGroupFilter || currentBatchFilter) refreshResults();
+}
 
 // Tracks the prior pending count so we can auto-focus the first card
 // only on the transition from 0 → N. Avoids scroll-jumping every poll.
@@ -3475,11 +3525,19 @@ function sortResults(key){
 // and short-circuit a switch attempt with an honest message instead of a 409.
 const _ENTITLING_BILLING_STATUSES = new Set(['trialing','authenticated','active','past_due','cancelling']);
 let _billingState = { plan: '', status: '' };
+let _billingCycle = 'monthly';
 
 // Client-side plan helpers (mirrors app/constants.py PLANS)
 const _PLAN_PRICE = {starter:2400, growth:12000, pro:30000, enterprise:0};
+const _PLAN_ANNUAL_PRICE = {starter:24000, growth:120000, pro:300000, enterprise:0};
 const _PLAN_NAMES = {starter:'Starter', growth:'Growth', pro:'Pro', enterprise:'Enterprise'};
 function planName(id){ return _PLAN_NAMES[String(id||'').toLowerCase()] || (id||'Unknown'); }
+function planPrice(id, cycle){
+  id = String(id||'').toLowerCase();
+  cycle = String(cycle||_billingCycle).toLowerCase();
+  const prices = cycle === 'annual' ? _PLAN_ANNUAL_PRICE : _PLAN_PRICE;
+  return prices[id] || 0;
+}
 function fmtINR(paise){ return '\u20b9'+(paise||0).toLocaleString('en-IN'); }
 function fmtDate(isoStr){
   if(!isoStr) return '';
@@ -3490,15 +3548,51 @@ function fmtDate(isoStr){
 // Reflect the active subscription in the plan tiles. When entitled, non-current
 // tiles get an enabled CTA (Upgrade/Downgrade) wired to changePlan(). When not
 // entitled (no subscription yet), tiles keep the original upgradePlan handler.
+// Respects _billingCycle to show monthly or annual pricing.
 function updateBillingTiles(plan, status){
   const cur = String(plan || '').toLowerCase();
   const entitled = _ENTITLING_BILLING_STATUSES.has(String(status || '').toLowerCase());
+  const cycle = String(_billingCycle || 'monthly').toLowerCase();
+  const isAnnual = cycle === 'annual';
   document.querySelectorAll('#billing-plans .plan-tile').forEach(tile => {
     const p = String(tile.dataset.plan || '').toLowerCase();
     const cta = tile.querySelector('.plan-cta');
     const isCurrent = entitled && p === cur;
     tile.classList.toggle('is-current', isCurrent);
     tile.style.cursor = (entitled && !isCurrent) ? 'pointer' : (entitled ? 'default' : 'pointer');
+
+    // Update price display
+    const monthlyAmtEl = tile.querySelector('.plan-amount');
+    const periodEl = tile.querySelector('.plan-period');
+    const savingsEl = tile.querySelector('.plan-savings');
+    if(monthlyAmtEl && periodEl){
+      const monthlyPrice = _PLAN_PRICE[p] || 0;
+      const annualPrice = _PLAN_ANNUAL_PRICE[p] || 0;
+      if(isAnnual && annualPrice){
+        monthlyAmtEl.textContent = fmtINR(annualPrice).replace(/^\u20b9/,'');
+        if(periodEl) periodEl.textContent = '/ year';
+      }else{
+        monthlyAmtEl.textContent = fmtINR(monthlyPrice).replace(/^\u20b9/,'');
+        if(periodEl) periodEl.textContent = '/ month';
+      }
+    }
+    // Show/hide savings badge
+    if(savingsEl){
+      const monthlyPrice = _PLAN_PRICE[p] || 0;
+      const annualPrice = _PLAN_ANNUAL_PRICE[p] || 0;
+      if(isAnnual && annualPrice){
+        const savings = monthlyPrice * 12 - annualPrice;
+        if(savings > 0){
+          savingsEl.textContent = 'Save '+fmtINR(savings)+' / 2 months free';
+          savingsEl.style.display = '';
+        }else{
+          savingsEl.style.display = 'none';
+        }
+      }else{
+        savingsEl.style.display = 'none';
+      }
+    }
+
     if(!cta) return;
     if(isCurrent){
       cta.style.display = 'none';
@@ -3508,8 +3602,8 @@ function updateBillingTiles(plan, status){
       cta.disabled = false;
       cta.removeAttribute('title');
       cta.className = cta.className.replace(/\bis-downgrade\b/g,'').trim();
-      const curPrice = _PLAN_PRICE[cur] || 0;
-      const tilePrice = _PLAN_PRICE[p] || 0;
+      const curPrice = planPrice(cur, cycle);
+      const tilePrice = planPrice(p, cycle);
       if(tilePrice > curPrice){
         cta.textContent = 'Upgrade';
         cta.classList.remove('is-downgrade');
@@ -3518,7 +3612,7 @@ function updateBillingTiles(plan, status){
         cta.classList.add('is-downgrade');
       }
       tile.dataset.action = 'changePlan';
-      tile.dataset.args = JSON.stringify([p]);
+      tile.dataset.args = JSON.stringify([p, cycle]);
       if(cta.dataset.action !== 'changePlan') cta.dataset.action = 'changePlan';
       if(!cta.dataset.args) cta.dataset.args = tile.dataset.args;
     }else{
@@ -3528,18 +3622,19 @@ function updateBillingTiles(plan, status){
       cta.className = cta.className.replace(/\bis-downgrade\b/g,'').trim();
       cta.textContent = cta.dataset.label || cta.textContent;
       tile.dataset.action = 'upgradePlan';
-      tile.dataset.args = JSON.stringify([p]);
+      tile.dataset.args = JSON.stringify([p, cycle]);
       if(cta.dataset.action !== 'upgradePlan') cta.dataset.action = 'upgradePlan';
       if(!cta.dataset.args) cta.dataset.args = tile.dataset.args;
     }
   });
 }
 
-async function upgradePlan(planId){
+async function upgradePlan(planId, billingCycle, couponCode){
   // Recurring Subscriptions only — create a Razorpay subscription and redirect
   // to its hosted checkout (UPI Autopay / NACH). Entitlement is granted on the
   // server only when the subscription activates (webhook → reconcile).
   const resultEl = document.getElementById('upgrade-result');
+  const cycle = String(billingCycle || _billingCycle || 'monthly').toLowerCase();
   // Block switching while a plan is active — matches the server's 409 guard.
   // Gives instant feedback instead of a round-trip that just errors.
   const cur = String(_billingState.plan || '').toLowerCase();
@@ -3554,10 +3649,13 @@ async function upgradePlan(planId){
   }
   if(resultEl){ resultEl.textContent = 'Creating subscription...'; resultEl.style.color = 'var(--text-secondary)'; }
   try{
+  const body = {plan_id:planId, billing_cycle: cycle};
+  const cc = couponCode || _getCouponCode();
+  if(cc){ body.coupon_code = cc; }
     const r = await authFetch(`${BASE}/api/v1/billing/create-subscription`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({plan_id:planId})
+      body:JSON.stringify(body)
     });
     const d = await r.json().catch(()=>({}));
     if(!r.ok){ throw new Error(d.detail||'Subscription failed'); }
@@ -3574,7 +3672,70 @@ async function upgradePlan(planId){
   }
 }
 
-async function changePlan(planId){
+function toggleBillingCycle(){
+  const input = document.getElementById('billing-cycle-input');
+  const checked = input ? input.checked : false;
+  _billingCycle = checked ? 'annual' : 'monthly';
+  // Update toggle label active state
+  document.querySelectorAll('.billing-cycle-label').forEach(lbl => {
+    lbl.classList.toggle('is-active', lbl.dataset.cycle === _billingCycle);
+  });
+  // Show/hide savings badge
+  const badge = document.getElementById('billing-cycle-savings-badge');
+  if(badge) badge.style.display = checked ? '' : 'none';
+  // Re-render plan tiles with the new cycle
+  updateBillingTiles(_billingState.plan, _billingState.status);
+}
+
+// ── Coupon helpers ───────────────────────────────────────────
+let _validatedCouponCode = null;
+
+function _getCouponCode(){
+  return _validatedCouponCode;
+}
+
+function _clearCoupon(){
+  _validatedCouponCode = null;
+  document.getElementById('coupon-status').textContent = '';
+  document.getElementById('upgrade-coupon-status').textContent = '';
+}
+
+async function _validateCouponUI(inputId, statusId){
+  const input = document.getElementById(inputId);
+  const statusEl = document.getElementById(statusId);
+  if(!input || !statusEl) return;
+  const code = input.value.trim();
+  if(!code){ statusEl.textContent = ''; _validatedCouponCode = null; return; }
+  statusEl.textContent = 'Validating...';
+  statusEl.style.color = 'var(--text-muted)';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/validate-coupon?code=${encodeURIComponent(code)}`);
+    const d = await r.json().catch(()=>({}));
+    if(d.valid){
+      _validatedCouponCode = code;
+      statusEl.textContent = d.description || 'Coupon applied!';
+      statusEl.style.color = 'var(--emerald)';
+    }else{
+      _validatedCouponCode = null;
+      statusEl.textContent = 'Invalid or expired coupon code.';
+      statusEl.style.color = 'var(--red)';
+    }
+  }catch(e){
+    _validatedCouponCode = null;
+    statusEl.textContent = 'Could not validate coupon.';
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+function applyCoupon(){
+  _validateCouponUI('upgrade-coupon-input', 'upgrade-coupon-status');
+}
+
+function applyCouponBilling(){
+  _validateCouponUI('coupon-input', 'coupon-status');
+}
+
+async function changePlan(planId, billingCycle){
   const cur = String(_billingState.plan || '').toLowerCase();
   const curPrice = _PLAN_PRICE[cur] || 0;
   const newPrice = _PLAN_PRICE[planId] || 0;
@@ -6282,6 +6443,7 @@ function renderBank(data){
       <div style="display:flex;gap:4px;flex-shrink:0">
         <button class="btn btn-secondary btn-sm" data-action="saveBankToExamSingle" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px" title="Add to current exam">+Exam</button>
         <button class="btn btn-secondary btn-sm" data-action="editBankQ" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px" title="Edit question">Edit</button>
+        <button class="btn btn-secondary btn-sm" data-action="showQHistory" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px" title="Version history">History</button>
         <button class="btn btn-secondary btn-sm" data-action="deleteBankQ" data-args='${_jsonArgsForAttr(q.id)}' style="padding:2px 8px;font-size:10px;color:var(--red)" title="Delete">&times;</button>
       </div>
     </div>`;
@@ -7098,9 +7260,23 @@ async function removeOrgMember(memberId){
 }
 
 function populateGroupSelect(){
-  const sel = document.getElementById('assign-group-select');
-  sel.innerHTML = '<option value="">Select a group to restrict access...</option>' +
-    _groupsData.map(g=>`<option value="${escAttr(g.id)}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
+  const assignSel = document.getElementById('assign-group-select');
+  if(assignSel){
+    assignSel.innerHTML = '<option value="">Select a group to restrict access...</option>' +
+      _groupsData.map(g=>`<option value="${escAttr(g.id)}">${_escHtml(g.group_name)} (${g.member_count||0})</option>`).join('');
+  }
+  const resultsSel = document.getElementById('results-group-filter');
+  if(resultsSel){
+    const cur = resultsSel.value;
+    resultsSel.innerHTML = '<option value="">All groups</option>' +
+      _groupsData.map(g=>`<option value="${escAttr(g.id)}"${g.id===cur?' selected':''}>${_escHtml(g.group_name)}</option>`).join('');
+  }
+  const inviteSel = document.getElementById('invite-from-group');
+  if(inviteSel){
+    const cur = inviteSel.value;
+    inviteSel.innerHTML = '<option value="">— or pull from a group —</option>' +
+      _groupsData.map(g=>`<option value="${escAttr(g.id)}"${g.id===cur?' selected':''}>${_escHtml(g.group_name)}</option>`).join('');
+  }
 }
 
 async function loadExamGroups(){
@@ -7182,6 +7358,12 @@ function populateBatchSelects(){
   if(cohortSel){
     const cur = cohortSel.value;
     cohortSel.innerHTML = '<option value="">Select a batch…</option>' +
+      _allBatchesCache.map(b=>`<option value="${escAttr(b)}"${b===cur?' selected':''}>${_escHtml(b)}</option>`).join('');
+  }
+  const resultsBatch = document.getElementById('results-batch-filter');
+  if(resultsBatch){
+    const cur = resultsBatch.value;
+    resultsBatch.innerHTML = '<option value="">All batches</option>' +
       _allBatchesCache.map(b=>`<option value="${escAttr(b)}"${b===cur?' selected':''}>${_escHtml(b)}</option>`).join('');
   }
 }
@@ -7318,6 +7500,8 @@ async function sendInvites(){
     recipients: rows,
     custom_message: document.getElementById('invite-message').value.trim(),
     per_invite_code: document.getElementById('invite-per-code').checked,
+    group_id: currentGroupFilter || null,
+    batch: currentBatchFilter || null,
   };
   const exp = document.getElementById('invite-expires').value;
   if(exp) payload.expires_at = new Date(exp).toISOString();
@@ -8393,6 +8577,59 @@ function _closeToastParent(){
   toast?.remove();
 }
 function _focusLoginPwd(){ document.getElementById('login-pwd')?.focus(); }
+
+// ── Question version history ───────────────────────────────────
+function showQHistory(qid){
+  authFetch(`${BASE}/api/v1/admin/question-bank/${qid}/versions`).then(r=>{
+    if(!r.ok) throw new Error('Failed to load versions');
+    return r.json();
+  }).then(versions=>{
+    if(!versions.length){
+      showModal('No version history for this question.');
+      return;
+    }
+    const rows = versions.map((v,i)=>{
+      const ts = v.changed_at ? new Date(v.changed_at).toLocaleString() : '-';
+      const typeBadge = v.change_type === 'create' ? 'color:var(--emerald)' :
+                        v.change_type === 'delete' ? 'color:var(--red)' : '';
+      const restoreBtn = v.change_type === 'delete' ? '' :
+        `<button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:10px"
+                 onclick="restoreQVersion('${escAttr(qid)}',${v.version_number})">Restore</button>`;
+      return `<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1">
+          <span style="font-weight:600">v${v.version_number}</span>
+          <span style="${typeBadge};margin-left:6px;font-size:11px">${v.change_type}</span>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:8px">${ts}</span>
+          ${v.changed_by ? `<span style="font-size:10px;color:var(--text-muted)">by ${_escHtml(v.changed_by)}</span>` : ''}
+        </div>
+        ${restoreBtn}
+      </div>`;
+    }).join('');
+    _openAppDialog({
+      title: 'Version History',
+      body: `<div style="max-height:60vh;overflow-y:auto">${rows}</div>`,
+      mode: 'alert',
+      okText: 'Close',
+    });
+  }).catch(e=>{
+    console.error('showQHistory:', e);
+    showModal('Failed to load version history.');
+  });
+}
+
+function restoreQVersion(qid, version){
+  appConfirm(`Restore version ${version}? This creates a new update version.`, 'Restore Question').then(confirmed=>{
+    if(!confirmed) return;
+    authFetch(`${BASE}/api/v1/admin/question-bank/${qid}/versions/${version}/restore`, {method:'POST'}).then(r=>{
+      if(!r.ok) throw new Error('Restore failed');
+      showModal(`Restored to version ${version}.`);
+      loadBank();
+    }).catch(e=>{
+      console.error('restoreQVersion:', e);
+      showModal('Failed to restore question.');
+    });
+  });
+}
 
 const _BLOCKED_DELEGATED_ACTIONS = new Set(['close', 'open', 'name', 'blur', 'focus', 'status', 'print', 'alert', 'confirm', 'prompt', 'eval', 'Function', 'fetch']);
 function _resolveDelegatedAction(name){

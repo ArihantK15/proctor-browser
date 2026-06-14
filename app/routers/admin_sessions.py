@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request, HTTPException, Body
 from ..auth import require_admin
 from ..repositories.sessions import (
     assert_session_owned as _assert_session_owned,
+    cohort_roll_numbers as _cohort_roll_numbers,
     fetch_all_results as _fetch_all_results,
 )
 from ..services.sessions import (
@@ -81,13 +82,16 @@ async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1,
 
 @router.get("/api/v1/results")
 @limiter.limit("60/minute")
-async def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
+async def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50,
+                          group_id: str = None, batch: str = None):
     teacher = await require_admin(request)
     from ..auth.scope import resolve_scope, scope_to_teacher_ids
     scope = await resolve_scope(teacher, request)
     tids = await scope_to_teacher_ids(scope)
+    roll_numbers = await _cohort_roll_numbers(tids, group_id=group_id, batch=batch)
     all_results = await _fetch_all_results(
         teacher_id=str(teacher["id"]), exam_id=exam_id, teacher_ids=tids,
+        roll_numbers=roll_numbers,
     )
     start = (page - 1) * page_size
     end = start + page_size

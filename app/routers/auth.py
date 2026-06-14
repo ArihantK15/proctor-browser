@@ -1939,18 +1939,23 @@ async def student_exams(request: Request):
             if done_result.data:
                 session = done_result.data[0]
 
-        # Compute status
+        # Compute status. Window FIRST: a not-yet-started ("upcoming") window must
+        # NOT be relabelled "completed" by a PRIOR attempt (retake / re-scheduled
+        # exam, or a reused test account) — that bug made an upcoming exam show as
+        # already completed.
+        window = _exam_window_status(starts_at, ends_at, now, duration)
         if session:
             st = (session.get("status") or "").lower()
             if st == SessionStatus.IN_PROGRESS:
                 status = "in_progress"
             elif st in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED,
                       SessionStatus.FORCE_SUBMITTED):
-                status = "completed"
+                # A completion from a PRIOR window can't apply to an upcoming one.
+                status = "upcoming" if window == "upcoming" else "completed"
             else:
-                status = _exam_window_status(starts_at, ends_at, now, duration)
+                status = window
         else:
-            status = _exam_window_status(starts_at, ends_at, now, duration)
+            status = window
 
         exams.append({
             "exam_title": cfg.get("exam_title") or cfg.get("title") or "Exam",

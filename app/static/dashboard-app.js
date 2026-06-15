@@ -4896,7 +4896,7 @@ async function handleQImageUpload(idx, file){
       const r = await authFetch(`${BASE}/api/v1/admin/upload-question-image`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({image:b64, filename:file.name||''})
+        body:JSON.stringify({data_url:b64, filename:file.name||''})
       });
       if(!r.ok){
         const err = await r.json().catch(()=>({detail:'Upload failed'}));

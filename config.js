@@ -218,8 +218,9 @@ const PIP_PACKAGES = [
   // bump can't land unnoticed while patches/minors still flow.
   'opencv-python>=4.13.0.92,<5', 'numpy>=1.24.0,<3', 'requests',
   'uniface==3.7.0', 'onnxruntime>=1.19.2,<2',
-  // YOLOv8n now runs on onnxruntime from a bundled weights/yolov8n.onnx —
-  // we no longer install ultralytics (which dragged in torch, ~2 GB).
+  // Object detection runs on onnxruntime from a bundled weights/yolo26n.onnx
+  // (legacy weights/yolov8n.onnx is the fallback) — we no longer install
+  // ultralytics (which dragged in torch, ~2 GB).
   'sounddevice',
   // Phase 75 — audio detection
   'vosk', 'python_speech_features',

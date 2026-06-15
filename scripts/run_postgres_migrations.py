@@ -26,9 +26,19 @@ MIGRATIONS_DIR = Path(__file__).parent.parent / "migrations"
 
 
 def _database_url() -> str:
-    url = os.environ.get("DATABASE_URL", "").strip()
+    # Migrations run DDL (CREATE/ALTER/CREATE POLICY, plus _ensure_bookkeeping's
+    # CREATE EXTENSION/SCHEMA/TABLE) and MUST connect as a privileged role — NOT
+    # the restricted runtime role used once RLS is cut over (procta_app, which
+    # intentionally cannot do DDL → "permission denied for database"). Prefer an
+    # explicit MIGRATIONS_DATABASE_URL (the owner `procta`, ideally straight to
+    # postgres rather than pgbouncer, since some DDL can't run under transaction
+    # pooling); fall back to DATABASE_URL for pre-cutover / supabase setups where
+    # the runtime role is already the owner.
+    url = (os.environ.get("MIGRATIONS_DATABASE_URL", "").strip()
+           or os.environ.get("DATABASE_URL", "").strip())
     if not url:
-        raise RuntimeError("DATABASE_BACKEND=postgres requires DATABASE_URL")
+        raise RuntimeError("DATABASE_BACKEND=postgres requires DATABASE_URL "
+                           "(or MIGRATIONS_DATABASE_URL)")
     return url
 
 

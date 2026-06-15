@@ -147,7 +147,13 @@ privileged-only — so nothing is silently wide-open.
   ```
 - **D. Cutover (staging first, then prod).** Prereqs: A applied, C applied +
   C-verify green, pgbouncer knows `procta_app`.
-  1. **Staging:** `RLS_SESSION_CONTEXT=1` + `DATABASE_URL`→`procta_app`, restart.
+  **Migration DSN (required):** the startup migration runner does DDL
+  (incl. `_ensure_bookkeeping`'s CREATE EXTENSION/SCHEMA/TABLE) and CANNOT run as
+  `procta_app`. Set `MIGRATIONS_DATABASE_URL` to the owner, straight to postgres
+  (not pgbouncer): `postgresql://procta:<pw>@postgres:5432/procta`.
+  `run_postgres_migrations.py` prefers it over `DATABASE_URL`; without it the app
+  crash-loops on `permission denied for database procta` at startup.
+  1. **Staging:** `RLS_SESSION_CONTEXT=1` + `DATABASE_URL`→`procta_app` + `MIGRATIONS_DATABASE_URL`→owner, restart.
      Run the full test suite + §5 probes + app smoke (login, exam, dashboard,
      chat). Watch logs for `permission denied` / unexpected 0-row results.
   2. **Prod (off-peak):** same env change + restart; re-run §5 probes on a canary.

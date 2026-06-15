@@ -1323,27 +1323,39 @@ _event_q: "Queue" = Queue(maxsize=500)
 _dropped_events = 0
 _dropped_lock = threading.Lock()
 
+# A dequeued event whose POST fails transiently is RETRIED, not dropped — the
+# old loop discarded it the moment it left the queue (dequeue == commit), so a
+# single network blip silently lost a violation with no counted signal.
+_EVENT_MAX_RETRIES = 5
+
 def _event_upload_loop():
+    global _dropped_events
     consecutive_failures = 0
+    pending = None        # payload kept across iterations to retry on failure
+    pending_tries = 0     # attempts already spent on `pending`
     while True:
-        try:
-            payload = _event_q.get(timeout=1)
-        except Empty:
-            continue
-        ok = False
+        if pending is not None:
+            payload = pending
+        else:
+            try:
+                payload = _event_q.get(timeout=1)
+            except Empty:
+                continue
+        status = None
         err_msg = ""
         try:
             r = _http.post(SERVER_URL, json=payload, timeout=5)
-            ok = r.ok
-            if not ok:
+            status = r.status_code
+            if not r.ok:
                 err_msg = f"HTTP {r.status_code}"
         except Exception as e:
             err_msg = str(e)
-        if ok:
+        if status is not None and 200 <= status < 300:
+            pending = None
+            pending_tries = 0
             consecutive_failures = 0
             # Connectivity is back — report any drops that happened during
             # the outage, exactly once, so the gap is visible server-side.
-            global _dropped_events
             with _dropped_lock:
                 n = _dropped_events
                 _dropped_events = 0
@@ -1358,11 +1370,33 @@ def _event_upload_loop():
                     # Still flaky — fold the count back in for the next recovery.
                     with _dropped_lock:
                         _dropped_events += n
+            continue
+        # A 4xx won't succeed on retry (bad payload / auth) — drop it so one
+        # poison event can't wedge delivery of everything queued behind it.
+        if status is not None and 400 <= status < 500:
+            print(f"[Event Upload Error] {err_msg} — dropping (client error)")
+            pending = None
+            pending_tries = 0
+            with _dropped_lock:
+                _dropped_events += 1
+            continue
+        # Transient (5xx / connection): keep the event and retry after backoff,
+        # up to a bounded budget so a permanently-unreachable server can't
+        # block the queue forever. Exhausting the budget counts as a drop.
+        consecutive_failures += 1
+        pending_tries += 1
+        if pending_tries <= _EVENT_MAX_RETRIES:
+            pending = payload
         else:
-            consecutive_failures += 1
-            backoff = min(30, 2 ** min(consecutive_failures, 5))
-            print(f"[Event Upload Error] {err_msg} (backoff: {backoff}s)")
-            time.sleep(backoff)
+            print(f"[Event Upload Error] {err_msg} — giving up after "
+                  f"{_EVENT_MAX_RETRIES} retries")
+            pending = None
+            pending_tries = 0
+            with _dropped_lock:
+                _dropped_events += 1
+        backoff = min(30, 2 ** min(consecutive_failures, 5))
+        print(f"[Event Upload Error] {err_msg} (backoff: {backoff}s)")
+        time.sleep(backoff)
 
 threading.Thread(target=_event_upload_loop, daemon=True, name="event-uploader").start()
 
@@ -1372,6 +1406,24 @@ def _flush_events(timeout=3.0):
     deadline = time.time() + timeout
     while not _event_q.empty() and time.time() < deadline:
         time.sleep(0.1)
+
+def _post_event_now(payload, attempts=3, timeout=4):
+    """SYNCHRONOUS best-effort event POST with a short bounded retry. Used for
+    the terminal session_ended at teardown: the async uploader may be mid-
+    backoff and _http is about to close, so routing the final event through the
+    queue risked losing it on a transient blip. A couple of quick retries land
+    it without hanging exit on a genuine outage (the server reaper reconciles
+    that case). Returns True iff the server accepted it."""
+    for i in range(attempts):
+        try:
+            r = _http.post(SERVER_URL, json=payload, timeout=timeout)
+            if r.ok:
+                return True
+        except Exception:
+            pass
+        if i < attempts - 1:
+            time.sleep(0.5 * (i + 1))
+    return False
 
 def log_event(etype, severity, details):
     global violation_count, _dropped_events
@@ -1999,7 +2051,7 @@ def run_system_check(cap: Optional[cv2.VideoCapture] = None) -> dict:
     # 6. YOLO object detection
     results["checks"]["object_detection"] = {
         "status": "pass" if YOLO_AVAILABLE else "warn",
-        "detail": "YOLOv8 ready" if YOLO_AVAILABLE else "Object detection disabled"
+        "detail": "Object detector ready" if YOLO_AVAILABLE else "Object detection disabled"
     }
 
     # 7. Wrong-person detection
@@ -3150,9 +3202,15 @@ def _compute_proctoring_tier(models: dict) -> dict:
         tier = "full"
     else:
         tier = "reduced"
+    # `missing` lists only the models the TIER is computed from, so it can't
+    # contradict the tier (the old all-models version produced e.g. tier:"full"
+    # with missing:["eyes"]). onnxruntime is omitted — when it's down the
+    # detectors that depend on it already appear here, and its own failure is
+    # still reported separately via model_errors.
+    considered = ("retina",) + secondary
     return {
         "tier": tier,
-        "missing": sorted(k for k, v in models.items() if not v),
+        "missing": sorted(k for k in considered if not models.get(k)),
     }
 
 
@@ -3539,18 +3597,26 @@ def main():
             if _sahi_available():
                 sahi_worker.stop()
         except Exception: pass
+        try: cap.release()
+        except Exception: pass
+        # Drain the async backlog, THEN deliver the terminal session_ended
+        # SYNCHRONOUSLY before closing _http. The async uploader may be mid-
+        # backoff and _http is about to close, so the queue+flush path could
+        # silently lose the final event on a transient blip; a short bounded
+        # retry lands it without hanging exit on a real outage.
+        try: _flush_events()
+        except Exception: pass
         if not CALIBRATION_MODE:
             try:
                 duration = int(time.time() - session_start)
-                log_event("session_ended", "low",
-                          f"violations:{violation_count} | duration:{duration}s")
+                _conf = CONFIDENCE.get("session_ended", 0.75)
+                _ended = dict(
+                    session_id=SESSION_ID, event_type="session_ended", severity="low",
+                    details=(f"violations:{violation_count} | duration:{duration}s "
+                             f"| confidence:{int(_conf * 100)}%"))
+                if not _post_event_now(_ended):
+                    print("[PROCTOR] ⚠ session_ended not delivered — server will reconcile")
             except Exception: pass
-        try: cap.release()
-        except Exception: pass
-        # Drain queued events (incl. session_ended) BEFORE closing the HTTP
-        # session — the event uploader posts through _http.
-        try: _flush_events()
-        except Exception: pass
         try: _http.close()
         except Exception: pass
         try: _cleanup_evidence_dir()

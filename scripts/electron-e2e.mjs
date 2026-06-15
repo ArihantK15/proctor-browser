@@ -76,6 +76,27 @@ function evaluate(target, expression) {
   });
 }
 
+// Poll Runtime.evaluate until predicate(value) holds, or fail after timeoutMs.
+//
+// waitForTarget resolves at page-target CREATION — well before the document has
+// parsed/laid out and before a deferred app script runs. In the lobby every view
+// (web-landing / auth / dashboard) starts display:none and is revealed by
+// student-app.js once it picks one; innerText only counts VISIBLE text, so it is
+// ~empty until that script runs. A one-shot evaluate therefore samples a
+// transiently-blank frame on a slow CI runner (the e2e-electron flake). Polling
+// the real end-state removes the race while still failing on a genuinely blank
+// frame — the predicate simply never goes true within the timeout.
+async function waitForEval(target, expression, { predicate = (v) => !!v, timeoutMs = 12000, label = '' } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    try { last = await evaluate(target, expression); if (predicate(last)) return last; }
+    catch (e) { last = `eval error: ${e && e.message}`; }
+    await sleep(250);
+  }
+  throw new Error(`waitForEval: ${label || expression} not satisfied within ${timeoutMs}ms (last value: ${JSON.stringify(last)})`);
+}
+
 // ── app lifecycle ─────────────────────────────────────────────────────────
 function launchApp({ port, env = {} }) {
   const userDataDir = mkdtempSync(join(tmpdir(), 'procta-e2e-'));
@@ -118,10 +139,13 @@ describe('exam flow (normal load)', () => {
       'window.procta_native must exist under sandbox:true (lobby_preload regression guard)');
     const serverUrl = await evaluate(lobby, '(window.procta_native && window.procta_native.serverUrl) || null');
     assert.ok(serverUrl && /^https?:\/\//.test(serverUrl), `bridge.serverUrl should be a URL, got ${serverUrl}`);
-    assert.ok(await evaluate(lobby, 'document.body ? document.body.innerText.trim().length : 0') > 20,
-      'dashboard rendered content (guards a blank frame)');
-    assert.ok(await evaluate(lobby, 'document.querySelectorAll("input,button").length') > 0,
-      'lobby rendered interactive controls');
+    // Poll until a view is actually revealed + laid out rather than sampling a
+    // still-hidden frame mid-load (see waitForEval). Still guards a blank frame:
+    // if no view ever renders, the predicate never holds and the test fails.
+    await waitForEval(lobby, 'document.body ? document.body.innerText.trim().length : 0',
+      { predicate: (n) => n > 20, label: 'lobby rendered visible content (guards a blank frame)' });
+    await waitForEval(lobby, 'document.querySelectorAll("input,button").length',
+      { predicate: (n) => n > 0, label: 'lobby rendered interactive controls' });
   });
 
   test('launching the exam window exposes the proctor bridge', { skip: CI_SKIP }, async () => {

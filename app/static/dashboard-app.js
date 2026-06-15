@@ -819,6 +819,9 @@ async function _refreshTokens(){
 // that pass {'Content-Type':'application/json'} still get authenticated.
 async function authFetch(url, opts={}){
   opts.headers = {...hdr(), ...(opts.headers||{})};
+  // Let the browser set the multipart boundary for file uploads — a
+  // forced application/json header would corrupt the request body.
+  if(opts.body instanceof FormData) delete opts.headers['Content-Type'];
   opts.credentials = opts.credentials || 'include';
   if(!opts.method || opts.method==='POST' || opts.method==='PUT' || opts.method==='PATCH' || opts.method==='DELETE'){
     const csrf = await _ensureCsrfToken();
@@ -1177,6 +1180,8 @@ function _dispatchTabLoad(tab){
      try{ if(typeof loadAccessCode==='function') loadAccessCode(); }catch(_){}
      try{ if(typeof loadSchedule==='function') loadSchedule(); }catch(_){}
      try{ if(typeof loadShuffleConfig==='function') loadShuffleConfig(); }catch(_){}
+     try{ if(typeof loadSensitivity==='function') loadSensitivity(); }catch(_){}
+     try{ if(typeof loadAudioKeywords==='function') loadAudioKeywords(); }catch(_){}
      try{ if(typeof loadTemplates==='function') loadTemplates(); }catch(_){}
      try{ if(typeof loadGoogleClassroom==='function') loadGoogleClassroom(); }catch(_){}
    }
@@ -1187,6 +1192,8 @@ function _dispatchTabLoad(tab){
   if(tab==='org-settings') loadOrgSettings();
   if(tab==='all-orgs') loadAllOrgs();
   if(tab==='issues') loadIssues();
+  if(tab==='review') loadReview();
+  if(tab==='privacy'){ const el=document.getElementById('sar-result'); if(el) el.textContent=''; }
 }
 
 // Standard ARIA tablist keyboard pattern: ArrowLeft / ArrowRight cycle
@@ -1389,6 +1396,49 @@ async function loadOrgOverview(){
     const m = await r.json();
     document.getElementById('org-teachers').textContent = (m.members||[]).length;
   }catch(_){}
+  try{ if(typeof loadOrgLiveMonitor==='function') loadOrgLiveMonitor(); }catch(_){}
+}
+
+// Org-wide live monitor (ported from the dropped React LiveMonitor). Lists
+// every in-progress session across the org via /api/v1/admin/live-monitor,
+// which scopes results by the caller's role (admin → org-wide).
+async function loadOrgLiveMonitor(){
+  const body = document.getElementById('org-live-body');
+  const countEl = document.getElementById('org-live-count');
+  if(!body) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/live-monitor`);
+    if(!r.ok){ body.textContent = 'Could not load live sessions.'; return; }
+    const d = await r.json();
+    const sessions = Array.isArray(d.sessions) ? d.sessions : [];
+    if(countEl) countEl.textContent = sessions.length ? `(${sessions.length})` : '';
+    if(!sessions.length){ body.textContent = 'No exams in progress right now.'; return; }
+    const now = Date.now();
+    const rows = sessions.map(s=>{
+      const name = _escHtml(s.full_name || s.roll_number || s.email || '—');
+      const risk = (s.risk_score != null) ? Math.round(s.risk_score) : '—';
+      const riskColor = (s.risk_score != null && s.risk_score >= 60) ? 'var(--red)' : (s.risk_score != null && s.risk_score >= 30) ? 'var(--amber)' : 'var(--muted)';
+      let since = '';
+      if(s.started_at){
+        const mins = Math.max(0, Math.floor((now - new Date(s.started_at).getTime())/60000));
+        since = isFinite(mins) ? `${mins}m` : '';
+      }
+      const viol = s.latest_violation ? _escHtml(s.latest_violation) : '—';
+      return `<tr>
+        <td style="padding:6px 10px">${name}</td>
+        <td style="padding:6px 10px;color:var(--muted)">${_escHtml(s.exam_id || '—')}</td>
+        <td style="padding:6px 10px;color:${riskColor};font-weight:600">${risk}</td>
+        <td style="padding:6px 10px;color:var(--muted)">${viol}</td>
+        <td style="padding:6px 10px;color:var(--muted)">${since}</td>
+      </tr>`;
+    }).join('');
+    body.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase">
+        <th style="padding:6px 10px">Student</th><th style="padding:6px 10px">Exam</th>
+        <th style="padding:6px 10px">Risk</th><th style="padding:6px 10px">Last flag</th>
+        <th style="padding:6px 10px">Elapsed</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>`;
+  }catch(e){ body.textContent = 'Network error loading live sessions.'; }
 }
 
 async function loadOrgSettings(){
@@ -3804,6 +3854,60 @@ async function openBillingPortal(){
   }
 }
 
+// Ported from the dropped React ReviewPanel: cluster false-positive triage.
+// Clusters + dismiss are both scope-wide (no exam_id) so they always match.
+async function loadReview(){
+  const el = document.getElementById('review-body');
+  if(!el) return;
+  el.innerHTML = '<div class="exams-empty">Loading…</div>';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/violations/clusters`);
+    if(!r.ok) throw new Error('Failed to load clusters');
+    const d = await r.json();
+    const clusters = d.clusters || [];
+    if(!clusters.length){ el.innerHTML = '<div class="exams-empty">No active flags to review.</div>'; return; }
+    let html = '<table class="data-table" style="width:100%"><thead><tr><th>Type</th><th>Severity</th><th>Count</th><th></th></tr></thead><tbody>';
+    clusters.forEach(c=>{
+      html += `<tr><td>${_escHtml(c.violation_type||'')}</td><td>${_escHtml(c.severity||'')}</td><td>${c.count||0}</td>`
+        + `<td><button class="btn btn-secondary btn-sm" type="button" data-action="dismissCluster" data-args='${_escHtml(JSON.stringify([c.violation_type||'', c.severity||'']))}'>Dismiss all</button></td></tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }catch(e){ el.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load clusters</strong></div>'; }
+}
+
+async function dismissCluster(violationType, severity){
+  if(!(await appConfirm(`Dismiss all "${violationType}" (${severity}) flags in scope? This clears them from risk scoring.`, 'Bulk dismiss?', {okText:'Dismiss all'}))) return;
+  try{
+    const body = { violation_type: violationType };
+    if(severity) body.severity = severity;
+    const r = await authFetch(`${BASE}/api/v1/admin/violations/bulk-dismiss`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(_detailText(d, 'Dismiss failed'));
+    showModal(`Dismissed ${d.dismissed||0} flag(s).`);
+    loadReview();
+  }catch(e){ showModal('Dismiss failed: ' + e.message); }
+}
+
+// Ported from the dropped React PrivacyPanel: superadmin DPDP data export.
+async function sarExport(){
+  const el = document.getElementById('sar-result');
+  const subj = ((document.getElementById('sar-subject')||{}).value || '').trim();
+  const type = (document.getElementById('sar-type')||{}).value || 'student';
+  if(!subj){ if(el){ el.textContent = 'Enter an email or account id.'; el.style.color = 'var(--red)'; } return; }
+  if(el){ el.textContent = 'Exporting…'; el.style.color = 'var(--text-secondary)'; }
+  try{
+    const body = { target_user_type: type };
+    if(subj.includes('@')) body.target_email = subj; else body.target_user_id = subj;
+    const r = await authFetch(`${BASE}/api/v1/admin/sar/export`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(_detailText(d, 'Export failed'));
+    const blob = new Blob([JSON.stringify(d, null, 2)], {type:'application/json'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'sar_export.json'; a.click(); URL.revokeObjectURL(a.href);
+    if(el){ el.textContent = 'Export downloaded.'; el.style.color = 'var(--emerald)'; }
+  }catch(e){ if(el){ el.textContent = e.message; el.style.color = 'var(--red)'; } }
+}
+
 // Ported from the dropped React BillingPanel: usage detail (overage + recent
 // overage charges) and self-serve cancel. Backend endpoints already exist
 // (/api/v1/billing/usage, /api/v1/billing/cancel); legacy had no UI for them.
@@ -4600,6 +4704,75 @@ async function saveShuffleConfig(){
   }catch(e){
     st.style.color = 'var(--red)';
     st.textContent = 'Failed to save: '+e.message;
+  }
+}
+
+// Ported from the dropped React dashboard (SensitivityPanel): per-exam
+// AI flagging strictness. Reads/writes /api/v1/admin/proctoring-sensitivity,
+// scoped to the currently selected exam.
+async function loadSensitivity(){
+  const sel = document.getElementById('sensitivity-select');
+  if(!sel) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/proctoring-sensitivity${_examQuery('?')}`);
+    if(!r.ok) return;
+    const d = await r.json();
+    if(d.proctoring_sensitivity) sel.value = d.proctoring_sensitivity;
+  }catch(e){ /* silent */ }
+}
+
+async function saveSensitivity(){
+  const sel = document.getElementById('sensitivity-select');
+  const st = document.getElementById('sensitivity-status');
+  if(!sel) return;
+  const body = { exam_id: currentExamId, proctoring_sensitivity: sel.value };
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/proctoring-sensitivity`,{
+      method:'POST',
+      body: JSON.stringify(body),
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    if(st){ st.style.color = 'var(--emerald)'; st.textContent = 'Saved.'; }
+  }catch(e){
+    if(st){ st.style.color = 'var(--red)'; st.textContent = 'Failed to save: '+e.message; }
+  }
+}
+
+// Ported from the dropped React dashboard (AudioKeywordsPanel): per-exam
+// spoken-word flagging. Reads/writes /api/v1/admin/audio-keywords. The
+// input is comma-separated; the API expects an array of strings.
+async function loadAudioKeywords(){
+  const inp = document.getElementById('audio-keywords-input');
+  if(!inp) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/audio-keywords${_examQuery('?')}`);
+    if(!r.ok) return;
+    const d = await r.json();
+    inp.value = Array.isArray(d.audio_keywords) ? d.audio_keywords.join(', ') : '';
+  }catch(e){ /* silent */ }
+}
+
+async function saveAudioKeywords(){
+  const inp = document.getElementById('audio-keywords-input');
+  const st = document.getElementById('audio-keywords-status');
+  if(!inp) return;
+  const list = inp.value.split(',').map(s=>s.trim()).filter(Boolean);
+  const body = { exam_id: currentExamId, audio_keywords: list, audio_keywords_language: 'en' };
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/audio-keywords`,{
+      method:'POST',
+      body: JSON.stringify(body),
+    });
+    if(!r.ok){
+      let msg = `HTTP ${r.status}`;
+      try{ const e = await r.json(); if(e && e.detail) msg = e.detail; }catch(_){}
+      throw new Error(msg);
+    }
+    const d = await r.json();
+    if(Array.isArray(d.audio_keywords)) inp.value = d.audio_keywords.join(', ');
+    if(st){ st.style.color = 'var(--emerald)'; st.textContent = 'Saved.'; }
+  }catch(e){
+    if(st){ st.style.color = 'var(--red)'; st.textContent = 'Failed to save: '+e.message; }
   }
 }
 
@@ -7780,6 +7953,111 @@ async function removeStudentFromRoster(){
   } catch(e) {
     if (status) { status.style.color='var(--red)'; status.textContent = 'Network error'; }
   }
+}
+
+// ── Bulk student import (ported from the dropped React BulkImport wizard) ──
+// Two input modes share one card: a textarea of "roll, name, email[, phone,
+// batch]" lines, or a CSV file. Preview = dry_run; Register = real run.
+// Both are scoped to the currently selected exam (currentExamId).
+
+// Parse textarea lines into the {roll_number, full_name, email, phone, batch}
+// row shape the JSON register-students-bulk endpoint expects.
+function _parseBulkRows(text){
+  const rows = [];
+  for(const raw of (text||'').split('\n')){
+    const line = raw.trim();
+    if(!line) continue;
+    const parts = line.split(',').map(s=>s.trim());
+    rows.push({
+      roll_number: parts[0] || '',
+      full_name:   parts[1] || '',
+      email:       (parts[2] || '').toLowerCase(),
+      phone:       parts[3] || '',
+      batch:       parts[4] || '',
+    });
+  }
+  return rows;
+}
+
+function _renderBulkResult(d, dryRun){
+  const st = document.getElementById('bulk-import-status');
+  if(!st) return;
+  const lines = [];
+  if(dryRun){
+    lines.push(`Preview: ${d.would_register||0} of ${d.total||0} row(s) ready to register.`);
+  } else {
+    lines.push(`Registered ${d.registered||0}, skipped ${d.skipped||0} of ${d.total||0}.`);
+    if(d.invites) lines.push(`Invites — sent ${d.invites.sent||0}, skipped ${d.invites.skipped||0}, failed ${d.invites.failed||0}.`);
+    if(d.invite_note) lines.push(d.invite_note);
+  }
+  if(Array.isArray(d.invalid) && d.invalid.length){
+    lines.push(`${d.invalid.length} invalid row(s):`);
+    for(const inv of d.invalid.slice(0,8)){
+      lines.push(`  • ${inv.roll_number}: ${(inv.errors||[]).join(', ')}`);
+    }
+  }
+  st.style.color = (Array.isArray(d.invalid) && d.invalid.length) ? 'var(--amber)' : 'var(--emerald)';
+  st.textContent = lines.join('\n');
+}
+
+async function _bulkImport(dryRun){
+  const st = document.getElementById('bulk-import-status');
+  const fileEl = document.getElementById('bulk-import-file');
+  const textEl = document.getElementById('bulk-import-text');
+  const invitesEl = document.getElementById('bulk-import-invites');
+  const sendInvites = !!(invitesEl && invitesEl.checked);
+  const file = fileEl && fileEl.files && fileEl.files[0];
+  try{
+    let r;
+    if(file){
+      // CSV path → multipart import-csv. authFetch drops the JSON
+      // Content-Type for FormData so the boundary is set correctly.
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('dry_run', dryRun ? 'true' : 'false');
+      fd.append('send_invites', sendInvites ? 'true' : 'false');
+      if(currentExamId) fd.append('exam_id', currentExamId);
+      r = await authFetch(`${BASE}/api/v1/admin/students/import-csv`, { method:'POST', body: fd });
+    } else {
+      const students = _parseBulkRows(textEl ? textEl.value : '');
+      if(!students.length){
+        if(st){ st.style.color='var(--red)'; st.textContent = 'Paste at least one row, or choose a CSV file.'; }
+        return;
+      }
+      const body = { exam_id: currentExamId, students, dry_run: dryRun, send_invites: sendInvites };
+      r = await authFetch(`${BASE}/api/v1/admin/register-students-bulk`, { method:'POST', body: JSON.stringify(body) });
+    }
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){
+      if(st){ st.style.color='var(--red)'; st.textContent = _detailText(d, `Failed (HTTP ${r.status})`); }
+      return;
+    }
+    _renderBulkResult(d, dryRun);
+    if(!dryRun && typeof loadRegisteredCount==='function') loadRegisteredCount();
+  }catch(e){
+    if(st){ st.style.color='var(--red)'; st.textContent = 'Network error'; }
+  }
+}
+
+function bulkImportPreview(){ return _bulkImport(true); }
+
+async function bulkImportConfirm(){
+  if(!await appConfirm('Register these students for the current exam? Newly added students will receive invite emails if that option is checked.', 'Bulk import', {okText:'Register'})) return;
+  return _bulkImport(false);
+}
+
+async function downloadImportTemplate(){
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/students/csv-template`);
+    if(!r.ok) return;
+    const text = await r.text();
+    const blob = new Blob([text], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'student_import_template.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){ /* silent */ }
 }
 
 // Reset today's invite cap for the current teacher. Surgical fix for

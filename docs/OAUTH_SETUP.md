@@ -77,7 +77,7 @@ Open https://console.cloud.google.com
   - `https://app.procta.net`
 - **Authorized redirect URIs:** exactly one
   ```
-  https://ynzpcxoxbiwpheqmdnaj.supabase.co/auth/v1/callback
+  https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback
   ```
   This is the Supabase callback, **not** our `/api/v1/auth/oauth/callback`.
   Supabase brokers OAuth, then sends the user to us after.
@@ -103,7 +103,7 @@ Open https://entra.microsoft.com — sign in with any Microsoft account.
   Critical for the university segment. Single-tenant only works for your own org.
 - **Redirect URI:**
   - Platform: **Web**
-  - URI: `https://ynzpcxoxbiwpheqmdnaj.supabase.co/auth/v1/callback`
+  - URI: `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`
 - **Register**
 
 ### 2b. Create a client secret
@@ -127,7 +127,7 @@ Open https://entra.microsoft.com — sign in with any Microsoft account.
 
 ## Step 3 — Supabase dashboard (~2 min)
 
-Open https://supabase.com/dashboard/project/ynzpcxoxbiwpheqmdnaj
+Open https://supabase.com/dashboard/project/YOUR_PROJECT_REF
 
 ### 3a. Enable Google
 
@@ -200,7 +200,7 @@ OAuth signup row should be at the top with `email_verified_at` populated.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Google: "redirect_uri_mismatch" | Mismatched Supabase callback URL | Must be `https://ynzpcxoxbiwpheqmdnaj.supabase.co/auth/v1/callback` exactly — no trailing slash |
+| Google: "redirect_uri_mismatch" | Mismatched Supabase callback URL | Must be `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback` exactly — no trailing slash |
 | Google: "This app isn't verified" | Step 1d not done | Publish, or add your account as a test user |
 | Microsoft: "AADSTS50011: reply URL doesn't match" | Wrong redirect URI in step 2a | Same fix |
 | Microsoft: "AADSTS90072: only personal Microsoft accounts" | Single-tenant in step 2a | App registration → Authentication → change to multi-tenant + personal |

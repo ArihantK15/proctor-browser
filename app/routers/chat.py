@@ -10,7 +10,7 @@ from ..auth import (
 from ..database import supabase, async_table as _atable
 from ..constants import CHAT_MAX_TEXT_LEN
 from ..limiter import _ws_client_ip, ws_rate_limiter
-from ..models import SessionStatus
+from ..models import SessionStatus, RESULT_STATUSES
 from ..utils import now_ist
 from ..services.chat import ChatHub
 
@@ -35,7 +35,7 @@ async def _chat_verify_session_owned(session_id: str, teacher_id: str, roll: str
         return None
     if (row.get("roll_number") or "").upper() != (roll or "").upper():
         return None
-    if row.get("status") in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED):
+    if row.get("status") in RESULT_STATUSES:
         return None
     return row
 
@@ -93,11 +93,16 @@ async def ws_chat_student(ws: WebSocket):
 
         while True:
             raw = await ws.receive_text()
+            # Any inbound frame proves the socket is alive — refresh liveness so
+            # the heartbeat sweep doesn't reap an actively-used connection.
+            await chat_hub.record_pong(ws)
             try:
                 data = json.loads(raw)
             except Exception:
                 continue  # Invalid JSON from student — ignore
             mtype = data.get("type", "msg")
+            if mtype == "pong":
+                continue  # liveness already recorded above
             if mtype == "reauth":
                 new_token = str(data.get("token", "")).strip()
                 try:
@@ -174,11 +179,16 @@ async def ws_chat_teacher(ws: WebSocket):
 
         while True:
             raw = await ws.receive_text()
+            # Any inbound frame proves the socket is alive — refresh liveness so
+            # the heartbeat sweep doesn't reap an actively-used connection.
+            await chat_hub.record_pong(ws)
             try:
                 data = json.loads(raw)
             except Exception:
                 continue  # Invalid JSON from teacher — ignore
             mtype = data.get("type", "msg")
+            if mtype == "pong":
+                continue  # liveness already recorded above
             if mtype == "reauth":
                 new_token = str(data.get("token", "")).strip()
                 try:

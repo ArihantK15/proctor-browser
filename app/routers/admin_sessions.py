@@ -305,7 +305,7 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
                             detail="reason_text required when reason_code is 'other'")
 
     existing_session = await _assert_session_owned(session_id, tid)
-    if existing_session.get("status") in (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED):
+    if existing_session.get("status") in RESULT_STATUSES:
         return {"status": "already_submitted"}
 
     ev_result = await _atable("violations")\
@@ -663,6 +663,85 @@ async def session_reset(session_id: str, request: Request,
 
     _admin_log.info("[Reset] %s from:%s by:%s", session_id, status, tid)
     return {"status": SessionStatus.IN_PROGRESS, "reset_from": status}
+
+
+# Finished-attempt states a reschedule reset targets. Active (in_progress /
+# paused) sessions are deliberately excluded — a student mid-exam must not be
+# yanked back; the single-session reset already refuses those too.
+_RESCHEDULE_RESET_STATUSES = [
+    SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED,
+]
+
+
+@router.post("/api/v1/admin/exam/{exam_id:path}/reset-attempts")
+@limiter.limit("10/minute")
+async def reset_exam_attempts(exam_id: str, request: Request,
+                              body: dict = Body(default_factory=dict)):
+    """Re-open EVERY finished attempt for one exam so the students can retake it.
+
+    The one-click companion to /session/{id}/reset, offered after a teacher
+    reschedules an exam that some students already submitted. Same semantics as
+    the single reset (flip to IN_PROGRESS, clear the stamped submission/score,
+    refresh last_heartbeat; saved answers are preserved so the student resumes).
+    Teacher-scoped and audited per session. Active (in_progress/paused) sessions
+    are left untouched.
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    if not exam_id:
+        raise HTTPException(status_code=400, detail="exam_id required")
+
+    rows = (await _atable("exam_sessions").select("session_key,status")
+            .eq("teacher_id", tid).eq("exam_id", exam_id)
+            .in_("status", _RESCHEDULE_RESET_STATUSES).execute()).data or []
+    session_keys = [r["session_key"] for r in rows if r.get("session_key")]
+    if not session_keys:
+        return {"status": "ok", "reset_count": 0}
+
+    now = now_ist()
+    # One bulk flip — scoped by the same (teacher, exam, done-status) filter so a
+    # session that changed since the select can't be force-reopened by mistake.
+    await _atable("exam_sessions").update({
+        "status":         SessionStatus.IN_PROGRESS,
+        "submitted_at":   None,
+        "score":          None,
+        "total":          None,
+        "percentage":     None,
+        "paused_at":      None,
+        "last_heartbeat": now.isoformat(),
+    }).eq("teacher_id", tid).eq("exam_id", exam_id)\
+      .in_("status", _RESCHEDULE_RESET_STATUSES).execute()
+
+    # Drop each stale auto-scored risk result we just cleared.
+    for sk in session_keys:
+        try:
+            if _cache:
+                _cache.delete(f"risk_score:{sk}")
+        except Exception:
+            logger.debug("reset_exam_attempts: risk cache invalidate failed", exc_info=True)
+
+    decided_by = teacher.get("full_name") or teacher.get("email") or tid
+    await _atable("violations").insert([
+        {
+            "session_key":    r["session_key"],
+            "teacher_id":     tid,
+            "violation_type": "session_reset",
+            "severity":       "low",
+            "details":        f"Bulk reset (re-opened from '{(r.get('status') or '').lower()}') "
+                              f"after reschedule by {decided_by}",
+        }
+        for r in rows if r.get("session_key")
+    ]).execute()
+
+    try:
+        await _bus_async_publish(f"sessions:{tid}",
+                                 {"type": "sessions_reset", "exam_id": exam_id,
+                                  "count": len(session_keys)})
+    except Exception:
+        logger.debug("reset_exam_attempts: bus publish failed", exc_info=True)
+
+    _admin_log.info("[ResetExam] exam:%s count:%d by:%s", exam_id, len(session_keys), tid)
+    return {"status": "ok", "reset_count": len(session_keys)}
 
 
 @router.post("/api/v1/admin/session/{session_id:path}/resume")

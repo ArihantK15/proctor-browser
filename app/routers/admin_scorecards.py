@@ -495,7 +495,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
 
         sess_q = _atable("exam_sessions")\
             .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at,submitted_at,exam_id,teacher_id")\
-            .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+            .in_("status", list(RESULT_STATUSES))
         if tids is not None:
             if not tids:
                 sess_q = sess_q.eq("teacher_id", "__none__")  # empty org → match nothing
@@ -797,7 +797,7 @@ async def failed_sessions(request: Request, exam_id: str = None):
     failed_keys = {r["session_key"] for r in (failed.data or [])}
     sub_query = apply_teacher_scope(
         _atable("exam_sessions").select("session_key")
-            .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+            .in_("status", list(RESULT_STATUSES))
             .in_("session_key", list(failed_keys) or ["__none__"]),
         tids)
     if exam_id:

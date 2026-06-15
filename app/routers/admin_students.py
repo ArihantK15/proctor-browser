@@ -13,7 +13,7 @@ from ..repositories.questions import load_exam_config as _load_exam_config, get_
 from ..repositories.sessions import violation_counts_by_session as _violation_counts_by_session
 from ..services.risk import generate_session_summary, _risk_label
 from ..utils import fmt_ist, now_ist
-from ..models import SessionStatus
+from ..models import SessionStatus, RESULT_STATUSES
 from ..models.invites import InviteStatus
 from ..limiter import limiter
 from ..services.sessions import check_org_limits
@@ -328,7 +328,7 @@ async def list_student_history(request: Request, exam_id: str = None,
               .select("session_key,roll_number,full_name,email,exam_id,"
                       "score,total,percentage,time_taken_secs,"
                       "submitted_at,risk_score,teacher_id")
-              .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+              .in_("status", list(RESULT_STATUSES))
               .order("submitted_at", desc=True))
     if tids is not None:
         if not tids:
@@ -445,7 +445,7 @@ async def get_student_history(
                       "status,started_at,submitted_at,risk_score")
               .eq("roll_number", roll)
               .eq("teacher_id", scoped_tid)
-              .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+              .in_("status", list(RESULT_STATUSES))
               .order("submitted_at", desc=True))
     if exam_id:
         sess_q = sess_q.eq("exam_id", exam_id)
@@ -580,7 +580,7 @@ async def search_students(request: Request, q: str = "", batch: str = "",
 
     all_sessions = (await _atable("exam_sessions")
                     .select("roll_number,session_key,percentage,risk_score,submitted_at,status,teacher_id")
-                    .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+                    .in_("status", list(RESULT_STATUSES))
                     .in_("roll_number", roll_numbers)
                     .order("submitted_at", desc=True)
                     .execute()).data or []

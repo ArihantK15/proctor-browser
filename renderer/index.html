@@ -3107,6 +3107,11 @@ function chatDisconnect(){
 
 function chatHandleIncoming(data){
   const t = data.type;
+  if(t==='ping'){
+    // Server liveness probe — reply so it doesn't reap us as a dead socket.
+    try{ chatWs && chatWs.readyState===1 && chatWs.send(JSON.stringify({type:'pong'})); }catch(_){}
+    return;
+  }
   if(t==='history'){
     chatMsgs = (data.messages||[]).slice();
     chatRender();

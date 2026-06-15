@@ -103,6 +103,11 @@ class ChatHub:
                 "teacher_id": teacher_id,
                 "joined_at": datetime.now(timezone.utc).isoformat(),
             }
+            # Seed liveness so the first heartbeat sweep (≤30s away) doesn't
+            # immediately reap a brand-new socket — without this the default
+            # 0.0 is always < deadline once the server has been up 60s, which
+            # closed every chat connection ~30s after it connected.
+            self._last_pong[ws] = time.monotonic()
             self._thread(teacher_id, session_id)
 
         for old_ws in to_close:
@@ -115,7 +120,9 @@ class ChatHub:
     async def unregister_student(self, session_id: str) -> None:
         async with self._lock:
             meta = self.student_meta.pop(session_id, None)
-            self.student_conns.pop(session_id, None)
+            ws = self.student_conns.pop(session_id, None)
+            if ws is not None:
+                self._last_pong.pop(ws, None)
         if meta:
             await self._notify_teachers_presence(
                 meta["teacher_id"], session_id, online=False)
@@ -170,6 +177,9 @@ class ChatHub:
                     to_close.append((oldest_ws, 4002, "global_cap"))
             conns.add(ws)
             self.teacher_last_seen.setdefault(teacher_id, {})[ws] = time.monotonic()
+            # Seed liveness (see register_student) so the heartbeat sweep
+            # doesn't reap this socket before its first pong lands.
+            self._last_pong[ws] = time.monotonic()
             self._evict_stale_meta()
 
         for old_ws, code, reason in to_close:
@@ -209,6 +219,7 @@ class ChatHub:
                 by_sock.pop(ws, None)
                 if not by_sock:
                     self.teacher_last_seen.pop(teacher_id, None)
+            self._last_pong.pop(ws, None)
 
     async def teacher_send(self, teacher_id: str, session_id: str,
                            text: str, *, kind: str = "msg",

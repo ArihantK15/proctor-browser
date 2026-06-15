@@ -5,6 +5,20 @@ function _getCsrf() {
   return _csrfMemory || '';
 }
 function _esc(s){ var d=document.createElement('div'); d.appendChild(document.createTextNode(s||'')); return d.innerHTML; }
+// Local copy — this standalone page does not load _safe.js. Keep in sync with
+// _safe.js::_detailText. Renders FastAPI 422 detail arrays (which would
+// otherwise show "[object Object]") as readable text.
+function _detailText(d, fallback) {
+  var det = d && d.detail;
+  if (typeof det === 'string' && det) return det;
+  if (Array.isArray(det)) {
+    var msgs = det.map(function (x) { return (x && x.msg) ? x.msg : ''; }).filter(Boolean);
+    if (msgs.length) return msgs.join('; ');
+  }
+  if (det && typeof det === 'object' && typeof det.msg === 'string' && det.msg) return det.msg;
+  if (d && typeof d.message === 'string' && d.message) return d.message;
+  return fallback;
+}
 const headers = {'Content-Type':'application/json'};
 
 function fetchWithTimeout(url, opts={}, timeoutMs=30000){
@@ -113,7 +127,7 @@ async function submitObjection(){
       document.getElementById('objection-grounds').value = '';
       document.getElementById('objection-scope').value = 'all';
     }else{
-      status.innerHTML = '<span class="err">' + _esc(d.detail || 'Failed to submit objection.') + '</span>';
+      status.innerHTML = '<span class="err">' + _esc(_detailText(d, 'Failed to submit objection.')) + '</span>';
     }
   }catch(e){
     status.innerHTML = '<span class="err">Error: ' + _esc(e.message) + '</span>';
@@ -138,7 +152,7 @@ async function confirmDelete(){
       err.innerHTML = '<span style="color:#16a34a">Account deletion initiated. You will be redirected.</span>';
       setTimeout(() => { localStorage.clear(); window.location.href = '/'; }, 2000);
     }else{
-      err.textContent = d.detail || 'Deletion failed.';
+      err.textContent = _detailText(d, 'Deletion failed.');
     }
   }catch(e){
     err.textContent = 'Error: ' + e.message;

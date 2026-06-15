@@ -28,6 +28,8 @@ def _clean_chathub():
     chat_hub.student_conns.clear()
     chat_hub.teacher_conns.clear()
     chat_hub.student_meta.clear()
+    chat_hub.teacher_last_seen.clear()
+    chat_hub._last_pong.clear()
     yield
 
 
@@ -169,3 +171,56 @@ class TestChatHubService:
         assert teacher_ws.send_json.called
         call_args = teacher_ws.send_json.call_args[0][0]
         assert call_args["text"] == "Hello teacher"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Heartbeat / liveness  (regression for the chat-reaped-after-30s bug)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestChatHubHeartbeat:
+
+    def test_heartbeat_does_not_reap_fresh_connections(self):
+        """register_* seeds liveness so the first heartbeat sweep can't reap a
+        brand-new socket. Before the fix _last_pong defaulted to 0.0, which is
+        < deadline once the server is up 60s, so EVERY chat connection was
+        closed ~30s after connecting (record_pong was never called)."""
+        from app.routers.chat import chat_hub
+        import asyncio
+        s_ws, t_ws = AsyncMock(), AsyncMock()
+        asyncio.run(chat_hub.register_student(
+            session_id="sess-1", teacher_id="t1",
+            roll="ALICE", name="Alice", ws=s_ws))
+        asyncio.run(chat_hub.register_teacher("t1", t_ws))
+        asyncio.run(chat_hub._send_heartbeats())
+        assert "sess-1" in chat_hub.student_conns
+        assert t_ws in chat_hub.teacher_conns.get("t1", set())
+        assert not s_ws.close.called
+
+    def test_heartbeat_reaps_stale_connection(self):
+        """The reaper still works: a socket whose last pong is older than
+        HEARTBEAT_TIMEOUT is closed and removed."""
+        from app.routers.chat import chat_hub
+        import asyncio, time
+        s_ws = AsyncMock()
+        asyncio.run(chat_hub.register_student(
+            session_id="sess-stale", teacher_id="t1",
+            roll="ALICE", name="Alice", ws=s_ws))
+        chat_hub._last_pong[s_ws] = time.monotonic() - (chat_hub.HEARTBEAT_TIMEOUT + 10)
+        asyncio.run(chat_hub._send_heartbeats())
+        assert "sess-stale" not in chat_hub.student_conns
+        assert s_ws.close.called
+
+    def test_record_pong_refreshes_liveness(self):
+        """An inbound pong refreshes liveness, keeping an idle socket alive
+        across heartbeat sweeps."""
+        from app.routers.chat import chat_hub
+        import asyncio, time
+        s_ws = AsyncMock()
+        asyncio.run(chat_hub.register_student(
+            session_id="sess-1", teacher_id="t1",
+            roll="ALICE", name="Alice", ws=s_ws))
+        chat_hub._last_pong[s_ws] = time.monotonic() - 1000
+        asyncio.run(chat_hub.record_pong(s_ws))
+        asyncio.run(chat_hub._send_heartbeats())
+        assert "sess-1" in chat_hub.student_conns
+        assert not s_ws.close.called

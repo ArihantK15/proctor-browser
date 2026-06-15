@@ -175,7 +175,7 @@ async function doReset() {
     });
     if (!r.ok) {
       const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || 'Failed to send reset code');
+      throw new Error(_detailText(d, 'Failed to send reset code'));
     }
     document.getElementById('reset-ok').style.display = 'block';
     document.getElementById('reset-btn').style.display = 'none';
@@ -211,7 +211,7 @@ async function confirmResetOtp() {
     });
     if (!r.ok) {
       const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || 'Could not update password');
+      throw new Error(_detailText(d, 'Could not update password'));
     }
     document.getElementById('reset-code').value = '';
     document.getElementById('reset-new-password').value = '';
@@ -304,7 +304,7 @@ async function doAuth() {
       const body = await r.json().catch(() => ({}));
       let msg = (typeof body.detail === 'object' && body.detail)
         ? (body.detail.message || 'Login failed')
-        : (body.detail || 'Login failed');
+        : (_detailText(body, 'Login failed'));
       if (body.detail && body.detail.code === 'EMAIL_VERIFICATION_REQUIRED') {
         _pendingSignupEmail = email;
         _showSignupOtp(email);
@@ -816,7 +816,7 @@ async function loadExams(opts) {
     if (r.status === 401) { clearStudentSession(); return; }
     if (!r.ok) {
       const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || `Failed to load exams (${r.status})`);
+      throw new Error(_detailText(d, `Failed to load exams (${r.status})`));
     }
     const d = await r.json();
     renderExams(d.exams || []);
@@ -847,9 +847,24 @@ let _pendingExam = null;
 let _pendingAccessCode = '';
 
 function renderExams(exams) {
-  _examsCache = exams;
+  // Completed / force-submitted attempts belong in "Exam history" below — keep
+  // the Upcoming list focused on what the student can still act on.
+  const all = exams || [];
+  const active = all.filter(e => e.status !== 'completed' && e.status !== 'force_submitted');
+  _examsCache = active;
   const container = document.getElementById('exams-container');
-  if (!exams.length) {
+  if (!active.length) {
+    if (all.length) {
+      // They DO have exams — just none upcoming. Point them at history rather
+      // than the "your teacher hasn't added you" onboarding copy.
+      container.innerHTML = `
+        <div class="exams-empty">
+          <strong>You're all caught up</strong>
+          No upcoming exams right now. Your past attempts are in
+          <strong style="color:var(--text)">Exam history</strong> below.
+        </div>`;
+      return;
+    }
     // No exams: surface the actual cause + remediation. The previous
     // "wait for your teacher" framing was correct but left the user
     // unsure what their teacher needed to do. Now we name the
@@ -869,7 +884,7 @@ function renderExams(exams) {
       </div>`;
     return;
   }
-  container.innerHTML = exams.map((e, idx) => {
+  container.innerHTML = active.map((e, idx) => {
     const roll = e.roll_number || '—';
     const dur = e.duration_minutes ? (e.duration_minutes + ' min') : '—';
     const accessNote = e.access_code_required
@@ -966,7 +981,8 @@ function renderHistory(items){
     return;
   }
   container.innerHTML = items.map(h=>{
-    const pctColor = h.percentage>=40?'var(--emerald)':'var(--red)';
+    const passMark = (h.pass_mark != null) ? h.pass_mark : 40;
+    const pctColor = h.percentage>=passMark?'var(--emerald)':'var(--red)';
     const riskStr = h.risk_score!=null?_riskLabel(h.risk_score):'';
     return `
       <div class="exam-card">
@@ -1149,6 +1165,10 @@ function disputeFlag(sessionKey, violationId) {
   openAppeal(sessionKey, violationId);
 }
 
+// _detailText() is provided globally by _safe.js (loaded before this script in
+// student.html) — used here to render FastAPI 422 detail arrays as readable
+// text instead of "[object Object]".
+
 async function submitAppeal() {
   const btn = document.getElementById('appeal-submit-btn');
   const err = document.getElementById('appeal-err');
@@ -1165,7 +1185,10 @@ async function submitAppeal() {
         session_key: _appealSessionKey,
         appeal_type: type,
         description: desc,
-        ...(_appealViolationId ? { violation_id: _appealViolationId } : {}),
+        // violations.id is an integer; the appeal model wants a string (strict
+        // mode rejects the bare number → 422). Coerce so the dispute-flag path
+        // doesn't fail validation.
+        ...(_appealViolationId ? { violation_id: String(_appealViolationId) } : {}),
       }),
     });
     const d = await r.json();
@@ -1174,7 +1197,7 @@ async function submitAppeal() {
       err.textContent = d.message || 'Appeal submitted.';
       setTimeout(closeAppeal, 2000);
     } else {
-      err.textContent = d.detail || 'Failed to submit.';
+      err.textContent = _detailText(d, 'Failed to submit.');
     }
   } catch (e) {
     err.textContent = 'Network error.';
@@ -1379,7 +1402,7 @@ async function runSystemCheckUI() {
   _SYSCHECK_ROWS.forEach(k => {
     const c = comps[k];
     if (!c) { _setSyscheckRow(k, 'red', 'Check failed'); return; }
-    _setSyscheckRow(k, c.status || 'red', c.detail || (c.status || ''));
+    _setSyscheckRow(k, c.status || 'red', _detailText(c, (c.status || '')));
   });
 
   if (summaryEl) {
@@ -1575,7 +1598,7 @@ async function _handleInviteToken(token){
     const r = await fetchWithTimeout(apiUrl('/api/v1/invite/' + encodeURIComponent(token) + '/resolve'));
     if (!r.ok) {
       const d = await r.json().catch(()=>({}));
-      console.warn('[invite] resolve failed:', r.status, d.detail || '');
+      console.warn('[invite] resolve failed:', r.status, _detailText(d, ''));
       return; // silent — fall back to the normal login form
     }
     const inv = await r.json();
@@ -1649,14 +1672,14 @@ async function _acceptPendingInvite(){
     });
     if (!r.ok) {
       const d = await r.json().catch(()=>({}));
-      console.warn('[invite] accept failed:', r.status, d.detail || '');
+      console.warn('[invite] accept failed:', r.status, _detailText(d, ''));
       if ([403, 404, 410].includes(r.status)) {
         _pendingInvite = null;
       }
       const container = document.getElementById('exams-container');
       if (container && r.status >= 500) {
         container.innerHTML = '<div class="exams-empty"><strong>Invite not applied yet</strong>'
-          + _escHtml(d.detail || 'Please try opening the invite again in a moment.') + '</div>';
+          + _escHtml(_detailText(d, 'Please try opening the invite again in a moment.')) + '</div>';
       }
       return;
     }
@@ -1848,6 +1871,28 @@ document.addEventListener('click', (e) => {
   if (typeof fn !== 'function') return;
   fn.call(el, ..._parseDataArgs(el.dataset.args));
 });
+
+// ── Theme switch (dark / OLED / light) ────────────────────────────
+// _safe.js stamps the saved theme before first paint; this is the live
+// toggle. Uses the same localStorage('procta_theme') key as the teacher
+// dashboard so a student's choice carries across the lobby and exam app.
+// setTheme is global so the delegated data-action="setTheme" resolves it.
+const _STU_THEMES = ['dark', 'dark-oled', 'light'];
+function setTheme(name){
+  if (_STU_THEMES.indexOf(name) === -1) name = 'dark';
+  document.documentElement.setAttribute('data-theme', name);
+  try { localStorage.setItem('procta_theme', name); } catch(_){}
+  _syncThemeSwitch();
+}
+function _syncThemeSwitch(){
+  const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+  document.querySelectorAll('.theme-opt').forEach(function(b){
+    const on = b.getAttribute('data-theme-opt') === cur;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+_syncThemeSwitch();
 
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-change-action]');

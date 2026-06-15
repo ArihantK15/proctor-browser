@@ -3402,30 +3402,35 @@ def main():
     # False → it reported yolo:false + a FALSE "reduced" tier + a spurious
     # model_load_failed:yolo on every exam, and the phone wasn't detectable until
     # the worker caught up. Calibration doesn't use objects, so skip it there.
+    # Boot diagnostic + tier are emitted in EXAM mode only. Calibration
+    # deliberately skips _load_yolo() (dot-calibration doesn't use the object
+    # detector), so emitting a snapshot here would POST a FALSE yolo:false +
+    # "reduced" tier + missing:["yolo"] for the session — even though the
+    # detector loads fine the moment the real exam proctor starts. Calibration
+    # reports its own readings via CAL:, so it needs no proctor_boot.
     if not CALIBRATION_MODE:
         try:
             _load_yolo()
         except Exception as _ye:
             _MODEL_ERRORS["yolo"] = type(_ye).__name__
-
-    try:
-        _boot = _collect_readiness()
-        log_event("proctor_boot", "low", _json.dumps(_boot))
-        for _name, _ok in _boot["models"].items():
-            if not _ok:
-                log_event("model_load_failed", "low",
-                          _json.dumps({"model": _name,
-                                       "error": _MODEL_ERRORS.get(_name, "unavailable")}))
-        # Phase 1.6 — surface the active proctoring tier (full/reduced/minimal)
-        # so a degraded-but-running exam is visible to teachers (and, via the
-        # System Check, to the student) instead of silently losing coverage.
-        # Low severity: a reduced tier is informational, not a violation.
-        _tier = _boot.get("proctoring", {})
-        print(f"[PROCTOR] Proctoring tier: {_tier.get('tier', 'unknown')} "
-              f"(missing: {', '.join(_tier.get('missing', [])) or 'none'})")
-        log_event("proctoring_tier", "low", _json.dumps(_tier))
-    except Exception as _be:
-        print(f"[PROCTOR] boot diagnostic skipped: {_be}")
+        try:
+            _boot = _collect_readiness()
+            log_event("proctor_boot", "low", _json.dumps(_boot))
+            for _name, _ok in _boot["models"].items():
+                if not _ok:
+                    log_event("model_load_failed", "low",
+                              _json.dumps({"model": _name,
+                                           "error": _MODEL_ERRORS.get(_name, "unavailable")}))
+            # Phase 1.6 — surface the active proctoring tier (full/reduced/minimal)
+            # so a degraded-but-running exam is visible to teachers (and, via the
+            # System Check, to the student) instead of silently losing coverage.
+            # Low severity: a reduced tier is informational, not a violation.
+            _tier = _boot.get("proctoring", {})
+            print(f"[PROCTOR] Proctoring tier: {_tier.get('tier', 'unknown')} "
+                  f"(missing: {', '.join(_tier.get('missing', [])) or 'none'})")
+            log_event("proctoring_tier", "low", _json.dumps(_tier))
+        except Exception as _be:
+            print(f"[PROCTOR] boot diagnostic skipped: {_be}")
 
     cap, cam_meta = _open_camera_retry()
     if cap is None or not cap.isOpened():

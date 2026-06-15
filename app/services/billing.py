@@ -395,6 +395,21 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
         except Exception:
             logger.exception("Razorpay add-on creation failed for org=%s", oid)
             status = "failed"
+            # The credit was debited above but the charge never landed — restore
+            # it to the pre-debit balance so the org isn't silently drained and
+            # the 'failed' row can be retried cleanly later (#4c). credit_consumed
+            # is then zeroed so the settled row records no credit applied.
+            # Best-effort: a failed refund is logged, not raised (the base
+            # subscription.charged webhook must still 200).
+            if credit_consumed:
+                try:
+                    await _atable("organizations").update(
+                        {"billing_credit_inr": org_credit}
+                    ).eq("id", oid).execute()
+                    credit_consumed = 0
+                except Exception as exc:
+                    logger.warning("bill_cycle_overage: credit refund after add-on "
+                                   "failure failed for org=%s: %s", oid, exc)
 
     # Settle the claim with the outcome.
     try:

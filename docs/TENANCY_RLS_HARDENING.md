@@ -104,11 +104,55 @@ privileged-only — so nothing is silently wide-open.
   `ContextVar`; the asyncpg execute layer wraps each statement in a tx and emits
   `SET LOCAL app.*` when the flag is on. Workers set `app.role='system'`. With
   the flag off, behavior is byte-identical to today.
-- **C. Restricted role + grants (prod psql).** Create `procta_app`
-  (NOBYPASSRLS, non-owner) and grant DML; do **not** point the app at it yet.
-- **D. Cutover (staging first, then prod).** Turn `RLS_SESSION_CONTEXT=1`, point
-  `DATABASE_URL` at `procta_app`. Run the full test suite + a cross-tenant
-  probe in staging. Roll back by reverting the URL + flag (policies stay).
+- **C. Restricted role + grants (prod psql — run as superuser/`procta` owner).**
+  Idempotent. Do **not** point the app at it yet.
+  ```sql
+  DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='procta_app') THEN
+      CREATE ROLE procta_app LOGIN PASSWORD 'SET_A_REAL_SECRET'
+        NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+    END IF;
+  END $$;
+  GRANT USAGE ON SCHEMA public TO procta_app;
+  GRANT USAGE ON SCHEMA app    TO procta_app;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES   IN SCHEMA public TO procta_app;
+  GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA public TO procta_app;
+  GRANT EXECUTE                        ON ALL FUNCTIONS IN SCHEMA app    TO procta_app;
+  GRANT EXECUTE                        ON ALL FUNCTIONS IN SCHEMA public TO procta_app;
+  -- future objects created by procta inherit the grants:
+  ALTER DEFAULT PRIVILEGES FOR ROLE procta GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES   TO procta_app;
+  ALTER DEFAULT PRIVILEGES FOR ROLE procta GRANT USAGE,SELECT                ON SEQUENCES TO procta_app;
+  ALTER DEFAULT PRIVILEGES FOR ROLE procta GRANT EXECUTE                     ON FUNCTIONS TO procta_app;
+  ```
+  `procta_app` is a non-owner, so RLS applies to it (no `FORCE` needed). The
+  `SECURITY DEFINER` helpers run as `procta` and read the full teachers/students.
+  **pgbouncer:** add `procta_app` to the pgbouncer userlist / auth_query so the
+  app can authenticate through it (infra prereq, not SQL).
+
+- **C-verify (PROVE isolation before any cutover — connect AS `procta_app`).**
+  Owner bypasses RLS, so this MUST run as `procta_app`:
+  ```sql
+  BEGIN;  -- teacher A sees only their rows
+  SELECT set_config('app.role','teacher',true), set_config('app.teacher_id','<TEACHER_A_UUID>',true);
+  SELECT count(*) FROM exam_sessions WHERE teacher_id='<TEACHER_B_UUID>';  -- MUST be 0
+  ROLLBACK;
+  BEGIN;  -- admin sees their whole org, nothing outside it
+  SELECT set_config('app.role','admin',true), set_config('app.org_id','<ORG_UUID>',true);
+  SELECT count(*) FROM teachers WHERE org_id <> '<ORG_UUID>';              -- MUST be 0
+  ROLLBACK;
+  BEGIN;  -- system = full access (workers)
+  SELECT set_config('app.role','system',true);
+  SELECT count(*) FROM exam_sessions;                                      -- all rows
+  ROLLBACK;
+  ```
+- **D. Cutover (staging first, then prod).** Prereqs: A applied, C applied +
+  C-verify green, pgbouncer knows `procta_app`.
+  1. **Staging:** `RLS_SESSION_CONTEXT=1` + `DATABASE_URL`→`procta_app`, restart.
+     Run the full test suite + §5 probes + app smoke (login, exam, dashboard,
+     chat). Watch logs for `permission denied` / unexpected 0-row results.
+  2. **Prod (off-peak):** same env change + restart; re-run §5 probes on a canary.
+  3. **Rollback:** revert `DATABASE_URL`→`procta` and `RLS_SESSION_CONTEXT=0`,
+     restart. Policies stay (inert under the owner).
 
 ## 5. Cutover verification (run in staging, then prod-canary)
 - Cross-tenant probe: as teacher A's context, `SELECT count(*)` on every tenant

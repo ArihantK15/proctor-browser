@@ -132,7 +132,9 @@ async def ws_chat_student(ws: WebSocket):
         await ws_rate_limiter.decrement(client_ip)
         sid = (ws.query_params.get("session_id") or "").strip()
         if sid:
-            await chat_hub.unregister_student(sid)
+            # Pass ws so a reconnect (new socket already registered under this
+            # session_id) isn't torn down by THIS old socket's disconnect.
+            await chat_hub.unregister_student(sid, ws)
 
 
 @router.websocket("/ws/chat/teacher")

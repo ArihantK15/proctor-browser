@@ -18,6 +18,7 @@ from ..constants import (
     _STUDENT_ACCT_CACHE_MAX,
 )
 from ..database import async_table as _atable
+from ..db_context import set_context as _set_db_context
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,11 @@ async def require_admin(request: Request) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     teacher = await verify_admin_token(token)
+    # RLS session context (phase124): scope this request's DB queries to the
+    # caller. Inert unless RLS_SESSION_CONTEXT is on. org_role is the app.role
+    # (teacher/admin/owner/superadmin).
+    _set_db_context(role=teacher.get("org_role"), teacher_id=teacher.get("id"),
+                    org_id=teacher.get("org_id"))
     # Superadmin is a cross-org, READ-ONLY monitor for TENANT product data
     # (exams, students, grades, org settings, billing). It may VIEW anything
     # (GET) but must not MUTATE a tenant's data. This single guard covers every
@@ -412,4 +418,7 @@ async def require_student_account(request: Request) -> dict:
     token = _bearer_or_cookie(request, "procta_student_access")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return await verify_student_auth_token(token)
+    account = await verify_student_auth_token(token)
+    # RLS session context (phase124) — inert unless RLS_SESSION_CONTEXT is on.
+    _set_db_context(role="student", account_id=account.get("id"))
+    return account

@@ -14,6 +14,8 @@ from typing import Any
 
 import asyncpg
 
+from . import db_context as _dbctx
+
 _pool: asyncpg.Pool | None = None
 _IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 # Strict ISO-8601 date-time prefix: YYYY-MM-DD'T'HH:MM. Anything that
@@ -438,108 +440,124 @@ class PostgresTable:
         return f"({' OR '.join(parts)})"
 
     async def execute(self) -> "_PostgresResult":
-        op = self._op or "select"
         pool = await get_pool()
         async with pool.acquire() as conn:
-            if op == "select":
+            # phase124 RLS (step B): when enabled, run each query inside ONE
+            # explicit transaction that first emits the caller's app.* context
+            # (SET LOCAL via set_config) so DB-level RLS policies can scope it,
+            # and so pgbouncer transaction-pooling keeps the GUCs on one backend.
+            # No context set (pre-auth lookups, workers, scripts) → 'system' =
+            # full access, so flipping the flag never breaks auth/jobs. Default
+            # OFF → byte-identical autocommit path with no extra round-trip.
+            if _dbctx.RLS_SESSION_CONTEXT:
+                ctx = _dbctx.current_context() or {
+                    "role": "system", "teacher_id": "", "org_id": "", "account_id": ""}
+                async with conn.transaction():
+                    await _dbctx.apply_to_connection(conn, ctx)
+                    return await self._run_op(conn)
+            return await self._run_op(conn)
+
+    async def _run_op(self, conn) -> "_PostgresResult":
+        op = self._op or "select"
+        if op == "select":
+            sql = _SQL()
+            where = self._where(sql)
+            order = ""
+            if self._order_col:
+                order = f" ORDER BY {_ident(self._order_col)} {'DESC' if self._order_desc else 'ASC'}"
+            limit = f" LIMIT {int(self._limit_val)}" if self._limit_val is not None else ""
+            offset = f" OFFSET {int(self._offset_val)}" if self._offset_val is not None else ""
+            select_expr = _select_list(self._select_cols)
+            if self._distinct_col:
+                # DISTINCT ON ({col}) — one row per unique value of col.
+                # Matches COUNT(DISTINCT col) below so .data and .count
+                # describe the same set. Without ORDER BY, Postgres picks
+                # an arbitrary row per group; callers that care about
+                # which row wins should add .order(). This is the
+                # intended semantics behind the `distinct_on=` kwarg.
+                select_expr = f"DISTINCT ON ({_ident(self._distinct_col)}) {select_expr}"
+            rows = await conn.fetch(
+                f"SELECT {select_expr} FROM {_ident(self._table)}"
+                f"{where}{order}{limit}{offset}",
+                *sql.params,
+            )
+            count = None
+            if self._count_mode:
+                count_sql = _SQL()
+                count_expr = f"COUNT(DISTINCT {_ident(self._distinct_col)})" if self._distinct_col else "COUNT(*)"
+                count = await conn.fetchval(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
+                    f"SELECT {count_expr} FROM {_ident(self._table)}{self._where(count_sql)}",
+                    *count_sql.params,
+                )
+            data = [_row_dict(r) for r in rows]
+            if self._single:
+                # Match AsyncTable (Supabase REST) semantics: single() returns
+                # the first row as a dict, or None when there is no match.
+                # Callers do `if result.data is None` or `result.data.get(...)`,
+                # so the shape MUST match across backends or we'll surface
+                # subtle type errors only under postgres.
+                return _PostgresResult(data=data[0] if data else None, count=count)
+            return _PostgresResult(data=data, count=count)
+
+        if op == "insert":
+            data = []
+            for row in self._payload:
+                cols = list(row.keys())
                 sql = _SQL()
-                where = self._where(sql)
-                order = ""
-                if self._order_col:
-                    order = f" ORDER BY {_ident(self._order_col)} {'DESC' if self._order_desc else 'ASC'}"
-                limit = f" LIMIT {int(self._limit_val)}" if self._limit_val is not None else ""
-                offset = f" OFFSET {int(self._offset_val)}" if self._offset_val is not None else ""
-                select_expr = _select_list(self._select_cols)
-                if self._distinct_col:
-                    # DISTINCT ON ({col}) — one row per unique value of col.
-                    # Matches COUNT(DISTINCT col) below so .data and .count
-                    # describe the same set. Without ORDER BY, Postgres picks
-                    # an arbitrary row per group; callers that care about
-                    # which row wins should add .order(). This is the
-                    # intended semantics behind the `distinct_on=` kwarg.
-                    select_expr = f"DISTINCT ON ({_ident(self._distinct_col)}) {select_expr}"
-                rows = await conn.fetch(
-                    f"SELECT {select_expr} FROM {_ident(self._table)}"
-                    f"{where}{order}{limit}{offset}",
+                placeholders = [sql.add(row[c]) for c in cols]
+                rec = await conn.fetchrow(
+                    f"INSERT INTO {_ident(self._table)} ({', '.join(_ident(c) for c in cols)}) "
+                    f"VALUES ({', '.join(placeholders)}) RETURNING *",
                     *sql.params,
                 )
-                count = None
-                if self._count_mode:
-                    count_sql = _SQL()
-                    count_expr = f"COUNT(DISTINCT {_ident(self._distinct_col)})" if self._distinct_col else "COUNT(*)"
-                    count = await conn.fetchval(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
-                        f"SELECT {count_expr} FROM {_ident(self._table)}{self._where(count_sql)}",
-                        *count_sql.params,
-                    )
-                data = [_row_dict(r) for r in rows]
-                if self._single:
-                    # Match AsyncTable (Supabase REST) semantics: single() returns
-                    # the first row as a dict, or None when there is no match.
-                    # Callers do `if result.data is None` or `result.data.get(...)`,
-                    # so the shape MUST match across backends or we'll surface
-                    # subtle type errors only under postgres.
-                    return _PostgresResult(data=data[0] if data else None, count=count)
-                return _PostgresResult(data=data, count=count)
+                data.append(_row_dict(rec))
+            return _PostgresResult(data=data)
 
-            if op == "insert":
-                data = []
-                for row in self._payload:
-                    cols = list(row.keys())
-                    sql = _SQL()
-                    placeholders = [sql.add(row[c]) for c in cols]
-                    rec = await conn.fetchrow(
-                        f"INSERT INTO {_ident(self._table)} ({', '.join(_ident(c) for c in cols)}) "
-                        f"VALUES ({', '.join(placeholders)}) RETURNING *",
-                        *sql.params,
-                    )
-                    data.append(_row_dict(rec))
-                return _PostgresResult(data=data)
-
-            if op == "upsert":
-                data = []
-                # Resolve conflict column: explicit override wins, otherwise
-                # use the per-table default registry, otherwise fall back to
-                # "id" (the most common PK).
-                default_conflict = _UPSERT_CONFLICT_COLS.get(self._table, "id")
-                conflict_cols = [c.strip() for c in (self._on_conflict or default_conflict).split(",") if c.strip()]
-                for row in self._payload:
-                    cols = list(row.keys())
-                    sql = _SQL()
-                    placeholders = [sql.add(row[c]) for c in cols]
-                    update_cols = [c for c in cols if c not in conflict_cols]
-                    updates = ", ".join(f"{_ident(c)} = EXCLUDED.{_ident(c)}" for c in update_cols)
-                    if not updates:
-                        updates = f"{_ident(conflict_cols[0])} = EXCLUDED.{_ident(conflict_cols[0])}"
-                    rec = await conn.fetchrow(
-                        f"INSERT INTO {_ident(self._table)} ({', '.join(_ident(c) for c in cols)}) "
-                        f"VALUES ({', '.join(placeholders)}) "
-                        f"ON CONFLICT ({', '.join(_ident(c) for c in conflict_cols)}) "
-                        f"DO UPDATE SET {updates} RETURNING *",
-                        *sql.params,
-                    )
-                    data.append(_row_dict(rec))
-                return _PostgresResult(data=data)
-
-            if op == "update":
-                if not self._filters:
-                    raise ValueError("update() requires at least one filter")
+        if op == "upsert":
+            data = []
+            # Resolve conflict column: explicit override wins, otherwise
+            # use the per-table default registry, otherwise fall back to
+            # "id" (the most common PK).
+            default_conflict = _UPSERT_CONFLICT_COLS.get(self._table, "id")
+            conflict_cols = [c.strip() for c in (self._on_conflict or default_conflict).split(",") if c.strip()]
+            for row in self._payload:
+                cols = list(row.keys())
                 sql = _SQL()
-                sets = ", ".join(f"{_ident(k)} = {sql.add(v)}" for k, v in self._payload.items())
-                rows = await conn.fetch(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
-                    f"UPDATE {_ident(self._table)} SET {sets}{self._where(sql)} RETURNING *",
+                placeholders = [sql.add(row[c]) for c in cols]
+                update_cols = [c for c in cols if c not in conflict_cols]
+                updates = ", ".join(f"{_ident(c)} = EXCLUDED.{_ident(c)}" for c in update_cols)
+                if not updates:
+                    updates = f"{_ident(conflict_cols[0])} = EXCLUDED.{_ident(conflict_cols[0])}"
+                rec = await conn.fetchrow(
+                    f"INSERT INTO {_ident(self._table)} ({', '.join(_ident(c) for c in cols)}) "
+                    f"VALUES ({', '.join(placeholders)}) "
+                    f"ON CONFLICT ({', '.join(_ident(c) for c in conflict_cols)}) "
+                    f"DO UPDATE SET {updates} RETURNING *",
                     *sql.params,
                 )
-                return _PostgresResult(data=[_row_dict(r) for r in rows])
+                data.append(_row_dict(rec))
+            return _PostgresResult(data=data)
 
-            if op == "delete":
-                if not self._filters:
-                    raise ValueError("delete() requires at least one filter")
-                sql = _SQL()
-                rows = await conn.fetch(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
-                    f"DELETE FROM {_ident(self._table)}{self._where(sql)} RETURNING *",
-                    *sql.params,
-                )
-                return _PostgresResult(data=[_row_dict(r) for r in rows])
+        if op == "update":
+            if not self._filters:
+                raise ValueError("update() requires at least one filter")
+            sql = _SQL()
+            sets = ", ".join(f"{_ident(k)} = {sql.add(v)}" for k, v in self._payload.items())
+            rows = await conn.fetch(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
+                f"UPDATE {_ident(self._table)} SET {sets}{self._where(sql)} RETURNING *",
+                *sql.params,
+            )
+            return _PostgresResult(data=[_row_dict(r) for r in rows])
+
+        if op == "delete":
+            if not self._filters:
+                raise ValueError("delete() requires at least one filter")
+            sql = _SQL()
+            rows = await conn.fetch(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
+                f"DELETE FROM {_ident(self._table)}{self._where(sql)} RETURNING *",
+                *sql.params,
+            )
+            return _PostgresResult(data=[_row_dict(r) for r in rows])
 
         raise ValueError(f"Unknown operation: {op}")
 

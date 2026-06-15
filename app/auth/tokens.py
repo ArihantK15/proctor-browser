@@ -237,6 +237,11 @@ def require_auth(request: Request, allowed_roles: list[str] | None = None) -> di
         raise HTTPException(status_code=403, detail="Token scope is not valid here")
     if allowed_roles and claims.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="Insufficient permissions for this endpoint")
+    # RLS session context (phase124) — inert unless RLS_SESSION_CONTEXT is on.
+    # Exam/teacher JWTs carry role + tid (teacher) + sid (student account).
+    from ..db_context import set_context as _set_db_context
+    _set_db_context(role=claims.get("role"), teacher_id=claims.get("tid"),
+                    account_id=claims.get("sid"))
     return claims
 
 

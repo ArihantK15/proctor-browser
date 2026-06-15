@@ -2029,38 +2029,52 @@ async def student_history(request: Request):
                     .order("submitted_at", desc=True)
                     .execute()).data or []
 
+        if not sessions:
+            continue
+
+        # The teacher name is identical for every session in this enrollment —
+        # resolve it once instead of once per session.
+        teacher = await _get_teacher_by_id(teacher_id)
+        teacher_name = teacher.get("full_name", "Teacher") if teacher else "Teacher"
+
+        # Batch the exam-config lookup (exam title + configured pass mark) into a
+        # single query keyed by exam_id, instead of one query per session. The
+        # pass mark drives the dashboard's pass/fail colour against the SAME
+        # threshold the official scorecard uses (default 40); hardcoding 40
+        # client-side meant a 45% under a pass_mark=60 exam showed green here but
+        # FAIL on the emailed scorecard.
+        exam_ids = sorted({s["exam_id"] for s in sessions if s.get("exam_id")})
+        cfg_by_exam: dict[str, dict] = {}
+        if exam_ids:
+            cfg_rows = (await _atable("exam_config")
+                        .select("exam_id,exam_title,pass_mark")
+                        .eq("teacher_id", teacher_id)
+                        .in_("exam_id", exam_ids)
+                        .execute()).data or []
+            cfg_by_exam = {c["exam_id"]: c for c in cfg_rows if c.get("exam_id")}
+
+        # Batch the violation counts: one query over all of this enrollment's
+        # sessions, tallied in Python, instead of a COUNT round-trip per session.
+        session_keys = [s["session_key"] for s in sessions if s.get("session_key")]
+        viol_counts: dict[str, int] = {}
+        if session_keys:
+            viol_rows = (await _atable("violations")
+                         .select("session_key")
+                         .eq("teacher_id", teacher_id)
+                         .in_("session_key", session_keys)
+                         .execute()).data or []
+            for vr in viol_rows:
+                sk = vr.get("session_key")
+                if sk:
+                    viol_counts[sk] = viol_counts.get(sk, 0) + 1
+
         for s in sessions:
-            # Get exam title + the exam's configured pass mark, so the student
-            # dashboard colours pass/fail by the SAME threshold the official
-            # scorecard uses (default 40). Hardcoding 40 client-side meant a
-            # 45% under a pass_mark=60 exam showed green here but FAIL on the
-            # emailed scorecard.
-            exam_title = ""
+            cfg = cfg_by_exam.get(s.get("exam_id") or "")
+            exam_title = (cfg.get("exam_title") or "") if cfg else ""
             pass_mark = 40
-            if s.get("exam_id"):
-                cfg_result = (await _atable("exam_config")
-                              .select("exam_title,pass_mark")
-                              .eq("exam_id", s["exam_id"])
-                              .eq("teacher_id", teacher_id)
-                              .limit(1)
-                              .execute()).data or []
-                if cfg_result:
-                    exam_title = cfg_result[0].get("exam_title") or ""
-                    pm = cfg_result[0].get("pass_mark")
-                    if pm is not None:
-                        pass_mark = pm
-
-            # Get teacher name
-            teacher = await _get_teacher_by_id(teacher_id)
-            teacher_name = teacher.get("full_name", "Teacher") if teacher else "Teacher"
-
-            # Count violations
-            viol_result = await _atable("violations")\
-                          .select("id", count="exact")\
-                          .eq("session_key", s["session_key"])\
-                          .eq("teacher_id", teacher_id)\
-                          .execute()
-            viol_count = viol_result.count or 0
+            if cfg and cfg.get("pass_mark") is not None:
+                pass_mark = cfg["pass_mark"]
+            viol_count = viol_counts.get(s["session_key"], 0)
 
             history.append({
                 # The student dashboard reads `session_key` (the "Why flagged?"

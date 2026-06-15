@@ -109,7 +109,11 @@ async def ws_chat_student(ws: WebSocket):
                     new_payload = verify_student_token(new_token)
                     new_roll = (new_payload.get("roll") or "").upper()
                     new_tid = new_payload.get("tid")
-                    if new_roll and new_tid and str(new_tid) == str(tid):
+                    # Reauth must prove a token for THIS connection's identity —
+                    # same teacher AND same roll. Checking tid alone (the prior
+                    # behaviour) accepted a token for a different student under
+                    # the same teacher; mirror the teacher path's strict id match.
+                    if new_roll and new_tid and str(new_tid) == str(tid) and new_roll == roll:
                         await ws.send_json({"type": "reauth_ok", "exp": new_payload.get("exp")})
                     else:
                         await ws.send_json({"type": "reauth_failed", "reason": "invalid"})
@@ -132,7 +136,9 @@ async def ws_chat_student(ws: WebSocket):
         await ws_rate_limiter.decrement(client_ip)
         sid = (ws.query_params.get("session_id") or "").strip()
         if sid:
-            await chat_hub.unregister_student(sid)
+            # Pass ws so a reconnect (new socket already registered under this
+            # session_id) isn't torn down by THIS old socket's disconnect.
+            await chat_hub.unregister_student(sid, ws)
 
 
 @router.websocket("/ws/chat/teacher")

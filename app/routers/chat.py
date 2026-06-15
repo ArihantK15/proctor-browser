@@ -109,7 +109,11 @@ async def ws_chat_student(ws: WebSocket):
                     new_payload = verify_student_token(new_token)
                     new_roll = (new_payload.get("roll") or "").upper()
                     new_tid = new_payload.get("tid")
-                    if new_roll and new_tid and str(new_tid) == str(tid):
+                    # Reauth must prove a token for THIS connection's identity —
+                    # same teacher AND same roll. Checking tid alone (the prior
+                    # behaviour) accepted a token for a different student under
+                    # the same teacher; mirror the teacher path's strict id match.
+                    if new_roll and new_tid and str(new_tid) == str(tid) and new_roll == roll:
                         await ws.send_json({"type": "reauth_ok", "exp": new_payload.get("exp")})
                     else:
                         await ws.send_json({"type": "reauth_failed", "reason": "invalid"})

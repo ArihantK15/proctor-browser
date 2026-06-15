@@ -193,7 +193,7 @@ async function doLogin(){
         document.getElementById('auth-err').textContent = data.message || 'We emailed you a 6-digit code.';
         return;
       }
-      throw new Error(data.detail||'Login failed');
+      throw new Error(_detailText(data, 'Login failed'));
     }
     _saveTokens(data.access_token, data.refresh_token);
     await _ensureCsrfToken(true);
@@ -219,7 +219,7 @@ async function doPasswordReset(){
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({detail:'Failed to send reset link'}));
-      throw new Error(d.detail||'Failed');
+      throw new Error(_detailText(d, 'Failed'));
     }
     document.getElementById('reset-success').style.display = 'block';
     document.getElementById('reset-err').textContent = '';
@@ -493,7 +493,7 @@ async function createExam(){
     const r = await authFetch(`${BASE}/api/v1/admin/exams`,{
       method:'POST', body:JSON.stringify({exam_title:title, duration_minutes:dur, phone_camera:phoneCam})
     });
-    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    if(!r.ok){ const d=await r.json(); throw new Error(_detailText(d, 'Failed')); }
     const d = await r.json();
     hideCreateExamModal();
     currentExamId = d.exam_id;
@@ -534,7 +534,7 @@ async function confirmDeleteExam(){
       method:'DELETE',
       headers:{'X-Reauth-Token': reauth_token}
     });
-    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    if(!r.ok){ const d=await r.json(); throw new Error(_detailText(d, 'Failed')); }
     currentExamId = null;
     await loadExams();
     liveData = []; resultsData = []; qData = [];
@@ -569,7 +569,7 @@ async function duplicateCurrentExam(){
         body: JSON.stringify({ new_title: (newTitle || '').trim() }) }
     );
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(_detailText(d, `HTTP ${r.status}`));
     // Switch to the new exam immediately so the teacher lands in
     // editing mode on their fresh copy.
     currentExamId = d.exam_id;
@@ -606,7 +606,7 @@ async function archiveCurrentExam(){
   if(!(await appConfirm(`Archive "${name}"? It will be hidden from the exam list and students won't be able to start it. Live sessions are unaffected.`, 'Archive exam', {okText:'Archive'}))) return;
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(currentExamId)}/archive`, {method:'POST'});
-    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    if(!r.ok){ const d=await r.json(); throw new Error(_detailText(d, 'Failed')); }
     await loadExams();
   }catch(e){ showModal('Archive failed: '+e.message); }
 }
@@ -618,7 +618,7 @@ async function unarchiveCurrentExam(){
   if(!(await appConfirm(`Unarchive "${name}"? It will reappear in the exam list and students can start it again.`, 'Unarchive exam', {okText:'Unarchive'}))) return;
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(currentExamId)}/unarchive`, {method:'POST'});
-    if(!r.ok){ const d=await r.json(); throw new Error(d.detail||'Failed'); }
+    if(!r.ok){ const d=await r.json(); throw new Error(_detailText(d, 'Failed')); }
     await loadExams();
   }catch(e){ showModal('Unarchive failed: '+e.message); }
 }
@@ -1468,7 +1468,7 @@ async function setCapOverride(orgId){
       method: 'POST',
       body: JSON.stringify({max_students_override: val})
     });
-    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Request failed'); }
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(_detailText(d, 'Request failed')); }
     loadAllOrgs();
   }catch(e){ alert('Set cap failed: ' + e.message); }
 }
@@ -1485,7 +1485,7 @@ async function grantOrgCredit(orgId){
       method: 'POST',
       body: JSON.stringify({amount_inr: amt, reason: reason.trim()})
     });
-    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Request failed'); }
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(_detailText(d, 'Request failed')); }
     loadAllOrgs();
   }catch(e){ alert('Grant credit failed: ' + e.message); }
 }
@@ -1552,7 +1552,7 @@ async function setOrgRequire2fa(value){
       method: 'POST',
       body: JSON.stringify({require_2fa: !!value})
     });
-    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Update failed'); }
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(_detailText(d, 'Update failed')); }
     if(resultEl){
       resultEl.textContent = value ? '✅ Now required for all members.' : 'Now optional for members.';
       resultEl.style.color = 'var(--emerald)';
@@ -1606,7 +1606,7 @@ async function toggleNotifPref(category, enabled){
       method: 'PATCH',
       body: JSON.stringify({[category]: !!enabled})
     });
-    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || 'Update failed'); }
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(_detailText(d, 'Update failed')); }
     if(resultEl){
       resultEl.textContent = enabled ? `${category} notifications ON` : `${category} notifications OFF`;
       resultEl.style.color = 'var(--emerald)';
@@ -1662,7 +1662,7 @@ async function _getReauthToken(action){
     method:'POST',
     body: JSON.stringify({password})
   });
-  if(!rr.ok){ const d=await rr.json().catch(()=>({})); throw new Error(d.detail||'Re-authentication failed'); }
+  if(!rr.ok){ const d=await rr.json().catch(()=>({})); throw new Error(_detailText(d, 'Re-authentication failed')); }
   const rd = await rr.json();
   return rd.reauth_token;
 }
@@ -1679,7 +1679,7 @@ async function enable2FA(){
       method:'POST',
       body: JSON.stringify({reauth_token})
     });
-    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Failed to enable 2FA'); }
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(_detailText(d, 'Failed to enable 2FA')); }
     resultEl.textContent = '✅ Enabled — next sign-in will require an email code.';
     resultEl.style.color = 'var(--emerald)';
     load2FAStatus();
@@ -1701,7 +1701,7 @@ async function disable2FA(){
       method:'POST',
       body: JSON.stringify({reauth_token})
     });
-    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Disable failed'); }
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(_detailText(d, 'Disable failed')); }
     resultEl.textContent = 'Two-factor authentication disabled.';
     resultEl.style.color = 'var(--emerald)';
     load2FAStatus();
@@ -2170,7 +2170,7 @@ async function saveOrgName(){
     });
     if(!r.ok){
       const d = await r.json().catch(() => ({}));
-      throw new Error(d.detail || `Save failed (${r.status})`);
+      throw new Error(_detailText(d, `Save failed (${r.status})`));
     }
     const d = await r.json();
     resultEl.textContent = 'Saved';
@@ -2429,7 +2429,7 @@ async function openInterventionWarn(sid){
     });
     if(!resp.ok){
       const d = await resp.json().catch(()=>({}));
-      throw new Error(d.detail || `HTTP ${resp.status}`);
+      throw new Error(_detailText(d, `HTTP ${resp.status}`));
     }
   }catch(e){
     showModal('Warning failed', e.message || 'Could not send warning.');
@@ -2454,7 +2454,7 @@ async function confirmResetSession(sid){
     });
     if(!resp.ok){
       const d = await resp.json().catch(()=>({}));
-      throw new Error(d.detail || `HTTP ${resp.status}`);
+      throw new Error(_detailText(d, `HTTP ${resp.status}`));
     }
     await refreshLive();
   }catch(e){
@@ -2480,7 +2480,7 @@ async function confirmPauseSession(sid){
     });
     if(!resp.ok){
       const d = await resp.json().catch(()=>({}));
-      throw new Error(d.detail || `HTTP ${resp.status}`);
+      throw new Error(_detailText(d, `HTTP ${resp.status}`));
     }
     await refreshLive();
   }catch(e){
@@ -2499,7 +2499,7 @@ async function confirmResumeSession(sid){
     });
     if(!resp.ok){
       const d = await resp.json().catch(()=>({}));
-      throw new Error(d.detail || `HTTP ${resp.status}`);
+      throw new Error(_detailText(d, `HTTP ${resp.status}`));
     }
     await refreshLive();
   }catch(e){
@@ -2525,7 +2525,7 @@ async function confirmEndSession(sid){
     });
     if(!rauth.ok){
       const d = await rauth.json().catch(()=>({}));
-      throw new Error(d.detail || 'Re-auth failed');
+      throw new Error(_detailText(d, 'Re-auth failed'));
     }
     const rd = await rauth.json();
     reauthToken = rd.reauth_token || '';
@@ -2552,7 +2552,7 @@ async function confirmEndSession(sid){
     });
     if(!resp.ok){
       const d = await resp.json().catch(()=>({}));
-      throw new Error(d.detail || `HTTP ${resp.status}`);
+      throw new Error(_detailText(d, `HTTP ${resp.status}`));
     }
     await refreshLive();
   }catch(e){
@@ -2992,7 +2992,7 @@ async function _submitIdDecision(violationId, sessionKey, decision, reason_code,
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || `HTTP ${r.status}`);
+      throw new Error(_detailText(d, `HTTP ${r.status}`));
     }
     await refreshIdReviews();
     await refreshLive();
@@ -3138,7 +3138,7 @@ async function openTriage(sid){
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/triage`);
     const d = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(d.detail || `Failed to load insight (${r.status})`);
+    if(!r.ok) throw new Error(_detailText(d, `Failed to load insight (${r.status})`));
     const summary = d.summary || d.insight || d;
     const text = summary.summary || summary.text || summary.verdict || 'No concerning pattern detected in the recent events.';
     body.textContent = text;
@@ -3170,7 +3170,7 @@ async function doInviteTeacher(){
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail||'Failed to send invite');
+      throw new Error(_detailText(d, 'Failed to send invite'));
     }
     resultEl.textContent = 'Invitation sent!'; resultEl.style.color = 'var(--emerald)';
     setTimeout(hideInviteTeacherModal, 1500);
@@ -3201,7 +3201,7 @@ async function emailAllScorecards(){
         body: JSON.stringify(body) }
     );
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(_detailText(d, `HTTP ${r.status}`));
     const parts = [
       `Sent: ${d.sent || 0}`,
       `Already emailed: ${d.already_sent || 0}`,
@@ -3369,7 +3369,7 @@ async function submitIssueReport(){
   try{
     const r = await authFetch(`${BASE}/api/v1/issues`, {method:'POST', body:JSON.stringify(body)});
     const d = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    if(!r.ok) throw new Error(_detailText(d, `HTTP ${r.status}`));
     closeIssueReport();
     showModal('Issue reported', 'Thanks. The Procta team can now triage this from the Issues inbox.');
   }catch(e){
@@ -3396,7 +3396,7 @@ async function loadIssues(){
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/issues${params.toString() ? `?${params}` : ''}`);
     const d = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    if(!r.ok) throw new Error(_detailText(d, `HTTP ${r.status}`));
     issuesData = d.issues || [];
     const badge = document.getElementById('issues-open-badge');
     if(badge){
@@ -3493,7 +3493,7 @@ async function updateIssueStatus(){
       body:JSON.stringify(body),
     });
     const d = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    if(!r.ok) throw new Error(_detailText(d, `HTTP ${r.status}`));
     Object.assign(i, d.issue || body);
     if(result){ result.textContent = 'Saved'; result.style.color = 'var(--emerald)'; }
     openIssueDetail(i.id);
@@ -3658,7 +3658,7 @@ async function upgradePlan(planId, billingCycle, couponCode){
       body:JSON.stringify(body)
     });
     const d = await r.json().catch(()=>({}));
-    if(!r.ok){ throw new Error(d.detail||'Subscription failed'); }
+    if(!r.ok){ throw new Error(_detailText(d, 'Subscription failed')); }
     if(d.short_url){
       if(resultEl){ resultEl.textContent = 'Redirecting to Razorpay for UPI Autopay setup...'; }
       window.location.href = d.short_url;
@@ -3753,7 +3753,7 @@ async function changePlan(planId, billingCycle){
     body:JSON.stringify({plan_id:planId})
   });
   const d = await r.json().catch(()=>({}));
-  if(!r.ok){ showModal('Plan change failed', d.detail||'Plan change failed'); return; }
+  if(!r.ok){ showModal('Plan change failed', _detailText(d, 'Plan change failed')); return; }
   if(d.cleared){
     showModal('Schedule cleared', 'The pending plan change has been cancelled.');
   }else if(isUpgrade){
@@ -3776,7 +3776,7 @@ async function cancelScheduledChange(){
     body:JSON.stringify({plan_id:cur})
   });
   const d = await r.json().catch(()=>({}));
-  if(!r.ok){ showModal('Error', d.detail||'Failed to cancel scheduled change'); return; }
+  if(!r.ok){ showModal('Error', _detailText(d, 'Failed to cancel scheduled change')); return; }
   showModal('Schedule cleared', 'Your plan will stay the same. The scheduled downgrade has been cancelled.');
   loadBilling();
 }
@@ -3793,7 +3793,7 @@ async function openBillingPortal(){
     const r = await authFetch(`${BASE}/api/v1/billing/portal-link`, { method: 'POST' });
     const d = await r.json().catch(()=>({}));
     if(!r.ok || !d.portal_url){
-      showModal('Billing portal', d.detail || 'Could not open the billing portal. Please try again.');
+      showModal('Billing portal', _detailText(d, 'Could not open the billing portal. Please try again.'));
       return;
     }
     window.open(d.portal_url, '_blank', 'noopener');
@@ -3819,7 +3819,7 @@ async function loadBilling(){
     ]);
     if(!billingRes.ok){
       const d = await billingRes.json().catch(()=>({}));
-      throw new Error(d.detail || `Billing failed (${billingRes.status})`);
+      throw new Error(_detailText(d, `Billing failed (${billingRes.status})`));
     }
     const b = await billingRes.json();
     planEl.textContent = (b.plan || '--').toUpperCase();
@@ -4121,7 +4121,7 @@ async function clearLiveSessionsStep(){
       });
       if(!r.ok){
         const err=await r.json().catch(()=>({detail:'Request failed'}));
-        throw new Error(err.detail||('HTTP '+r.status));
+        throw new Error(_detailText(err, ('HTTP '+r.status)));
       }
       const d=await r.json();
       _clearLiveToken=d.token||'';
@@ -4199,7 +4199,7 @@ async function clearLiveSessionsStep(){
       });
       if(!r.ok){
         const err=await r.json().catch(()=>({detail:'Failed'}));
-        throw new Error(err.detail||('HTTP '+r.status));
+        throw new Error(_detailText(err, ('HTTP '+r.status)));
       }
       const d=await r.json();
       out.style.color='var(--emerald)';
@@ -4451,12 +4451,44 @@ async function saveSchedule(){
       body:JSON.stringify({starts_at:localInputToUtc(starts),ends_at:localInputToUtc(ends),exam_id:currentExamId})
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json().catch(()=>({}));
     st.style.color='var(--emerald)';
     st.textContent='Schedule saved!';
     setTimeout(()=>loadSchedule(),1000);
+    // If students already submitted this exam, a reschedule alone won't let them
+    // retake — offer (never force) a one-click reset.
+    if(d && d.attempted_count > 0){
+      await offerResetAfterReschedule(d.attempted_count);
+    }
   }catch(e){
     st.style.color='var(--red)';
     st.textContent='Failed: '+e.message;
+  }
+}
+
+// After a reschedule on an exam that some students already submitted: warn the
+// teacher and offer a one-click reset so those students can retake within the
+// new window. The reschedule itself already saved — declining just leaves the
+// finished attempts as-is (the teacher can still reset later from Sessions).
+async function offerResetAfterReschedule(n){
+  const who = n === 1 ? '1 student has' : `${n} students have`;
+  const subj = n === 1 ? 'this student' : `these ${n} students`;
+  const ok = await appConfirm(
+    `${who} already submitted this exam. Rescheduling on its own won't let them retake — their finished attempt still shows as completed.\n\n`+
+    `Reset ${subj} now so they can re-enter and retake the exam? Their saved answers are kept, and you can also do this later from the Sessions view.`,
+    'Students already attempted',
+    {okText:`Reset ${n} for retake`, cancelText:'Not now'}
+  );
+  if(!ok) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exam/${encodeURIComponent(currentExamId)}/reset-attempts`,
+                              {method:'POST', body:'{}'});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(_detailText(d, `HTTP ${r.status}`));
+    const c = d.reset_count || 0;
+    showModal('Students reset', `${c} student${c===1?'':'s'} can now re-enter and retake the exam.`);
+  }catch(e){
+    showModal('Reset failed', 'Could not reset the attempts: '+e.message+'. You can retry from the Sessions view.');
   }
 }
 
@@ -4900,7 +4932,7 @@ async function handleQImageUpload(idx, file){
       });
       if(!r.ok){
         const err = await r.json().catch(()=>({detail:'Upload failed'}));
-        throw new Error(err.detail||('HTTP '+r.status));
+        throw new Error(_detailText(err, ('HTTP '+r.status)));
       }
       const d = await r.json();
       qData[idx].image_url = d.url;
@@ -5336,7 +5368,7 @@ async function lintQuestions(){
     const data = await r.json();
     if(!r.ok){
       msg.style.color = 'var(--red)';
-      msg.textContent = data.detail || `Lint failed (${r.status})`;
+      msg.textContent = _detailText(data, `Lint failed (${r.status})`);
       return;
     }
     _renderLintResults(data.results || []);
@@ -5491,7 +5523,7 @@ async function saveQuestions(){
     });
     if(!r.ok){
       const err=await r.json();
-      throw new Error(err.detail||'Save failed');
+      throw new Error(_detailText(err, 'Save failed'));
     }
     const d=await r.json();
     qDirty=false;
@@ -6020,6 +6052,11 @@ function chatEnsureSession(sid, meta){
 
 function chatHandleIncoming(data){
   const t = data.type;
+  if(t==='ping'){
+    // Server liveness probe — reply so it doesn't reap us as a dead socket.
+    try{ chatWs && chatWs.readyState===1 && chatWs.send(JSON.stringify({type:'pong'})); }catch(_){}
+    return;
+  }
   if(t==='roster'){
     chatSessions = {};
     (data.sessions||[]).forEach(s=>{
@@ -6504,7 +6541,7 @@ async function bankToExam(){
       _bankSelected.clear();
       loadQuestions();
       loadBank();
-    }else{ showModal(d.detail||'Error'); }
+    }else{ showModal(_detailText(d, 'Error')); }
   }catch(e){ showModal('Failed to add questions'); }
 }
 
@@ -6514,7 +6551,7 @@ async function saveBankToExamSingle(qid){
   const r = await authFetch(`${BASE}/api/v1/admin/question-bank/to-exam`,
     {method:'POST',body:JSON.stringify({question_ids:[qid],exam_id:eid})});
   if(r.ok){ loadQuestions(); }
-  else{ const d=await r.json(); showModal(d.detail||'Error'); }
+  else{ const d=await r.json(); showModal(_detailText(d, 'Error')); }
 }
 
 function showBankImport(){
@@ -6563,7 +6600,7 @@ async function doGenerateQuestions(){
     const data = await r.json();
     if(!r.ok){
       status.style.color='var(--red)';
-      status.textContent = data.detail || 'Generation failed.';
+      status.textContent = _detailText(data, 'Generation failed.');
       return;
     }
     _genPreview = data.questions || [];
@@ -6614,7 +6651,7 @@ async function qbankGenFileChosen(){
   const data = await r.json().catch(() => ({}));
   if(!r.ok){
     status.style.color='var(--red)';
-    status.textContent = data.detail || 'Generation failed.';
+    status.textContent = _detailText(data, 'Generation failed.');
     return;
   }
   _genPreview = data.questions || [];
@@ -6724,7 +6761,7 @@ async function commitGenPreview(destination = 'bank'){
       body: JSON.stringify({questions: out})
     });
     const d = await r.json();
-    if(!r.ok){ status.style.color='var(--red)'; status.textContent = d.detail||'Save failed.'; return; }
+    if(!r.ok){ status.style.color='var(--red)'; status.textContent = _detailText(d, 'Save failed.'); return; }
     const savedCount = d.imported || out.length;
     const newIds = (d.inserted_ids || (Array.isArray(d.data) ? d.data.map(x => x.id) : []));
     _genPreview = [];
@@ -6759,7 +6796,7 @@ async function commitGenPreview(destination = 'bank'){
         const d2 = await r2.json();
         if(!r2.ok){
           status.style.color = 'var(--red)';
-          status.textContent = `Saved to bank, but adding to exam failed: ${d2.detail || 'server error'}`;
+          status.textContent = `Saved to bank, but adding to exam failed: ${_detailText(d2, 'server error')}`;
           if(typeof setAITab === 'function') setAITab('bank');
           return;
         }
@@ -7044,7 +7081,7 @@ async function doBankImport(){
       status.style.color='var(--emerald)'; status.textContent=`Imported ${d.imported} questions`;
       document.getElementById('bank-import-text').value='';
       loadBank();
-    }else{ status.style.color='var(--red)'; status.textContent=d.detail||'Error'; }
+    }else{ status.style.color='var(--red)'; status.textContent=_detailText(d, 'Error'); }
   }catch(e){ status.style.color='var(--red)'; status.textContent='Import failed'; }
 }
 
@@ -7111,7 +7148,7 @@ async function saveQuestionToBank(idx){
       const msg = document.getElementById('q-save-msg');
       if(msg){ msg.style.color='var(--emerald)'; msg.textContent='Saved to bank.'; setTimeout(()=>msg.textContent='',2500); }
       else showModal('Saved to bank!');
-    } else { const d=await r.json(); showModal(d.detail||'Error'); }
+    } else { const d=await r.json(); showModal(_detailText(d, 'Error')); }
   }catch(e){ showModal('Failed to save to bank'); }
 }
 
@@ -7137,7 +7174,7 @@ async function editBankQ(qid){
     const r = await authFetch(`${BASE}/api/v1/admin/question-bank/${qid}`,
       {method:'PUT',body:JSON.stringify(fields)});
     if(r.ok) loadBank();
-    else { const d=await r.json(); showModal(d.detail||'Error'); }
+    else { const d=await r.json(); showModal(_detailText(d, 'Error')); }
   }catch(e){ showModal('Edit failed'); }
 }
 
@@ -7178,7 +7215,7 @@ async function createGroup(){
   const st = document.getElementById('group-status');
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/groups`,{method:'POST',body:JSON.stringify({group_name:name})});
-    if(!r.ok){ const d=await r.json(); st.style.color='var(--red)'; st.textContent=d.detail||'Error'; return; }
+    if(!r.ok){ const d=await r.json(); st.style.color='var(--red)'; st.textContent=_detailText(d, 'Error'); return; }
     inp.value='';
     st.style.color='var(--emerald)'; st.textContent='Group created';
     setTimeout(()=>st.textContent='',3000);
@@ -7253,7 +7290,7 @@ async function removeOrgMember(memberId){
   });
   if(!r.ok){
     const d = await r.json().catch(()=>({}));
-    showModal(d.detail || 'Could not remove member');
+    showModal(_detailText(d, 'Could not remove member'));
     return;
   }
   loadMembers();
@@ -7376,7 +7413,7 @@ async function assignBatchToExam(){
   const next = Array.from(new Set([..._examBatches, b]));
   const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/batches`,
     {method:'POST', body:JSON.stringify({batches: next})});
-  if(!r.ok){ const d=await r.json().catch(()=>({})); showModal('Error', d.detail||'Failed to assign batch'); return; }
+  if(!r.ok){ const d=await r.json().catch(()=>({})); showModal('Error', _detailText(d, 'Failed to assign batch')); return; }
   loadExamBatches();
 }
 
@@ -7508,7 +7545,7 @@ async function sendInvites(){
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/invites/send`, {method:'POST', body:JSON.stringify(payload)});
     const d = await r.json();
-    if(!r.ok){ st.style.color='var(--red)'; st.innerHTML = _escHtml(d.detail || 'Send failed'); return; }
+    if(!r.ok){ st.style.color='var(--red)'; st.innerHTML = _escHtml(_detailText(d, 'Send failed')); return; }
     const sent = d.sent||0, failed = d.failed||0, skipped = d.skipped||0;
     const failures = Array.isArray(d.failures) ? d.failures : [];
     const summary = `Sent ${sent}${failed?`, ${failed} failed`:''}${skipped?`, ${skipped} skipped (duplicate)`:''}.`;
@@ -7594,7 +7631,7 @@ async function setTimeExtension(){
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || `HTTP ${r.status}`);
+      throw new Error(_detailText(d, `HTTP ${r.status}`));
     }
     status.style.color = 'var(--emerald)';
     status.textContent = mins > 0 ? `+${mins} min set for ${roll}.` : `Extension removed for ${roll}.`;
@@ -7656,7 +7693,7 @@ async function removeStudentFromRoster(){
     });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
-      if (status) { status.style.color='var(--red)'; status.textContent = d.detail || `Failed (HTTP ${r.status})`; }
+      if (status) { status.style.color='var(--red)'; status.textContent = _detailText(d, `Failed (HTTP ${r.status})`); }
       return;
     }
     let d = await r.json();
@@ -7680,7 +7717,7 @@ async function removeStudentFromRoster(){
       });
       if (!r.ok) {
         const retryBody = await r.json().catch(() => ({}));
-        if (status) { status.style.color='var(--red)'; status.textContent = retryBody.detail || `Failed (HTTP ${r.status})`; }
+        if (status) { status.style.color='var(--red)'; status.textContent = _detailText(retryBody, `Failed (HTTP ${r.status})`); }
         return;
       }
       d = await r.json();
@@ -7708,7 +7745,7 @@ async function resetInviteCap(){
     const r = await authFetch(`${BASE}/api/v1/admin/invites/cap-reset`, {method:'POST'});
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
-      if (status) { status.style.color='var(--red)'; status.textContent = d.detail || 'Reset failed'; }
+      if (status) { status.style.color='var(--red)'; status.textContent = _detailText(d, 'Reset failed'); }
       return;
     }
     if (status) { status.style.color='var(--emerald)'; status.textContent = '✅ Daily cap reset. You can send invites again.'; }
@@ -7817,7 +7854,7 @@ async function resendInvite(id){
   st.style.color='var(--muted)'; st.textContent='Resending…';
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/invites/${id}/resend`, {method:'POST'});
-    if(!r.ok){ const d=await r.json(); st.style.color='var(--red)'; st.textContent=d.detail||'Failed'; return; }
+    if(!r.ok){ const d=await r.json(); st.style.color='var(--red)'; st.textContent=_detailText(d, 'Failed'); return; }
     st.style.color='var(--emerald)'; st.textContent='Resent.';
     setTimeout(()=>st.textContent='',2500);
     loadInvites();
@@ -7828,7 +7865,7 @@ async function revokeInvite(id){
   if(!(await appConfirm('Revoke this invite? The student will no longer be able to join using this link.', 'Revoke invite', {okText:'Revoke'}))) return;
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/invites/${id}`, {method:'DELETE'});
-    if(!r.ok){ const d=await r.json(); showModal(d.detail||'Failed'); return; }
+    if(!r.ok){ const d=await r.json(); showModal(_detailText(d, 'Failed')); return; }
     loadInvites();
   }catch(e){ showModal('Network error'); }
 }
@@ -7842,7 +7879,7 @@ async function resendBouncedInvites(){
     const r = await authFetch(`${BASE}/api/v1/admin/invites/resend-bounced`,
       {method:'POST', body: JSON.stringify(eid ? {exam_id: eid} : {})});
     const d = await r.json();
-    if(!r.ok){ st.style.color='var(--red)'; st.textContent=d.detail||'Failed'; return; }
+    if(!r.ok){ st.style.color='var(--red)'; st.textContent=_detailText(d, 'Failed'); return; }
     st.style.color='var(--emerald)'; st.textContent=`Requeued ${d.requeued||0}${d.failed?`, ${d.failed} still failed`:''}.`;
     loadInvites();
   }catch(e){ st.style.color='var(--red)'; st.textContent='Network error'; }
@@ -8116,7 +8153,7 @@ async function sendGuardianConsent(roll){
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({detail:`HTTP ${r.status}`}));
-      showModal('Error', err.detail || 'Failed to send consent request');
+      showModal('Error', _detailText(err, 'Failed to send consent request'));
       return;
     }
     refreshStudentList();
@@ -8148,7 +8185,7 @@ async function editStudentBatch(roll){
       method:'POST',
       body: JSON.stringify({batch: val.trim()})
     });
-    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || `HTTP ${r.status}`); }
+    if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(_detailText(d, `HTTP ${r.status}`)); }
     _historyBatchesLoadedAt = 0;        // a new cohort may now exist — force dropdown refresh
     await viewStudentHistory(roll);     // re-render the detail with the new batch
     refreshStudentList();               // keep the roster + batch dropdown in sync

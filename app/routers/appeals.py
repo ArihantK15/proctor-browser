@@ -3,7 +3,7 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Literal
 
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -22,7 +22,8 @@ router = APIRouter(prefix="/api/v1", tags=["appeals"])
 class AppealIn(BaseModel):
     model_config = ConfigDict(strict=True)
     session_key: str
-    appeal_type: str  # 'violation' | 'grade' | 'other'
+    # Allowlist — reject arbitrary appeal_type values instead of storing them.
+    appeal_type: Literal["violation", "grade", "other"]
     description: str
     # Optional: dispute ONE specific flag. NULL keeps the legacy session-
     # level appeal (whole-session grade/other). When set, accepting the
@@ -32,7 +33,8 @@ class AppealIn(BaseModel):
 
 class AppealResolveIn(BaseModel):
     model_config = ConfigDict(strict=True)
-    status: str  # 'accepted' | 'rejected'
+    # Allowlist — only these two resolutions are valid.
+    status: Literal["accepted", "rejected"]
     teacher_note: str = ""
 
 
@@ -73,30 +75,39 @@ async def submit_appeal(body: AppealIn, request: Request):
     # violation. Scope the lookup to body.session_key (already proven to be
     # this student's session above) so the link can only point at their own
     # flags.
-    violation_id = None
-    if body.violation_id:
-        v = await _atable("violations").select("id")\
-            .eq("id", body.violation_id)\
-            .eq("session_key", body.session_key)\
-            .limit(1).execute()
-        if not v.data:
-            raise HTTPException(status_code=404, detail="Flag not found for this session")
-        violation_id = body.violation_id
+    rid = getattr(request.state, "request_id", "") or "-"
+    try:
+        violation_id = None
+        if body.violation_id:
+            v = await _atable("violations").select("id")\
+                .eq("id", body.violation_id)\
+                .eq("session_key", body.session_key)\
+                .limit(1).execute()
+            if not v.data:
+                raise HTTPException(status_code=404, detail="Flag not found for this session")
+            violation_id = body.violation_id
 
-    # NOTE: the appeals table has no `email` column (see phase51 schema)
-    # — student identity is session_key + student_id + roll_number, and
-    # the teacher resolves email separately. Inserting email here raised
-    # UndefinedColumnError → 500 on every appeal submission.
-    await _atable("appeals").insert({
-        "session_key":  body.session_key,
-        "student_id":   student_id,
-        "exam_id":      exam_id,
-        "teacher_id":   teacher_id,
-        "appeal_type":  body.appeal_type,
-        "description":  body.description[:1000],
-        "status":       "pending",
-        "violation_id": violation_id,
-    }).execute()
+        # NOTE: the appeals table has no `email` column (see phase51 schema)
+        # — student identity is session_key + student_id + roll_number, and
+        # the teacher resolves email separately. Inserting email here raised
+        # UndefinedColumnError → 500 on every appeal submission.
+        await _atable("appeals").insert({
+            "session_key":  body.session_key,
+            "student_id":   student_id,
+            "exam_id":      exam_id,
+            "teacher_id":   teacher_id,
+            "appeal_type":  body.appeal_type,
+            "description":  body.description[:1000],
+            "status":       "pending",
+            "violation_id": violation_id,
+        }).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        _log.error("[student/appeal] submit failed (rid=%s, session=%s): %s",
+                   rid, body.session_key, e, exc_info=True)
+        raise HTTPException(status_code=500,
+            detail=f"Failed to submit appeal ({type(e).__name__}). request_id: {rid}")
 
     return {"status": "submitted", "message": "Your appeal has been submitted for teacher review."}
 
@@ -159,51 +170,62 @@ async def student_session_evidence(session_key: str, request: Request):
         raise HTTPException(status_code=403, detail="Session does not belong to you")
     teacher_id = str(s.get("teacher_id", ""))
 
-    viol = await _atable("violations")\
-        .select("id,violation_type,severity,detection_confidence,created_at,dismissed_at,dismissed_reason")\
-        .eq("session_key", session_key)\
-        .order("created_at")\
-        .execute()
-    rows = viol.data or []
+    # Wrap the evidence computation (risk scoring + narrative generation) so an
+    # unhandled throw in compute_risk_score / generate_session_summary leaves a
+    # traceable breadcrumb instead of an opaque 500 — same hardening student_exams
+    # got after a real incident. Ownership 404/403 above stay as proper 4xx.
+    rid = getattr(request.state, "request_id", "") or "-"
+    try:
+        viol = await _atable("violations")\
+            .select("id,violation_type,severity,detection_confidence,created_at,dismissed_at,dismissed_reason")\
+            .eq("session_key", session_key)\
+            .order("created_at")\
+            .execute()
+        rows = viol.data or []
 
-    # Sensitivity defaults to 'balanced' — explain_flag's threshold notes are
-    # framed against this preset. (Per-exam sensitivity override is a future
-    # enhancement; defaulting keeps the student view honest without an extra
-    # query that could fail and block the page.)
-    flags = []
-    for r in rows:
-        exp = explain_flag(r, sensitivity="balanced")
-        flags.append({
-            "id": r.get("id"),
-            "type": r.get("violation_type"),
-            "severity": r.get("severity"),
-            "at": r.get("created_at"),
-            "dismissed": bool(r.get("dismissed_at")),
-            "dismissed_reason": r.get("dismissed_reason"),
-            # Student-helpful subset of explain_flag — omits teacher-only
-            # fields like human_review_recommended.
-            "confidence_label": exp["confidence_label"],
-            "reliability": exp["reliability"],
-            "reason_codes": exp["reason_codes"],
-            "explanation": exp["explanation"],
-        })
+        # Sensitivity defaults to 'balanced' — explain_flag's threshold notes are
+        # framed against this preset. (Per-exam sensitivity override is a future
+        # enhancement; defaulting keeps the student view honest without an extra
+        # query that could fail and block the page.)
+        flags = []
+        for r in rows:
+            exp = explain_flag(r, sensitivity="balanced")
+            flags.append({
+                "id": r.get("id"),
+                "type": r.get("violation_type"),
+                "severity": r.get("severity"),
+                "at": r.get("created_at"),
+                "dismissed": bool(r.get("dismissed_at")),
+                "dismissed_reason": r.get("dismissed_reason"),
+                # Student-helpful subset of explain_flag — omits teacher-only
+                # fields like human_review_recommended.
+                "confidence_label": exp["confidence_label"],
+                "reliability": exp["reliability"],
+                "reason_codes": exp["reason_codes"],
+                "explanation": exp["explanation"],
+            })
 
-    risk = await compute_risk_score(session_key, teacher_id=teacher_id)
-    summary = generate_session_summary(rows, {"risk_score": risk.get("risk_score")})
+        risk = await compute_risk_score(session_key, teacher_id=teacher_id)
+        summary = generate_session_summary(rows, {"risk_score": risk.get("risk_score")})
 
-    return {
-        "session_key": session_key,
-        "risk": {
-            "score": risk.get("risk_score"),
-            "label": risk.get("label"),
-            "breakdown": risk.get("breakdown", {}),
-        },
-        "summary": {
-            "narrative": summary.get("narrative"),
-            "severity": summary.get("severity"),
-        },
-        "flags": flags,
-    }
+        return {
+            "session_key": session_key,
+            "risk": {
+                "score": risk.get("risk_score"),
+                "label": risk.get("label"),
+                "breakdown": risk.get("breakdown", {}),
+            },
+            "summary": {
+                "narrative": summary.get("narrative"),
+                "severity": summary.get("severity"),
+            },
+            "flags": flags,
+        }
+    except Exception as e:
+        _log.error("[student/evidence] failed (rid=%s, session=%s): %s",
+                   rid, session_key, e, exc_info=True)
+        raise HTTPException(status_code=500,
+            detail=f"Failed to load evidence ({type(e).__name__}). request_id: {rid}")
 
 
 # ── Teacher: list appeals ──────────────────────────────────────────
@@ -296,7 +318,7 @@ async def resolve_appeal(appeal_id: str, body: AppealResolveIn, request: Request
         "teacher_note": body.teacher_note[:500],
         "resolution": resolution,
         "resolved_at": now,
-    }).eq("id", appeal_id).execute()
+    }).eq("id", appeal_id).eq("teacher_id", tid).execute()
 
     # ── Accountability: append-only audit row (best-effort, never raises) ──
     try:

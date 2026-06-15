@@ -41,3 +41,21 @@ function chatEscape(s) { return _escHtml(s); }
 function chatJsEscape(s) {
   return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
+
+/* Extract a human-readable message from a parsed JSON error body. FastAPI
+ * returns `detail` as a STRING (HTTPException) OR an ARRAY of {loc,msg,type}
+ * objects (422 validation) — rendering the latter directly yields the infamous
+ * "[object Object]". Always returns a string. Pass the parsed body + a
+ * fallback: _detailText(await r.json(), 'Save failed'). */
+function _detailText(d, fallback) {
+  var det = d && d.detail;
+  if (typeof det === 'string' && det) return det;
+  if (Array.isArray(det)) {
+    var msgs = det.map(function (x) { return (x && x.msg) ? x.msg : ''; })
+                  .filter(Boolean);
+    if (msgs.length) return msgs.join('; ');
+  }
+  if (det && typeof det === 'object' && typeof det.msg === 'string' && det.msg) return det.msg;
+  if (d && typeof d.message === 'string' && d.message) return d.message;
+  return fallback;
+}

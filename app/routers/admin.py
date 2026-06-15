@@ -32,7 +32,7 @@ from ..database import supabase, async_table as _atable
 from ..limiter import limiter
 from ..constants import SCREENSHOTS_DIR, S3_LOCAL_CACHE_DAYS
 from ..services.object_store import is_enabled as _s3_enabled
-from ..models import SessionStatus
+from ..models import SessionStatus, RESULT_STATUSES
 
 from .admin_settings import router as settings_router
 from .admin_invites import router as invites_router
@@ -204,7 +204,7 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
     teacher = await require_admin(request)
     tid = teacher["id"]
     query = _atable("exam_sessions").select("session_key")\
-        .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])\
+        .in_("status", list(RESULT_STATUSES))\
         .eq("teacher_id", str(tid))
     if exam_id:
         query = query.eq("exam_id", exam_id)

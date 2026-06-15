@@ -59,7 +59,7 @@
   .auth-header { text-align: center; margin-bottom: 24px; }
   .auth-header h1 {
     font-family: var(--font-display);
-    color: white;
+    color: var(--text-high);
     font-size: 22px;
     font-weight: 700;
     margin: 14px 0 4px;
@@ -68,7 +68,7 @@
   .auth-tabs {
     display: flex;
     gap: 4px;
-    background: rgba(255,255,255,0.03);
+    background: var(--bg-inset);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 4px;
@@ -89,9 +89,9 @@
   }
   .auth-tab.active {
     background: var(--accent-dark);
-    color: white;
+    color: var(--text-high);
     border: 1px solid var(--accent);
-    box-shadow: 0 0 16px rgba(61,217,168,0.12);
+    box-shadow: 0 0 16px var(--accent-subtle);
   }
   .fg { margin-bottom: 14px; }
   .fg label {
@@ -106,7 +106,7 @@
   }
   .fg input {
     width: 100%;
-    background: rgba(255,255,255,0.03);
+    background: var(--bg-inset);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 11px 14px;
@@ -117,8 +117,8 @@
   .fg input:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(61,217,168,0.1);
-    background: rgba(255,255,255,0.03);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+    background: var(--bg-inset);
   }
   .auth-err {
     color: var(--red);
@@ -146,7 +146,7 @@
 
   .section-title {
     font-family: var(--font-display);
-    color: white;
+    color: var(--text-high);
     font-size: 18px;
     font-weight: 700;
     margin: 28px 0 14px;
@@ -226,7 +226,7 @@
     font-size: 12px;
   }
   .exam-hint a { color: var(--accent-light); text-decoration: none; }
-  .exam-hint a:hover { color: white; }
+  .exam-hint a:hover { color: var(--text-high); }
   .placeholder-row {
     display: flex;
     gap: 10px;
@@ -255,14 +255,14 @@
   }
   .modal-card h3 {
     font-family: var(--font-display);
-    color: white;
+    color: var(--text-high);
     font-size: 17px;
     margin-bottom: 4px;
   }
   .modal-card p.sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
   .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
   .modal-err { color: var(--red); font-size: 12px; min-height: 16px; margin-top: 8px; }
-  .pf-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid #f1f5f9 }
+  .pf-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border-subtle) }
   .pf-row:last-child { border-bottom:none }
   .pf-icon { width:24px; text-align:center; font-size:16px }
   .pf-label { flex:1; font-size:14px }
@@ -278,7 +278,7 @@
     text-decoration: none;
     margin: 0 8px;
   }
-  .footer-links a:hover { color: white; }
+  .footer-links a:hover { color: var(--text-high); }
 
   /* ── Web-only landing (shown when NOT inside Electron) ────── */
   .web-landing {
@@ -298,7 +298,7 @@
   }
   .web-landing-card h1 {
     font-family: var(--font-display);
-    color: white;
+    color: var(--text-high);
     font-size: 22px;
     font-weight: 700;
     margin: 16px 0 8px;
@@ -319,7 +319,7 @@
     font-weight: 600;
     text-decoration: none;
     transition: background 0.2s;
-    box-shadow: 0 2px 8px rgba(61,217,168,0.2);
+    box-shadow: 0 2px 8px var(--accent-subtle);
   }
   .web-landing-card .dl-btn:hover { background: var(--accent-light); }
   .web-steps {
@@ -346,6 +346,66 @@
   .modal-actions{display:flex;gap:8px;justify-content:flex-end}
   .modal-btn{background:var(--accent,#3b82f6);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:500;cursor:pointer}
   .modal-btn:hover{filter:brightness(1.1)}
+
+  /* ════ Refined polish — theme-aware, tokens only, no JS deps ════════ */
+  html { color-scheme: dark; }
+  [data-theme="light"] { color-scheme: light; }
+  /* Ease the swap between light/dark so the toggle feels deliberate. */
+  body, .topbar, .exam-card, .auth-card, .modal-card, .exams-empty {
+    transition: background-color .18s var(--ease-standard, ease),
+                border-color .18s var(--ease-standard, ease),
+                box-shadow .18s var(--ease-standard, ease);
+  }
+
+  /* Topbar: sticky with a soft elevation so it reads as a real app chrome. */
+  .topbar {
+    position: sticky; top: 12px; z-index: 20;
+    box-shadow: 0 1px 0 var(--border-subtle), 0 10px 28px -20px rgba(0,0,0,.55);
+  }
+
+  /* Section headings get a small accent tick — quiet structure, not noise. */
+  .section-title { display: flex; align-items: center; gap: 10px; letter-spacing: -.01em; }
+  .section-title::before {
+    content: ''; flex: none; width: 3px; height: 1.05em; border-radius: 2px;
+    background: linear-gradient(var(--accent), var(--accent-active, var(--accent)));
+  }
+
+  /* Exam / history cards: hover lift + accent edge + staggered entrance. */
+  .exam-card {
+    position: relative; overflow: hidden;
+    transition: border-color .18s var(--ease-standard, ease),
+                transform .18s var(--ease-standard, ease),
+                box-shadow .18s var(--ease-standard, ease);
+  }
+  .exam-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--accent); opacity: 0;
+    transition: opacity .18s var(--ease-standard, ease);
+  }
+  .exam-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-default);
+    box-shadow: 0 14px 34px -20px rgba(0,0,0,.6);
+  }
+  .exam-card:hover::before { opacity: .9; }
+
+  @keyframes stuReveal { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .exam-list > .exam-card { animation: stuReveal .4s var(--ease-standard, ease) both; }
+  .exam-list > .exam-card:nth-child(1){ animation-delay: .02s }
+  .exam-list > .exam-card:nth-child(2){ animation-delay: .07s }
+  .exam-list > .exam-card:nth-child(3){ animation-delay: .12s }
+  .exam-list > .exam-card:nth-child(4){ animation-delay: .17s }
+  .exam-list > .exam-card:nth-child(n+5){ animation-delay: .2s }
+
+  .exams-empty { background: var(--bg-subtle, var(--card)); }
+  .exams-empty strong { font-family: var(--font-display); letter-spacing: -.01em; }
+  .exam-actions .btn-primary { box-shadow: 0 6px 18px -8px var(--accent-border, transparent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .exam-list > .exam-card { animation: none; }
+    .exam-card:hover { transform: none; }
+    body, .topbar, .exam-card, .auth-card, .modal-card, .exams-empty { transition: none; }
+  }
 </style>
 </head>
 <body>
@@ -526,6 +586,20 @@
     <div style="display:flex;align-items:center;gap:14px">
       <div class="topbar-user">
         Signed in as <strong id="me-name">—</strong>
+      </div>
+      <!-- Theme switch — .theme-switch/.theme-opt come from components.css;
+           setTheme() (student-app.js) persists to localStorage('procta_theme'),
+           the same key _safe.js reads before first paint. -->
+      <div class="theme-switch" role="group" aria-label="Theme">
+        <button class="theme-opt" data-theme-opt="dark" data-action="setTheme" data-args='["dark"]' title="Dark" aria-label="Dark theme">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" fill="currentColor"/></svg>
+        </button>
+        <button class="theme-opt" data-theme-opt="dark-oled" data-action="setTheme" data-args='["dark-oled"]' title="Black (OLED)" aria-label="Black OLED theme">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="currentColor"/></svg>
+        </button>
+        <button class="theme-opt" data-theme-opt="light" data-action="setTheme" data-args='["light"]' title="Light" aria-label="Light theme">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="3" x2="12" y2="5.5"/><line x1="12" y1="18.5" x2="12" y2="21"/><line x1="3" y1="12" x2="5.5" y2="12"/><line x1="18.5" y1="12" x2="21" y2="12"/><line x1="5.6" y1="5.6" x2="7.3" y2="7.3"/><line x1="16.7" y1="16.7" x2="18.4" y2="18.4"/><line x1="5.6" y1="18.4" x2="7.3" y2="16.7"/><line x1="16.7" y1="7.3" x2="18.4" y2="5.6"/></g></svg>
+        </button>
       </div>
       <button class="btn btn-secondary btn-sm" data-action="doLogout">Log out</button>
     </div>

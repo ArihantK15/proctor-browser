@@ -88,6 +88,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("admin_sessions.py", "admin_submit"):       "force-submits own session",
     ("admin_sessions.py", "session_pause"):      "pauses own session",
     ("admin_sessions.py", "session_reset"):      "resets own session",
+    ("admin_sessions.py", "reset_exam_attempts"): "re-opens own exam's finished attempts (reschedule retake) — owner-only by design",
     ("admin_sessions.py", "session_resume"):     "resumes own session",
     ("admin_sessions.py", "request_recalibration"): "recalibrates own session",
     # ── grading mutations (own answers) ──

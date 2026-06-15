@@ -20,7 +20,7 @@ from ..auth import (
 )
 from ..auth.scope import org_is_solo
 from ..utils import fmt_ist, now_ist
-from ..models import SessionStatus
+from ..models import SessionStatus, RESULT_STATUSES
 from ..models.invites import InviteStatus
 from ..constants import ALL_SIGNING_KEYS, PLANS, TRIAL_DAYS
 from ..services.passwords import validate_password, validate_password_async, PasswordError
@@ -1950,8 +1950,21 @@ async def student_exams(request: Request):
                 status = "in_progress"
             elif st in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED,
                       SessionStatus.FORCE_SUBMITTED):
-                # A completion from a PRIOR window can't apply to an upcoming one.
-                status = "upcoming" if window == "upcoming" else "completed"
+                if exam_id:
+                    # The session lookup is scoped to THIS exam_id, so a terminal
+                    # result genuinely belongs to this exam — show it as completed
+                    # even when the window is (mis)set into the future. Deferring
+                    # to the window here (the old behaviour) wrongly relabelled a
+                    # freshly-submitted exam "Upcoming". A real retake goes through
+                    # teacher Reset, which flips the session back to IN_PROGRESS —
+                    # caught by the in_progress branch above (launchable) — so the
+                    # student can re-enter; it never lingers here as a stale result.
+                    status = "completed"
+                else:
+                    # Teacher-wide fallback (exam_id unresolved): an old attempt at
+                    # a *different* exam could leak in, so defer to the window to
+                    # avoid marking a not-yet-started exam complete.
+                    status = "upcoming" if window == "upcoming" else "completed"
             else:
                 status = window
         else:
@@ -2012,22 +2025,30 @@ async def student_history(request: Request):
                             "status,started_at,submitted_at,risk_score")
                     .eq("roll_number", roll)
                     .eq("teacher_id", teacher_id)
-                    .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+                    .in_("status", list(RESULT_STATUSES))
                     .order("submitted_at", desc=True)
                     .execute()).data or []
 
         for s in sessions:
-            # Get exam title
+            # Get exam title + the exam's configured pass mark, so the student
+            # dashboard colours pass/fail by the SAME threshold the official
+            # scorecard uses (default 40). Hardcoding 40 client-side meant a
+            # 45% under a pass_mark=60 exam showed green here but FAIL on the
+            # emailed scorecard.
             exam_title = ""
+            pass_mark = 40
             if s.get("exam_id"):
                 cfg_result = (await _atable("exam_config")
-                              .select("exam_title")
+                              .select("exam_title,pass_mark")
                               .eq("exam_id", s["exam_id"])
                               .eq("teacher_id", teacher_id)
                               .limit(1)
                               .execute()).data or []
                 if cfg_result:
                     exam_title = cfg_result[0].get("exam_title") or ""
+                    pm = cfg_result[0].get("pass_mark")
+                    if pm is not None:
+                        pass_mark = pm
 
             # Get teacher name
             teacher = await _get_teacher_by_id(teacher_id)
@@ -2042,13 +2063,21 @@ async def student_history(request: Request):
             viol_count = viol_result.count or 0
 
             history.append({
-                "session_id": s["session_key"],
+                # The student dashboard reads `session_key` (the "Why flagged?"
+                # and "Appeal" buttons pass it straight to the evidence/appeal
+                # endpoints). Emitting it as `session_id` left both buttons with
+                # `undefined` → they fired with a null key, producing a 404
+                # ("couldn't fetch evidence") and a strict-validation 422 that
+                # rendered as "[object Object]". Keep the field name aligned with
+                # every other student endpoint.
+                "session_key": s["session_key"],
                 "exam_title": exam_title or "Exam",
                 "teacher_name": teacher_name,
                 "roll_number": roll,
                 "score": s.get("score", 0),
                 "total": s.get("total", 0),
                 "percentage": s.get("percentage", 0.0),
+                "pass_mark": pass_mark,
                 "time_taken_secs": s.get("time_taken_secs", 0),
                 "submitted_at": fmt_ist(s.get("submitted_at", "")),
                 "violation_count": viol_count,

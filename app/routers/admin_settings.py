@@ -9,7 +9,14 @@ from ..repositories.questions import load_exam_config as _load_exam_config
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..limiter import limiter
-from ..models import ScheduleIn, ShuffleIn
+from ..models import ScheduleIn, ShuffleIn, SessionStatus
+
+# Sessions in one of these states have a finished attempt on record — they show
+# as "completed" to the student and won't retake on a reschedule unless the
+# teacher resets them. Mirrors the "done" set in student_exams' status logic.
+_ATTEMPTED_STATUSES = [
+    SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED,
+]
 from ..services.false_positive import normalize_sensitivity, SENSITIVITY_PRESETS
 
 router = APIRouter(prefix="")
@@ -46,10 +53,27 @@ async def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
 
     if _cache:
         _cache.delete(f"exam_config:{tid}:{exam_id}")
+
+    # If students have already submitted this exam, a reschedule alone won't let
+    # them retake — their finished session still reads as "completed". Surface
+    # the count so the dashboard can OFFER a one-click reset (never forced). Only
+    # relevant when the schedule actually changed; a no-op save warns about
+    # nothing. Best-effort: a count hiccup must not fail the save.
+    attempted_count = 0
+    if update:
+        try:
+            done = await _atable("exam_sessions").select("session_key", count="exact")\
+                .eq("teacher_id", str(tid)).eq("exam_id", exam_id)\
+                .in_("status", _ATTEMPTED_STATUSES).execute()
+            attempted_count = done.count or 0
+        except Exception:
+            attempted_count = 0
+
     return {
         "status":    "updated",
         "starts_at": body.starts_at,
         "ends_at":   body.ends_at,
+        "attempted_count": attempted_count,
     }
 
 

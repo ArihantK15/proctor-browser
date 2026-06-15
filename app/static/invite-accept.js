@@ -2,6 +2,20 @@
 // is `script-src 'self'` with no unsafe-inline/nonce — an inline <script> here is
 // blocked in production, which left the "Accept & Join" form non-functional. The
 // invite token is passed via the form's data-token attribute (set server-side).
+// Local copy — this standalone page does not load _safe.js. Keep in sync
+// with _safe.js::_detailText. Renders FastAPI 422 arrays (which would
+// otherwise show "[object Object]") as readable text.
+function _detailText(d, fallback) {
+  var det = d && d.detail;
+  if (typeof det === 'string' && det) return det;
+  if (Array.isArray(det)) {
+    var msgs = det.map(function (x) { return (x && x.msg) ? x.msg : ''; }).filter(Boolean);
+    if (msgs.length) return msgs.join('; ');
+  }
+  if (det && typeof det === 'object' && typeof det.msg === 'string' && det.msg) return det.msg;
+  if (d && typeof d.message === 'string' && d.message) return d.message;
+  return fallback;
+}
 (function () {
   var form = document.getElementById('acceptForm');
   if (!form) return;
@@ -32,7 +46,7 @@
       if (!r.ok) {
         var d = {};
         try { d = await r.json(); } catch (_) {}
-        errEl.textContent = d.detail || 'Failed to accept invite';
+        errEl.textContent = _detailText(d, 'Failed to accept invite');
         errEl.style.display = 'block';
         return;
       }

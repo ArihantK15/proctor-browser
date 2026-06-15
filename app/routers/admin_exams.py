@@ -9,7 +9,7 @@ from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scop
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_questions as _load_questions
-from ..models import SessionStatus
+from ..models import SessionStatus, RESULT_STATUSES
 from ..limiter import limiter
 from ..models import (
     CreateExamIn, CreateGroupIn, RenameGroupIn,
@@ -391,7 +391,7 @@ async def get_analytics(request: Request):
 
     sess_q = _atable("exam_sessions")\
         .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at")\
-        .in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+        .in_("status", list(RESULT_STATUSES))
     if tids is not None:
         # Collapse to .eq() for the single-teacher case (test stubs only mock .eq()).
         if not tids:

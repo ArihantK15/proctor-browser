@@ -506,7 +506,7 @@ app.whenReady().then(async () => {
   startSetupInBackground(getLobbyWindow);
 
   // Defer auto-updater to avoid blocking startup on slow networks.
-  setTimeout(() => initAutoUpdater(getLobbyWindow(), getMainWindow), 3000);
+  setTimeout(() => initAutoUpdater(getLobbyWindow, getMainWindow), 3000);
 
   setIntegrityReady(runIntegrityChecks().then(flags => {
     flags.forEach(f => pushIntegrityFlag(f));

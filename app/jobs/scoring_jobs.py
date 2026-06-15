@@ -38,6 +38,7 @@ async def _score_submission_async(
     """
     time_taken_secs = kwargs.get("time_taken_secs", 0)
     roll_number = kwargs.get("roll_number", "")
+    recovered = bool(kwargs.get("recovered", False))
     from ..database import async_table as _atable
     from ..services.scoring import recalculate_score
     from ..services.risk import compute_risk_score
@@ -60,10 +61,29 @@ async def _score_submission_async(
         return {"status": "already_completed", "score": sess.get("score"),
                 "total": sess.get("total"), "percentage": sess.get("percentage")}
 
-    # 1. Load saved answers from DB (the submit handler already persisted them)
+    # 1. Load saved answers from DB (the submit handler already persisted them).
     saved = await _atable("answers").select("question_id,answer")\
         .eq("session_key", session_key).execute()
     ans_payload = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
+
+    # 1b. Merge the Redis final-answer snapshot OVER the DB rows. The async
+    # submit path enqueues the final-answer DB flush on the SEPARATE "autosave"
+    # queue, so it can still be in flight when this scoring job runs on the
+    # "scoring" queue — reading the DB alone would then score stale/missing
+    # final answers. The handler cached the final answers to Redis (final=True)
+    # BEFORE enqueuing us, so the snapshot is the freshest source; it wins. If
+    # the flush already ran (and deleted the snapshot), the DB rows are
+    # authoritative and this merge is a no-op. recalculate_score canonicalises
+    # whatever we pass as the payload, so raw snapshot labels are handled.
+    try:
+        from ..services.autosave import load_autosave_snapshot
+        snap = await asyncio.to_thread(load_autosave_snapshot, session_key) or {}
+        snap_answers = snap.get("answers")
+        if isinstance(snap_answers, dict):
+            for qid, ans in snap_answers.items():
+                ans_payload[str(qid)] = "" if ans is None else str(ans)
+    except Exception as e:
+        logger.warning("[score_job] snapshot merge failed for %s: %s", safe(session_key), safe(e))
 
     # 2. Score + config in parallel
     score_fut = recalculate_score(session_key, ans_payload, teacher_id=teacher_id, exam_id=exam_id)
@@ -137,6 +157,34 @@ async def _score_submission_async(
             await _atable("violations").insert(viol).execute()
     except Exception as e:
         logger.warning("[score_job] audit insert failed for %s: %s", safe(session_key), safe(e))
+
+    # 5b. Recovery audit — if this submission reopened a reaper-closed
+    # (ABANDONED) session, record it so the teacher sees the session was
+    # finalized by a valid late submit. The inline submit path writes this
+    # row directly; the async path lost the signal (the handler had already
+    # flipped ABANDONED→SUBMITTED before this job ran), so the handler now
+    # threads a `recovered` flag through. Idempotent like steps 5/6 — RQ
+    # retries this job, so guard against a duplicate row.
+    if recovered:
+        try:
+            existing_recover = await _atable("violations")\
+                .select("id")\
+                .eq("session_key", session_key)\
+                .eq("violation_type", "session_recovered")\
+                .limit(1).execute()
+            if not existing_recover.data:
+                rec_viol = {
+                    "session_key":    session_key,
+                    "violation_type": "session_recovered",
+                    "severity":       "low",
+                    "details":        "Recovered from ABANDONED by a valid late submission.",
+                }
+                if teacher_id:
+                    rec_viol["teacher_id"] = teacher_id
+                await _atable("violations").insert(rec_viol).execute()
+                logger.info("[score_job] %s recovered from ABANDONED (audit written)", safe(session_key))
+        except Exception as e:
+            logger.warning("[score_job] recovery audit failed for %s: %s", safe(session_key), safe(e))
 
     # 6. Time-exceeded violation (if applicable, idempotent like step 5).
     # Use server-computed elapsed time (started_at → submitted_at) — the
@@ -225,6 +273,7 @@ def score_submission_job(
     student_id: Optional[str] = None,
     roll_number: str = "",
     time_taken_secs: int = 0,
+    recovered: bool = False,
 ) -> dict:
     """Sync wrapper called by the RQ worker process."""
     return _run_coro_in_sync(_score_submission_async(
@@ -234,4 +283,5 @@ def score_submission_job(
         student_id=student_id,
         roll_number=roll_number,
         time_taken_secs=time_taken_secs,
+        recovered=recovered,
     ))

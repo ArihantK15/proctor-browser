@@ -3804,6 +3804,47 @@ async function openBillingPortal(){
   }
 }
 
+// Ported from the dropped React BillingPanel: usage detail (overage + recent
+// overage charges) and self-serve cancel. Backend endpoints already exist
+// (/api/v1/billing/usage, /api/v1/billing/cancel); legacy had no UI for them.
+async function loadBillingUsage(){
+  const el = document.getElementById('billing-usage-detail');
+  if(!el) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/usage`);
+    if(!r.ok) return;
+    const u = await r.json();
+    let html = `<div style="font-size:12px;color:var(--text-secondary)">This period: <strong>${u.students_used||0}</strong> of <strong>${u.plan_limit||0}</strong> students`;
+    if((u.overage||0) > 0){
+      html += ` · <span style="color:var(--amber)">${u.overage} over cap`;
+      if(u.overage_billing_enabled && (u.overage_amount||0) > 0) html += ` (₹${u.overage_amount})`;
+      html += `</span>`;
+    }
+    html += `</div>`;
+    const charges = u.overage_charges || [];
+    if(charges.length){
+      html += `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">Recent overage charges</div><ul style="margin:4px 0 0;padding-left:16px;font-size:11px;color:var(--text-muted)">`;
+      charges.slice(0,5).forEach(c=>{
+        html += `<li>${_escHtml(String(c.period_start||'').slice(0,10))}: ${c.overage_count||0} student(s) · ₹${c.amount_inr||0} · ${_escHtml(c.status||'')}</li>`;
+      });
+      html += `</ul>`;
+    }
+    el.innerHTML = html;
+  }catch(e){ /* non-fatal — usage detail is informational */ }
+}
+
+async function cancelSubscription(){
+  if(!(await appConfirm('Cancel your subscription? You keep access until the end of the current billing period, then it reverts to the free tier. No refund.', 'Cancel plan?', {okText:'Cancel plan'}))) return;
+  const resultEl = document.getElementById('upgrade-result');
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/cancel`, {method:'POST'});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(_detailText(d, 'Cancel failed'));
+    if(resultEl){ resultEl.textContent = d.message || 'Subscription cancelled.'; resultEl.style.color = 'var(--emerald)'; }
+    loadBilling();
+  }catch(e){ if(resultEl){ resultEl.textContent = e.message; resultEl.style.color = 'var(--red)'; } }
+}
+
 async function loadBilling(){
   const planEl = document.getElementById('billing-plan');
   const statusEl = document.getElementById('billing-status');
@@ -3827,6 +3868,12 @@ async function loadBilling(){
     usageEl.textContent = `${b.student_count || 0}/${b.max_students || 0}`;
     _billingState = { plan: b.plan || '', status: b.status || '' };
     updateBillingTiles(b.plan, b.status);
+    loadBillingUsage();
+    const _cancelWrap = document.getElementById('billing-cancel-wrap');
+    if(_cancelWrap){
+      const _st = String(b.status||'').toLowerCase();
+      _cancelWrap.style.display = (_ENTITLING_BILLING_STATUSES.has(_st) && _st!=='cancelling') ? '' : 'none';
+    }
 
     // Scheduled-downgrade banner
     const schedEl = document.getElementById('billing-scheduled');

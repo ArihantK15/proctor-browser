@@ -1237,6 +1237,25 @@
         <div class="tool-card-result" id="shuffle-status" style="font-size:12px"></div>
       </div>
 
+      <div class="tool-card" data-section="exam">
+        <div class="tool-card-body">
+          <h3>Pass Mark</h3>
+          <p>The minimum percentage a student needs to pass this exam. Drives the
+             pass/fail colour on the scorecard, the student's history, and your
+             analytics pass rate. Applies to this exam only — each exam has its own
+             mark (default 40%).</p>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+            <input type="number" id="pass-mark-input" min="0" max="100" step="1" inputmode="numeric"
+              style="width:110px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+            <span style="color:var(--muted);font-size:13px">%</span>
+          </div>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn btn-secondary btn-sm" data-action="savePassMark">Save pass mark</button>
+        </div>
+        <div class="tool-card-result" id="pass-mark-status" style="font-size:12px"></div>
+      </div>
+
       <!-- Remove student from roster — the simplest UI surface for the
            new DELETE /api/v1/admin/students/roster endpoint. Useful for
            clearing misregistered students, demo-prep state cleanup, or

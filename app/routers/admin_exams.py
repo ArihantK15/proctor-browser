@@ -371,6 +371,24 @@ async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
     }
 
 
+def _count_passing(sessions: list[dict], pass_marks: dict[tuple[str, str], int]) -> int:
+    """Count sessions that cleared their OWN exam's configured pass mark.
+
+    `pass_marks` is keyed by (teacher_id, exam_id) — keyed by both so an org-wide
+    view spanning teachers with colliding exam_ids stays correct. A session whose
+    exam has no configured mark defaults to 40 (the same default the scorecard,
+    student history, and results list use). Hardcoding 40 here over-reported the
+    pass rate for any exam with a higher bar — the bug this replaces.
+    """
+    passed = 0
+    for s in sessions:
+        key = (str(s.get("teacher_id") or ""), str(s.get("exam_id") or ""))
+        mark = pass_marks.get(key, 40)
+        if (s.get("percentage") or 0) >= mark:
+            passed += 1
+    return passed
+
+
 @router.get("/api/v1/admin/analytics")
 @limiter.limit("20/minute")
 async def get_analytics(request: Request):
@@ -390,7 +408,7 @@ async def get_analytics(request: Request):
             return cached
 
     sess_q = _atable("exam_sessions")\
-        .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at")\
+        .select("session_key,roll_number,full_name,score,total,percentage,time_taken_secs,risk_score,started_at,exam_id,teacher_id")\
         .in_("status", list(RESULT_STATUSES))
     if tids is not None:
         # Collapse to .eq() for the single-teacher case (test stubs only mock .eq()).
@@ -429,7 +447,21 @@ async def get_analytics(request: Request):
     avg_pct = round(sum(pcts) / count, 1)
     sorted_times = sorted(t for t in times if t > 0)
     median_time = sorted_times[len(sorted_times)//2] if sorted_times else 0
-    pass_count = sum(1 for p in pcts if p >= 40)
+
+    # Pass rate must honour each exam's CONFIGURED pass mark, not a hardcoded 40
+    # — the same threshold the scorecard, student history, and results list use.
+    # Batch-load the marks for the exams in scope, keyed by (teacher_id, exam_id).
+    pass_marks: dict[tuple[str, str], int] = {}
+    exam_ids = sorted({str(s.get("exam_id")) for s in sessions if s.get("exam_id")})
+    if exam_ids:
+        cfg_q = _atable("exam_config").select("teacher_id,exam_id,pass_mark").in_("exam_id", exam_ids)
+        if tids:
+            cfg_q = cfg_q.eq("teacher_id", str(tids[0])) if len(tids) == 1 else cfg_q.in_("teacher_id", tids)
+        for c in (await cfg_q.execute()).data or []:
+            pm = c.get("pass_mark")
+            if pm is not None:
+                pass_marks[(str(c.get("teacher_id") or ""), str(c.get("exam_id") or ""))] = pm
+    pass_count = _count_passing(sessions, pass_marks)
     overview = {
         "count": count,
         "avg_score": avg_score,

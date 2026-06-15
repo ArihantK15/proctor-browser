@@ -384,6 +384,7 @@ class YoloWorker:
         self.result_q = Queue(maxsize=2)
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        self._submit_errs = 0
 
     def start(self):
         if self._thread is not None:
@@ -416,8 +417,16 @@ class YoloWorker:
             small = (cv2.resize(frame, (max(1, round(fw * s)), max(1, round(fh * s))))
                      if s < 1.0 else frame.copy())
             self.frame_q.put_nowait((small, frame_count, W, H))
-        except Exception:
-            pass  # queue full, skip this frame
+        except Full:
+            pass  # worker busy — drop this frame (expected backpressure)
+        except Exception as _se:
+            # A NON-Full error (e.g. a malformed frame hitting cv2.resize) was
+            # silently swallowed here before, hiding real per-frame faults.
+            # Rate-limit so a persistent fault is visible without flooding.
+            self._submit_errs += 1
+            if self._submit_errs <= 3 or self._submit_errs % 100 == 0:
+                print(f"[YOLO] submit error #{self._submit_errs}: "
+                      f"{type(_se).__name__}: {_se}")
 
     def get_result(self, frame_count: int):
         # Async inference lags the capture loop by 2-5 frames (~100-300ms), so a
@@ -517,8 +526,10 @@ class SahiYoloWorker:
     def submit(self, frame: np.ndarray, frame_count: int):
         try:
             self.frame_q.put_nowait((frame.copy(), frame_count))
-        except Exception:
-            pass
+        except Full:
+            pass  # worker busy — drop this frame (expected backpressure)
+        except Exception as _se:
+            print(f"[SAHI] submit error: {type(_se).__name__}: {_se}")
 
     def get_result(self, frame_count: int):
         # Same async-lag fix as YoloWorker.get_result: never require an exact

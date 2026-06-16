@@ -10,7 +10,7 @@ import httpx
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import (
     require_admin, require_student_account, verify_student_auth_token, _get_teacher_by_id,
@@ -33,13 +33,14 @@ from ..services.turnstile import verify_or_403
 
 
 class DemoRequest(BaseModel):
+    # Unauthenticated endpoint — bound every field (see RegisterIn).
     model_config = ConfigDict(strict=True)
-    name: str
-    email: str
-    institution: str
-    role: str
-    message: str = ""
-    captcha_token: str = ""
+    name: str = Field(max_length=200)
+    email: str = Field(max_length=254)
+    institution: str = Field(max_length=200)
+    role: str = Field(max_length=100)
+    message: str = Field(default="", max_length=2000)
+    captcha_token: str = Field(default="", max_length=4096)
 
 
 class ResolveAccessCodeIn(BaseModel):
@@ -64,6 +65,16 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 import os as _os
 import time as _time
 import re as _re
+
+# Permissive-but-real email shape: local@domain.tld, no spaces, single @, a dot
+# in the domain. Rejects obvious garbage ("a@", "@b", "ab", "a b@c") that the
+# old `"@" in email` check let through on this unauthenticated endpoint. Not a
+# full RFC validator (real student/guardian addresses are standard).
+_EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _looks_like_email(s: str) -> bool:
+    return bool(_EMAIL_RE.match((s or "").strip()))
 
 
 def _compute_asset_version() -> str:
@@ -300,7 +311,12 @@ async def public_config():
 
 
 @router.post("/api/v1/register-student")
-@limiter.limit("120/minute")
+# Per-IP. Lowered from 120 → 60: this unauthenticated endpoint creates roster
+# rows (org-seat-capped) and emails attacker-supplied guardian addresses, so a
+# leaked ?t=<teacher_id> link is a spam/abuse vector. 60/min still leaves ample
+# headroom for a class self-registering from one NAT'd school IP (registration
+# is spread out "before exam day", not a 1-minute burst).
+@limiter.limit("60/minute")
 async def register_student(request: Request, body: RegisterIn):
     """Public self-registration for students before exam day."""
     roll = body.roll_number.strip().upper()
@@ -312,7 +328,7 @@ async def register_student(request: Request, body: RegisterIn):
         raise HTTPException(status_code=400, detail="Roll number is required")
     if not name:
         raise HTTPException(status_code=400, detail="Full name is required")
-    if not email or "@" not in email:
+    if not _looks_like_email(email):
         raise HTTPException(status_code=400, detail="A valid email is required")
     if not body.teacher_id:
         raise HTTPException(
@@ -343,10 +359,11 @@ async def register_student(request: Request, body: RegisterIn):
     # the SAME person. Only a DIFFERENT email on the same roll is a real conflict
     # (someone trying to use another student's roll). Per-exam membership is the
     # student_invites row written below.
-    existing = (await _atable("students").select("roll_number,email")
+    existing = (await _atable("students").select("roll_number,email,guardian_consent_requested_at")
                 .eq("roll_number", roll).eq("teacher_id", teacher_id)
                 .limit(1).execute())
     returning_student = False
+    prev_consent_requested_at = None
     if existing.data:
         existing_email = (existing.data[0].get("email") or "").strip().lower()
         if existing_email and existing_email != email:
@@ -355,6 +372,7 @@ async def register_student(request: Request, body: RegisterIn):
                 detail="This roll number is already registered to a different email. "
                        "If this is a mistake, contact your examiner.")
         returning_student = True   # same student, another exam — allowed
+        prev_consent_requested_at = existing.data[0].get("guardian_consent_requested_at")
 
     # Org student limit — only a genuinely NEW roster entry counts (returning
     # students are already on the roster and counted).
@@ -389,7 +407,7 @@ async def register_student(request: Request, body: RegisterIn):
                 status_code=422,
                 detail="A guardian email is required for students under 18. Please provide a parent or guardian email.",
             )
-        if "@" not in guardian_email:
+        if not _looks_like_email(guardian_email):
             raise HTTPException(status_code=400, detail="Invalid guardian email format")
 
     # Cohort/batch (gap #59): a cohort-enrollment link (?t=&b=<batch>) stamps
@@ -454,7 +472,23 @@ async def register_student(request: Request, body: RegisterIn):
     # If this student is a minor with a guardian_email, generate a
     # consent token, store its SHA-256 hash, and enqueue the email
     # immediately — no teacher action needed.
-    if is_minor and guardian_email:
+    #
+    # Re-send guard: don't re-issue/re-email if a consent request was already
+    # sent for THIS student within the last 24h. Without it, re-POSTing the same
+    # minor registration spams the guardian address (abuse vector on this
+    # unauthenticated endpoint). Distinct fake students are bounded by the org
+    # seat cap checked above.
+    _consent_recent = False
+    if prev_consent_requested_at:
+        try:
+            _req_at = datetime.fromisoformat(str(prev_consent_requested_at).replace("Z", "+00:00"))
+            if _req_at.tzinfo is None:
+                _req_at = _req_at.replace(tzinfo=timezone.utc)
+            _consent_recent = (datetime.now(timezone.utc) - _req_at).total_seconds() < 86400
+        except (ValueError, TypeError):
+            _consent_recent = False
+
+    if is_minor and guardian_email and not _consent_recent:
         import hashlib
         import uuid as _uuid
         from ..jobs import enqueue_job, send_guardian_consent_request_job
@@ -560,7 +594,7 @@ async def lookup_teacher(request: Request, email: str = ""):
     Rate-limited to 5/min to prevent teacher enumeration.
     """
     email = (email or "").strip().lower()
-    if not email or "@" not in email:
+    if not _looks_like_email(email):
         raise HTTPException(status_code=400, detail="A valid email is required")
     result = await _atable("teachers").select("id,full_name").eq("email", email).execute()
     # H39: Always return 200 to prevent email enumeration

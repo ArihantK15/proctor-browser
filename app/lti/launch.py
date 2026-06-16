@@ -13,7 +13,7 @@ import logging
 import secrets
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -24,6 +24,13 @@ from .key import sign_jwt_payload, get_kid
 from .registration import find_registration, is_deployment_authorized
 
 logger = logging.getLogger(__name__)
+
+# Fixed namespace for deriving a stable, deterministic org id from an LTI
+# tenant tuple (issuer|client_id|deployment_id). Same tenant → same org id,
+# so concurrent first-launches converge on one org instead of racing to
+# create duplicates. Do NOT change this value — it would orphan every
+# auto-provisioned org.
+_LTI_ORG_NAMESPACE = uuid.UUID("a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
 
 # ── Nonce / state management ──────────────────────────────────────
 _lti_contexts: dict[str, dict] = {}
@@ -498,6 +505,71 @@ async def store_lti_student_context(claims: dict, lti_user_id: str):
             logger.warning("lti: failed to store student context in memory for %s", key)
 
 
+# ── Tenant resolution (Model 3: one org per LMS tenant) ───────────
+async def _resolve_org_for_launch(
+    iss: str, client_id: str, deployment_id: str, registration, platform_name: str
+) -> tuple[str, bool]:
+    """Resolve the Procta org a launch belongs to. Returns (org_id, is_explicit).
+
+    Two modes:
+      • Explicit binding — the registration declares an org_id (an admin
+        pinned this LMS to a pre-existing org). Used as-is.
+      • Auto-provision (Model 3) — no org_id on the registration: each LMS
+        *tenant* becomes its own isolated Procta org, created on first
+        launch. The tenant key is (issuer, client_id, deployment_id), NOT
+        issuer alone — hosted Canvas/Moodle share one issuer across all
+        their customers, so issuer-only would merge every customer into one
+        org (a cross-tenant leak). The org id is a deterministic uuid5 of
+        the tuple so concurrent first-launches converge on one org.
+    """
+    explicit = (registration.org_id if registration else None) or None
+    if explicit:
+        return explicit, True
+
+    if not (iss and client_id and deployment_id):
+        # Without a full tenant tuple we cannot isolate this launch safely.
+        raise ValueError(
+            "LTI launch missing issuer/client_id/deployment_id — cannot isolate tenant"
+        )
+
+    tenant_key = f"{iss}|{client_id}|{deployment_id}"
+    org_id = str(uuid.uuid5(_LTI_ORG_NAMESPACE, tenant_key))
+
+    existing = await _atable("organizations").select("id").eq("id", org_id).limit(1).execute()
+    if existing.data:
+        return org_id, False
+
+    # Auto-provision. select-then-insert (not upsert) so a later launch never
+    # clobbers an org an admin has since renamed; the race of two concurrent
+    # first-launches is caught below and resolved to the single winner.
+    short = uuid.uuid5(_LTI_ORG_NAMESPACE, tenant_key).hex[:10]
+    from ..constants import TRIAL_DAYS, PLANS
+    try:
+        await _atable("organizations").insert({
+            "id": org_id,
+            "name": f"{platform_name or iss} (LTI)",
+            "slug": f"lti-{short}",
+            "max_students": PLANS["starter"]["students"],
+        }).execute()
+        trial_end = (datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)).isoformat()
+        await _atable("subscriptions").upsert({
+            "org_id": org_id,
+            "plan": "starter",
+            "status": "trialing",
+            "trial_end": trial_end,
+        }, on_conflict="org_id").execute()
+        logger.info("lti: auto-provisioned org %s for tenant %s", org_id, safe(tenant_key))
+        return org_id, False
+    except Exception as e:
+        # A concurrent first-launch likely created it between our SELECT and
+        # INSERT. Re-check; if it now exists, use it. Otherwise re-raise.
+        again = await _atable("organizations").select("id").eq("id", org_id).limit(1).execute()
+        if again.data:
+            return org_id, False
+        logger.error("lti: failed to auto-provision org for tenant %s: %s", safe(tenant_key), e)
+        raise
+
+
 # ── Session creation ──────────────────────────────────────────────
 async def find_or_create_lti_user(claims: dict) -> dict:
     """Find or create a teacher/student record from LTI claims.
@@ -534,24 +606,22 @@ async def find_or_create_lti_user(claims: dict) -> dict:
     # Unique identifier combining platform + user
     lti_user_id = f"{iss}|{sub}"
 
-    # ── Tenant binding (fail-closed) ──────────────────────────────
-    # Every LTI identity MUST be stamped with the org_id of the
-    # registration it launched from, or it would be an org-less user
-    # the tenant-isolation (RLS) model cannot scope. We re-derive the
-    # registration from the (already-verified) iss + client_id and
-    # refuse to provision if it carries no org_id.
+    # ── Tenant resolution ─────────────────────────────────────────
+    # Every LTI identity MUST resolve to a Procta org, or it would be an
+    # org-less user the tenant-isolation (RLS) model cannot scope. The
+    # registration may pin an explicit org (manual binding); otherwise each
+    # LMS tenant self-onboards into its own auto-provisioned org (Model 3).
     aud_raw = claims.get("aud", "")
     client_id = aud_raw if isinstance(aud_raw, str) \
         else (aud_raw[0] if isinstance(aud_raw, list) and aud_raw else "")
+    deployment_id = claims.get(
+        "https://purl.imsglobal.org/spec/lti/claim/deployment_id", ""
+    )
     registration = find_registration(iss, client_id)
-    org_id = (registration.org_id if registration else None) or None
-    if not org_id:
-        logger.error(
-            "lti: refusing to provision user — registration for iss=%s client_id=%s "
-            "has no org_id (set org_id in LTI_REGISTRATIONS / LTI_ORG_ID)",
-            safe(iss), safe(client_id),
-        )
-        raise ValueError("LTI registration is not bound to an organization")
+    platform_name = getattr(registration, "platform_name", None) if registration else None
+    org_id, org_is_explicit = await _resolve_org_for_launch(
+        iss, client_id, deployment_id, registration, platform_name or ""
+    )
 
     # Store AGS/NRPS context for grade passback and roster sync
     await _store_ags_nrps_context(claims)
@@ -563,10 +633,27 @@ async def find_or_create_lti_user(claims: dict) -> dict:
             if result.data:
                 teacher = result.data[0]
             else:
-                result = await _atable("teachers").select("*").eq("email", email).limit(1).execute()
-                if result.data:
-                    teacher = result.data[0]
-                else:
+                # Link to a pre-existing teacher with the same email ONLY
+                # within this org — a global email match could bind the
+                # launch to a teacher in a DIFFERENT tenant (cross-org leak).
+                teacher = None
+                if email:
+                    by_email = await _atable("teachers").select("*").eq(
+                        "email", email).eq("org_id", str(org_id)).limit(1).execute()
+                    if by_email.data:
+                        teacher = by_email.data[0]
+                if teacher is None:
+                    # Role within the org. For an explicitly-bound org the
+                    # human admin already exists, so LTI instructors are plain
+                    # teachers. For an AUTO-provisioned org the first
+                    # instructor to arrive becomes its admin (someone must own
+                    # it); later instructors are teachers.
+                    org_role = "teacher"
+                    if not org_is_explicit:
+                        admin_exists = await _atable("teachers").select("id").eq(
+                            "org_id", str(org_id)).eq("org_role", "admin").limit(1).execute()
+                        if not admin_exists.data:
+                            org_role = "admin"
                     tid = str(uuid.uuid4())
                     teacher = {
                         "id": tid,
@@ -580,11 +667,7 @@ async def find_or_create_lti_user(claims: dict) -> dict:
                         "supabase_uid": str(uuid.uuid4()),
                         "email": email or f"lti_{sub[:8]}@lti.procta.net",
                         "full_name": full_name,
-                        # A fresh LMS instructor is a regular member of the
-                        # org, NOT an org administrator. org_role='admin'
-                        # would grant member-management (invite/remove/role
-                        # change) to anyone who can launch from the LMS.
-                        "org_role": "teacher",
+                        "org_role": org_role,
                         "org_id": org_id,
                         "lti_user_id": lti_user_id,
                         "created_at": datetime.now(timezone.utc).isoformat(),

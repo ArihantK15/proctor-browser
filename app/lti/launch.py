@@ -570,6 +570,14 @@ async def find_or_create_lti_user(claims: dict) -> dict:
                     tid = str(uuid.uuid4())
                     teacher = {
                         "id": tid,
+                        # teachers.supabase_uid is NOT NULL + UNIQUE. LTI
+                        # instructors are identity-managed by the LMS, not
+                        # Supabase Auth, so there is no real Supabase user to
+                        # bind to — mint a synthetic UUID to satisfy the
+                        # constraint. (uuid4 is collision-safe vs real uids.)
+                        # Without this the insert hard-fails and EVERY LTI
+                        # instructor launch 500s.
+                        "supabase_uid": str(uuid.uuid4()),
                         "email": email or f"lti_{sub[:8]}@lti.procta.net",
                         "full_name": full_name,
                         # A fresh LMS instructor is a regular member of the

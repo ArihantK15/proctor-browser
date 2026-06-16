@@ -515,6 +515,9 @@ class TestLtiTenantBinding:
         assert inserted["org_id"] == self.ORG
         # A fresh LMS instructor must NOT be auto-granted org admin.
         assert inserted["org_role"] == "teacher"
+        # teachers.supabase_uid is NOT NULL + UNIQUE; the insert must carry a
+        # synthetic uid or every instructor launch 500s at the DB layer.
+        assert inserted.get("supabase_uid"), "teacher insert must set supabase_uid"
 
     def test_launch_refused_when_registration_has_no_org_id(self):
         with pytest.raises(ValueError, match="not bound to an organization"):

@@ -78,29 +78,42 @@ async def lti_config():
     }
 
 
-@router.get("/login")
+@router.api_route("/login", methods=["GET", "POST"])
 @limiter.limit("30/minute")
-async def lti_login(
-    request: Request,
-    iss: str = "",
-    login_hint: str = "",
-    target_link_uri: str = "",
-    client_id: str = "",
-    lti_message_hint: str = "",
-    lti_deployment_id: str = "",
-):
+async def lti_login(request: Request):
     """LTI 1.3 OIDC login initiation.
 
     The LMS redirects the user here.  We generate state + nonce, store
     them, and redirect back to the LMS's OIDC auth endpoint.
 
-    Query parameters are defined by the LTI 1.3 OIDC specification:
+    Per the LTI 1.3 / OIDC third-party-initiated-login spec, the tool
+    MUST accept this request as BOTH HTTP GET (params in the query
+    string) and HTTP POST (params form-encoded in the body). Canvas and
+    several platforms POST — accepting only GET returned 405 Method Not
+    Allowed and broke the launch before it began.
+
+    Parameters (LTI 1.3 OIDC):
       - iss:  Issuer URL identifying the LMS platform
       - login_hint: Opaque token the LMS uses to identify the user
       - target_link_uri: Where the user should end up after launch
       - client_id: Our tool's client_id within the LMS
       - lti_message_hint: Additional context from the LMS
     """
+    params = dict(request.query_params)
+    if request.method == "POST":
+        try:
+            form = await request.form()
+            params.update({k: str(v) for k, v in form.items()})
+        except Exception:
+            pass
+
+    iss = params.get("iss", "")
+    login_hint = params.get("login_hint", "")
+    target_link_uri = params.get("target_link_uri", "")
+    client_id = params.get("client_id", "")
+    lti_message_hint = params.get("lti_message_hint", "")
+    lti_deployment_id = params.get("lti_deployment_id", "")
+
     if not iss or not login_hint or not target_link_uri or not client_id:
         raise HTTPException(status_code=400, detail="Missing required OIDC parameters")
 

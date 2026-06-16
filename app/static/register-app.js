@@ -532,4 +532,4 @@ document.addEventListener('focusout', (e) => {
   fn.call(el, ..._parseDataArgs(el.dataset.blurArgs));
 });
 
-_loadPublicConfig().then(_initTurnstile);
+_loadPublicConfig().then(_initTurnstile).catch(()=>{});

@@ -437,11 +437,11 @@ class TestSubmitExam:
                                    "answers": {},
                                },
                                headers={"Authorization": f"Bearer {token}"})
-            # Should have inserted time_exceeded violation
-            if resp.status_code == 200:
-                time_viols = [c for c in insert_calls
-                              if isinstance(c, dict) and c.get("violation_type") == "time_exceeded"]
-                # Note: may or may not find it due to mocking complexity
+            # FIX: Submit beyond 60min+2min grace should succeed
+            assert resp.status_code == 200
+            time_viols = [c for c in insert_calls
+                          if isinstance(c, dict) and c.get("violation_type") == "time_exceeded"]
+            assert len(time_viols) > 0, "time_exceeded violation should have been logged"
 
 
 # ─── Heartbeat ────────────────────────────────────────────────────────

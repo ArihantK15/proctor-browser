@@ -63,7 +63,7 @@ class AuthCtx:
         )
 
 
-async def extract_auth(request: Request) -> AuthCtx:
+def extract_auth(request: Request) -> AuthCtx:
     """Shortcut: decode the Bearer token and return a typed :class:`AuthCtx`."""
     claims = require_auth(request)
     return AuthCtx.from_claims(claims)

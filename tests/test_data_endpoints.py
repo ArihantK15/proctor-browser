@@ -78,6 +78,7 @@ class TestAnalyzeFrame:
                                      "frame": small_frame,
                                      "timestamp": "2025-01-01T00:00:00Z"},
                                headers={"Authorization": f"Bearer {token}"})
+            assert resp.status_code == 200
 
 
 # ─── ID Verification ──────────────────────────────────────────────────

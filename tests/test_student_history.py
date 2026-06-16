@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
+from fastapi import HTTPException
 from app.routers.admin_students import get_student_history, search_students
 
 
@@ -19,10 +20,10 @@ def make_async_mock(response_data=None):
     """Create a mock chain where .execute() returns an awaitable."""
     mock = MagicMock()
     resp = FakeResponse(response_data if response_data is not None else [])
-    
+
     async def async_execute():
         return resp
-    
+
     # Configure the entire chain to return the same mock (for fluent chaining)
     mock.select.return_value = mock
     mock.eq.return_value = mock
@@ -69,7 +70,7 @@ class TestStudentHistory:
              patch("app.routers.admin_students.require_admin") as mock_admin:
             mock_admin.return_value = {"id": "t1", "full_name": "Test"}
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(HTTPException) as exc_info:
                 asyncio.run(get_student_history("R999", self._make_request()))
             assert exc_info.value.status_code == 404
 

@@ -160,7 +160,8 @@ class TestCache:
     def test_cache_set_noop_when_redis_down(self):
         with patch.object(self.cache, '_r', None), \
              patch.object(self.cache, '_client', return_value=None):
-            self.cache.set("key", {"data": True})  # Should not raise
+            # Should not raise
+            self.cache.set("key", {"data": True})
 
     def test_cache_reconnects_after_failure(self):
         """FIX: After a connection error, _r_healthy is set to False,

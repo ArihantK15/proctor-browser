@@ -11,7 +11,7 @@ def _base_url() -> str:
 
 
 @router.get("/auto-config")
-async def lti_auto_config():
+def lti_auto_config():
     """LTI 1.3 Auto-configuration JSON (IMS Standard).
 
     LMS platforms can use this URL to auto-configure the Procta tool

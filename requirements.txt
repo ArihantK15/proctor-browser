@@ -3,7 +3,7 @@ uvicorn[standard]>=0.29.0
 supabase>=2.31.0
 python-dotenv>=1.2.2
 pydantic>=2.0.0
-python-multipart
+python-multipart>=0.0.31
 reportlab
 slowapi>=0.1.9
 psutil>=7.2.2
@@ -34,7 +34,7 @@ pillow>=12.2.0
 # bcrypt is still used to hash email-OTP codes and backup-code remnants.
 bcrypt>=4.0.0
 asyncpg>=0.31.0
-cryptography>=42.0.8
+cryptography>=48.0.1
 # Pin pyjwt explicitly even though supabase-auth pulls it transitively
 # — supabase-auth's loose constraint resolves to 2.12.1, which has 4
 # known CVEs (PYSEC-2026-175/177/178/179, all fixed in 2.13.0). pyjwt
@@ -53,3 +53,4 @@ python-pptx>=1.0.2      # MIT — PPTX text extraction (AI-questions-from-notes)
 
 # AWS S3 SDK — encrypted screenshot storage (Workstream B, ap-south-1)
 boto3>=1.35.0
+starlette>=1.1.0  # CVE-2026-48817/48818 — pinned floor; pip-compile validates vs fastapi

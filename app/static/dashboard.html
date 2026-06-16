@@ -348,6 +348,8 @@
     Chat<span class="tab-badge" id="chat-tab-badge" style="display:none">0</span>
   </button>
   <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" data-action="switchTab" data-args='["tools"]' data-roles="teacher">Tools</button>
+  <button type="button" class="tab"        data-tab="review"    role="tab" aria-selected="false" data-action="switchTab" data-args='["review"]' data-roles="teacher admin" style="display:none">Review</button>
+  <button type="button" class="tab"        data-tab="privacy"   role="tab" aria-selected="false" data-action="switchTab" data-args='["privacy"]' data-roles="superadmin" style="display:none">Privacy</button>
   <!-- Admin tabs (role-gated) -->
   <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" data-action="switchTab" data-args='["org"]'       data-roles="admin" style="display:none">Org Overview</button>
   <button type="button" class="tab"        data-tab="security"  role="tab" aria-selected="false" data-action="switchTab" data-args='["security"]'  data-roles="admin" style="display:none">Security</button>
@@ -1237,6 +1239,32 @@
         <div class="tool-card-result" id="shuffle-status" style="font-size:12px"></div>
       </div>
 
+      <!-- Bulk student import — paste rows or upload a CSV. Ported from
+           the dropped React dashboard (BulkImport wizard). Dry-run first
+           previews counts; confirm to register + send invites. -->
+      <div class="tool-card" data-section="exam">
+        <div class="tool-card-body">
+          <h3>Bulk Student Import</h3>
+          <p>Add many students at once for this exam. One per line as <code>roll, name, email</code> (phone and batch optional), or upload a CSV with roll_number, full_name, email columns. Preview first, then confirm.</p>
+          <div class="tool-card-field">
+            <textarea id="bulk-import-text" rows="5" placeholder="R001, Alice Johnson, alice@example.com&#10;R002, Bob Smith, bob@example.com" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical"></textarea>
+          </div>
+          <div class="tool-card-field" style="margin-top:8px">
+            <input type="file" id="bulk-import-file" accept=".csv">
+          </div>
+          <label class="shuffle-toggle" style="margin-top:8px">
+            <input type="checkbox" id="bulk-import-invites" checked>
+            <span>Email invites to newly added students</span>
+          </label>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn btn-secondary btn-sm" data-action="bulkImportPreview">Preview</button>
+          <button class="btn btn-primary btn-sm" data-action="bulkImportConfirm">Register students</button>
+          <button class="btn btn-secondary btn-sm" data-action="downloadImportTemplate">CSV template</button>
+        </div>
+        <div class="tool-card-result" id="bulk-import-status" style="font-size:12px;white-space:pre-wrap"></div>
+      </div>
+
       <!-- Remove student from roster — the simplest UI surface for the
            new DELETE /api/v1/admin/students/roster endpoint. Useful for
            clearing misregistered students, demo-prep state cleanup, or
@@ -1358,6 +1386,38 @@
           <button class="btn btn-secondary btn-sm" data-action="clearAccessCode" style="color:var(--red)">Clear</button>
         </div>
         <div class="tool-card-result" id="access-code-status" style="font-size:12px"></div>
+      </div>
+
+      <div class="tool-card" data-section="exam">
+        <div class="tool-card-body">
+          <h3>Proctoring Sensitivity</h3>
+          <p>How strict AI flagging is for this exam. Stricter settings raise more violations.</p>
+          <div class="tool-card-field">
+            <select id="sensitivity-select" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+              <option value="lenient">Lenient</option>
+              <option value="balanced">Balanced</option>
+              <option value="strict">Strict</option>
+            </select>
+          </div>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn btn-primary btn-sm" data-action="saveSensitivity">Save</button>
+        </div>
+        <div class="tool-card-result" id="sensitivity-status" style="font-size:12px"></div>
+      </div>
+
+      <div class="tool-card" data-section="exam">
+        <div class="tool-card-body">
+          <h3>Audio Keywords</h3>
+          <p>Spoken words flagged during this exam (comma-separated). Detected on the student device.</p>
+          <div class="tool-card-field">
+            <input type="text" id="audio-keywords-input" placeholder="e.g. answer, help, google" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+          </div>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn btn-primary btn-sm" data-action="saveAudioKeywords">Save</button>
+        </div>
+        <div class="tool-card-result" id="audio-keywords-status" style="font-size:12px"></div>
       </div>
 
       <div class="tool-card" data-section="exam">
@@ -1753,6 +1813,37 @@
 </div>
 
 <!-- ORG OVERVIEW PANEL -->
+<div class="panel" id="panel-review">
+  <div class="table-toolbar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0">Cluster &amp; Batch Review</h2>
+      <div style="font-size:12px;color:var(--text-muted)">Active flags grouped by type &amp; severity. Bulk-dismiss false-positive clusters.</div>
+    </div>
+    <button class="btn btn-secondary btn-sm" type="button" data-action="loadReview">Refresh</button>
+  </div>
+  <div id="review-body" style="margin-top:12px"></div>
+</div>
+
+<div class="panel" id="panel-privacy">
+  <div class="table-toolbar">
+    <div>
+      <h2 style="margin:0">Data-subject requests (DPDP)</h2>
+      <div style="font-size:12px;color:var(--text-muted)">Export a student account's data. Superadmin only.</div>
+    </div>
+  </div>
+  <div style="margin-top:12px;max-width:520px">
+    <label style="font-size:12px;color:var(--text-muted)">Subject type</label>
+    <select id="sar-type" style="width:100%;margin:4px 0 10px;padding:9px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)">
+      <option value="student">Student</option>
+      <option value="teacher">Teacher</option>
+    </select>
+    <label style="font-size:12px;color:var(--text-muted)">Email or account id</label>
+    <input type="text" id="sar-subject" placeholder="student@example.com" style="width:100%;margin:4px 0 10px;padding:9px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)">
+    <button class="btn btn-primary btn-sm" type="button" data-action="sarExport">Export data</button>
+    <div id="sar-result" style="margin-top:10px;font-size:12px"></div>
+  </div>
+</div>
+
 <div class="panel" id="panel-org">
   <div class="org-wrap">
     <div class="panel-header">
@@ -1771,6 +1862,18 @@
       </div>
       <div id="org-trial-banner" class="org-card" style="display:none;border-color:rgba(91,138,240,0.30);background:rgba(91,138,240,0.05);font-size:13px;color:var(--accent-light)">
         <strong>🔥 Trial period active.</strong> <span id="org-trial-days">--</span> days remaining.
+      </div>
+      <!-- Org-wide live monitor (ported from the dropped React LiveMonitor):
+           every in-progress session across the org, not just one exam. Fills
+           the gap where the per-exam Live tab can't show other teachers' exams. -->
+      <div class="org-card" style="padding:0;overflow:hidden;margin-top:16px">
+        <div class="table-toolbar" style="margin:0;border-radius:0;border-left:0;border-right:0;border-top:0">
+          <span class="org-card-title" style="margin:0">Live now — all exams <span id="org-live-count" style="color:var(--muted);font-weight:400"></span></span>
+          <div style="margin-left:auto">
+            <button class="btn btn-secondary btn-sm" data-action="loadOrgLiveMonitor">Refresh</button>
+          </div>
+        </div>
+        <div id="org-live-body" style="padding:14px;font-size:13px;color:var(--muted)">Loading…</div>
       </div>
     </div>
   </div>
@@ -1839,6 +1942,12 @@
       </div>
 
       <div id="billing-scheduled" class="billing-scheduled" hidden></div>
+
+      <div id="billing-usage-detail" class="billing-usage-detail" style="margin:8px 0 0"></div>
+      <div id="billing-cancel-wrap" style="margin-top:10px;display:none">
+        <button class="btn btn-secondary btn-sm" type="button" data-action="cancelSubscription">Cancel plan</button>
+        <span style="font-size:11px;color:var(--text-muted);margin-left:8px">You keep access until the end of the billing period.</span>
+      </div>
 
       <h2 class="billing-section-title">Plans</h2>
       <!-- Pricing tiles — proper plan cards, not generic .tool-card.

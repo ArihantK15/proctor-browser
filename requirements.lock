@@ -25,14 +25,6 @@ botocore==1.41.5
     # via
     #   boto3
     #   s3transfer
-jmespath==1.0.1
-    # via
-    #   boto3
-    #   botocore
-s3transfer==0.15.0
-    # via boto3
-cachetools==6.2.6
-    # via pyiceberg
 certifi==2026.4.22
     # via
     #   httpcore
@@ -43,19 +35,20 @@ cffi==2.0.0
     # via cryptography
 charset-normalizer==3.4.7
     # via
+    #   pdfminer-six
     #   reportlab
     #   requests
 click==8.3.3
     # via
-    #   pyiceberg
     #   rq
     #   uvicorn
 croniter==6.2.2
     # via rq
-cryptography==47.0.0
+cryptography==49.0.0
     # via
     #   -r requirements.txt
     #   google-auth
+    #   pdfminer-six
     #   pyjwt
 deprecated==1.3.1
     # via limits
@@ -69,8 +62,6 @@ fastapi==0.136.1
     # via
     #   -r requirements.txt
     #   sentry-sdk
-fsspec==2026.4.0
-    # via pyiceberg
 google-auth==2.52.0
     # via google-auth-oauthlib
 google-auth-oauthlib==1.4.0
@@ -103,14 +94,16 @@ idna==3.15
     #   httpx
     #   requests
     #   yarl
+jmespath==1.0.1
+    # via
+    #   boto3
+    #   botocore
 limits==5.8.0
     # via slowapi
-markdown-it-py==4.0.0
-    # via rich
-mdurl==0.1.2
-    # via markdown-it-py
-mmh3==5.2.1
-    # via pyiceberg
+lxml==6.1.1
+    # via
+    #   python-docx
+    #   python-pptx
 multidict==6.7.1
     # via yarl
 oauthlib==3.3.1
@@ -121,9 +114,17 @@ packaging==26.2
     # via
     #   deprecation
     #   limits
+pdfminer-six==20251230
+    # via pdfplumber
+pdfplumber==0.11.9
+    # via -r requirements.txt
 pillow==12.2.0
-    # via reportlab
-postgrest==2.29.0
+    # via
+    #   -r requirements.txt
+    #   pdfplumber
+    #   python-pptx
+    #   reportlab
+postgrest==2.31.0
     # via supabase
 propcache==0.4.1
     # via yarl
@@ -140,37 +141,34 @@ pydantic==2.13.3
     #   -r requirements.txt
     #   fastapi
     #   postgrest
-    #   pyiceberg
     #   realtime
     #   storage3
     #   supabase-auth
 pydantic-core==2.46.3
     # via pydantic
-pygments==2.20.0
-    # via rich
-pyiceberg==0.11.1
-    # via storage3
 pyjwt[crypto]==2.13.0
     # via
     #   -r requirements.txt
     #   supabase-auth
-pyotp==2.9.0
-    # via -r requirements.txt
-pyparsing==3.3.2
-    # via pyiceberg
-pyroaring==1.1.0
-    # via pyiceberg
+pypdfium2==5.9.0
+    # via
+    #   -r requirements.txt
+    #   pdfplumber
 python-dateutil==2.9.0.post0
     # via
+    #   botocore
     #   croniter
-    #   strictyaml
+python-docx==1.2.0
+    # via -r requirements.txt
 python-dotenv==1.2.2
     # via
     #   -r requirements.txt
     #   uvicorn
 python-json-logger==4.1.0
     # via -r requirements.txt
-python-multipart==0.0.27
+python-multipart==0.0.32
+    # via -r requirements.txt
+python-pptx==1.0.2
     # via -r requirements.txt
 pyyaml==6.0.3
     # via uvicorn
@@ -178,50 +176,47 @@ qrcode==8.2
     # via -r requirements.txt
 razorpay==2.0.1
     # via -r requirements.txt
-realtime==2.29.0
+realtime==2.31.0
     # via supabase
 redis==8.0.0
     # via
     #   -r requirements.txt
     #   rq
-resend==2.30.1
-    # via -r requirements.txt
 reportlab==4.5.0
     # via -r requirements.txt
 requests==2.34.2
     # via
-    #   pyiceberg
     #   razorpay
-    #   resend
     #   requests-oauthlib
+    #   resend
 requests-oauthlib==2.0.0
     # via google-auth-oauthlib
-rich==14.3.4
-    # via pyiceberg
+resend==2.30.1
+    # via -r requirements.txt
 rq==2.8.0
     # via -r requirements.txt
+s3transfer==0.15.0
+    # via boto3
 sentry-sdk[fastapi]==2.60.0
     # via -r requirements.txt
 six==1.17.0
     # via python-dateutil
 slowapi==0.1.9
     # via -r requirements.txt
-starlette==1.0.1
-    # via fastapi
-storage3==2.29.0
+starlette==1.3.1
+    # via
+    #   -r requirements.txt
+    #   fastapi
+storage3==2.31.0
     # via supabase
 strenum==0.4.15
     # via supabase-functions
-strictyaml==1.7.3
-    # via pyiceberg
-supabase==2.29.0
+supabase==2.31.0
     # via -r requirements.txt
-supabase-auth==2.29.0
+supabase-auth==2.31.0
     # via supabase
-supabase-functions==2.29.0
+supabase-functions==2.31.0
     # via supabase
-tenacity==9.1.4
-    # via pyiceberg
 typing-extensions==4.15.0
     # via
     #   anyio
@@ -229,7 +224,10 @@ typing-extensions==4.15.0
     #   limits
     #   pydantic
     #   pydantic-core
+    #   python-docx
+    #   python-pptx
     #   realtime
+    #   resend
     #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
@@ -238,6 +236,7 @@ typing-inspection==0.4.2
     #   pydantic
 urllib3==2.7.0
     # via
+    #   botocore
     #   requests
     #   sentry-sdk
 uvicorn[standard]==0.46.0
@@ -254,26 +253,6 @@ websockets==15.0.1
     #   uvicorn
 wrapt==2.1.2
     # via deprecated
-# Question-bank import deps (versions from `pip-compile requirements.txt`).
-# Added surgically to avoid churning the rest of the resolved graph in this
-# deploy; run a full `pip-compile` later to re-sort and reconcile the
-# pre-existing supabase pin drift (lock 2.29 vs requirements.txt >=2.30).
-lxml==6.1.1
-    # via
-    #   python-docx
-    #   python-pptx
-pdfminer-six==20251230
-    # via pdfplumber
-pdfplumber==0.11.9
-    # via -r requirements.txt
-pypdfium2==5.9.0
-    # via
-    #   -r requirements.txt
-    #   pdfplumber
-python-docx==1.2.0
-    # via -r requirements.txt
-python-pptx==1.0.2
-    # via -r requirements.txt
 xlsxwriter==3.2.9
     # via python-pptx
 yarl==1.23.0
@@ -282,5 +261,3 @@ yarl==1.23.0
     #   storage3
     #   supabase
     #   supabase-functions
-zstandard==0.25.0
-    # via pyiceberg

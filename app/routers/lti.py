@@ -164,6 +164,12 @@ async def lti_launch(request: Request):
     # Find or create user
     try:
         user = await find_or_create_lti_user(claims)
+    except ValueError as e:
+        # Deliberate fail-closed refusal (e.g. registration not bound to an
+        # org). Not a server fault — surface as 403 so it's distinguishable
+        # from unexpected errors in logs/monitoring.
+        logger.warning("LTI launch refused: %s", e)
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         logger.error("Failed to process LTI user: %s", e)
         raise HTTPException(status_code=500, detail="Failed to process launch")
@@ -237,6 +243,9 @@ async def lti_deeplink(request: Request):
     # Find or create the user to get their local ID
     try:
         user = await find_or_create_lti_user(claims)
+    except ValueError as e:
+        logger.warning("LTI deep linking refused: %s", e)
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         logger.error("Failed to process deep linking user: %s", e)
         raise HTTPException(status_code=500, detail="Failed to process user")

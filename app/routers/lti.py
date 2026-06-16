@@ -199,24 +199,32 @@ async def lti_launch(request: Request):
 async def lti_deeplink(request: Request):
     """LTI 1.3 Deep Linking endpoint.
 
-    The LMS POSTs a JWT deep linking request here.  We validate it,
+    The LMS POSTs a Deep Linking *request* here after the OIDC dance.
+    Like any LTI 1.3 message it arrives as `id_token` via form_post
+    (the JWT's message_type is LtiDeepLinkingRequest). We validate it,
     find the teacher's exams, and return content items in a signed
     response posted back to the LMS's deep_link_return_url.
 
-    Expected POST body (form-encoded): JWT=<token>
+    Note: `id_token` is the platform→tool field. `JWT` is what the
+    TOOL→platform *response* uses, so we accept it as a fallback for
+    odd platforms, but the spec-correct field for the inbound request
+    is `id_token`. (Reading only `JWT` was why launches 400'd with
+    "Missing JWT" — the platform never sends a `JWT` field inbound.)
+
+    Expected POST body (form-encoded): id_token=<JWT>
     """
     try:
         body = await request.form()
-        jwt_token = body.get("JWT", "")
+        jwt_token = body.get("id_token", "") or body.get("JWT", "")
     except Exception:
         try:
             raw = await request.json()
-            jwt_token = raw.get("JWT", "")
+            jwt_token = raw.get("id_token", "") or raw.get("JWT", "")
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid request body")
 
     if not jwt_token:
-        raise HTTPException(status_code=400, detail="Missing JWT")
+        raise HTTPException(status_code=400, detail="Missing id_token")
 
     # Validate the deep linking request JWT
     try:

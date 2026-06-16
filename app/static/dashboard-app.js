@@ -406,8 +406,10 @@ async function loadExams(){
     examsList.forEach(ex=>{
       const opt = document.createElement('option');
       opt.value = ex.exam_id;
-      const badge = ex.archived_at ? ' <span class="exam-archived-badge">Archived</span>' : '';
-      opt.innerHTML = `${ex.exam_title || 'Untitled'} (${ex.question_count}Q, ${ex.session_count} sessions)${badge}`;
+      // textContent is inherently XSS-safe (no HTML parsing), so the title
+      // must NOT be passed through _escHtml — that would double-encode and
+      // display literal "&amp;"/"&lt;" for titles containing & < > " '.
+      opt.textContent = `${ex.exam_title || 'Untitled'} (${ex.question_count}Q, ${ex.session_count} sessions)` + (ex.archived_at ? ' [Archived]' : '');
       sel.appendChild(opt);
     });
     // Restore previous selection or default to first
@@ -484,7 +486,7 @@ function hideCreateExamModal(){
 
 async function createExam(){
   const title = document.getElementById('new-exam-title').value.trim();
-  const dur = parseInt(document.getElementById('new-exam-duration').value) || 60;
+  const dur = parseInt(document.getElementById('new-exam-duration').value, 10) || 60;
   const phoneCam = document.getElementById('new-exam-phone-cam').checked;
   if(!title){ document.getElementById('create-exam-err').textContent='Title is required'; return; }
   const btn = document.getElementById('create-exam-btn');
@@ -848,7 +850,7 @@ async function authFetch(url, opts={}){
 
 // Load public config (e.g. Turnstile site key) before showing auth.
 // Fire-and-forget: if it fails the dashboard still works in sandbox mode.
-_loadPublicConfig().then(() => _initTurnstile());
+_loadPublicConfig().then(() => _initTurnstile()).catch(()=>{});
 
 // Auto-login on page load
 _tryAutoLogin();
@@ -1555,7 +1557,7 @@ function closeUpgradeModal(){
 
 function trialBannerClick(){
   const badge = document.getElementById('topbar-trial-badge');
-  const days = parseInt(badge.textContent.match(/\d+/)?.[0] || '0');
+  const days = parseInt(badge.textContent.match(/\d+/)?.[0] || '0', 10);
   showUpgradeModal('Your trial ends in ' + days + ' day' + (days === 1 ? '' : 's') + '. Upgrade to keep using Procta.');
 }
 
@@ -1846,7 +1848,7 @@ function renderPendingGrades(){
     const conf = a.ai_confidence || '';
     const confColor = conf==='high' ? 'var(--emerald)' : conf==='medium' ? 'var(--amber)' : 'var(--muted)';
     const isGraded = a.teacher_score!=null;
-    return `<div class="grade-row" data-aid="${escAttr(a.id)}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--card,#161a22);${isGraded?'opacity:0.55':''}">
+    return `<div class="grade-row" data-aid="${escAttr(a.answer_id)}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--card,#161a22);${isGraded?'opacity:0.55':''}">
       <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px;font-size:11px;color:var(--muted);font-family:var(--font-mono)">
         <span>${escAttr(a.roll_number||'?')} · ${escAttr(a.full_name||'')}</span>
         <span>${isGraded?'✓ confirmed':'pending'}</span>
@@ -1877,7 +1879,7 @@ async function runGradeSuggest(){
   const status = document.getElementById('grade-summary');
   // Only ask the AI for answers that don't already have a suggestion —
   // saves Groq calls and keeps the rate-limit headroom for retries.
-  const ids = _pendingGrades.filter(a => a.ai_score==null && a.teacher_score==null).map(a => a.id);
+  const ids = _pendingGrades.filter(a => a.ai_score==null && a.teacher_score==null).map(a => a.answer_id);
   if(!ids.length){ status.textContent = 'All pending answers already have AI suggestions.'; return; }
   btn.disabled = true;
   status.textContent = `Asking AI to grade ${ids.length}…`;
@@ -1914,7 +1916,7 @@ async function confirmGrade(i){
   try{
     const r = await authFetch(`${BASE}/api/v1/admin/grade-confirm`,{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({answer_id: a.id, score})
+      body: JSON.stringify({answer_id: a.answer_id, score})
     });
     if(!r.ok){
       const txt = await r.text();
@@ -4838,7 +4840,7 @@ function renderQStats(){
   const avgOpts = total ? Math.round(optCounts.reduce((a,b)=>a+b,0)/total*10)/10 : 0;
   const noCorrect = qData.filter(q=>!q.correct).length;
   const withImg = qData.filter(q=>!!q.image_url).length;
-  const dur = parseInt(document.getElementById('q-duration').value)||60;
+  const dur = parseInt(document.getElementById('q-duration').value, 10)||60;
   // Phase 2: emit .stat-tile shape so questions tab matches the rest
   // of the dashboard. Missing-Answer tile flips to error-fg when there
   // ARE missing answers so the issue surfaces at a glance.
@@ -5067,7 +5069,7 @@ function renderQEditor(){
       if(!el) return;
       if(src){ const img=document.createElement('img'); img.src=src; img.alt=`Q${i+1} image`; el.textContent=''; el.appendChild(img); }
       else el.textContent='Load failed';
-    });
+    }).catch(()=>{});
   });
 }
 
@@ -5542,7 +5544,7 @@ function renderQPreview(){
     qLoadImgSrc(q.image_url).then(src=>{
       const el=document.getElementById('pqimg-'+i);
       if(el && src) el.src=src;
-    });
+    }).catch(()=>{});
   });
 }
 
@@ -5719,7 +5721,7 @@ async function saveQuestions(){
   if(errors.length){
     msgEl.innerHTML=`<span style="color:var(--red)">Validation errors:<br>${errors.map(e=>'&bull; '+escAttr(e)).join('<br>')}</span>`;
     // Highlight first errored card
-    const firstIdx=parseInt((errors[0].match(/Q(\d+)/)||[])[1]||'1')-1;
+    const firstIdx=parseInt((errors[0].match(/Q(\d+)/)||[])[1]||'1', 10)-1;
     const card=document.getElementById(`qcard-${firstIdx}`);
     if(card){card.classList.add('q-error');card.scrollIntoView({behavior:'smooth',block:'center'});
       setTimeout(()=>card.classList.remove('q-error'),3000);}
@@ -5731,7 +5733,7 @@ async function saveQuestions(){
 
   const payload={
     exam_title: document.getElementById('q-title').value.trim() || 'Exam',
-    duration_minutes: parseInt(document.getElementById('q-duration').value) || 60,
+    duration_minutes: parseInt(document.getElementById('q-duration').value, 10) || 60,
     questions: qData,
     exam_id: currentExamId
   };
@@ -8170,7 +8172,7 @@ function _copyInviteLink(url){
     const st = document.getElementById('invite-result');
     st.style.color='var(--emerald)'; st.textContent='Link copied.';
     setTimeout(()=>st.textContent='',2000);
-  });
+  }).catch(()=>{});
 }
 
 async function resendInvite(id){
@@ -9062,22 +9064,22 @@ function _onExamSwitchWrap(){ onExamSwitch(this.value); }
 function _loadBankFileWrap(){ loadBankFile(this); }
 function _importInviteCsvWrap(){ importInviteCsv({target: this}); }
 function _toggleGoogleCourseWrap(){ toggleGoogleCourse(this.dataset.courseId, this.checked); }
-function _setQTypeWrap(){ setQType(parseInt(this.dataset.qidx), this.value); }
-function _handleQImageUploadWrap(){ handleQImageUpload(parseInt(this.dataset.qidx), this.files[0]); }
+function _setQTypeWrap(){ setQType(parseInt(this.dataset.qidx, 10), this.value); }
+function _handleQImageUploadWrap(){ handleQImageUpload(parseInt(this.dataset.qidx, 10), this.files[0]); }
 function _bankSelectAllWrap(){ _bankSelectAll(this.checked); }
 function _bankToggleWrap(){ _bankToggle(this.dataset.qid, this.checked); }
 
 // ── Wrappers for oninput handlers (compound DOM updates) ─────────
-function _setQQuestion(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].question=this.value; markQDirty(); }
-function _setQRefAnswer(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].reference_answer=this.value; markQDirty(); }
-function _setQRubric(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].rubric=this.value; markQDirty(); }
-function _setQMaxScore(){ var i=parseInt(this.dataset.qidx); if(isNaN(i))return; qData[i].max_score=parseFloat(this.value)||1; markQDirty(); }
-function _setQOption(){ var i=parseInt(this.dataset.qidx); if(isNaN(i)||!this.dataset.okey)return; qData[i].options[this.dataset.okey]=this.value; markQDirty(); }
+function _setQQuestion(){ var i=parseInt(this.dataset.qidx, 10); if(isNaN(i))return; qData[i].question=this.value; markQDirty(); }
+function _setQRefAnswer(){ var i=parseInt(this.dataset.qidx, 10); if(isNaN(i))return; qData[i].reference_answer=this.value; markQDirty(); }
+function _setQRubric(){ var i=parseInt(this.dataset.qidx, 10); if(isNaN(i))return; qData[i].rubric=this.value; markQDirty(); }
+function _setQMaxScore(){ var i=parseInt(this.dataset.qidx, 10); if(isNaN(i))return; qData[i].max_score=parseFloat(this.value)||1; markQDirty(); }
+function _setQOption(){ var i=parseInt(this.dataset.qidx, 10); if(isNaN(i)||!this.dataset.okey)return; qData[i].options[this.dataset.okey]=this.value; markQDirty(); }
 // Numeric-range editor: rebuild "range:MIN:MAX" from both inputs. Reads the
 // sibling field straight from the DOM so a single keystroke doesn't need a
 // full re-render (which would steal focus mid-typing).
 function _setQRange(){
-  var i=parseInt(this.dataset.qidx); if(isNaN(i))return;
+  var i=parseInt(this.dataset.qidx, 10); if(isNaN(i))return;
   var lo=(document.getElementById('qmin-'+i)?.value||'').trim();
   var hi=(document.getElementById('qmax-'+i)?.value||'').trim();
   qData[i].correct = (lo!=='' || hi!=='') ? ('range:'+lo+':'+hi) : '';

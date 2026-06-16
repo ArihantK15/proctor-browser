@@ -12,6 +12,8 @@ app/downloads/*.exe
 # Local dev files
 .env
 logs/
+screenshots/
+backups/
 *.db
 *.sqlite
 

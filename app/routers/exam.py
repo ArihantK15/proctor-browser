@@ -123,7 +123,7 @@ async def _reject_if_terminal(session_id: str) -> None:
     except HTTPException:
         raise
     except Exception:
-        pass
+        logger.warning("_reject_if_terminal: session check failed", exc_info=True)
 
 
 async def _require_attested(session_id: str, tid: str | None) -> None:
@@ -136,7 +136,7 @@ async def _require_attested(session_id: str, tid: str | None) -> None:
         if row and row[0].get("kiosk_attested") is True:
             return
     except Exception:
-        pass
+        logger.warning("_require_attested: attestation check failed", exc_info=True)
     raise HTTPException(
         status_code=403,
         detail="Please update to the latest Procta secure browser to take this "

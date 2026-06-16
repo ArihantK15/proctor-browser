@@ -13,7 +13,13 @@
     ['memory_pct', 'Memory'],
   ];
 
+  function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+
   function cls(s) { return (s || '').toLowerCase(); }
+
+  function cardHtml(key, label, value, dotClass) {
+    return '<div class="card"><h3>' + esc(label) + '</h3><div><span class="status-dot ' + esc(dotClass) + '"></span><span class="value">' + esc(value) + '</span></div></div>';
+  }
 
   async function load() {
     var ts = document.getElementById('ts');
@@ -21,11 +27,12 @@
     try {
       var r = await fetch(STATUS_URL, { credentials: 'include' });
       if (!r.ok) {
-        grid.innerHTML = '<p style="color:red">Failed to load status (HTTP ' + r.status + '). Check your admin session.</p>';
+        grid.textContent = 'Failed to load status (HTTP ' + r.status + '). Check your admin session.';
+        grid.style.color = 'red';
         return;
       }
       var d = await r.json();
-      ts.textContent = 'Last updated: ' + new Date().toLocaleString() + '  •  Uptime: ' + d.uptime_sec + 's  •  ' + d.health_checks + ' checks';
+      ts.textContent = 'Last updated: ' + new Date().toLocaleString() + '  \u2022  Uptime: ' + d.uptime_sec + 's  \u2022  ' + d.health_checks + ' checks';
       var html = '';
       for (var i = 0; i < CHECK_ORDER.length; i++) {
         var key = CHECK_ORDER[i][0], label = CHECK_ORDER[i][1];
@@ -33,16 +40,17 @@
         if (v === undefined) continue;
         var s = cls(v);
         var dot = s == 'ok' ? 'ok' : s == 'warning' ? 'warning' : 'critical';
-        html += '<div class="card"><h3>' + label + '</h3><div><span class="status-dot ' + dot + '"></span><span class="value">' + v + '</span></div></div>';
+        html += cardHtml(key, label, v, dot);
       }
       for (var k in d.checks) {
         if (!Object.prototype.hasOwnProperty.call(d.checks, k)) continue;
         if (CHECK_ORDER.findIndex(function (o) { return o[0] === k; }) !== -1) continue;
-        html += '<div class="card"><h3>' + k.replace(/_/g, ' ') + '</h3><div><span class="value">' + JSON.stringify(d.checks[k]) + '</span></div></div>';
+        html += cardHtml(k, k.replace(/_/g, ' '), JSON.stringify(d.checks[k]), 'ok');
       }
       grid.innerHTML = html;
     } catch (e) {
-      grid.innerHTML = '<p style="color:red">Error: ' + e.message + '</p>';
+      grid.textContent = 'Error: ' + esc(e.message);
+      grid.style.color = 'red';
     }
   }
   load();

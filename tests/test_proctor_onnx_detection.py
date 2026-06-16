@@ -21,7 +21,7 @@ _missing = []
 for _d in _deps:
     try:
         __import__(_d)
-    except Exception:
+    except ImportError:
         _missing.append(_d)
 
 pytestmark = pytest.mark.skipif(

@@ -226,7 +226,7 @@ async function confirmResetOtp() {
   }
 }
 
-_loadPublicConfig().then(_initTurnstile);
+_loadPublicConfig().then(_initTurnstile).catch(()=>{});
 
 async function doAuth() {
   const errEl = document.getElementById('auth-err');
@@ -1260,7 +1260,7 @@ function showPreflight() {
     } else {
       errEl.textContent = '';
     }
-  });
+  }).catch(()=>{});
 }
 
 function closePreflight() {

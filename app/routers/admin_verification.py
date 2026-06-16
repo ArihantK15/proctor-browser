@@ -13,6 +13,7 @@ from ..limiter import limiter
 from .. import cache as _cache
 from ..models import SessionStatus, VerificationStatus
 from ..models import IdDecisionIn, ID_REJECT_REASON_CODES
+from ..services.risk import _is_violation
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
 
@@ -250,9 +251,19 @@ async def violation_clusters(request: Request, exam_id: str | None = None):
     truncated = len(rows) >= 10000
 
     # Aggregate in Python — (type, severity) buckets.
+    #
+    # Skip non-violation event types. The /api/v1/event pipeline stores
+    # EVERY client event in the violations table (lifecycle, ID-review
+    # workflow, proctor-software health like client_throttled), using the
+    # event_type as violation_type. Those are audit rows, not cheat
+    # signals — _is_violation() is the same canonical filter the scorecard
+    # uses, so the Review clusters match what actually counts toward risk.
     buckets: dict[tuple[str, str], dict] = {}
     for r in rows:
-        key = (r.get("violation_type") or "unknown", r.get("severity") or "low")
+        vtype = r.get("violation_type") or "unknown"
+        if not _is_violation(vtype):
+            continue
+        key = (vtype, r.get("severity") or "low")
         b = buckets.setdefault(key, {
             "violation_type": key[0],
             "severity": key[1],

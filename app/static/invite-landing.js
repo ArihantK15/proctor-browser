@@ -39,7 +39,7 @@ function copyVal(btn) {
       btn.textContent = orig;
       btn.classList.remove('ok');
     }, 1500);
-  });
+  }).catch(function(){});
 }
 
 document.addEventListener('click', function (e) {

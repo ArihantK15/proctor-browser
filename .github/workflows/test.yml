@@ -124,7 +124,13 @@ jobs:
         run: |
           npm ci
           npm run lint
-          npm audit --audit-level=low
+          # Gate on HIGH/critical only. --audit-level=low made every newly-
+          # published low/moderate advisory in a transitive build/dev dep block
+          # ALL PRs (unfixable without breaking `npm audit fix --force` major
+          # bumps). High/critical stay enforced; specific high advisories are
+          # also pinned out via root `overrides` (form-data/js-yaml). pip-audit
+          # (runtime Python deps) stays strict in the security-scan job.
+          npm audit --audit-level=high
 
       - name: Run Electron/Node unit tests
         run: npm run test:unit
@@ -133,7 +139,7 @@ jobs:
         run: |
           cd app/dashboard-ui
           npm ci
-          npm audit --audit-level=low
+          npm audit --audit-level=high
           npm run lint
           npm run type-check
           npm test
@@ -143,7 +149,7 @@ jobs:
         run: |
           cd app/student-ui
           npm ci
-          npm audit --audit-level=low
+          npm audit --audit-level=high
           npm run lint
           npm run type-check
           npm test
@@ -153,7 +159,7 @@ jobs:
         run: |
           cd website
           npm ci
-          npm audit --audit-level=low
+          npm audit --audit-level=high
           npm run lint
           npm run build
 

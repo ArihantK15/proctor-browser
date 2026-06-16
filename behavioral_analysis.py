@@ -31,18 +31,20 @@ SIGNAL_BUFFER_SECS = 60.0
 class SignalBuffer:
     """Sliding window buffer of per-frame signals for behavioral analysis."""
 
-    def __init__(self, window_secs: float = SIGNAL_BUFFER_SECS):
+    def __init__(self, window_secs: float = SIGNAL_BUFFER_SECS,
+                 _now=time.monotonic):
         self._window = window_secs
         self._entries: deque = deque()
+        self._now = _now
 
     def push(self, signal: dict):
-        """Record a frame's signals. signal must have a 't' key (timestamp)."""
-        signal.setdefault("t", time.time())
+        """Record a frame's signals. Override default monotonic clock by passing 't'."""
+        signal.setdefault("t", self._now())
         self._entries.append(signal)
         self._prune()
 
     def _prune(self):
-        cutoff = time.time() - self._window
+        cutoff = self._now() - self._window
         while self._entries and self._entries[0]["t"] < cutoff:
             self._entries.popleft()
 
@@ -51,7 +53,7 @@ class SignalBuffer:
         self._prune()
         if lookback_secs is None:
             return list(self._entries)
-        cutoff = time.time() - lookback_secs
+        cutoff = self._now() - lookback_secs
         return [e for e in self._entries if e["t"] >= cutoff]
 
     def count_entries(self, lookback_secs: Optional[float] = None) -> int:

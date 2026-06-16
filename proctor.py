@@ -34,8 +34,10 @@ import time
 import base64
 import platform
 import signal
+import ssl
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import requests
 
 # ── Windows-safe console encoding ─────────────────────────────────────────────
@@ -433,9 +435,9 @@ class YoloWorker:
         # ready result is ALWAYS tagged with an earlier frame_count than the one
         # being processed now. The old `== frame_count` check therefore discarded
         # EVERY result — cheat-object detections (phones, etc.) never reached the
-        # dashboard. result_q has maxsize=1 and is drained each frame, so what's
-        # here is the most recent completed inference; a few frames of lag is
-        # immaterial for "is there a phone in view". (frame_count kept for API.)
+        # dashboard. result_q is drained each frame so what's here is the most
+        # recent completed inference; a few frames of lag is immaterial for
+        # "is there a phone in view". (frame_count kept for API.)
         try:
             return self.result_q.get_nowait()
         except Empty:
@@ -993,7 +995,7 @@ THROTTLE_SAMPLE_SECS    = float(os.getenv("PROCTOR_THROTTLE_SAMPLE_SECS", "5"))
 
 
 class _HardwareGovernor:
-    """Adaptive frame-rate governor based on CPU load.
+    """Adaptive frame-rate governor based on CPU load + thermal stress.
 
     Stateful — call `.maybe_update()` once per main-loop iteration; it
     samples at most once per THROTTLE_SAMPLE_SECS interval so the cost
@@ -1003,22 +1005,105 @@ class _HardwareGovernor:
     No-ops gracefully when psutil isn't bundled (returns TARGET_FPS
     forever). No-ops gracefully when the configured engage threshold
     is above 100 (disables the governor).
+
+    Thermal reading is best-effort per platform:
+      macOS  → ``pmset -g therm`` thermal pressure (0‑4)
+      Windows → ``wmic`` / ``Get-CimInstance`` MSAcpi_ThermalZoneTemperature
+      Fallback → CPU load only (original behaviour).
     """
 
     __slots__ = ("effective_fps", "_hi_streak", "_lo_streak",
-                 "_last_sample_at", "_throttled", "_on_transition")
+                 "_last_sample_at", "_last_thermal_check",
+                 "_throttled", "_on_transition", "_thermal_pressure",
+                 "_thermal_executor", "_thermal_future")
 
     def __init__(self, on_transition=None):
         self.effective_fps = float(TARGET_FPS)
         self._hi_streak = 0
         self._lo_streak = 0
         self._last_sample_at = 0.0
+        self._last_thermal_check = 0.0
         self._throttled = False
+        self._thermal_pressure = None  # float 0.0-1.0 or None
         # Optional callback fired exactly once per transition. Receives
-        # a dict {"throttled": bool, "cpu_pct": float}. Used by the
-        # main loop to POST a `client_throttled` event back to the
-        # server.
+        # a dict {"throttled": bool, "cpu_pct": float, "thermal": float|None}.
+        # Used by the main loop to POST a `client_throttled` event back
+        # to the server.
         self._on_transition = on_transition
+        self._thermal_executor = ThreadPoolExecutor(max_workers=1)
+        self._thermal_future = None
+
+    # ── Platform thermal sensing ─────────────────────────────────
+
+    @staticmethod
+    def _read_thermal_stress() -> float | None:
+        """Return normalised thermal pressure 0.0‑1.0, or None on failure.
+
+        Resolution:
+          * macOS  → ``pmset -g therm`` thermal pressure (0‑4) / 4
+          * Windows → ``wmic`` or PowerShell ``Get-CimInstance``
+                      MSAcpi_ThermalZoneTemperature → Celsius → 0.0‑1.0
+                      (0.0 ≈ 60 °C, 1.0 ≈ 100 °C)
+          * else   → ``None`` (CPU‑only fallback).
+        """
+        import subprocess
+        import platform
+        os_name = platform.system()
+        try:
+            if os_name == "Darwin":
+                r = subprocess.run(
+                    ["pmset", "-g", "therm"],
+                    capture_output=True, text=True, timeout=2,
+                )
+                # "Thermal pressure: N"   or   "No thermal warning …"
+                for line in r.stdout.splitlines():
+                    line = line.strip()
+                    if "Thermal pressure:" in line:
+                        parts = line.split()
+                        val = int(parts[-1])  # 0‑4
+                        return min(val / 4.0, 1.0)
+                # "No thermal warning …" → confirmed cool
+                return 0.0
+
+            if os_name == "Windows":
+                # Try wmic first (fast, universal on Windows 10/11)
+                try:
+                    r = subprocess.run(
+                        ["wmic",
+                         "/namespace:\\\\root\\wmi",
+                         "PATH", "MSAcpi_ThermalZoneTemperature",
+                         "get", "CurrentTemperature", "/format:csv"],
+                        capture_output=True, text=True, timeout=3,
+                    )
+                except FileNotFoundError:
+                    # Fall back to PowerShell Get-CimInstance
+                    r = subprocess.run(
+                        ["powershell", "-NoProfile", "-NonInteractive",
+                         "-Command",
+                         "(Get-CimInstance -Namespace root/wmi "
+                         "-ClassName MSAcpi_ThermalZoneTemperature"
+                         ").CurrentTemperature"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                temps_c = []
+                for token in r.stdout.split():
+                    token = token.strip()
+                    try:
+                        raw = int(token)
+                    except ValueError:
+                        continue
+                    if raw < 2000:  # unreliably low → skip
+                        continue
+                    temp_c = (raw / 10.0) - 273.15
+                    temps_c.append(temp_c)
+                if not temps_c:
+                    return None
+                hottest = max(temps_c)
+                # Map 60 °C → 0.0, 100 °C → 1.0, clamp at bounds
+                return max(0.0, min((hottest - 60.0) / 40.0, 1.0))
+        except Exception:
+            pass
+        return None
 
     def maybe_update(self):
         if not _PSUTIL_OK or THROTTLE_ENGAGE_PCT >= 100:
@@ -1027,16 +1112,56 @@ class _HardwareGovernor:
         if now - self._last_sample_at < THROTTLE_SAMPLE_SECS:
             return
         self._last_sample_at = now
+
         try:
             # interval=None reads since the last call — non-blocking.
             cpu = _psutil.cpu_percent(interval=None)
         except Exception:
-            return
+            cpu = None
 
-        if cpu >= THROTTLE_ENGAGE_PCT:
+        # Sample thermal stress at most once per sample window.
+        # Offloaded to a background thread so a slow/wedged subprocess
+        # never blocks the main capture loop.
+        if now - self._last_thermal_check >= THROTTLE_SAMPLE_SECS:
+            self._last_thermal_check = now
+            if self._thermal_future is not None and self._thermal_future.done():
+                try:
+                    raw = self._thermal_future.result()
+                    if raw is not None:
+                        self._thermal_pressure = raw
+                except Exception:
+                    pass
+            if self._thermal_future is None or self._thermal_future.done():
+                self._thermal_future = self._thermal_executor.submit(
+                    type(self)._read_thermal_stress)
+
+        # Combine signals: hi = CPU high OR thermal stressed,
+        # lo = CPU low AND thermal normal (or unknown).
+        thermal_stressed = (
+            self._thermal_pressure is not None
+            and self._thermal_pressure >= 0.75
+        )
+        thermal_cool = (
+            self._thermal_pressure is not None
+            and self._thermal_pressure < 0.5
+        )
+
+        hi_signal = (cpu is not None and cpu >= THROTTLE_ENGAGE_PCT)
+        if thermal_stressed:
+            hi_signal = True
+
+        lo_signal = (cpu is not None and cpu <= THROTTLE_RELEASE_PCT)
+        if thermal_cool:
+            lo_signal = True
+        elif self._thermal_pressure is not None and not thermal_cool:
+            # Thermal pressure in the ambiguous band (0.5‑0.74) —
+            # don't count as a recovery signal unless CPU also agrees.
+            lo_signal = lo_signal
+
+        if hi_signal:
             self._hi_streak += 1
             self._lo_streak = 0
-        elif cpu <= THROTTLE_RELEASE_PCT:
+        elif lo_signal:
             self._lo_streak += 1
             self._hi_streak = 0
         else:
@@ -1055,7 +1180,11 @@ class _HardwareGovernor:
     def _notify(self, cpu):
         try:
             if self._on_transition:
-                self._on_transition({"throttled": self._throttled, "cpu_pct": cpu})
+                self._on_transition({
+                    "throttled": self._throttled,
+                    "cpu_pct": cpu,
+                    "thermal": self._thermal_pressure,
+                })
         except Exception:
             # Never let a logging hiccup take down the main loop.
             pass
@@ -1135,19 +1264,23 @@ def classify_phone_position(phone_box: Tuple[int, int, int, int],
 session_start = time.time()
 violation_count = 0
 
-HEADERS = {
+HEARTBEAT_URL = f"{SERVER_BASE}/api/v1/heartbeat"
+
+# ─── THREAD-LOCAL HTTP SESSION ──────────────────────────────────────────────
+# Each thread gets its own requests.Session() so connection-pool state is
+# never shared across threads (requests.Session is not thread-safe).
+_http_local = threading.local()
+_HTTP_HEADERS = {
     "Content-Type": "application/json",
     **({"Authorization": f"Bearer {JWT_TOKEN}"} if JWT_TOKEN else {}),
 }
 
-HEARTBEAT_URL = f"{SERVER_BASE}/api/v1/heartbeat"
-
-# ─── REUSABLE HTTP SESSION ───────────────────────────────────────────────────
-# Single requests.Session() reuses TCP connections across all HTTP calls,
-# cutting per-request overhead by ~10ms. Must be created before _heartbeat_loop
-# starts, otherwise the thread races to use _http before it exists.
-_http = requests.Session()
-_http.headers.update(HEADERS)
+def _session():
+    if not hasattr(_http_local, "sess"):
+        s = requests.Session()
+        s.headers.update(_HTTP_HEADERS)
+        _http_local.sess = s
+    return _http_local.sess
 _violation_lock = threading.Lock()
 
 def _heartbeat_loop():
@@ -1156,7 +1289,7 @@ def _heartbeat_loop():
         time.sleep(30)
         ok = False
         try:
-            r = _http.post(
+            r = _session().post(
                 HEARTBEAT_URL,
                 json={"session_id": SESSION_ID, "event_type": "heartbeat",
                       "severity": "low", "details": "alive"},
@@ -1228,8 +1361,13 @@ def _get_ws():
         _ws_last_attempt = now
         try:
             import websocket
-            ws = websocket.create_connection(WS_LIVE_URL, timeout=5,
-                                             skip_utf8_encoding=True)
+            _ws_kwargs = dict(timeout=5, skip_utf8_encoding=True)
+            if WS_LIVE_URL.startswith("wss://"):
+                _ws_kwargs["sslopt"] = {
+                    "cert_reqs": ssl.CERT_REQUIRED,
+                    "check_hostname": True,
+                }
+            ws = websocket.create_connection(WS_LIVE_URL, **_ws_kwargs)
             import json
             ws.send(json.dumps({"token": JWT_TOKEN}))
             _ws_conn = ws
@@ -1259,7 +1397,7 @@ def _control_loop():
     global _LIVE_VIEW_ACTIVE
     while True:
         try:
-            r = _http.get(CONTROL_URL, timeout=4)
+            r = _session().get(CONTROL_URL, timeout=4)
             if r.ok:
                 want = bool(r.json().get("live_view"))
                 with _LIVE_VIEW_LOCK:
@@ -1311,7 +1449,7 @@ def _live_upload_loop():
                 except Exception:
                     _reset_ws()
             b64 = base64.b64encode(raw_bytes).decode("ascii")
-            _http.post(
+            _session().post(
                 LIVE_FRAME_URL,
                 json={"session_id": SESSION_ID, "jpeg_b64": b64},
                 timeout=4,
@@ -1355,7 +1493,7 @@ def _event_upload_loop():
         status = None
         err_msg = ""
         try:
-            r = _http.post(SERVER_URL, json=payload, timeout=5)
+            r = _session().post(SERVER_URL, json=payload, timeout=5)
             status = r.status_code
             if not r.ok:
                 err_msg = f"HTTP {r.status_code}"
@@ -1372,7 +1510,7 @@ def _event_upload_loop():
                 _dropped_events = 0
             if n > 0:
                 try:
-                    _http.post(SERVER_URL, json=dict(
+                    _session().post(SERVER_URL, json=dict(
                         session_id=SESSION_ID, event_type="event_queue_full",
                         severity="low",
                         details=f"dropped:{n} events during upload outage"),
@@ -1427,7 +1565,7 @@ def _post_event_now(payload, attempts=3, timeout=4):
     that case). Returns True iff the server accepted it."""
     for i in range(attempts):
         try:
-            r = _http.post(SERVER_URL, json=payload, timeout=timeout)
+            r = _session().post(SERVER_URL, json=payload, timeout=timeout)
             if r.ok:
                 return True
         except Exception:
@@ -1501,7 +1639,7 @@ def _evidence_upload_loop():
         ok = False
         err_msg = ""
         try:
-            r = _http.post(
+            r = _session().post(
                 EVIDENCE_UPLOAD_URL,
                 json={
                     "session_id": SESSION_ID,
@@ -1677,7 +1815,7 @@ def eyes_detected(face_crop: np.ndarray) -> bool:
             gray, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
         return len(eyes) > 0
     except Exception:
-        return True
+        return False  # fail-closed: crash → treat as closed
 
 # ─── AUDIO (voice detection) ──────────────────────────────────────────────────
 AUDIO_AVAILABLE = False
@@ -1757,7 +1895,7 @@ def _start_audio(*, governor=None):
             try:
                 from urllib.parse import urljoin as _urljoin
                 cfg_url = _urljoin(SERVER_URL, "/api/v1/exam/audio-config")
-                r = _http.get(cfg_url,
+                r = _session().get(cfg_url,
                               params={"session_id": SESSION_ID},
                               headers={"Authorization": f"Bearer {JWT_TOKEN}"} if JWT_TOKEN else {},
                               timeout=5)
@@ -2005,7 +2143,7 @@ def run_system_check(cap: Optional[cv2.VideoCapture] = None) -> dict:
 
     # 1. Network connectivity
     try:
-        _http.get(f"{SERVER_BASE}/health", timeout=5)
+        _session().get(f"{SERVER_BASE}/health", timeout=5)
         results["checks"]["network"] = {"status": "pass", "detail": "Server reachable"}
     except Exception as e:
         results["checks"]["network"] = {"status": "fail", "detail": str(e)}
@@ -2395,7 +2533,6 @@ def _process_yolo_results(
 def _process_sahi_results(
     state: dict,
     frame, frame_count: int, W: int, H: int,
-    yolo_seen: set,
     can_log, log_if_allowed,
 ):
     """Submit frame to SAHI worker and process returned detections."""
@@ -2617,7 +2754,7 @@ def _process_behavioral(
         "multiple_faces": num_faces >= 2,
         "phone_in_hand":  phone_in_hand,
         "voice_active":   voice_active,
-        "t":              time.time(),
+        "t":              time.monotonic(),
     })
     behavioral_match = _behavioral.check()
     if behavioral_match:
@@ -2799,11 +2936,16 @@ def run_proctoring(cap, W, H):
         thr_state = "throttled" if info.get("throttled") else "recovered"
         cpu_pct = info.get("cpu_pct")
         cpu_txt = f"{cpu_pct:.0f}%" if isinstance(cpu_pct, (int, float)) else "n/a"
+        thermal_val = info.get("thermal")
+        thermal_txt = (f"thermal={thermal_val:.2f}"
+                       if isinstance(thermal_val, (int, float))
+                       else "thermal=n/a")
         print(f"[PROCTOR] hardware governor {thr_state}: cpu={cpu_txt} "
-              f"-> {governor.effective_fps:.1f} fps")
+              f"{thermal_txt} -> {governor.effective_fps:.1f} fps")
         try:
             log_event("client_throttled", "info",
-                      f"CPU {cpu_txt}, effective {governor.effective_fps:.1f} fps "
+                      f"CPU {cpu_txt}, {thermal_txt}, "
+                      f"effective {governor.effective_fps:.1f} fps "
                       f"(state={thr_state})")
         except Exception:
             pass
@@ -2999,6 +3141,7 @@ def run_proctoring(cap, W, H):
                             cal_gaze_pitch.clear()
                             cal_head_yaw.clear()
                             cal_head_pitch.clear()
+                            state["frame_count"] = 0
                             enrolled_embedding = current_emb
                             print("[IDENTITY] ⚠ Reference updated to new face — "
                                   "recalibrating...")
@@ -3135,7 +3278,7 @@ def run_proctoring(cap, W, H):
                                               can_log, log_if_allowed)
 
             # ── SAHI TILED DETECTION (small objects) ─────────────────────────────
-            _process_sahi_results(state, frame, frame_count, W, H, yolo_seen,
+            _process_sahi_results(state, frame, frame_count, W, H,
                                   can_log, log_if_allowed)
 
             # ── EAR-CROP CLASSIFIER (earbud detection) ───────────────────────────
@@ -3318,15 +3461,6 @@ def _camera_backend_candidates():
     return deduped
 
 
-def _camera_has_frames(cap, attempts: int = 12) -> bool:
-    for _ in range(attempts):
-        ok, frame = cap.read()
-        if ok and frame is not None and getattr(frame, "size", 0) > 0:
-            return True
-        time.sleep(0.08)
-    return False
-
-
 def _frame_is_usable(frame) -> bool:
     """True if a frame looks like a real, lit COLOR image — not the near-black
     or grayscale output of an IR / Windows-Hello camera. _open_camera uses this
@@ -3504,7 +3638,7 @@ def main():
     cap, cam_meta = _open_camera_retry()
     if cap is None or not cap.isOpened():
         try:
-            _http.post(SERVER_URL, json=dict(
+            _session().post(SERVER_URL, json=dict(
                 session_id = SESSION_ID,
                 event_type = "proctor_camera_failed",
                 severity   = "high",
@@ -3579,7 +3713,7 @@ def main():
         print("[PROCTOR] Running pre-exam system check...")
         check_results = run_system_check(cap=cap)
         try:
-            _http.post(SYSTEM_CHECK_URL, json=check_results, timeout=5)
+            _session().post(SYSTEM_CHECK_URL, json=check_results, timeout=5)
             print(f"[PROCTOR] System check: {check_results['overall'].upper()}")
             for name, result in check_results["checks"].items():
                 icon = "✅" if result["status"] == "pass" else "⚠️" if result["status"] == "warn" else "❌"
@@ -3610,6 +3744,8 @@ def main():
         except Exception: pass
         try: cap.release()
         except Exception: pass
+        try: _reset_ws()
+        except Exception: pass
         # Drain the async backlog, THEN deliver the terminal session_ended
         # SYNCHRONOUSLY before closing _http. The async uploader may be mid-
         # backoff and _http is about to close, so the queue+flush path could
@@ -3621,15 +3757,16 @@ def main():
             try:
                 duration = int(time.time() - session_start)
                 _conf = CONFIDENCE.get("session_ended", 0.75)
+                with _violation_lock:
+                    _vc = violation_count
                 _ended = dict(
                     session_id=SESSION_ID, event_type="session_ended", severity="low",
-                    details=(f"violations:{violation_count} | duration:{duration}s "
+                    details=(f"violations:{_vc} | duration:{duration}s "
                              f"| confidence:{int(_conf * 100)}%"))
                 if not _post_event_now(_ended):
                     print("[PROCTOR] ⚠ session_ended not delivered — server will reconcile")
             except Exception: pass
-        try: _http.close()
-        except Exception: pass
+        # Thread-local sessions need no explicit cleanup.
         try: _cleanup_evidence_dir()
         except Exception: pass
         if not HEADLESS:

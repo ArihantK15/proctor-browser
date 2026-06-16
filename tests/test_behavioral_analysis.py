@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from behavioral_analysis import (
-    SignalBuffer,
+    SignalBuffer as _SignalBufferReal,
     BehavioralEngine,
     match_phone_consulting,
     match_collaboration,
@@ -25,6 +25,12 @@ from behavioral_analysis import (
     PATTERN_CONFIDENCE,
     PATTERN_MATCHERS,
 )
+
+# Test shim: inject a wall-clock _now so explicit timestamps in tests work.
+class SignalBuffer(_SignalBufferReal):
+    def __init__(self, **kw):
+        kw.setdefault("_now", time.time)
+        super().__init__(**kw)
 
 
 # ─── SignalBuffer ──────────────────────────────────────────────────────────────

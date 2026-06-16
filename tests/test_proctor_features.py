@@ -213,12 +213,12 @@ class TestSeverityEscalation:
 
         _violation_history = {}
 
-        def _track_violation(etype):
+        def _track_violation(etype, base_severity):
             now = _time.time()
             cutoff = now - ESCALATION_WINDOW_SECS
             history = _violation_history.get(etype, [])
             history = [(t, s) for t, s in history if t > cutoff]
-            history.append((now, "medium"))
+            history.append((now, base_severity))
             _violation_history[etype] = history
 
         def _get_escalated_severity(etype, base_severity):
@@ -226,7 +226,7 @@ class TestSeverityEscalation:
             cutoff = now - ESCALATION_WINDOW_SECS
             history = _violation_history.get(etype, [])
             history = [(t, s) for t, s in history if t > cutoff]
-            repeat_count = len(history)  # history already includes current violation via _track_violation
+            repeat_count = len(history)
             if repeat_count >= 3:
                 severity = "critical"
             elif repeat_count == 2:
@@ -240,18 +240,11 @@ class TestSeverityEscalation:
         def log_event(etype, severity, details):
             logged_events.append({"type": etype, "severity": severity, "details": details})
 
-        def can_log(etype):
-            now = _time.time()
-            if now - last_logged.get(etype, 0) >= COOLDOWN:
-                last_logged[etype] = now
-                return True
-            return False
-
         def log_if_allowed(etype, base_severity, details):
-            _track_violation(etype)
             now = _time.time()
             if now - last_logged.get(etype, 0) >= COOLDOWN:
                 last_logged[etype] = now
+                _track_violation(etype, base_severity)
                 severity, repeat = _get_escalated_severity(etype, base_severity)
                 if repeat > 1:
                     details = f"[{repeat}x repeat] {details}"
@@ -262,7 +255,6 @@ class TestSeverityEscalation:
         return {
             "log_if_allowed": log_if_allowed,
             "log_event": log_event,
-            "can_log": can_log,
             "_track_violation": _track_violation,
             "_get_escalated_severity": _get_escalated_severity,
             "logged_events": logged_events,
@@ -279,11 +271,10 @@ class TestSeverityEscalation:
     def test_second_violation_within_window_escalates(self):
         ctx = self._make_escalation_context()
         ctx["log_if_allowed"]("gaze_away", "medium", "Looking left")
-        # Bypass cooldown for test
         ctx["last_logged"]["gaze_away"] = 0
         ctx["log_if_allowed"]("gaze_away", "medium", "Looking right")
         assert len(ctx["logged_events"]) == 2
-        assert ctx["logged_events"][1]["severity"] == "high"  # medium → high
+        assert ctx["logged_events"][1]["severity"] == "high"
         assert "2x repeat" in ctx["logged_events"][1]["details"]
 
     def test_third_violation_goes_critical(self):
@@ -298,31 +289,26 @@ class TestSeverityEscalation:
         assert "3x repeat" in ctx["logged_events"][2]["details"]
 
     def test_cooldown_does_not_reset_escalation_counter(self):
-        """Violations tracked during cooldown should still count for escalation."""
+        """Violations skipped during cooldown do NOT count for escalation
+        (matching real log_if_allowed — tracks only on log)."""
         ctx = self._make_escalation_context()
-        # First violation logs
         ctx["log_if_allowed"]("gaze_away", "medium", "v1")
         assert len(ctx["logged_events"]) == 1
-
-        # Second violation within cooldown — NOT logged but SHOULD be tracked
         result = ctx["log_if_allowed"]("gaze_away", "medium", "v2")
-        assert result is False  # cooldown blocked logging
-        assert len(ctx["logged_events"]) == 1  # still only 1 logged
-
-        # Third violation after cooldown — should be escalated to critical
-        # because 2 prior violations were tracked
+        assert result is False
+        assert len(ctx["logged_events"]) == 1
         ctx["last_logged"]["gaze_away"] = 0
         result = ctx["log_if_allowed"]("gaze_away", "medium", "v3")
         assert result is True
-        assert ctx["logged_events"][1]["severity"] == "critical"
-        assert "3x repeat" in ctx["logged_events"][1]["details"]
+        # Only 2 violations tracked (v1, v3) → escalation to high, not critical
+        assert ctx["logged_events"][1]["severity"] == "high"
+        assert "2x repeat" in ctx["logged_events"][1]["details"]
 
     def test_different_violation_types_track_independently(self):
         ctx = self._make_escalation_context()
         ctx["log_if_allowed"]("gaze_away", "medium", "v1")
         ctx["last_logged"]["voice_detected"] = 0
         ctx["log_if_allowed"]("voice_detected", "medium", "v1")
-        # voice_detected should not be escalated (no prior history)
         assert len(ctx["logged_events"]) == 2
         assert ctx["logged_events"][1]["severity"] == "medium"
 
@@ -331,7 +317,7 @@ class TestSeverityEscalation:
         ctx["log_if_allowed"]("phone_in_hand", "high", "v1")
         ctx["last_logged"]["phone_in_hand"] = 0
         ctx["log_if_allowed"]("phone_in_hand", "high", "v2")
-        assert ctx["logged_events"][1]["severity"] == "critical"  # high → critical on 2nd
+        assert ctx["logged_events"][1]["severity"] == "critical"
 
 
 # ── Virtual camera detection ────────────────────────────────────────────

@@ -66,11 +66,16 @@ import os as _os
 import time as _time
 import re as _re
 
-# Permissive-but-real email shape: local@domain.tld, no spaces, single @, a dot
-# in the domain. Rejects obvious garbage ("a@", "@b", "ab", "a b@c") that the
-# old `"@" in email` check let through on this unauthenticated endpoint. Not a
-# full RFC validator (real student/guardian addresses are standard).
-_EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Permissive-but-real email shape: local@label(.label)+, no spaces, single @,
+# at least one dot in the domain. Rejects obvious garbage ("a@", "@b", "ab",
+# "a b@c", "a@b") that the old `"@" in email` check let through on this
+# unauthenticated endpoint. Not a full RFC validator (real addresses are standard).
+#
+# ReDoS-safe by construction: domain LABELS exclude '.' ([^@\s.]), so the literal
+# '.' separator is unambiguous — no overlapping quantifiers, linear-time match.
+# The earlier `...\.[^@\s]+$` put '.' inside the class, making `[^@\s]+\.[^@\s]+`
+# ambiguous → polynomial backtracking (CodeQL flagged it high-severity).
+_EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
 
 
 def _looks_like_email(s: str) -> bool:

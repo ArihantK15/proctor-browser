@@ -49,6 +49,26 @@ _STATE_TTL = 600   # 10 minutes
 _MAX_IN_MEMORY = 10000  # C18: cap in-memory entries before cleanup
 
 
+def _redis():
+    """Return the live Redis client, or None when Redis is unreachable.
+
+    Centralises the "is Redis actually up *right now*?" check. The old
+    `if _cache:` guards only tested whether the cache MODULE imported
+    (always true), so a runtime Redis outage made `_store_*` write to a
+    no-op while `_consume_*` returned None without ever reaching the
+    in-memory fallback — every LTI launch then died with "Invalid or
+    expired OIDC state" and no way to tell why. Routing both store and
+    consume through this helper makes the fallback fire on a real outage
+    (single-process / dev) and keeps prod on Redis (required across the
+    4 uvicorn workers, since the in-memory dicts are per-process)."""
+    if not _cache:
+        return None
+    try:
+        return _cache._client()
+    except Exception:
+        return None
+
+
 def _cleanup_expired():
     now = time.time()
     expired_nonces = [k for k, v in _nonces.items() if v.get("expires", 0) < now]
@@ -60,13 +80,13 @@ def _cleanup_expired():
 
 
 def _store_nonce(nonce: str):
+    expires = time.time() + _NONCE_TTL
+    if _redis() is not None:
+        _cache.set(f"lti_nonce:{nonce}", {"expires": expires}, ttl=_NONCE_TTL)
+        return
     if len(_nonces) > _MAX_IN_MEMORY:
         _cleanup_expired()
-    expires = time.time() + _NONCE_TTL
-    if _cache:
-        _cache.set(f"lti_nonce:{nonce}", {"expires": expires}, ttl=_NONCE_TTL)
-    else:
-        _nonces[nonce] = {"expires": expires}
+    _nonces[nonce] = {"expires": expires}
 
 
 def _consume_nonce(nonce: str) -> bool:
@@ -76,25 +96,22 @@ def _consume_nonce(nonce: str) -> bool:
     concurrent requests can never both pass the check.  Falls back to
     a Lua script for older Redis, and to the in-process dict otherwise.
     """
-    if _cache:
-        from .. import cache as _c
-        r = _c._client()
-        if r is not None:
-            key = f"lti_nonce:{nonce}"
+    r = _redis()
+    if r is not None:
+        key = f"lti_nonce:{nonce}"
+        try:
+            result = r.getdel(key)
+            return result is not None
+        except Exception:
             try:
-                result = r.getdel(key)
-                return result is not None
+                _lua = r.register_script(
+                    "local v=redis.call('GET',KEYS[1]) "
+                    "if v then redis.call('DEL',KEYS[1]) return 1 "
+                    "else return 0 end"
+                )
+                return bool(_lua(keys=[key]))
             except Exception:
-                try:
-                    _lua = r.register_script(
-                        "local v=redis.call('GET',KEYS[1]) "
-                        "if v then redis.call('DEL',KEYS[1]) return 1 "
-                        "else return 0 end"
-                    )
-                    return bool(_lua(keys=[key]))
-                except Exception:
-                    return False
-        return False
+                return False
     # In-process fallback (single-process / no Redis)
     entry = _nonces.pop(nonce, None)
     if entry and entry["expires"] > time.time():
@@ -103,14 +120,14 @@ def _consume_nonce(nonce: str) -> bool:
 
 
 def _store_state(state: str, data: dict):
-    if len(_states) > _MAX_IN_MEMORY:
-        _cleanup_expired()
     expires = time.time() + _STATE_TTL
     payload = {**data, "expires": expires}
-    if _cache:
+    if _redis() is not None:
         _cache.set(f"lti_state:{state}", payload, ttl=_STATE_TTL)
-    else:
-        _states[state] = payload
+        return
+    if len(_states) > _MAX_IN_MEMORY:
+        _cleanup_expired()
+    _states[state] = payload
 
 
 def _consume_state(state: str) -> Optional[dict]:
@@ -125,39 +142,36 @@ def _consume_state(state: str) -> Optional[dict]:
     single-use; we enforce that here with Redis GETDEL (atomic, since
     Redis 6.2) and fall back to a Lua script for older Redis.
     """
-    if _cache:
-        from .. import cache as _c
-        r = _c._client()
-        if r is not None:
-            key = f"lti_state:{state}"
+    r = _redis()
+    if r is not None:
+        key = f"lti_state:{state}"
+        try:
+            raw = r.getdel(key)
+        except Exception:
             try:
-                raw = r.getdel(key)
-            except Exception:
-                try:
-                    _lua = r.register_script(
-                        "local v=redis.call('GET',KEYS[1]) "
-                        "if v then redis.call('DEL',KEYS[1]) return v "
-                        "else return false end"
-                    )
-                    raw = _lua(keys=[key])
-                except Exception:
-                    return None
-            if not raw:
-                return None
-            try:
-                import json as _j
-                payload = raw if isinstance(raw, (dict, list)) else _j.loads(
-                    raw.decode() if isinstance(raw, bytes) else raw
+                _lua = r.register_script(
+                    "local v=redis.call('GET',KEYS[1]) "
+                    "if v then redis.call('DEL',KEYS[1]) return v "
+                    "else return false end"
                 )
-                # Same expiry-tolerance check as the in-process branch
-                # below — a stale entry that hasn't been TTL-evicted yet
-                # is treated as missing.
-                if isinstance(payload, dict) and payload.get("expires", 0) > time.time():
-                    return payload
-                return None
+                raw = _lua(keys=[key])
             except Exception:
                 return None
-        return None
+        if not raw:
+            return None
+        try:
+            import json as _j
+            payload = raw if isinstance(raw, (dict, list)) else _j.loads(
+                raw.decode() if isinstance(raw, bytes) else raw
+            )
+            # Same expiry-tolerance check as the in-process branch
+            # below — a stale entry that hasn't been TTL-evicted yet
+            # is treated as missing.
+            if isinstance(payload, dict) and payload.get("expires", 0) > time.time():
+                return payload
+            return None
+        except Exception:
+            return None
     # In-process fallback (single-process / no Redis). dict.pop is
     # already atomic at the GIL level, so this path was correct.
     entry = _states.pop(state, None)
@@ -263,6 +277,21 @@ async def validate_id_token(id_token: str, state: str) -> dict:
     # 1. Recover state
     state_data = _consume_state(state)
     if not state_data:
+        # Disambiguate the three real causes so a failed launch is
+        # self-explanatory in the logs instead of a generic 401:
+        #   - state_present=False -> the platform POSTed no state, i.e.
+        #     it never went through /lti/login first (OIDC login-init URL
+        #     misconfigured in the LMS, or the link points straight at
+        #     /lti/launch). State is only minted by build_oidc_redirect.
+        #   - redis_up=False -> Redis was unreachable; nothing was stored.
+        #   - both true -> state expired (>10 min) or was already consumed
+        #     (double-submit / refreshing the launch page).
+        logger.warning(
+            "lti: OIDC state lookup failed — state_present=%s redis_up=%s "
+            "(state_present=False => /lti/login was skipped; redis_up=False "
+            "=> Redis outage; both True => expired/replayed)",
+            bool(state), _redis() is not None,
+        )
         raise ValueError("Invalid or expired OIDC state")
 
     expected_nonce = state_data.get("nonce", "")

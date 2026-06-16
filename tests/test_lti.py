@@ -296,10 +296,14 @@ class TestLtiLaunch:
 
         with patch("app.lti.launch._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as atable:
-            atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[])
-            )
-            atable.return_value.insert.return_value.execute = AsyncMock()
+            _m = atable.return_value
+            _m.select.return_value = _m
+            _m.eq.return_value = _m
+            _m.in_.return_value = _m
+            _m.limit.return_value = _m
+            _m.insert.return_value = _m
+            _m.upsert.return_value = _m
+            _m.execute = AsyncMock(return_value=MagicMock(data=[]))
             resp = self._launch(client, id_token, state)
         # Should redirect to /student
         assert resp.status_code == 302
@@ -322,10 +326,14 @@ class TestLtiLaunch:
 
         with patch("app.lti.launch._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as atable:
-            atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[])
-            )
-            atable.return_value.insert.return_value.execute = AsyncMock()
+            _m = atable.return_value
+            _m.select.return_value = _m
+            _m.eq.return_value = _m
+            _m.in_.return_value = _m
+            _m.limit.return_value = _m
+            _m.insert.return_value = _m
+            _m.upsert.return_value = _m
+            _m.execute = AsyncMock(return_value=MagicMock(data=[]))
             resp = self._launch(client, id_token, state)
         assert resp.status_code == 302
         assert "dashboard" in resp.headers.get("location", "")
@@ -438,10 +446,58 @@ class TestLtiLaunch:
 # ═══════════════════════════════════════════════════════════════════
 #  Tenant binding — LTI-provisioned identities must carry org_id
 # ═══════════════════════════════════════════════════════════════════
+_INSTRUCTOR = "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor"
+
+
+class _FakeRes:
+    def __init__(self, data):
+        self.data = data
+
+
+class _FakeTbl:
+    """Chainable async table stub. select() pops the next queued result list
+    for that table (FIFO; [] when exhausted); insert()/upsert() record the
+    payload and echo it back."""
+    def __init__(self, name, store):
+        self.name, self.store = name, store
+        self._op = None
+        self._payload = None
+
+    def select(self, *a, **k): return self
+    def eq(self, *a, **k): return self
+    def in_(self, *a, **k): return self
+    def is_(self, *a, **k): return self
+    def not_(self, *a, **k): return self
+    def limit(self, *a, **k): return self
+    def order(self, *a, **k): return self
+
+    def insert(self, payload, *a, **k):
+        self._op, self._payload = "insert", payload
+        self.store["inserts"].setdefault(self.name, []).append(payload)
+        return self
+
+    def upsert(self, payload, *a, **k):
+        self._op, self._payload = "upsert", payload
+        self.store["upserts"].setdefault(self.name, []).append(payload)
+        return self
+
+    async def execute(self):
+        if self._op in ("insert", "upsert"):
+            p = self._payload
+            return _FakeRes([p] if isinstance(p, dict) else list(p))
+        q = self.store["selects"].get(self.name)
+        return _FakeRes(q.pop(0) if q else [])
+
+
+def _atable_factory(store):
+    return lambda name: _FakeTbl(name, store)
+
+
 class TestLtiTenantBinding:
-    """find_or_create_lti_user must stamp the registration's org_id onto
-    every provisioned teacher/student, default instructors to a non-admin
-    role, and fail closed when a registration has no org_id."""
+    """find_or_create_lti_user must resolve every LTI identity to a Procta
+    org and stamp it. With an explicit registration org_id it binds there;
+    otherwise (Model 3) each LMS tenant auto-provisions its own org and the
+    first instructor becomes that org's admin."""
 
     ORG = "11111111-1111-1111-1111-111111111111"
 
@@ -464,64 +520,100 @@ class TestLtiTenantBinding:
         "deployment_ids": ["deployment-1"],
     }])
 
-    def _claims(self, roles=None):
+    def _claims(self, roles=None, deployment="deployment-1"):
         c = {
             "iss": "https://test.canvas.edu",
             "aud": "test-client-1",
             "sub": "user-abc-123",
             "email": "person@example.com",
             "name": "Test Person",
+            "https://purl.imsglobal.org/spec/lti/claim/deployment_id": deployment,
         }
         if roles is not None:
             c["https://purl.imsglobal.org/spec/lti/claim/roles"] = roles
         return c
 
-    def _run_create(self, reg_json, claims):
+    def _expected_auto_org(self, iss="https://test.canvas.edu",
+                           cid="test-client-1", dep="deployment-1"):
+        import uuid
+        from app.lti.launch import _LTI_ORG_NAMESPACE
+        return str(uuid.uuid5(_LTI_ORG_NAMESPACE, f"{iss}|{cid}|{dep}"))
+
+    def _run(self, reg_json, claims, selects=None):
         import asyncio
         from app.lti.registration import clear_cache
+        store = {"inserts": {}, "upserts": {},
+                 "selects": {k: list(v) for k, v in (selects or {}).items()}}
         with patch.dict(os.environ, {"LTI_REGISTRATIONS": reg_json}):
             clear_cache()
             with patch("app.lti.launch._cache", None), \
-                 patch("app.lti.launch._atable") as atable:
-                atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                    return_value=MagicMock(data=[])
-                )
-                atable.return_value.insert.return_value.execute = AsyncMock()
+                 patch("app.lti.launch._atable", _atable_factory(store)):
                 from app.lti.launch import find_or_create_lti_user
                 try:
                     user = asyncio.run(find_or_create_lti_user(claims))
-                except Exception as e:  # surface ValueError to the caller
+                finally:
                     clear_cache()
-                    raise
-                insert_arg = atable.return_value.insert.call_args.args[0] \
-                    if atable.return_value.insert.call_args else None
-                clear_cache()
-                return user, insert_arg
+                return user, store
 
-    def test_learner_insert_carries_org_id(self):
-        user, inserted = self._run_create(self.REG_WITH_ORG, self._claims())
+    # ── Explicit binding (registration carries org_id) ────────────
+    def test_explicit_learner_carries_org_id_no_autoprovision(self):
+        user, store = self._run(self.REG_WITH_ORG, self._claims())
         assert user["role"] == "learner"
-        assert inserted is not None, "expected a students.insert()"
-        assert inserted["org_id"] == self.ORG
-        # collision-resistant roll: not a raw sub[:12] truncation
-        assert inserted["roll_number"].startswith("LTI_")
-        assert inserted["roll_number"] != "LTI_USER-ABC-123"
+        s = store["inserts"]["students"][0]
+        assert s["org_id"] == self.ORG
+        assert s["roll_number"].startswith("LTI_") and s["roll_number"] != "LTI_USER-ABC-123"
+        # explicit binding must NOT auto-create an org
+        assert "organizations" not in store["inserts"]
 
-    def test_instructor_insert_is_teacher_role_with_org_id(self):
-        roles = ["http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor"]
-        user, inserted = self._run_create(self.REG_WITH_ORG, self._claims(roles))
+    def test_explicit_instructor_is_teacher_not_admin(self):
+        user, store = self._run(self.REG_WITH_ORG, self._claims(roles=[_INSTRUCTOR]))
         assert user["role"] == "teacher"
-        assert inserted is not None, "expected a teachers.insert()"
-        assert inserted["org_id"] == self.ORG
-        # A fresh LMS instructor must NOT be auto-granted org admin.
-        assert inserted["org_role"] == "teacher"
-        # teachers.supabase_uid is NOT NULL + UNIQUE; the insert must carry a
-        # synthetic uid or every instructor launch 500s at the DB layer.
-        assert inserted.get("supabase_uid"), "teacher insert must set supabase_uid"
+        t = store["inserts"]["teachers"][0]
+        assert t["org_id"] == self.ORG
+        assert t["org_role"] == "teacher"  # pre-existing org has its own admin
+        assert t.get("supabase_uid"), "teacher insert must set supabase_uid"
+        assert "organizations" not in store["inserts"]
 
-    def test_launch_refused_when_registration_has_no_org_id(self):
-        with pytest.raises(ValueError, match="not bound to an organization"):
-            self._run_create(self.REG_NO_ORG, self._claims())
+    # ── Model 3: auto-provision one org per LMS tenant ────────────
+    def test_autoprovision_learner_creates_org_and_stamps_it(self):
+        user, store = self._run(self.REG_NO_ORG, self._claims())
+        exp = self._expected_auto_org()
+        assert user["role"] == "learner"
+        assert store["inserts"]["organizations"][0]["id"] == exp
+        # auto-created org gets a trial subscription like a real signup
+        assert store["upserts"]["subscriptions"][0]["org_id"] == exp
+        assert store["inserts"]["students"][0]["org_id"] == exp
+
+    def test_autoprovision_first_instructor_becomes_admin(self):
+        user, store = self._run(self.REG_NO_ORG, self._claims(roles=[_INSTRUCTOR]))
+        exp = self._expected_auto_org()
+        t = store["inserts"]["teachers"][0]
+        assert t["org_id"] == exp
+        assert t["org_role"] == "admin"  # first instructor owns the new org
+
+    def test_autoprovision_second_instructor_is_teacher(self):
+        exp = self._expected_auto_org()
+        # org already exists; teachers queue: lti-lookup=[], email-lookup=[],
+        # admin-exists=[one admin] → new instructor is a plain teacher.
+        selects = {
+            "organizations": [[{"id": exp}]],
+            "teachers": [[], [], [{"id": "existing-admin"}]],
+        }
+        user, store = self._run(self.REG_NO_ORG, self._claims(roles=[_INSTRUCTOR]), selects)
+        assert store["inserts"]["teachers"][0]["org_role"] == "teacher"
+        assert "organizations" not in store["inserts"]  # existing org reused, not recreated
+
+    def test_autoprovision_org_id_is_deterministic_per_tenant(self):
+        # same (issuer, client_id, deployment_id) → same org; different
+        # deployment → different org (one tenant per LMS install).
+        assert self._expected_auto_org() == self._expected_auto_org()
+        assert self._expected_auto_org(dep="deployment-1") != self._expected_auto_org(dep="deployment-2")
+        assert self._expected_auto_org(cid="client-A") != self._expected_auto_org(cid="client-B")
+
+    def test_autoprovision_refused_without_deployment_id(self):
+        # no deployment_id → can't form a safe tenant key → fail closed.
+        with pytest.raises(ValueError, match="cannot isolate tenant"):
+            self._run(self.REG_NO_ORG, self._claims(deployment=""))
 
     def test_registration_parses_org_id_from_env(self):
         from app.lti.registration import load_registrations, clear_cache
@@ -633,10 +725,14 @@ class TestDeepLinking:
         })
         with patch("app.lti.deeplink._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as atable:
-            atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[])
-            )
-            atable.return_value.insert.return_value.execute = AsyncMock()
+            _m = atable.return_value
+            _m.select.return_value = _m
+            _m.eq.return_value = _m
+            _m.in_.return_value = _m
+            _m.limit.return_value = _m
+            _m.insert.return_value = _m
+            _m.upsert.return_value = _m
+            _m.execute = AsyncMock(return_value=MagicMock(data=[]))
             from app.lti.deeplink import get_teacher_exams_as_content_items
             with patch.object(get_teacher_exams_as_content_items, '__wrapped__', create=True):
                 pass
@@ -661,10 +757,14 @@ class TestDeepLinking:
         with patch("app.lti.deeplink._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as launch_atable, \
              patch("app.lti.deeplink._atable") as deeplink_atable:
-            launch_atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[])
-            )
-            launch_atable.return_value.insert.return_value.execute = AsyncMock()
+            _lm = launch_atable.return_value
+            _lm.select.return_value = _lm
+            _lm.eq.return_value = _lm
+            _lm.in_.return_value = _lm
+            _lm.limit.return_value = _lm
+            _lm.insert.return_value = _lm
+            _lm.upsert.return_value = _lm
+            _lm.execute = AsyncMock(return_value=MagicMock(data=[]))
             deeplink_atable.return_value.select.return_value.eq.return_value.order.return_value.execute = AsyncMock(
                 return_value=MagicMock(data=fake_exams)
             )

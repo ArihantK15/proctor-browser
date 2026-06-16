@@ -50,19 +50,36 @@ may still be verifying against until you've confirmed re-fetch.
 
 ---
 
-## Phase 2 — Get the org_id to bind LTI users to
+## Phase 2 — Org binding (two modes)
 
-Every LTI registration MUST declare which Procta org owns it; users
-provisioned from that LMS are stamped with this `org_id` (tenant
-isolation). A registration without `org_id` is rejected at launch (403).
+Every LTI user must resolve to a Procta org (tenant isolation). There are
+two ways that happens — pick per registration:
 
-On prod, pick the owning org:
+**Mode A — Auto-provision (default, recommended).** Leave `org_id` OUT of
+the registration. On first launch, each LMS *tenant* — keyed on
+`(issuer, client_id, deployment_id)` — gets its own Procta org created
+automatically (with a trial subscription), and the **first instructor to
+launch becomes that org's admin**. Zero manual setup; institutions
+self-onboard and stay isolated from each other. The org id is deterministic
+(a uuid5 of the tuple), so concurrent first-launches converge on one org.
+
+Why the full tuple and not just issuer: hosted Canvas/Moodle share one
+issuer (`canvas.instructure.com`) across *all* their customers —
+`deployment_id`/`client_id` is what distinguishes one school from another.
+Keying on issuer alone would merge every customer into one org (a leak).
+
+**Mode B — Explicit binding.** Put a real `org_id` in the registration to
+pin that LMS into a pre-existing org (e.g. onboarding a known customer into
+an org you set up manually). In this mode LTI instructors are plain
+`teacher`s (the org already has its admin).
+
+To pick an existing org for Mode B:
 
 ```sql
 SELECT id, name, slug FROM organizations ORDER BY created_at;
 ```
 
-Use that UUID as `<ORG_ID>` below.
+Use that UUID as `<ORG_ID>` below. For Mode A, just omit `org_id`.
 
 ---
 
@@ -146,11 +163,16 @@ echo "LTI_REGISTRATIONS='<minified-json-array>'" >> .env
 docker compose up -d api
 ```
 
+For **Mode A** (auto-provision), just drop the `org_id` keys from the
+objects above — everything else is the same, and each LMS tenant gets its
+own org on first launch.
+
 Notes:
 - `deployment_ids` may be omitted/empty to accept **any** deployment from
-  that issuer+client_id (looser — prefer listing them).
-- Instructors are provisioned as `org_role='teacher'` (not org admin);
-  learners get a hashed `LTI_<sha>` roll. Both stamped with `org_id`.
+  that issuer+client_id. Under Mode A each distinct `deployment_id` then
+  becomes its own org (its own tenant), so listing them is optional.
+- Mode B: instructors are `org_role='teacher'`; learners get a hashed
+  `LTI_<sha>` roll. Mode A: first instructor is `admin`, rest `teacher`.
 
 ---
 
@@ -167,9 +189,10 @@ SELECT roll_number, org_id   FROM students WHERE lti_user_id IS NOT NULL;
 ```
 
 If a launch 401s "Invalid or expired OIDC state" → clock skew or the LMS
-took >10 min between login and launch. If 403 "not bound to an
-organization" → the registration is missing `org_id`. If signature errors
-on deep-link/AGS → Phase 1 key not set (still `lti-key-dev`).
+took >10 min between login and launch. If 403 "cannot isolate tenant" →
+the id_token is missing a `deployment_id` claim (a non-conformant LMS
+config). If signature errors on deep-link/AGS → Phase 1 key not set (still
+`lti-key-dev`).
 
 ---
 

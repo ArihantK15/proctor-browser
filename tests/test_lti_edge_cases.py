@@ -86,10 +86,14 @@ class TestLtiLaunchRoles:
         })
         with patch("app.lti.launch._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as atable:
-            atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[])
-            )
-            atable.return_value.insert.return_value.execute = AsyncMock()
+            _m = atable.return_value
+            _m.select.return_value = _m
+            _m.eq.return_value = _m
+            _m.in_.return_value = _m
+            _m.limit.return_value = _m
+            _m.insert.return_value = _m
+            _m.upsert.return_value = _m
+            _m.execute = AsyncMock(return_value=MagicMock(data=[]))
             resp = self._launch(client, id_token, state)
         assert resp.status_code == 302, resp.text
         assert "dashboard" in resp.headers.get("location", "")
@@ -105,10 +109,14 @@ class TestLtiLaunchRoles:
         })
         with patch("app.lti.launch._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as atable:
-            atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[])
-            )
-            atable.return_value.insert.return_value.execute = AsyncMock()
+            _m = atable.return_value
+            _m.select.return_value = _m
+            _m.eq.return_value = _m
+            _m.in_.return_value = _m
+            _m.limit.return_value = _m
+            _m.insert.return_value = _m
+            _m.upsert.return_value = _m
+            _m.execute = AsyncMock(return_value=MagicMock(data=[]))
             resp = self._launch(client, id_token, state)
         assert resp.status_code == 302, resp.text
         assert "student" in resp.headers.get("location", "").lower()
@@ -119,10 +127,14 @@ class TestLtiLaunchRoles:
         id_token = _make_test_id_token({"nonce": nonce})
         with patch("app.lti.launch._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as atable:
-            atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[])
-            )
-            atable.return_value.insert.return_value.execute = AsyncMock()
+            _m = atable.return_value
+            _m.select.return_value = _m
+            _m.eq.return_value = _m
+            _m.in_.return_value = _m
+            _m.limit.return_value = _m
+            _m.insert.return_value = _m
+            _m.upsert.return_value = _m
+            _m.execute = AsyncMock(return_value=MagicMock(data=[]))
             resp = self._launch(client, id_token, state)
         assert resp.status_code == 302, resp.text
         assert "student" in resp.headers.get("location", "").lower()
@@ -138,10 +150,14 @@ class TestLtiLaunchRoles:
         })
         with patch("app.lti.launch._fetch_platform_jwks", return_value=_static_jwks()), \
              patch("app.lti.launch._atable") as atable:
-            atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
-                return_value=MagicMock(data=[])
-            )
-            atable.return_value.insert.return_value.execute = AsyncMock()
+            _m = atable.return_value
+            _m.select.return_value = _m
+            _m.eq.return_value = _m
+            _m.in_.return_value = _m
+            _m.limit.return_value = _m
+            _m.insert.return_value = _m
+            _m.upsert.return_value = _m
+            _m.execute = AsyncMock(return_value=MagicMock(data=[]))
             resp = self._launch(client, id_token, state)
         assert resp.status_code == 302, resp.text
         assert "dashboard" in resp.headers.get("location", "")

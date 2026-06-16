@@ -91,9 +91,26 @@ def load_registrations() -> list[PlatformRegistration]:
     return regs
 
 
+def _norm_iss(s: str) -> str:
+    """Normalise an issuer for comparison.
+
+    The LTI spec treats the issuer as an exact opaque string, but the
+    single most common real-world misconfig is a trailing-slash
+    mismatch (platform sends ``https://x.org`` while the registration is
+    stored as ``https://x.org/`` or vice-versa). We tolerate only that
+    difference — strip surrounding whitespace and a trailing slash —
+    while keeping the comparison otherwise exact (case-sensitive, no
+    scheme/host munging) so we don't accidentally match distinct
+    platforms.
+    """
+    return (s or "").strip().rstrip("/")
+
+
 def find_registration(issuer: str, client_id: str) -> Optional[PlatformRegistration]:
+    want_iss = _norm_iss(issuer)
+    want_cid = (client_id or "").strip()
     for r in load_registrations():
-        if r.issuer == issuer and r.client_id == client_id:
+        if _norm_iss(r.issuer) == want_iss and (r.client_id or "").strip() == want_cid:
             return r
     return None
 

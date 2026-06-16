@@ -24,6 +24,12 @@ class PlatformRegistration:
     key_set_url: str
     deployment_ids: list[str] = field(default_factory=list)
     platform_name: Optional[str] = None
+    # Tenant binding: which Procta organization owns this LMS integration.
+    # Every user provisioned from a launch on this platform is stamped with
+    # this org_id so LTI identities fit the tenant-isolation (RLS) model.
+    # A registration with no org_id is rejected at launch (fail-closed) —
+    # see find_or_create_lti_user.
+    org_id: Optional[str] = None
 
 
 _registrations_cache: list[PlatformRegistration] | None = None
@@ -47,6 +53,7 @@ def _load_from_env() -> list[PlatformRegistration]:
                 key_set_url=item.get("key_set_url", ""),
                 deployment_ids=item.get("deployment_ids", []),
                 platform_name=item.get("platform_name"),
+                org_id=item.get("org_id") or None,
             ))
         return regs
     except (json.JSONDecodeError, KeyError) as e:
@@ -68,6 +75,7 @@ def _load_legacy_single() -> list[PlatformRegistration]:
         deployment_ids=[
             s.strip() for s in os.environ.get("LTI_DEPLOYMENT_IDS", "").split(",") if s.strip()
         ],
+        org_id=os.environ.get("LTI_ORG_ID", "").strip() or None,
     )]
 
 

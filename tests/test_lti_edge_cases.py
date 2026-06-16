@@ -38,6 +38,7 @@ TEST_REG_JSON = json.dumps([{
     "key_set_url": "https://test.canvas.edu/api/lti/security/jwks",
     "deployment_ids": ["deployment-1"],
     "platform_name": "Test Canvas",
+    "org_id": "11111111-1111-1111-1111-111111111111",
 }])
 
 

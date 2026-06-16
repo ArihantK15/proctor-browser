@@ -256,6 +256,7 @@ class TestLtiLaunch:
         "auth_token_url": "https://test.canvas.edu/login/oauth2/token",
         "key_set_url": "https://test.canvas.edu/api/lti/security/jwks",
         "deployment_ids": ["deployment-1"],
+        "org_id": "11111111-1111-1111-1111-111111111111",
     }])
 
     @pytest.fixture(autouse=True)
@@ -435,6 +436,109 @@ class TestLtiLaunch:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  Tenant binding — LTI-provisioned identities must carry org_id
+# ═══════════════════════════════════════════════════════════════════
+class TestLtiTenantBinding:
+    """find_or_create_lti_user must stamp the registration's org_id onto
+    every provisioned teacher/student, default instructors to a non-admin
+    role, and fail closed when a registration has no org_id."""
+
+    ORG = "11111111-1111-1111-1111-111111111111"
+
+    REG_WITH_ORG = json.dumps([{
+        "issuer": "https://test.canvas.edu",
+        "client_id": "test-client-1",
+        "auth_login_url": "https://x/auth",
+        "auth_token_url": "https://x/token",
+        "key_set_url": "https://x/jwks",
+        "deployment_ids": ["deployment-1"],
+        "org_id": ORG,
+    }])
+
+    REG_NO_ORG = json.dumps([{
+        "issuer": "https://test.canvas.edu",
+        "client_id": "test-client-1",
+        "auth_login_url": "https://x/auth",
+        "auth_token_url": "https://x/token",
+        "key_set_url": "https://x/jwks",
+        "deployment_ids": ["deployment-1"],
+    }])
+
+    def _claims(self, roles=None):
+        c = {
+            "iss": "https://test.canvas.edu",
+            "aud": "test-client-1",
+            "sub": "user-abc-123",
+            "email": "person@example.com",
+            "name": "Test Person",
+        }
+        if roles is not None:
+            c["https://purl.imsglobal.org/spec/lti/claim/roles"] = roles
+        return c
+
+    def _run_create(self, reg_json, claims):
+        import asyncio
+        from app.lti.registration import clear_cache
+        with patch.dict(os.environ, {"LTI_REGISTRATIONS": reg_json}):
+            clear_cache()
+            with patch("app.lti.launch._cache", None), \
+                 patch("app.lti.launch._atable") as atable:
+                atable.return_value.select.return_value.eq.return_value.limit.return_value.execute = AsyncMock(
+                    return_value=MagicMock(data=[])
+                )
+                atable.return_value.insert.return_value.execute = AsyncMock()
+                from app.lti.launch import find_or_create_lti_user
+                try:
+                    user = asyncio.run(find_or_create_lti_user(claims))
+                except Exception as e:  # surface ValueError to the caller
+                    clear_cache()
+                    raise
+                insert_arg = atable.return_value.insert.call_args.args[0] \
+                    if atable.return_value.insert.call_args else None
+                clear_cache()
+                return user, insert_arg
+
+    def test_learner_insert_carries_org_id(self):
+        user, inserted = self._run_create(self.REG_WITH_ORG, self._claims())
+        assert user["role"] == "learner"
+        assert inserted is not None, "expected a students.insert()"
+        assert inserted["org_id"] == self.ORG
+        # collision-resistant roll: not a raw sub[:12] truncation
+        assert inserted["roll_number"].startswith("LTI_")
+        assert inserted["roll_number"] != "LTI_USER-ABC-123"
+
+    def test_instructor_insert_is_teacher_role_with_org_id(self):
+        roles = ["http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor"]
+        user, inserted = self._run_create(self.REG_WITH_ORG, self._claims(roles))
+        assert user["role"] == "teacher"
+        assert inserted is not None, "expected a teachers.insert()"
+        assert inserted["org_id"] == self.ORG
+        # A fresh LMS instructor must NOT be auto-granted org admin.
+        assert inserted["org_role"] == "teacher"
+
+    def test_launch_refused_when_registration_has_no_org_id(self):
+        with pytest.raises(ValueError, match="not bound to an organization"):
+            self._run_create(self.REG_NO_ORG, self._claims())
+
+    def test_registration_parses_org_id_from_env(self):
+        from app.lti.registration import load_registrations, clear_cache
+        with patch.dict(os.environ, {"LTI_REGISTRATIONS": self.REG_WITH_ORG}):
+            clear_cache()
+            regs = load_registrations()
+            assert regs[0].org_id == self.ORG
+            clear_cache()
+        # legacy single-registration env path
+        with patch.dict(os.environ, {
+            "LTI_ISSUER": "https://leg.edu", "LTI_CLIENT_ID": "c1",
+            "LTI_ORG_ID": self.ORG,
+        }):
+            clear_cache()
+            regs = load_registrations()
+            assert regs[0].org_id == self.ORG
+            clear_cache()
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Deep Linking
 # ═══════════════════════════════════════════════════════════════════
 class TestDeepLinking:
@@ -448,6 +552,7 @@ class TestDeepLinking:
         "key_set_url": "https://test.canvas.edu/api/lti/security/jwks",
         "deployment_ids": ["deployment-1"],
         "platform_name": "Test Canvas",
+        "org_id": "11111111-1111-1111-1111-111111111111",
     }])
 
     @pytest.fixture(autouse=True)

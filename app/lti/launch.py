@@ -7,6 +7,7 @@ This module handles:
 """
 
 from ..log_safe import safe
+import hashlib
 import json
 import logging
 import secrets
@@ -533,6 +534,25 @@ async def find_or_create_lti_user(claims: dict) -> dict:
     # Unique identifier combining platform + user
     lti_user_id = f"{iss}|{sub}"
 
+    # ── Tenant binding (fail-closed) ──────────────────────────────
+    # Every LTI identity MUST be stamped with the org_id of the
+    # registration it launched from, or it would be an org-less user
+    # the tenant-isolation (RLS) model cannot scope. We re-derive the
+    # registration from the (already-verified) iss + client_id and
+    # refuse to provision if it carries no org_id.
+    aud_raw = claims.get("aud", "")
+    client_id = aud_raw if isinstance(aud_raw, str) \
+        else (aud_raw[0] if isinstance(aud_raw, list) and aud_raw else "")
+    registration = find_registration(iss, client_id)
+    org_id = (registration.org_id if registration else None) or None
+    if not org_id:
+        logger.error(
+            "lti: refusing to provision user — registration for iss=%s client_id=%s "
+            "has no org_id (set org_id in LTI_REGISTRATIONS / LTI_ORG_ID)",
+            safe(iss), safe(client_id),
+        )
+        raise ValueError("LTI registration is not bound to an organization")
+
     # Store AGS/NRPS context for grade passback and roster sync
     await _store_ags_nrps_context(claims)
 
@@ -552,7 +572,12 @@ async def find_or_create_lti_user(claims: dict) -> dict:
                         "id": tid,
                         "email": email or f"lti_{sub[:8]}@lti.procta.net",
                         "full_name": full_name,
-                        "org_role": "admin",
+                        # A fresh LMS instructor is a regular member of the
+                        # org, NOT an org administrator. org_role='admin'
+                        # would grant member-management (invite/remove/role
+                        # change) to anyone who can launch from the LMS.
+                        "org_role": "teacher",
+                        "org_id": org_id,
                         "lti_user_id": lti_user_id,
                         "created_at": datetime.now(timezone.utc).isoformat(),
                     }
@@ -569,12 +594,17 @@ async def find_or_create_lti_user(claims: dict) -> dict:
         if result.data:
             student = result.data[0]
         else:
-            roll = f"LTI_{sub[:12].upper()}"
+            # Collision-resistant roll: sub[:12] truncation could map two
+            # distinct LMS users (even across platforms) to the same roll.
+            # Derive it from a hash of the full platform|user identifier.
+            roll_hash = hashlib.sha256(lti_user_id.encode("utf-8")).hexdigest()[:16].upper()
+            roll = f"LTI_{roll_hash}"
             student = {
                 "roll_number": roll,
                 "full_name": full_name,
                 "email": email or f"lti_{sub[:8]}@lti.procta.net",
                 "lti_user_id": lti_user_id,
+                "org_id": org_id,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             await _atable("students").insert(student).execute()

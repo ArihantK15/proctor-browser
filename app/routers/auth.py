@@ -1759,28 +1759,7 @@ async def _student_enrollments_for_account(account: dict, email: str, columns: s
                    .select(columns)
                    .eq("account_id", account_id)
                    .execute())
-        rows = r.data or []
-        # Stranded-roster recovery for duplicate / re-created signups: if THIS
-        # account has no roster rows but its VERIFIED email does (bound to an
-        # older account for the same email), re-bind them to the current
-        # account and re-read. The email is verified for this account, so this
-        # can't cross-link different people — it just heals a roster that was
-        # linked to a now-unused account. Lazy: runs only on the empty path,
-        # so the frequent lobby poll issues no extra writes in the normal case.
-        if not rows and email:
-            try:
-                await (_atable("students")
-                       .update({"account_id": account_id})
-                       .ilike("email", email)
-                       .execute())
-                r2 = await (_atable("students")
-                            .select(columns)
-                            .eq("account_id", account_id)
-                            .execute())
-                rows = r2.data or []
-            except Exception:
-                _auth_log.debug("student enrollment re-link failed", exc_info=True)
-        return rows
+        return r.data or []
     except Exception as e:
         msg = str(e).lower()
         if "account_id" in msg and ("column" in msg or "schema cache" in msg):
@@ -1829,6 +1808,12 @@ async def student_exams(request: Request):
         # student_invites in the expansion step below.
         enrollments = await _student_enrollments_for_account(
             account, email, "roll_number, teacher_id",
+        )
+        _auth_log.info(
+            "[student/exams] DIAG account_id=%s email=%s enrollments=%s",
+            (account.get("id") if isinstance(account, dict) else "?"),
+            mask_email(email) if email else "<none>",
+            [(e.get("roll_number"), str(e.get("teacher_id"))) for e in (enrollments or [])],
         )
         if not enrollments:
             return {"exams": []}
@@ -1891,6 +1876,7 @@ async def student_exams(request: Request):
                               roll, enr_tid, e)
         if not eids:
             eids = [None]  # fallback: resolve the teacher's exam in the loop
+        _auth_log.info("[student/exams] DIAG roll=%s tid=%s eids=%s", roll, enr_tid, eids)
         for eid in eids:
             key = (enr_tid, eid)
             if key in seen:

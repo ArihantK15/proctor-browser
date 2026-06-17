@@ -765,6 +765,20 @@ class ETagMiddleware(BaseHTTPMiddleware):
                         headers=new_headers, media_type=ct)
 
 
+# Auth-bootstrap endpoints are exempt from the cookie-CSRF check. They
+# establish or rotate a session, so there is no X-CSRF-Token to present yet,
+# and a STALE account cookie lingering in a client's cookie jar must never
+# block re-authentication. Matched by suffix so it covers both the teacher
+# (/api/v1/auth/...) and student (/api/v1/student/auth/...) variants. Each is
+# already gated by credentials / OTP / a refresh token, so skipping CSRF here
+# adds no exposure.
+_CSRF_EXEMPT_SUFFIXES = (
+    "/auth/login", "/auth/signup", "/auth/refresh", "/auth/logout",
+    "/auth/reset-request", "/auth/reset-confirm",
+    "/auth/verify-signup-otp", "/auth/resend-signup-otp",
+)
+
+
 class CSRFMiddleware(BaseHTTPMiddleware):
     """Protect state-changing endpoints from cross-site request forgery.
 
@@ -782,6 +796,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # Tests that truly need to bypass CSRF must set
         # app.state.disable_csrf_for_tests explicitly.
         if getattr(request.app.state, "disable_csrf_for_tests", False):
+            return await call_next(request)
+        # Never CSRF-gate the session bootstrap/rotation endpoints — a stale
+        # account cookie would otherwise 403 a fresh login (the Electron lobby
+        # student-login failure: POST /api/v1/student/auth/login → 403 in
+        # 0.3ms because a prior procta_student_access cookie was still present).
+        if any(request.url.path.endswith(s) for s in _CSRF_EXEMPT_SUFFIXES):
             return await call_next(request)
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             # Auth token can arrive via Authorization: Bearer ... (legacy native

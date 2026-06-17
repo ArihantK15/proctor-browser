@@ -334,19 +334,28 @@ class AudioProcessor:
         self._throttle_skip = False
 
     @staticmethod
-    def available() -> bool:
-        """True if both vosk and python_speech_features import cleanly
-        AND the model directories exist on disk. The model check is
-        the more common failure (deps install but the 40 MB downloads
-        didn't)."""
+    def unavailable_reason() -> Optional[str]:
+        """None when audio detection can run, else a short machine-readable
+        reason. Lets the proctor emit a diagnosable telemetry event instead
+        of a silent stdout line — the model download (40 MB) failing is the
+        most common cause and previously looked like "ran, heard nothing"."""
         try:
             import vosk  # noqa: F401
+        except Exception as e:
+            return f"vosk-import:{type(e).__name__}"
+        try:
             import python_speech_features  # noqa: F401
-        except Exception:
-            return False
+        except Exception as e:
+            return f"python_speech_features-import:{type(e).__name__}"
         if not Path(VOSK_EN_MODEL_DIR).is_dir():
-            return False
-        return True
+            return "model-missing:vosk-en"
+        return None
+
+    @staticmethod
+    def available() -> bool:
+        """True if both vosk and python_speech_features import cleanly AND
+        the en model directory exists on disk."""
+        return AudioProcessor.unavailable_reason() is None
 
     def start(self) -> bool:
         if not self.available():

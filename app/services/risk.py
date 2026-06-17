@@ -74,6 +74,10 @@ _NON_VIOLATION_TYPES = {
     "proctor_boot", "model_load_failed", "restart_attempt",
     "event_queue_full", "proctor_failed", "proctor_camera_failed",
     "system_check", "proctoring_tier", "client_throttled",
+    # On-device detector availability diagnostics — emitted once at startup
+    # when audio (vosk/models) or object detection (onnxruntime/weights)
+    # can't run. Audit signal for ops; never a student-risk signal.
+    "audio_unavailable", "object_detection_unavailable",
     # Session lifecycle / teacher-admin / room-cam plumbing — state changes,
     # not student behaviour. They were leaking into the scorecard "Violation
     # Summary" (e.g. "Session Reset", "Session Abandoned", "Room Cam Offline")

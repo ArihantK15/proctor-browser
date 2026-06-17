@@ -1878,9 +1878,17 @@ def _start_audio(*, governor=None):
     global _audio_ring, _audio_processor
     try:
         import audio_processor as _ap
-        if not _ap.AudioProcessor.available():
+        _audio_reason = _ap.AudioProcessor.unavailable_reason()
+        if _audio_reason is not None:
             print("[AUDIO] keyword/voice-count detection: unavailable "
-                  "(vosk or model files missing — see scripts/download_audio_models.sh)")
+                  f"({_audio_reason} — see scripts/download_audio_models.sh)")
+            # Surface it as a diagnosable (non-violation) event so a model-less
+            # session shows up in the dashboard instead of looking like clean
+            # audio. Best-effort — never block the proctor on telemetry.
+            try:
+                log_event("audio_unavailable", "info", f"reason={_audio_reason}")
+            except Exception:
+                pass
             return
         # Per-exam keyword list + language from env (set by the
         # Electron python-manager from exam_config). Empty → built-ins.
@@ -1953,10 +1961,18 @@ def _start_audio(*, governor=None):
         else:
             _audio_processor = None
             _audio_ring = None
+            try:
+                log_event("audio_unavailable", "info", "reason=start-failed")
+            except Exception:
+                pass
     except Exception as e:
         print(f"[AUDIO] keyword/voice-count bootstrap failed: {e}")
         _audio_processor = None
         _audio_ring = None
+        try:
+            log_event("audio_unavailable", "info", f"reason=bootstrap-error:{type(e).__name__}")
+        except Exception:
+            pass
 
 # ─── VIRTUAL WEBCAM / SCREEN-SHARE DETECTION ─────────────────────────────────
 # Detects when the student uses a virtual camera (OBS, ManyCam, etc.) instead
@@ -2856,6 +2872,17 @@ def run_proctoring(cap, W, H):
     # once loading succeeds (typically 1-2 seconds). Until then the main
     # loop skips submission harmlessly.
     yolo_worker.start()
+    # One-time object-detection availability signal. _load_yolo() is cached
+    # (the worker reuses the same session), so forcing it here just gives an
+    # immediate, diagnosable telemetry event when onnxruntime is missing or
+    # the weights aren't found — instead of the detector silently no-op'ing.
+    try:
+        if _load_yolo() is None:
+            _yolo_reason = ("onnxruntime-missing" if not ORT_AVAILABLE
+                            else _MODEL_ERRORS.get("yolo", "load-failed"))
+            log_event("object_detection_unavailable", "info", f"reason={_yolo_reason}")
+    except Exception:
+        pass
     if _sahi_available():
         sahi_worker.start()
 

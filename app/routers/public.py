@@ -379,6 +379,27 @@ async def register_student(request: Request, body: RegisterIn):
         returning_student = True   # same student, another exam — allowed
         prev_consent_requested_at = existing.data[0].get("guardian_consent_requested_at")
 
+    # Typo guard (gap raised 2026-06-17): same email already on THIS teacher's
+    # roster under a DIFFERENT roll number. Roll is the teacher's per-student
+    # key, so a one-digit slip silently creates a duplicate student. We can't
+    # hard-block it (siblings share a parent email; a teacher may legitimately
+    # re-roll a student), so surface a non-blocking warning the UI can show.
+    dup_roll_warning = None
+    if email and not returning_student:
+        try:
+            same_email = (await _atable("students").select("roll_number")
+                          .eq("teacher_id", teacher_id)
+                          .ilike("email", email)
+                          .neq("roll_number", roll)
+                          .limit(1).execute()).data
+            if same_email:
+                dup_roll_warning = (
+                    f"This email is already registered with your examiner under roll "
+                    f"{same_email[0].get('roll_number')}. If that's you, double-check "
+                    f"your roll number — otherwise you'll be enrolled as a separate student.")
+        except Exception:
+            _pub_log.debug("[register_student] dup-email roll check failed", exc_info=True)
+
     # Org student limit — only a genuinely NEW roster entry counts (returning
     # students are already on the roster and counted).
     org_id = teacher.get("org_id")
@@ -587,7 +608,8 @@ async def register_student(request: Request, body: RegisterIn):
                              "(roll=%s exam=%s): %s", roll, resolved_exam_id, e)
 
     return {"status": "registered", "roll_number": roll, "full_name": name,
-            "exam_id": resolved_exam_id or None}
+            "exam_id": resolved_exam_id or None,
+            **({"warning": dup_roll_warning} if dup_roll_warning else {})}
 
 
 @router.get("/api/v1/exam-schedule")

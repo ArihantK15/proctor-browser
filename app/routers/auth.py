@@ -1876,7 +1876,9 @@ async def student_exams(request: Request):
                               roll, enr_tid, e)
         if not eids:
             eids = [None]  # fallback: resolve the teacher's exam in the loop
-        _auth_log.info("[student/exams] DIAG roll=%s tid=%s eids=%s", roll, enr_tid, eids)
+        _auth_log.info(
+            "[student/exams] DIAG roll=%s tid=%s active_statuses=%r inv_rows=%d eids=%s",
+            roll, enr_tid, active_inv_statuses, len(inv_rows), eids)
         for eid in eids:
             key = (enr_tid, eid)
             if key in seen:

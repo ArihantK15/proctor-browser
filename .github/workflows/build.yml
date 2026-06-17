@@ -417,8 +417,21 @@ jobs:
 
       # The merge script needs js-yaml only. --ignore-scripts avoids the
       # electron postinstall binary download (~100 MB) we don't need here.
+      #
+      # Install it in an isolated temp project: the repo-root package.json
+      # carries `overrides` (form-data/js-yaml security pins from PR #84),
+      # and npm refuses to install a package it's also overriding
+      # (EOVERRIDE) — which is what broke this step from v2.3.45 on. A temp
+      # dir has no package.json, so no overrides apply; we then symlink the
+      # result to the workspace so the ESM merge script's bare
+      # `import 'js-yaml'` resolves. This job runs no `npm ci`, so there is
+      # no root node_modules to clobber.
       - name: Install merge-script dependency (js-yaml)
-        run: npm install --no-save --ignore-scripts js-yaml@4
+        run: |
+          mkdir -p "$RUNNER_TEMP/mergedeps"
+          cd "$RUNNER_TEMP/mergedeps"
+          npm install --no-save --ignore-scripts js-yaml@4
+          ln -s "$RUNNER_TEMP/mergedeps/node_modules" "$GITHUB_WORKSPACE/node_modules"
 
       - name: Download arm64 manifest
         uses: actions/download-artifact@v8

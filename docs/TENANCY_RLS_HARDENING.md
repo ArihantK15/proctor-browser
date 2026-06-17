@@ -172,3 +172,53 @@ privileged-only — so nothing is silently wide-open.
 Each step is independently reversible: D = revert env (URL + flag); C = leave
 role unused; B = flag off; A = re-apply prior policy file. Policies never block
 `procta` (owner), so A can sit in prod indefinitely with zero effect until D.
+
+---
+
+## 2026-06-17 — cutover-readiness completion (post-incident)
+
+A first attempt to enable RLS in prod was rolled back after two failures.
+Root causes + the completed fix, so the next flip is safe:
+
+### What broke
+1. **Empty student lobby** — phase124 gave students no *read* policy on
+   teacher-owned reference tables (`exam_config`, `questions`,
+   `student_invites`, `teachers`, batch/extension), so the lobby resolved 0
+   exams. Plus the lobby's stranded-roster **auto-link UPDATE** ran under the
+   student context, which RLS blocks → students with unlinked roster rows
+   stayed empty even after a read fix.
+2. **All logins "invalid email/password"** — RLS was "disabled" by setting
+   `RLS_SESSION_CONTEXT=0` *while the app still connected as `procta_app`*.
+   Flag-off means no context is ever set; `procta_app` has no bypass; so every
+   `SELECT` (including the login user-lookup) returned 0 rows. **Disabling the
+   flag is NOT disabling RLS** — you must also repoint `DATABASE_URL` at the
+   owner role.
+
+### The completed fix (verified end-to-end as `procta_app`, RLS on)
+- **`phase125_rls_student_reads.sql`** — student SELECT policies + an
+  `app.my_teacher_ids()` helper. Shipped as a NEW phase (phase124 is already
+  applied on prod; the runner skips applied files).
+- **`app.db_context.system_context()`** + wired at the server-side
+  reconciliation writes that act across rows the caller doesn't own:
+  roster auto-link, email-change propagation, account-deletion roster cleanup.
+  (Public endpoints e.g. `validate-student` and background workers already run
+  context-less → `system` default, so they were fine.)
+- Verified flows under `RLS_SESSION_CONTEXT=1` + `procta_app`: teacher
+  dashboard, student lobby (linked + unlinked-heal), exam take/submit
+  (sessions/answers/violations), cross-tenant isolation (reads + writes
+  rejected).
+
+### The cutover rule (do NOT violate)
+`DATABASE_URL` role and `RLS_SESSION_CONTEXT` flip **together**:
+- **Enable:** `DATABASE_URL`→`procta_app` **and** `RLS_SESSION_CONTEXT=1`.
+- **Rollback:** `DATABASE_URL`→owner **and** `RLS_SESSION_CONTEXT=0`.
+- **Never** `procta_app` + flag=0 (deny-all outage).
+Gate the prod flip on a full-flow staging run with both set.
+
+### Known follow-up (not a blocker)
+Exam-take tokens carry no `role` but carry `tid`, so `set_context` normalizes
+them to `role=teacher` with the exam's `teacher_id`. That makes exam writes
+pass the teacher policies (correct + isolated), but it means an exam token's
+DB context is "the teacher". It is not directly exploitable (exam tokens are
+signed with the exam key and can't authenticate to admin endpoints), but a
+dedicated `exam`/roll-scoped principal would be cleaner long-term.

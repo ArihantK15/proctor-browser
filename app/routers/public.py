@@ -528,6 +528,31 @@ async def register_student(request: Request, body: RegisterIn):
             _pub_log.warning("[register_student] guardian consent auto-send failed "
                              "(roll=%s): %s", roll, e)
 
+    # Resolve which exam this self-registration attaches to. Normally the
+    # link carries &e=<exam_id> (validated above). But that param is commonly
+    # lost when the share link is truncated at the '&' by WhatsApp/SMS/in-app
+    # browsers — the student then lands on /register?t=... with no exam, gets
+    # rostered teacher-wide, and no per-exam invite is written, leaving the
+    # exam-scoped registered count at 0 and the lobby empty. Fall back to the
+    # teacher's latest non-archived exam — the same resolution the bulk-register
+    # path uses — so the student still lands on an exam. (Validation above
+    # already confirmed any caller-supplied exam_id belongs to this teacher;
+    # the fallback only ever resolves an exam THIS teacher owns.)
+    resolved_exam_id = exam_id_from_body
+    if not resolved_exam_id:
+        try:
+            cfgs = (await _atable("exam_config")
+                    .select("exam_id,created_at")
+                    .eq("teacher_id", teacher_id)
+                    .is_("archived_at", "null")
+                    .order("created_at", desc=True)
+                    .limit(1).execute()).data or []
+            if cfgs and cfgs[0].get("exam_id"):
+                resolved_exam_id = cfgs[0]["exam_id"]
+        except Exception as e:
+            _pub_log.warning("[register_student] exam_id fallback resolution failed "
+                             "(roll=%s): %s", roll, e)
+
     # Per-exam association: record (or refresh) a student_invites row so
     # this self-registration is counted in the exam's "registered" roster
     # and the lobby resolves the right exam. This is the schema-honest
@@ -535,19 +560,19 @@ async def register_student(request: Request, body: RegisterIn):
     # (teacher_id, email, exam_id); marked accepted (the student
     # registered themselves) — NO invite email is sent here. Non-fatal:
     # the student is already registered teacher-wide if this fails.
-    if exam_id_from_body:
+    if resolved_exam_id:
         try:
             existing_inv = (await _atable("student_invites").select("id")
                             .eq("teacher_id", teacher_id)
                             .eq("email", email)
-                            .eq("exam_id", exam_id_from_body)
+                            .eq("exam_id", resolved_exam_id)
                             .limit(1).execute()).data or []
             inv_fields = {
                 "teacher_id":  teacher_id,
                 "email":       email,
                 "full_name":   name,
                 "roll_number": roll,
-                "exam_id":     exam_id_from_body,
+                "exam_id":     resolved_exam_id,
                 "status":      InviteStatus.ACCEPTED,
                 "accepted_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -559,10 +584,10 @@ async def register_student(request: Request, body: RegisterIn):
                 await _atable("student_invites").insert(inv_fields).execute()
         except Exception as e:
             _pub_log.warning("[register_student] per-exam roster link failed "
-                             "(roll=%s exam=%s): %s", roll, exam_id_from_body, e)
+                             "(roll=%s exam=%s): %s", roll, resolved_exam_id, e)
 
     return {"status": "registered", "roll_number": roll, "full_name": name,
-            "exam_id": exam_id_from_body or None}
+            "exam_id": resolved_exam_id or None}
 
 
 @router.get("/api/v1/exam-schedule")

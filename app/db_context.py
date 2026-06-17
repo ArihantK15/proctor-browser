@@ -23,6 +23,23 @@ RLS_SESSION_CONTEXT: bool = os.environ.get("RLS_SESSION_CONTEXT", "").strip().lo
     "1", "true", "yes", "on",
 )
 
+# Loud guard: enabling this flips every query onto the DB row-level-security
+# path, which only works if the phase124 policy set covers EVERY authenticated
+# read. It does NOT yet (e.g. student_invites has no student-read policy, so
+# the student lobby silently resolves 0 exams; migrations/rls_policies.sql is
+# also stale Supabase auth.uid()-based). Keep this OFF until the policy set is
+# completed and verified in staging — otherwise students/teachers get empty
+# results with no error. Warn at import so flipping it can never be silent.
+if RLS_SESSION_CONTEXT:
+    import logging as _logging
+    _logging.getLogger("app.db_context").warning(
+        "RLS_SESSION_CONTEXT is ENABLED — DB row-level security now gates every "
+        "query, but the policy set is known-incomplete for student reads "
+        "(student_invites has no student-read policy). This silently empties "
+        "the student lobby. Disable RLS_SESSION_CONTEXT unless the phase124 "
+        "policies have been completed and tested."
+    )
+
 # Roles the policies understand. Anything else is coerced to the most-restrictive
 # sensible value so a malformed role can never widen access.
 _VALID_ROLES = frozenset({"superadmin", "admin", "owner", "teacher", "student", "system"})

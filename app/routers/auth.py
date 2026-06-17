@@ -1809,12 +1809,6 @@ async def student_exams(request: Request):
         enrollments = await _student_enrollments_for_account(
             account, email, "roll_number, teacher_id",
         )
-        _auth_log.info(
-            "[student/exams] DIAG account_id=%s email=%s enrollments=%s",
-            (account.get("id") if isinstance(account, dict) else "?"),
-            mask_email(email) if email else "<none>",
-            [(e.get("roll_number"), str(e.get("teacher_id"))) for e in (enrollments or [])],
-        )
         if not enrollments:
             return {"exams": []}
     except Exception as e:
@@ -1876,17 +1870,6 @@ async def student_exams(request: Request):
                               roll, enr_tid, e)
         if not eids:
             eids = [None]  # fallback: resolve the teacher's exam in the loop
-        try:
-            _c_roll = (await _atable("student_invites").select("exam_id").eq("roll_number", roll).execute()).data or []
-            _c_rt = (await _atable("student_invites").select("exam_id").eq("roll_number", roll).eq("teacher_id", enr_tid).execute()).data or []
-            _c_rs = (await _atable("student_invites").select("exam_id").eq("roll_number", roll).in_("status", active_inv_statuses).execute()).data or []
-            _auth_log.info("[student/exams] DIAG2 roll_only=%d roll+tid=%d roll+status=%d",
-                           len(_c_roll), len(_c_rt), len(_c_rs))
-        except Exception as _de:
-            _auth_log.warning("[student/exams] DIAG2 failed: %s", _de)
-        _auth_log.info(
-            "[student/exams] DIAG roll=%s tid=%s active_statuses=%r inv_rows=%d eids=%s",
-            roll, enr_tid, active_inv_statuses, len(inv_rows), eids)
         for eid in eids:
             key = (enr_tid, eid)
             if key in seen:
@@ -2010,15 +1993,6 @@ async def student_exams(request: Request):
             rid, enr.get("roll_number"), enr.get("teacher_id"), e, exc_info=True)
         continue
 
-    # Diagnostic: log exactly what this account resolved to, so a "my exam
-    # isn't showing" report can be pinned to the resolution layer without
-    # client-side debugging. Logs exam_id + computed status per row.
-    _auth_log.info(
-        "[student/exams] account=%s resolved %d exam(s): %s",
-        mask_email(email) if email else "<none>",
-        len(exams),
-        [(e.get("exam_id"), e.get("status")) for e in exams],
-    )
     return {"exams": exams}
 
 

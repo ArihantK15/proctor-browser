@@ -56,6 +56,19 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
      AND s.account_id::text = app.account_id()
 $$;
 
+-- Student -> the teacher_ids they're enrolled with (one per teacher whose
+-- roster holds this account). Drives the student read policies on teacher-owned
+-- reference tables (exam_config, questions, invites, batch assignments, the
+-- teacher row) so a student sees exactly the exams/teachers they belong to and
+-- nothing else. SECURITY DEFINER so it resolves over the full students table
+-- without being re-filtered by students' own RLS (and without recursing).
+CREATE OR REPLACE FUNCTION app.my_teacher_ids() RETURNS SETOF text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT DISTINCT s.teacher_id::text FROM students s
+   WHERE app.account_id() IS NOT NULL
+     AND s.account_id::text = app.account_id()
+$$;
+
 -- Helper: drop EVERY existing policy on a table (clears the dormant
 -- auth.uid() policies) so we end in a known canonical state.
 CREATE OR REPLACE FUNCTION app._drop_all_policies(tbl regclass) RETURNS void
@@ -184,6 +197,44 @@ CREATE POLICY violations_s_ins ON violations FOR INSERT
   WITH CHECK (app.role() = 'student' AND session_key::text IN (
            SELECT es.session_key::text FROM exam_sessions es
             WHERE es.roll_number::text IN (SELECT app.my_roll_numbers())));
+
+-- ── Student reads of teacher-owned reference tables (the lobby + exam load
+--    path). Without these the student DB context resolves 0 — this is the
+--    gap that emptied the lobby. All scoped to the student's own enrolment:
+--    invites/sessions by roll number, config/questions/teacher/batch/extension
+--    by the teacher_ids the student is rostered under. SELECT-only; writes on
+--    these tables stay teacher/system-scoped. -----------------------------
+-- student_invites: the student's own per-exam roster rows. Scoped to BOTH the
+-- enrolled teacher(s) AND the student's roll numbers — mirrors the app's
+-- (teacher_id, roll_number) match and prevents a roll-number collision across
+-- tenants from leaking another teacher's invite.
+-- (core table; in the teacher loop above so its policies were drop-all'd first.)
+CREATE POLICY student_invites_s_sel ON student_invites FOR SELECT
+  USING (app.role() = 'student'
+         AND teacher_id::text IN (SELECT app.my_teacher_ids())
+         AND roll_number::text IN (SELECT app.my_roll_numbers()));
+-- teachers: the student may read the row of teachers they're enrolled with
+-- (lobby shows the teacher's name on each exam card).
+CREATE POLICY teachers_s_sel ON teachers FOR SELECT
+  USING (app.role() = 'student' AND id::text IN (SELECT app.my_teacher_ids()));
+-- teacher_id-scoped reference tables: the exams/questions/cohort-assignments/
+-- extensions of the teachers the student is enrolled with. Guarded per-table
+-- (exam_batch_assignments / exam_time_extensions are optional in some DBs).
+DO $$
+DECLARE t text;
+  tabs text[] := ARRAY['exam_config','questions','exam_batch_assignments','exam_time_extensions'];
+BEGIN
+  FOREACH t IN ARRAY tabs LOOP
+    BEGIN
+      EXECUTE format($q$CREATE POLICY %1$s_s_sel ON %1$I FOR SELECT
+        USING (app.role() = 'student' AND teacher_id::text IN (SELECT app.my_teacher_ids()))$q$, t);
+    EXCEPTION
+      WHEN undefined_table OR undefined_column THEN
+        RAISE NOTICE 'phase124 skip student-read %: %', t, SQLERRM;
+      WHEN duplicate_object THEN NULL;  -- idempotent re-run safety
+    END;
+  END LOOP;
+END $$;
 
 -- ── Privileged-only tables (no clean tenant column; superadmin/system
 --    + the relevant authed flows reach them via the app's service paths) ─

@@ -23,21 +23,27 @@ RLS_SESSION_CONTEXT: bool = os.environ.get("RLS_SESSION_CONTEXT", "").strip().lo
     "1", "true", "yes", "on",
 )
 
-# Loud guard: enabling this flips every query onto the DB row-level-security
-# path, which only works if the phase124 policy set covers EVERY authenticated
-# read. It does NOT yet (e.g. student_invites has no student-read policy, so
-# the student lobby silently resolves 0 exams; migrations/rls_policies.sql is
-# also stale Supabase auth.uid()-based). Keep this OFF until the policy set is
-# completed and verified in staging — otherwise students/teachers get empty
-# results with no error. Warn at import so flipping it can never be silent.
+# Loud guard: this flag and the DB connection ROLE must be flipped together.
+# RLS only enforces when the app connects as the restricted `procta_app` role
+# (NOBYPASSRLS). With that role, this flag is what supplies the per-request
+# tenant context — so:
+#   • role=procta_app + flag=1  → enforced + scoped   (the intended state)
+#   • role=procta_app + flag=0  → DENY-ALL: no context is ever set, every
+#     SELECT returns 0 rows, ALL logins fail "invalid email/password"
+#     (the 2026-06-17 outage). NEVER run this combination.
+#   • role=owner (procta)       → RLS bypassed regardless of the flag (rollback)
+# Policy set: phase124 + phase125 (student reads) + app-layer system_context()
+# elevation for server-side reconciliation writes — verified end-to-end as
+# procta_app. Cutover/rollback flips DATABASE_URL *and* this flag together;
+# see docs/TENANCY_RLS_HARDENING.md. Warn at import so a flip is never silent.
 if RLS_SESSION_CONTEXT:
     import logging as _logging
     _logging.getLogger("app.db_context").warning(
-        "RLS_SESSION_CONTEXT is ENABLED — DB row-level security now gates every "
-        "query, but the policy set is known-incomplete for student reads "
-        "(student_invites has no student-read policy). This silently empties "
-        "the student lobby. Disable RLS_SESSION_CONTEXT unless the phase124 "
-        "policies have been completed and tested."
+        "RLS_SESSION_CONTEXT is ENABLED — DB row-level security gates every "
+        "query. This is ONLY safe when DATABASE_URL points at the restricted "
+        "procta_app role. If the app is still connecting as the owner this is a "
+        "no-op; if it connects as procta_app with this flag OFF, every query "
+        "denies-all (all logins fail). Flip the role and this flag together."
     )
 
 # Roles the policies understand. Anything else is coerced to the most-restrictive
@@ -84,6 +90,30 @@ def reset_context(token) -> None:
         _ctx.reset(token)
     except Exception:
         pass
+
+
+import contextlib as _contextlib
+
+
+@_contextlib.contextmanager
+def system_context():
+    """Run a block as the cross-tenant ``system`` principal so RLS does not
+    scope it. Use ONLY for server-side reconciliation an authenticated request
+    legitimately performs across rows it does not "own" — e.g. auto-linking a
+    student's stranded roster rows, propagating an email change to the roster,
+    deleting a departing account's roster rows, exam-start auto-enrol. Under
+    RLS these writes target teacher-owned tables that the student/exam context
+    cannot touch; without elevation they silently affect 0 rows (the empty-lobby
+    incident). Restores the prior context on exit.
+
+    No-op-safe when RLS_SESSION_CONTEXT is off (the execute layer ignores the
+    context entirely on that path), so it is harmless to leave wired in.
+    """
+    token = set_system_context()
+    try:
+        yield
+    finally:
+        reset_context(token)
 
 
 def current_context() -> dict | None:

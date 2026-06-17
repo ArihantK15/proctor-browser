@@ -1746,11 +1746,18 @@ async def _student_enrollments_for_account(account: dict, email: str, columns: s
 
     if email:
         try:
-            await (_atable("students")
-                   .update({"account_id": account_id})
-                   .ilike("email", email)
-                   .is_("account_id", "null")
-                   .execute())
+            # Server-side reconciliation: claim the account's stranded roster
+            # rows (by its verified email) across every teacher it's enrolled
+            # with. This writes teacher-owned `students` rows, which the student
+            # RLS context cannot touch — run it as `system` or it silently
+            # updates 0 rows under RLS and the lobby comes back empty.
+            from ..db_context import system_context
+            with system_context():
+                await (_atable("students")
+                       .update({"account_id": account_id})
+                       .ilike("email", email)
+                       .is_("account_id", "null")
+                       .execute())
         except Exception:
             _auth_log.debug("student enrollment auto-link failed", exc_info=True)
 
@@ -2962,6 +2969,12 @@ async def _track_a_hybrid_delete_student_account(account: dict, request: Request
             _auth_log.warning("[StudentDelete] %s failed: %s", label, exc, exc_info=True)
             errors.append(f"{label}: {type(exc).__name__}")
 
+    # The roster/session/appeal cleanup below writes teacher-owned and
+    # cross-account rows the student/admin context cannot touch under RLS.
+    # Run as system or the deletes silently affect 0 rows — a privacy/GDPR
+    # failure (the account would "delete" while its data survives).
+    from ..db_context import set_system_context, reset_context
+    _del_sys = set_system_context()
     await _best_effort("exam_sessions update by account", _atable("exam_sessions").update({
         "email": anon_email,
         "full_name": "Deleted User",
@@ -2996,6 +3009,7 @@ async def _track_a_hybrid_delete_student_account(account: dict, request: Request
             _auth_log.warning("[StudentDelete] Supabase user delete failed: %s", exc, exc_info=True)
             errors.append(f"supabase_user_delete: {type(exc).__name__}")
     await _best_effort("student_accounts delete", _atable("student_accounts").delete().eq("id", account_id).execute())
+    reset_context(_del_sys)
 
     if teacher and teacher.get("email"):
         try:
@@ -3312,9 +3326,13 @@ async def student_email_change_confirm(request: Request, body: dict = Body(defau
         if "duplicate key" in err_lower or "unique constraint" in err_lower or "already exists" in err_lower:
             raise HTTPException(status_code=409, detail="That email is already in use")
         raise
-    await _atable("students").update({"email": new_email}).eq("account_id", account_id).execute()
-    if old_email:
-        await _atable("students").update({"email": new_email}).eq("email", old_email).execute()
+    # Propagate the new email onto the account's teacher-owned roster rows.
+    # Cross-tenant server-side reconciliation → run as system or RLS blocks it.
+    from ..db_context import system_context
+    with system_context():
+        await _atable("students").update({"email": new_email}).eq("account_id", account_id).execute()
+        if old_email:
+            await _atable("students").update({"email": new_email}).eq("email", old_email).execute()
     row = await _atable("student_accounts").select("supabase_uid").eq("id", account_id).limit(1).execute()
     supabase_uid = str((row.data[0] if row.data else {}).get("supabase_uid") or "")
     if supabase_uid and not local_password_auth_enabled():

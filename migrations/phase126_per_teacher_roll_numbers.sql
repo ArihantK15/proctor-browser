@@ -1,3 +1,4 @@
+-- migration:contract drop the global students_roll_number_key so roll numbers are per-teacher (composite (roll_number, teacher_id) stays); reverse in migrations/down/
 -- =====================================================================
 -- phase126: per-teacher roll numbers (drop the global roll_number unique)
 -- =====================================================================

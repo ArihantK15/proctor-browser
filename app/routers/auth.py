@@ -1993,6 +1993,15 @@ async def student_exams(request: Request):
             rid, enr.get("roll_number"), enr.get("teacher_id"), e, exc_info=True)
         continue
 
+    # Diagnostic: log exactly what this account resolved to, so a "my exam
+    # isn't showing" report can be pinned to the resolution layer without
+    # client-side debugging. Logs exam_id + computed status per row.
+    _auth_log.info(
+        "[student/exams] account=%s resolved %d exam(s): %s",
+        mask_email(email) if email else "<none>",
+        len(exams),
+        [(e.get("exam_id"), e.get("status")) for e in exams],
+    )
     return {"exams": exams}
 
 

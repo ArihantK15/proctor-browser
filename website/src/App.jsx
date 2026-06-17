@@ -1,6 +1,8 @@
-import { Route, Switch } from 'wouter'
+import { Route, Switch, useLocation } from 'wouter'
 import { createElement, lazy, Suspense } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 
+import SmoothScroll from './components/SmoothScroll'
 import Landing from './pages/Landing'
 
 const Pricing = lazy(() => import('./pages/Pricing'))
@@ -71,12 +73,24 @@ function LazyRoute({ Component: RouteComponent }) {
 }
 
 export default function App() {
+  const [location] = useLocation()
+  const reduced = useReducedMotion()
   return (
     <>
+      <SmoothScroll />
       <a href="#main-content" className="skip-to-content" tabIndex={1}>
         Skip to content
       </a>
       <div id="main-content" tabIndex={-1}>
+        {/* Enter-only page transition: the wrapper re-mounts on every route
+            change (key=location) and fades/rises the new page in. No exit
+            animation — avoids AnimatePresence + Suspense fallback flashes. */}
+        <motion.div
+          key={location}
+          initial={reduced ? { opacity: 0 } : { opacity: 0, y: 10 }}
+          animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0 }}
+          transition={{ duration: reduced ? 0.2 : 0.28, ease: [0.23, 1, 0.32, 1] }}
+        >
         <Switch>
           <Route path="/" component={Landing} />
           <Route path="/pricing"><LazyRoute Component={Pricing} /></Route>
@@ -103,6 +117,7 @@ export default function App() {
           <Route path="/secure-browser"><LazyRoute Component={SecureBrowser} /></Route>
           <Route><LazyRoute Component={NotFound} /></Route>
         </Switch>
+        </motion.div>
       </div>
     </>
   )

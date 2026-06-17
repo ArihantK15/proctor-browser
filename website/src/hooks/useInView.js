@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-export default function useInView({ once = true, margin = '0px', threshold = 0 } = {}) {
+export default function useInView({ once = true, margin = '0px 0px -100px 0px', threshold = 0 } = {}) {
   const ref = useRef(null)
   const [inView, setInView] = useState(false)
 

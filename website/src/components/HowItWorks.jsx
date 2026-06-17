@@ -1,6 +1,10 @@
 import { Upload, Monitor, Scan, FileText } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
+import { fadeUp, stagger, inViewProps, pick } from '../lib/motion'
 
 export default function HowItWorks() {
+  const reduced = useReducedMotion()
+  const childVar = pick(reduced, fadeUp)
   const steps = [
     {
       icon: Upload,
@@ -32,23 +36,26 @@ export default function HowItWorks() {
     <section id="how-it-works" className="relative py-24 md:py-32 bg-navy-900/30">
       <div className="pointer-events-none absolute inset-0 grain-overlay" />
       <div className="mx-auto max-w-7xl px-6 relative">
-        <div
+        <motion.div
           className="mx-auto max-w-2xl text-center"
+          variants={childVar}
+          {...inViewProps}
         >
           <span className="label-mono text-accent">How It Works</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             Four Steps to Secure Exams
           </h2>
-        </div>
+        </motion.div>
 
         <div className="relative mt-16">
           {/* Connection line */}
           <div className="absolute top-12 left-0 right-0 hidden h-px bg-gradient-to-r from-transparent via-accent/30 to-transparent md:block" />
 
-          <div className="grid gap-8 md:grid-cols-4">
+          <motion.div className="grid gap-8 md:grid-cols-4" variants={stagger(0.1)} {...inViewProps}>
             {steps.map((item) => (
-              <div
+              <motion.div
                 key={item.step}
+                variants={childVar}
                 className="relative text-center"
               >
                 <div className="relative mx-auto mb-6 flex h-24 w-24 items-center justify-center">
@@ -60,9 +67,9 @@ export default function HowItWorks() {
                 </div>
                 <h3 className="mb-2 text-base font-semibold text-white">{item.title}</h3>
                 <p className="text-sm leading-relaxed text-slate-400">{item.desc}</p>
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </div>
     </section>

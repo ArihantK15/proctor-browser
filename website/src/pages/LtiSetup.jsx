@@ -4,6 +4,8 @@ import { ArrowRight, ExternalLink, CheckCircle, Copy, Check } from 'lucide-react
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import { useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
+import { fadeUp, stagger, inViewProps, pick } from '../lib/motion'
 
 const APP = 'https://app.procta.net'
 const BASE = import.meta.env.VITE_PROCTA_URL || APP
@@ -84,6 +86,8 @@ const overview_items = [
 
 export default function LtiSetup() {
   const [checkedSteps, setCheckedSteps] = useState({})
+  const reduced = useReducedMotion()
+  const childVar = pick(reduced, fadeUp)
 
   const toggleStep = (platformId, stepId) => {
     setCheckedSteps(prev => ({
@@ -109,7 +113,7 @@ export default function LtiSetup() {
 
       {/* Hero */}
       <section className="pt-36 pb-16 md:pt-44 md:pb-20">
-        <div className="mx-auto max-w-3xl px-6 text-center">
+        <motion.div className="mx-auto max-w-3xl px-6 text-center" variants={childVar} {...inViewProps}>
           <span className="label-mono text-accent">LMS Integration</span>
           <h1 className="mt-3 font-display text-4xl font-bold text-white md:text-5xl">
             Connect Procta with your LMS
@@ -120,7 +124,7 @@ export default function LtiSetup() {
             <strong className="text-white">Blackboard</strong> via the LTI 1.3 Advantage
             standard. Grade passback, roster sync, deep linking, and SSO — all included.
           </p>
-        </div>
+        </motion.div>
       </section>
 
       {/* Configuration URLs */}
@@ -161,9 +165,9 @@ export default function LtiSetup() {
             Setup guides by platform
           </h2>
 
-          <div className="mt-10 space-y-10">
+          <motion.div className="mt-10 space-y-10" variants={stagger(0.1)} {...inViewProps}>
             {platforms.map(p => (
-              <div key={p.id} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+              <motion.div key={p.id} variants={childVar} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
                 <div className="border-b border-white/[0.06] bg-white/[0.01] px-6 py-5">
                   <div className="flex items-center gap-3">
                     <span className="text-2xl">{p.logo}</span>
@@ -195,9 +199,9 @@ export default function LtiSetup() {
                     </div>
                   )}
                 </div>
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </section>
 
@@ -207,17 +211,17 @@ export default function LtiSetup() {
           <h2 className="font-display text-2xl font-bold text-white text-center md:text-3xl">
             What LTI integration gives you
           </h2>
-          <div className="mt-10 grid gap-6 sm:grid-cols-2">
+          <motion.div className="mt-10 grid gap-6 sm:grid-cols-2" variants={stagger(0.08)} {...inViewProps}>
             {overview_items.map(item => (
-              <div key={item.title} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6">
+              <motion.div key={item.title} variants={childVar} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6">
                 <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10">
                   <CheckCircle size={18} className="text-accent-light" />
                 </div>
                 <h3 className="mb-1.5 text-sm font-semibold text-white">{item.title}</h3>
                 <p className="text-sm leading-relaxed text-slate-400">{item.desc}</p>
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </section>
 

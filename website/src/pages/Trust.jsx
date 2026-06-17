@@ -1,6 +1,8 @@
 import { Helmet } from 'react-helmet-async'
 import { Link } from 'wouter'
 import { ArrowLeft, CheckCircle2, ShieldCheck } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
+import { fadeUp, stagger, inViewProps, pick } from '../lib/motion'
 import Footer from '../components/Footer'
 
 const sections = [
@@ -52,6 +54,8 @@ const sections = [
 ]
 
 export default function Trust() {
+  const reduced = useReducedMotion()
+  const childVar = pick(reduced, fadeUp)
   return (
     <div className="min-h-screen bg-navy-950">
       <Helmet>
@@ -73,7 +77,7 @@ export default function Trust() {
           Back to home
         </Link>
 
-        <div className="max-w-3xl">
+        <motion.div className="max-w-3xl" variants={childVar} {...inViewProps}>
           <span className="label-mono text-accent">Trust Center</span>
           <h1 className="mt-3 font-display text-3xl font-bold text-white md:text-5xl">
             Security and privacy controls for institutional exams.
@@ -83,17 +87,17 @@ export default function Trust() {
             auditable proctoring evidence, controlled retention, and deployment
             checks designed to keep live exams stable.
           </p>
-        </div>
+        </motion.div>
 
-        <div className="mt-12 grid gap-4 md:grid-cols-3">
+        <motion.div className="mt-12 grid gap-4 md:grid-cols-3" variants={childVar} {...inViewProps}>
           <Proof label="Production Controls" value="CI + Docker + health checks" />
           <Proof label="Authentication" value="HttpOnly + CSRF + 2FA" />
           <Proof label="Scale Planning" value="3,500-student target" />
-        </div>
+        </motion.div>
 
-        <div className="mt-12 grid gap-6 md:grid-cols-2">
+        <motion.div className="mt-12 grid gap-6 md:grid-cols-2" variants={stagger(0.08)} {...inViewProps}>
           {sections.map(section => (
-            <section key={section.title} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6">
+            <motion.section key={section.title} variants={childVar} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6">
               <div className="mb-4 flex items-center gap-3">
                 <ShieldCheck size={18} className="text-accent-light" />
                 <h2 className="text-lg font-semibold text-white">{section.title}</h2>
@@ -106,11 +110,11 @@ export default function Trust() {
                   </li>
                 ))}
               </ul>
-            </section>
+            </motion.section>
           ))}
-        </div>
+        </motion.div>
 
-        <section className="mt-12 rounded-xl border border-accent/20 bg-accent/[0.04] p-6">
+        <motion.section className="mt-12 rounded-xl border border-accent/20 bg-accent/[0.04] p-6" variants={childVar} {...inViewProps}>
           <h2 className="text-lg font-semibold text-white">Institution Review Packet</h2>
           <p className="mt-3 text-sm leading-relaxed text-slate-400">
             For procurement or IT review, request Procta's DPA, incident response
@@ -120,7 +124,7 @@ export default function Trust() {
               security@procta.net
             </a>.
           </p>
-        </section>
+        </motion.section>
       </main>
 
       <Footer />

@@ -2,6 +2,7 @@ import { Play, Maximize2, X } from 'lucide-react'
 import { Link } from 'wouter'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { lenisStop, lenisStart } from '../lib/smoothScroll'
 
 /**
  * Demo section.
@@ -63,6 +64,19 @@ export default function Demo() {
     setFullscreen(false)
   }, [])
 
+  // Permanent mute: the demo is silent by product decision. `muted` alone
+  // can be undone via the controls bar's volume button, and there is no
+  // standard controlsList token to hide it ("nomute" isn't spec), so we
+  // re-assert muted on every volumechange. Any attempt to unmute snaps
+  // straight back to muted — effectively removing the unmute option.
+  const forceMute = useCallback((e) => {
+    const el = e.currentTarget
+    if (el && (!el.muted || el.volume !== 0)) {
+      el.muted = true
+      el.volume = 0
+    }
+  }, [])
+
   // After the <video> mounts, explicitly call .play(). Chrome/Safari
   // refuse `autoPlay` when (a) the video has audio, AND (b) the play
   // call is "indirect" — i.e. not happening in the same task as the
@@ -73,9 +87,9 @@ export default function Demo() {
   // <video controls> bar lets the user kick it manually.
   //
   // We also keep `muted` on the inline embed below so autoplay is
-  // guaranteed even when the gesture chain breaks. The video has
-  // no critical audio for the marketing demo, and the user can
-  // unmute via the controls bar if they want sound.
+  // guaranteed even when the gesture chain breaks. The demo is silent
+  // by product decision — see forceMute, which re-asserts mute on every
+  // volumechange so the controls-bar volume button can't turn sound on.
   useEffect(() => {
     if (!playing) return
     const el = inlineVideoRef.current
@@ -100,10 +114,12 @@ export default function Demo() {
     if (!fullscreen) return
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    lenisStop() // pause momentum scroll so the page can't scroll behind the modal
     const onKey = (e) => { if (e.key === 'Escape') closeFullscreen() }
     window.addEventListener('keydown', onKey)
     return () => {
       document.body.style.overflow = prev
+      lenisStart()
       window.removeEventListener('keydown', onKey)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -223,10 +239,11 @@ export default function Demo() {
                 poster={VIDEO_POSTER}
                 controls
                 autoPlay
-                muted        /* required for cross-browser inline autoplay; user can unmute via controls */
+                muted        /* permanently muted — onVolumeChange re-asserts it */
                 playsInline
                 preload="auto"
                 onEnded={handleEnded}
+                onVolumeChange={forceMute}
                 className="absolute inset-0 block h-full w-full bg-black"
                 style={{ objectFit: 'contain' }}
               >
@@ -300,6 +317,7 @@ export default function Demo() {
                   playsInline
                   preload="auto"
                   onEnded={handleEnded}
+                  onVolumeChange={forceMute}
                   className="absolute inset-0 block h-full w-full bg-black"
                   style={{ objectFit: 'contain' }}
                 >

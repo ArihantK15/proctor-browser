@@ -1,6 +1,10 @@
 import { Check, X } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
+import { fadeUp, inViewProps, pick } from '../lib/motion'
 
 export default function Comparison() {
+  const reduced = useReducedMotion()
+  const childVar = pick(reduced, fadeUp)
   const rows = [
     { feature: 'Behavioral Risk Score (0-100)', procta: true, others: false },
     { feature: 'Explainable AI Decisions', procta: true, others: false },
@@ -19,17 +23,21 @@ export default function Comparison() {
     <section className="relative py-24 md:py-32 bg-navy-900/30">
       <div className="pointer-events-none absolute inset-0 grain-overlay" />
       <div className="mx-auto max-w-4xl px-6 relative">
-        <div
+        <motion.div
           className="mx-auto max-w-2xl text-center"
+          variants={childVar}
+          {...inViewProps}
         >
           <span className="label-mono text-accent">Comparison</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
             How Procta Stacks Up
           </h2>
-        </div>
+        </motion.div>
 
-        <div
+        <motion.div
           className="table-scroll mt-12 relative rounded-2xl border border-white/[0.06]"
+          variants={childVar}
+          {...inViewProps}
         >
           {/* Accent top line */}
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent z-10" />
@@ -61,7 +69,7 @@ export default function Comparison() {
               ))}
             </tbody>
           </table>
-        </div>
+        </motion.div>
       </div>
     </section>
   )

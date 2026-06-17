@@ -1,6 +1,8 @@
 import { Helmet } from 'react-helmet-async'
 import { Link } from 'wouter'
 import { Check, ArrowRight } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
+import { fadeUp, stagger, inViewProps, pick } from '../lib/motion'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import { APP_URL } from '../config'
@@ -131,6 +133,8 @@ const faqs = [
 ]
 
 export default function Pricing() {
+  const reduced = useReducedMotion()
+  const childVar = pick(reduced, fadeUp)
   return (
     <div className="min-h-screen bg-navy-950">
       <Helmet>
@@ -150,7 +154,7 @@ export default function Pricing() {
 
       {/* Hero */}
       <section className="pt-36 pb-16 md:pt-44 md:pb-20">
-        <div className="mx-auto max-w-7xl px-6 text-center">
+        <motion.div className="mx-auto max-w-7xl px-6 text-center" variants={childVar} {...inViewProps}>
           <span className="label-mono text-accent">Pricing</span>
           <h1 className="mt-3 font-display text-4xl font-bold text-white md:text-5xl">
             Simple pricing. No hidden fees.
@@ -158,16 +162,17 @@ export default function Pricing() {
           <p className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
             Start free, upgrade when you need more. All plans include full AI proctoring, real-time monitoring, and automated scorecards.
           </p>
-        </div>
+        </motion.div>
       </section>
 
       {/* Plan cards */}
       <section className="pb-16">
         <div className="mx-auto max-w-6xl px-6">
-          <div className="grid gap-6 md:grid-cols-3 md:items-start">
+          <motion.div className="grid gap-6 md:grid-cols-3 md:items-start" variants={stagger(0.1)} {...inViewProps}>
             {tierPlans.map(p => (
-              <div
+              <motion.div
                 key={p.id}
+                variants={childVar}
                 className={`relative rounded-2xl border ${p.popular ? 'border-accent/40 bg-accent/[0.03]' : 'border-white/[0.08] bg-white/[0.02]'} p-8 flex flex-col`}
               >
                 {p.popular && (
@@ -219,9 +224,9 @@ export default function Pricing() {
                     <ArrowRight size={16} />
                   </Link>
                 )}
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
 
           {/* Enterprise — full-width banner so it doesn't orphan in the 3-up grid */}
           {enterprise && (

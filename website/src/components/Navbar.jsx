@@ -1,10 +1,23 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'wouter'
 import { Menu, X } from 'lucide-react'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import { getLenis } from '../lib/smoothScroll'
 import { APP_URL } from '../config'
 
 export default function Navbar() {
   const [open, setOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const reduced = useReducedMotion()
+
+  // Scroll-aware chrome: once the page scrolls, deepen the nav background
+  // and add a soft elevation so it reads as a real app bar over content.
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   // Order matches the visitor's question hierarchy:
   //   "Why should I trust this?" (Why Procta — outcomes from Phase 2)
@@ -24,9 +37,15 @@ export default function Navbar() {
   ]
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-navy-950/80 backdrop-blur-xl">
+    <nav
+      className={`fixed top-0 left-0 right-0 z-50 border-b backdrop-blur-xl transition-colors duration-300 ${
+        scrolled
+          ? 'border-white/10 bg-navy-950/90 shadow-lg shadow-black/30'
+          : 'border-white/5 bg-navy-950/80'
+      }`}
+    >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
-        <Link to="/" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2.5 no-underline">
+        <Link to="/" onClick={() => { const l = getLenis(); if (l) l.scrollTo(0); else window.scrollTo({ top: 0, behavior: 'smooth' }) }} className="flex items-center gap-2.5 no-underline">
           {/* Brand chip — shield+eye mark, white on accent. Matches the
               favicon family (which is the same mark, blue on navy) so the
               browser tab + nav + footer + Google SERP all read as the
@@ -65,7 +84,7 @@ export default function Navbar() {
           </a>
           <Link
             to="/signup"
-            className="rounded-lg bg-accent-dark px-4 py-2 text-sm font-medium text-white glow-btn no-underline"
+            className="rounded-lg bg-accent-dark px-4 py-2 text-sm font-medium text-white glow-btn no-underline transition-transform active:scale-[0.97]"
           >
             Start Free Trial
           </Link>
@@ -73,7 +92,7 @@ export default function Navbar() {
 
         <button
           onClick={() => setOpen(!open)}
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 md:hidden bg-transparent border-none cursor-pointer transition-colors hover:bg-white/5 hover:text-white"
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 md:hidden bg-transparent border-none cursor-pointer transition-colors hover:bg-white/5 hover:text-white active:scale-[0.97]"
           aria-label="Toggle menu"
           aria-expanded={open}
         >
@@ -81,40 +100,49 @@ export default function Navbar() {
         </button>
       </div>
 
-      {open && (
-        <div className="max-h-[calc(100dvh-64px)] overflow-y-auto border-t border-white/5 bg-navy-950/95 backdrop-blur-xl md:hidden">
-          <div className="flex flex-col gap-1 px-4 py-4 sm:px-6">
-            {links.map(l => {
-              const isHash = l.href.startsWith('/#') || l.href.startsWith('#')
-              return isHash ? (
-                <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-accent-light no-underline">
-                  {l.label}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            key="mobile-menu"
+            initial={reduced ? { opacity: 0 } : { opacity: 0, y: -8 }}
+            animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0 }}
+            exit={reduced ? { opacity: 0 } : { opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+            className="max-h-[calc(100dvh-64px)] overflow-y-auto border-t border-white/5 bg-navy-950/95 backdrop-blur-xl md:hidden"
+          >
+            <div className="flex flex-col gap-1 px-4 py-4 sm:px-6">
+              {links.map(l => {
+                const isHash = l.href.startsWith('/#') || l.href.startsWith('#')
+                return isHash ? (
+                  <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-accent-light no-underline">
+                    {l.label}
+                  </a>
+                ) : (
+                  <Link key={l.href} to={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-accent-light no-underline">
+                    {l.label}
+                  </Link>
+                )
+              })}
+              <div className="mt-3 flex flex-col gap-2 border-t border-white/5 pt-3">
+                <a
+                  href={`${APP_URL}/dashboard`}
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg px-3 py-2.5 text-sm text-slate-300 hover:text-white no-underline"
+                >
+                  Log In
                 </a>
-              ) : (
-                <Link key={l.href} to={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-accent-light no-underline">
-                  {l.label}
+                <Link
+                  to="/signup"
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg bg-accent-dark px-3 py-2.5 text-center text-sm font-medium text-white glow-btn no-underline active:scale-[0.97]"
+                >
+                  Start Free Trial
                 </Link>
-              )
-            })}
-            <div className="mt-3 flex flex-col gap-2 border-t border-white/5 pt-3">
-              <a
-                href={`${APP_URL}/dashboard`}
-                onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-sm text-slate-300 hover:text-white no-underline"
-              >
-                Log In
-              </a>
-              <Link
-                to="/signup"
-                onClick={() => setOpen(false)}
-                className="rounded-lg bg-accent-dark px-3 py-2.5 text-center text-sm font-medium text-white glow-btn no-underline"
-              >
-                Start Free Trial
-              </Link>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </nav>
   )
 }

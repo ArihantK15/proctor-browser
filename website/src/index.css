@@ -38,6 +38,12 @@
   --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   --font-display: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', 'Fira Code', monospace;
+  /* Motion curves (Emil Kowalski set) — registered as @theme tokens so
+     they're available as `ease-out-quint` / `ease-in-out-quint` / `ease-ios`
+     Tailwind utilities and referenced by raw CSS + Framer variants. */
+  --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-quint: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @layer base {
@@ -100,6 +106,36 @@
 
   .accent-glow {
     box-shadow: 0 0 20px rgba(91,138,240, 0.12);
+  }
+
+  /* Ambient hero glow — slow GPU-only drift so the backdrop breathes
+     instead of sitting flat. Transform-only; killed under reduced motion
+     by the global media query below. */
+  .hero-aurora {
+    animation: heroDrift 16s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+  @keyframes heroDrift {
+    from { transform: translate3d(-3%, -2%, 0) scale(1); }
+    to   { transform: translate3d(3%, 2%, 0) scale(1.08); }
+  }
+
+  /* CTA sheen — a single light sweep on hover. Purposeful: reinforces the
+     primary action. Transform-only, no layout cost. */
+  .btn-sheen { position: relative; overflow: hidden; }
+  .btn-sheen::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%);
+    transform: translateX(-130%);
+    transition: transform 0.6s var(--ease-out-quint);
+  }
+  .btn-sheen:hover::after { transform: translateX(130%); }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-aurora { animation: none; }
+    .btn-sheen::after { display: none; }
   }
   .accent-glow-strong {
     box-shadow: 0 0 30px rgba(91,138,240, 0.25);
@@ -331,11 +367,17 @@ textarea:focus:not(:focus-visible) {
 
 /* ── Animations ───────────────────────────────────────────────── */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(24px); }
+  from { opacity: 0; transform: translateY(18px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .animate-fadeIn {
-  animation: fadeIn 0.6s ease-out forwards;
+  /* Emil's strong ease-out curve + will-change so the entrance reads as
+     deliberate motion rather than a generic browser fade. */
+  animation: fadeIn 0.6s var(--ease-out-quint) forwards;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeIn { animation: none; }
 }
 
 /* Spinner for the lazy-route loading fallback (src/App.jsx RouteFallback).

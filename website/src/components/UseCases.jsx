@@ -1,7 +1,11 @@
 import { GraduationCap, BookOpen, Briefcase, ArrowRight } from 'lucide-react'
 import { Link } from 'wouter'
+import { motion, useReducedMotion } from 'framer-motion'
+import { fadeUp, stagger, inViewProps, pick } from '../lib/motion'
 
 export default function UseCases() {
+  const reduced = useReducedMotion()
+  const childVar = pick(reduced, fadeUp)
   const cases = [
     {
       icon: GraduationCap,
@@ -26,8 +30,10 @@ export default function UseCases() {
   return (
     <section id="use-cases" className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
-        <div
+        <motion.div
           className="mx-auto max-w-2xl text-center"
+          variants={childVar}
+          {...inViewProps}
         >
           <span className="label-mono text-accent">Use Cases</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
@@ -36,12 +42,15 @@ export default function UseCases() {
           <p className="mt-4 text-lg text-slate-400">
             Different audiences, same guarantee: exam integrity you can trust.
           </p>
-        </div>
+        </motion.div>
 
-        <div className="mt-16 grid gap-6 md:grid-cols-3">
+        <motion.div className="mt-16 grid gap-6 md:grid-cols-3" variants={stagger(0.1)} {...inViewProps}>
           {cases.map((item) => (
-            <div
+            <motion.div
               key={item.title}
+              variants={childVar}
+              whileHover={reduced ? undefined : { y: -4 }}
+              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
               className="group relative flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 transition-colors hover:border-accent/15 hover:bg-accent/[0.02] card-topline grain-overlay"
             >
               <div className="mb-6 inline-flex self-start rounded-xl border border-accent/20 bg-accent/5 p-3 accent-glow">
@@ -63,9 +72,9 @@ export default function UseCases() {
               >
                 Learn more <ArrowRight size={14} />
               </Link>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </div>
     </section>
   )

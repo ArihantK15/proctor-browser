@@ -5,6 +5,8 @@ import {
   BadgeCheck, ServerCog, UploadCloud, Layers3,
   FileQuestion, FileInput, Sparkles, Calculator, ListChecks, Building2
 } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
+import { fadeUp, stagger, inViewProps, pick } from '../lib/motion'
 
 const groups = [
   {
@@ -68,11 +70,15 @@ const groups = [
 ]
 
 export default function Features() {
+  const reduced = useReducedMotion()
+  const childVar = pick(reduced, fadeUp)
   return (
     <section id="features" className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
-        <div
+        <motion.div
           className="mx-auto max-w-2xl text-center"
+          variants={childVar}
+          {...inViewProps}
         >
           <span className="label-mono text-accent">Features</span>
           <h2 className="mt-3 font-display text-3xl font-bold text-white md:text-4xl">
@@ -81,7 +87,7 @@ export default function Features() {
           <p className="mt-4 text-lg text-slate-400">
             A complete exam integrity platform, not just a webcam plugin.
           </p>
-        </div>
+        </motion.div>
 
         <div className="mt-16 space-y-12">
           {groups.map((group) => (
@@ -91,18 +97,25 @@ export default function Features() {
               <h3 className="mb-4 label-mono text-slate-500">
                 {group.label}
               </h3>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <motion.div
+                className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                variants={stagger(0.06)}
+                {...inViewProps}
+              >
                 {group.items.map(item => (
-                  <div
+                  <motion.div
                     key={item.name}
-                    className="group relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 transition-all hover:border-accent/20 hover:bg-accent/[0.03] card-topline grain-overlay"
+                    variants={childVar}
+                    whileHover={reduced ? undefined : { y: -4 }}
+                    transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+                    className="group relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 transition-colors hover:border-accent/20 hover:bg-accent/[0.03] card-topline grain-overlay"
                   >
                     <item.icon size={18} className="mb-3 text-slate-500 transition-colors group-hover:text-accent-light" />
                     <h4 className="mb-1 text-sm font-semibold text-white">{item.name}</h4>
                     <p className="text-xs leading-relaxed text-slate-400">{item.desc}</p>
-                  </div>
+                  </motion.div>
                 ))}
-              </div>
+              </motion.div>
             </div>
           ))}
         </div>

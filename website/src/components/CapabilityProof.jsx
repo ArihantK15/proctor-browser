@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import CountUp from './CountUp'
 import {
   Activity,
   BadgeCheck,
@@ -283,7 +284,7 @@ export default function CapabilityProof() {
         <motion.div {...reveal} className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
           {proofStats.map((stat) => (
             <div key={stat.label} className="proof-metric">
-              <div className="font-display text-3xl font-bold text-white">{stat.value}</div>
+              <div className="font-display text-3xl font-bold text-white"><CountUp value={stat.value} /></div>
               <div className="mt-2 text-sm font-semibold leading-snug text-slate-300">{stat.label}</div>
               <p className="mt-2 text-xs leading-relaxed text-slate-500">{stat.detail}</p>
             </div>

@@ -38,8 +38,15 @@ def is_configured() -> bool:
     return bool(_GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET)
 
 
-def get_authorization_url(state: str) -> str:
-    """Generate the Google OAuth authorization URL."""
+def get_authorization_url(state: str) -> tuple[str, str]:
+    """Generate the Google OAuth authorization URL.
+
+    Returns (auth_url, code_verifier). google-auth-oauthlib auto-generates a
+    PKCE code_verifier here and embeds its code_challenge in the URL; the same
+    verifier MUST be replayed at token exchange, so the caller has to persist
+    it (see exchange_code) — otherwise Google rejects the exchange with
+    "(invalid_grant) Missing code verifier."
+    """
     flow = Flow.from_client_config(
         {
             "web": {
@@ -52,16 +59,23 @@ def get_authorization_url(state: str) -> str:
         },
         scopes=_GOOGLE_SCOPES,
         state=state,
+        autogenerate_code_verifier=True,
     )
     flow.redirect_uri = _GOOGLE_REDIRECT_URI
-    return flow.authorization_url(
+    auth_url = flow.authorization_url(
         access_type="offline",
         prompt="consent",  # Force refresh_token every time
     )[0]
+    return auth_url, flow.code_verifier
 
 
-def exchange_code(code: str) -> Optional[dict]:
-    """Exchange the OAuth code for tokens. Returns token dict or None."""
+def exchange_code(code: str, code_verifier: Optional[str] = None) -> Optional[dict]:
+    """Exchange the OAuth code for tokens. Returns token dict or None.
+
+    code_verifier is the PKCE verifier captured at get_authorization_url time
+    and persisted with the state row; it must be supplied or Google rejects the
+    exchange ("Missing code verifier").
+    """
     try:
         flow = Flow.from_client_config(
             {
@@ -74,8 +88,11 @@ def exchange_code(code: str) -> Optional[dict]:
                 }
             },
             scopes=_GOOGLE_SCOPES,
+            autogenerate_code_verifier=False,
         )
         flow.redirect_uri = _GOOGLE_REDIRECT_URI
+        if code_verifier:
+            flow.code_verifier = code_verifier
         flow.fetch_token(code=code)
         token_data = {
             "token": flow.credentials.token,

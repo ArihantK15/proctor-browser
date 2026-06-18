@@ -593,6 +593,16 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         base = _get_invite_base_url()
         send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
 
+        # Welcome the billing owner with their 14-day trial details.
+        try:
+            _trial_disp = (datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)).strftime("%B %d, %Y")
+            from ..jobs import send_trial_started_email_job
+            enqueue_job(send_trial_started_email_job,
+                        to_email=email, to_name=name, plan="starter",
+                        trial_end=_trial_disp, billing_url=f"{base}/dashboard#tab-billing")
+        except Exception as _e:
+            _auth_log.warning("[TeacherSignup] trial-started email enqueue failed: %s", _e)
+
         return {
             "teacher_id":    teacher["id"],
             "email":         email,
@@ -704,6 +714,16 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
     base = _get_invite_base_url()
     send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
+
+    # Welcome the billing owner with their 14-day trial details.
+    try:
+        _trial_disp = (datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)).strftime("%B %d, %Y")
+        from ..jobs import send_trial_started_email_job
+        enqueue_job(send_trial_started_email_job,
+                    to_email=email, to_name=name, plan="starter",
+                    trial_end=_trial_disp, billing_url=f"{base}/dashboard#tab-billing")
+    except Exception as _e:
+        _auth_log.warning("[TeacherSignup] trial-started email enqueue failed: %s", _e)
 
     return {
         "teacher_id":    teacher["id"],

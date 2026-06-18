@@ -84,6 +84,27 @@ def send_cohort_link_email_job(
     }
 
 
+def send_trial_started_email_job(
+    *,
+    to_email: str,
+    to_name: str,
+    plan: str,
+    trial_end: str,
+    billing_url: str,
+) -> dict:
+    from .. import emailer
+    result = emailer.send_trial_started_email(
+        to_email=to_email, to_name=to_name, plan=plan,
+        trial_end=trial_end, billing_url=billing_url,
+    )
+    _maybe_raise(result, context=f"trial-started to {to_email}")
+    return {
+        "ok": result.ok,
+        "provider_msg_id": getattr(result, "provider_msg_id", None),
+        "error": result.error,
+    }
+
+
 def send_controller_breach_notification_job(
     *,
     to_email: str,

@@ -1244,6 +1244,15 @@ function applyOrgRole(org_role){
     const roles = (el.dataset.roles || '').split(' ');
     el.style.display = roles.includes(currentOrgRole) ? '' : 'none';
   });
+  // Billing is gated on the REAL org role (the billing owner), NOT the
+  // solo-downgraded one: a self-signup solo teacher IS the billing owner and
+  // must see/manage their own subscription, even though the two-mode UI hides
+  // the other admin/team tabs from them. Invited teachers (org_role 'teacher')
+  // never see it.
+  const isBillingOwner = (requested === 'admin' || requested === 'superadmin');
+  document.querySelectorAll('[data-billing-owner]').forEach(el => {
+    el.style.display = isBillingOwner ? '' : 'none';
+  });
   // Hard-gate founder-internal tooling (all-orgs / issues / debug). These
   // tabs carry data-roles="superadmin", so the forEach above already sets
   // them to display:none for any non-superadmin and back to visible for a

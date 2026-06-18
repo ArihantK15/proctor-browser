@@ -278,6 +278,59 @@ class TestDuplicateExam:
         body = resp.json()
         assert body["exam_title"] == "Custom Clone"
 
+    def test_duplicate_copies_grading_and_proctoring_settings(self, client):
+        """A duplicate must carry the source's pass_mark / proctoring sensitivity
+        / phone-cam / audio settings, not silently reset them to column defaults.
+        Per-instance fields (schedule, access code, exam_id) reset."""
+        from unittest.mock import patch as _mpatch, MagicMock
+        src = {
+            "exam_id": "exam-1", "exam_title": "Midterm", "duration_minutes": 90,
+            "shuffle_questions": True, "shuffle_options": True,
+            "access_code": "ABC", "teacher_id": "teacher-1", "starts_at": "2026-01-01T00:00:00Z",
+            "pass_mark": 70, "proctoring_sensitivity": "strict",
+            "phone_camera_enabled": True, "audio_keywords": "bomb,gun",
+            "audio_keywords_language": "en+hi",
+        }
+        captured = {}
+
+        def _atable(name):
+            chain = MagicMock()
+            chain.select.side_effect = lambda *a, **k: chain
+            chain.eq.side_effect = lambda *a, **k: chain
+            chain.order.side_effect = lambda *a, **k: chain
+
+            def _insert(payload, *a, **k):
+                if name == "exam_config":
+                    captured["cfg"] = payload
+                return chain
+            chain.insert.side_effect = _insert
+
+            async def _execute():
+                r = MagicMock()
+                r.data = [src] if name == "exam_config" else []
+                return r
+            chain.execute.side_effect = _execute
+            return chain
+
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._cache"), \
+             _mpatch("app.routers.admin_exams._atable", side_effect=_atable):
+            resp = client.post("/api/v1/admin/exams/exam-1/duplicate",
+                               json={}, headers=_admin_headers())
+        assert resp.status_code == 200, resp.text
+        cfg = captured["cfg"]
+        assert cfg["pass_mark"] == 70
+        assert cfg["proctoring_sensitivity"] == "strict"
+        assert cfg["phone_camera_enabled"] is True
+        assert cfg["audio_keywords"] == "bomb,gun"
+        assert cfg["audio_keywords_language"] == "en+hi"
+        # per-instance fields reset, not copied
+        assert cfg["access_code"] == ""
+        assert cfg["starts_at"] is None
+        assert cfg["exam_id"] != "exam-1"
+
     def test_duplicate_with_no_questions(self, client):
         """An exam with zero questions should still clone the config."""
         sm = shared_supabase_mock()

@@ -28,8 +28,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^8.57.1",
-    "electron": "^42.4.0",
-    "electron-builder": "^26.15.2",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^8.57.1",
     "https-proxy-agent": "^9.1.0"
   },

@@ -277,6 +277,22 @@ class TestSustainedOfftask:
         assert result is not None
 
 
+    def test_matches_at_throttled_capture_rate(self):
+        """Regression: cumulative off-task seconds must come from real timestamps,
+        not frame_count/fps. At a governor-throttled ~5 fps, 100 off-task frames
+        span ~20s of real time — which the old frame_count/15 math under-counted
+        to ~6.7s and missed entirely. The timestamp-based calc fires correctly
+        even though the engine's fps is still the stale default 15."""
+        buf = SignalBuffer(window_secs=60)
+        now = time.time()
+        for i in range(100):
+            buf.push({"gaze_away": True, "head_turned": False,
+                       "t": now - (100 - i) * 0.2})   # 0.2s spacing ≈ 5 fps
+        result = match_sustained_offtask(buf)          # default fps=15 (stale)
+        assert result is not None
+        assert result["pattern"] == "sustained_offtask"
+
+
 # ─── Pattern: nervous_evasion ───────────────────────────────────────────────────
 
 class TestNervousEvasion:

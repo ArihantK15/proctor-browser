@@ -565,6 +565,24 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
 # ─── ROOM CAMERA WEBSOCKET (student phone) ──────────────────────
 
 
+def _release_room_cam_state(session_id: str) -> None:
+    """Drop every per-session in-memory room-cam entry when its WS ends.
+
+    Critically this includes the offline-fired marker: the offline-detection
+    loop only discards from _ROOM_CAM_OFFLINE_FIRED for sessions still present
+    in _last_room_frame, so once that's popped here, a session that fired
+    "offline" then disconnected would otherwise leak its id in that set
+    forever (unbounded growth over the process lifetime).
+    """
+    _last_room_frame.pop(session_id, None)
+    _ROOM_CAM_OFFLINE_FIRED.discard(session_id)
+    _last_live_frame_ts.pop(session_id, None)
+    if hasattr(_store_room_frame, "_frame_meta"):
+        _store_room_frame._frame_meta.pop(session_id, None)
+    if hasattr(_store_room_frame, "_last_ts"):
+        _store_room_frame._last_ts.pop(session_id, None)
+
+
 @router.websocket("/ws/v1/room-frame/{session_id}")
 async def ws_room_frame(websocket: WebSocket, session_id: str):
     """WebSocket binary room-camera feed from the student's phone.
@@ -686,13 +704,7 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
         async with _ws_lock:
             if _ws_room_conns.get(session_id) is websocket:
                 _ws_room_conns.pop(session_id, None)
-        _last_room_frame.pop(session_id, None)
-        # Clean up per-session frame meta from function attribute
-        if hasattr(_store_room_frame, "_frame_meta"):
-            _store_room_frame._frame_meta.pop(session_id, None)
-        if hasattr(_store_room_frame, "_last_ts"):
-            _store_room_frame._last_ts.pop(session_id, None)
-        _last_live_frame_ts.pop(session_id, None)
+        _release_room_cam_state(session_id)
         # Mark room cam as offline in DB. sess_teacher_id was captured
         # on the connect side; if it was unavailable then, the WHERE
         # falls back to session_key alone.

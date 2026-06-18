@@ -78,7 +78,7 @@ async def seed_demo_exam(teacher_id: str, *, _atable=None) -> str:
     rows = []
     for i, q in enumerate(DEMO_QUESTIONS):
         rows.append({
-            "question_id":      str(_uuid.uuid4()),
+            "question_id":      i + 1,
             "exam_id":          exam_id,
             "teacher_id":       teacher_id,
             "question":         q["question"],

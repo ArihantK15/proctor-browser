@@ -93,6 +93,22 @@ async def test_cleanup_ping_does_not_double_decrement_conn_count():
     assert sse._ws_conn_count[sid] == 1
 
 
+def test_release_room_cam_state_clears_offline_marker():
+    """The room-cam WS finally must clear _ROOM_CAM_OFFLINE_FIRED, not just
+    _last_room_frame — otherwise a session that fired offline then disconnected
+    leaks its id in that set forever."""
+    sid = "room-1"
+    sse._last_room_frame[sid] = 123.0
+    sse._ROOM_CAM_OFFLINE_FIRED.add(sid)
+    sse._last_live_frame_ts[sid] = 123.0
+
+    sse._release_room_cam_state(sid)
+
+    assert sid not in sse._last_room_frame
+    assert sid not in sse._ROOM_CAM_OFFLINE_FIRED   # the leak that this fixes
+    assert sid not in sse._last_live_frame_ts
+
+
 @pytest.mark.asyncio
 async def test_subscribe_unsubscribe_balanced_single():
     sid = "sess-2"

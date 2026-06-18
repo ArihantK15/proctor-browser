@@ -425,3 +425,44 @@ class TestAgsTenantScoping:
             "cross-tenant roll-number collisions from routing grades to "
             "the wrong LMS user"
         )
+
+    @pytest.mark.asyncio
+    async def test_skips_passback_when_total_zero(self):
+        """total=0 would send scoreMaximum=0, which AGS (Canvas/Moodle) rejects
+        with a 4xx → under raise_on_failure RQ would retry forever. Must skip
+        (no post_score) rather than push an invalid payload."""
+        from unittest.mock import AsyncMock
+        from app.routers.exam import _try_ags_grade_passback
+
+        select_chain = MagicMock()
+        select_chain.eq = MagicMock(return_value=select_chain)
+        select_chain.limit = MagicMock(return_value=select_chain)
+
+        async def _execute():
+            return MagicMock(data=[{"lti_user_id": "iss1|sub1"}])
+        select_chain.execute = _execute
+        table = MagicMock()
+        table.select = MagicMock(return_value=select_chain)
+
+        reg = MagicMock()
+        reg.client_id = "cid"
+        reg.auth_token_url = "https://lms/token"
+        reg.issuer = "iss1"
+
+        async def _get_token(**kwargs):
+            return "tok"
+        post_score_mock = AsyncMock(return_value=True)
+
+        with patch("app.routers.exam._atable", return_value=table), \
+             patch("app.lti.launch.get_lti_student_context",
+                   return_value={"iss": "iss1", "sub": "sub1",
+                                 "deployment_id": "d1", "client_id": "cid"}), \
+             patch("app.lti.launch.get_ags_context",
+                   return_value={"ags_lineitems": "https://lms/li",
+                                 "ags_scope": ["https://purl.imsglobal.org/spec/lti-ags/scope/score"]}), \
+             patch("app.lti.registration.find_registration", return_value=reg), \
+             patch("app.lti.ags.get_access_token", _get_token), \
+             patch("app.lti.ags.post_score", post_score_mock):
+            await _try_ags_grade_passback("STU001", 0, 0, 0.0, teacher_id="teacher-1")
+
+        post_score_mock.assert_not_called()

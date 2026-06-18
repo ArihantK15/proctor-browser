@@ -223,6 +223,7 @@
     "updated_at"
   ],
   "google_classroom_links": [
+    "course_work_id",
     "created_at",
     "exam_id",
     "google_course_id",
@@ -428,6 +429,8 @@
     "date_of_birth",
     "email",
     "full_name",
+    "google_course_id",
+    "google_user_id",
     "guardian_consent_denied_at",
     "guardian_consent_granted_at",
     "guardian_consent_requested_at",

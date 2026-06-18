@@ -200,6 +200,35 @@ async def list_students(creds: Credentials, course_id: str) -> list[dict]:
         return []
 
 
+async def create_coursework(creds: Credentials, course_id: str, title: str,
+                            max_points: float) -> Optional[str]:
+    """Create a graded ASSIGNMENT courseWork in a course; return its id or None.
+
+    Procta creates one assignment per linked exam (lazily, the first time a
+    grade is pushed) and patches each student's submission onto it. Creating a
+    PUBLISHED assignment auto-creates a studentSubmission for every assignee,
+    which push_grade then grades. Fail-soft: a creation failure must not break
+    exam submission — the score is still recorded in Procta.
+    """
+    try:
+        service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
+        body = {
+            "title": (title or "Procta Exam")[:3000],
+            "description": "Auto-created by Procta — exam scores are posted here.",
+            "workType": "ASSIGNMENT",
+            "state": "PUBLISHED",
+        }
+        if max_points and max_points > 0:
+            body["maxPoints"] = float(max_points)
+        created = service.courses().courseWork().create(
+            courseId=course_id, body=body,
+        ).execute()
+        return created.get("id")
+    except Exception as e:
+        logger.warning("[google_classroom] create coursework failed: %s", e)
+        return None
+
+
 async def push_grade(creds: Credentials, course_id: str, course_work_id: str,
                      user_id: str, score: float, max_score: float) -> bool:
     """Push a student's grade back to a Google Classroom course work item."""

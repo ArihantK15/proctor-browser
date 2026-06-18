@@ -15,9 +15,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@sentry/react": "^10.55.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "@sentry/react": "^10.58.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

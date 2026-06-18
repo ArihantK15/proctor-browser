@@ -484,12 +484,13 @@ async def _ws_cleanup():
                     dead.append(c)  # Client disconnected
             for c in dead:
                 clients.remove(c)
-            if dead:
-                next_count = max(_ws_conn_count.get(sid, 0) - len(dead), 0)
-                if next_count:
-                    _ws_conn_count[sid] = next_count
-                else:
-                    _ws_conn_count.pop(sid, None)
+            # Do NOT decrement _ws_conn_count here. As in _ws_broadcast, each
+            # connection's own handler finally calls _ws_unsubscribe exactly
+            # once — the single owner of the counter. A socket pruned here will
+            # also hit that finally, so decrementing in both places double-counts
+            # and drifts the per-session count below reality (leaking the
+            # MAX_WS_PER_SESSION cap). Pruning the clients list is enough to stop
+            # pinging the dead socket.
             if not clients:
                 _ws_clients.pop(sid, None)
                 _ws_conn_count.pop(sid, None)

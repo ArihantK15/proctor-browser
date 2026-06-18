@@ -35,7 +35,7 @@
 # (its retinaface_mnet_v2.onnx is SHA-locked to it) and cap the rest below the
 # next major so an API break can't slip in unnoticed. Keep in lockstep with
 # config.js#PIP_PACKAGES (the bundle installs from there).
-uniface==3.7.0
+uniface==3.7.1
 onnxruntime>=1.19.2,<2
 opencv-python>=4.13.0.92,<5
 numpy>=1.24.0,<3

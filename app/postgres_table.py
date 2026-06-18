@@ -6,6 +6,7 @@ paths should move to explicit repository functions.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import uuid
@@ -17,6 +18,11 @@ import asyncpg
 from . import db_context as _dbctx
 
 _pool: asyncpg.Pool | None = None
+# Guards pool creation so a burst of concurrent first-callers (e.g. the join
+# wave hitting before startup warm-up completed, or after a skipped startup
+# check) can't each run create_pool() and orphan all but the last pool —
+# leaking min_size connections per lost pool. Double-checked below.
+_pool_lock = asyncio.Lock()
 _IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 # Strict ISO-8601 date-time prefix: YYYY-MM-DD'T'HH:MM. Anything that
 # matches gets fed to fromisoformat() inside _SQL.add(); anything that
@@ -64,40 +70,45 @@ def _database_url() -> str:
 
 async def get_pool() -> asyncpg.Pool:
     global _pool
-    if _pool is None:
-        # Tuned defaults for production exam load (2026-05-22):
-        #
-        # min_size=20 keeps 20 warm connections so the first burst of
-        # the join wave (3000 students hitting exam_started within
-        # 120s) doesn't pay TCP+TLS+auth handshake latency. At 4
-        # uvicorn workers that's 80 connections held warm — well under
-        # postgres max_connections=200, leaves headroom for the worker
-        # containers + autosave.
-        #
-        # max_size=40 caps each uvicorn worker's pool. 4 workers × 40 =
-        # 160 max, again under max_connections=200.
-        # When DATABASE_URL points at pgbouncer (transaction pooling),
-        # we MUST disable asyncpg's prepared-statement cache — under
-        # transaction pooling each acquire may land on a different real
-        # backend, so a prepared statement set up on one backend isn't
-        # on the next. The complementary fix lives in docker-compose.yml
-        # on the pgbouncer service: SERVER_RESET_QUERY=DISCARD ALL +
-        # SERVER_RESET_QUERY_ALWAYS=1 ensures the reset query actually
-        # runs in transaction-pool mode (it's silently skipped by default
-        # — that was the cause of the "__asyncpg_stmt_1__ already exists"
-        # errors at 3000 VU on 2026-05-23).
-        pgbouncer_mode = os.environ.get("DATABASE_USE_PGBOUNCER", "").lower() in ("1", "true", "yes")
-        statement_cache_size = 0 if pgbouncer_mode else 100
+    if _pool is not None:
+        return _pool
+    async with _pool_lock:
+        # Double-check: another coroutine may have created the pool while we
+        # awaited the lock.
+        if _pool is None:
+            # Tuned defaults for production exam load (2026-05-22):
+            #
+            # min_size=20 keeps 20 warm connections so the first burst of
+            # the join wave (3000 students hitting exam_started within
+            # 120s) doesn't pay TCP+TLS+auth handshake latency. At 4
+            # uvicorn workers that's 80 connections held warm — well under
+            # postgres max_connections=200, leaves headroom for the worker
+            # containers + autosave.
+            #
+            # max_size=40 caps each uvicorn worker's pool. 4 workers × 40 =
+            # 160 max, again under max_connections=200.
+            # When DATABASE_URL points at pgbouncer (transaction pooling),
+            # we MUST disable asyncpg's prepared-statement cache — under
+            # transaction pooling each acquire may land on a different real
+            # backend, so a prepared statement set up on one backend isn't
+            # on the next. The complementary fix lives in docker-compose.yml
+            # on the pgbouncer service: SERVER_RESET_QUERY=DISCARD ALL +
+            # SERVER_RESET_QUERY_ALWAYS=1 ensures the reset query actually
+            # runs in transaction-pool mode (it's silently skipped by default
+            # — that was the cause of the "__asyncpg_stmt_1__ already exists"
+            # errors at 3000 VU on 2026-05-23).
+            pgbouncer_mode = os.environ.get("DATABASE_USE_PGBOUNCER", "").lower() in ("1", "true", "yes")
+            statement_cache_size = 0 if pgbouncer_mode else 100
 
-        _pool = await asyncpg.create_pool(
-            dsn=_database_url(),
-            min_size=int(os.environ.get("POSTGRES_POOL_MIN", "20")),
-            max_size=int(os.environ.get("POSTGRES_POOL_MAX", "40")),
-            command_timeout=float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "15")),
-            max_inactive_connection_lifetime=float(os.environ.get("POSTGRES_IDLE_LIFETIME", "60")),
-            timeout=float(os.environ.get("POSTGRES_CONNECT_TIMEOUT", "10")),
-            statement_cache_size=statement_cache_size,
-        )
+            _pool = await asyncpg.create_pool(
+                dsn=_database_url(),
+                min_size=int(os.environ.get("POSTGRES_POOL_MIN", "20")),
+                max_size=int(os.environ.get("POSTGRES_POOL_MAX", "40")),
+                command_timeout=float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "15")),
+                max_inactive_connection_lifetime=float(os.environ.get("POSTGRES_IDLE_LIFETIME", "60")),
+                timeout=float(os.environ.get("POSTGRES_CONNECT_TIMEOUT", "10")),
+                statement_cache_size=statement_cache_size,
+            )
     return _pool
 
 

@@ -206,6 +206,24 @@ def _isolate_shared_supabase():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_shared_cache():
+    """Reset the shared cache mock before EVERY test. Without this, a test that
+    sets mock_cache.get.return_value/side_effect (e.g. auth_lockout sets it to an
+    int) leaks that into later tests whose code reads the cache (e.g.
+    _get_teacher_by_id), surfacing as "'int' object has no attribute 'get'" 500s
+    under randomised order. Mirrors _isolate_shared_supabase."""
+    mock_cache.get.return_value = None
+    for _attr in ("get", "set", "delete", "delete_pattern", "set_live_frame"):
+        _m = getattr(mock_cache, _attr, None)
+        if _m is not None:
+            _m.side_effect = None
+    mock_cache.aget = AsyncMock(return_value=None)
+    mock_cache.aset = AsyncMock()
+    mock_cache.adelete = AsyncMock()
+    yield
+
+
 @pytest.fixture
 def supabase_mock():
     """Provides the mocked supabase client and resets it between tests."""

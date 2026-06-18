@@ -141,6 +141,47 @@ class TestDeleteExam:
         assert resp.status_code == 200
         assert resp.json().get("status") == "deleted"
 
+    def test_delete_exam_also_deletes_invites(self, client):
+        """Regression: deleting an exam must also delete its per-exam
+        student_invites, else they're orphaned (ghost lobby entry / inflated
+        registered counts)."""
+        from unittest.mock import patch as _mpatch, MagicMock
+        deleted_tables = []
+
+        def _atable(name):
+            chain = MagicMock()
+            chain.select.side_effect = lambda *a, **k: chain
+            chain.eq.side_effect = lambda *a, **k: chain
+            chain.in_.side_effect = lambda *a, **k: chain
+
+            def _delete(*a, **k):
+                deleted_tables.append(name)
+                return chain
+            chain.delete.side_effect = _delete
+
+            async def _execute():
+                r = MagicMock()
+                r.data = ([{"exam_id": "exam-1"}, {"exam_id": "exam-2"}]
+                          if name == "exam_config" else [])
+                r.count = 0
+                return r
+            chain.execute.side_effect = _execute
+            return chain
+
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.auth.admin_auth.require_reauth_or_403"), \
+             _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._cache"), \
+             _mpatch("app.services.admin_audit.log_admin_action"), \
+             _mpatch("app.routers.admin_exams._atable", side_effect=_atable):
+            resp = client.delete("/api/v1/admin/exams/exam-1",
+                                 headers=self.DEL_HEADERS)
+        assert resp.status_code == 200
+        assert "questions" in deleted_tables
+        assert "student_invites" in deleted_tables   # the orphan fix
+        assert "exam_config" in deleted_tables
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  POST /api/v1/admin/exams/pass-mark

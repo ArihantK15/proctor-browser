@@ -173,7 +173,11 @@ async def set_pass_mark(body: PassMarkIn, request: Request):
 @router.delete("/api/v1/admin/exams/{exam_id}")
 @limiter.limit("10/hour")
 async def delete_exam(exam_id: str, request: Request):
-    """Delete an exam and all its questions / sessions / invites.
+    """Delete an exam: its questions, per-exam invites, and config row.
+
+    Completed exam_sessions (results) are intentionally retained — their
+    scorecards fall back to the exam id for the title once exam_config is
+    gone; use the archive endpoint to hide an exam while keeping everything.
 
     Requires a fresh reauth_token (P1.2 — X-Reauth-Token header) on top
     of the usual access-token + ownership check. Exam deletion cascades
@@ -210,6 +214,13 @@ async def delete_exam(exam_id: str, request: Request):
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     await _atable("questions").delete()\
         .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    # Delete the per-exam invite rows too. Without this they're orphaned: the
+    # exam they point at is gone, yet they still count toward "registered"
+    # rosters and can surface as a ghost entry in a student's lobby.
+    inv_count = await _atable("student_invites").select("id", count="exact")\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
+    await _atable("student_invites").delete()\
+        .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
     try:
         await _atable("exam_config").delete()\
             .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
@@ -224,7 +235,8 @@ async def delete_exam(exam_id: str, request: Request):
         target_type="exam",
         target_id=exam_id,
         before_data=before.data[0] if before.data else None,
-        details={"questions_deleted": q_count.count or 0},
+        details={"questions_deleted": q_count.count or 0,
+                 "invites_deleted": inv_count.count or 0},
         request=request,
     )
     return {"status": "deleted", "exam_id": exam_id}

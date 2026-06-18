@@ -340,21 +340,21 @@ async def _ws_broadcast(session_id: str, frame_bytes: bytes):
     if dead:
         async with _ws_lock:
             clients = _ws_clients.get(session_id, [])
-            removed = 0
             for c in dead:
                 try:
                     clients.remove(c)
-                    removed += 1
                 except ValueError:
                     pass
             if not clients:
                 _ws_clients.pop(session_id, None)
-            if removed:
-                next_count = max(_ws_conn_count.get(session_id, 0) - removed, 0)
-                if next_count:
-                    _ws_conn_count[session_id] = next_count
-                else:
-                    _ws_conn_count.pop(session_id, None)
+            # NOTE: do NOT touch _ws_conn_count here. Every connection's own
+            # handler finally calls _ws_unsubscribe exactly once — that is the
+            # single owner of the counter. A dead socket detected here will also
+            # hit that finally, so decrementing in both places double-counts and
+            # drifts the per-session count below reality (which would let
+            # MAX_WS_PER_SESSION be exceeded and prematurely evict the live-frame
+            # timestamp). Pruning the clients list above is enough to stop
+            # sending to the dead socket immediately.
 
 
 _WS_CLEANUP_STARTED = False

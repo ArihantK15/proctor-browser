@@ -671,9 +671,15 @@ async def resolve_access_code(request: Request, body: ResolveAccessCodeIn):
     if not code:
         raise HTTPException(status_code=400, detail="Access code is required")
 
+    # access_code has no global uniqueness constraint (every demo exam uses
+    # "DEMO"; teachers may reuse codes), so a lookup can match multiple rows.
+    # Exclude archived exams — a deleted exam must not be registrable, mirroring
+    # the register_student exam_id fallback (line ~568) — and resolve any
+    # remaining collision deterministically to the most-recently-created active
+    # exam instead of whatever arbitrary row the DB returns first.
     result = await _atable("exam_config").select(
         "teacher_id, exam_id, exam_title, access_code, duration_minutes, starts_at, ends_at"
-    ).eq("access_code", code).execute()
+    ).eq("access_code", code).is_("archived_at", "null").order("created_at", desc=True).limit(1).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Invalid access code")
 

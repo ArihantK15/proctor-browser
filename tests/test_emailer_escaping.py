@@ -109,6 +109,40 @@ class TestCohortLinkEscaping:
         assert "<img src=x onerror" not in cap["html"]
 
 
+class TestTrialStartedEmail:
+    def _capture(self, **kwargs):
+        captured = {}
+
+        class _FakeBackend:
+            def send(self, *, to_email, to_name, subject, html, text):
+                captured.update(html=html, text=text, subject=subject)
+                return emailer.SendResult(ok=True, provider_msg_id="x")
+
+        with patch.object(emailer, "_pick_backend", return_value=_FakeBackend()):
+            res = emailer.send_trial_started_email(**kwargs)
+        captured["ok"] = res.ok
+        return captured
+
+    def test_sends_with_trial_details(self):
+        cap = self._capture(
+            to_email="t@x.test", to_name="Teach", plan="starter",
+            trial_end="July 02, 2026",
+            billing_url="https://app.procta.net/dashboard#tab-billing",
+        )
+        assert cap["ok"] is True
+        assert "July 02, 2026" in cap["html"]
+        assert "tab-billing" in cap["html"]
+
+    def test_name_is_escaped(self):
+        cap = self._capture(
+            to_email="t@x.test", to_name="<script>alert(1)</script>",
+            plan="starter", trial_end="July 02, 2026",
+            billing_url="https://app.procta.net/dashboard#tab-billing",
+        )
+        assert "<script>alert(1)" not in cap["html"]
+        assert "&lt;script&gt;" in cap["html"]
+
+
 class TestVerifyWebhookNoSecret:
     def test_unsigned_fails_closed_without_crashing(self, monkeypatch):
         monkeypatch.delenv("RESEND_WEBHOOK_SECRET", raising=False)

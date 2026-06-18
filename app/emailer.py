@@ -144,6 +144,45 @@ def send_cohort_link_email(
         return SendResult(ok=False, error=str(e))
 
 
+def send_trial_started_email(
+    *,
+    to_email: str,
+    to_name: str,
+    plan: str,
+    trial_end: str,
+    billing_url: str,
+) -> SendResult:
+    """Welcome a new teacher (billing owner) and tell them their 14-day trial
+    has started + when it ends. Never raises."""
+    name = to_name or "there"
+    plan_label = (plan or "Starter").capitalize()
+    html = (
+        f"<div style=\"font-family:system-ui,Arial,sans-serif;max-width:520px;margin:auto;color:#111\">"
+        f"<h2 style=\"margin:0 0 12px\">Your Procta free trial has started 🎉</h2>"
+        f"<p>Hi {_esc(name)}, welcome to Procta. Your <b>{_esc(plan_label)}</b> plan is on a "
+        f"<b>14-day free trial</b> — full access until <b>{_esc(trial_end)}</b>, no charge during the trial.</p>"
+        f"<p>Create an exam, invite or sync your students, and run a proctored session to see it in action.</p>"
+        f"<p style=\"margin:20px 0\"><a href=\"{_esc(billing_url)}\" "
+        f"style=\"background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none\">"
+        f"View plan &amp; billing</a></p>"
+        f"<p style=\"color:#666;font-size:13px\">You can upgrade, change plan, or add a payment method any "
+        f"time from the Billing tab in your dashboard.</p></div>"
+    )
+    text = (
+        f"Your Procta free trial has started.\n\n"
+        f"Hi {name}, your {plan_label} plan is on a 14-day free trial — full access until "
+        f"{trial_end}, no charge during the trial.\n\n"
+        f"View plan & billing: {billing_url}\n"
+    )
+    subject = "Your Procta 14-day free trial has started"
+    try:
+        backend = _pick_backend()
+        return backend.send(to_email=to_email, to_name=to_name, subject=subject, html=html, text=text)
+    except Exception as e:  # never leak exceptions to caller
+        log.exception("send_trial_started_email failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
 def _reset_backend_for_tests() -> None:
     """Compatibility hook for tests that swap email/webhook env vars."""
     return None

@@ -4183,6 +4183,12 @@ async function syncGoogleRoster(){
     msg += ` (${d.total} total in course).`;
     if(d.warning) msg += ` ⚠️ ${d.warning}`;
     resultEl.textContent = msg;
+    // The synced class becomes a cohort (students.batch) — refresh the batch
+    // pickers so it's immediately selectable in "Restrict to Batches/Cohorts"
+    // and the cohort-enrollment link without a page reload.
+    if((d.imported || d.updated) && typeof loadExamBatches === 'function'){
+      try{ loadExamBatches(); }catch(_){}
+    }
   }catch(e){ resultEl.textContent = 'Failed: '+e.message; }
 }
 

@@ -4177,7 +4177,12 @@ async function syncGoogleRoster(){
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    resultEl.textContent = `Imported ${d.imported} students (${d.total} total in course).`;
+    let msg = `Imported ${d.imported} student(s)`;
+    if(d.updated) msg += `, updated ${d.updated}`;
+    if(d.batch) msg += ` into cohort "${d.batch}"`;
+    msg += ` (${d.total} total in course).`;
+    if(d.warning) msg += ` ⚠️ ${d.warning}`;
+    resultEl.textContent = msg;
   }catch(e){ resultEl.textContent = 'Failed: '+e.message; }
 }
 

@@ -157,6 +157,22 @@ async def list_courses(creds: Credentials) -> list[dict]:
         return []
 
 
+async def get_course_name(creds: Credentials, course_id: str) -> str:
+    """Return a Google Classroom course's display name (or "" if unavailable).
+
+    Used to tag imported students with their cohort (students.batch) so a synced
+    roster is immediately usable for exam→batch assignment. Fail-soft: a missing
+    name must never break the roster import.
+    """
+    try:
+        service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
+        course = service.courses().get(id=course_id).execute()
+        return (course.get("name") or "").strip()
+    except Exception as e:
+        logger.warning("[google_classroom] get course name failed: %s", e)
+        return ""
+
+
 async def list_students(creds: Credentials, course_id: str) -> list[dict]:
     """List students enrolled in a Google Classroom course."""
     try:

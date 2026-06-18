@@ -172,7 +172,25 @@ async def _process_student_rows(
     if not validated:
         raise HTTPException(status_code=400, detail={"message": "No valid students in payload", "invalid": invalid})
 
-    await check_org_limits(teacher, delta=len(validated))
+    # Charge only genuinely-new students against the seat cap. Re-importing an
+    # existing roster (to update emails/batch labels) upserts-as-UPDATE and
+    # consumes no new seats — the DB quota trigger fires on INSERT only — so
+    # charging the pre-flight for the full validated count would falsely 403
+    # any teacher already at capacity who re-imports their roster. Identify
+    # which (roll_number, teacher_id) pairs already exist and subtract them.
+    val_rolls = [r["roll_number"] for r in validated]
+    existing_rolls: set[str] = set()
+    try:
+        existing = (await _atable("students").select("roll_number")
+                    .eq("teacher_id", tid).in_("roll_number", val_rolls)
+                    .execute()).data or []
+        existing_rolls = {str(r["roll_number"]) for r in existing}
+    except Exception:
+        # Fail safe toward enforcement: if the lookup fails, treat all rows as
+        # new (charge the full delta) rather than under-counting the cap.
+        logger.warning("admin_students: existing-roll lookup failed; charging full delta", exc_info=True)
+    net_new = sum(1 for r in validated if str(r["roll_number"]) not in existing_rolls)
+    await check_org_limits(teacher, delta=net_new)
 
     registered = 0
     skipped = 0

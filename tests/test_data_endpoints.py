@@ -308,6 +308,39 @@ class TestBulkRegistration:
             assert resp.status_code == 400
             assert "500" in resp.json()["detail"]
 
+    @pytest.mark.asyncio
+    async def test_reimport_of_existing_students_charges_no_new_seats(self):
+        """A re-import that updates existing roster rows must charge 0 new seats
+        against the org cap (it upserts-as-UPDATE; the DB quota trigger fires on
+        INSERT only). Otherwise a teacher at capacity could never re-import."""
+        import asyncio
+        from app.routers import admin_students as mod
+
+        rows = [{"roll_number": "R1", "full_name": "A", "email": "a@x.com"},
+                {"roll_number": "R2", "full_name": "B", "email": "b@x.com"}]
+
+        class _Chain:
+            def select(self, *a, **k): return self
+            def eq(self, *a, **k): return self
+            def in_(self, *a, **k): return self
+            def upsert(self, *a, **k): return self
+            async def execute(self):
+                # existing-roll lookup AND upserts both resolve to the two rows
+                return MagicMock(data=[{"roll_number": "R1"}, {"roll_number": "R2"}])
+
+        captured = {}
+
+        async def _check(teacher, delta=0):
+            captured["delta"] = delta
+            return {"max_students": 100}
+
+        with patch.object(mod, "_atable", lambda name: _Chain()), \
+             patch.object(mod, "check_org_limits", _check):
+            await mod._process_student_rows(
+                {"id": "t1", "org_id": "o1"}, rows, dry_run=False, send_invites=False)
+
+        assert captured["delta"] == 0   # both rolls already existed → 0 net-new
+
     def test_skips_invalid_entries(self, client):
         with admin_patch(), \
              patch("app.routers.admin_students.check_org_limits", return_value={"max_students": 999}), \

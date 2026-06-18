@@ -2348,7 +2348,7 @@ async def reauth(request: Request):
 # ─── Email-OTP 2FA ────────────────────────────────────────────────
 #
 # Replaced TOTP / Google Authenticator 2026-05-23. Rationale + plan
-# in HANDOFF.md. The flow:
+# in docs/archive/HANDOFF.md. The flow:
 #   1. User clicks Enable 2FA → POST /api/v1/auth/2fa/enable
 #      We require an active reauth_token (just confirmed password)
 #      AND a verified email. Sets email_2fa_enabled_at = now().

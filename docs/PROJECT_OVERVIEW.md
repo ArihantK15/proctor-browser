@@ -5,7 +5,7 @@
 > A complete walkthrough of what Procta is, how it was built, what it
 > costs to run, and where it goes next. Written for someone seeing the
 > project for the first time. Companion to the strategic audit in
-> `docs/STRATEGIC_AUDIT_2026-05-27.md` (commercial / fundability lens).
+> `docs/STRATEGIC_AUDIT_2026-06-14.md` (commercial / fundability lens).
 
 ---
 
@@ -323,7 +323,7 @@ These are technical-debt items I'm choosing not to fix yet, with explicit reason
 | Live-frame cache (3,500-student tuned) | `app/cache.py:set_live_frame` + `live_frame_stats` |
 | Schema history | `migrations/phase01_init.sql` → `migrations/phase71_*.sql` (chronological) |
 | Tests (pytest, 614) | `tests/test_*.py` — auth, billing, scope, roll-formats, privacy, … |
-| Strategic audit (commercial lens) | `docs/STRATEGIC_AUDIT_2026-05-27.md` |
+| Strategic audit (commercial lens) | `docs/STRATEGIC_AUDIT_2026-06-14.md` |
 | Operational deploy notes | `DEPLOY.md` |
 
 ---

@@ -4,7 +4,7 @@ Usage:
     if await teacher_wants(teacher_id, "security"):
         send_suspicious_login_email(...)
 
-Categorisation (see GAP_ANALYSIS_2026-06-12.md #28):
+Categorisation (see docs/archive/GAP_ANALYSIS_2026-06-12.md #28):
     billing          → payment-failure dunning
     security         → suspicious-login alerts
     student_activity → student-account-lifecycle notifications to teachers

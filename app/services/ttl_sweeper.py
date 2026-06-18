@@ -42,8 +42,15 @@ async def ttl_sweeper_loop() -> None:
 async def _sweep_once() -> int:
     """Invoke the SQL function and return the total rows deleted."""
     from ..postgres_table import get_pool
+    from .. import db_context as _dbctx
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        result = await conn.fetchval("SELECT public.sweep_transient_rows()")
+        # Cross-tenant cleanup must run privileged. Wrap in a transaction so the
+        # SET LOCAL context sticks, and force the system principal (no-op while
+        # RLS_SESSION_CONTEXT is off). Without it, sweep_transient_rows would
+        # delete 0 rows across every RLS-gated table under procta_app.
+        async with conn.transaction():
+            await _dbctx.apply_request_context(conn, force_system=True)
+            result = await conn.fetchval("SELECT public.sweep_transient_rows()")
     return int(result or 0)

@@ -136,3 +136,31 @@ async def apply_to_connection(conn, ctx: dict) -> None:
         ctx.get("role", ""), ctx.get("teacher_id", ""),
         ctx.get("org_id", ""), ctx.get("account_id", ""),
     )
+
+
+_SYSTEM_CTX = {"role": "system", "teacher_id": "", "org_id": "", "account_id": ""}
+
+
+async def apply_request_context(conn, *, force_system: bool = False) -> None:
+    """Apply the current tenant context to a RAW asyncpg connection.
+
+    Code paths that bypass ``PostgresTable.execute`` (direct ``pool.acquire()``
+    + ``conn.execute``/``fetchrow`` — e.g. multi-statement transactions the
+    PostgREST-shaped adapter can't express) MUST call this at the top of their
+    open transaction so DB-level RLS scopes them the same way the adapter does.
+    Without it, under the restricted ``procta_app`` role those queries carry NO
+    ``app.*`` context, ``app.is_privileged()`` is false, and the policies match
+    zero rows — silently breaking the operation at the RLS cutover.
+
+    Mirrors ``PostgresTable.execute``: no-op when ``RLS_SESSION_CONTEXT`` is off
+    (byte-identical to today), and defaults to the cross-tenant ``system``
+    principal when there is no request context (pre-auth signup, workers,
+    scripts). Pass ``force_system=True`` for background cross-tenant jobs (the
+    TTL sweeper) that must run privileged regardless of any ambient context.
+
+    MUST be called inside an open transaction (the GUCs are set LOCAL).
+    """
+    if not RLS_SESSION_CONTEXT:
+        return
+    ctx = dict(_SYSTEM_CTX) if force_system else (current_context() or _SYSTEM_CTX)
+    await apply_to_connection(conn, ctx)

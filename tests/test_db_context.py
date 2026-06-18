@@ -73,3 +73,54 @@ def test_flag_off_by_default():
     # RLS_SESSION_CONTEXT is evaluated at import; absent in the test env → False,
     # so the execute layer takes the byte-identical autocommit path.
     assert dc.RLS_SESSION_CONTEXT is False
+
+
+# ── apply_request_context (raw-asyncpg-path RLS context) ──────────────
+
+class _CapConn:
+    def __init__(self):
+        self.calls = []
+
+    async def execute(self, sql, *args):
+        self.calls.append(args)
+
+
+def test_apply_request_context_noop_when_disabled(monkeypatch):
+    _fresh()
+    monkeypatch.setattr(dc, "RLS_SESSION_CONTEXT", False)
+    conn = _CapConn()
+    dc.set_context(role="teacher", teacher_id="t1")
+    asyncio.run(dc.apply_request_context(conn))
+    assert conn.calls == []  # gated off → no GUCs emitted
+
+
+def test_apply_request_context_uses_current_context(monkeypatch):
+    _fresh()
+    monkeypatch.setattr(dc, "RLS_SESSION_CONTEXT", True)
+    conn = _CapConn()
+    dc.set_context(role="teacher", teacher_id="t1", org_id="o1")
+
+    async def _run():
+        await dc.apply_request_context(conn)
+    asyncio.run(_run())
+    assert len(conn.calls) == 1
+    role, teacher_id, org_id, account_id = conn.calls[0]
+    assert (role, teacher_id, org_id) == ("teacher", "t1", "o1")
+
+
+def test_apply_request_context_defaults_to_system_without_context(monkeypatch):
+    monkeypatch.setattr(dc, "RLS_SESSION_CONTEXT", True)
+    conn = _CapConn()
+    dc._ctx.set(None)  # clear any ambient context leaked from a prior test
+    asyncio.run(dc.apply_request_context(conn))  # no request context → system
+    assert conn.calls[0][0] == "system"
+
+
+def test_apply_request_context_force_system_overrides_request_context(monkeypatch):
+    _fresh()
+    monkeypatch.setattr(dc, "RLS_SESSION_CONTEXT", True)
+    conn = _CapConn()
+    dc.set_context(role="teacher", teacher_id="t1")  # would otherwise be teacher
+    asyncio.run(dc.apply_request_context(conn, force_system=True))
+    assert conn.calls[0][0] == "system"
+    assert conn.calls[0][1] == ""  # teacher_id blanked under system

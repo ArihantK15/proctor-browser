@@ -133,9 +133,14 @@ async def _claim_and_bump_cap_postgres(teacher_id: str, batch_size: int) -> tupl
     Returns ``(allowed, remaining_after_claim)``.
     """
     from .postgres_table import get_pool
+    from . import db_context as _dbctx
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # RLS: scope this raw transaction like PostgresTable does (no-op
+            # while the flag is off). invite_send_counters has RLS enabled, so
+            # without context the cap UPDATE would match 0 rows under procta_app.
+            await _dbctx.apply_request_context(conn)
             # Ensure today's counter row exists (no-op if a concurrent caller
             # already created it). Separate from the UPDATE so the UPDATE's
             # predicate does the cap enforcement under the row lock.

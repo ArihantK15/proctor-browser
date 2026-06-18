@@ -16,10 +16,26 @@ from app import postgres_table
 from app.services import ttl_sweeper
 
 
+class _Txn:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
 class _FakeConn:
     def __init__(self, ret):
         self._ret = ret
         self.queried = None
+        self.set_configs = []
+
+    def transaction(self):
+        return _Txn()
+
+    async def execute(self, sql, *args):
+        # set_config(...) emitted by apply_request_context lands here.
+        self.set_configs.append((sql, args))
 
     async def fetchval(self, sql):
         self.queried = sql
@@ -69,3 +85,27 @@ async def test_null_result_coerced_to_zero(monkeypatch):
 async def test_zero_sweep_returns_zero(monkeypatch):
     _patch_pool(monkeypatch, _FakeConn(0))
     assert await ttl_sweeper._sweep_once() == 0
+
+
+@pytest.mark.asyncio
+async def test_no_set_config_when_rls_disabled(monkeypatch):
+    from app import db_context
+    monkeypatch.setattr(db_context, "RLS_SESSION_CONTEXT", False)
+    conn = _FakeConn(5)
+    _patch_pool(monkeypatch, conn)
+    await ttl_sweeper._sweep_once()
+    assert conn.set_configs == []  # gated off → byte-identical to before
+
+
+@pytest.mark.asyncio
+async def test_applies_system_context_when_rls_enabled(monkeypatch):
+    from app import db_context
+    monkeypatch.setattr(db_context, "RLS_SESSION_CONTEXT", True)
+    conn = _FakeConn(5)
+    _patch_pool(monkeypatch, conn)
+    await ttl_sweeper._sweep_once()
+    # apply_request_context(force_system=True) → one set_config call, role=system
+    assert len(conn.set_configs) == 1
+    _sql, args = conn.set_configs[0]
+    assert "set_config" in _sql
+    assert args[0] == "system"  # app.role bound param

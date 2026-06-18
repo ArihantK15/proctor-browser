@@ -198,6 +198,7 @@ async def _create_teacher_signup_postgres_tx(
     transaction through the REST adapter, so it still uses compensating cleanup.
     """
     from ..postgres_table import get_pool
+    from .. import db_context as _dbctx
 
     pool = await get_pool()
     org_id = str(_uuid.uuid4())
@@ -209,6 +210,11 @@ async def _create_teacher_signup_postgres_tx(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # RLS: signup is pre-auth (no request context) → system principal,
+            # which is what phase128's organizations INSERT policy expects.
+            # No-op while RLS_SESSION_CONTEXT is off. Without it, these INSERTs
+            # into RLS-enabled tables would be rejected under procta_app.
+            await _dbctx.apply_request_context(conn)
             # All four conn.execute / conn.fetchrow calls in this
             # transaction pass user-supplied values via $N positional
             # parameters. The hardcoded literals ('starter', 'trialing',

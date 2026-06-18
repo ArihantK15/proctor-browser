@@ -356,6 +356,32 @@ class TestBulkRegistration:
             assert resp.status_code == 200
 
 
+class TestCsvImport:
+    def test_cp1252_encoded_csv_does_not_500(self, client):
+        """Excel-on-Windows CSVs are often cp1252, not UTF-8. A non-UTF-8 byte
+        (accented name) must not raise UnicodeDecodeError → 500; the decode
+        falls back to cp1252. dry_run avoids any DB writes."""
+        csv_bytes = "roll_number,full_name,email\nR1,José Núñez,jose@x.com\n".encode("cp1252")
+        with admin_patch():
+            resp = client.post(
+                "/api/v1/admin/students/import-csv",
+                files={"file": ("roster.csv", csv_bytes, "text/csv")},
+                data={"dry_run": "true"},
+                headers=admin_headers(),
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["would_register"] == 1
+
+    def test_build_column_map_aliases_and_required(self):
+        from app.routers.admin_students import _build_column_map
+        m = _build_column_map(["Roll No", "Name", "Email Address", "Phone"])
+        assert m["roll_number"] == "Roll No"
+        assert m["full_name"] == "Name"
+        assert m["email"] == "Email Address"
+        # missing a required column → None
+        assert _build_column_map(["Roll No", "Name"]) is None
+
+
 # ─── Save Answer ──────────────────────────────────────────────────────
 
 class TestSaveAnswer:

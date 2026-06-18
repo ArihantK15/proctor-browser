@@ -66,6 +66,51 @@ def _invalidate_billing_cache(org_id: str):
     _cache.delete(f"org_limits:{org_id}")
 
 
+async def _bump_coupon_redemption(coupon_code: str) -> None:
+    """Atomically increment a coupon's ``times_redeemed``, capped at
+    ``max_redemptions``. Best-effort — never raises into the caller.
+
+    Uses a single conditional UPDATE rather than read-modify-write: two
+    concurrent redemptions of the same code would otherwise both read
+    ``times_redeemed=N`` and both write ``N+1``, losing an increment and
+    letting a capped promo coupon be redeemed past its cap (validate_coupon
+    gates on ``times_redeemed < max_redemptions``). The predicate under the
+    row write-lock is the atomic primitive — same shape as
+    ``invites._claim_and_bump_cap_postgres``. The PostgresTable adapter can't
+    express ``col = col + 1``, so this uses a raw asyncpg connection.
+    """
+    try:
+        from ..postgres_table import get_pool
+        from .. import db_context as _dbctx
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                # RLS: scope this raw transaction like PostgresTable does
+                # (no-op while RLS_SESSION_CONTEXT is off). coupons is RLS-gated
+                # under procta_app; create_subscription runs under an
+                # authenticated billing-admin request, so the request context
+                # (or the system fallback) applies.
+                await _dbctx.apply_request_context(conn)
+                # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
+                new_count = await conn.fetchval(
+                    "UPDATE coupons SET times_redeemed = times_redeemed + 1 "
+                    "WHERE code = $1 "
+                    "AND (max_redemptions IS NULL OR times_redeemed < max_redemptions) "
+                    "RETURNING times_redeemed",
+                    coupon_code.lower(),
+                )
+        if new_count is None:
+            # Raced past the cap (or the code was deleted between validate and
+            # here): the Razorpay subscription already exists so the discount
+            # stands, but the counter stays accurate and the next
+            # validate_coupon correctly rejects further redemptions.
+            logger.warning(
+                "Coupon %s not incremented — already at its redemption cap "
+                "(concurrent race) or no longer exists.", coupon_code)
+    except Exception as e:
+        logger.warning("Failed to increment coupon redemption for %s: %s", coupon_code, e)
+
+
 @router.get("/api/v1/billing/plans")
 @limiter.limit("30/minute")
 async def list_plans(request: Request):
@@ -197,15 +242,9 @@ async def create_subscription(body: dict, request: Request):
             detail="Subscription was created by the payment provider, but could not be recorded. Please contact support.",
         )
 
-    # Increment coupon redemption after subscription is created.
+    # Increment coupon redemption after the subscription is created.
     if coupon_code:
-        try:
-            cur = await _atable("coupons").select("times_redeemed").eq("code", coupon_code.lower()).limit(1).execute()
-            if cur.data:
-                new_val = int(cur.data[0].get("times_redeemed", 0)) + 1
-                await _atable("coupons").update({"times_redeemed": new_val}).eq("code", coupon_code.lower()).execute()
-        except Exception as e:
-            logger.warning("Failed to increment coupon redemption for %s: %s", coupon_code, e)
+        await _bump_coupon_redemption(coupon_code)
 
     return result
 

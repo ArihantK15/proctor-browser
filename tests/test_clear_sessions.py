@@ -69,12 +69,17 @@ def _completed(key: str, roll: str, exam_id: str = "exam-A") -> dict:
 
 class _SupabaseStub:
     def __init__(self, in_progress=None, completed=None, violations=None,
-                 teachers=None):
+                 teachers=None, null_teacher_in_progress=None):
         self.in_progress = in_progress or []
         self.completed = completed or []
         self.violations = violations or []
         self.teachers = teachers or [{"id": "teacher-1", "email": "p@t.com"}]
+        # Orphan sessions with teacher_id IS NULL — partition_live_sessions
+        # surfaces these via its dedicated IS NULL query branch.
+        self.null_teacher_in_progress = null_teacher_in_progress or []
         self.deletes: list[tuple[str, dict]] = []
+        # Parallel record of which columns each delete filtered with IS NULL.
+        self.delete_is_null: list[tuple[str, set]] = []
 
     def __call__(self, table_name):
         chain = MagicMock()
@@ -112,6 +117,7 @@ class _SupabaseStub:
         def _execute():
             if chain._op == "delete":
                 self.deletes.append((table_name, dict(chain._eqs)))
+                self.delete_is_null.append((table_name, set(chain._is_null)))
                 return MagicMock(data=[])
             if table_name == "teachers":
                 return MagicMock(data=self.teachers)
@@ -120,13 +126,12 @@ class _SupabaseStub:
                 eid    = chain._eqs.get("exam_id")
                 tid    = chain._eqs.get("teacher_id")
                 if status == "in_progress":
-                    rows = list(self.in_progress)
                     if "teacher_id" in chain._is_null:
-                        rows = []
+                        rows = list(self.null_teacher_in_progress)
                     elif tid == "":
                         rows = []
                     else:
-                        rows = [r for r in rows if r.get("teacher_id") == tid]
+                        rows = [r for r in self.in_progress if r.get("teacher_id") == tid]
                     if eid:
                         rows = [r for r in rows if r.get("exam_id") == eid]
                     return MagicMock(data=rows)
@@ -292,6 +297,32 @@ class TestConfirmStepDeletes:
         ]
         assert "S_OLD" in deleted_session_keys
         assert "S_RECENT" not in deleted_session_keys
+
+    def test_null_teacher_orphan_session_is_actually_deleted(self, client, admin_headers):
+        """Regression: an orphan session with teacher_id IS NULL (surfaced by
+        partition_live_sessions' IS NULL branch) must be deleted with an
+        `IS NULL` filter, not `.eq("teacher_id", "")` — the latter matches no
+        row, silently skipping exactly the orphan the clear set out to remove."""
+        orphan = _sess("S_NULL", "ghost", hb_seconds_ago=999, teacher_id=None)
+        stub = _SupabaseStub(in_progress=[], null_teacher_in_progress=[orphan])
+        with patch.object(shared_supabase_mock(), "table") as mock_table, \
+             patch("app.dependencies._cache", None), \
+             patch("app.services.sessions._cache", None), \
+             patch("app.services.sessions.Path") as mock_path:
+            mock_table.side_effect = stub
+            mock_path.return_value.is_dir.return_value = False
+            mock_path.return_value.__truediv__.return_value.is_dir.return_value = False
+            resp = self._request_then_confirm(client, admin_headers, stub, {})
+        assert resp.status_code == 200, resp.text
+        # The exam_sessions delete for the orphan must filter teacher_id IS NULL
+        # and must NOT carry a teacher_id="" equality (which matched nothing).
+        sess_deletes = [(f, n) for (t, f), (_, n) in zip(stub.deletes, stub.delete_is_null)
+                        if t == "exam_sessions"]
+        assert sess_deletes, "no exam_sessions delete was issued for the orphan"
+        eqs, is_null = sess_deletes[0]
+        assert eqs.get("session_key") == "S_NULL"
+        assert "teacher_id" not in eqs            # not .eq("teacher_id", "")
+        assert "teacher_id" in is_null            # used IS NULL instead
 
     def test_include_active_deletes_everything_inprogress(self, client, admin_headers):
         stub = _SupabaseStub(in_progress=[

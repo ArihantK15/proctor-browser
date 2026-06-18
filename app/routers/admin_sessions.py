@@ -230,19 +230,27 @@ async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
         _admin_log.info("[ClearLive] teacher=%s protecting %d active session(s) from wipe",
                         tid, len(active))
 
+    def _scope_tid(q, sess_tid: str):
+        # partition_live_sessions deliberately includes orphan sessions whose
+        # teacher_id IS NULL (its _q_null branch). Those map to sess_tid="" here
+        # — and `.eq("teacher_id", "")` matches NO row (it's `= ''`, not
+        # `IS NULL`), so the clear would silently skip exactly the orphans it
+        # set out to remove (and the row-delete miss means the FK cascade to
+        # answers/violations never fires either). Match IS NULL for orphan rows;
+        # keep the teacher_id equality (cross-tenant TOCTOU defence) otherwise.
+        return q.is_("teacher_id", "null") if not sess_tid else q.eq("teacher_id", sess_tid)
+
     ans_deleted = viol_deleted = sess_deleted = ans_failures = viol_failures = sess_failures = 0
     for sk in session_keys:
         sk_tid = _sk_tid.get(sk, tid)
         try:
-            r = await _atable("answers").delete().eq("session_key", sk)\
-                .eq("teacher_id", sk_tid).execute()
+            r = await _scope_tid(_atable("answers").delete().eq("session_key", sk), sk_tid).execute()
             ans_deleted += len(r.data or [])
         except Exception as e:
             ans_failures += 1
             _admin_log.warning("[ClearLive] answer delete failed %s: %s", sk, e)
         try:
-            r = await _atable("violations").delete().eq("session_key", sk)\
-                .eq("teacher_id", sk_tid).execute()
+            r = await _scope_tid(_atable("violations").delete().eq("session_key", sk), sk_tid).execute()
             viol_deleted += len(r.data or [])
         except Exception as e:
             viol_failures += 1
@@ -250,8 +258,8 @@ async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
 
     for sk in session_keys:
         try:
-            r = await _atable("exam_sessions").delete().eq("session_key", sk)\
-                .eq("teacher_id", _sk_tid.get(sk, tid)).execute()
+            r = await _scope_tid(_atable("exam_sessions").delete().eq("session_key", sk),
+                                 _sk_tid.get(sk, tid)).execute()
             sess_deleted += len(r.data or [])
         except Exception as e:
             sess_failures += 1

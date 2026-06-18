@@ -403,6 +403,21 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
     }
     if existing_eid:
         sess_row["exam_id"] = existing_eid
+
+    # TOCTOU guard: the ownership read at the top of this handler is followed
+    # by a long stretch of work (violations/students/answers fetches,
+    # recalculate_score, compute_risk_score) before we persist. A student's
+    # own submission — or a concurrent admin force-submit — landing in that
+    # window would otherwise be clobbered by this reconstructed force-submit.
+    # Re-read status right before the write and bail if it already reached a
+    # result state. (upsert below stays an upsert so it still inserts the row
+    # for orphan/synthesized sessions that assert_session_owned returns without
+    # a real exam_sessions row; full atomicity would need a DB-level conditional
+    # upsert, but this collapses the practical race to a single statement.)
+    latest = (await _atable("exam_sessions").select("status")
+              .eq("session_key", session_id).limit(1).execute()).data
+    if latest and latest[0].get("status") in RESULT_STATUSES:
+        return {"status": "already_submitted"}
     await _atable("exam_sessions").upsert(sess_row).execute()
 
     if answers_map:

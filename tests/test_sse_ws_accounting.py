@@ -27,6 +27,11 @@ class _WS:
             raise RuntimeError("socket dead")
         self.sent.append(b)
 
+    async def send_text(self, t):
+        if self.fail:
+            raise RuntimeError("socket dead")
+        self.sent.append(t)
+
 
 @pytest.fixture(autouse=True)
 def _clean():
@@ -65,6 +70,27 @@ async def test_broadcast_does_not_double_decrement_conn_count():
     await sse._ws_unsubscribe(sid, alive)
     assert sid not in sse._ws_conn_count
     assert sid not in sse._ws_clients
+
+
+@pytest.mark.asyncio
+async def test_cleanup_ping_does_not_double_decrement_conn_count():
+    sid = "sess-3"
+    alive, dead = _WS(), _WS(fail=True)
+    sse._ws_conn_count[sid] = 2
+    await sse._ws_subscribe(sid, alive)
+    await sse._ws_subscribe(sid, dead)
+
+    # Cleanup pings every client; the dead socket's send_text fails → pruned.
+    await sse._ws_cleanup()
+
+    # Counter untouched by the prune; dead socket removed from the ping list.
+    assert sse._ws_conn_count[sid] == 2
+    assert dead not in sse._ws_clients[sid]
+    assert alive in sse._ws_clients[sid]
+
+    # The dead socket's finally → exactly one decrement.
+    await sse._ws_unsubscribe(sid, dead)
+    assert sse._ws_conn_count[sid] == 1
 
 
 @pytest.mark.asyncio

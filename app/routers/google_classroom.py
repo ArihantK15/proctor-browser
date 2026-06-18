@@ -207,16 +207,25 @@ async def google_sync_roster(body: dict, request: Request):
             skipped_no_email += 1
             continue
         roll = email.split("@")[0].upper()
-        existing = await _atable("students").select("id,batch").eq("roll_number", roll).eq("teacher_id", tid).limit(1).execute()
+        google_uid = (s.get("user_id") or "").strip()
+        existing = await _atable("students").select("id,batch,google_user_id").eq("roll_number", roll).eq("teacher_id", tid).limit(1).execute()
         if existing.data:
-            # Back-fill the cohort onto an already-imported student, but never
-            # clobber a batch the teacher set manually.
+            # Back-fill cohort + Google identity onto an already-imported
+            # student. Never clobber a batch the teacher set manually; the
+            # Google ids are safe to refresh (they identify the source course +
+            # directory user, needed for grade passback).
+            patch = {}
             if course_name and not (existing.data[0].get("batch") or "").strip():
+                patch["batch"] = course_name
+            if google_uid and not (existing.data[0].get("google_user_id") or "").strip():
+                patch["google_user_id"] = google_uid
+                patch["google_course_id"] = course_id
+            if patch:
                 try:
-                    await _atable("students").update({"batch": course_name}).eq("id", existing.data[0]["id"]).execute()
+                    await _atable("students").update(patch).eq("id", existing.data[0]["id"]).execute()
                     updated += 1
                 except Exception as e:
-                    logger.warning("[google] roster batch back-fill failed for %s: %s", mask_email(email), e)
+                    logger.warning("[google] roster back-fill failed for %s: %s", mask_email(email), e)
             continue
         try:
             row = {
@@ -227,6 +236,9 @@ async def google_sync_roster(body: dict, request: Request):
             }
             if course_name:
                 row["batch"] = course_name
+            if google_uid:
+                row["google_user_id"] = google_uid
+                row["google_course_id"] = course_id
             await _atable("students").insert(row).execute()
             imported += 1
         except Exception as e:

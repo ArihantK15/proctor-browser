@@ -204,6 +204,15 @@ async def _score_submission_async(
             )
         except Exception as e:
             logger.warning("[score_job] AGS passback failed for %s: %s", safe(session_key), safe(e))
+        # Google Classroom passback (best-effort; independent of AGS).
+        try:
+            from ..routers.exam import _try_google_grade_passback
+            await _try_google_grade_passback(
+                roll_number, server_score, server_total, exam_id,
+                teacher_id=str(teacher_id) if teacher_id else None,
+            )
+        except Exception as e:
+            logger.warning("[score_job] Google passback failed for %s: %s", safe(session_key), safe(e))
 
     logger.info("[score_job] %s scored: %d/%d (%s%%) risk=%d",
                 safe(session_key), server_score, server_total, pct, risk_score_val)

@@ -1308,6 +1308,104 @@ async def _try_ags_grade_passback(
             raise AgsTransientError(str(e)) from e
 
 
+async def _try_google_grade_passback(
+    roll_number: str,
+    score: int,
+    total: int,
+    exam_id: str,
+    *,
+    teacher_id: str | None = None,
+):
+    """Best-effort: push this student's score to the linked Google Classroom course.
+
+    Mirrors _try_ags_grade_passback but for Google Classroom. Silent no-op (not
+    a failure) whenever there's nothing to do: the student wasn't synced from
+    Classroom (no google_user_id), the exam isn't linked to a course, or the
+    teacher hasn't connected Google. Never raises into the submit path — a
+    Classroom hiccup must not fail exam submission; the score is already saved.
+
+    Tenancy: teacher_id is REQUIRED — roll_number is only unique per teacher, and
+    the Google token + course link are per-teacher.
+    """
+    if not teacher_id or not exam_id:
+        return
+    try:
+        student = (await _atable("students")
+            .select("google_user_id,google_course_id")
+            .eq("roll_number", roll_number)
+            .eq("teacher_id", str(teacher_id))
+            .limit(1)
+            .execute()).data
+        if not student or not (student[0].get("google_user_id") or "").strip():
+            return
+        google_user_id = student[0]["google_user_id"]
+        student_course_id = (student[0].get("google_course_id") or "").strip()
+
+        # The teacher's connected Google account.
+        tok = (await _atable("google_auth_tokens")
+            .select("token_json")
+            .eq("teacher_id", str(teacher_id))
+            .limit(1)
+            .execute()).data
+        if not tok:
+            return
+
+        # Which linked course's gradebook? Prefer the course the student was
+        # synced from; fall back to any course linked to this exam.
+        link_q = (_atable("google_classroom_links")
+            .select("id,google_course_id,course_work_id")
+            .eq("teacher_id", str(teacher_id))
+            .eq("exam_id", str(exam_id)))
+        if student_course_id:
+            link_q = link_q.eq("google_course_id", student_course_id)
+        link = (await link_q.limit(1).execute()).data
+        if not link:
+            return
+        link_row = link[0]
+        course_id = link_row["google_course_id"]
+
+        from ..services.crypto import decrypt_token
+        from ..services.google_classroom import (
+            _build_credentials, create_coursework, push_grade,
+        )
+        import json as _json
+        token_dict = _json.loads(decrypt_token(tok[0].get("token_json", "{}")) or "{}")
+        creds = _build_credentials(token_dict)
+        if not creds:
+            return
+
+        # Lazily create the assignment the first time we grade this exam.
+        # KNOWN LIMITATION: if two students submit the very first grades for a
+        # never-graded linked exam within the creation window, both see an empty
+        # course_work_id and each creates an assignment → grades split across
+        # duplicates (last writer wins the stored id). Harmless for the common
+        # case (assignment exists after the first push); a future hardening
+        # would create the assignment at link-exam time or claim it atomically.
+        course_work_id = (link_row.get("course_work_id") or "").strip()
+        if not course_work_id:
+            ex = (await _atable("exam_config")
+                .select("exam_title")
+                .eq("exam_id", str(exam_id))
+                .eq("teacher_id", str(teacher_id))
+                .limit(1)
+                .execute()).data
+            title = (ex[0].get("exam_title") if ex else "") or "Procta Exam"
+            course_work_id = await create_coursework(creds, course_id, title, float(total))
+            if not course_work_id:
+                return
+            await (_atable("google_classroom_links")
+                .update({"course_work_id": course_work_id})
+                .eq("id", link_row["id"])
+                .execute())
+
+        ok = await push_grade(creds, course_id, course_work_id, google_user_id,
+                              score=float(score), max_score=float(total))
+        if ok:
+            _exam_log.info("[GClass] Grade pushed for %s: %d/%d", safe(roll_number), score, total)
+    except Exception as e:
+        _exam_log.warning("[GClass] Grade passback failed for %s: %s", safe(roll_number), safe(e))
+
+
 def _async_scoring_enabled() -> bool:
     """Feature flag: when ON, /submit-exam returns 202 immediately and a
     background RQ job does scoring + risk + LMS passback. When OFF (default),
@@ -1671,6 +1769,17 @@ async def submit_exam(result: ResultIn, request: Request):
                 ))
         except Exception as e:
             _exam_log.warning("[AGS] inline grade passback failed for %s: %s",
+                              safe(result.session_id), safe(e))
+        # Google Classroom passback (best-effort, fire-and-forget). Independent
+        # of the LMS/AGS path — a student may be from Classroom, an LMS, both,
+        # or neither; each path no-ops when its context is absent.
+        try:
+            asyncio.create_task(_try_google_grade_passback(
+                trusted_roll, server_score, server_total, eid,
+                teacher_id=str(tid) if tid else None,
+            ))
+        except Exception as e:
+            _exam_log.warning("[GClass] inline grade passback failed for %s: %s",
                               safe(result.session_id), safe(e))
 
     resp = {"status": SessionStatus.SUBMITTED, "score": server_score,

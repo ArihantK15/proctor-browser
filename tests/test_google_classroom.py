@@ -109,6 +109,30 @@ async def test_get_course_name_failsoft(monkeypatch):
     assert await gc.get_course_name(creds=object(), course_id="c1") == ""
 
 
+# ── create_coursework ────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_create_coursework_returns_id(monkeypatch):
+    svc = MagicMock()
+    svc.courses.return_value.courseWork.return_value.create.return_value.execute.return_value = {"id": "cw99"}
+    monkeypatch.setattr(gc, "build", lambda *a, **k: svc)
+    cw = await gc.create_coursework(creds=object(), course_id="c1", title="Midterm", max_points=20)
+    assert cw == "cw99"
+    # maxPoints passed through when > 0
+    _, kwargs = svc.courses.return_value.courseWork.return_value.create.call_args
+    assert kwargs["body"]["maxPoints"] == 20.0
+    assert kwargs["body"]["workType"] == "ASSIGNMENT"
+    assert kwargs["body"]["state"] == "PUBLISHED"
+
+
+@pytest.mark.asyncio
+async def test_create_coursework_failsoft(monkeypatch):
+    svc = MagicMock()
+    svc.courses.return_value.courseWork.return_value.create.return_value.execute.side_effect = _http_error()
+    monkeypatch.setattr(gc, "build", lambda *a, **k: svc)
+    assert await gc.create_coursework(creds=object(), course_id="c1", title="X", max_points=10) is None
+
+
 # ── push_grade ───────────────────────────────────────────────────────
 
 def _submissions_mock(svc):

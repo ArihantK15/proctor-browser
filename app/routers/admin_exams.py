@@ -304,6 +304,14 @@ async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
     COPYABLE = [
         "duration_minutes",
         "shuffle_questions", "shuffle_options",
+        # Grading + proctoring settings. A duplicate should behave identically
+        # to its source, not silently reset to column defaults (e.g. pass_mark
+        # back to 40, sensitivity to 'balanced'). These columns were added to
+        # exam_config after the original 3-field copy list and never folded in.
+        "pass_mark",
+        "proctoring_sensitivity",
+        "phone_camera_enabled",
+        "audio_keywords", "audio_keywords_language",
     ]
     new_cfg = {
         "exam_id":    new_exam_id,

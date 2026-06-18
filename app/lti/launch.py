@@ -250,11 +250,23 @@ _LTI_ROLE_INSTRUCTOR = "http://purl.imsglobal.org/vocab/lis/v2/membership#Instru
 _LTI_ROLE_ADMIN = "http://purl.imsglobal.org/vocab/lis/v2/membership#Administrator"
 
 
-def _parse_lti_roles(roles: list[str]) -> str:
-    roles_lower = [r.lower() for r in roles]
-    if any(_LTI_ROLE_INSTRUCTOR.lower() in r for r in roles_lower):
+def _parse_lti_roles(roles) -> str:
+    # Roles SHOULD be an array of role URIs, but some platforms send a single
+    # string — normalise. Match instructor/admin across ALL the LTI role
+    # vocabularies (membership#, institution/person#, system/person#) plus the
+    # bare short names ("Instructor"/"Administrator") legacy platforms send,
+    # rather than only the exact membership URI. Real Canvas/Moodle launches
+    # carry several role URIs at once, so a suffix/short match is what's robust.
+    if isinstance(roles, str):
+        roles = [roles]
+    roles_lower = [str(r).strip().lower() for r in (roles or [])]
+
+    def _matches(token: str) -> bool:
+        return any(r.endswith("#" + token) or r == token for r in roles_lower)
+
+    if _matches("instructor") or _matches("teacher"):
         return "instructor"
-    if any(_LTI_ROLE_ADMIN.lower() in r for r in roles_lower):
+    if _matches("administrator") or _matches("admin"):
         return "admin"
     return "learner"
 
@@ -619,6 +631,7 @@ async def find_or_create_lti_user(claims: dict) -> dict:
         "https://purl.imsglobal.org/spec/lti/claim/roles", []
     )
     role = _parse_lti_roles(lti_roles_raw)
+    logger.info("lti: launch roles=%s -> role=%s", safe(str(lti_roles_raw)[:300]), role)
 
     context = claims.get(
         "https://purl.imsglobal.org/spec/lti/claim/context", {}

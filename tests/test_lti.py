@@ -1110,3 +1110,39 @@ class TestAgsHttpEndpoints:
     def test_nrps_membership_stub(self, client):
         resp = client.get("/lti/nrps/membership")
         assert resp.status_code == 501
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Role parsing robustness (membership / institution / system / short)
+# ═══════════════════════════════════════════════════════════════════
+class TestParseLtiRoles:
+    def _p(self):
+        from app.lti.launch import _parse_lti_roles
+        return _parse_lti_roles
+
+    def test_membership_instructor(self):
+        assert self._p()(["http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor"]) == "instructor"
+
+    def test_institution_and_system_instructor(self):
+        p = self._p()
+        assert p(["http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor"]) == "instructor"
+        assert p(["http://purl.imsglobal.org/vocab/lis/v2/system/person#Administrator"]) == "admin"
+
+    def test_short_names_and_string_input(self):
+        p = self._p()
+        assert p(["Instructor"]) == "instructor"
+        assert p("http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor") == "instructor"  # bare string
+
+    def test_learner_and_non_instructor_roles(self):
+        p = self._p()
+        assert p(["http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"]) == "learner"
+        # TeachingAssistant must NOT be misread as Instructor
+        assert p(["http://purl.imsglobal.org/vocab/lis/v2/membership#TeachingAssistant"]) == "learner"
+        assert p([]) == "learner"
+
+    def test_multiple_roles_picks_instructor(self):
+        p = self._p()
+        assert p([
+            "http://purl.imsglobal.org/vocab/lis/v2/membership#Learner",
+            "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor",
+        ]) == "instructor"

@@ -24,14 +24,38 @@ APP_DIR = os.path.join(os.path.dirname(__file__), "..")
 
 
 def _import_real_module(name):
-    """Import the real module from app/, bypassing any sys.modules mocks."""
+    """Import the real module from app/, bypassing any sys.modules mocks.
+
+    Restores the prior sys.modules entry AND the parent-package attribute
+    afterward, so the conftest mock is not left replaced for sibling tests
+    (which broke the suite under certain orderings — a Redis-mock-dependent
+    test running after this saw the REAL app.cache and failed open). The
+    caller keeps the real module via the returned reference, which is
+    self-contained (its functions use its own module globals).
+    """
     saved = sys.modules.pop(name, None)
+    parent_name, _, child = name.rpartition(".")
+    parent = sys.modules.get(parent_name) if parent_name else None
+    parent_had = parent is not None and child in vars(parent)
+    parent_attr = getattr(parent, child, None) if parent is not None else None
     sys.path.insert(0, APP_DIR)
     try:
         mod = importlib.import_module(name)
         return mod
     finally:
         sys.path.remove(APP_DIR) if APP_DIR in sys.path else None
+        if saved is not None:
+            sys.modules[name] = saved
+        else:
+            sys.modules.pop(name, None)
+        if parent is not None:
+            if parent_had:
+                setattr(parent, child, parent_attr)
+            else:
+                try:
+                    delattr(parent, child)
+                except AttributeError:
+                    pass
 
 
 # ─── AsyncTable (database.py) ────────────────────────────────────────

@@ -1285,6 +1285,15 @@ async def _try_ags_grade_passback(
                 raise AgsTransientError(f"access token unavailable for {iss}")
             return
 
+        # AGS requires scoreMaximum > 0 (Canvas/Moodle 4xx-reject a 0 maximum).
+        # A 0-total exam (e.g. only short-answer questions, none auto-graded yet)
+        # has no gradebook value to push — skip rather than send an invalid
+        # payload that the LMS rejects and, under raise_on_failure, RQ then
+        # retries forever (total never changes).
+        if float(total) <= 0:
+            _exam_log.info("[AGS] Skipping passback for %s — total is 0 (no auto-graded score)",
+                           safe(roll_number))
+            return
         ok = await post_score(
             lineitem_url=ags_ctx["ags_lineitems"],
             access_token=access_token,

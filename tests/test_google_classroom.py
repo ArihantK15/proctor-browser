@@ -93,6 +93,22 @@ async def test_list_students_tolerates_missing_email(monkeypatch):
     ]
 
 
+@pytest.mark.asyncio
+async def test_get_course_name_returns_name(monkeypatch):
+    svc = MagicMock()
+    svc.courses.return_value.get.return_value.execute.return_value = {"id": "c1", "name": "  Physics 101  "}
+    monkeypatch.setattr(gc, "build", lambda *a, **k: svc)
+    assert await gc.get_course_name(creds=object(), course_id="c1") == "Physics 101"
+
+
+@pytest.mark.asyncio
+async def test_get_course_name_failsoft(monkeypatch):
+    svc = MagicMock()
+    svc.courses.return_value.get.return_value.execute.side_effect = _http_error()
+    monkeypatch.setattr(gc, "build", lambda *a, **k: svc)
+    assert await gc.get_course_name(creds=object(), course_id="c1") == ""
+
+
 # ── push_grade ───────────────────────────────────────────────────────
 
 def _submissions_mock(svc):

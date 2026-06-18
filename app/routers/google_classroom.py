@@ -183,14 +183,19 @@ async def google_sync_roster(body: dict, request: Request):
     if not token_row.data:
         raise HTTPException(status_code=400, detail="Google Classroom not connected")
 
-    from ..services.google_classroom import _build_credentials, list_students
+    from ..services.google_classroom import _build_credentials, list_students, get_course_name
     token_dict = json.loads(decrypt_token(token_row.data[0].get("token_json", "{}")) or "{}")
     creds = _build_credentials(token_dict)
     if not creds:
         raise HTTPException(status_code=400, detail="Session expired")
 
+    # Tag imported students with the Google class name as their cohort (batch),
+    # so the synced roster is immediately usable for exam→batch assignment.
+    course_name = (await get_course_name(creds, course_id))[:120]
+
     students = await list_students(creds, course_id)
     imported = 0
+    updated = 0
     skipped_no_email = 0
     for s in students:
         email = (s.get("email") or "").strip()
@@ -202,8 +207,16 @@ async def google_sync_roster(body: dict, request: Request):
             skipped_no_email += 1
             continue
         roll = email.split("@")[0].upper()
-        existing = await _atable("students").select("id").eq("roll_number", roll).eq("teacher_id", tid).limit(1).execute()
+        existing = await _atable("students").select("id,batch").eq("roll_number", roll).eq("teacher_id", tid).limit(1).execute()
         if existing.data:
+            # Back-fill the cohort onto an already-imported student, but never
+            # clobber a batch the teacher set manually.
+            if course_name and not (existing.data[0].get("batch") or "").strip():
+                try:
+                    await _atable("students").update({"batch": course_name}).eq("id", existing.data[0]["id"]).execute()
+                    updated += 1
+                except Exception as e:
+                    logger.warning("[google] roster batch back-fill failed for %s: %s", mask_email(email), e)
             continue
         try:
             row = {
@@ -212,12 +225,20 @@ async def google_sync_roster(body: dict, request: Request):
                 "email": email,
                 "teacher_id": tid,
             }
+            if course_name:
+                row["batch"] = course_name
             await _atable("students").insert(row).execute()
             imported += 1
         except Exception as e:
             logger.warning("[google] roster import failed for %s: %s", mask_email(email), e)
 
-    resp = {"ok": True, "imported": imported, "total": len(students)}
+    resp = {
+        "ok": True,
+        "imported": imported,
+        "updated": updated,
+        "total": len(students),
+        "batch": course_name,
+    }
     if skipped_no_email:
         resp["skipped_no_email"] = skipped_no_email
         resp["warning"] = (

@@ -99,6 +99,51 @@ def send_invite_email(
         return SendResult(ok=False, error=str(e))
 
 
+def send_cohort_link_email(
+    *,
+    to_email: str,
+    to_name: str,
+    cohort_url: str,
+    download_url: str,
+    batch: str,
+    teacher_name: Optional[str] = None,
+) -> SendResult:
+    """Email a student their cohort-enrollment link (join a batch + download
+    Procta). One click enrolls them into the batch — standing access to every
+    exam assigned to it. Never raises — returns SendResult(ok=False) so the
+    caller can count failures and move on.
+    """
+    who = (teacher_name or "Your teacher")
+    name = to_name or "there"
+    cohort = batch or "your class"
+    html = (
+        f"<div style=\"font-family:system-ui,Arial,sans-serif;max-width:520px;margin:auto;color:#111\">"
+        f"<h2 style=\"margin:0 0 12px\">You've been added to {_esc(cohort)}</h2>"
+        f"<p>Hi {_esc(name)}, {_esc(who)} has enrolled you in <b>{_esc(cohort)}</b> on Procta. "
+        f"Click below to confirm your enrolment and set up your account — you'll then have access "
+        f"to every exam assigned to your class.</p>"
+        f"<p style=\"margin:20px 0\"><a href=\"{_esc(cohort_url)}\" "
+        f"style=\"background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none\">"
+        f"Join {_esc(cohort)}</a></p>"
+        f"<p>Then download the Procta app to take your exams: "
+        f"<a href=\"{_esc(download_url)}\">{_esc(download_url)}</a></p>"
+        f"<p style=\"color:#666;font-size:13px\">If the button doesn't work, paste this link into your browser:<br>"
+        f"{_esc(cohort_url)}</p></div>"
+    )
+    text = (
+        f"You've been added to {cohort} on Procta.\n\n"
+        f"{who} has enrolled you. Confirm your enrolment + set up your account:\n{cohort_url}\n\n"
+        f"Then download the Procta app to take your exams:\n{download_url}\n"
+    )
+    subject = f"You've been added to {cohort} on Procta"
+    try:
+        backend = _pick_backend()
+        return backend.send(to_email=to_email, to_name=to_name, subject=subject, html=html, text=text)
+    except Exception as e:  # never leak exceptions to caller
+        log.exception("send_cohort_link_email failed: %s", e)
+        return SendResult(ok=False, error=str(e))
+
+
 def _reset_backend_for_tests() -> None:
     """Compatibility hook for tests that swap email/webhook env vars."""
     return None

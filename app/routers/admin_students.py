@@ -707,6 +707,62 @@ async def list_student_batches(request: Request):
     return {"batches": batches}
 
 
+@router.post("/api/v1/admin/batches/email-cohort-link")
+@limiter.limit("6/minute")
+async def email_cohort_link(request: Request, body: dict = Body(...)):
+    """Email the cohort-enrollment link to every student in a batch.
+
+    Bridges roster-sync / batch-assignment to the student: each recipient gets a
+    one-click link to confirm enrolment (set up their account) + download Procta,
+    granting standing access to every exam assigned to that batch. Best-effort
+    per student (queued like every other email); reports counts.
+    """
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    batch = (body.get("batch") or "").strip()
+    if not batch:
+        raise HTTPException(status_code=400, detail="batch is required")
+
+    scope = await resolve_scope(teacher, request)
+    tids = await scope_to_teacher_ids(scope)
+    q = apply_teacher_scope(
+        _atable("students").select("email,full_name,teacher_id").eq("batch", batch), tids)
+    rows = (await q.execute()).data or []
+
+    from ..invites import _get_invite_base_url
+    from ..jobs import enqueue_job, send_cohort_link_email_job
+    from urllib.parse import quote
+    base = _get_invite_base_url()
+    download_url = f"{base}/download"
+    teacher_name = (teacher.get("full_name") or "").strip() or None
+
+    sent = 0
+    skipped_no_email = 0
+    seen: set[str] = set()
+    for r in rows:
+        email = (r.get("email") or "").strip()
+        if "@" not in email:
+            skipped_no_email += 1
+            continue
+        if email.lower() in seen:
+            continue
+        seen.add(email.lower())
+        # Link enrols under the student's own roster-owner teacher (matters for
+        # org admins viewing a co-teacher's cohort); falls back to the caller.
+        link_tid = str(r.get("teacher_id") or tid)
+        cohort_url = f"{base}/register?t={quote(link_tid)}&b={quote(batch)}"
+        enqueue_job(
+            send_cohort_link_email_job,
+            to_email=email, to_name=(r.get("full_name") or ""),
+            cohort_url=cohort_url, download_url=download_url,
+            batch=batch, teacher_name=teacher_name,
+            queue_name="default",
+        )
+        sent += 1
+
+    return {"ok": True, "sent": sent, "skipped_no_email": skipped_no_email, "total": len(rows)}
+
+
 @router.post("/api/v1/admin/register-students-bulk")
 @limiter.limit("10/minute")
 async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):

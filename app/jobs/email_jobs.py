@@ -62,6 +62,28 @@ def send_invite_email_job(
     }
 
 
+def send_cohort_link_email_job(
+    *,
+    to_email: str,
+    to_name: str,
+    cohort_url: str,
+    download_url: str,
+    batch: str,
+    teacher_name: Optional[str] = None,
+) -> dict:
+    from .. import emailer
+    result = emailer.send_cohort_link_email(
+        to_email=to_email, to_name=to_name, cohort_url=cohort_url,
+        download_url=download_url, batch=batch, teacher_name=teacher_name,
+    )
+    _maybe_raise(result, context=f"cohort-link to {to_email}")
+    return {
+        "ok": result.ok,
+        "provider_msg_id": getattr(result, "provider_msg_id", None),
+        "error": result.error,
+    }
+
+
 def send_controller_breach_notification_job(
     *,
     to_email: str,

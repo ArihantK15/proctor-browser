@@ -69,6 +69,46 @@ class TestSuspiciousLoginEscaping:
         assert "&lt;img" in cap["html"]
 
 
+class TestCohortLinkEscaping:
+    def _capture(self, **kwargs):
+        captured = {}
+
+        class _FakeBackend:
+            def send(self, *, to_email, to_name, subject, html, text):
+                captured["html"] = html
+                captured["text"] = text
+                captured["subject"] = subject
+                return emailer.SendResult(ok=True, provider_msg_id="x")
+
+        with patch.object(emailer, "_pick_backend", return_value=_FakeBackend()):
+            res = emailer.send_cohort_link_email(**kwargs)
+        captured["ok"] = res.ok
+        return captured
+
+    def test_sends_and_includes_link(self):
+        cap = self._capture(
+            to_email="s@x.test", to_name="Sam",
+            cohort_url="https://app.procta.net/register?t=T1&b=Algebra",
+            download_url="https://app.procta.net/download",
+            batch="Algebra", teacher_name="Mr A",
+        )
+        assert cap["ok"] is True
+        assert "register?t=T1" in cap["html"]
+        assert "https://app.procta.net/download" in cap["html"]
+
+    def test_malicious_batch_and_teacher_are_escaped(self):
+        cap = self._capture(
+            to_email="s@x.test", to_name="<b>x</b>",
+            cohort_url="https://app.procta.net/register?t=T1&b=x",
+            download_url="https://app.procta.net/download",
+            batch="<script>alert(1)</script>",
+            teacher_name="<img src=x onerror=alert(1)>",
+        )
+        assert "<script>alert(1)" not in cap["html"]
+        assert "&lt;script&gt;" in cap["html"]
+        assert "<img src=x onerror" not in cap["html"]
+
+
 class TestVerifyWebhookNoSecret:
     def test_unsigned_fails_closed_without_crashing(self, monkeypatch):
         monkeypatch.delenv("RESEND_WEBHOOK_SECRET", raising=False)

@@ -55,6 +55,30 @@ class TestStudentSearch:
             assert resp["total"] == 0
             assert resp["students"] == []
 
+    def test_comma_in_query_is_sanitized(self):
+        """A comma in the search term must not leak into the PostgREST or-grammar
+        value (it would split the value across clauses → malformed col.op.value
+        pieces → 500). The 3-column expr must have exactly its 2 grammar commas."""
+        captured = {}
+        students_mock = make_async_mock([])
+
+        def _capture_or(expr):
+            captured["expr"] = expr
+            return students_mock
+        students_mock.or_ = MagicMock(side_effect=_capture_or)
+
+        def _atable(name):
+            return students_mock if name == "students" else make_async_mock([])
+
+        with patch("app.routers.admin_students._atable", _atable), \
+             patch("app.routers.admin_students.require_admin") as mock_admin:
+            mock_admin.return_value = {"id": "t1", "full_name": "Test"}
+            asyncio.run(search_students(self._make_request(), q="smith, john"))
+
+        assert "expr" in captured, "or_() was not called"
+        assert captured["expr"].count(",") == 2          # 3 clauses, no extra comma
+        assert "smith, john" not in captured["expr"]     # raw comma sanitized out
+
 
 class TestStudentHistory:
     """GET /api/v1/student-history/{roll_number} — detailed exam history."""

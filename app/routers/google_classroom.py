@@ -30,11 +30,12 @@ async def google_auth(request: Request):
     from ..services.google_classroom import get_authorization_url, is_configured
     if not is_configured():
         return {"error": "Google Classroom is not configured. Set GOOGLE_CLASSROOM_CLIENT_ID and GOOGLE_CLASSROOM_CLIENT_SECRET."}
-    url = get_authorization_url(state)
-    # Store state in cache/pre-session for verification on return
+    url, code_verifier = get_authorization_url(state)
+    # Store state (+ the PKCE verifier) for verification/replay on return.
     await _atable("google_oauth_states").insert({
         "state": state,
         "teacher_id": tid,
+        "code_verifier": code_verifier,
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
     }).execute()
     return {"auth_url": url}
@@ -57,9 +58,9 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
     state_row = stored.data[0]
     teacher_id = state_row.get("teacher_id", "")
 
-    # Exchange code for tokens
+    # Exchange code for tokens (replaying the PKCE verifier captured at /auth)
     from ..services.google_classroom import exchange_code
-    token_data = exchange_code(code)
+    token_data = exchange_code(code, code_verifier=state_row.get("code_verifier"))
     if not token_data:
         return HTMLResponse("<html><body><h3>Failed to authenticate with Google. Please try again.</h3></body></html>")
 

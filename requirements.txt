@@ -26,7 +26,13 @@ qrcode>=8.0
 # with ModuleNotFoundError. Adding here to keep the build reproducible.
 python-json-logger>=4.1.0
 
+# google-auth-oauthlib provides the OAuth flow; google-api-python-client
+# provides googleapiclient.discovery (build) + googleapiclient.errors, which
+# app/services/google_classroom.py imports at module top. It is NOT a
+# transitive dep of google-auth-oauthlib, so omitting it 500'd every Google
+# Classroom endpoint (ModuleNotFoundError on the first lazy service import).
 google-auth-oauthlib>=1.4.0
+google-api-python-client>=2.100.0
 
 pillow>=12.2.0
 

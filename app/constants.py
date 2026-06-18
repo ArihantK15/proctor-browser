@@ -178,6 +178,12 @@ _CORS_DEFAULT_ORIGINS = [
     "http://localhost",
     "http://localhost:5173",
     "https://app.procta.net",
+    # Marketing site posts signup/login to the API cross-origin (it's a
+    # separate origin from the app). Without these the browser blocks the
+    # preflight ("No Access-Control-Allow-Origin") and NO new teacher can
+    # sign up from the marketing site.
+    "https://www.procta.net",
+    "https://procta.net",
     # Electron desktop app (≥v2.3.14) — custom protocol window origins.
     "procta-lobby://lobby",  # lobby window
     "procta-lobby://exam",   # exam/renderer window (d34926a)

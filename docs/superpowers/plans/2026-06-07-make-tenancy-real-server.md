@@ -447,7 +447,7 @@ Expected: remaining `.eq("teacher_id", ...)` are only on **writes** (e.g. `email
 - [ ] **Step 3: Run the existing tenancy audit script if present**
 
 Run: `cd /Users/arihantkaul/proctored-browser && ls scripts/audit_tenancy.py 2>/dev/null && echo "audit script present (DB-connected; run per runbook)" || echo "no audit script"`
-(Informational — the script needs a live `DATABASE_URL` per `docs/TENANCY_HARDENING_RUNBOOK.md`; do not run against prod from here.)
+(Informational — the script needs a live `DATABASE_URL` per `docs/archive/TENANCY_HARDENING_RUNBOOK.md`; do not run against prod from here.)
 
 ---
 

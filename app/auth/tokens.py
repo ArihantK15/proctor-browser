@@ -296,15 +296,17 @@ def issue_student_auth_token(account: dict) -> str:
 # ─── Special-purpose token generators ───────────────────────────
 
 def issue_email_verify_token(user_id: str, email: str, kind: str = "teacher") -> str:
+    # user_id may arrive as a uuid.UUID (Postgres backend returns native UUIDs);
+    # json/jwt can't serialize it, so coerce to str (was a hard 500 on signup).
     return jwt.encode({
-        "scope": "email_verify", "uid": user_id, "email": email, "kind": kind,
+        "scope": "email_verify", "uid": str(user_id), "email": email, "kind": kind,
         "exp": datetime.now(timezone.utc) + timedelta(hours=24),
     }, EMAIL_VERIFY_SIGNING_KEY, algorithm="HS256")
 
 
 def issue_reauth_token(user_id: str) -> str:
     return jwt.encode({
-        "scope": "reauth", "uid": user_id,
+        "scope": "reauth", "uid": str(user_id),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
     }, REAUTH_SIGNING_KEY, algorithm="HS256")
 

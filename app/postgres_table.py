@@ -7,6 +7,7 @@ paths should move to explicit repository functions.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import uuid
@@ -150,6 +151,14 @@ class _SQL:
     def add(self, value: Any) -> str:
         if isinstance(value, uuid.UUID):
             value = str(value)
+        # asyncpg's default json/jsonb codec expects a JSON string, not a
+        # Python dict — a raw dict raises "expected str, got dict" (this hit
+        # auth_events.meta on signup). Serialize dicts here so every jsonb
+        # column works without per-callsite json.dumps. (Callers that already
+        # pass a JSON string are unaffected; lists are left alone because
+        # text[]/array columns legitimately bind Python lists.)
+        elif isinstance(value, dict):
+            value = json.dumps(value)
         # asyncpg's prepared-statement parameter binding rejects ISO 8601
         # strings as values for timestamptz columns — it requires a real
         # datetime instance. The legacy Supabase REST adapter tolerated

@@ -564,10 +564,19 @@ async def search_students(request: Request, q: str = "", batch: str = "",
     if tids is not None:
         query = query.in_("teacher_id", tids) if tids else query.eq("teacher_id", "__none__")
     if q:
-        q_upper = q.strip().upper()
-        query = query.or_(
-            f"roll_number.ilike.*{q}*,full_name.ilike.*{q}*,email.ilike.*{q}*"
-        )
+        # Strip the PostgREST or-grammar clause separator (",") from the search
+        # term before interpolating. A comma in the search box would otherwise
+        # split the value across clauses, producing malformed `col.op.value`
+        # pieces that _compile_or rejects — a 500 on any comma-containing search.
+        # ("." is safe: it only separates col.op from the value, and q sits in
+        # the value position where split(".", 2) keeps the remainder intact;
+        # values are parameterized and column names validated, so this is a
+        # robustness fix, not a SQLi/cross-tenant one.)
+        q_clean = q.strip().replace(",", " ").strip()
+        if q_clean:
+            query = query.or_(
+                f"roll_number.ilike.*{q_clean}*,full_name.ilike.*{q_clean}*,email.ilike.*{q_clean}*"
+            )
     # Cohort/batch filter (gap #59). Exact match on the stored label.
     batch_filter = (batch or "").strip()
     if batch_filter:

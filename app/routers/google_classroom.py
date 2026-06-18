@@ -191,10 +191,17 @@ async def google_sync_roster(body: dict, request: Request):
 
     students = await list_students(creds, course_id)
     imported = 0
+    skipped_no_email = 0
     for s in students:
-        email = s.get("email", "")
+        email = (s.get("email") or "").strip()
         name = s.get("name", "")
-        roll = email.split("@")[0].upper() if "@" in email else email[:20]
+        # Roll number is derived from the email — without one we can't create a
+        # usable roster entry. This happens when the classroom.profile.emails
+        # scope wasn't granted; surface it so the teacher can reconnect.
+        if "@" not in email:
+            skipped_no_email += 1
+            continue
+        roll = email.split("@")[0].upper()
         existing = await _atable("students").select("id").eq("roll_number", roll).eq("teacher_id", tid).limit(1).execute()
         if existing.data:
             continue
@@ -210,4 +217,11 @@ async def google_sync_roster(body: dict, request: Request):
         except Exception as e:
             logger.warning("[google] roster import failed for %s: %s", mask_email(email), e)
 
-    return {"ok": True, "imported": imported, "total": len(students)}
+    resp = {"ok": True, "imported": imported, "total": len(students)}
+    if skipped_no_email:
+        resp["skipped_no_email"] = skipped_no_email
+        resp["warning"] = (
+            f"{skipped_no_email} student(s) had no readable email — grant the "
+            "'See student email addresses' permission and reconnect Google Classroom."
+        )
+    return resp

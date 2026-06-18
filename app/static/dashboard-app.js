@@ -7669,6 +7669,25 @@ async function copyCohortLink(){
   if(pv) pv.textContent = 'Copied: ' + url;
 }
 
+async function emailCohortLink(){
+  const b = document.getElementById('cohort-link-batch-select').value;
+  if(!b){ showModal('Pick a batch first.'); return; }
+  if(!(await appConfirm(`Email the cohort enrolment link to every student in "${b}"? They'll get a join-link + download.`, 'Email cohort link', {okText:'Send'}))) return;
+  const pv = document.getElementById('cohort-link-preview');
+  if(pv) pv.textContent = 'Sending…';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/batches/email-cohort-link`, {
+      method:'POST', body: JSON.stringify({batch: b}),
+    });
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(_detailText(d,`HTTP ${r.status}`)); }
+    const d = await r.json();
+    let msg = `Sent to ${d.sent} student(s) in "${b}"`;
+    if(d.skipped_no_email) msg += ` (${d.skipped_no_email} skipped — no email)`;
+    msg += '.';
+    if(pv) pv.textContent = msg;
+  }catch(e){ if(pv) pv.textContent = 'Failed: ' + e.message; }
+}
+
 // Load groups when tools tab opens or exam switches
 const _origSwitchTab = switchTab;
 switchTab = function(tab){

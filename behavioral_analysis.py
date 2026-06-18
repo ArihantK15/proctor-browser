@@ -242,7 +242,15 @@ def match_sustained_offtask(buffer: SignalBuffer, lookback_secs: float = 60.0, f
         if entry.get("gaze_away", False) or entry.get("head_turned", False):
             offtask_frames += 1
 
-    cumulative_secs = offtask_frames / fps
+    # Derive off-task seconds from the off-task FRACTION × the actual window
+    # span (timestamps), NOT offtask_frames / fps. The capture rate is throttled
+    # dynamically by the hardware governor (proctor.py), and the engine's fps is
+    # fixed at construction — so frame_count / fps mis-scales this cumulative
+    # duration, under-counting at the throttled rate (e.g. ~3x at 5fps vs the
+    # assumed 15) exactly when the machine is struggling. Timestamps make it
+    # frame-rate-independent.
+    span = entries[-1]["t"] - entries[0]["t"]
+    cumulative_secs = (offtask_frames / len(entries)) * span if span > 0 else 0.0
     threshold = 15.0
 
     if cumulative_secs >= threshold:

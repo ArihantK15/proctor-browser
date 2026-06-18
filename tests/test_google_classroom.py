@@ -74,6 +74,25 @@ async def test_list_students_shapes_rows(monkeypatch):
     assert rows == [{"user_id": "u1", "email": "s@x.test", "name": "Sam"}]
 
 
+@pytest.mark.asyncio
+async def test_list_students_tolerates_missing_email(monkeypatch):
+    # rosters.readonly without classroom.profile.emails omits emailAddress —
+    # must NOT KeyError (was a hard 500 on sync-roster). Blank email instead.
+    svc = MagicMock()
+    svc.courses.return_value.students.return_value.list.return_value.execute.return_value = {
+        "students": [
+            {"userId": "u1", "profile": {"name": {"fullName": "No Email"}}},
+            {"userId": "u2", "profile": {"emailAddress": "s@x.test", "name": {"fullName": "Sam"}}},
+        ]
+    }
+    monkeypatch.setattr(gc, "build", lambda *a, **k: svc)
+    rows = await gc.list_students(creds=object(), course_id="c1")
+    assert rows == [
+        {"user_id": "u1", "email": "", "name": "No Email"},
+        {"user_id": "u2", "email": "s@x.test", "name": "Sam"},
+    ]
+
+
 # ── push_grade ───────────────────────────────────────────────────────
 
 def _submissions_mock(svc):

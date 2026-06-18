@@ -25,6 +25,11 @@ _GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_CLASSROOM_REDIRECT_URI",
 _GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/classroom.courses.readonly",
     "https://www.googleapis.com/auth/classroom.rosters.readonly",
+    # Required to read student email addresses — rosters.readonly alone returns
+    # the student record WITHOUT profile.emailAddress, and the roster import
+    # derives the roll number from the email. Without this scope sync-roster
+    # gets no usable identity for any student.
+    "https://www.googleapis.com/auth/classroom.profile.emails",
     "https://www.googleapis.com/auth/classroom.coursework.students",
     "https://www.googleapis.com/auth/classroom.coursework.me",
 ]
@@ -160,13 +165,22 @@ async def list_students(creds: Credentials, course_id: str) -> list[dict]:
             courseId=course_id, pageSize=200
         ).execute()
         students = result.get("students", [])
-        return [
-            {"user_id": s["userId"], "email": s["profile"]["emailAddress"],
-             "name": s["profile"]["name"]["fullName"]}
-            for s in students
-        ]
+        out = []
+        for s in students:
+            profile = s.get("profile", {}) or {}
+            out.append({
+                "user_id": s.get("userId", ""),
+                # emailAddress is only present when the classroom.profile.emails
+                # scope was granted; tolerate its absence instead of KeyError-ing.
+                "email": profile.get("emailAddress", ""),
+                "name": (profile.get("name", {}) or {}).get("fullName", ""),
+            })
+        return out
     except HttpError as e:
         logger.warning("[google_classroom] list students failed: %s", e)
+        return []
+    except Exception as e:  # malformed profile payloads, etc. — never 500 the caller
+        logger.warning("[google_classroom] list students parse failed: %s", e)
         return []
 
 

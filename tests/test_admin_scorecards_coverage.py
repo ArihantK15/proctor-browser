@@ -148,6 +148,53 @@ class TestEmailScorecards:
         body = resp.json()
         assert body["skipped_no_email"] == 1
 
+    def test_enqueue_failure_rolls_back_claim(self, client):
+        """If enqueue fails after the claim, scorecard_emailed_at must be reset
+        to None so the scorecard can be retried without a blanket resend_all —
+        otherwise it's marked sent-but-never-delivered and silently lost."""
+        from unittest.mock import MagicMock
+        sm = shared_supabase_mock()
+        exam_session_updates = []
+        data_map = {
+            "teachers": [TEACHER],
+            "exam_sessions": [self.SESSION],
+            "student_invites": [{"roll_number": "R001", "email": "alice@test.com"}],
+            "students": [],
+        }
+
+        def _side(name):
+            m = MagicMock()
+            for attr in ("select", "eq", "neq", "is_", "in_", "order", "limit",
+                         "single", "range", "insert", "upsert", "update", "delete",
+                         "gte", "lte", "gt", "lt", "like", "count"):
+                getattr(m, attr).return_value = m
+            if name == "exam_sessions":
+                def _update(payload, *a, **k):
+                    exam_session_updates.append(payload)
+                    return m
+                m.update.side_effect = _update
+
+            async def _execute():
+                return MagicMock(data=data_map.get(name, []))
+            m.execute = _execute
+            return m
+
+        with patch.object(sm, "table", side_effect=_side), \
+             patch("app.routers.admin_scorecards.enqueue_job",
+                   side_effect=RuntimeError("rq down")):
+            resp = client.post(
+                "/api/v1/admin/exams/exam-1/email-scorecards",
+                json={},
+                headers=_admin_headers(),
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["failed"] == 1
+        assert body["sent"] == 0
+        # the claim's emailed_at=now was rolled back to None
+        assert any(p.get("scorecard_emailed_at") is None for p in exam_session_updates), \
+            exam_session_updates
+
     def test_resend_all_overrides_already_emailed(self, client):
         session_emailed = dict(self.SESSION)
         session_emailed["scorecard_emailed_at"] = "2025-06-01T00:00:00Z"

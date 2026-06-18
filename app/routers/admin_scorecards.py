@@ -708,6 +708,18 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
     skipped_no_email = 0
     failures: list[dict] = []
 
+    async def _release_claim(sid: str, owner_tid: str) -> None:
+        """Re-open a claimed-but-unsent scorecard so it can be retried without a
+        blanket resend_all. The claim sets scorecard_emailed_at=now BEFORE the
+        email is enqueued/sent; if that step fails, leaving the timestamp set
+        would permanently mark the scorecard 'sent' (future non-resend runs skip
+        it), silently losing it. Best-effort rollback to NULL."""
+        try:
+            await _atable("exam_sessions").update({"scorecard_emailed_at": None})\
+                .eq("session_key", sid).eq("teacher_id", owner_tid).execute()
+        except Exception:
+            _admin_log.warning("[email-scorecards] claim rollback failed for %s", sid)
+
     for sess in sessions:
         sid = sess["session_key"]
         roll = str(sess.get("roll_number") or "").strip().upper()
@@ -725,6 +737,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             failures.append({"roll": roll, "reason": "no email on file"})
             continue
 
+        did_claim = False
         if not resend_all:
             from ..database import is_postgres_backend
             if is_postgres_backend():
@@ -744,6 +757,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             if not claimed:
                 already_sent += 1
                 continue
+            did_claim = True
 
         try:
             job_result = enqueue_job(
@@ -760,6 +774,9 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             # One bad session must not 500 the whole batch (the endpoint had no
             # error handling — a single enqueue/job failure took the lot down).
             # Record it and log the traceback so it's diagnosable next time.
+            # Roll the claim back so this scorecard can be retried without a
+            # blanket resend_all (the claim already marked it emailed=now).
+            await _release_claim(sid, owner_tid)
             failed += 1
             failures.append({"roll": roll, "reason": f"enqueue failed: {e}"})
             _admin_log.error("[email-scorecards] enqueue failed for %s: %s",
@@ -770,6 +787,9 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
         elif job_result.get("ok"):
             sent += 1
         else:
+            # Inline send (RQ disabled) reported failure — re-open the claim so
+            # a retry isn't blocked by the now-set emailed_at timestamp.
+            await _release_claim(sid, owner_tid)
             failed += 1
             failures.append({"roll": roll, "reason": job_result.get("error", "send failed")})
 

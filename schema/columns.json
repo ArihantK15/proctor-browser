@@ -230,6 +230,7 @@
     "teacher_id"
   ],
   "google_oauth_states": [
+    "code_verifier",
     "expires_at",
     "state",
     "teacher_id"

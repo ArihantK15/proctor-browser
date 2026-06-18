@@ -62,10 +62,22 @@ fastapi==0.136.1
     # via
     #   -r requirements.txt
     #   sentry-sdk
+google-api-core==2.31.0
+    # via google-api-python-client
+google-api-python-client==2.197.0
+    # via -r requirements.txt
 google-auth==2.52.0
-    # via google-auth-oauthlib
+    # via
+    #   google-api-core
+    #   google-api-python-client
+    #   google-auth-httplib2
+    #   google-auth-oauthlib
+google-auth-httplib2==0.4.0
+    # via google-api-python-client
 google-auth-oauthlib==1.4.0
     # via -r requirements.txt
+googleapis-common-protos==1.75.0
+    # via google-api-core
 h11==0.16.0
     # via
     #   httpcore
@@ -76,6 +88,10 @@ hpack==4.1.0
     # via h2
 httpcore==1.0.9
     # via httpx
+httplib2==0.31.2
+    # via
+    #   google-api-python-client
+    #   google-auth-httplib2
 httptools==0.7.1
     # via uvicorn
 httpx[http2]==0.28.1
@@ -128,6 +144,13 @@ postgrest==2.31.0
     # via supabase
 propcache==0.4.1
     # via yarl
+proto-plus==1.28.0
+    # via google-api-core
+protobuf==7.35.1
+    # via
+    #   google-api-core
+    #   googleapis-common-protos
+    #   proto-plus
 psutil==7.2.2
     # via -r requirements.txt
 pyasn1==0.6.3
@@ -150,6 +173,8 @@ pyjwt[crypto]==2.13.0
     # via
     #   -r requirements.txt
     #   supabase-auth
+pyparsing==3.3.2
+    # via httplib2
 pypdfium2==5.9.0
     # via
     #   -r requirements.txt
@@ -186,6 +211,7 @@ reportlab==4.5.0
     # via -r requirements.txt
 requests==2.34.2
     # via
+    #   google-api-core
     #   razorpay
     #   requests-oauthlib
     #   resend
@@ -234,6 +260,8 @@ typing-inspection==0.4.2
     # via
     #   fastapi
     #   pydantic
+uritemplate==4.2.0
+    # via google-api-python-client
 urllib3==2.7.0
     # via
     #   botocore

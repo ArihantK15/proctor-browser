@@ -380,6 +380,27 @@ class TestLtiLaunch:
             resp = self._launch(client, id_token, state)
         assert resp.status_code == 401
 
+    def test_mismatched_nonce_401(self, client):
+        """The id_token's nonce must match the nonce bound to THIS OIDC state —
+        not merely be some other valid, unconsumed nonce we issued for a
+        different login (LTI 1.3 / OIDC nonce binding)."""
+        import secrets
+        from app.lti.launch import _store_nonce, _store_state
+
+        expected_nonce = secrets.token_urlsafe(32)
+        other_nonce = secrets.token_urlsafe(32)
+        state = secrets.token_urlsafe(32)
+        # Both nonces are validly issued + unconsumed, but the state is bound to
+        # expected_nonce; the token presents the unrelated other_nonce.
+        _store_nonce(expected_nonce)
+        _store_nonce(other_nonce)
+        _store_state(state, {"nonce": expected_nonce, "target_link_uri": "/lti/launch"})
+
+        id_token = _make_test_id_token({"nonce": other_nonce})
+        with patch("app.lti.launch._fetch_platform_jwks", return_value=_static_jwks()):
+            resp = self._launch(client, id_token, state)
+        assert resp.status_code == 401
+
     def test_expired_state_401(self, client):
         """An expired state should be rejected."""
         import time

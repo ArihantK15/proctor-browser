@@ -404,10 +404,19 @@ async def validate_id_token(id_token: str, state: str) -> dict:
         logger.warning("lti: JWT verification failed for iss=%s: %s", safe(iss), safe(e))
         raise ValueError(f"JWT verification failed: {e}")
 
-    # 6. Verify nonce (replay protection)
+    # 6. Verify nonce (binding + replay protection).
+    # The id_token's nonce MUST equal the nonce we issued for THIS login —
+    # recovered from the consumed OIDC state (expected_nonce). Consuming a
+    # valid-but-unrelated nonce we happened to issue for a *different* login
+    # would otherwise pass, letting a token's nonce and an OIDC state be
+    # mixed across two legitimate logins (the LTI 1.3 / OIDC spec requires the
+    # token nonce to match the auth request's nonce). After the binding check,
+    # consume it for single-use replay protection.
     token_nonce = claims.get("nonce", "")
-    if not token_nonce or not _consume_nonce(token_nonce):
-        raise ValueError("Invalid or replayed nonce")
+    if not token_nonce or not expected_nonce or token_nonce != expected_nonce:
+        raise ValueError("Invalid nonce")
+    if not _consume_nonce(token_nonce):
+        raise ValueError("Replayed nonce")
 
     # 7. Verify deployment
     deployment_id = claims.get(

@@ -744,7 +744,19 @@ async def import_students_csv(
     if len(raw) > 1_048_576:  # 1 MB
         raise HTTPException(status_code=413, detail="File too large (max 1 MB)")
 
-    text = raw.decode("utf-8-sig")
+    # Excel on Windows commonly exports CSV as cp1252/latin-1, not UTF-8 —
+    # and any non-ASCII byte (accented names, smart quotes) in a non-UTF-8
+    # file would make a bare utf-8 decode raise UnicodeDecodeError → an
+    # uncaught 500. Try UTF-8 (BOM-aware), fall back to cp1252, then a
+    # lossy replace so a malformed upload yields a clean validation result
+    # instead of a server error.
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            text = raw.decode("cp1252")
+        except UnicodeDecodeError:
+            text = raw.decode("utf-8", errors="replace")
 
     try:
         dialect = csv.Sniffer().sniff(text[:4096])
@@ -767,7 +779,10 @@ async def import_students_csv(
     for row in reader:
         student = {}
         for canonical, header in col_map.items():
-            student[canonical] = row.get(header, "")
+            # DictReader fills missing cells in a short row with None
+            # (restval); coerce to "" so validation reports "missing X"
+            # rather than stringifying it to the literal "None" downstream.
+            student[canonical] = row.get(header) or ""
         students.append(student)
 
     if len(students) > 500:

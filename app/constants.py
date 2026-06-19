@@ -240,6 +240,13 @@ PLANS = {
     "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "overage_price_inr": 0,   "desc": "Custom pricing — contact sales"},
 }
 TRIAL_DAYS = 14
+# Card-on-signup enforcement (flag-gated rollout, same pattern as
+# RLS_SESSION_CONTEXT). When ON: teacher signup creates the subscription in
+# 'created' state (no entitlement) and _check_subscription_active blocks usage
+# until the billing owner sets up a payment mandate via the onboarding gate.
+# Keep OFF until the onboarding-gate UI + Razorpay are verified on prod, then
+# flip — flipping early would lock new signups out (no way to add a card yet).
+CARD_ON_SIGNUP_ENFORCED = os.environ.get("CARD_ON_SIGNUP_ENFORCED", "").strip().lower() in {"1", "true", "yes"}
 # TOTP_ENCRYPTION_KEY + TOTP_GRACE_DAYS constants removed 2026-05-23
 # (TOTP retired in favour of email-OTP 2FA). The TOTP_ENCRYPTION_KEY
 # env var is still read directly by app/services/crypto.py for

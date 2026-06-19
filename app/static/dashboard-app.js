@@ -697,11 +697,17 @@ async function doLogout(){
   try{
     if(typeof liveData    !== 'undefined') liveData    = [];
     if(typeof resultsData !== 'undefined') resultsData = [];
+    // Student-history view was leaking across accounts: its cached array +
+    // table body weren't cleared on logout, so the next teacher saw the
+    // previous teacher's students until they switched tabs / reloaded.
+    if(typeof historyStudents    !== 'undefined') historyStudents    = [];
+    if(typeof historyDetailData  !== 'undefined') historyDetailData  = null;
     if(typeof currentSessionId !== 'undefined') currentSessionId = null;
     currentTeacherProfile = null;
     currentExamId = null; examsList = [];
     try{ localStorage.removeItem('procta_current_exam'); }catch(_){}
-    document.querySelectorAll('#live-body, #results-body').forEach(el=>el.innerHTML='');
+    document.querySelectorAll('#live-body, #results-body, #history-body').forEach(el=>el.innerHTML='');
+    const _rvBody = document.getElementById('review-body'); if(_rvBody) _rvBody.innerHTML='';
   }catch(_){}
   chatDisconnect();
   document.body.classList.add('auth-active');

@@ -93,7 +93,7 @@ async function startCamera(){
   // hang the capture flow (its behaviour is unreliable in iOS webviews).
   if('wakeLock' in navigator){
     navigator.wakeLock.request('screen')
-      .then(wl => { wakeLock = wl; })
+      .then(wl => { wakeLock = wl; wl.addEventListener('release', () => { wakeLock = null; }); })
       .catch(() => {
         warningBanner.textContent = '⚠️ Keep this screen on — disable auto-lock so the camera stays active.';
         warningBanner.style.display = '';
@@ -223,6 +223,10 @@ document.addEventListener('visibilitychange', async () => {
     try{
       if('wakeLock' in navigator){
         wakeLock = await navigator.wakeLock.request('screen');
+        // Null the ref when the OS auto-releases on the next hide, so this
+        // same handler re-acquires on the following show (the !wakeLock guard
+        // above otherwise stays false forever and the lock is lost for good).
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
       }
     }catch(e){}
   }

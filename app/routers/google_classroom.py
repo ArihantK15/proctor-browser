@@ -197,32 +197,53 @@ async def google_sync_roster(body: dict, request: Request):
     imported = 0
     updated = 0
     skipped_no_email = 0
+
+    # Classify into new-vs-already-on-roster in ONE batch query so we can
+    # enforce the plan's seat cap on the NEW students BEFORE inserting. Without
+    # this, over-cap rows just fail silently against the DB quota trigger and
+    # the teacher gets a confusing partial import with no upgrade prompt.
+    # Roll number is derived from the email; no email → can't build a roster
+    # entry (the classroom.profile.emails scope wasn't granted).
+    candidates = []  # list of (student, email, roll)
     for s in students:
         email = (s.get("email") or "").strip()
-        name = s.get("name", "")
-        # Roll number is derived from the email — without one we can't create a
-        # usable roster entry. This happens when the classroom.profile.emails
-        # scope wasn't granted; surface it so the teacher can reconnect.
         if "@" not in email:
             skipped_no_email += 1
             continue
-        roll = email.split("@")[0].upper()
+        candidates.append((s, email, email.split("@")[0].upper()))
+    existing_by_roll = {}
+    rolls = [roll for _s, _e, roll in candidates]
+    if rolls:
+        er = await _atable("students").select("id,batch,google_user_id,roll_number")\
+            .eq("teacher_id", tid).in_("roll_number", rolls).execute()
+        existing_by_roll = {r["roll_number"]: r for r in (er.data or [])}
+    new_count = sum(1 for _s, _e, roll in candidates if roll not in existing_by_roll)
+
+    # Seat-cap enforcement: raises 403 with an upgrade prompt if importing the
+    # new students would exceed the org's plan limit. Denies the over-cap sync
+    # cleanly rather than silently dropping rows.
+    if new_count:
+        from ..services.sessions import check_org_limits
+        await check_org_limits(teacher, delta=new_count)
+
+    for s, email, roll in candidates:
+        name = s.get("name", "")
         google_uid = (s.get("user_id") or "").strip()
-        existing = await _atable("students").select("id,batch,google_user_id").eq("roll_number", roll).eq("teacher_id", tid).limit(1).execute()
-        if existing.data:
+        ex = existing_by_roll.get(roll)
+        if ex:
             # Back-fill cohort + Google identity onto an already-imported
             # student. Never clobber a batch the teacher set manually; the
-            # Google ids are safe to refresh (they identify the source course +
-            # directory user, needed for grade passback).
+            # Google ids are safe to refresh (source course + directory user,
+            # needed for grade passback).
             patch = {}
-            if course_name and not (existing.data[0].get("batch") or "").strip():
+            if course_name and not (ex.get("batch") or "").strip():
                 patch["batch"] = course_name
-            if google_uid and not (existing.data[0].get("google_user_id") or "").strip():
+            if google_uid and not (ex.get("google_user_id") or "").strip():
                 patch["google_user_id"] = google_uid
                 patch["google_course_id"] = course_id
             if patch:
                 try:
-                    await _atable("students").update(patch).eq("id", existing.data[0]["id"]).execute()
+                    await _atable("students").update(patch).eq("id", ex["id"]).execute()
                     updated += 1
                 except Exception as e:
                     logger.warning("[google] roster back-fill failed for %s: %s", mask_email(email), e)

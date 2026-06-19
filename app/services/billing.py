@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import logging
 import os
+import time
 from datetime import datetime
 
 from ..constants import PLANS, OVERAGE_BILLING_ENABLED, OVERAGE_GRACE
@@ -86,7 +87,8 @@ async def validate_coupon(code: str) -> dict | None:
 def create_subscription(org_id: str, plan_id: str, gstin: str | None = None,
                         billing_cycle: str = "monthly",
                         coupon_code: str | None = None,
-                        coupon_offer_id: str | None = None) -> dict:
+                        coupon_offer_id: str | None = None,
+                        trial_days: int = 0) -> dict:
     """Create a Razorpay subscription and return checkout details.
 
     ``billing_cycle`` may be ``"monthly"`` (default) or ``"annual"``.
@@ -124,6 +126,12 @@ def create_subscription(org_id: str, plan_id: str, gstin: str | None = None,
             "customer_notify": 1,
             "notes": notes,
         }
+        if trial_days and trial_days > 0:
+            # Card-on-signup with a free trial: defer the first charge to
+            # now + trial_days. Razorpay only does a token authorization at
+            # checkout (immediately refunded) for a future start_at — the
+            # mandate/card is captured now, first real charge lands at start_at.
+            payload["start_at"] = int(time.time()) + int(trial_days) * 86400
         if coupon_offer_id:
             payload["offer_id"] = coupon_offer_id
         sub = client.subscription.create(payload)

@@ -169,13 +169,22 @@ async def create_subscription(body: dict, request: Request):
     # strand the original sub's renewal webhooks as "unknown". The customer
     # cancels the current plan first (access persists to period end) or talks
     # to sales to change plans.
-    existing_sub = (await _atable("subscriptions").select("status")
+    existing_sub = (await _atable("subscriptions").select("status,razorpay_subscription_id")
                     .eq("org_id", str(org_id)).limit(1).execute()).data or []
     if existing_sub and (existing_sub[0].get("status") or "").strip().lower() in ENTITLING_STATUSES:
         raise HTTPException(status_code=409,
             detail="You already have an active plan. Cancel it first — you keep "
                    "access until the end of your billing period — or contact "
                    "sales to change plans.")
+
+    # Card-on-signup: the FIRST subscription a billing owner sets up (no Razorpay
+    # mandate yet) gets a 14-day deferred first charge — card captured now, first
+    # real charge at trial end. A later plan change/re-subscribe charges
+    # immediately. Only in the card-on-signup model; legacy upgrades from the
+    # free trial keep charging immediately (trial_days=0).
+    from ..constants import CARD_ON_SIGNUP_ENFORCED, TRIAL_DAYS
+    _first_setup = not ((existing_sub[0].get("razorpay_subscription_id") or "").strip() if existing_sub else False)
+    trial_days = TRIAL_DAYS if (CARD_ON_SIGNUP_ENFORCED and _first_setup) else 0
 
     # Optional GSTIN for GST-compliant Razorpay invoices (Indian B2B).
     gstin = (body.get("gstin") or "").strip().upper()
@@ -196,7 +205,8 @@ async def create_subscription(body: dict, request: Request):
         result = billing_create_subscription(str(org_id), plan_id, gstin=gstin or None,
                                               billing_cycle=billing_cycle,
                                               coupon_code=coupon_code or None,
-                                              coupon_offer_id=coupon_offer_id)
+                                              coupon_offer_id=coupon_offer_id,
+                                              trial_days=trial_days)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -929,6 +939,30 @@ async def list_invoices(request: Request):
         except Exception as e2:
             logger.warning("Failed to reconstruct invoices from billing_events: %s", e2)
         return {"invoices": [], "error": "Failed to fetch invoices. Try again later."}
+
+
+@router.get("/api/v1/billing/onboarding-status")
+@limiter.limit("60/minute")
+async def billing_onboarding_status(request: Request):
+    """Whether the billing owner must set up a payment method before using the
+    product (card-on-signup onboarding gate). True only when CARD_ON_SIGNUP_ENFORCED
+    and the org's subscription is 'created' (never authorised — no Razorpay
+    mandate). Always False for invited teachers and in the legacy free-trial mode,
+    so the frontend gate stays dormant until card-on-signup is switched on."""
+    teacher = await require_admin(request)
+    from ..constants import CARD_ON_SIGNUP_ENFORCED
+    org_id = teacher.get("org_id")
+    if (not CARD_ON_SIGNUP_ENFORCED or not org_id
+            or teacher.get("org_role") not in ("admin", "superadmin")):
+        return {"needs_payment_setup": False}
+    sub = (await _atable("subscriptions").select("status,razorpay_subscription_id")
+           .eq("org_id", str(org_id)).limit(1).execute()).data or []
+    status = (sub[0].get("status") or "").strip().lower() if sub else ""
+    has_mandate = bool((sub[0].get("razorpay_subscription_id") or "").strip()) if sub else False
+    return {
+        "needs_payment_setup": (status == "created") and not has_mandate,
+        "status": status,
+    }
 
 
 @router.get("/api/v1/billing/usage")

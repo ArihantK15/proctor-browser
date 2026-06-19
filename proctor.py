@@ -88,6 +88,29 @@ from typing import Optional, Tuple
 from behavioral_analysis import BehavioralEngine
 _behavioral = BehavioralEngine(check_interval=15)
 
+# ─── PRE-VIOLATION CONTEXT BUFFER ("dashcam") ──────────────────────────────────
+# RAM-only 1 Hz ring of recent camera frames. On a serious (appeal-critical)
+# violation we attach the 3 frames captured just BEFORE the flag so the teacher
+# can see the lead-up (dropped pen vs. phone), not a single out-of-context shot.
+# Never touches disk; see frame_buffer.py for the DPDP data-minimisation rationale.
+from frame_buffer import FrameRingBuffer
+_frame_ring = FrameRingBuffer()
+
+# Events serious enough that a student is likely to appeal — these carry the
+# pre-violation context buffer. The common low/medium gaze noise
+# (gaze_away/head_turned/eyes_closed/face_too_small/reference_frame/
+# calibration_abort) deliberately stays single-frame to keep storage/bandwidth
+# down. Matched by prefix so escalated/suffixed variants (earbud_left,
+# phone_in_hand, …) are covered.
+_CONTEXT_EVENT_PREFIXES = (
+    "phone", "multiple_faces", "multiple_voices", "wrong_person", "face_missing",
+    "sustained_voice", "conversation", "earbud", "screen_share", "cheat_object",
+    "keyword_uttered", "phone_consulting", "collaboration", "answer_memo", "note_reading",
+)
+
+def _wants_context(label: str) -> bool:
+    return any((label or "").startswith(p) for p in _CONTEXT_EVENT_PREFIXES)
+
 # ─── OPTIONAL DETECTORS ───────────────────────────────────────────────────────
 # Each heavy dep is wrapped in a try/except so a missing model file or
 # broken install can never crash proctor.py — it degrades to whatever
@@ -1603,52 +1626,70 @@ def log_event(etype, severity, details):
                 _dropped_events += 1
 
 def save_evidence(frame, label):
-    save_local_flag = os.environ.get("SAVE_EVIDENCE_LOCAL", "").strip().lower()
-    if not JWT_TOKEN and save_local_flag not in {"1", "true"}:
+    save_local_flag = os.environ.get("SAVE_EVIDENCE_LOCAL", "").strip().lower() in {"1", "true"}
+    if not JWT_TOKEN and not save_local_flag:
         return
-    try:
-        ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(EVIDENCE_DIR, f"{label}_{ts}.jpg")
-        ok = cv2.imwrite(path, frame)
-        if not ok:
-            print(f"[Evidence Error] Write failed: {path}")
-            return
-        print(f"[Evidence] → {path}")
-    except Exception as e:
-        print(f"[Evidence Error] {e}")
-        return
+    # Privacy: in a real exam (JWT present) evidence frames live ONLY in RAM and
+    # are uploaded on a violation — they are NEVER written to the student's disk.
+    # The local .jpg dump is a dev/debug aid, gated strictly behind
+    # SAVE_EVIDENCE_LOCAL, so the "Zero-Storage Local Buffer" guarantee holds in
+    # production. A disk-write failure here must NOT block the upload.
+    if save_local_flag:
+        try:
+            ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            path = os.path.join(EVIDENCE_DIR, f"{label}_{ts}.jpg")
+            if cv2.imwrite(path, frame):
+                print(f"[Evidence] → {path}")
+            else:
+                print(f"[Evidence Error] Write failed: {path}")
+        except Exception as e:
+            print(f"[Evidence Error] {e}")
+    if not JWT_TOKEN:
+        return  # debug-only local save; no server to upload to
     try:
         ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
         if not ok:
             return
         b64 = base64.b64encode(jpg.tobytes()).decode("ascii")
-        _evidence_q.put_nowait((b64, label))
+        # Appeal-critical events carry the pre-violation desktop context buffer
+        # (t-3s..t-0); everything else stays single-frame.
+        context = _frame_ring.context_before() if _wants_context(label) else None
+        _evidence_q.put_nowait((b64, label, context or None))
+    except Full:
+        pass  # queue saturated (burst of flags) — drop oldest-vs-newest is fine
     except Exception:
         pass
 
 # ─── ASYNCHRONOUS EVIDENCE UPLOAD WORKER ──────────────────────────────────────
-_evidence_q: Queue = Queue(maxsize=8)
+# Bumped 8→16: an appeal-critical flag now enqueues a packet (flag + up to 3
+# context frames is one item, but bursts of distinct flags enqueue more), so a
+# little more headroom avoids dropping evidence during a rapid violation burst.
+_evidence_q: Queue = Queue(maxsize=16)
 
 def _evidence_upload_loop():
     consecutive_failures = 0
     while True:
         try:
-            b64, label = _evidence_q.get(timeout=1)
+            item = _evidence_q.get(timeout=1)
         except Empty:
             continue
+        b64, label = item[0], item[1]
+        context = item[2] if len(item) > 2 else None
         ok = False
         err_msg = ""
         try:
-            r = _session().post(
-                EVIDENCE_UPLOAD_URL,
-                json={
-                    "session_id": SESSION_ID,
-                    "frame":      b64,
-                    "timestamp":  datetime.now(timezone.utc).isoformat(),
-                    "event_type": label,
-                },
-                timeout=10,
-            )
+            payload = {
+                "session_id": SESSION_ID,
+                "frame":      b64,
+                "timestamp":  datetime.now(timezone.utc).isoformat(),
+                "event_type": label,
+            }
+            # Pre-violation context frames (oldest-first, each with offset_ms back
+            # from the flag) for appeal-critical events. Absent for single-frame
+            # events, so the server keeps its existing one-frame behaviour.
+            if context:
+                payload["context_frames"] = context
+            r = _session().post(EVIDENCE_UPLOAD_URL, json=payload, timeout=10)
             # Same rationale as _heartbeat_loop: check the HTTP status
             # so 4xx/5xx triggers backoff, not just connect failures.
             ok = r.ok
@@ -3039,6 +3080,8 @@ def run_proctoring(cap, W, H):
               f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f})rad "
               f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})°")
 
+    _rb_last_encode = 0.0   # wall-clock of the last context-buffer push
+
     while True:
         try:
             _loop_start = time.time()
@@ -3052,6 +3095,25 @@ def run_proctoring(cap, W, H):
                 time.sleep(0.05)
                 continue
             state["consecutive_failures"] = 0
+
+            # Pre-violation context buffer (RAM-only "dashcam"). Feed at ~1 Hz
+            # by wall clock — NOT per loop iteration — so a throttled/slow
+            # capture loop still yields ~1 context frame/sec. Cheap time gate
+            # BEFORE the JPEG encode so we don't pay encode cost every frame.
+            # Downscaled (longest side ≤640) at q60 → ~30-40 KB/frame in RAM.
+            if _loop_start - _rb_last_encode >= 1.0:
+                _rb_last_encode = _loop_start
+                try:
+                    _rb_h, _rb_w = frame.shape[:2]
+                    _rb_scale = min(1.0, 640.0 / max(_rb_h, _rb_w))
+                    _rb_img = (cv2.resize(frame, (int(_rb_w * _rb_scale), int(_rb_h * _rb_scale)),
+                                          interpolation=cv2.INTER_AREA)
+                               if _rb_scale < 1.0 else frame)
+                    _rb_ok, _rb_jpg = cv2.imencode(".jpg", _rb_img, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                    if _rb_ok:
+                        _frame_ring.maybe_push(base64.b64encode(_rb_jpg.tobytes()).decode("ascii"))
+                except Exception:
+                    pass  # context buffer is best-effort; never break the loop
 
             # Live-view: if a teacher has opened the camera-feed panel for
             # this session, push one downscaled JPEG every ~1.5 s.

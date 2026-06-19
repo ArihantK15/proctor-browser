@@ -3842,27 +3842,17 @@ async function cancelScheduledChange(){
   loadBilling();
 }
 
-// Gap #2b — self-serve payment-method management. Opens a Razorpay
-// customer portal session so an admin whose card expired can update it
-// without a support ticket. Backend (/api/v1/billing/portal-link) was
-// already shipped; this wires the live (vanilla) dashboard to it.
-async function openBillingPortal(){
-  const btn = document.getElementById('billing-portal-btn');
-  const prevText = btn ? btn.textContent : '';
-  if(btn){ btn.disabled = true; btn.textContent = 'Opening…'; }
-  try{
-    const r = await authFetch(`${BASE}/api/v1/billing/portal-link`, { method: 'POST' });
-    const d = await r.json().catch(()=>({}));
-    if(!r.ok || !d.portal_url){
-      showModal('Billing portal', _detailText(d, 'Could not open the billing portal. Please try again.'));
-      return;
-    }
-    window.open(d.portal_url, '_blank', 'noopener');
-  }catch(e){
-    showModal('Billing portal', e.message || 'Could not open the billing portal.');
-  }finally{
-    if(btn){ btn.disabled = false; btn.textContent = prevText; }
-  }
+// Payment-method help. Razorpay (unlike Stripe) has NO hosted customer portal
+// to swap a card — UPI Autopay / card eMandate is managed by the customer's
+// bank/UPI app, and Razorpay emails an update link on a failed charge. So
+// instead of opening a (non-existent) portal, explain the real flow + point at
+// the working in-app controls (change plan / cancel) in this Billing tab.
+function openBillingPortal(){
+  showModal('Payment method',
+    'Your payment method (UPI Autopay or card eMandate) is held securely by Razorpay — Procta never stores your card. ' +
+    'If a renewal payment fails, Razorpay emails you a secure link to update it. ' +
+    'To switch to a different card or UPI app, cancel your plan here (you keep access until the end of the current billing period) and then re-subscribe with the new method. ' +
+    'To change tier, use the plan cards above.');
 }
 
 // Ported from the dropped React ReviewPanel: cluster false-positive triage.

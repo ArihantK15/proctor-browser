@@ -1515,6 +1515,9 @@ html,body{overflow-x:hidden;max-width:100vw}
   border:1px solid var(--sev-warn-fg,#f59e0b);border-radius:var(--radius-lg,10px);
   background:var(--sev-warn-bg,rgba(245,158,11,.12));
   font-size:13px;line-height:1.5;color:var(--text-high)}
+/* The display:flex above overrides the [hidden] attribute, so a hidden banner
+   still rendered as an empty bordered "thick line". Restore hiding. */
+.billing-scheduled[hidden]{display:none}
 .billing-scheduled-icon{font-size:16px;flex-shrink:0}
 .billing-scheduled-text{flex:1;color:var(--text-mid)}
 .billing-scheduled-btn{flex-shrink:0;white-space:nowrap}

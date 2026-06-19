@@ -36,10 +36,12 @@ Procta's thesis: **coaching chains need AI proctoring at ₹50–150/student.** 
 | Flask/FastAPI routers | 29 active modules |
 | Load test proven | 3,000 concurrent students |
 | Billing integration | Full Razorpay (test mode, go-live checklist ready) |
-| Infra cost | ~₹700/month (pre-paid through 2028) |
+| Infra cost | ~₹700/month servers* (pre-paid through 2028) |
 | Team | 1 founder (first-year engineering student) |
 | Revenue | Pre-revenue |
 | Paying customers | 0 |
+
+> **\* Cost correction (2026-06-19):** "₹700/month" is *servers only*. It excludes code signing, company formation, GST/CA compliance, Apple/Google developer accounts, payment-gateway fees (~2% + GST), and legal docs. The true operating floor is ~₹40–70k/yr beyond servers, plus ~2% of revenue. Margin is ~90%, not ">95%". Full corrected breakdown and launch/setup sequencing: **[LAUNCH_COSTS_AND_SETUP.md](LAUNCH_COSTS_AND_SETUP.md)**.
 
 **Investment goal:** Pre-seed / angel round. ₹1.5–3 Cr at ₹6–12 Cr pre-money valuation.
 
@@ -240,7 +242,7 @@ Build a spreadsheet with:
 Show unit economics:
 - **CAC:** ₹0 (organic/demo-driven) → ₹50,000/year after hiring sales
 - **LTV:** ₹4.8L avg per chain (monthly ₹40K × 12 months avg retention)
-- **Gross margin:** >95% (infra is ₹700/month flat)
+- **Gross margin:** ~90% after Razorpay fees (~2% + GST) and the operating floor — still strong, but not ">95%". See [LAUNCH_COSTS_AND_SETUP.md](LAUNCH_COSTS_AND_SETUP.md).
 - **Payback period:** Immediate (no CAC yet)
 
 ### 5.4 Load test documentation

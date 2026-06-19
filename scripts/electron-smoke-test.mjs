@@ -18,6 +18,7 @@ const requiredFiles = [
   'proctor.py',
   'behavioral_analysis.py',
   'audio_processor.py',
+  'frame_buffer.py',
   'scripts/download_audio_models.py',
   'requirements-proctor.txt',
   'config.js',

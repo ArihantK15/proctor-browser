@@ -50,6 +50,7 @@ grading suggestions** that a teacher can override.
 |----------|-------------|-------|----------------------------------------|
 | Webcam / facial images (identity verification) | **Biometric (Art 9)** | Client → screenshots dir → S3 | Local **7d** (S3-enabled) / **30d** (S3-disabled); S3 kept per policy (default 30d) |
 | Screen / exam screenshots | Personal | `screenshots/` filesystem + S3 | Local **7d** (S3-enabled) / **30d** (S3-disabled); S3 kept per policy (default 30d) |
+| Pre-violation context frames (`ctx_`) | Personal | Client RAM ring (1 Hz) → screenshots dir + S3 **only on an appeal-critical flag** | Same window as screenshots: local **7d**/**30d**, S3 default **30d** |
 | Phone-camera frames | Personal | Redis (transient) | **24h** (Redis TTL) |
 | Audio keyword hits | Personal | Violation events | Violation logs **1 year** |
 | Violations / answers / scores | Personal (assessment) | Postgres | 1 year / duration of account, anonymised on delete |
@@ -78,6 +79,11 @@ data. This split governs breach + objection routing (see INCIDENT_RESPONSE.md
 - **Data minimisation.** On-device detection means raw video is analysed
   locally; only violation events + periodic screenshots leave the device.
   Phone frames are transient (Redis TTL, never persisted to disk).
+  Pre-violation context frames are RAM-only on the device and leave it **only**
+  when an appeal-critical flag fires (≤3 frames, ~3 s, 1:1 with a flag) — bounded
+  lead-up evidence to make a flag contestable, never a continuous stream; they
+  are teacher-only (the student's own evidence view returns no media) and inherit
+  the 30-day screenshot retention.
 - **Proportionality controls.** Per-exam proctoring sensitivity presets;
   proctoring features (phone camera, audio keywords) are opt-in per exam;
   AI grading is **advisory with mandatory human override** (teacher audit

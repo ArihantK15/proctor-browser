@@ -26,7 +26,7 @@ from ..services.risk import compute_risk_score, _is_violation
 from ..utils import _safe_filename, _html_escape, _xlsx_safe, fmt_ist, now_ist
 from ..models import SessionStatus, RESULT_STATUSES
 from .. import cache as _cache
-from ..services.sessions import collect_session_screenshots as _collect_session_screenshots, match_screenshot_for_violation as _match_screenshot_for_violation, match_room_screenshot_for_violation as _match_room_screenshot_for_violation
+from ..services.sessions import collect_session_screenshots as _collect_session_screenshots, match_screenshot_for_violation as _match_screenshot_for_violation, match_room_screenshot_for_violation as _match_room_screenshot_for_violation, match_context_screenshots_for_violation as _match_context_screenshots_for_violation
 from ..limiter import limiter
 from ..models import EmailScorecardsIn
 from ..services.scorecard import _build_scorecard_pdf
@@ -296,7 +296,11 @@ def _pdf_find_evidence(session_id: str, exam: dict, raw_violations: list, tid: s
             # student didn't pair a phone) — rendered side by side.
             room = _match_room_screenshot_for_violation(v, paths)
             room = room if (room is not None and room.exists()) else None
-            items.append((idx, v, match, room))
+            # Pre-violation context frames (t-3s..t-0) for appeal-critical
+            # flags — the lead-up, rendered as a small strip beneath the flag.
+            context = [p for p in _match_context_screenshots_for_violation(v, paths)
+                       if p is not None and p.exists()]
+            items.append((idx, v, match, room, context))
     return items
 
 
@@ -307,7 +311,7 @@ def _pdf_build_evidence_section(evidence_items: list, styles, evidence_caption_s
     from reportlab.platypus import Paragraph, Spacer, Image, KeepTogether, Table, TableStyle
 
     story = []
-    for idx, v, img_path, room_path in evidence_items:
+    for idx, v, img_path, room_path, context in evidence_items:
         ts_str = fmt_ist(v.get("created_at", ""))
         sev = v["severity"].upper()
         sev_color = "#c0392b" if v["severity"] == "high" else "#d68910"
@@ -339,6 +343,25 @@ def _pdf_build_evidence_section(evidence_items: list, styles, evidence_caption_s
             else:
                 img = Image(str(img_path), width=4.5 * inch, height=3.4 * inch, kind="proportional")
                 story.append(KeepTogether([Paragraph(caption, evidence_caption_style), img, Spacer(1, 14)]))
+            # Pre-violation context strip (oldest-first) — small thumbs showing
+            # the seconds leading up to the flag, so context (dropped pen) is
+            # distinguishable from intent (phone).
+            if context:
+                _ctxcap = ParagraphStyle('evctxcap', parent=evidence_caption_style,
+                                         fontSize=7, textColor=_colors.HexColor("#888"),
+                                         alignment=0, spaceBefore=2)
+                _thumbs = [Image(str(p), width=1.3 * inch, height=1.0 * inch, kind="proportional")
+                           for p in context]
+                _ctx_tbl = Table([_thumbs], colWidths=[1.4 * inch] * len(_thumbs))
+                _ctx_tbl.setStyle(TableStyle([
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 1),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ]))
+                story.append(KeepTogether([
+                    Paragraph("Context — seconds before the flag:", _ctxcap),
+                    _ctx_tbl, Spacer(1, 14)]))
         except Exception as err:
             logger.warning("pdf: unreadable screenshot %s: %s", img_path, err)
             story.append(Paragraph(

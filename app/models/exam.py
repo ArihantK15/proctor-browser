@@ -55,12 +55,25 @@ class EventIn(BaseModel):
     sig: Optional[str] = None
 
 
+class ContextFrame(BaseModel):
+    """One pre-violation context frame: a base64 JPEG captured `offset_ms`
+    before the flag (see proctor.py's RAM ring buffer). offset_ms >= 0; the
+    server reconstructs its wall-clock as flag_time - offset_ms so the timeline
+    orders the strip t-3s → t-1s → flag."""
+    model_config = ConfigDict(strict=True)
+    frame_b64: str
+    offset_ms: int
+
+
 class FrameIn(BaseModel):
     model_config = ConfigDict(strict=True)
     session_id: str
     frame:      str
     timestamp:  str
     event_type: Optional[str] = None
+    # Pre-violation context frames for appeal-critical events (oldest-first).
+    # Absent/None for ordinary single-frame events → unchanged behaviour.
+    context_frames: Optional[list[ContextFrame]] = None
 
 
 class IdVerifyIn(BaseModel):

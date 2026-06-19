@@ -28,6 +28,7 @@ from ..services.calibration import get_calibration_quality
 from ..services.false_positive import explain_flag, normalize_sensitivity, SENSITIVITY_PRESETS
 from ..services.sessions import match_screenshot_for_violation as _match_screenshot_for_violation
 from ..services.sessions import match_room_screenshot_for_violation as _match_room_screenshot_for_violation
+from ..services.sessions import match_context_screenshots_for_violation as _match_context_screenshots_for_violation
 from ..database import supabase, async_table as _atable
 from ..limiter import limiter
 from ..constants import SCREENSHOTS_DIR, S3_LOCAL_CACHE_DAYS
@@ -144,6 +145,11 @@ async def get_timeline(session_id: str, request: Request):
         room_match = _match_room_screenshot_for_violation(e, screenshot_paths)
         if room_match is not None:
             entry["room_screenshot"] = screenshot_urls[room_match.name]
+        # Pre-violation context strip (t-3s..t-0) for appeal-critical flags —
+        # oldest-first, so the dashboard can show the lead-up to the flag.
+        ctx_matches = _match_context_screenshots_for_violation(e, screenshot_paths)
+        if ctx_matches:
+            entry["context_screenshots"] = [screenshot_urls[m.name] for m in ctx_matches]
         timeline.append(entry)
 
     return {

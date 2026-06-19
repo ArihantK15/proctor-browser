@@ -86,6 +86,10 @@
         "to": "audio_processor.py"
       },
       {
+        "from": "frame_buffer.py",
+        "to": "frame_buffer.py"
+      },
+      {
         "from": "weights",
         "to": "weights"
       },

@@ -2,6 +2,7 @@
 
 import json
 import logging
+from urllib.parse import quote
 from datetime import datetime, timezone
 from typing import Optional, Literal
 
@@ -13,6 +14,11 @@ from ..database import async_table as _atable
 from ..limiter import limiter
 from ..services.risk import compute_risk_score, generate_session_summary
 from ..services.false_positive import explain_flag
+from ..services.sessions import (
+    collect_session_screenshots as _collect_session_screenshots,
+    match_screenshot_for_violation as _match_primary_screenshot,
+    match_context_screenshots_for_violation as _match_context_screenshots,
+)
 
 _log = logging.getLogger("appeals")
 
@@ -248,7 +254,58 @@ async def list_appeals(request: Request, exam_id: str = None, status: str = None
     q = q.order("created_at", desc=True)
 
     result = await q.execute()
-    return {"appeals": result.data or []}
+    appeals = result.data or []
+
+    # Attach the disputed flag's evidence (primary frame + pre-violation context
+    # strip) to each flag-linked appeal, so the teacher adjudicates inline without
+    # leaving the list. Same matchers + auth-gated screenshot URL shape the
+    # forensics timeline uses (admin.py get_timeline); the URLs stream through
+    # /admin/screenshot, which re-checks teacher scope — no media is inlined here.
+    flagged = [a for a in appeals if a.get("violation_id") and a.get("roll_number")]
+    if flagged:
+        try:
+            vids = list({str(a["violation_id"]) for a in flagged})
+            vres = await _atable("violations")\
+                .select("id,violation_type,created_at")\
+                .in_("id", vids[:200])\
+                .execute()
+            vmap = {str(v["id"]): v for v in (vres.data or [])}
+        except Exception:
+            _log.debug("[admin/appeals] evidence flag lookup failed", exc_info=True)
+            vmap = {}
+        _ss_cache: dict = {}
+        _MAX_DIR_SCANS = 100  # bound filesystem scans for very large appeal lists
+        scans = 0
+        for a in flagged:
+            v = vmap.get(str(a["violation_id"]))
+            if not v:
+                continue
+            roll = a.get("roll_number") or ""
+            owner_tid = str(a.get("teacher_id") or "")
+            key = (roll, owner_tid)
+            paths = _ss_cache.get(key)
+            if paths is None:
+                if scans >= _MAX_DIR_SCANS:
+                    continue  # timeline "Open" button still serves these appeals
+                try:
+                    paths = _collect_session_screenshots(roll, owner_tid)
+                except Exception:
+                    paths = {}
+                _ss_cache[key] = paths
+                scans += 1
+            if not paths:
+                continue
+            sid_q = quote(str(a.get("session_key", "")), safe="")
+            primary = _match_primary_screenshot(v, paths)
+            if primary is not None:
+                a["evidence_primary"] = f"/api/v1/admin/screenshot/{roll}/{primary.name}?session_id={sid_q}"
+            ctx = _match_context_screenshots(v, paths)
+            if ctx:
+                a["evidence_context"] = [
+                    f"/api/v1/admin/screenshot/{roll}/{m.name}?session_id={sid_q}" for m in ctx
+                ]
+
+    return {"appeals": appeals}
 
 
 # ── Teacher: resolve an appeal ─────────────────────────────────────

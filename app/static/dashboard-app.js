@@ -1194,7 +1194,7 @@ function _dispatchTabLoad(tab){
   if(tab==='org-settings') loadOrgSettings();
   if(tab==='all-orgs') loadAllOrgs();
   if(tab==='issues') loadIssues();
-  if(tab==='review') loadReview();
+  if(tab==='review'){ loadReview(); loadAppeals(); }
   if(tab==='privacy'){ const el=document.getElementById('sar-result'); if(el) el.textContent=''; }
 }
 
@@ -1244,6 +1244,9 @@ function applyOrgRole(org_role){
     const roles = (el.dataset.roles || '').split(' ');
     el.style.display = roles.includes(currentOrgRole) ? '' : 'none';
   });
+  // Surface the pending-appeals count on the Review tab as soon as the role
+  // (and thus the tab) is known, so teachers notice disputes without opening it.
+  try{ if(typeof refreshAppealsBadge==='function') refreshAppealsBadge(); }catch(_){}
   // Billing is gated on the REAL org role (the billing owner), NOT the
   // solo-downgraded one: a self-signup solo teacher IS the billing owner and
   // must see/manage their own subscription, even though the two-mode UI hides
@@ -3915,6 +3918,160 @@ async function dismissCluster(violationType, severity){
   }catch(e){ showModal('Dismiss failed: ' + e.message); }
 }
 
+// ─── STUDENT APPEALS (teacher review) ─────────────────────────────────────────
+// Ported from the dropped React ReviewPanel: list + resolve student appeals.
+// The backend (appeals.py: GET /admin/appeals, POST /admin/appeals/{id}/resolve)
+// already shipped, but the live HTML dashboard had no surface — so students
+// could file disputes no teacher could see or action. Accepting a flag-linked
+// appeal dismisses the flag + recomputes risk server-side. "View flag + context"
+// reuses the forensics timeline, which renders the pre-violation context strip
+// (t-3s..t-0) for the disputed flag. Media stays teacher-side: the student's own
+// evidence view never returns frames (privacy boundary in appeals.py).
+function _setAppealsBadge(n){
+  const badge = document.getElementById('appeals-pending-badge');
+  if(!badge) return;
+  if(n > 0){ badge.textContent = n; badge.style.display = ''; }
+  else { badge.style.display = 'none'; }
+}
+
+async function refreshAppealsBadge(){
+  // Lightweight pending-count poll. Best-effort — never throws into callers.
+  if(!document.getElementById('appeals-pending-badge')) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/appeals?status=pending`);
+    if(!r.ok) return;
+    const d = await r.json();
+    _setAppealsBadge((d.appeals || []).length);
+  }catch(_){ /* badge is informational */ }
+}
+
+async function loadAppeals(){
+  const el = document.getElementById('appeals-body');
+  if(!el) return;
+  const filterEl = document.getElementById('appeals-filter');
+  const status = (filterEl && filterEl.value) || 'pending';
+  el.innerHTML = '<div class="exams-empty">Loading…</div>';
+  try{
+    const qs = status === 'all' ? '' : `?status=${encodeURIComponent(status)}`;
+    const r = await authFetch(`${BASE}/api/v1/admin/appeals${qs}`);
+    if(!r.ok) throw new Error('Failed to load appeals');
+    const d = await r.json();
+    const appeals = d.appeals || [];
+    // Badge always reflects PENDING regardless of the active filter.
+    _setAppealsBadge(status === 'pending' ? appeals.length
+      : appeals.filter(a => a.status === 'pending').length);
+    if(!appeals.length){
+      el.innerHTML = `<div class="exams-empty">No ${status === 'all' ? '' : _escHtml(status) + ' '}appeals.</div>`;
+      return;
+    }
+    el.innerHTML = appeals.map(renderAppealCard).join('');
+    _lazyLoadAuthThumbs(el);
+  }catch(e){
+    el.innerHTML = '<div class="exams-empty"><strong>Couldn\'t load appeals</strong></div>';
+  }
+}
+
+// Fetch the auth-gated thumbnail endpoints (same shape the timeline uses) as
+// blobs and swap them in. Frames are never inlined in JSON — they stream
+// through /admin/screenshot, which re-checks teacher scope.
+function _lazyLoadAuthThumbs(scopeEl){
+  if(!scopeEl) return;
+  scopeEl.querySelectorAll('.tl-thumb[data-src]').forEach(img => {
+    authFetch(img.dataset.src)
+      .then(r => { if(!r.ok) throw new Error(); return r.blob(); })
+      .then(b => { img.src = URL.createObjectURL(b); })
+      .catch(() => { img.style.display = 'none'; });
+  });
+}
+
+function renderAppealCard(a){
+  const ex = examsList.find(e => e.exam_id === a.exam_id);
+  const examName = ex ? ex.exam_title : (a.exam_id || '—');
+  let created = '';
+  try{ created = a.created_at ? new Date(a.created_at).toLocaleString() : ''; }
+  catch(_){ created = a.created_at || ''; }
+  const sColor = a.status === 'accepted' ? 'var(--emerald)'
+    : a.status === 'rejected' ? 'var(--red)' : 'var(--amber)';
+  const isPending = a.status === 'pending';
+  const _ctxUrls = Array.isArray(a.evidence_context) ? a.evidence_context : [];
+  const _hasInline = !!(a.evidence_primary || _ctxUrls.length);
+  const _aThumb = (src, label) =>
+    `<img class="tl-thumb appeal-thumb" title="${escAttr(label)}" data-src="${escAttr(src)}" data-action="_showLightbox" data-args='${_jsonArgsForAttr(src, label, created)}' data-error-action="_hideSelf">`;
+  const evidenceStrip = _hasInline
+    ? `<div class="appeal-evidence">
+         <div class="appeal-evidence-label">${_ctxUrls.length ? 'Lead-up to the flag (t-3s → flag)' : 'Flag evidence'}</div>
+         <div class="appeal-evidence-row">${_ctxUrls.map((s, ci) => _aThumb(s, `context ${ci + 1} of ${_ctxUrls.length}`)).join('')}${a.evidence_primary ? _aThumb(a.evidence_primary, 'flag moment') : ''}</div>
+       </div>`
+    : '';
+  const evidenceBtn = a.session_key
+    ? `<button class="btn btn-secondary btn-sm" type="button" data-action="viewAppealEvidence" data-args='${_jsonArgsForAttr(a.session_key)}'>${_hasInline ? 'Open full timeline' : (a.violation_id ? 'View flag + context' : 'View session')}</button>`
+    : '';
+  const actions = isPending
+    ? `<div class="appeal-actions">
+         <textarea id="appeal-note-${escAttr(a.id)}" class="appeal-note" rows="2" placeholder="Note to the student (shown on their appeal). Required to reject."></textarea>
+         <div class="appeal-btns">
+           <button class="btn btn-secondary btn-sm" type="button" data-action="resolveAppeal" data-args='${_jsonArgsForAttr(a.id, 'rejected')}' style="color:var(--red)">Reject</button>
+           <button class="btn btn-primary btn-sm" type="button" data-action="resolveAppeal" data-args='${_jsonArgsForAttr(a.id, 'accepted')}'>Accept</button>
+         </div>
+       </div>`
+    : `<div class="appeal-resolved">
+         ${a.resolution ? `<div>Outcome: ${_escHtml(a.resolution.replace(/_/g,' '))}</div>` : ''}
+         ${a.teacher_note ? `<div class="appeal-note-readback">“${_escHtml(a.teacher_note)}”</div>` : ''}
+       </div>`;
+  return `<div class="appeal-card">
+    <div class="appeal-head">
+      <div>
+        <span class="appeal-roll">${_escHtml(a.roll_number || a.student_id || '—')}</span>
+        <span class="appeal-type">${_escHtml((a.appeal_type || '').toUpperCase())}</span>
+        <span class="appeal-exam">${_escHtml(examName)}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:11px;color:var(--text-muted)">${_escHtml(created)}</span>
+        <span class="appeal-status" style="color:${sColor}">${_escHtml((a.status || 'pending').toUpperCase())}</span>
+      </div>
+    </div>
+    ${a.description ? `<div class="appeal-desc">${_escHtml(a.description)}</div>` : ''}
+    ${evidenceStrip}
+    <div class="appeal-foot">
+      <div class="appeal-foot-evidence">${evidenceBtn}</div>
+      ${actions}
+    </div>
+  </div>`;
+}
+
+async function resolveAppeal(appealId, status){
+  const noteEl = document.getElementById(`appeal-note-${appealId}`);
+  const teacher_note = ((noteEl && noteEl.value) || '').trim();
+  if(status === 'rejected' && !teacher_note){
+    if(!(await appConfirm('Reject without a note? A short reason is shown to the student and helps them understand the decision.', 'Reject appeal?', {okText:'Reject anyway'}))) return;
+  }
+  if(status === 'accepted'){
+    if(!(await appConfirm('Accept this appeal? If it disputes a specific flag, that flag is dismissed and the risk score recomputed.', 'Accept appeal?', {okText:'Accept'}))) return;
+  }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/appeals/${encodeURIComponent(appealId)}/resolve`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ status, teacher_note }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(_detailText(d, 'Failed to resolve appeal'));
+    let msg = status === 'accepted' ? 'Appeal accepted.' : 'Appeal rejected.';
+    if(d.resolution === 'flag_dismissed'){
+      msg += ' The disputed flag was dismissed';
+      msg += (d.risk_score != null) ? ` — the risk score is now ${d.risk_score}.` : '.';
+    }
+    showModal('Done', msg);
+    loadAppeals();
+  }catch(e){ showModal('Error', e.message || 'Failed to resolve appeal'); }
+}
+
+function viewAppealEvidence(sessionKey){
+  // Reuse the forensics timeline — it already renders the primary frame, the
+  // phone-cam companion, AND the pre-violation context strip for each flag.
+  if(!sessionKey) return;
+  openTimelineForSession(sessionKey);
+}
+
 // Ported from the dropped React PrivacyPanel: superadmin DPDP data export.
 async function sarExport(){
   const el = document.getElementById('sar-result');
@@ -6055,6 +6212,14 @@ function renderTimeline(){
         ?`<div style="display:flex;gap:6px;align-items:flex-start">${_tlThumb(e.screenshot,' — primary camera')}${_tlThumb(e.room_screenshot,' — phone camera')}</div>`
         :_tlThumb(e.screenshot,''))
       :'';
+    // Pre-violation context strip (t-3s..t-0) for appeal-critical flags — the
+    // lead-up to the flag, so a dropped pen reads differently from a phone.
+    // Reuses .tl-thumb (lazy-load + auth + lightbox); .tl-context shrinks them.
+    const _ctxArr=Array.isArray(e.context_screenshots)?e.context_screenshots:[];
+    const ctxHtml=_ctxArr.length
+      ?`<div class="tl-context"><div class="tl-context-label">Before flag</div>`
+        +`<div class="tl-context-row">${_ctxArr.map((s,ci)=>_tlThumb(s,` — context ${ci+1} of ${_ctxArr.length}`)).join('')}</div></div>`
+      :'';
     return `<div class="tl-event sev-${e.severity}${e.is_violation?' is-violation':''}" id="tl-evt-${i}">
       <div class="tl-time">${timeStr}</div>
       <div class="tl-icon ${icCls}">${icon}</div>
@@ -6063,6 +6228,7 @@ function renderTimeline(){
         ${e.details?`<div class="tl-detail">${_escHtml(e.details)}</div>`:''}
       </div>
       ${thumbHtml}
+      ${ctxHtml}
     </div>`;
   }).join('');
 

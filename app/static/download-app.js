@@ -31,11 +31,17 @@
         // path below sets arch synchronously as a fast fallback. If
         // UA-CH later returns a more accurate answer, it overrides.
         uaData.getHighEntropyValues(['architecture']).then(v => {
+          const before = arch;
           if (v && v.architecture === 'arm') {
             arch = 'arm64';
           } else if (v && v.architecture === 'x86') {
             arch = 'x64';
           }
+          // UA-CH resolves AFTER the synchronous UI was built from the WebGL
+          // (or default-x64) guess. Re-apply the Mac button if it corrected the
+          // arch — otherwise this override silently did nothing (e.g. an
+          // Apple-Silicon Mac with WebGL disabled would keep the x64 default).
+          if (os === 'mac' && arch !== before) applyMacUi();
         }).catch(() => {});
       }
       const c = document.createElement('canvas');
@@ -57,7 +63,7 @@
     os = 'win';
   }
 
-  if (os === 'mac') {
+  function applyMacUi() {
     const isArm = arch === 'arm64';
     osEl.textContent = isArm ? 'macOS (Apple Silicon)' : 'macOS (Intel)';
     detailEl.textContent = isArm
@@ -67,6 +73,10 @@
     dlText.textContent = isArm ? 'Download for Mac (Apple Silicon)' : 'Download for Mac (Intel)';
     mainBtn.style.display = 'inline-flex';
     macWarn.style.display = 'block';
+  }
+
+  if (os === 'mac') {
+    applyMacUi();
   } else if (os === 'win') {
     osEl.textContent = 'Windows';
     detailEl.textContent = 'Detected: Windows PC';

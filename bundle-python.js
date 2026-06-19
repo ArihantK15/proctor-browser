@@ -46,6 +46,20 @@ const OUT_DIR        = path.join(__dirname, 'resources', 'python');
 const PYTHON_ZIP     = path.join(os.tmpdir(), 'python-embed.zip');
 const GET_PIP_SCRIPT = path.join(os.tmpdir(), 'get-pip.py');
 
+// Optional exact-version lockfile. PIP_PACKAGES pins API-breaking majors but
+// leaves patch/minor free, so two builds weeks apart can resolve different
+// wheels — which changes the runtime blob and defeats differential
+// auto-updates. If a committed `requirements-proctor.lock` exists (generate it
+// once with `pip freeze` from a known-good bake), pip honours it as a
+// constraint so the exact same versions resolve every build. Absent → today's
+// behaviour (ranged resolution). Pairs with normalizeForReproducibility below,
+// which handles the per-build .pyc/mtime churn that floats even when versions
+// don't.
+const PIP_LOCK = path.join(__dirname, 'requirements-proctor.lock');
+function pipLockArgs() {
+  return fs.existsSync(PIP_LOCK) ? ['--constraint', PIP_LOCK] : [];
+}
+
 // ── macOS relocatable runtime (python-build-standalone) ───────────
 // Pinned release tag + matching CPython build. install_only tarballs
 // unpack to a top-level `python/` dir containing bin/python3.
@@ -109,14 +123,92 @@ function bakeMacPackages(destDir) {
   console.log('[pip] Upgrading pip…');
   execSync(`"${py}" -m pip install --upgrade pip`, { stdio: 'inherit' });
   console.log(`[pip] Installing ${PIP_PACKAGES.length} proctor packages (several minutes)…`);
+  const constraint = fs.existsSync(PIP_LOCK) ? `--constraint "${PIP_LOCK}" ` : '';
   execSync(
-    `"${py}" -m pip install --prefer-binary --no-warn-script-location ` +
+    `"${py}" -m pip install --prefer-binary --no-warn-script-location ${constraint}` +
     PIP_PACKAGES.map(p => `"${p}"`).join(' '),
     { stdio: 'inherit' });
   if (!packagesReady(py)) {
     throw new Error('pip install completed but a package still fails to import — aborting bake.');
   }
   console.log('[pip] ✅ All proctor packages import cleanly.');
+}
+
+// ── Reproducible-build normalization ──────────────────────────────────────
+// A plain `pip install` bake is NOT byte-reproducible: every .pyc embeds the
+// source mtime+size, and freshly written files carry the build's wall-clock
+// mtime. Those bytes shift block boundaries in the packaged artifact, so
+// electron-updater's differential download can't reuse the previous release's
+// blocks and re-pulls the whole ~50-80 MB runtime even for a code-only
+// release. Normalizing the baked tree means an unchanged dependency set
+// produces an identical blob → differential updates transfer only the changed
+// app code (a few MB) instead of the entire interpreter.
+//
+//   1. Purge every __pycache__/.pyc (the worst offenders — mtime-tagged).
+//   2. Recompile with hash-based, mtime-independent .pyc headers
+//      (--invalidation-mode unchecked-hash): identical source → identical
+//      bytecode regardless of when/where it was built, and CPython trusts the
+//      shipped .pyc at runtime without a recompile or a source-mtime check.
+//   3. Stamp every file+dir mtime to a fixed epoch so archive headers
+//      (zip / NSIS) are deterministic too.
+//
+// Runs in bundle-python.js (before electron-builder packs + signs), so the
+// signature is computed over the already-normalized files. mtime changes don't
+// affect code signatures (those seal content, not timestamps).
+const SOURCE_DATE_EPOCH = 1577836800; // 2020-01-01T00:00:00Z, fixed.
+
+function _purgePycache(rootDir) {
+  const stack = [rootDir];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === '__pycache__') fs.rmSync(full, { recursive: true, force: true });
+        else stack.push(full);
+      } else if (e.name.endsWith('.pyc') || e.name.endsWith('.pyo')) {
+        try { fs.unlinkSync(full); } catch { /* best-effort */ }
+      }
+    }
+  }
+}
+
+function _stampMtimes(rootDir, epochSecs) {
+  const when = new Date(epochSecs * 1000);
+  const stack = [rootDir];
+  while (stack.length) {
+    const p = stack.pop();
+    let st;
+    try { st = fs.lstatSync(p); } catch { continue; }
+    if (st.isSymbolicLink()) continue; // leave symlinks; their targets get stamped on the walk
+    try { fs.utimesSync(p, when, when); } catch { /* read-only / permission — skip */ }
+    if (st.isDirectory()) {
+      let entries;
+      try { entries = fs.readdirSync(p); } catch { continue; }
+      for (const name of entries) stack.push(path.join(p, name));
+    }
+  }
+}
+
+function normalizeForReproducibility(rootDir, pyExe) {
+  if (!fs.existsSync(rootDir)) return;
+  console.log(`[repro] normalizing ${rootDir} for byte-reproducible packaging…`);
+  _purgePycache(rootDir);
+  const r = spawnSync(
+    pyExe,
+    ['-m', 'compileall', '-q', '-f', '--invalidation-mode', 'unchecked-hash', rootDir],
+    { stdio: 'inherit' });
+  if (r.status !== 0) {
+    // Recompile failed (e.g. a syntax-incompatible vendored file) — ship
+    // source-only .py; CPython recompiles on first import. Make sure no
+    // half-written .pyc survive so the blob stays deterministic.
+    console.warn('[repro] compileall returned non-zero — shipping source-only .py. Continuing.');
+    _purgePycache(rootDir);
+  }
+  _stampMtimes(rootDir, SOURCE_DATE_EPOCH);
+  console.log('[repro] done.');
 }
 
 async function runMac() {
@@ -162,6 +254,10 @@ async function runMac() {
     // host this executes the interpreter under Rosetta 2 (installed by CI).
     if (target === bakeTarget) {
       bakeMacPackages(destDir);
+      // Make the baked runtime byte-reproducible so differential auto-updates
+      // can skip it on a code-only release. The non-bake target ships the
+      // pristine python-build-standalone extraction (already deterministic).
+      normalizeForReproducibility(destDir, py);
     } else {
       console.log(`[pip] ${target} != bake target — bundling interpreter only ` +
                   `(its wheels are baked by the ${target} build leg).`);
@@ -340,7 +436,8 @@ async function fetchWindowsBuildHeaders(outDir) {
   console.log(`[4/4]   build deps (no-isolation prep): ${buildDeps.join(' ')}`);
   const prep = spawnSync(
     pyExe,
-    ['-m', 'pip', 'install', '--prefer-binary', '--no-warn-script-location', ...buildDeps],
+    ['-m', 'pip', 'install', '--prefer-binary', '--no-warn-script-location',
+      ...pipLockArgs(), ...buildDeps],
     { stdio: 'inherit' }
   );
   if (prep.status !== 0) {
@@ -350,7 +447,7 @@ async function fetchWindowsBuildHeaders(outDir) {
   spawnSync(
     pyExe,
     ['-m', 'pip', 'install', '--prefer-binary', '--no-build-isolation',
-      '--no-warn-script-location', ...PIP_PACKAGES],
+      '--no-warn-script-location', ...pipLockArgs(), ...PIP_PACKAGES],
     { stdio: 'inherit' }
   );
 
@@ -364,6 +461,12 @@ async function fetchWindowsBuildHeaders(outDir) {
     process.exit(1);
   }
   console.log('[pip] ✅ All proctor packages import cleanly.');
+
+  // Make the baked embeddable runtime byte-reproducible so differential
+  // auto-updates can skip it on a code-only release. (pyExe runs natively on
+  // the Windows runner; only site-packages .py are recompiled — the stdlib
+  // ships zipped in python311.zip and is untouched.)
+  normalizeForReproducibility(OUT_DIR, pyExe);
 
   console.log(`\n✅ Done — ${OUT_DIR}`);
   console.log('   Now run: npm run build:win\n');

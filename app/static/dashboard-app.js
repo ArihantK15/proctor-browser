@@ -3944,13 +3944,16 @@ async function loadBillingUsage(){
     const r = await authFetch(`${BASE}/api/v1/billing/usage`);
     if(!r.ok) return;
     const u = await r.json();
-    let html = `<div style="font-size:12px;color:var(--text-secondary)">This period: <strong>${u.students_used||0}</strong> of <strong>${u.plan_limit||0}</strong> students`;
+    let html = `<div style="font-size:12px;color:var(--text-secondary)">Active students this billing period: <strong>${u.students_used||0}</strong> of <strong>${u.plan_limit||0}</strong> included`;
     if((u.overage||0) > 0){
-      html += ` · <span style="color:var(--amber)">${u.overage} over cap`;
-      if(u.overage_billing_enabled && (u.overage_amount||0) > 0) html += ` (₹${u.overage_amount})`;
+      html += ` · <span style="color:var(--amber)">${u.overage} over plan`;
+      if(u.overage_billing_enabled && (u.overage_amount||0) > 0) html += ` (₹${u.overage_amount} overage)`;
       html += `</span>`;
     }
     html += `</div>`;
+    // Clarify the two different "students" numbers (roster count up top vs the
+    // active-this-period figure billing is based on).
+    html += `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Billed on students who take an exam this month; extras beyond your plan are charged as overage. (The top number is your total roster.)</div>`;
     const charges = u.overage_charges || [];
     if(charges.length){
       html += `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">Recent overage charges</div><ul style="margin:4px 0 0;padding-left:16px;font-size:11px;color:var(--text-muted)">`;

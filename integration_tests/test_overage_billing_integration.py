@@ -90,7 +90,7 @@ async def _overage_rows(org_id):
 
 async def test_compute_overage_counts_distinct_across_teachers():
     org = await _org(cap=10)
-    await _sub(org, plan="growth")          # growth → ₹80/overage student
+    await _sub(org, plan="growth")          # growth → ₹70/overage student
     t1, t2 = await _teacher(org), await _teacher(org)
     await _submit(t1, 8)
     await _submit(t2, 7)                      # 15 distinct submitters, cap 10
@@ -98,7 +98,8 @@ async def test_compute_overage_counts_distinct_across_teachers():
     assert res["students_used"] == 15
     assert res["plan_limit"] == 10
     assert res["overage_count"] == 5
-    assert res["amount_inr"] == 5 * 80
+    # Growth overage rate is ₹70/student (per-plan: starter 80, growth 70, pro 60)
+    assert res["amount_inr"] == 5 * 70
 
 
 # ── idempotency via the real UNIQUE constraint ───────────────────────────

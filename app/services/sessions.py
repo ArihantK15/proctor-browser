@@ -47,6 +47,15 @@ PLAN_LIMITS = {p: v["students"] for p, v in PLANS.items()}
 _LIVE_SESSION_FETCH_CAP = 5000
 
 
+def _soft_cap_enabled() -> bool:
+    """Soft cap = allow exceeding the plan's student limit and bill the overage
+    (per-plan rate, charged at cycle renewal); hard cap = deny with an upgrade
+    prompt. Gated by OVERAGE_BILLING_ENABLED so the switch is one env var.
+    Imported at call time so tests can patch the constant."""
+    from ..constants import OVERAGE_BILLING_ENABLED
+    return OVERAGE_BILLING_ENABLED
+
+
 async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
     if teacher.get("org_role") == "superadmin":
         return {"max_students": 999999}
@@ -62,7 +71,7 @@ async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
         org = cached.get("org") or {}
         current_count = int(cached.get("student_count") or 0)
         max_students = int(org.get("max_students", 30))
-        if current_count + delta > max_students:
+        if current_count + delta > max_students and not _soft_cap_enabled():
             raise HTTPException(
                 status_code=403,
                 detail=f"Student limit reached ({current_count}/{max_students}). Upgrade your plan."
@@ -98,7 +107,7 @@ async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
     max_students = int(org.get("max_students", 30))
     if _cache:
         _cache.set(cache_key, {"org": org, "student_count": current_count}, ttl=60)
-    if current_count + delta > max_students:
+    if current_count + delta > max_students and not _soft_cap_enabled():
         raise HTTPException(
             status_code=403,
             detail=f"Student limit reached ({current_count}/{max_students}). Upgrade your plan."

@@ -348,7 +348,7 @@
     Chat<span class="tab-badge" id="chat-tab-badge" style="display:none">0</span>
   </button>
   <button type="button" class="tab"        data-tab="tools"     role="tab" aria-selected="false" data-action="switchTab" data-args='["tools"]' data-roles="teacher">Tools</button>
-  <button type="button" class="tab"        data-tab="review"    role="tab" aria-selected="false" data-action="switchTab" data-args='["review"]' data-roles="teacher admin" style="display:none">Review</button>
+  <button type="button" class="tab"        data-tab="review"    role="tab" aria-selected="false" data-action="switchTab" data-args='["review"]' data-roles="teacher admin" style="display:none">Review<span class="tab-badge" id="appeals-pending-badge" style="display:none;background:var(--amber);color:#000">0</span></button>
   <button type="button" class="tab"        data-tab="privacy"   role="tab" aria-selected="false" data-action="switchTab" data-args='["privacy"]' data-roles="superadmin" style="display:none">Privacy</button>
   <!-- Admin tabs (role-gated) -->
   <button type="button" class="tab"        data-tab="org"       role="tab" aria-selected="false" data-action="switchTab" data-args='["org"]'       data-roles="admin" style="display:none">Org Overview</button>
@@ -1816,6 +1816,29 @@
 
 <!-- ORG OVERVIEW PANEL -->
 <div class="panel" id="panel-review">
+  <!-- Student appeals — teacher resolves disputes. Accepting a flag-linked
+       appeal dismisses the flag + recomputes risk (backend resolve_appeal).
+       "View flag + context" opens the forensics timeline, which renders the
+       pre-violation context strip (t-3s..t-0) for the disputed flag. -->
+  <div class="table-toolbar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0">Student Appeals</h2>
+      <div style="font-size:12px;color:var(--text-muted)">Disputes raised by students. Open the flag to see the lead-up context before deciding.</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <select id="appeals-filter" data-change-action="loadAppeals" style="font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:inherit">
+        <option value="pending">Pending</option>
+        <option value="all">All</option>
+        <option value="accepted">Accepted</option>
+        <option value="rejected">Rejected</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" type="button" data-action="loadAppeals">Refresh</button>
+    </div>
+  </div>
+  <div id="appeals-body" style="margin-top:12px"></div>
+
+  <hr style="margin:24px 0;border:none;border-top:1px solid var(--border)">
+
   <div class="table-toolbar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <div>
       <h2 style="margin:0">Cluster &amp; Batch Review</h2>

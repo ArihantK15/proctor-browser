@@ -551,12 +551,38 @@ def match_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]
         if fname.startswith("evt_") and any(k in fname for k in window_keys):
             return fpath
     for fname, fpath in screenshots.items():
-        # Exclude the phone-cam companion (room_*) — it is matched separately
-        # by match_room_screenshot_for_violation; it must never stand in as
-        # the PRIMARY frame.
-        if not fname.startswith("room_") and any(k in fname for k in window_keys):
+        # Exclude the phone-cam companion (room_*) and the pre-violation context
+        # frames (ctx_*) — both are matched separately and must never stand in
+        # as the PRIMARY frame.
+        if (not fname.startswith("room_") and not fname.startswith("ctx_")
+                and any(k in fname for k in window_keys)):
             return fpath
     return None
+
+
+def match_context_screenshots_for_violation(violation: dict, screenshots: dict[str, Path]) -> list[Path]:
+    """The pre-violation context frames (ctx_<type>_<ts>.jpg) saved in the
+    seconds BEFORE a flag, so the timeline/PDF can show the lead-up (dropped
+    pen vs. phone). Returns them OLDEST-FIRST. Empty for single-frame events or
+    when none fall in the window.
+
+    Window is widened on the look-back side (-8s) vs the ±5s primary window:
+    context frames sit up to ~5s before the flag (5 s ring buffer) plus upload
+    lag, so they'd fall outside the tighter primary window."""
+    if not screenshots or not violation.get("created_at"):
+        return []
+    try:
+        evt_ts = datetime.fromisoformat(str(violation["created_at"]).replace("Z", "+00:00")).astimezone(tz=timezone.utc).replace(tzinfo=timezone.utc)
+    except Exception:
+        return []
+    vtype = violation.get("violation_type", "")
+    _bases = (evt_ts, evt_ts + timedelta(hours=5, minutes=30))  # UTC + legacy IST
+    window_keys = {(b + timedelta(seconds=delta)).strftime("%Y%m%d_%H%M%S")
+                   for b in _bases for delta in range(-8, 6)}
+    matches = [(fname, fpath) for fname, fpath in screenshots.items()
+               if fname.startswith(f"ctx_{vtype}_") and any(k in fname for k in window_keys)]
+    matches.sort(key=lambda t: t[0])  # filename embeds zero-padded ts → chronological
+    return [fp for _, fp in matches]
 
 
 def match_room_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]) -> Path | None:

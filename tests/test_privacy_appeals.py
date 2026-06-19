@@ -342,6 +342,88 @@ class TestTeacherAppeals:
         d = r.json()
         assert "appeals" in d
 
+    def test_list_appeals_attaches_flag_evidence(self, admin_headers, mock_teacher):
+        """A flag-linked appeal carries the disputed flag's pre-violation context
+        strip + primary frame as auth-gated screenshot URLs (same matchers + URL
+        shape as the forensics timeline) so the teacher adjudicates inline."""
+        from pathlib import Path
+
+        violation = {"id": "v1", "violation_type": "phone_in_hand",
+                     "created_at": "2026-01-01T12:00:05+00:00"}
+        appeal = {"id": "ap1", "violation_id": "v1", "roll_number": "ALICE001",
+                  "teacher_id": "teacher-1", "session_key": "ALICE001_sess",
+                  "exam_id": "exam-1", "appeal_type": "violation",
+                  "description": "I dropped a pen", "status": "pending",
+                  "created_at": "2026-01-01T12:01:00+00:00"}
+        # _collect_session_screenshots returns {fname: Path(.../fname)}, so each
+        # Path's .name equals its key — mirror that (the code builds URLs from
+        # the matched Path's .name).
+        _names = [
+            "ctx_phone_in_hand_20260101_120002.jpg",  # t-3
+            "ctx_phone_in_hand_20260101_120003.jpg",  # t-2
+            "ctx_phone_in_hand_20260101_120004.jpg",  # t-1
+            "evt_phone_in_hand_20260101_120005.jpg",  # flag (primary)
+        ]
+        screenshots = {n: Path(n) for n in _names}
+
+        class _Q:
+            def __init__(self, data): self._data = data
+            def __getattr__(self, _name):
+                def _chain(*a, **k): return self
+                return _chain
+            async def execute(self):
+                return MagicMock(data=self._data)
+
+        def mock_atable(table):
+            if table == "appeals": return _Q([appeal])
+            if table == "violations": return _Q([violation])
+            return _Q([])
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable), \
+             patch("app.routers.appeals._collect_session_screenshots", return_value=screenshots):
+            r = client.get("/api/v1/admin/appeals", headers=admin_headers)
+
+        assert r.status_code == 200, r.text
+        appeals = r.json()["appeals"]
+        assert len(appeals) == 1
+        a = appeals[0]
+        base = "/api/v1/admin/screenshot/ALICE001/"
+        sid = "?session_id=ALICE001_sess"
+        # Context strip: 3 frames, oldest-first, auth-gated URL shape.
+        assert a["evidence_context"] == [
+            f"{base}ctx_phone_in_hand_20260101_120002.jpg{sid}",
+            f"{base}ctx_phone_in_hand_20260101_120003.jpg{sid}",
+            f"{base}ctx_phone_in_hand_20260101_120004.jpg{sid}",
+        ]
+        assert a["evidence_primary"] == f"{base}evt_phone_in_hand_20260101_120005.jpg{sid}"
+
+    def test_list_appeals_sessionlevel_appeal_gets_no_evidence(self, admin_headers, mock_teacher):
+        """A session-level appeal (no violation_id) gets no inline evidence and
+        triggers NO screenshot scan — bounded, no wasted filesystem work."""
+        appeal = {"id": "ap2", "violation_id": None, "roll_number": "ALICE001",
+                  "teacher_id": "teacher-1", "session_key": "ALICE001_x",
+                  "appeal_type": "grade", "status": "pending"}
+
+        class _Q:
+            def __init__(self, data): self._data = data
+            def __getattr__(self, _name):
+                def _chain(*a, **k): return self
+                return _chain
+            async def execute(self):
+                return MagicMock(data=self._data)
+
+        def mock_atable(table):
+            return _Q([appeal] if table == "appeals" else [])
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable), \
+             patch("app.routers.appeals._collect_session_screenshots") as scan:
+            r = client.get("/api/v1/admin/appeals", headers=admin_headers)
+
+        assert r.status_code == 200
+        a = r.json()["appeals"][0]
+        assert "evidence_context" not in a and "evidence_primary" not in a
+        scan.assert_not_called()
+
 
 class TestExamSessionsStudentId:
     def test_submit_sets_student_id(self, student_headers, mock_student_account):

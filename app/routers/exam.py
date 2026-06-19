@@ -1866,13 +1866,41 @@ def _enqueue_s3_upload(safe_teacher_id: str, roll: str, filename: str,
         _exam_log.warning("[S3] failed to enqueue upload for %s", s3_key)
 
 
-def _save_frame(student_dir: str, data: FrameIn, room_jpeg: bytes | None = None) -> tuple[str, str | None]:
+def _save_context_frames(student_dir: str, event_type: str | None,
+                         context_frames: list, flag_dt: datetime) -> list[str]:
+    """Save pre-violation context frames as ``ctx_<label>_<ts>.jpg`` with each
+    timestamp derived as ``flag_dt - offset_ms`` so the timeline/PDF order them
+    t-3s → t-1s ahead of the flag. The distinct ``ctx_`` prefix keeps them out
+    of the existing 1:1 primary matcher; a dedicated list-matcher gathers them.
+    Returns the filenames written (oldest-first). Best-effort per frame."""
+    os.makedirs(student_dir, exist_ok=True)
+    label = "".join(c if c.isalnum() or c in "_-" else "_"
+                    for c in (event_type or "frame"))[:32] or "frame"
+    written: list[str] = []
+    for cf in context_frames:
+        try:
+            when = flag_dt - timedelta(milliseconds=max(0, int(cf.offset_ms)))
+            ts = when.strftime("%Y%m%d_%H%M%S")
+            fname = f"ctx_{label}_{ts}.jpg"
+            with open(os.path.join(student_dir, fname), "wb") as f:
+                f.write(base64.b64decode(cf.frame_b64))
+            written.append(fname)
+        except Exception:
+            continue  # a bad context frame must never fail the flag upload
+    return written
+
+
+def _save_frame(student_dir: str, data: FrameIn, room_jpeg: bytes | None = None,
+                when: datetime | None = None) -> tuple[str, str | None]:
     """Decode and save a frame to disk. Returns (primary_filename, room_filename_or_None).
 
     When a phone-cam frame is supplied (captured at the same instant from the
     roomframe cache), it's written as a ``room_<label>_<ts>.jpg`` companion with
     the SAME timestamp as the primary ``evt_<label>_<ts>.jpg``, so the evidence
     PDF and the live timeline can show both cameras side by side for a flag.
+
+    ``when`` pins the filename timestamp (so context frames can anchor to the
+    flag's instant); defaults to now (UTC).
     """
     os.makedirs(student_dir, exist_ok=True)
     # UTC — NOT now_ist(). The evidence matcher
@@ -1880,7 +1908,7 @@ def _save_frame(student_dir: str, data: FrameIn, room_jpeg: bytes | None = None)
     # violation's created_at converted to UTC, so an IST filename was always
     # ~5.5h off the window → screenshots NEVER matched → reports/scorecards
     # showed no evidence images.
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = (when or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
     if data.event_type:
         label = "".join(
             c if c.isalnum() or c in "_-" else "_"
@@ -1923,6 +1951,12 @@ async def analyze_frame(data: FrameIn, request: Request):
         raise HTTPException(status_code=413,
                             detail=f"Frame too large ({len(data.frame)} chars). Max {_MAX_FRAME_BASE64_LEN}.")
 
+    # Pre-violation context frames: bound count (<=5) + per-frame size so a
+    # client can't balloon the payload. Oversized/extra frames are dropped (not
+    # a 4xx) so an old/buggy client never fails the flag upload over context.
+    ctx_frames = [c for c in (data.context_frames or [])[:5]
+                  if len(c.frame_b64) <= _MAX_FRAME_BASE64_LEN]
+
     # Sanitize roll/tid for path safety
     raw_roll = data.session_id.rsplit("_", 1)[0] if "_" in data.session_id \
                else data.session_id[:20]
@@ -1953,11 +1987,25 @@ async def analyze_frame(data: FrameIn, request: Request):
     except Exception:
         room_jpeg = None
 
+    # Single flag instant — the primary frame and all context frames anchor to
+    # it so the timeline orders them t-3s → t-1s → flag.
+    flag_dt = datetime.now(timezone.utc)
     try:
-        fname, room_fname = await asyncio.to_thread(_save_frame, student_dir, data, room_jpeg)
+        fname, room_fname = await asyncio.to_thread(_save_frame, student_dir, data, room_jpeg, flag_dt)
     except Exception as e:
         _exam_log.error("[Frame] Error saving frame for %s: %s", safe(data.session_id), safe(e))
         raise HTTPException(status_code=500, detail="Failed to save frame")
+
+    # Pre-violation context frames (appeal-critical events only). Best-effort —
+    # a failure here must never fail the flag upload itself.
+    ctx_fnames: list[str] = []
+    if ctx_frames:
+        try:
+            ctx_fnames = await asyncio.to_thread(
+                _save_context_frames, student_dir, data.event_type, ctx_frames, flag_dt)
+        except Exception as e:
+            _exam_log.warning("[Frame] context-frame save failed for %s: %s",
+                              safe(data.session_id), safe(e))
 
     # Dual-write to S3 (best-effort background upload)
     _enqueue_s3_upload(safe_teacher_id, roll, fname,
@@ -1965,6 +2013,9 @@ async def analyze_frame(data: FrameIn, request: Request):
     if room_fname:
         _enqueue_s3_upload(safe_teacher_id, roll, room_fname,
                            os.path.join(student_dir, room_fname), "image/jpeg")
+    for _cfn in ctx_fnames:
+        _enqueue_s3_upload(safe_teacher_id, roll, _cfn,
+                           os.path.join(student_dir, _cfn), "image/jpeg")
     return {"status": "received"}
 
 

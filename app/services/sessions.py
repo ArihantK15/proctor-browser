@@ -116,6 +116,17 @@ async def _check_subscription_active(org_id: str) -> None:
         # don't block until the row is present.
         return
     status = (sub.get("status") or "").lower()
+    # Card-on-signup: a subscription the billing owner never authorised (no
+    # payment mandate on file) does not grant access. Flag-gated so the existing
+    # no-card free-trial model is unchanged until the onboarding gate is live.
+    if status == "created":
+        from ..constants import CARD_ON_SIGNUP_ENFORCED
+        if CARD_ON_SIGNUP_ENFORCED:
+            raise HTTPException(
+                status_code=403,
+                detail="Set up a payment method to start your free trial.",
+            )
+        return  # flag off → legacy behaviour (don't block an un-authorised sub)
     if status in ("expired", "cancelled"):
         period_end_raw = sub.get("current_period_end") or ""
         if period_end_raw:

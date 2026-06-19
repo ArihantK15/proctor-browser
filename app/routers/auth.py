@@ -206,6 +206,10 @@ async def _create_teacher_signup_postgres_tx(
     subscription_id = str(_uuid.uuid4())
     default_exam_id = str(_uuid.uuid4())
     trial_end = datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)
+    # Card-on-signup: start the sub un-entitled ('created') so the billing owner
+    # must set up a payment mandate before usage. Flag off → legacy free trial.
+    from ..constants import CARD_ON_SIGNUP_ENFORCED
+    _signup_sub_status = "created" if CARD_ON_SIGNUP_ENFORCED else "trialing"
     password_changed_at = now_ist()
 
     async with pool.acquire() as conn:
@@ -243,11 +247,12 @@ async def _create_teacher_signup_postgres_tx(
             await conn.execute(
                 """
                 INSERT INTO subscriptions (id, org_id, plan, status, trial_end)
-                VALUES ($1, $2, 'starter', 'trialing', $3)
+                VALUES ($1, $2, 'starter', $4, $3)
                 """,
                 subscription_id,
                 org_id,
                 trial_end,
+                _signup_sub_status,
             )
 
             # nosemgrep: asyncpg-sqli
@@ -627,12 +632,14 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         org = org_result.data[0]
         org_id = org["id"]
 
-        # Create trial subscription
+        # Create trial subscription. Card-on-signup: start un-entitled
+        # ('created') so the owner must add a payment mandate first (flag-gated).
+        from ..constants import CARD_ON_SIGNUP_ENFORCED
         trial_end = (datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)).isoformat()
         await _atable("subscriptions").insert({
             "org_id": str(org_id),
             "plan": "starter",
-            "status": "trialing",
+            "status": "created" if CARD_ON_SIGNUP_ENFORCED else "trialing",
             "trial_end": trial_end,
         }).execute()
 

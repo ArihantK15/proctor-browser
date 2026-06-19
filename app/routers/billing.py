@@ -727,6 +727,22 @@ async def change_plan(request: Request):
     if sub_status not in ENTITLING_STATUSES:
         raise HTTPException(status_code=409, detail="Your subscription must be active to change plans. Create a new subscription instead.")
 
+    # Trialing subs have no billing cycle and no payment mandate yet, so a plan
+    # change just switches the trial plan IMMEDIATELY — nothing to prorate or
+    # charge, and no cycle end to schedule a downgrade against. (Scheduling a
+    # cycle-end downgrade here was the "Invalid Date" bug: a trialing sub has no
+    # current_period_end, so the effective date was bogus.) The real
+    # upgrade/downgrade-with-billing flow below only applies to paying subs.
+    if sub_status == "trialing":
+        await _atable("subscriptions").update({
+            "plan": plan_id,
+            "scheduled_plan": None,
+            "scheduled_plan_effective_at": None,
+        }).eq("id", sub_row["id"]).execute()
+        _invalidate_billing_cache(str(org_id))
+        await reconcile_org_entitlement(str(org_id))
+        return {"ok": True, "plan_id": plan_id, "immediate": True}
+
     current_price = PLANS.get(current_plan, {}).get("price_inr", 0)
     new_price = PLANS.get(plan_id, {}).get("price_inr", 0)
     is_upgrade = new_price > current_price
@@ -800,7 +816,9 @@ async def change_plan(request: Request):
 
         await _atable("subscriptions").update({
             "scheduled_plan": plan_id,
-            "scheduled_plan_effective_at": effective_at,
+            # Write the normalized ISO string (was writing the raw datetime/None,
+            # which read back as an unparseable "Invalid Date" in the banner).
+            "scheduled_plan_effective_at": effective_str,
         }).eq("id", sub_row["id"]).execute()
         _invalidate_billing_cache(str(org_id))
 

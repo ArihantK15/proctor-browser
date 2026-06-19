@@ -3626,8 +3626,9 @@ function planPrice(id, cycle){
 function fmtINR(paise){ return '\u20b9'+(paise||0).toLocaleString('en-IN'); }
 function fmtDate(isoStr){
   if(!isoStr) return '';
-  try{ return new Date(isoStr).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
-  catch(e){ return isoStr; }
+  const d = new Date(isoStr);
+  if(isNaN(d.getTime())) return '';   // never render "Invalid Date"
+  return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
 }
 
 // Reflect the active subscription in the plan tiles. When entitled, non-current
@@ -4009,8 +4010,10 @@ async function loadBilling(){
     if(schedEl){
       if(b.scheduled_plan && b.scheduled_plan_effective_at){
         schedEl.hidden = false;
+        const _when = fmtDate(b.scheduled_plan_effective_at);
+        const _whenTxt = _when ? `on <strong>${escAttr(_when)}</strong>` : 'at the end of your billing period';
         schedEl.innerHTML = `<span class="billing-scheduled-icon">\u23F3</span>
-          <span class="billing-scheduled-text">Scheduled to downgrade to <strong>${escAttr(planName(b.scheduled_plan))}</strong> on <strong>${escAttr(fmtDate(b.scheduled_plan_effective_at))}</strong>.</span>
+          <span class="billing-scheduled-text">Scheduled to downgrade to <strong>${escAttr(planName(b.scheduled_plan))}</strong> ${_whenTxt}.</span>
           <button class="btn btn-secondary btn-sm billing-scheduled-btn" type="button" data-action="cancelScheduledChange">Keep current plan</button>`;
       }else{
         schedEl.hidden = true;

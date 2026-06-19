@@ -1301,6 +1301,8 @@ function _onAuthDone(){
   const payload = decodeJWT(authToken);
   const role = (payload && payload.org_role) || (currentTeacherProfile && currentTeacherProfile.org_role);
   applyOrgRole(role || 'teacher');
+  // Card-on-signup gate (no-op unless CARD_ON_SIGNUP_ENFORCED is on server-side).
+  checkOnboardingGate();
 }
 
 // Patch into saveTokens
@@ -1561,7 +1563,29 @@ function showUpgradeModal(msg){
 }
 
 function closeUpgradeModal(){
+  // The onboarding gate reuses this modal as a blocking overlay — can't be
+  // dismissed until the billing owner sets up a payment method.
+  if(window._onboardingGateActive) return;
   document.getElementById('upgrade-modal').classList.add('hidden');
+}
+
+// Card-on-signup onboarding gate. For a billing-owner admin whose subscription
+// is still 'created' (no payment mandate), show the plan picker as a blocking
+// overlay so they choose a plan + set up payment before using the product.
+// /billing/onboarding-status returns needs_payment_setup=false unless
+// CARD_ON_SIGNUP_ENFORCED is on, so this is dormant until that flag flips.
+async function checkOnboardingGate(){
+  if(currentOrgRole !== 'admin' && currentOrgRole !== 'superadmin') return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/billing/onboarding-status`);
+    if(!r.ok) return;
+    const d = await r.json();
+    if(!d.needs_payment_setup){ window._onboardingGateActive = false; return; }
+    window._onboardingGateActive = true;
+    const close = document.querySelector('#upgrade-modal .close');
+    if(close) close.style.display = 'none';
+    showUpgradeModal('Welcome to Procta! To start your 14-day free trial, choose a plan and add a payment method below — you won\'t be charged until the trial ends.');
+  }catch(_){ /* gate is best-effort; backend still blocks usage */ }
 }
 
 function trialBannerClick(){

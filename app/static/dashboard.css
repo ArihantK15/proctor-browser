@@ -1322,7 +1322,10 @@ html,body{overflow-x:hidden;max-width:100vw}
 #panel-analytics .ax-stat-chip-label{font-size:10px;font-weight:600;letter-spacing:0.06em;
   text-transform:uppercase;color:var(--text-muted)}
 #panel-analytics .ax-page-grid{display:grid;grid-template-columns:1fr 1fr;
-  gap:var(--space-5);max-width:1280px}
+  gap:var(--space-5);max-width:1280px;
+  /* Clear the fixed Report-Issue FAB (bottom-right, z-index 9000) so it
+     never overlaps the last rows of the Per-Question table. */
+  padding-bottom:96px}
 #panel-analytics .ax-card{background:var(--surface-1);border:1px solid var(--border-subtle);
   border-radius:var(--radius-xl);padding:var(--space-5);overflow:hidden}
 #panel-analytics .ax-card-full{grid-column:1/-1}

@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS teachers (
   org_role   TEXT NOT NULL DEFAULT 'teacher',
   email      TEXT,
   full_name  TEXT,
+  supabase_uid        TEXT,                  -- auth identity (signup tx)
+  password_hash       TEXT,                  -- local-auth (signup tx)
+  auth_provider       TEXT,                  -- 'local' | 'supabase' (signup tx)
+  password_changed_at TIMESTAMPTZ,           -- local-auth (signup tx)
   status     TEXT DEFAULT 'active',          -- phase62
   org_suspended_at TIMESTAMPTZ,              -- phase108
   notification_prefs JSONB NOT NULL DEFAULT '{}'::jsonb,  -- phase112

@@ -18,7 +18,7 @@ from ..auth import (
     issue_student_auth_token, _get_student_account_by_id, _get_student_account_by_uid,
     require_admin, require_student_account, clear_teacher_cache, clear_student_account_cache,
 )
-from ..auth.scope import org_is_solo
+from ..auth.scope import org_is_solo, is_billing_owner
 from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus, RESULT_STATUSES
 from ..models.invites import InviteStatus
@@ -190,6 +190,7 @@ async def _create_teacher_signup_postgres_tx(
     slug: str,
     supabase_uid: str,
     password_hash: str,
+    account_type: str = "solo",
 ) -> tuple[dict, str, str]:
     """Create org, trial subscription, teacher, and default exam atomically.
 
@@ -211,6 +212,12 @@ async def _create_teacher_signup_postgres_tx(
     from ..constants import CARD_ON_SIGNUP_ENFORCED
     _signup_sub_status = "created" if CARD_ON_SIGNUP_ENFORCED else "trialing"
     password_changed_at = now_ist()
+    # Account-type branch (see specs/2026-06-20-account-types-solo-vs-org-design):
+    #   org  → manager-only admin (no exam authoring), owns billing.
+    #   solo → plain teacher in a 1-person org, owns billing.
+    # Billing ownership is set via organizations.owner_teacher_id below for both,
+    # so it no longer rides on org_role.
+    org_role = "admin" if account_type == "org" else "teacher"
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -262,7 +269,7 @@ async def _create_teacher_signup_postgres_tx(
                     id, email, full_name, supabase_uid, org_id, org_role,
                     password_hash, auth_provider, password_changed_at
                 )
-                VALUES ($1, $2, $3, $4, $5, 'admin', $6, 'local', $7)
+                VALUES ($1, $2, $3, $4, $5, $8, $6, 'local', $7)
                 RETURNING id, email, full_name, supabase_uid, org_id, org_role,
                           password_hash, auth_provider, password_changed_at
                 """,
@@ -273,9 +280,21 @@ async def _create_teacher_signup_postgres_tx(
                 org_id,
                 password_hash,
                 password_changed_at,
+                org_role,
             )
             if teacher is None:
                 raise RuntimeError("teacher insert returned no row")
+
+            # Billing-owner decoupling: the signing-up teacher owns the org's
+            # subscription regardless of org_role (solo teacher or org admin).
+            # The teacher id only exists after the INSERT above, so we set the
+            # owner with a follow-up UPDATE inside the same transaction.
+            # nosemgrep: asyncpg-sqli
+            await conn.execute(
+                "UPDATE organizations SET owner_teacher_id = $1 WHERE id = $2",
+                teacher_id,
+                org_id,
+            )
 
             # nosemgrep: asyncpg-sqli
             await conn.execute(
@@ -565,6 +584,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
                 slug=slug,
                 supabase_uid=str(supabase_uid),
                 password_hash=password_hash or "",
+                account_type=body.account_type,
             )
         except Exception as e:
             _auth_log.error("[TeacherSignup] Postgres transaction failed: %s", e)
@@ -614,7 +634,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "full_name":     name,
             "org_id":        str(org_id),
             "org_name":      org_name,
-            "org_role":      teacher.get("org_role", "admin"),
+            "org_role":      teacher.get("org_role", "teacher"),
             "status":        "pending_verification",
         }
 
@@ -643,13 +663,17 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "trial_end": trial_end,
         }).execute()
 
-        # Create teacher with org context
+        # Create teacher with org context. Account-type branch (see specs):
+        #   org → manager-only admin; solo → plain teacher. Billing ownership
+        #   is set on organizations.owner_teacher_id below for both, decoupled
+        #   from org_role.
+        _signup_org_role = "admin" if body.account_type == "org" else "teacher"
         teacher_row = {
             "email": email,
             "full_name": name,
             "supabase_uid": str(supabase_uid),
             "org_id": str(org_id),
-            "org_role": "admin",
+            "org_role": _signup_org_role,
         }
         if local_password_auth_enabled():
             teacher_row.update({
@@ -660,6 +684,11 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         teacher_result = await _atable("teachers").insert(teacher_row).execute()
         teacher = teacher_result.data[0]
         teacher_id = teacher["id"]
+
+        # Mark the signing-up teacher as the org's billing owner.
+        await _atable("organizations").update(
+            {"owner_teacher_id": str(teacher_id)}
+        ).eq("id", str(org_id)).execute()
 
         # Create default exam_config
         default_exam_id = str(_uuid.uuid4())
@@ -738,7 +767,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         "full_name":     name,
         "org_id":        str(org_id),
         "org_name":      org_name,
-        "org_role":      "admin",
+        "org_role":      teacher.get("org_role", "teacher"),
         "status":        "pending_verification",
     }
 
@@ -990,6 +1019,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             "org_id": teacher.get("org_id"),
             "org_role": teacher.get("org_role", "teacher"),
             "is_solo": await org_is_solo(teacher),
+            "is_billing_owner": await is_billing_owner(teacher),
             "email_verified_at": teacher.get("email_verified_at"),
         },
     })
@@ -1012,6 +1042,7 @@ async def teacher_me(request: Request):
         "org_id": teacher.get("org_id"),
         "org_role": teacher.get("org_role", "teacher"),
         "is_solo": await org_is_solo(teacher),
+        "is_billing_owner": await is_billing_owner(teacher),
         "email_verified_at": teacher.get("email_verified_at"),
     }
 

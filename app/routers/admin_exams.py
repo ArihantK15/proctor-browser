@@ -5,7 +5,7 @@ import uuid as _uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException, Body
 from ..auth import require_admin
-from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
+from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope, assert_can_author
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_questions as _load_questions
@@ -102,6 +102,7 @@ async def list_exams(request: Request):
 @limiter.limit("10/hour")
 async def create_exam(request: Request, body: CreateExamIn = Body(...)):
     teacher = await require_admin(request)
+    assert_can_author(teacher)  # manager-only admins can't author exams
     tid = str(teacher["id"])
     # Idempotency: if the caller sends an Idempotency-Key header, check
     # whether we've already processed this request. The key is scoped to
@@ -289,6 +290,7 @@ async def unarchive_exam(exam_id: str, request: Request):
 @limiter.limit("10/hour")
 async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
     teacher = await require_admin(request)
+    assert_can_author(teacher)  # manager-only admins can't author exams
     tid = str(teacher["id"])
 
     src_q = (await _atable("exam_config").select("*")

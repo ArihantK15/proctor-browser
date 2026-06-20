@@ -12,6 +12,7 @@ export default function Signup() {
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
+  const [accountType, setAccountType] = useState('solo')
 
   const [demoForm, setDemoForm] = useState({ name: '', email: '', institution: '', role: '', message: '' })
   const [demoLoading, setDemoLoading] = useState(false)
@@ -70,6 +71,7 @@ export default function Signup() {
           email: form.email,
           password: form.password,
           org_name: form.org_name,
+          account_type: accountType,
           captcha_token: turnstile.token,
         }),
       })
@@ -187,6 +189,64 @@ export default function Signup() {
             </p>
           </div>
 
+          <div className="mb-6">
+            <label className="mb-3 block label-mono text-slate-400">Account Type</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setAccountType('solo')}
+                className={`relative rounded-xl border p-3.5 text-left transition-all ${
+                  accountType === 'solo'
+                    ? 'border-accent/40 bg-accent/[0.03]'
+                    : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
+                }`}
+              >
+                {accountType === 'solo' && (
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent rounded-t-xl" />
+                )}
+                <div className="flex items-start gap-3">
+                  <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                    accountType === 'solo' ? 'border-accent bg-accent' : 'border-slate-600'
+                  }`}>
+                    {accountType === 'solo' && <Check size={12} className="text-white" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white">Solo teacher</p>
+                    <p className="mt-1 text-xs text-slate-400 leading-relaxed">
+                      Run your own exams and students; manage your own billing.
+                    </p>
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAccountType('org')}
+                className={`relative rounded-xl border p-3.5 text-left transition-all ${
+                  accountType === 'org'
+                    ? 'border-accent/40 bg-accent/[0.03]'
+                    : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
+                }`}
+              >
+                {accountType === 'org' && (
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent rounded-t-xl" />
+                )}
+                <div className="flex items-start gap-3">
+                  <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                    accountType === 'org' ? 'border-accent bg-accent' : 'border-slate-600'
+                  }`}>
+                    {accountType === 'org' && <Check size={12} className="text-white" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white">Organization</p>
+                    <p className="mt-1 text-xs text-slate-400 leading-relaxed">
+                      Manage teachers, billing & oversight for an institution. Admins don't run exams — you invite teachers for that.
+                    </p>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
           <form onSubmit={handleSignup} className="space-y-4">
             <div>
               <label className="mb-1.5 block label-mono text-slate-400">Full Name</label>
@@ -219,7 +279,9 @@ export default function Signup() {
             </div>
 
             <div>
-              <label className="mb-1.5 block label-mono text-slate-400">Organization Name</label>
+              <label className="mb-1.5 block label-mono text-slate-400">
+                {accountType === 'org' ? 'Institution Name' : 'Your Name or Class'}
+              </label>
               <input
                 type="text"
                 value={form.org_name}
@@ -227,7 +289,7 @@ export default function Signup() {
                 required
                 autoComplete="organization"
                 aria-invalid={Boolean(fieldErrors.org_name)}
-                placeholder="e.g., IIT Delhi"
+                placeholder={accountType === 'org' ? 'e.g., IIT Delhi' : "e.g., Ms. Sharma's Class"}
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all focus-glow"
               />
               {fieldErrors.org_name && <p className="mt-1 text-xs text-red-400">{fieldErrors.org_name}</p>}

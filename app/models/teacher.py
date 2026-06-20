@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
 
@@ -9,6 +9,12 @@ class TeacherSignupIn(BaseModel):
     password:  str
     full_name: str
     org_name:  str = ""
+    # Account type chosen at signup (see docs/superpowers/specs/
+    # 2026-06-20-account-types-solo-vs-org-design.md):
+    #   'solo' → 1-person org, org_role='teacher', owns billing.
+    #   'org'  → manager-only org_role='admin', owns billing, no exam authoring.
+    # Defaults to 'solo' so existing/scripted callers keep the prior behaviour.
+    account_type: Literal["solo", "org"] = "solo"
     # Turnstile CAPTCHA token. Optional in the schema so existing
     # callers (tests, scripted clients) keep working; the handler
     # falls back to sandbox-allow when the server-side secret isn't

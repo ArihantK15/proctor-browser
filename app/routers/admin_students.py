@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException, Body, UploadFile, File, Form
 from fastapi.responses import PlainTextResponse
 from ..auth import require_admin
-from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
+from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope, assert_can_author
 from ..database import async_table as _atable
 from .. import cache as _cache
 from ..repositories.questions import load_exam_config as _load_exam_config, get_access_code as _get_access_code, set_access_code as _set_access_code
@@ -665,6 +665,7 @@ async def set_student_batch(roll_number: str, request: Request, body: dict = Bod
     so an admin can't relabel another org's students.
     """
     teacher = await require_admin(request)
+    assert_can_author(teacher)  # manager-only admins can't mutate the roster
     scope = await resolve_scope(teacher, request)
     tids = await scope_to_teacher_ids(scope)
     roll = (roll_number or "").strip().upper()
@@ -767,6 +768,7 @@ async def email_cohort_link(request: Request, body: dict = Body(...)):
 @limiter.limit("10/minute")
 async def admin_bulk_register(request: Request, body: BulkRegisterIn = Body(...)):
     teacher = await require_admin(request)
+    assert_can_author(teacher)  # manager-only admins can't mutate the roster
     students = body.students
     if not students or not isinstance(students, list):
         raise HTTPException(status_code=400, detail="'students' must be a non-empty list")
@@ -792,6 +794,7 @@ async def import_students_csv(
     send_invites: bool = Form(True),
 ):
     teacher = await require_admin(request)
+    assert_can_author(teacher)  # manager-only admins can't mutate the roster
 
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files accepted")
@@ -883,6 +886,7 @@ async def get_access_code(request: Request):
 @limiter.limit("10/minute")
 async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
     teacher = await require_admin(request)
+    assert_can_author(teacher)  # manager-only admins can't author exam settings
     exam_id = body.exam_id
     new_code = body.access_code.strip().upper()
     await _set_access_code(new_code, teacher["id"], exam_id=exam_id)
@@ -981,6 +985,7 @@ async def delete_student_from_roster(
     Returns the number of rows deleted so the UI can confirm.
     """
     teacher = await require_admin(request)
+    assert_can_author(teacher)  # manager-only admins can't mutate the roster
     tid = str(teacher["id"])
     if not email and not roll_number:
         raise HTTPException(status_code=400,

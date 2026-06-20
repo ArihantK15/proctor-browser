@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 from ..database import supabase, async_table as _atable
 from ..limiter import limiter
 from ..auth import require_admin
+from ..auth.scope import assert_can_author
 from .. import cache as _cache
 from ..models import SessionStatus
 from ..constants import QUESTION_IMG_DIR
@@ -983,6 +984,7 @@ async def get_admin_answers(session_id: str, request: Request):
 async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)):
     """Update questions in Supabase."""
     teacher = await require_admin(request)
+    assert_can_author(teacher)  # manager-only admins can't author questions
     tid = teacher["id"]
     questions = body.questions
     if not isinstance(questions, list) or len(questions) == 0:

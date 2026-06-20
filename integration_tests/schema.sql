@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   require_2fa          BOOLEAN NOT NULL DEFAULT FALSE,  -- phase111
   max_students_override INTEGER,                          -- phase114 (gap #13)
   billing_credit_inr    INTEGER NOT NULL DEFAULT 0,       -- phase114 (gap #13)
+  owner_teacher_id      UUID,                              -- phase135 (billing-owner decouple); FK to teachers omitted (forward ref, see note above)
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96
 );
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   org_id                   UUID REFERENCES organizations(id),
   plan                     TEXT,
   status                   TEXT,
+  trial_end                TIMESTAMPTZ,
   razorpay_subscription_id TEXT,
   razorpay_order_id        TEXT,
   current_period_start     TIMESTAMPTZ,
@@ -110,6 +112,10 @@ CREATE TABLE IF NOT EXISTS teachers (
   org_role   TEXT NOT NULL DEFAULT 'teacher',
   email      TEXT,
   full_name  TEXT,
+  supabase_uid        TEXT,                  -- auth identity (signup tx)
+  password_hash       TEXT,                  -- local-auth (signup tx)
+  auth_provider       TEXT,                  -- 'local' | 'supabase' (signup tx)
+  password_changed_at TIMESTAMPTZ,           -- local-auth (signup tx)
   status     TEXT DEFAULT 'active',          -- phase62
   org_suspended_at TIMESTAMPTZ,              -- phase108
   notification_prefs JSONB NOT NULL DEFAULT '{}'::jsonb,  -- phase112

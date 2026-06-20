@@ -309,6 +309,7 @@
     "max_students",
     "max_students_override",
     "name",
+    "owner_teacher_id",
     "require_2fa",
     "slug"
   ],

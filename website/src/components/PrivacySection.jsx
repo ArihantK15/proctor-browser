@@ -14,7 +14,7 @@ export default function PrivacySection() {
     {
       icon: Database,
       title: 'Minimal Data Collection',
-      desc: 'We store violation logs and risk scores — not biometric templates. Your students\' data stays minimal and purposeful.',
+      desc: 'We store violation logs and risk scores — not biometric templates. When a flag fires we also keep the few seconds of context leading up to it, so disputes can be reviewed fairly. Your students\' data stays minimal and purposeful.',
     },
     {
       icon: Lock,

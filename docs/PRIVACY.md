@@ -35,7 +35,7 @@ Access Request, what to retain after deletion, legal basis).
 | Exam sessions | `exam_sessions` | Proctoring evidence for the teacher who ran the exam | Anonymised — name → "Deleted User", email blanked, roll → anon_roll |
 | Violations + answers | `violations`, `answers` | Per-session evidence | Anonymised (referenced by anonymised session) |
 | Appeals filed | `appeals` | Dispute handling | Anonymised (student_id → anon_id) |
-| Forensic frames (screenshots) | `screenshots/` filesystem dir + S3 (Workstream B) | Manual review by the teacher in cheating disputes | Local cache retained 7 days (S3-enabled) / 30 days (S3-disabled); S3 is durable store with SSE-S3 at-rest encryption. Hourly cleanup thread (`app/services/sessions.py:cleanup_screenshots`) — covered separately, not in this DB-level erasure flow |
+| Forensic frames (screenshots, incl. pre-violation context) | `screenshots/` filesystem dir + S3 (Workstream B) | Manual review by the teacher in cheating disputes | Local cache retained 7 days (S3-enabled) / 30 days (S3-disabled); S3 is durable store with SSE-S3 at-rest encryption. Hourly cleanup thread (`app/services/sessions.py:cleanup_screenshots`) — covered separately, not in this DB-level erasure flow. On an appeal-critical flag the few seconds of context frames leading up to it (`ctx_*`) are stored the same way and under the same 30-day window; they are shown to the teacher for appeal review only — never returned to the student. |
 | Phone-camera frames | Redis (transient) | Real-time room monitoring | Auto-expire (Redis TTL) |
 | Consent records | `consent_records` | Proof we obtained consent | **Retained** — required as proof under DPDP §7(2) |
 | Audit trail | `auth_events` | Security forensics | Retained; user_id set to NULL |

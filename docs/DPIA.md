@@ -122,8 +122,8 @@ controls. Controls reference existing, shipped mechanisms.
 | R3 | Over-retention of personal data | Low | Med | Code-enforced windows (screenshots 30d, billing 7y purge, TTL sweeper); retention matrix published | Low |
 | R4 | Unfair automated decision against a student | Low | High | AI grading + risk score are **advisory**; mandatory teacher override + audit trail; appeals flow | Low |
 | R5 | Processing a minor without valid consent | Med | High | DOB captured at registration; under-18 auto-requires a guardian email and a **verifiable consent** link (tokened, sha256-stored) before exam access — minor-aware gate in `validate-student`; grant recorded in `consent_records` (phase106) | Low |
-| R6 | False-positive proctoring flag harming a student | Med | Med | Human review of every flag; sensitivity presets; evidence retained 30d for dispute; appeals | Low |
-| R7 | Excessive surveillance (webcam/screen/audio) beyond purpose | Med | Med | Per-exam opt-in features; on-device analysis; phone frames transient; minimised server payload | Low |
+| R6 | False-positive proctoring flag harming a student | Med | Med | Human review of every flag; sensitivity presets; evidence retained 30d for dispute; appeals; **pre-violation context strip (teacher-only) makes the lead-up to a flag reviewable, so a dropped pen isn't mistaken for a phone** | Low |
+| R7 | Excessive surveillance (webcam/screen/audio) beyond purpose | Med | Med | Per-exam opt-in features; on-device analysis; phone frames transient; minimised server payload; **context frames are RAM-only + event-triggered (≤3 frames/flag, sent only on an appeal-critical flag), never a continuous stream** | Low |
 | R8 | Sub-processor exposure (LLM, hosting) | Low | Med | Zero-shot prompts, no training; sub-processor list published; data-residency choices documented | Low |
 | R10 | S3 cloud provider access to encrypted screenshot data | Low | Med | SSE-S3 at rest; TLS 1.3 in transit; bucket policy blocks public access + enforces `aws:SecureTransport`; IAM-scoped user with least-privilege (s3:PutObject, s3:GetObject, s3:ListBucket, s3:DeleteObject on single bucket); no presigned URLs — all reads stream through backend (CSP + auth gate preserved); bucket in ap-south-1 (Mumbai) for India data residency | Low |
 | R9 | Loss of availability (evidence lost mid-dispute) | Low | Med | Daily pg_dump backups (14-day retention); 30-day screenshot window | Low |
@@ -206,3 +206,20 @@ Residual risk: <Low/Med/High> — Art 36 prior consultation needed? <y/n>
 DPO sign-off: <name, date>
 Docs reconciled: PRIVACY.md [ ] trust-center.html [ ] DPA [ ]
 ```
+
+## DPIA review — Pre-violation context frames (appeal evidence) — 2026-06-20
+Trigger: new processing of personal data (pre-violation desktop-camera frames).
+Processing delta: on an appeal-critical flag the client (RAM-only 1 Hz ring) now
+attaches up to 3 frames from the ~3 s BEFORE the flag (t-3s..t-0). The server
+stores them as `ctx_*.jpg` alongside the existing evidence frame and surfaces
+them to the TEACHER (timeline, PDF, appeal review) — never to the student
+(the student evidence endpoint returns no media). No new server-side processing
+or AI; pure storage for human appeal review.
+New/changed risks: R6 (false-positive harm) ↓ — context makes flags contestable;
+R7 (excessive surveillance) held at Med→Low — capture is bounded + event-
+triggered, not continuous.
+New controls required: none new — inherits the existing 30-day screenshot
+retention + SSE-S3 + scope-gated screenshot reads.
+Residual risk: Low — Art 36 prior consultation needed? No.
+DPO sign-off: pending.
+Docs reconciled: PRIVACY.md [x] trust-center.html [ ] DPA [ ]

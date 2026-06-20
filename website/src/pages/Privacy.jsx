@@ -31,7 +31,7 @@ export default function Privacy() {
             <p>
               Procta collects minimal data necessary to deliver exam proctoring services. This includes:
               student name, roll number, and email (provided during registration); exam responses and timestamps;
-              AI-generated violation logs and risk scores. We do not collect biometric templates or record video.
+              AI-generated violation logs and risk scores. We do not collect biometric templates or record video. When a flag is raised, we keep the few seconds of snapshots leading up to it so the flag can be reviewed fairly on appeal.
             </p>
           </section>
 

@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS exam_config (
   access_code             TEXT,
   starts_at               TIMESTAMPTZ,
   ends_at                 TIMESTAMPTZ,
+  early_join_minutes      INTEGER NOT NULL DEFAULT 15,
   shuffle_questions       BOOLEAN DEFAULT TRUE,
   shuffle_options         BOOLEAN DEFAULT TRUE,
   phone_camera_enabled    BOOLEAN DEFAULT FALSE,

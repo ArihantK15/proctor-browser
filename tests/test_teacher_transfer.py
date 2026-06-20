@@ -248,15 +248,22 @@ class TestReassignEndpointHappyPath:
             mq.execute = _exec
             return mq
 
-        with patch("app.postgres_table.get_pool", return_value=_FakePool()):
-            with patch("app.routers.admin_org._atable", side_effect=_mock_atable):
-                r = client.post(
-                    "/api/v1/admin/teachers/from-1/reassign",
-                    json={"to_teacher_id": "to-1"},
-                    headers=_admin_headers(),
-                )
+        with patch("app.postgres_table.get_pool", return_value=_FakePool()), \
+             patch("app.db_context.apply_request_context", new_callable=AsyncMock) as _apply_ctx, \
+             patch("app.routers.admin_org._atable", side_effect=_mock_atable):
+            r = client.post(
+                "/api/v1/admin/teachers/from-1/reassign",
+                json={"to_teacher_id": "to-1"},
+                headers=_admin_headers(),
+            )
 
         assert r.status_code == 200, r.text
+        # RLS: the endpoint MUST elevate to the system principal before the
+        # cross-owner remap — otherwise under live RLS procta_app silently
+        # UPDATEs 0 rows (the empty-lobby class of bug). The integration fixture
+        # has no RLS policies, so we prove the elevation is wired here.
+        _apply_ctx.assert_awaited_once()
+        assert _apply_ctx.await_args.kwargs.get("force_system") is True
         data = r.json()
         assert isinstance(data, dict)
         assert "counts" in data

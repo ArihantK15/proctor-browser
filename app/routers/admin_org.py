@@ -307,10 +307,17 @@ async def reassign_teacher(from_id: str, body: dict, request: Request):
     from_teacher = from_rows[0]
     to_teacher = to_rows[0]
 
+    from .. import db_context as _dbctx
     pool = await get_pool()
     try:
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # RLS: this raw-tx path bypasses PostgresTable.execute's context
+                # application, and it remaps rows the admin doesn't "own" across
+                # teacher-owned tables. Without the system principal, procta_app
+                # RLS would silently UPDATE 0 rows (the empty-lobby class of bug).
+                # Admin + same-org authz is already enforced above; elevate here.
+                await _dbctx.apply_request_context(conn, force_system=True)
                 counts = await reassign_teaching_data(conn, str(from_id), to_id)
     except Exception as exc:
         # Unique-constraint violations manifest as asyncpg exceptions.

@@ -144,6 +144,7 @@
     "audio_keywords_language",
     "created_at",
     "duration_minutes",
+    "early_join_minutes",
     "ends_at",
     "exam_id",
     "exam_title",

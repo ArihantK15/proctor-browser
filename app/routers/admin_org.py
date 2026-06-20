@@ -262,6 +262,87 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
     return {"ok": True, "role": role}
 
 
+@router.post("/api/v1/admin/teachers/{from_id}/reassign")
+@limiter.limit("10/hour")
+async def reassign_teacher(from_id: str, body: dict, request: Request):
+    """Transfer all teaching data from one teacher to another within the same org.
+
+    Both teachers must belong to the admin's org.  The receiving teacher must
+    already exist in the org.  On a ``(teacher_id, exam_id)`` or
+    ``(teacher_id, roll_number)`` unique-constraint conflict the transaction
+    rolls back and the endpoint returns 409.
+    """
+    from ..services.teacher_transfer import reassign_teaching_data
+    from ..postgres_table import get_pool
+    from ..services.admin_audit import log_admin_action
+    import uuid as _uuid
+
+    admin = await require_admin(request)
+    if admin.get("org_role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only admins can reassign teachers")
+
+    org_id = admin.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated")
+
+    to_id = (body.get("to_teacher_id") or "").strip()
+    if not to_id:
+        raise HTTPException(status_code=422, detail="to_teacher_id is required")
+
+    if str(from_id).strip() == to_id:
+        raise HTTPException(status_code=400, detail="Cannot transfer data to the same teacher")
+
+    # Load both teachers — both must exist and belong to the caller's org.
+    from_rows = (await _atable("teachers").select("id,org_id,email,full_name")
+                 .eq("id", str(from_id)).eq("org_id", str(org_id)).limit(1).execute()).data
+    if not from_rows:
+        raise HTTPException(status_code=404, detail="Source teacher not found in your organization")
+
+    to_rows = (await _atable("teachers").select("id,org_id,email,full_name")
+               .eq("id", to_id).eq("org_id", str(org_id)).limit(1).execute()).data
+    if not to_rows:
+        raise HTTPException(status_code=400,
+                            detail="The receiving teacher must already be in your organization")
+
+    from_teacher = from_rows[0]
+    to_teacher = to_rows[0]
+
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                counts = await reassign_teaching_data(conn, str(from_id), to_id)
+    except Exception as exc:
+        # Unique-constraint violations manifest as asyncpg exceptions.
+        # Catch them and surface a readable 409 so the admin can resolve
+        # the conflict manually.
+        err_str = str(exc)
+        if "unique" in err_str.lower() or "duplicate" in err_str.lower():
+            raise HTTPException(
+                status_code=409,
+                detail="The receiving teacher already has conflicting exam or student data. "
+                       "Resolve the conflict before transferring.",
+            )
+        raise
+
+    await log_admin_action(
+        teacher_id=str(admin["id"]),
+        action="reassign_teacher",
+        target_type="teacher",
+        target_id=str(from_id),
+        before_data={
+            "from_teacher": {"id": str(from_id), "email": from_teacher.get("email"),
+                             "full_name": from_teacher.get("full_name")},
+            "to_teacher": {"id": to_id, "email": to_teacher.get("email"),
+                           "full_name": to_teacher.get("full_name")},
+        },
+        after_data={"counts": counts},
+        request=request,
+    )
+
+    return {"ok": True, "counts": counts}
+
+
 @router.patch("/api/v1/org")
 @limiter.limit("10/hour")
 async def update_org(body: dict, request: Request):

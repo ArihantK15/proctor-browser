@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   require_2fa          BOOLEAN NOT NULL DEFAULT FALSE,  -- phase111
   max_students_override INTEGER,                          -- phase114 (gap #13)
   billing_credit_inr    INTEGER NOT NULL DEFAULT 0,       -- phase114 (gap #13)
+  owner_teacher_id      UUID,                              -- phase135 (billing-owner decouple); FK to teachers omitted (forward ref, see note above)
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
   -- gstin added by phase96
 );

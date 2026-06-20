@@ -62,6 +62,9 @@ _PHASE104 = _MIGRATIONS / "phase104_sweep_billing_7yr.sql"
 _TRUNCATE_SQL = (
     "TRUNCATE billing_events, usage_records, answers, violations, exam_sessions, "
     "question_bank, questions, exam_config, invite_send_counters, students, "
+    "student_groups, student_group_members, student_invites, exam_batch_assignments, "
+    "exam_group_assignments, exam_templates, exam_time_extensions, appeals, "
+    "grading_audit, google_classroom_links, auth_events, "
     "subscriptions, teachers, organizations "
     "RESTART IDENTITY CASCADE"
 )

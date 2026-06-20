@@ -67,6 +67,27 @@ body {
   gap: var(--space-2);
 }
 
+/* Segmented theme switch (dark / OLED / light). These also exist in
+   dashboard.css, but the STUDENT dashboard only loads components.css — without
+   them the buttons rendered as raw, unstyled browser chrome (the "weird
+   looking" toggle). Ported here so the student switch matches the teacher one. */
+.theme-switch {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+}
+.theme-opt {
+  width: 28px; height: 26px; display: inline-flex; align-items: center;
+  justify-content: center; border: 0; border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--text-muted, var(--muted)); transition: .15s;
+}
+.theme-opt:hover { color: var(--text); background: var(--surface-2, rgba(255,255,255,.05)); }
+.theme-opt.active { color: var(--accent); background: var(--accent-subtle, rgba(91,138,240,.16)); }
+.theme-opt svg { display: block; }
+[data-theme="light"] .theme-switch {
+  background: rgba(226,232,240,0.7); border-color: var(--border-default, var(--border));
+}
+[data-theme="light"] .theme-opt:hover { background: rgba(255,255,255,0.84); }
+
 /* Section */
 .section {
   margin-bottom: var(--space-12);

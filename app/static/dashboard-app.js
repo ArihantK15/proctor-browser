@@ -1496,6 +1496,11 @@ async function loadOrgSettings(){
   }catch(_){}
 }
 
+// Module-level cache of the org members list so the teacher-transfer modal
+// can populate its target <select> from the SAME data loadMembers() rendered
+// (the receiving teacher must already be in the org).
+let _membersData = [];
+
 async function loadMembers(){
   try{
     const r = await authFetch(`${BASE}/api/v1/org/members`);
@@ -1503,18 +1508,124 @@ async function loadMembers(){
     const d = await r.json();
     const tbody = document.getElementById('members-tbody');
     const members = d.members || [];
+    _membersData = members;
     const countEl = document.getElementById('members-count');
     if(countEl) countEl.textContent = String(members.length);
-    tbody.innerHTML = members.map(m => `
+    tbody.innerHTML = members.map(m => {
+      let actions = '';
+      if(m.org_role==='teacher'){
+        // Only teachers author teaching data, so only they can be offboarded.
+        actions = `<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 8px;margin-right:6px" data-action="openTeacherTransferModal" data-args='${_jsonArgsForAttr(m.id)}'>Transfer data / Offboard</button>`
+          + `<button class="btn btn-secondary btn-sm" style="color:var(--red);font-size:11px;padding:4px 8px" data-action="removeOrgMember" data-args='${_jsonArgsForAttr(m.id)}'>Remove</button>`;
+      }
+      return `
       <tr>
         <td>${_escHtml(m.full_name||'--')}</td>
         <td>${_escHtml(m.email)}</td>
         <td>${_escHtml(m.org_role)}</td>
         <td>${m.created_at||'--'}</td>
-        <td>${m.org_role==='teacher' ? `<button class="btn btn-secondary btn-sm" style="color:var(--red);font-size:11px;padding:4px 8px" data-action="removeOrgMember" data-args='${_jsonArgsForAttr(m.id)}'>Remove</button>` : ''}</td>
+        <td style="white-space:nowrap">${actions}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }catch(_){}
+}
+
+// ── Teacher reassign / offboarding (admin-only) ──────────────────
+// Moves ALL of one teacher's teaching data (exams, students, sessions,
+// analytics) to another teacher who is ALREADY in the org. Backend:
+// POST /api/v1/admin/teachers/{fromId}/reassign { to_teacher_id }.
+function openTeacherTransferModal(fromId){
+  if(!fromId) return;
+  const from = (_membersData || []).find(m => m.id === fromId);
+  const fromName = from ? (from.full_name || from.email || 'this teacher') : 'this teacher';
+  // Eligible targets: every OTHER member that is a teacher (exclude the
+  // from-teacher and any admins — you don't hand teaching data to an admin).
+  const targets = (_membersData || []).filter(m => m.id !== fromId && m.org_role === 'teacher');
+
+  const els = _appModalEls();
+  if(!els.overlay || !els.title || !els.body || !els.ok || !els.cancel){ return; }
+  if(_appDialogResolve) _appDialogResolve(null);
+  _appDialogMode = 'teacher_transfer';
+  els.title.textContent = 'Transfer data / Offboard';
+  els.body.innerHTML = '';
+
+  const intro = document.createElement('div');
+  intro.style.cssText = 'color:var(--text-muted);font-size:13px;line-height:1.5;margin-bottom:14px';
+  intro.textContent = `This moves ALL of ${fromName}'s exams, students, sessions, and analytics to the selected teacher. `
+    + 'The receiving teacher must already be in your organization. This cannot be undone.';
+  els.body.appendChild(intro);
+
+  if(!targets.length){
+    const none = document.createElement('div');
+    none.style.cssText = 'color:var(--amber, #fbbf24);font-size:13px';
+    none.textContent = 'There is no other teacher in this organization to receive the data. Invite a teacher first.';
+    els.body.appendChild(none);
+    els.ok.textContent = 'Transfer';
+    els.ok.disabled = true;
+    els.cancel.textContent = 'Close';
+    els.cancel.style.display = '';
+    els.overlay.style.display = 'flex';
+    els.body._transferState = { fromId, getTarget: () => '' };
+    return new Promise(resolve => { _appDialogResolve = resolve; });
+  }
+
+  const label = document.createElement('div');
+  label.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:6px';
+  label.textContent = 'Receiving teacher';
+  els.body.appendChild(label);
+
+  const select = document.createElement('select');
+  select.id = 'teacher-transfer-target';
+  select.style.cssText = 'width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);'
+    + 'border-radius:10px;color:var(--text);padding:10px 12px;font-size:13px;outline:none;box-sizing:border-box';
+  targets.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = (t.full_name ? t.full_name + ' — ' : '') + (t.email || t.id);
+    select.appendChild(opt);
+  });
+  els.body.appendChild(select);
+
+  els.ok.textContent = 'Transfer data';
+  els.ok.disabled = false;
+  els.cancel.textContent = 'Cancel';
+  els.cancel.style.display = '';
+  els.overlay.style.display = 'flex';
+  setTimeout(() => select.focus(), 0);
+  els.body._transferState = { fromId, getTarget: () => select.value };
+  return new Promise(resolve => { _appDialogResolve = resolve; });
+}
+
+async function _submitTeacherTransfer(fromId, toId){
+  if(!fromId || !toId) return;
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/teachers/${encodeURIComponent(fromId)}/reassign`, {
+      method: 'POST',
+      body: JSON.stringify({ to_teacher_id: toId })
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      showModal('Transfer failed', _detailText(d, 'Could not transfer teaching data.'));
+      return;
+    }
+    const d = await r.json().catch(()=>({}));
+    const counts = (d && d.counts) || d || {};
+    // showModal renders its body as plain text (textContent), so build a
+    // newline-separated summary rather than HTML.
+    const movedKeys = Object.keys(counts).filter(k => typeof counts[k] === 'number');
+    const total = movedKeys.reduce((a, k) => a + counts[k], 0);
+    // showModal renders body as collapsed text, so keep the per-table
+    // breakdown on a single readable line (table=rows · table=rows · …).
+    const parts = movedKeys.sort().map(k => `${k}=${counts[k]}`).join(' · ');
+    const summary = movedKeys.length
+      ? `Moved ${total} row${total===1?'':'s'} across ${movedKeys.length} table${movedKeys.length===1?'':'s'}. ${parts}`
+      : 'Teaching data transferred successfully.';
+    await showModal('Transfer complete', summary);
+    loadMembers();
+  }catch(e){
+    showModal('Transfer failed', (e && e.message) || 'Network error during transfer.');
+  }
 }
 
 // ── ALL ORGS (superadmin) ──────────────────────────────────────
@@ -5468,6 +5579,9 @@ function _openAppDialog({title='Procta', body='', mode='alert', defaultValue='',
 function _resolveAppDialog(value){
   const els = _appModalEls();
   if(els.overlay) els.overlay.style.display = 'none';
+  // The teacher-transfer modal may disable OK (no eligible target); always
+  // re-enable so the shared modal isn't left stuck-disabled for the next use.
+  if(els.ok) els.ok.disabled = false;
   const resolve = _appDialogResolve;
   _appDialogResolve = null;
   if(resolve) resolve(value);
@@ -5519,6 +5633,19 @@ function confirmAppModal(){
       return;
     }
     _resolveAppDialog({code, text});
+    return;
+  }
+  if(_appDialogMode === 'teacher_transfer'){
+    const els = _appModalEls();
+    const state = els.body && els.body._transferState;
+    if(!state){ _resolveAppDialog(null); return; }
+    const toId = state.getTarget();
+    if(!toId){ _resolveAppDialog(null); return; }
+    const fromId = state.fromId;
+    // Close the modal first, then fire the request (which opens its own
+    // result/error modal over the same overlay).
+    _resolveAppDialog(null);
+    _submitTeacherTransfer(fromId, toId);
     return;
   }
   _resolveAppDialog(true);

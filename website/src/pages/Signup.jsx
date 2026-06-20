@@ -407,6 +407,37 @@ export default function Signup() {
           </motion.div>
         </motion.div>
 
+        {/* Right column: a value panel (balances the tall signup form and
+            sells while they sign up) stacked above the enterprise CTA, so the
+            two columns read as symmetric rather than tall-form-beside-stub. */}
+        <div className="flex flex-col gap-8">
+        <motion.div
+          variants={card}
+          className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 overflow-hidden grain-overlay"
+        >
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent z-10" />
+          <h2 className="font-display text-2xl font-bold text-white tracking-tight">Everything in the free trial.</h2>
+          <p className="mt-2 text-sm text-slate-400">
+            Full proctoring, no feature gates, no card. Here's what runs from day one:
+          </p>
+          <ul className="mt-6 space-y-3.5">
+            {[
+              ['On-device AI proctoring', 'Gaze, face, phone & object detection run on the student device — raw video never leaves it.'],
+              ['Phone-camera room monitoring', 'A second angle from the student’s phone, included on every plan.'],
+              ['Real-time teacher dashboard', 'Live sessions, a violation timeline with evidence, and one-click interventions.'],
+              ['Built for India', 'INR + GST billing, DPDP-aligned, data hosted in-country.'],
+            ].map(([t, d]) => (
+              <li key={t} className="flex gap-3">
+                <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent accent-glow" />
+                <span>
+                  <span className="block text-sm font-semibold text-white">{t}</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-slate-400">{d}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+
         {/* Enterprise / Demo Request section — sits beside signup on
             desktop, stacks below on mobile (handled by parent grid). */}
         <motion.div
@@ -499,6 +530,7 @@ export default function Signup() {
             </form>
           )}
         </motion.div>
+        </div>
         </div>
       </motion.div>
     </div>

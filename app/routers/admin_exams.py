@@ -51,7 +51,7 @@ async def list_exams(request: Request):
 
     result = await _scoped(_atable("exam_config").select(
         "exam_id,exam_title,duration_minutes,starts_at,ends_at,access_code,"
-        "proctoring_sensitivity,created_at,teacher_id,pass_mark,archived_at"
+        "proctoring_sensitivity,created_at,teacher_id,pass_mark,archived_at,early_join_minutes"
     )).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     exams = result.data or []
     exam_ids = [e.get("exam_id") for e in exams if e.get("exam_id")]
@@ -85,6 +85,7 @@ async def list_exams(request: Request):
             "duration_minutes": ex.get("duration_minutes", 60),
             "starts_at":        ex.get("starts_at"),
             "ends_at":          ex.get("ends_at"),
+            "early_join_minutes": ex.get("early_join_minutes", 15),
             "access_code":      ex.get("access_code", ""),
             "proctoring_sensitivity": normalize_sensitivity(ex.get("proctoring_sensitivity")),
             "pass_mark":        ex.get("pass_mark", 40),

@@ -1208,6 +1208,8 @@ async function doLogin(){
     const accessCode=document.getElementById('code-input').value.trim().toUpperCase();
     student      = await window.proctor.validateStudent(roll, accessCode);
     studentToken = student.token || null;
+    // Capture the server/local clock offset for the scheduled-start countdown.
+    try{ if(student && student.server_now){ _serverClockOffsetMs = Date.parse(student.server_now) - Date.now(); } }catch(_){}
     // Practice sandbox flag — server sets this when the roll number
     // starts with PRACTICE_. Everything downstream uses it to soften
     // copy ("Submit Practice" vs "Submit Exam") and skip the result
@@ -2048,7 +2050,53 @@ async function showPhoneCamScreen(){
 }
 
 // ── EXAM ───────────────────────────────────────────────────────────
+// Server-clock offset captured at validate time, so the lobby countdown runs
+// off SERVER time — a student can't roll back their local clock to begin early.
+let _serverClockOffsetMs = 0;
+function _serverNowMs(){ return Date.now() + _serverClockOffsetMs; }
+
+// Pre-exam lobby: if the exam is scheduled and the student finished
+// verification BEFORE starts_at, hold here with a live countdown. Begin unlocks
+// exactly at the scheduled start. Resolves immediately when already at/after
+// start (on-time or late join), so the window only ever gates EARLY arrivals.
+function _waitForScheduledStart(){
+  return new Promise((resolve)=>{
+    const startsMs = (student && student.starts_at) ? Date.parse(student.starts_at) : NaN;
+    if(!startsMs || Number.isNaN(startsMs) || _serverNowMs() >= startsMs){ resolve(); return; }
+    const ov=document.createElement('div');
+    ov.id='sched-lobby';
+    ov.style.cssText='position:fixed;inset:0;z-index:9000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:var(--bg,#0e0f13);color:var(--text-high,#fff);text-align:center;padding:24px';
+    ov.innerHTML=
+      '<div style="font-size:46px">✅</div>'+
+      '<div style="font-size:20px;font-weight:600">Verification complete</div>'+
+      '<div style="font-size:15px;color:var(--text-muted,#8a8f98);max-width:440px">You\'re all set. The exam begins at the scheduled time — please stay on this screen.</div>'+
+      '<div id="sched-countdown" style="font-size:40px;font-variant-numeric:tabular-nums;font-weight:700;margin-top:6px">--:--</div>'+
+      '<button id="sched-begin" disabled style="margin-top:10px;padding:12px 28px;font-size:16px;border-radius:10px;border:none;background:#2a2d36;color:#8a8f98;cursor:not-allowed">Begin Exam</button>';
+    document.body.appendChild(ov);
+    const cd=ov.querySelector('#sched-countdown');
+    const btn=ov.querySelector('#sched-begin');
+    const fmt=(ms)=>{ const s=Math.max(0,Math.floor(ms/1000)); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); };
+    let unlocked=false;
+    const tick=()=>{
+      const remain=startsMs - _serverNowMs();
+      if(remain<=0){
+        if(!unlocked){
+          unlocked=true;
+          cd.textContent='You may begin';
+          btn.disabled=false; btn.style.background='var(--accent,#5b8af0)'; btn.style.color='#fff'; btn.style.cursor='pointer';
+        }
+      } else { cd.textContent=fmt(remain); }
+    };
+    tick();
+    const iv=setInterval(tick,1000);
+    btn.addEventListener('click',()=>{ if(!unlocked) return; clearInterval(iv); ov.remove(); resolve(); });
+  });
+}
+
 async function startExam(){
+  // Pre-exam lobby gate: if scheduled and we're early, hold with a live
+  // countdown until the scheduled start (Begin unlocks at the start time).
+  await _waitForScheduledStart();
   // Command B — best-effort kiosk attestation with server-issued nonce.
   // Runs before loading questions so the session is stamped. Rollout-safe:
   // any failure is logged and the exam continues (the server's get-questions

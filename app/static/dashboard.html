@@ -1432,6 +1432,11 @@
             <label>Ends At (IST)</label>
             <input type="datetime-local" id="schedule-end">
           </div>
+          <div class="tool-card-field">
+            <label>Allow early join (minutes before start)</label>
+            <input type="number" id="schedule-early-join" min="0" max="240" step="1" value="15" style="width:120px">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Students can enter to finish ID + phone-camera verification this many minutes early, then wait in the lobby until the start time. 0 = no early entry.</div>
+          </div>
         </div>
         <div class="tool-card-actions">
           <button class="btn btn-primary btn-sm" data-action="saveSchedule">Save Schedule</button>

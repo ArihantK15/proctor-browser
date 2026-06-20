@@ -922,8 +922,17 @@ html,body{overflow-x:hidden;max-width:100vw}
    of stranding at half-width; align-items:stretch makes row-mates equal height
    (kills the old asymmetric short-card-next-to-tall-card look). Cards marked
    grid-column:1/-1 still span the full row. */
-.tools-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
-  gap:var(--space-4);max-width:1280px;align-items:stretch}
+/* Balanced two-up bento. auto-fit capped at 2 columns: the minmax floor (460px)
+   against the 1040px max-width yields at most 2 tracks, so cards pair into
+   symmetric rows (align-items:stretch → a row's two cards are equal height).
+   But auto-fit collapses the empty track when a category has a single card, so
+   it spans full width instead of sitting lopsided at half. Never sprawls to 3
+   columns (the old raggedness); auto-flow:dense backfills gaps left by
+   full-width (grid-column:1/-1) cards. Collapses to one column on narrow
+   screens (media rules below). */
+.tools-grid{display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));
+  grid-auto-flow:row dense;gap:var(--space-4);max-width:1040px;align-items:stretch}
 .tool-card{background:var(--surface-1);border:1px solid var(--border-subtle);
   border-radius:var(--radius-xl);
   padding:var(--space-5);display:flex;flex-direction:column;min-height:100%;

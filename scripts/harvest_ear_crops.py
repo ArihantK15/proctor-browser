@@ -18,10 +18,20 @@ Usage
   # Then WITHOUT earbuds, same variety:
   python scripts/harvest_ear_crops.py --label no_earbud --out data/ear --webcam
 
-  # Or from a folder of saved frames (e.g. exam evidence screenshots):
+  # Or from a folder of frames YOU own and are licensed to train on
+  # (your own recordings, or a public/licensed earbud dataset):
   python scripts/harvest_ear_crops.py --label earbud --out data/ear --frames path/to/imgs
 
 Output: <out>/<label>/*.png  (square-ish ear crops, ready for training)
+
+PRIVACY — READ THIS
+-------------------
+Training data MUST come from consenting collectors (you / the team) or
+public/licensed datasets. Do NOT point --frames at student exam evidence,
+screenshots, recordings, or any captured proctoring data: that data was
+collected for proctoring, not model training, and reusing it for ML breaks
+purpose-limitation / consent (see the DPIA). This tool runs entirely locally
+and uploads nothing; keeping the *input* clean is on the operator.
 """
 import argparse
 import glob

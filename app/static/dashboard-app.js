@@ -53,6 +53,10 @@ function _syncExamBar(tab){
   const bar = document.getElementById('exam-bar');
   if(!bar) return;
   tab = tab || document.querySelector('.tab.active')?.dataset.tab || 'live';
+  // Manager-only org admins never author exams, so the exam-management bar
+  // (selector + New/Duplicate/Archive/Delete) stays hidden for them even on
+  // the oversight tabs they CAN see (live/results/analytics). See applyOrgRole.
+  if(currentOrgRole === 'admin'){ bar.style.display = 'none'; return; }
   bar.style.display = (_examsLoaded && !_NON_EXAM_TABS.has(tab)) ? 'flex' : 'none';
 }
 let _refreshGen = 0; // incremented on exam switch to discard stale responses
@@ -237,6 +241,9 @@ async function _onAuthed(teacher){
   document.getElementById('auth-overlay').classList.add('hidden');
   currentTeacherProfile = teacher || null;
   currentIsSolo = !!(teacher && teacher.is_solo);
+  // Billing visibility now keys off honest ownership, not role: a solo teacher
+  // (org_role='teacher') owns their subscription; an invited teacher doesn't.
+  currentIsBillingOwner = !!(teacher && teacher.is_billing_owner);
   _onAuthDone();
   if(teacher && teacher.full_name){
     document.getElementById('teacher-name').textContent = teacher.full_name;
@@ -1230,6 +1237,7 @@ function _dispatchTabLoad(tab){
 // ── ORG ROLE / TABS ────────────────────────────────────────────
 let currentOrgRole = 'teacher';
 let currentIsSolo = false;  // solo account → force pure-teacher view (spec §B)
+let currentIsBillingOwner = false;  // owns the org subscription (gates Billing)
 
 function decodeJWT(token){
   try{ return JSON.parse(atob(token.split('.')[1])); }catch(e){ return null; }
@@ -1237,11 +1245,11 @@ function decodeJWT(token){
 
 function applyOrgRole(org_role){
   const requested = org_role || 'teacher';
-  // Solo accounts (no org, or an org of one) are pure teachers regardless
-  // of any stored admin role — a 30-student solo buyer must never see an
-  // "admin" concept (spec §B, two-mode UI). Superadmin is exempt: it is
-  // never solo (see compute_is_solo) so this branch can't strip it.
-  currentOrgRole = (currentIsSolo && requested !== 'superadmin') ? 'teacher' : requested;
+  // The org_role from /login + /me is honest now (account-types, phase135):
+  // a solo teacher and an invited teacher are both 'teacher'; an org admin is
+  // a manager-only 'admin'. No more solo-downgrade override — the server tells
+  // us the real role and we render it directly.
+  currentOrgRole = requested;
   // Tabs use inline `style.display = ''` / 'none' since they belong to a
   // flex row. Other role-gated elements (teacher-filter dropdowns,
   // analytics filter row) get the same treatment so admin-only UI
@@ -1250,17 +1258,30 @@ function applyOrgRole(org_role){
     const roles = (el.dataset.roles || '').split(' ');
     el.style.display = roles.includes(currentOrgRole) ? '' : 'none';
   });
+  // Manager-only admin (account-types, phase135): an org admin owns billing +
+  // members + oversight but must NOT author exams. Hide every exam-authoring
+  // surface tagged data-hide-for-admin (Questions / Tools / Review / Chat tabs
+  // + the exam-management bar) when the role is admin. This runs AFTER the
+  // data-roles pass so a data-roles="teacher admin" element (e.g. Review) that
+  // the reveal logic just un-hid is re-hidden for admin. Live Sessions /
+  // Results / Student History / Analytics carry NO data-hide-for-admin, so
+  // admins keep their read-only oversight of them. Superadmin is unaffected:
+  // those authoring tabs already carry data-roles excluding superadmin.
+  if(currentOrgRole === 'admin'){
+    document.querySelectorAll('[data-hide-for-admin]').forEach(el => {
+      el.style.display = 'none';
+    });
+  }
   // Surface the pending-appeals count on the Review tab as soon as the role
   // (and thus the tab) is known, so teachers notice disputes without opening it.
   try{ if(typeof refreshAppealsBadge==='function') refreshAppealsBadge(); }catch(_){}
-  // Billing is gated on the REAL org role (the billing owner), NOT the
-  // solo-downgraded one: a self-signup solo teacher IS the billing owner and
-  // must see/manage their own subscription, even though the two-mode UI hides
-  // the other admin/team tabs from them. Invited teachers (org_role 'teacher')
-  // never see it.
-  const isBillingOwner = (requested === 'admin' || requested === 'superadmin');
+  // Billing is gated on honest ownership (organizations.owner_teacher_id),
+  // NOT role: a self-signup solo teacher (org_role='teacher') IS the billing
+  // owner and must see/manage their own subscription; an org admin owner sees
+  // it too; an invited teacher (also org_role='teacher') never does. The
+  // server resolves this into teacher.is_billing_owner, captured in _onAuthed.
   document.querySelectorAll('[data-billing-owner]').forEach(el => {
-    el.style.display = isBillingOwner ? '' : 'none';
+    el.style.display = currentIsBillingOwner ? '' : 'none';
   });
   // Hard-gate founder-internal tooling (all-orgs / issues / debug). These
   // tabs carry data-roles="superadmin", so the forEach above already sets

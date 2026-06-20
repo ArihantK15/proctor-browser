@@ -18,7 +18,7 @@ from ..auth import (
     issue_student_auth_token, _get_student_account_by_id, _get_student_account_by_uid,
     require_admin, require_student_account, clear_teacher_cache, clear_student_account_cache,
 )
-from ..auth.scope import org_is_solo
+from ..auth.scope import org_is_solo, is_billing_owner
 from ..utils import fmt_ist, now_ist
 from ..models import SessionStatus, RESULT_STATUSES
 from ..models.invites import InviteStatus
@@ -1019,6 +1019,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             "org_id": teacher.get("org_id"),
             "org_role": teacher.get("org_role", "teacher"),
             "is_solo": await org_is_solo(teacher),
+            "is_billing_owner": await is_billing_owner(teacher),
             "email_verified_at": teacher.get("email_verified_at"),
         },
     })
@@ -1041,6 +1042,7 @@ async def teacher_me(request: Request):
         "org_id": teacher.get("org_id"),
         "org_role": teacher.get("org_role", "teacher"),
         "is_solo": await org_is_solo(teacher),
+        "is_billing_owner": await is_billing_owner(teacher),
         "email_verified_at": teacher.get("email_verified_at"),
     }
 

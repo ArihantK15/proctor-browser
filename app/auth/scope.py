@@ -69,6 +69,42 @@ async def org_is_solo(teacher: dict) -> bool:
     return compute_is_solo(org_role, org_id, len(rows))
 
 
+async def _org_owner_teacher_id(org_id) -> str | None:
+    """Return organizations.owner_teacher_id for the org, or None.
+
+    Single-row lookup; the result is the teacher who owns the org's billing
+    (set at signup for solo teachers and org admins alike, phase135). Returns
+    None when the org has no owner recorded (legacy orgs pre-backfill).
+    """
+    rows = (await _atable("organizations").select("owner_teacher_id")
+            .eq("id", str(org_id)).limit(1).execute()).data or []
+    if not rows:
+        return None
+    owner = rows[0].get("owner_teacher_id")
+    return str(owner) if owner else None
+
+
+async def is_billing_owner(teacher: dict) -> bool:
+    """Whether this teacher owns their org's billing/subscription.
+
+    Decoupled from org_role: a solo teacher (org_role='teacher') owns their
+    own 1-person org's billing, while an org admin owns the institution's.
+    Invited teachers never do (the org subscription covers them). Superadmin
+    is cross-org tooling — never a per-org billing owner.
+
+    Drives the dashboard Billing tab + the card-on-signup onboarding gate, so
+    both signup variations (solo, org) gate uniformly and invited teachers
+    don't. Mirrors org_is_solo's short-circuits to avoid needless DB hits.
+    """
+    if (teacher.get("org_role") or "").lower() == "superadmin":
+        return False
+    org_id = teacher.get("org_id")
+    if not org_id:
+        return False
+    owner_id = await _org_owner_teacher_id(org_id)
+    return bool(owner_id) and str(owner_id) == str(teacher.get("id"))
+
+
 async def resolve_scope(teacher: dict, request: Request) -> dict:
     """Build the scope dict from the authenticated teacher's role and
     any ?teacher_id= query parameter.

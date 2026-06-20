@@ -196,13 +196,19 @@ async def _pdf_fetch_answers(session_id: str, tid: str) -> list[dict]:
 def _pdf_build_info_table(exam: dict, raw_violations: list, risk: dict):
     from reportlab.lib import colors as _c
     from reportlab.platypus import Table, TableStyle
+    _score = exam.get("score", 0) or 0
+    _total = exam.get("total", 0) or 0
+    _pct = exam.get("percentage")
+    if _pct in (None, 0) and _total:
+        _pct = round(_score / _total * 100, 1)
+    _pct = _pct or 0
     info = [
         ["Field", "Value"],
         ["Full Name", exam["full_name"]],
         ["Roll Number", exam["roll_number"]],
         ["Email", exam.get("email", "")],
         ["Submitted At", fmt_ist(exam.get("submitted_at", ""))],
-        ["Score", f"{exam.get('score', 0)}/{exam.get('total', 0)} ({exam.get('percentage', 0)}%)"],
+        ["Score", f"{_score}/{_total} ({_pct}%)"],
         ["Time Taken", f"{exam.get('time_taken_secs', 0)}s ({exam.get('time_taken_secs', 0)//60}m {exam.get('time_taken_secs', 0)%60}s)"],
         ["Total Violations", str(len(raw_violations))],
         ["Behavioral Risk Score", f"{risk['risk_score']}/100 \u2014 {risk['label']}"],

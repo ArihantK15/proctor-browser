@@ -60,13 +60,20 @@ async def _score_submission_async(
         return {"status": "already_completed", "score": sess.get("score"),
                 "total": sess.get("total"), "percentage": sess.get("percentage")}
 
-    # 1. Load saved answers from DB (the submit handler already persisted them)
-    saved = await _atable("answers").select("question_id,answer")\
-        .eq("session_key", session_key).execute()
-    ans_payload = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
-
-    # 2. Score + config in parallel
-    score_fut = recalculate_score(session_key, ans_payload, teacher_id=teacher_id, exam_id=exam_id)
+    # 1. Score + config in parallel.
+    #    The submit handler already persisted the student's answers to the
+    #    `answers` table, AND those rows are stored CANONICAL (save-answer /
+    #    bulk-flush call canonicalise_student_answer, which reverses the option
+    #    shuffle). recalculate_score loads that same canonical table itself, so
+    #    we pass an EMPTY payload. Passing the canonical rows back in as the
+    #    payload made recalculate_score canonicalise them a SECOND time —
+    #    double-translating every answer whose shuffled label moved, which
+    #    silently undercounted the score (e.g. 9/10 graded as 5/10 while the
+    #    analytics view, which matches the canonical rows directly, stayed
+    #    correct). The payload overlay only exists for callers that hold raw,
+    #    not-yet-persisted answers (the inline submit path); the async job is
+    #    not one of them.
+    score_fut = recalculate_score(session_key, {}, teacher_id=teacher_id, exam_id=exam_id)
     config_fut = load_exam_config(teacher_id=teacher_id, exam_id=exam_id)
     try:
         (server_score, server_total), config = await asyncio.gather(score_fut, config_fut)

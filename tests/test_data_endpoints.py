@@ -24,7 +24,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.conftest import shared_supabase_mock,  make_student_token, make_admin_token
 
-TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T", "org_id": "org-1", "org_role": "admin"}
+# These endpoints (bulk register, CSV import, update questions) are exam-AUTHORING
+# paths. Account-types (phase135): org_role='admin' is a manager-only role that's
+# 403'd on authoring; the caller doing the authoring is a teacher.
+TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T", "org_id": "org-1", "org_role": "teacher"}
 
 
 def admin_headers():

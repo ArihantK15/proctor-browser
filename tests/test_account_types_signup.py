@@ -212,3 +212,81 @@ def test_is_billing_owner_false_for_superadmin(monkeypatch):
     # Superadmin is cross-org tooling; never a per-org billing owner.
     teacher = {"id": "x", "org_id": "y", "org_role": "superadmin"}
     assert asyncio.run(scope.is_billing_owner(teacher)) is False
+
+
+# ---------------------------------------------------------------------------
+# Task 7: server-side enforcement — manager-only admin can't author
+# ---------------------------------------------------------------------------
+
+def test_assert_can_author_403s_admin():
+    """The guard 403s an org_role='admin' (manager-only) account."""
+    import pytest as _pytest
+    from fastapi import HTTPException
+    from app.auth.scope import assert_can_author
+    with _pytest.raises(HTTPException) as exc:
+        assert_can_author({"id": "a", "org_role": "admin"})
+    assert exc.value.status_code == 403
+
+
+def test_assert_can_author_passes_teacher_and_superadmin():
+    """Solo/invited teachers and superadmin are not blocked."""
+    from app.auth.scope import assert_can_author
+    # Should NOT raise:
+    assert_can_author({"id": "t", "org_role": "teacher"})
+    assert_can_author({"id": "s", "org_role": "superadmin"})
+    assert_can_author({"id": "n", "org_role": None})
+
+
+def _make_admin_token(teacher_id="teacher-admin", email="mgr@test.com"):
+    import jwt as jose_jwt
+    from datetime import datetime, timezone, timedelta
+    from app.constants import ADMIN_SIGNING_KEY
+    now = datetime.now(timezone.utc)
+    return jose_jwt.encode(
+        {"tid": teacher_id, "email": email, "role": "teacher",
+         "exp": now + timedelta(hours=12), "iat": now},
+        ADMIN_SIGNING_KEY, algorithm="HS256",
+    )
+
+
+def test_create_exam_403_for_admin_token(monkeypatch):
+    """End-to-end: an org_role='admin' token → 403 on create-exam; a teacher
+    token → not 403 (passes the guard, proceeds to the handler body)."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.routers import admin_exams
+
+    async def _fake_admin(request):
+        return _ROLE["teacher"]
+
+    _ROLE = {"teacher": {"id": "teacher-admin", "email": "mgr@test.com"}}
+
+    # Make the DB insert in the handler body a harmless no-op so the teacher
+    # path doesn't 500 — we only care that it doesn't 403.
+    class _Chain:
+        def __getattr__(self, _n):
+            return lambda *a, **k: self
+        async def execute(self):
+            class _R:  # noqa: D401
+                data = [{"exam_id": "new-exam"}]
+            return _R()
+
+    monkeypatch.setattr(admin_exams, "_atable", lambda _n: _Chain())
+
+    client = TestClient(app, raise_server_exceptions=False)
+    app.state.limiter.enabled = False
+    body = {"exam_title": "X", "duration_minutes": 60, "phone_camera": False}
+    headers = {"Authorization": f"Bearer {_make_admin_token()}"}
+
+    # admin → 403
+    _ROLE["teacher"] = {"id": "teacher-admin", "email": "mgr@test.com",
+                        "org_role": "admin"}
+    monkeypatch.setattr(admin_exams, "require_admin", _fake_admin)
+    r_admin = client.post("/api/v1/admin/exams", json=body, headers=headers)
+    assert r_admin.status_code == 403
+
+    # teacher → NOT 403 (guard passes)
+    _ROLE["teacher"] = {"id": "teacher-1", "email": "prof@test.com",
+                        "org_role": "teacher"}
+    r_teacher = client.post("/api/v1/admin/exams", json=body, headers=headers)
+    assert r_teacher.status_code != 403

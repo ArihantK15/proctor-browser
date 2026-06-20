@@ -23,8 +23,12 @@ client = TestClient(app)
 @pytest.fixture
 def mock_teacher():
     with patch("app.auth.admin_auth._get_teacher_by_id", new_callable=AsyncMock) as m:
+        # This is an exam-AUTHORING flow (create exam, register students), so the
+        # caller is a teacher. Account-types (phase135): org_role='admin' is a
+        # manager-only role that's 403'd on authoring endpoints, so an authoring
+        # e2e must use 'teacher'.
         m.return_value = {"id": "teacher-1", "email": "prof@test.com",
-                          "full_name": "Prof Test", "org_id": "org-1", "org_role": "admin"}
+                          "full_name": "Prof Test", "org_id": "org-1", "org_role": "teacher"}
         yield m
 
 

@@ -105,6 +105,26 @@ async def is_billing_owner(teacher: dict) -> bool:
     return bool(owner_id) and str(owner_id) == str(teacher.get("id"))
 
 
+def assert_can_author(teacher: dict) -> None:
+    """Defense-in-depth: 403 a manager-only org admin on exam-authoring paths.
+
+    Account types (phase135): an `org_role='admin'` account is a *manager* —
+    it owns billing + members + org oversight but must NOT author exams,
+    questions, or rosters (those belong to the org's teachers). The dashboard
+    hides the authoring surfaces for admin, but UI hiding is not security, so
+    every authoring *write* endpoint also calls this guard.
+
+    Solo teachers and invited teachers are `org_role='teacher'` and pass.
+    Superadmin is maintenance tooling and is not blocked here.
+    """
+    if (teacher.get("org_role") or "").lower() == "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Organization admins manage teachers and billing; they "
+                   "don't author exams. Ask a teacher in your org to set this up.",
+        )
+
+
 async def resolve_scope(teacher: dict, request: Request) -> dict:
     """Build the scope dict from the authenticated teacher's role and
     any ?teacher_id= query parameter.

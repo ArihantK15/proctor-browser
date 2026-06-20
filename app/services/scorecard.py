@@ -270,6 +270,37 @@ def _build_question_table(questions: list, ans_map: dict):
     return qt
 
 
+async def resolve_student_name(exam: dict, teacher_id) -> str:
+    """Best-effort display name for a session.
+
+    ``exam_sessions.full_name`` is the primary source, but several join paths
+    (early-join, recovered/reattached sessions) leave it empty even though the
+    student exists on the roster. Fall back to the roster
+    (``students`` by teacher_id + roll_number), then email, then the roll
+    number itself, so neither the Scorecard nor the Audit Report ever renders a
+    blank / ``None`` student name.
+    """
+    name = (exam.get("full_name") or "").strip()
+    if name:
+        return name
+    roll = (exam.get("roll_number") or "").strip()
+    if roll:
+        try:
+            rows = (await _atable("students")
+                    .select("full_name")
+                    .eq("teacher_id", str(teacher_id))
+                    .eq("roll_number", roll)
+                    .limit(1).execute()).data or []
+            if rows and (rows[0].get("full_name") or "").strip():
+                return rows[0]["full_name"].strip()
+        except Exception:
+            logger.debug("resolve_student_name: roster lookup failed", exc_info=True)
+    email = (exam.get("email") or "").strip()
+    if email:
+        return email
+    return roll
+
+
 async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]:
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph, Image
@@ -279,6 +310,7 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
 
     tid = teacher_id
     exam = await _assert_session_owned(session_id, tid)
+    exam["full_name"] = await resolve_student_name(exam, tid)
     exam_id = exam.get("exam_id")
 
     questions = await _load_questions(teacher_id=tid, exam_id=exam_id)
@@ -347,6 +379,10 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
             logger.debug("scorecard: procta brand header failed", exc_info=True)
 
     story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
+    story.append(Paragraph(
+        "Official result summary — safe to share with the student and institution.",
+        ParagraphStyle("scsub", parent=styles["Normal"], fontSize=9,
+                       textColor=colors.HexColor("#666666"), spaceAfter=6)))
     story.append(Spacer(1, 12))
     story.append(_build_info_table(exam, score, total, pct, risk["label"], passed))
     story.append(Spacer(1, 20))

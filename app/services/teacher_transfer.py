@@ -36,7 +36,10 @@ async def reassign_teaching_data(conn, from_id: str, to_id: str) -> dict:
     """
     counts = {}
     for table in _MOVE_TABLES:
-        # nosemgrep: asyncpg-sqli  (table is from the hardcoded allowlist above)
+        # `table` is from the hardcoded _MOVE_TABLES allowlist above — never
+        # caller input — so the f-string is safe. (asyncpg-sqli is excluded in
+        # CI globally; the rule that actually fires is the SQLAlchemy one.)
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         tag = await conn.execute(
             f"UPDATE {table} SET teacher_id = $1 WHERE teacher_id = $2", to_id, from_id)
         counts[table] = int(tag.split()[-1]) if tag and tag.startswith("UPDATE") else 0

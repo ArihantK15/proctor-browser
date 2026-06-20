@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'wouter'
 import { Helmet } from 'react-helmet-async'
+import { motion, useReducedMotion } from 'framer-motion'
 import { ArrowLeft, Check } from 'lucide-react'
 import { APP_URL } from '../config'
+import { fadeUp, scaleIn, stagger, pick } from '../lib/motion'
 import useTurnstile from '../hooks/useTurnstile'
 import { isPasswordPwned } from '../lib/hibp'
 
@@ -24,6 +26,17 @@ export default function Signup() {
   const updateDemo = update(setDemoForm)
 
   const turnstile = useTurnstile()
+
+  // ── Motion vocabulary (shared, Emil-Kowalski-grounded; reduced-motion safe) ──
+  const reduced = useReducedMotion()
+  const child = pick(reduced, fadeUp)
+  const card = pick(reduced, scaleIn)
+  const hoverLift = reduced ? undefined : { y: -3 }
+  const tap = reduced ? undefined : { scale: 0.985 }
+  const checkPop = reduced
+    ? { initial: { opacity: 0 }, animate: { opacity: 1 } }
+    : { initial: { scale: 0, rotate: -25 }, animate: { scale: 1, rotate: 0 },
+        transition: { type: 'spring', stiffness: 600, damping: 18 } }
 
   const validateSignupFields = () => {
     const nextErrors = {}
@@ -117,6 +130,17 @@ export default function Signup() {
     }
   }
 
+  // Ambient drifting orbs — give the dark backdrop depth + slow life without
+  // distracting from the form. `hero-aurora` is GPU-only drift and collapses to
+  // static under prefers-reduced-motion (see index.css).
+  const Ambience = () => (
+    <>
+      <div className="pointer-events-none fixed inset-0 grain-overlay" />
+      <div className="hero-aurora pointer-events-none fixed -top-32 left-1/2 -translate-x-1/2 h-[520px] w-[720px] rounded-full bg-accent/10 blur-[140px]" />
+      <div className="hero-aurora pointer-events-none fixed bottom-[-12rem] right-[-8rem] h-[420px] w-[560px] rounded-full bg-amber/[0.07] blur-[150px]" style={{ animationDelay: '-7s' }} />
+    </>
+  )
+
   if (submitted) {
     return (
       <>
@@ -129,13 +153,19 @@ export default function Signup() {
         <link rel="canonical" href="https://www.procta.net/signup" />
       </Helmet>
       <div className="flex min-h-screen items-center justify-center bg-navy-950 px-6">
-        <div className="pointer-events-none fixed inset-0 grain-overlay" />
-        <div className="relative w-full max-w-md text-center">
+        <Ambience />
+        <motion.div
+          className="relative w-full max-w-md text-center"
+          initial="hidden" animate="show" variants={card}
+        >
           <div className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-10 overflow-hidden grain-overlay">
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent" />
-            <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10 border border-accent/20 accent-glow">
+            <motion.div
+              className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10 border border-accent/20 accent-glow"
+              {...checkPop}
+            >
               <Check size={28} className="text-accent" />
-            </div>
+            </motion.div>
             <h1 className="text-2xl font-bold text-white font-display">Check Your Inbox</h1>
             <p className="mt-3 text-sm text-slate-400">
               We sent a verification link to <strong className="text-white">{form.email}</strong>.
@@ -143,7 +173,7 @@ export default function Signup() {
             </p>
             <p className="mt-4 text-xs text-slate-500">The link expires in 24 hours. Check your spam folder if you don't see it.</p>
           </div>
-        </div>
+        </motion.div>
       </div>
       </>
     )
@@ -160,20 +190,31 @@ export default function Signup() {
         <link rel="canonical" href="https://www.procta.net/signup" />
       </Helmet>
     <div className="flex min-h-screen items-center justify-center bg-navy-950 px-6 py-12">
-      <div className="pointer-events-none fixed inset-0 grain-overlay" />
-      <div className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 h-[400px] w-[600px] rounded-full bg-accent/5 blur-[120px]" />
+      <Ambience />
 
-      <div className="relative w-full max-w-lg lg:max-w-6xl">
-        <Link to="/" className="mb-8 inline-flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-accent-light no-underline">
-          <ArrowLeft size={16} />
-          Back to home
-        </Link>
+      {/* One orchestrated page-load: back-link, then the two panels rise in,
+          then the signup panel's sections cascade. */}
+      <motion.div
+        className="relative w-full max-w-lg lg:max-w-6xl"
+        initial="hidden" animate="show" variants={stagger(0.1)}
+      >
+        <motion.div variants={child}>
+          <Link to="/" className="mb-8 inline-flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-accent-light no-underline group">
+            <ArrowLeft size={16} className="transition-transform duration-200 group-hover:-translate-x-1" />
+            Back to home
+          </Link>
+        </motion.div>
 
         <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
-        <div className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 backdrop-blur-sm overflow-hidden grain-overlay">
+        <motion.div
+          variants={card}
+          className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 backdrop-blur-sm overflow-hidden grain-overlay"
+        >
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent z-10" />
 
-          <div className="mb-8">
+          {/* Inner cascade — sections fade up in sequence once the panel lands. */}
+          <motion.div initial="hidden" animate="show" variants={stagger(0.07, 0.15)}>
+          <motion.div className="mb-8" variants={child}>
             <Link to="/" className="inline-flex items-center gap-2.5 no-underline mb-4">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent accent-glow">
                 <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
@@ -187,15 +228,17 @@ export default function Signup() {
             <p className="mt-2 text-sm text-slate-400">
               14 days free on Starter plan. No credit card required. Full access, no limits.
             </p>
-          </div>
+          </motion.div>
 
-          <div className="mb-6">
+          <motion.div className="mb-6" variants={child}>
             <label className="mb-3 block label-mono text-slate-400">Account Type</label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
+              <motion.button
                 type="button"
                 onClick={() => setAccountType('solo')}
-                className={`relative rounded-xl border p-3.5 text-left transition-all ${
+                whileHover={hoverLift}
+                whileTap={tap}
+                className={`relative rounded-xl border p-3.5 text-left transition-colors ${
                   accountType === 'solo'
                     ? 'border-accent/40 bg-accent/[0.03]'
                     : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
@@ -208,7 +251,9 @@ export default function Signup() {
                   <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
                     accountType === 'solo' ? 'border-accent bg-accent' : 'border-slate-600'
                   }`}>
-                    {accountType === 'solo' && <Check size={12} className="text-white" />}
+                    {accountType === 'solo' && (
+                      <motion.span {...checkPop}><Check size={12} className="text-white" /></motion.span>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-white">Solo teacher</p>
@@ -217,11 +262,13 @@ export default function Signup() {
                     </p>
                   </div>
                 </div>
-              </button>
-              <button
+              </motion.button>
+              <motion.button
                 type="button"
                 onClick={() => setAccountType('org')}
-                className={`relative rounded-xl border p-3.5 text-left transition-all ${
+                whileHover={hoverLift}
+                whileTap={tap}
+                className={`relative rounded-xl border p-3.5 text-left transition-colors ${
                   accountType === 'org'
                     ? 'border-accent/40 bg-accent/[0.03]'
                     : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
@@ -234,7 +281,9 @@ export default function Signup() {
                   <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
                     accountType === 'org' ? 'border-accent bg-accent' : 'border-slate-600'
                   }`}>
-                    {accountType === 'org' && <Check size={12} className="text-white" />}
+                    {accountType === 'org' && (
+                      <motion.span {...checkPop}><Check size={12} className="text-white" /></motion.span>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-white">Organization</p>
@@ -243,11 +292,11 @@ export default function Signup() {
                     </p>
                   </div>
                 </div>
-              </button>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
 
-          <form onSubmit={handleSignup} className="space-y-4">
+          <motion.form onSubmit={handleSignup} className="space-y-4" variants={child}>
             <div>
               <label className="mb-1.5 block label-mono text-slate-400">Full Name</label>
               <input
@@ -338,26 +387,32 @@ export default function Signup() {
                 when bot signal is high. */}
             <div ref={turnstile.ref} />
 
-            <button
+            <motion.button
               type="submit"
               disabled={loading}
+              whileHover={loading ? undefined : hoverLift}
+              whileTap={loading ? undefined : tap}
               className="w-full rounded-lg bg-accent-dark px-4 py-3 text-sm font-semibold text-white glow-btn disabled:opacity-50 disabled:cursor-not-allowed border-none cursor-pointer"
             >
               {loading ? 'Creating account...' : 'Start Free Trial'}
-            </button>
-          </form>
+            </motion.button>
+          </motion.form>
 
-          <p className="mt-6 text-center text-sm text-slate-500">
+          <motion.p className="mt-6 text-center text-sm text-slate-500" variants={child}>
             Already have an account?{' '}
             <a href={`${APP_URL}/dashboard`} className="font-medium text-accent-light hover:text-white transition-colors no-underline">
               Log In
             </a>
-          </p>
-        </div>
+          </motion.p>
+          </motion.div>
+        </motion.div>
 
         {/* Enterprise / Demo Request section — sits beside signup on
             desktop, stacks below on mobile (handled by parent grid). */}
-        <div className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 overflow-hidden grain-overlay">
+        <motion.div
+          variants={card}
+          className="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 overflow-hidden grain-overlay"
+        >
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-amber/40 to-transparent z-10" />
           <h2 className="text-lg font-bold text-white font-display">Enterprise / Custom Plan</h2>
           <p className="mt-2 text-sm text-slate-400">
@@ -432,18 +487,20 @@ export default function Signup() {
                 </div>
               )}
 
-              <button
+              <motion.button
                 type="submit"
                 disabled={demoLoading}
-                className="w-full rounded-lg border border-amber/30 bg-amber/5 px-4 py-3 text-sm font-semibold text-amber transition-colors hover:bg-amber/10 disabled:opacity-50 border-none cursor-pointer"
+                whileHover={demoLoading ? undefined : hoverLift}
+                whileTap={demoLoading ? undefined : tap}
+                className="w-full rounded-lg border border-amber/30 bg-amber/5 px-4 py-3 text-sm font-semibold text-amber transition-colors hover:bg-amber/10 disabled:opacity-50 cursor-pointer"
               >
                 {demoLoading ? 'Submitting...' : 'Request Demo'}
-              </button>
+              </motion.button>
             </form>
           )}
+        </motion.div>
         </div>
-        </div>
-      </div>
+      </motion.div>
     </div>
     </>
   )

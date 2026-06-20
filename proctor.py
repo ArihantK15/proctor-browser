@@ -334,7 +334,7 @@ def _yolo_infer(session, bgr_img):
         if dets.shape[0] == 0:
             return []
         confs_e = dets[:, 4]
-        keep_e = confs_e >= YOLO_CONFIDENCE
+        keep_e = confs_e >= YOLO_DECODE_FLOOR
         if not np.any(keep_e):
             return []
         dets = dets[keep_e]
@@ -354,7 +354,7 @@ def _yolo_infer(session, bgr_img):
         return []
     class_scores = preds[:, 4:]
     confs = class_scores.max(axis=1)
-    keep = confs >= YOLO_CONFIDENCE
+    keep = confs >= YOLO_DECODE_FLOOR
     if not np.any(keep):
         return []
     preds = preds[keep]
@@ -380,7 +380,7 @@ def _yolo_infer(session, bgr_img):
                       for i in np.nonzero(m)[0]]
         scores_c = [float(confs[i]) for i in np.nonzero(m)[0]]
         idxs = cv2.dnn.NMSBoxes(boxes_xywh, scores_c,
-                                float(YOLO_CONFIDENCE), 0.7)
+                                float(YOLO_DECODE_FLOOR), 0.7)
         if len(idxs) == 0:
             continue
         src = np.nonzero(m)[0]
@@ -481,7 +481,7 @@ class YoloWorker:
                 detections = []
                 h, w = small.shape[:2]
                 for cls_id, conf, x1, y1, x2, y2 in _yolo_infer(session, small):
-                    if cls_id in CHEAT_IDS:
+                    if _cheat_detection_kept(cls_id, conf):
                         detections.append((
                             CHEAT_IDS[cls_id],
                             conf,
@@ -619,7 +619,7 @@ class SahiYoloWorker:
             try:
                 for tile, ox, oy in self._generate_tiles(frame):
                     for cls_id, conf, x1, y1, x2, y2 in _yolo_infer(session, tile):
-                        if cls_id in CHEAT_IDS:
+                        if _cheat_detection_kept(cls_id, conf):
                             all_dets.append((CHEAT_IDS[cls_id], conf,
                                              x1 + ox, y1 + oy,
                                              x2 + ox, y2 + oy))
@@ -976,15 +976,27 @@ if os.environ.get("PROCTOR_GAZE_YAW_RANGE"):
 HEAD_FRAMES_NEEDED    = 12
 HEAD_EXTREME_FRAMES   = 5
 FACE_MISSING_FRAMES   = 24     # ~1.6s at 15fps — survives any blip
+PHONE_OCCLUSION_WINDOW_SECS = 5.0  # face_missing within this long after a phone
+                                   # sighting is attributed to phone occlusion
 EYES_CLOSED_FRAMES    = 20     # ~1.3s — natural blinks won't trip this
 MULTI_FACE_FRAMES     = 5
 WARMUP_GRACE_FRAMES   = 30     # ~1s — faster perceived camera startup
 YOLO_CONFIDENCE     = 0.35
+# A dark, close, or angled phone reads to a COCO-trained model with low
+# confidence and often as class 65 ("remote") rather than 67 ("cell phone")
+# — measured 0.10–0.59 on real exam frames where the old 0.35/class-67 gate
+# caught nothing. Watch the handheld classes (HANDHELD_CHEAT_IDS) at this
+# lower bar; every other cheat object keeps the stricter YOLO_CONFIDENCE so
+# we don't invite false positives. Override via env for field tuning.
+YOLO_PHONE_CONFIDENCE = float(os.getenv("PROCTOR_YOLO_PHONE_CONFIDENCE", "0.20"))
+# Decode must keep anything either gate might want; _yolo_infer thresholds at
+# the lower of the two and _cheat_detection_kept() makes the final per-class call.
+YOLO_DECODE_FLOOR     = min(YOLO_CONFIDENCE, YOLO_PHONE_CONFIDENCE)
 YOLO_MIN_FRAMES     = 2
 YOLO_EVERY_N        = 5
 SAHI_EVERY_N        = YOLO_EVERY_N * 3  # run SAHI every 3rd YOLO cycle (15 frames)
 VOICE_THRESHOLD     = float(os.getenv("PROCTOR_VOICE_THRESHOLD", "0.035"))
-VOICE_SUSTAINED_SECS = 8.0
+VOICE_SUSTAINED_SECS = 5.0
 SUSTAINED_VOICE_SECS = 20.0   # flag if voice continues for 20s+
 CONVERSATION_BURSTS  = 4      # min bursts with short gaps to flag conversation
 CONVERSATION_WINDOW  = 45.0   # seconds window to observe conversation pattern
@@ -1252,12 +1264,46 @@ def _dominant_direction(yaw: float, pitch: float,
 # ─── CHEAT OBJECTS ────────────────────────────────────────────────────────────
 # COCO class IDs for items that shouldn't be on the desk during an exam.
 CHEAT_IDS = {
-    67: "Phone",
+    # Labelled "Phone/handheld" (not "Phone") on purpose: a dark/angled/close
+    # phone — or a phone in an opaque case — frequently scores higher as COCO
+    # "remote" (65) than "cell phone" (67) (measured up to 0.59 vs 0.17 on real
+    # frames). We want both caught, but the evidence label must stay honest: an
+    # appeal frame showing a handheld device is defensible as "phone/handheld",
+    # whereas calling a clear TV remote a "Phone" is not.
+    67: "Phone/handheld",
+    65: "Phone/handheld",
     63: "Laptop",
     73: "Book",
     66: "Keyboard",
     62: "TV",
 }
+
+# Phone-like handheld classes are gated at the lower YOLO_PHONE_CONFIDENCE;
+# every other cheat object keeps the stricter YOLO_CONFIDENCE.
+HANDHELD_CHEAT_IDS = {65, 67}
+
+# Book (COCO 73) is gated behind a config flag: it false-positives on
+# legitimate paper and breaks open-book exams. Default OFF.
+_PROCTOR_FLAG_BOOKS = os.environ.get("PROCTOR_FLAG_BOOKS", "0") == "1"
+
+# Phone-occlusion escalation (face vanishing seconds after a phone sighting →
+# "critical") couples two uncertain signals and can chain a low-confidence phone
+# into a critical false accusation. Kept in the code for on-device validation
+# but gated OFF by default; a plain "high" face_missing fires regardless.
+_PROCTOR_PHONE_OCCLUSION = os.environ.get("PROCTOR_PHONE_OCCLUSION", "0") == "1"
+
+
+def _cheat_detection_kept(cls_id: int, conf: float) -> bool:
+    """Final per-class confidence gate, applied after CHEAT_IDS filtering.
+    Handheld/phone classes pass at YOLO_PHONE_CONFIDENCE; the rest at the
+    stricter YOLO_CONFIDENCE. Shared by the YOLO and SAHI workers."""
+    if cls_id not in CHEAT_IDS:
+        return False
+    # Gate books behind the PROCTOR_FLAG_BOOKS setting.
+    if cls_id == 73 and not _PROCTOR_FLAG_BOOKS:
+        return False
+    thr = YOLO_PHONE_CONFIDENCE if cls_id in HANDHELD_CHEAT_IDS else YOLO_CONFIDENCE
+    return conf >= thr
 
 def classify_phone_position(phone_box: Tuple[int, int, int, int],
                             face_bbox: Optional[Tuple[int, int, int, int]],
@@ -2547,7 +2593,8 @@ def _process_yolo_results(
     seen_names: set = set()
     if not YOLO_AVAILABLE:
         return seen_names
-    if frame_count % YOLO_EVERY_N == 0:
+    _effective_yolo_n = state.get("_yolo_every_n", YOLO_EVERY_N)
+    if frame_count % _effective_yolo_n == 0:
         yolo_worker.submit(frame, frame_count, W, H)
     yolo_result = yolo_worker.get_result(frame_count)
     if yolo_result is None:
@@ -2559,6 +2606,12 @@ def _process_yolo_results(
         return seen_names
     detections = yolo_result["detections"]
     seen_names = {det[0] for det in detections}
+    # Remember the last time a phone was seen, so a face that vanishes moments
+    # later can be attributed to phone occlusion (the phone pressed to the lens
+    # is no longer classifiable, but we caught it on the way up). See the
+    # face_missing branch in the main loop.
+    if "Phone/handheld" in seen_names:
+        state["_last_phone_seen_t"] = time.time()
     _history = state.setdefault("object_history", {})
     for name in seen_names:
         _history[name] = _history.get(name, 0) + 1
@@ -2966,10 +3019,21 @@ def run_proctoring(cap, W, H):
             gaze_pitch_bias = float(_INITIAL_GAZE_PITCH_BIAS or 0)
             head_yaw_bias   = float(_INITIAL_HEAD_YAW_BIAS or 0)
             head_pitch_bias = float(_INITIAL_HEAD_PITCH_BIAS or 0)
-            calibrated      = True
-            print(f"[CALIBRATION] ✅ Using pre-set biases from dot calibration — "
-                  f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) "
-                  f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})")
+            # Reject head-pose biases that are physically implausible.
+            # A -35 deg yaw bias (vs -10 deg gaze) means the dot calibration
+            # produced garbage -- using it would amplify turns into EXTREME.
+            if abs(head_yaw_bias) > 20 or abs(head_pitch_bias) > 25:
+                print(f"[CAL] preset head bias rejected "
+                      f"(yaw={head_yaw_bias:+.0f}{chr(176)} "
+                      f"pitch={head_pitch_bias:+.0f}{chr(176)}) "
+                      f"-- self-calibrating")
+                gaze_yaw_bias = gaze_pitch_bias = head_yaw_bias = head_pitch_bias = 0.0
+                calibrated = False
+            else:
+                calibrated = True
+                print(f"[CALIBRATION] Using pre-set biases from dot calibration -- "
+                      f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) "
+                      f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})")
         except (ValueError, TypeError):
             # Reset partial assignments so we self-calibrate from scratch
             # rather than running with one good axis and three garbage ones.
@@ -3188,8 +3252,22 @@ def run_proctoring(cap, W, H):
                     face_missing_count += 1
                     if face_missing_count >= FACE_MISSING_FRAMES and \
                        can_log("face_missing"):
-                        log_event("face_missing", "high",
-                                  f"No face detected for {face_missing_count} frames")
+                        # If a phone was detected in the last few seconds, the
+                        # face most likely vanished because the phone was raised
+                        # to the lens (where it stops being classifiable) — not
+                        # because the student stepped away. Escalation is gated
+                        # OFF by default (_PROCTOR_PHONE_OCCLUSION): it couples a
+                        # possibly-low-confidence phone with a face drop, so until
+                        # it's validated on-device we log a plain "high".
+                        phone_ago = time.time() - state.get("_last_phone_seen_t", 0.0)
+                        if _PROCTOR_PHONE_OCCLUSION and phone_ago <= PHONE_OCCLUSION_WINDOW_SECS:
+                            log_event("face_missing", "critical",
+                                      f"No face detected for {face_missing_count} "
+                                      f"frames — likely phone occlusion "
+                                      f"(phone seen {phone_ago:.1f}s earlier)")
+                        else:
+                            log_event("face_missing", "high",
+                                      f"No face detected for {face_missing_count} frames")
                         save_evidence(frame, "face_missing")
 
             elif num_faces >= 2:
@@ -3298,6 +3376,10 @@ def run_proctoring(cap, W, H):
                 head_yaw_raw, head_pitch_raw = get_head_pose(lm_2d, W, H)
                 head_yaw   = head_yaw_raw   - head_yaw_bias
                 head_pitch = head_pitch_raw - head_pitch_bias
+                # Clamp to physically possible range so a single bad
+                # solvePnP frame cannot manufacture an EXTREME reading.
+                head_yaw   = max(-70.0, min(70.0, head_yaw))
+                head_pitch = max(-60.0, min(60.0, head_pitch))
                 head_is_extreme = (abs(head_yaw)   > HEAD_YAW_EXTREME or
                                    abs(head_pitch) > HEAD_PITCH_EXTREME)
                 head_is_away    = (abs(head_yaw)   > HEAD_YAW_THRESHOLD or
@@ -3363,6 +3445,9 @@ def run_proctoring(cap, W, H):
                         cv2.circle(frame, (px, py), 2, (0, 255, 255), -1)
 
             # ── YOLO OBJECT DETECTION (background thread) ────────────────────────
+            # When the governor throttles below ~5 fps, submit every frame so
+            # a briefly held phone doesn't vanish between sparse YOLO cycles.
+            state["_yolo_every_n"] = 1 if governor.effective_fps < 5 else YOLO_EVERY_N
             yolo_seen = _process_yolo_results(state, frame, frame_count, W, H,
                                               can_log, log_if_allowed)
 

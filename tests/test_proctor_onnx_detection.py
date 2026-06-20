@@ -91,13 +91,62 @@ class TestYoloInferDecode:
         #   y1=(240-50-80)=110 y2=(240+50-80)=210
         assert (x1, y1, x2, y2) == (280, 110, 360, 210)
 
-    def test_below_confidence_is_filtered(self):
-        from proctor import _yolo_infer, YOLO_CONFIDENCE
+    def test_below_decode_floor_is_filtered(self):
+        # _yolo_infer now decodes down to YOLO_DECODE_FLOOR (the lower of the
+        # standard and phone thresholds); the final per-class call is made by
+        # _cheat_detection_kept. Anything below the floor is still dropped.
+        from proctor import _yolo_infer, YOLO_DECODE_FLOOR
 
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         out = _blank_output()
-        _put_box(out, 0, 67, YOLO_CONFIDENCE - 0.05, 320, 240, 80, 100)
+        _put_box(out, 0, 67, YOLO_DECODE_FLOOR - 0.05, 320, 240, 80, 100)
         assert _yolo_infer(_FakeYoloSession(out), img) == []
+
+    def test_low_conf_phone_survives_decode_for_per_class_gate(self):
+        # A dark/close phone scoring between the phone threshold and the
+        # standard threshold must survive decode so _cheat_detection_kept can
+        # keep it — this is the fix for phones that previously fell through.
+        from proctor import _yolo_infer, YOLO_PHONE_CONFIDENCE, YOLO_CONFIDENCE
+
+        conf = (YOLO_PHONE_CONFIDENCE + YOLO_CONFIDENCE) / 2.0
+        img = np.zeros((480, 640, 3), dtype=np.uint8)
+        out = _blank_output()
+        _put_box(out, 0, 67, conf, 320, 240, 80, 100)
+        dets = _yolo_infer(_FakeYoloSession(out), img)
+        assert any(d[0] == 67 for d in dets), "low-conf phone must survive decode"
+
+    def test_cheat_detection_kept_per_class_thresholds(self):
+        from proctor import (_cheat_detection_kept, YOLO_PHONE_CONFIDENCE,
+                             YOLO_CONFIDENCE)
+
+        mid = (YOLO_PHONE_CONFIDENCE + YOLO_CONFIDENCE) / 2.0  # between the two
+        # Handheld classes (cell phone 67, remote 65) pass at the lower bar.
+        assert _cheat_detection_kept(67, mid)
+        assert _cheat_detection_kept(65, mid)
+        assert not _cheat_detection_kept(67, YOLO_PHONE_CONFIDENCE - 0.01)
+        # Non-handheld cheat objects (Laptop 63, Keyboard 66, TV/monitor 62)
+        # still need the stricter bar.
+        assert not _cheat_detection_kept(63, mid)
+        assert _cheat_detection_kept(63, YOLO_CONFIDENCE + 0.01)
+        assert not _cheat_detection_kept(66, mid)
+        assert _cheat_detection_kept(66, YOLO_CONFIDENCE + 0.01)
+        assert not _cheat_detection_kept(62, mid)
+        assert _cheat_detection_kept(62, YOLO_CONFIDENCE + 0.01)
+        # Book (73) is gated behind PROCTOR_FLAG_BOOKS (default OFF).
+        assert not _cheat_detection_kept(73, YOLO_CONFIDENCE + 0.01)
+        # Non-cheat classes (person 0) are never kept.
+        assert not _cheat_detection_kept(0, 0.99)
+
+    def test_cheat_detection_book_flag_enabled(self):
+        """Book (COCO 73) passes when _PROCTOR_FLAG_BOOKS is toggled ON."""
+        import proctor as _p
+        saved = _p._PROCTOR_FLAG_BOOKS
+        try:
+            _p._PROCTOR_FLAG_BOOKS = True
+            assert _p._cheat_detection_kept(73, _p.YOLO_CONFIDENCE + 0.01)
+            assert not _p._cheat_detection_kept(73, _p.YOLO_CONFIDENCE - 0.01)
+        finally:
+            _p._PROCTOR_FLAG_BOOKS = saved
 
     def test_per_class_nms_dedups_overlapping_same_class(self):
         from proctor import _yolo_infer

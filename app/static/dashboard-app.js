@@ -8976,14 +8976,18 @@ function closeHistoryDetail(){
 }
 
 function viewSession(sid){
+  // Open the in-page forensics timeline. The old
+  // window.open('/dashboard?session=...') opened a SECOND dashboard tab that
+  // never parses ?session= (only location.hash is read) → a blank/login page.
+  // Student History's "View Timeline"/"Timeline" now use the same working
+  // in-page opener as Results.
   if(!sid) return;
-  window.open('/dashboard?session='+encodeURIComponent(sid), '_blank');
+  openTimelineForSession(sid);
 }
 
 function viewSessionTimeline(sessionId){
-  // Navigate to the forensics timeline view (already exists in dashboard)
-  window.location.hash = '#timeline-'+encodeURIComponent(sessionId);
-  viewSession(sessionId);
+  if(!sessionId) return;
+  openTimelineForSession(sessionId);
 }
 
 function toggleHistorySummary(sessionId){

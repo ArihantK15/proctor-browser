@@ -328,6 +328,12 @@ body.auth-active > :not(#auth-overlay):not(script):not(style){display:none !impo
   background:var(--table-row-hover);
 }
 [data-theme="light"] .detail-item,
+/* The forensics-timeline popup is a large .modal over a dark backdrop; the
+   shared 0.86-white modal bg let the backdrop bleed through and read as
+   transparent. Make this one box solid in light mode. */
+[data-theme="light"] #timeline-modal > .modal{
+  background:#ffffff;
+}
 [data-theme="light"] .tl-meta span,
 [data-theme="light"] .tl-filter-btn,
 [data-theme="light"] .tl-scrubber,

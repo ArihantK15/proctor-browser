@@ -113,10 +113,11 @@ the requirements; CSP-safe (external JS + `addEventListener`, no inline script).
 **Problem:** `weights/earbud_classifier.onnx` doesn't exist, so `EarClassifier`
 falls back to `_heuristic_detect` (Canny edge-density + dark-ratio), which fires
 `right_earbud` on any textured/dark patch beside the face — phantom earbuds.
-A real model is being produced separately (`scripts/harvest_ear_crops.py` +
-`scripts/train_earbud_classifier.py`); when the `.onnx` is dropped in `weights/`
-the classifier auto-loads and this heuristic is bypassed entirely — **don't
-remove the heuristic path**, just make it conservative for the no-model case.
+A real model is being produced in a **separate, out-of-repo** training project
+(training scripts + datasets are kept out of this product on purpose); when the
+resulting `.onnx` is dropped in `weights/` the classifier auto-loads and this
+heuristic is bypassed entirely — **don't remove the heuristic path**, just make
+it conservative for the no-model case.
 
 **Anchors:** `EarClassifier._heuristic_detect` (~`proctor.py:744`), the earbud
 threshold/frame-count gate in `_process_ear_detection` (~`proctor.py:2686`).

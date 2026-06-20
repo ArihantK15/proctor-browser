@@ -29,8 +29,10 @@ class TestReassignServiceClassification:
                 return "UPDATE 1"
 
         import asyncio
-        asyncio.get_event_loop().run_until_complete(
-            reassign_teaching_data(_Conn(), "A", "B"))
+        # asyncio.run() (not get_event_loop().run_until_complete) — a fresh loop
+        # per call, so this passes in the full suite after other async tests have
+        # closed the shared loop.
+        asyncio.run(reassign_teaching_data(_Conn(), "A", "B"))
 
         moved = {t for t in _MOVE_TABLES if any(f"UPDATE {t} " in c for c in calls)}
         assert moved == set(_MOVE_TABLES), (
@@ -50,8 +52,7 @@ class TestReassignServiceClassification:
                 return "UPDATE 42"
 
         import asyncio
-        counts = asyncio.get_event_loop().run_until_complete(
-            reassign_teaching_data(_Conn(), "A", "B"))
+        counts = asyncio.run(reassign_teaching_data(_Conn(), "A", "B"))
 
         for table in _MOVE_TABLES:
             assert counts[table] == 42, f"Expected 42 for {table}, got {counts[table]}"

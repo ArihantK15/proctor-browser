@@ -32,6 +32,7 @@ async def admin_get_schedule(request: Request):
         "exam_title": config.get("exam_title", "Exam"),
         "starts_at":  config.get("starts_at"),
         "ends_at":    config.get("ends_at"),
+        "early_join_minutes": config.get("early_join_minutes", 15),
     }
 
 
@@ -47,6 +48,9 @@ async def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
         update["starts_at"] = body.starts_at
     if body.ends_at is not None:
         update["ends_at"] = body.ends_at
+    if body.early_join_minutes is not None:
+        # Clamp to the same 0..240 range the DB CHECK enforces.
+        update["early_join_minutes"] = max(0, min(int(body.early_join_minutes), 240))
     if update:
         await _atable("exam_config").update(update)\
             .eq("teacher_id", tid).eq("exam_id", exam_id).execute()
@@ -73,6 +77,7 @@ async def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
         "status":    "updated",
         "starts_at": body.starts_at,
         "ends_at":   body.ends_at,
+        "early_join_minutes": update.get("early_join_minutes", body.early_join_minutes),
         "attempted_count": attempted_count,
     }
 

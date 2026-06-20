@@ -641,7 +641,10 @@ class TestValidateStudent:
             resp = client.post("/api/v1/validate-student",
                                json={"roll_number": "ALICE001"})
             assert resp.status_code == 403
-            assert "not started" in resp.json()["detail"].lower()
+            # Entry now uses the lobby gate (early-join window). With no
+            # early_join_minutes the lobby opens exactly at starts_at, so a
+            # before-window request is still 403 — just worded for the lobby.
+            assert "lobby opens" in resp.json()["detail"].lower()
 
     def test_exam_window_closed(self, client):
         """Exam window has ended → 403."""

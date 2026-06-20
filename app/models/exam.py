@@ -190,6 +190,9 @@ class ScheduleIn(BaseModel):
     exam_id: str
     starts_at: str | None = None
     ends_at: str | None = None
+    # Minutes before starts_at that the lobby opens for early ID/phone-cam
+    # verification. 0 = entry == start (today's behaviour). Clamped 0..240.
+    early_join_minutes: int | None = None
 
 
 class ShuffleIn(BaseModel):

@@ -171,6 +171,9 @@ async def validate_student(request: Request, body: ValidateIn):
     try:
         cached = _cache.get(cache_key) if _cache else None
         if cached and isinstance(cached, dict) and cached.get("valid"):
+            # server_now must be FRESH per request — the lobby countdown is
+            # computed off it, so a cached (stale) value would mis-time Begin.
+            cached["server_now"] = datetime.now(timezone.utc).isoformat()
             return cached
     except Exception:
         logger.debug("exam: validate-cache read failed", exc_info=True)
@@ -180,7 +183,10 @@ async def validate_student(request: Request, body: ValidateIn):
     # collapsed to avoid roll-number enumeration.
     pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code, provided_teacher_id)
     config = await _load_exam_config(pre_tid, exam_id=exam_id)
-    _check_exam_time_window(config)
+    # Entry uses the LOBBY gate: open from starts_at - early_join_minutes so
+    # students can verify early. The exam questions stay locked until starts_at
+    # via _check_exam_started in GET /api/v1/questions.
+    _check_lobby_window(config)
     # Block entry to an archived exam. In-flight sessions are unaffected
     # because this check only runs during validate_student (new start).
     if config.get("archived_at"):
@@ -230,7 +236,7 @@ async def validate_student(request: Request, body: ValidateIn):
     effective_duration = base_duration + extra
 
     if existing_key:
-        resp = _build_validate_response(student, student_tid, _q_exam_id, existing_key, duration_minutes=effective_duration)
+        resp = _build_validate_response(student, student_tid, _q_exam_id, existing_key, duration_minutes=effective_duration, config=config)
         _cache_validate(cache_key, resp)
         return resp
 
@@ -243,32 +249,68 @@ async def validate_student(request: Request, body: ValidateIn):
         except Exception as e:
             logger.debug("Failed to mark invite as accepted: %s", e)
 
-    resp = _build_validate_response(student, student_tid, _q_exam_id, duration_minutes=effective_duration)
+    resp = _build_validate_response(student, student_tid, _q_exam_id, duration_minutes=effective_duration, config=config)
     _cache_validate(cache_key, resp)
     return resp
 
 
 # ─── validate_student helpers ───────────────────────────────────────
 
-def _check_exam_time_window(config: dict) -> None:
-    """Raise 403 if the exam hasn't started or has already closed."""
+def _parse_exam_dt(raw) -> datetime | None:
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _early_join_minutes(config: dict) -> int:
+    """Per-exam early-join lead time, clamped to a sane 0..240 min."""
+    try:
+        early = int(config.get("early_join_minutes") or 0)
+    except (ValueError, TypeError):
+        early = 0
+    return max(0, min(early, 240))
+
+
+def _check_exam_window_closed(config: dict, now_utc: datetime) -> None:
+    """403 once the exam's end time has passed (shared by both gates)."""
+    ends = _parse_exam_dt(config.get("ends_at"))
+    if ends is not None and now_utc > ends:
+        raise HTTPException(status_code=403, detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
+
+
+def _check_lobby_window(config: dict) -> None:
+    """Entry gate (validate_student). Opens the lobby early so students can
+    finish ID + phone-camera verification before the scheduled start: entry is
+    allowed from starts_at - early_join_minutes onward. Still 403s once ends_at
+    passes. No starts_at => unscheduled exam, always open. A late join
+    (now >= starts_at) is always allowed — the window only gates EARLY entry."""
     now_utc = datetime.now(timezone.utc)
-    starts_raw = config.get("starts_at")
-    if starts_raw and isinstance(starts_raw, str):
-        try:
-            starts = datetime.fromisoformat(str(starts_raw).replace("Z", "+00:00"))
-            if now_utc < starts:
-                raise HTTPException(status_code=403, detail=f"The exam has not started yet. It begins at {fmt_ist(config['starts_at'])}.")
-        except (ValueError, TypeError):
-            pass
-    ends_raw = config.get("ends_at")
-    if ends_raw and isinstance(ends_raw, str):
-        try:
-            ends = datetime.fromisoformat(str(ends_raw).replace("Z", "+00:00"))
-            if now_utc > ends:
-                raise HTTPException(status_code=403, detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
-        except (ValueError, TypeError):
-            pass
+    starts = _parse_exam_dt(config.get("starts_at"))
+    if starts is not None:
+        lobby_open = starts - timedelta(minutes=_early_join_minutes(config))
+        if now_utc < lobby_open:
+            raise HTTPException(
+                status_code=403,
+                detail=f"The exam lobby opens at {fmt_ist(lobby_open.isoformat())}. Please come back then.")
+    _check_exam_window_closed(config, now_utc)
+
+
+def _check_exam_started(config: dict) -> None:
+    """Hard START gate for the exam itself (GET /api/v1/questions). The lobby may
+    be open for early verification, but the questions stay locked until starts_at.
+
+    Start-only by design: ends_at is enforced at entry (_check_lobby_window) and
+    submit, NOT here — get_questions can be refetched mid-exam on reconnect, and
+    a session legitimately running up to ends_at must not be blocked."""
+    now_utc = datetime.now(timezone.utc)
+    starts = _parse_exam_dt(config.get("starts_at"))
+    if starts is not None and now_utc < starts:
+        raise HTTPException(
+            status_code=403,
+            detail=f"The exam begins at {fmt_ist(config['starts_at'])}. Please wait — you can finish verification meanwhile.")
 
 
 async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str, provided_teacher_id: str = "") -> tuple:
@@ -562,7 +604,7 @@ async def _check_existing_session(student: dict, student_tid: str, exam_id: str)
     return in_progress[0]["session_key"] if in_progress else None
 
 
-def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: str = None, duration_minutes: int = None) -> dict:
+def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: str = None, duration_minutes: int = None, config: dict = None) -> dict:
     """Build the standard validate-student response dict."""
     # Observability for the #1 cause of "the student started but never showed
     # up on the teacher's dashboard": a token minted WITHOUT a teacher_id (tid)
@@ -601,6 +643,14 @@ def _build_validate_response(student: dict, student_tid: str, exam_id: str, exis
         resp["duration_minutes"] = duration_minutes
     if existing_session:
         resp["existing_session"] = existing_session
+    # Schedule context so the Electron lobby can render an authoritative
+    # countdown ("exam begins in MM:SS") off SERVER time — never the local
+    # clock, which a student could roll back to unlock Begin early.
+    if config is not None:
+        resp["starts_at"] = config.get("starts_at")
+        resp["ends_at"] = config.get("ends_at")
+        resp["early_join_minutes"] = _early_join_minutes(config)
+    resp["server_now"] = datetime.now(timezone.utc).isoformat()
     return resp
 
 
@@ -621,6 +671,9 @@ async def get_questions(request: Request):
     if not questions:
         raise HTTPException(status_code=404, detail="Questions not found")
     config = await _load_exam_config(tid, exam_id=eid)
+    # Hard start gate: the lobby may already be open for early verification,
+    # but questions stay locked until the scheduled start time.
+    _check_exam_started(config)
 
     # Deterministic per-session shuffle
     shuffle_q, shuffle_o = _get_shuffle_flags(config)

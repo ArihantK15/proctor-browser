@@ -15,7 +15,7 @@ _EXAM_CONFIG_COLUMNS = (
     "starts_at,ends_at,shuffle_questions,shuffle_options,"
     "phone_camera_enabled,proctoring_sensitivity,"
     "audio_keywords,audio_keywords_language,archived_at,"
-    "created_at,pass_mark"
+    "created_at,pass_mark,early_join_minutes"
 )
 
 try:
@@ -113,6 +113,7 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
         "audio_keywords_language": "en",
         "archived_at": None,
         "pass_mark": 40,
+        "early_join_minutes": 15,
     }
 
 

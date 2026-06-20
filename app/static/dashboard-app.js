@@ -4734,6 +4734,8 @@ async function loadSchedule(){
     const d=await r.json();
     if(d.starts_at) document.getElementById('schedule-start').value=utcToLocalInput(d.starts_at);
     if(d.ends_at) document.getElementById('schedule-end').value=utcToLocalInput(d.ends_at);
+    const ej=document.getElementById('schedule-early-join');
+    if(ej && d.early_join_minutes!=null) ej.value=d.early_join_minutes;
     updateScheduleStatus(d);
   }catch(e){}
 }
@@ -4802,9 +4804,12 @@ async function saveSchedule(){
     return;
   }
   try{
+    const _ejEl=document.getElementById('schedule-early-join');
+    let _ej=_ejEl?parseInt(_ejEl.value,10):null;
+    if(_ej==null||Number.isNaN(_ej)) _ej=null; else _ej=Math.max(0,Math.min(_ej,240));
     const r=await authFetch(`${BASE}/api/v1/admin/exam-schedule`,{
       method:'POST',
-      body:JSON.stringify({starts_at:localInputToUtc(starts),ends_at:localInputToUtc(ends),exam_id:currentExamId})
+      body:JSON.stringify({starts_at:localInputToUtc(starts),ends_at:localInputToUtc(ends),early_join_minutes:_ej,exam_id:currentExamId})
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json().catch(()=>({}));

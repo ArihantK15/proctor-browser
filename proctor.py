@@ -669,6 +669,14 @@ def _find_ear_model() -> Optional[str]:
 _ear_classifier = None
 EAR_CLASSIFIER_AVAILABLE = False
 
+# When no trained earbud_classifier.onnx is present, EarClassifier falls back to
+# a Canny-edge / dark-ratio heuristic that false-positives "earbud" on any
+# textured or shadowed patch beside the face (phantom earbuds). A false earbud
+# accusation is worse than a missed one, so the heuristic is OFF by default —
+# earbud detection simply waits for the real model to be dropped into weights/.
+# Set PROCTOR_EARBUD_HEURISTIC=1 to re-enable the heuristic fallback.
+_PROCTOR_EARBUD_HEURISTIC = os.environ.get("PROCTOR_EARBUD_HEURISTIC", "0") == "1"
+
 if ORT_AVAILABLE:
     class EarClassifier:
         def __init__(self):
@@ -716,7 +724,11 @@ if ORT_AVAILABLE:
 
         def classify(self, frame: np.ndarray, lm_2d: np.ndarray, W: int, H: int):
             if self.session is None:
-                return self._heuristic_detect(frame, lm_2d, W, H)
+                # No trained model: only run the noisy heuristic if explicitly
+                # opted in, otherwise report "no earbud" (0,0) — no phantom flags.
+                if _PROCTOR_EARBUD_HEURISTIC:
+                    return self._heuristic_detect(frame, lm_2d, W, H)
+                return 0.0, 0.0
             left_conf, right_conf = 0.0, 0.0
             for side in ["left", "right"]:
                 bbox = self._estimate_ear_bbox(lm_2d, W, H, side)

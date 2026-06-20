@@ -80,10 +80,39 @@ SILERO_VAD_ONNX = os.environ.get(
 # MUST stay in lockstep with the dashboard's placeholder + the SQL
 # default. Per-exam keywords are MERGED with these at proctor launch.
 DEFAULT_EN = [
+    # Existing distinctive exam phrases.
     "option a", "option b", "option c", "option d",
     "the answer is", "answer is", "correct answer",
     "what is the answer", "help me", "tell me",
     "first question", "second question", "third question",
+    # ── Curated high-signal additions ──────────────────────────────────────
+    # Distilled from a ~750-word candidate list. We deliberately KEEP OUT
+    # single letters (a/b/c/d) and common words (yes, no, okay, hello, done,
+    # ready, question, answer, option, book, notes, calculator): they're spoken
+    # constantly during normal solo exam-taking and would bury real signal in
+    # false positives — and the small vosk model can't transcribe them
+    # reliably anyway. What's kept is distinctive and rarely innocent:
+    # asking another person for answers
+    "what did you get", "what answer did you get", "what did you write",
+    "which option did you choose", "send your answer", "share your answer",
+    "send me the answer", "tell me your answer", "compare answers",
+    "ask him", "ask her", "ask them", "ask your friend",
+    "send screenshot", "send photo", "share your screen", "share screen",
+    # asking to be solved / helped
+    "can you solve this", "solve this problem", "give me the answer",
+    "tell me the answer", "whats the answer", "can you help me",
+    "do this for me", "answer this question",
+    # look-it-up intent
+    "look it up", "search google", "search it up", "google it",
+    # AI tools / homework sites (best-effort — vosk may mistranscribe novel
+    # brand tokens, so phrase signals above carry most of the weight)
+    "chatgpt", "open ai", "gemini", "copilot", "perplexity", "deepseek",
+    "wolfram alpha", "photomath", "symbolab", "mathway", "chegg",
+    "course hero", "brainly", "quizlet", "grok", "gauthmath", "socratic",
+    # remote-control / screen-share tools
+    "teamviewer", "anydesk", "remote desktop",
+    # comms apps (distinctive enough to flag mid-exam)
+    "whatsapp", "telegram", "discord",
 ]
 DEFAULT_HI = [
     "jawab", "sahi hai", "uttar",

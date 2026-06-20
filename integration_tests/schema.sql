@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   org_id                   UUID REFERENCES organizations(id),
   plan                     TEXT,
   status                   TEXT,
+  trial_end                TIMESTAMPTZ,
   razorpay_subscription_id TEXT,
   razorpay_order_id        TEXT,
   current_period_start     TIMESTAMPTZ,

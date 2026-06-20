@@ -3123,8 +3123,16 @@ function chatConnect(){
     chatHandleIncoming(data);
   };
   chatWs.onclose = (ev)=>{
+    // Surface WHY the socket closed — without this the student just sees a
+    // perpetual "Reconnecting…" with the input stuck disabled and no way to
+    // tell a handshake rejection (4401 bad/expired token, 4403 session not
+    // LIVE / not owned, 4400 rate-limited / missing session_id) from a normal
+    // network blip. Logged to the renderer console for live diagnosis.
+    if(ev.code !== 1000 && ev.code !== 1001){
+      console.warn('[chat] ws closed code=' + ev.code + ' reason=' + (ev.reason||'(none)'));
+    }
     const sub = document.getElementById('chat-head-sub');
-    if(sub) sub.textContent = 'Reconnecting…';
+    if(sub) sub.textContent = (ev.code===4403) ? 'Chat closed (exam ended)' : 'Reconnecting…';
     const dot = document.getElementById('chat-sdot');
     if(dot) dot.classList.add('off');
     const input = document.getElementById('chat-input');
@@ -3132,6 +3140,9 @@ function chatConnect(){
     if(input) input.disabled = true;
     if(btn) btn.disabled = true;
     if(chatIntentionalClose) return;
+    // 4403 = session no longer LIVE (or not owned). Reconnecting can never
+    // succeed for that, so don't hammer a doomed handshake every few seconds.
+    if(ev.code === 4403) return;
     chatScheduleReconnect();
   };
   chatWs.onerror = ()=>{ /* onclose will follow */ };

@@ -388,3 +388,67 @@ CREATE TABLE IF NOT EXISTS exam_time_extensions (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT exam_time_ext_uniq UNIQUE (teacher_id, exam_id, roll_number)
 );
+
+-- Tables below are minimal stubs for the teacher-reassign integration test.
+-- They only need enough columns for the teaching-data remap UPDATE to succeed
+-- (i.e. a teacher_id column).  Migrations define the real schema.
+
+CREATE TABLE IF NOT EXISTS student_groups (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id    UUID
+);
+
+CREATE TABLE IF NOT EXISTS student_group_members (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id   UUID,
+    student_id UUID,
+    teacher_id UUID
+);
+
+CREATE TABLE IF NOT EXISTS student_invites (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id    UUID,
+    email         TEXT,
+    status        TEXT DEFAULT 'pending'
+);
+
+CREATE TABLE IF NOT EXISTS exam_batch_assignments (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id    UUID,
+    exam_id       TEXT,
+    batch_id      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS exam_group_assignments (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id UUID,
+    exam_id    TEXT,
+    group_id   UUID,
+    UNIQUE (exam_id, group_id)
+);
+
+CREATE TABLE IF NOT EXISTS exam_templates (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id     UUID,
+    template_name  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS appeals (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id     UUID,
+    session_key    TEXT,
+    appeal_type    TEXT,
+    status         TEXT DEFAULT 'open'
+);
+
+CREATE TABLE IF NOT EXISTS grading_audit (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id UUID,
+    session_key TEXT
+);
+
+CREATE TABLE IF NOT EXISTS google_classroom_links (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    teacher_id    UUID,
+    classroom_id  TEXT
+);

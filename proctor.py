@@ -3643,7 +3643,17 @@ def _open_camera():
     return None, None
 
 
-def _open_camera_retry(total_timeout: float = 4.0):
+def _open_camera_retry(total_timeout: float = None):
+    if total_timeout is None:
+        # Windows DSHOW releases the webcam noticeably slower than the macOS /
+        # Linux backends — and the holder here is usually the *calibration*
+        # proctor (a separate OpenCV/DSHOW process) being torn down on a
+        # CPU-saturated machine, where release can take several seconds. The
+        # old fixed 4s window was too short for that handoff, so the exam
+        # proctor hit its "Cannot open camera" exit(1) and the whole session
+        # died with an empty log. Give Windows a much longer window; it costs
+        # nothing when the camera is already free (we return on first open).
+        total_timeout = 12.0 if sys.platform.startswith("win") else 4.0
     """Open the camera, retrying briefly to absorb a cross-process handoff race.
 
     The browser (Chromium getUserMedia, used by ID verification) may still be

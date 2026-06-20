@@ -1,4 +1,4 @@
-const { app, ipcMain, globalShortcut, screen, dialog, session: _electronSession } = require('electron');
+const { app, ipcMain, globalShortcut, screen, dialog, shell, session: _electronSession } = require('electron');
 const path = require('path');
 
 // ── Sentry (optional — gated on SENTRY_DSN env / packaged config) ──
@@ -50,9 +50,10 @@ const { runIntegrityChecks } = require('./lib/integrity');
 const {
   startSetupInBackground, getSetupState, isSetupReady,
   startPython, stopPython, startCalibration, stopCalibration,
-  reapOrphanProctors, ensureCameraAccess, runSystemCheck,
+  reapOrphanProctors, ensureCameraAccess, ensureMicAccess, runSystemCheck,
 } = require('./lib/python-manager');
 const { startPolling, stopPolling } = require('./lib/polling');
+const { permissionBlock } = require('./lib/permission-gate');
 
 const {
   createLobbyWindow, createExamWindow, releaseKiosk, handlePanicUnlock,
@@ -860,6 +861,43 @@ ipcMain.handle('run-system-check', async (event) => {
   return result;
 });
 
+// macOS TCC permission block. Camera (always) + microphone (voice /
+// multiple-voice detection is core, always-on proctoring) are HARD
+// requirements: a hurried "Don't Allow" must NOT let the exam start. Critically,
+// once a student declines, macOS will not re-prompt, and a later grant only
+// takes effect after Procta is relaunched — so telling them to "try again" on
+// the same running process is a trap. Instead we deep-link to the exact Settings
+// pane and offer to quit so they can relaunch cleanly. Keeps the student in the
+// lobby (caller returns before createExamWindow).
+async function _blockOnPermission(kind) {  // kind: 'Camera' | 'Microphone'
+  const pane = kind === 'Microphone'
+    ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+    : 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera';
+  const lower = kind.toLowerCase();
+  const lobby = getLobbyWindow();
+  try {
+    const { response } = await dialog.showMessageBox(
+      lobby && !lobby.isDestroyed() ? lobby : undefined, {
+        type: 'warning',
+        title: `${kind} access required`,
+        message: `Procta can't access your ${lower} — the exam cannot start without it.`,
+        detail: `Proctoring requires your ${lower}.\n\n` +
+          `1. Click "Open Settings".\n` +
+          `2. Turn ON Procta under Privacy & Security → ${kind}.\n` +
+          `3. Quit and reopen Procta, then start the exam again.\n\n` +
+          `macOS will not ask again once declined, and a new grant only applies ` +
+          `after Procta is relaunched.`,
+        buttons: ['Open Settings', 'Quit Procta', 'Cancel'],
+        defaultId: 0, cancelId: 2, noLink: true,
+      });
+    if (response === 0) {
+      try { await shell.openExternal(pane); } catch (e) { console.error('[Perm] openExternal:', e.message); }
+    } else if (response === 1) {
+      try { app.quit(); } catch (e) { /* ignore */ }
+    }
+  } catch (e) { /* dialog best-effort — the hard block below is what matters */ }
+}
+
 ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
   if (!_assertMainFrame(event, 'lobby-launch-exam')) throw new Error('Frame not allowed');
   if (!ctx || !ctx.rollNumber) return { ok: false, error: 'Missing roll number' };
@@ -880,27 +918,24 @@ ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
   });
   console.log('[Lobby] launch exam:', getExamContext());
 
-  // Camera pre-flight (macOS TCC). If the OS denies camera access the
-  // proctor would throw on VideoCapture and could take the exam-start
-  // flow down with it. Catch it here, BEFORE the exam window arms, and
-  // surface a clear, escapable message — keep the student in the lobby.
+  // Permission pre-flight (macOS TCC) — FAIL CLOSED. Both camera and mic are
+  // checked BEFORE the exam window arms; a denied/hurried "Don't Allow" keeps
+  // the student in the lobby with an actionable recovery dialog rather than
+  // starting an exam the proctor can't monitor. (ensure* return ok:true on
+  // non-macOS, so Windows/Linux fall through to the proctor's own camera
+  // hard-stop backstop.) Fail-OPEN only on an unexpected preflight throw — never
+  // on an actual denial.
   try {
     const cam = await ensureCameraAccess();
-    if (cam && !cam.ok) {
-      const lobby = getLobbyWindow();
-      try {
-        await dialog.showMessageBox(lobby && !lobby.isDestroyed() ? lobby : undefined, {
-          type: 'warning',
-          title: 'Camera access needed',
-          message: 'Procta can\'t access your camera.',
-          detail: 'Proctoring requires your camera. Open System Settings → ' +
-            'Privacy & Security → Camera, enable Procta, then start the exam again.',
-          buttons: ['OK'], defaultId: 0, noLink: true,
-        });
-      } catch(e) { /* dialog best-effort */ }
-      return { ok: false, error: 'camera-denied' };
+    // Only prompt for the mic if the camera is fine — avoids a second OS prompt
+    // when the camera was already denied (we're going to block regardless).
+    const mic = (cam && cam.ok) ? await ensureMicAccess() : { ok: true };
+    const block = permissionBlock(cam, mic);
+    if (block) {
+      await _blockOnPermission(block.kind);
+      return { ok: false, error: block.error };
     }
-  } catch(e) { console.error('[Camera] preflight threw:', e.message); }
+  } catch(e) { console.error('[Perm] preflight threw:', e.message); }
 
   if (getLobbyWindow() && !getLobbyWindow().isDestroyed()) {
     try { getLobbyWindow().hide(); } catch(e) {}

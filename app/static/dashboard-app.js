@@ -2841,8 +2841,8 @@ function renderResults(){
       <td>${_fmtDuration(r.time_taken_secs || 0)}</td>
       <td>${_escHtml(r.submitted_at || '--')}</td>
       <td>
-        <button class="btn btn-secondary btn-sm" data-action="dlScorecard" data-args='${_jsonArgsForAttr(sid)}'>Scorecard</button>
-        <button class="btn btn-secondary btn-sm" title="Full proctoring report — per-event violations + evidence screenshots" data-action="dlPDF" data-args='${_jsonArgsForAttr(sid)}'>Report</button>
+        <button class="btn btn-secondary btn-sm" title="Branded result summary — share with the student / institution" data-action="dlScorecard" data-args='${_jsonArgsForAttr(sid)}'>Scorecard</button>
+        <button class="btn btn-secondary btn-sm" title="Full proctoring evidence log — per-event violations, confidence + screenshots, for review &amp; appeals" data-action="dlPDF" data-args='${_jsonArgsForAttr(sid)}'>Audit Report</button>
         <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
       </td>
     </tr>`;
@@ -3272,7 +3272,7 @@ async function fetchBlob(url, filename, btnId){
 }
 
 function dlPDF(sid){
-  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`, `report_${sid.split('_')[0]}.pdf`);
+  fetchBlob(`${BASE}/api/v1/export-pdf/${encodeURIComponent(sid)}`, `audit-report_${sid.split('_')[0]}.pdf`);
 }
 function downloadPDF(){
   if(currentSessionId) dlPDF(currentSessionId);

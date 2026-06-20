@@ -29,7 +29,7 @@ from .. import cache as _cache
 from ..services.sessions import collect_session_screenshots as _collect_session_screenshots, match_screenshot_for_violation as _match_screenshot_for_violation, match_room_screenshot_for_violation as _match_room_screenshot_for_violation, match_context_screenshots_for_violation as _match_context_screenshots_for_violation
 from ..limiter import limiter
 from ..models import EmailScorecardsIn
-from ..services.scorecard import _build_scorecard_pdf
+from ..services.scorecard import _build_scorecard_pdf, resolve_student_name
 from ..jobs import enqueue_job, send_scorecard_email_job
 
 _admin_log = logging.getLogger("admin")
@@ -388,6 +388,7 @@ async def export_pdf(session_id: str, request: Request):
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
         exam = await _assert_session_owned(session_id, tid)
+        exam["full_name"] = await resolve_student_name(exam, tid)
         raw_violations = await _pdf_fetch_violations(session_id, tid)
         answers = await _pdf_fetch_answers(session_id, tid)
 
@@ -396,7 +397,12 @@ async def export_pdf(session_id: str, request: Request):
         styles = getSampleStyleSheet()
         story = []
 
-        story.append(Paragraph("AI Proctored Exam \u2014 Report", styles["Title"]))
+        story.append(Paragraph("AI Proctored Exam \u2014 Audit Report", styles["Title"]))
+        story.append(Paragraph(
+            "Full proctoring evidence log \u2014 per-event violations, confidence "
+            "and captured screenshots. For review and appeal handling.",
+            ParagraphStyle("auditsub", parent=styles["Normal"], fontSize=9,
+                           textColor=colors.HexColor("#666666"), spaceAfter=6)))
         story.append(Spacer(1, 12))
 
         risk = await compute_risk_score(session_id, teacher_id=tid)

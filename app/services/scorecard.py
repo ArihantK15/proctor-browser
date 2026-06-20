@@ -326,9 +326,15 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
         logger.debug("Failed to load exam config for scorecard: %s", e)
     exam_title = (config or {}).get("exam_title") or (config or {}).get("title") or "Exam"
 
-    score = exam.get("score", 0)
-    total = exam.get("total", 0)
-    pct = exam.get("percentage", 0)
+    score = exam.get("score", 0) or 0
+    total = exam.get("total", 0) or 0
+    # percentage is stored on the session, but fall back to score/total so the
+    # scorecard never shows 0% for a session graded before the column existed
+    # (or when assert_session_owned hasn't loaded it).
+    pct = exam.get("percentage")
+    if pct in (None, 0) and total:
+        pct = round(score / total * 100, 1)
+    pct = pct or 0
     risk = await compute_risk_score(session_id, teacher_id=tid)
     passed = pct >= (config.get("pass_mark") or 40)
 

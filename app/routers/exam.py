@@ -2238,7 +2238,12 @@ async def id_verification_status(request: Request, session_id: str = ""):
 
 
 @router.get("/api/v1/events/{session_id}")
-@limiter.limit("30/minute")
+# The desktop lobby polls this on a fixed 2s interval (POLL_INTERVAL_MS) =
+# 30 req/min, which sat exactly on a 30/minute cap — any scheduling jitter or
+# a retry tipped it to 429 and silently stalled violation / force-submit
+# delivery (seen live as "[Poll] non-OK response: 429"). It's a cheap
+# per-session read; give it 2x headroom so the steady 2s cadence never trips.
+@limiter.limit("60/minute")
 async def get_events(session_id: str, request: Request):
     claims = require_auth(request)
     await _assert_student_session_access(claims, session_id)

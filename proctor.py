@@ -40,6 +40,16 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import requests
 
+# Cap CPU thread pools BEFORE numpy / onnxruntime import so it reaches the
+# library-managed sessions too (RetinaFace via uniface, InsightFace via
+# FaceAnalysis) — not just the sessions we build SessionOptions for. ORT/OpenMP
+# default to one thread per core and thrash on a contended student laptop;
+# capping is a steady-state CPU win and aligned with the low-footprint goal.
+# setdefault so an operator can still override; env-tunable via PROCTOR_ORT_THREADS.
+_ort_threads = os.environ.get("PROCTOR_ORT_THREADS", "2")
+os.environ.setdefault("OMP_NUM_THREADS", _ort_threads)
+os.environ.setdefault("OPENBLAS_NUM_THREADS", _ort_threads)
+
 # ── Windows-safe console encoding ─────────────────────────────────────────────
 # When Electron spawns us, stdout/stderr are pipes; on Windows Python defaults
 # those pipes to the ANSI code page (cp1252), which CANNOT encode the ✅/❌/🎯
@@ -1049,6 +1059,12 @@ TARGET_FPS          = int(os.getenv("PROCTOR_TARGET_FPS", "7"))
 FACE_MIN_SIZE       = 50  # min face height/width px (student too far)
 EAR_EVERY_N         = 5
 EAR_THRESHOLD       = 0.6
+# Cadence for the two heaviest per-frame signals (gaze ResNet18 + head-pose
+# solvePnP). Recompute every Nth frame after calibration and reuse the cached
+# reading in between — gaze/head don't need a per-frame sample, and at 7fps a
+# value of 2 still gives ~3.5Hz. Gaze and head are staggered (gaze on even
+# frames, head on odd) so no single frame pays for both. Env-tunable.
+GAZE_EVERY_N        = int(os.getenv("PROCTOR_GAZE_EVERY_N", "2"))
 
 # ─── ADAPTIVE HARDWARE GOVERNOR ───────────────────────────────────────────────
 # Budget student laptops thermal-throttle their CPU under sustained ML
@@ -3392,7 +3408,18 @@ def run_proctoring(cap, W, H):
 
                 # ── GAZE ─────────────────────────────────────────────────────────
                 if GAZE_AVAILABLE and face_crop.size > 0:
-                    gaze_yaw_raw, gaze_pitch_raw = _gaze_engine.estimate(face_crop)
+                    # Cadence the gaze net (heaviest per-frame model): recompute
+                    # every _gaze_n frames after calibration, reuse the cached
+                    # reading otherwise. Interval doubles under throttle (detector
+                    # shedding). Always recompute every frame while calibrating so
+                    # the bias baseline fills quickly.
+                    _gaze_n = GAZE_EVERY_N * (2 if governor.effective_fps < TARGET_FPS else 1)
+                    if (not calibrated) or state.get("_gaze_raw") is None \
+                       or frame_count % _gaze_n == 0:
+                        gaze_yaw_raw, gaze_pitch_raw = _gaze_engine.estimate(face_crop)
+                        state["_gaze_raw"] = (gaze_yaw_raw, gaze_pitch_raw)
+                    else:
+                        gaze_yaw_raw, gaze_pitch_raw = state["_gaze_raw"]
                     gaze_yaw   = gaze_yaw_raw   - gaze_yaw_bias
                     gaze_pitch = gaze_pitch_raw - gaze_pitch_bias
                     is_extreme = (abs(gaze_yaw)   > GAZE_YAW_EXTREME or
@@ -3440,7 +3467,15 @@ def run_proctoring(cap, W, H):
                             gaze_away_count = 0
 
                 # ── HEAD POSE ────────────────────────────────────────────────────
-                head_yaw_raw, head_pitch_raw = get_head_pose(lm_2d, W, H)
+                # Same cadence as gaze but staggered onto the ODD frame (== 1) so
+                # a single frame never pays for both gaze + solvePnP.
+                _head_n = GAZE_EVERY_N * (2 if governor.effective_fps < TARGET_FPS else 1)
+                if (not calibrated) or state.get("_head_raw") is None \
+                   or frame_count % _head_n == 1 or _head_n == 1:
+                    head_yaw_raw, head_pitch_raw = get_head_pose(lm_2d, W, H)
+                    state["_head_raw"] = (head_yaw_raw, head_pitch_raw)
+                else:
+                    head_yaw_raw, head_pitch_raw = state["_head_raw"]
                 head_yaw   = head_yaw_raw   - head_yaw_bias
                 head_pitch = head_pitch_raw - head_pitch_bias
                 # Clamp to physically possible range so a single bad
@@ -3673,6 +3708,100 @@ def run_selftest() -> int:
     # onnxruntime underpins gaze/yolo/ear; uniface underpins face detection.
     # Either missing means a materially degraded exam, so flag non-zero.
     return 0 if (report["models"]["onnxruntime"] and report["models"]["retina"]) else 1
+
+
+def run_profile(iters: int = 30) -> int:
+    """Profile per-detector inference cost on THIS machine and print per-frame
+    budget + sustainable fps. No event POST. Run on the target student laptop
+    (`proctor.py --profile`) to set TARGET_FPS / cadence from real numbers."""
+    import statistics as _stats
+    print("[profile] loading models + grabbing a frame...")
+    try:
+        _load_yolo()
+    except Exception:
+        pass
+
+    frame, cap = None, None
+    try:
+        cap, _ = _open_camera_retry(total_timeout=4.0)
+        if cap is not None:
+            for _ in range(5):
+                ok, f = cap.read()
+                if ok and f is not None:
+                    frame = f
+    except Exception:
+        pass
+    finally:
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+    if frame is None:
+        print("[profile] no camera — synthetic 640x480 frame (face detectors use dummy inputs)")
+        frame = (np.random.rand(480, 640, 3) * 255).astype(np.uint8)
+    H, W = frame.shape[:2]
+
+    faces = detect_faces(frame) if RETINA_AVAILABLE else []
+    if faces:
+        (x1, y1, x2, y2), lm_2d = faces[0]
+        face_crop = frame[max(0, y1):max(1, y2), max(0, x1):max(1, x2)]
+        if face_crop.size == 0:
+            face_crop = frame
+    else:
+        lm_2d = np.array([[W * 0.4, H * 0.4], [W * 0.6, H * 0.4], [W * 0.5, H * 0.5],
+                          [W * 0.42, H * 0.62], [W * 0.58, H * 0.62]], dtype=np.float64)
+        face_crop = frame
+
+    def _time(label, fn, n=iters):
+        try:
+            fn()  # warmup (first ORT call is slow)
+        except Exception as e:
+            print(f"  {label:12s}: n/a ({type(e).__name__})")
+            return None
+        ts = []
+        for _ in range(n):
+            t0 = time.perf_counter()
+            try:
+                fn()
+            except Exception:
+                pass
+            ts.append((time.perf_counter() - t0) * 1000.0)
+        ms = _stats.median(ts)
+        print(f"  {label:12s}: {ms:6.1f} ms")
+        return ms
+
+    print(f"[profile] {iters} iters, frame {W}x{H}, face={'real' if faces else 'synthetic'}, "
+          f"ORT_THREADS={os.environ.get('OMP_NUM_THREADS')}")
+    costs = {}
+    if RETINA_AVAILABLE:
+        costs["face_detect"] = _time("face_detect", lambda: detect_faces(frame))
+    if GAZE_AVAILABLE and _gaze_engine is not None:
+        costs["gaze"] = _time("gaze", lambda: _gaze_engine.estimate(face_crop))
+    costs["head_pose"] = _time("head_pose", lambda: get_head_pose(lm_2d, W, H))
+    if YOLO_AVAILABLE and _yolo_session is not None:
+        costs["yolo"] = _time("yolo", lambda: _yolo_infer(_yolo_session, frame))
+    if EAR_CLASSIFIER_AVAILABLE and _ear_classifier is not None:
+        costs["ear"] = _time("ear", lambda: _ear_classifier.classify(frame, lm_2d, W, H))
+    if _insight_app is not None:
+        costs["identity"] = _time("identity", lambda: _insight_app.get(frame))
+
+    def g(k):
+        return costs.get(k) or 0.0
+    # Amortised per-frame: face every frame; gaze+head 1/GAZE_EVERY_N; yolo
+    # 1/YOLO_EVERY_N; ear 1/EAR_EVERY_N; identity 1/WRONG_PERSON_CHECK_FREQ.
+    per_frame = (g("face_detect")
+                 + (g("gaze") + g("head_pose")) / max(GAZE_EVERY_N, 1)
+                 + g("yolo") / max(YOLO_EVERY_N, 1)
+                 + g("ear") / max(EAR_EVERY_N, 1)
+                 + g("identity") / max(WRONG_PERSON_CHECK_FREQ, 1))
+    fps = 1000.0 / per_frame if per_frame > 0 else 0.0
+    print(f"\n[profile] amortised per-frame {per_frame:.1f} ms -> ~{fps:.1f} fps sustainable")
+    print(f"[profile] config: TARGET_FPS={TARGET_FPS} GAZE_EVERY_N={GAZE_EVERY_N} "
+          f"YOLO_EVERY_N={YOLO_EVERY_N} EAR_EVERY_N={EAR_EVERY_N}")
+    print("PROFILE_DONE")
+    sys.stdout.flush()
+    return 0
 
 
 def _camera_backend_candidates():
@@ -4035,5 +4164,8 @@ if __name__ == "__main__":
     # --selftest: readiness report only (no camera / proctoring / event POST).
     if "--selftest" in sys.argv:
         sys.exit(run_selftest())
+    # --profile: per-detector latency + sustainable fps on this machine.
+    if "--profile" in sys.argv:
+        sys.exit(run_profile())
     signal.signal(signal.SIGTERM, _handle_sigterm)
     main()

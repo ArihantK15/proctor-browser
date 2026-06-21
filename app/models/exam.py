@@ -238,6 +238,10 @@ class CreateExamIn(BaseModel):
     exam_title: str = "Exam"
     duration_minutes: int = 60
     phone_camera: bool = False
+    # Rough-sheet proctoring (docs/ROUGH_SHEET_PROCTORING_SPEC.md). The master
+    # flag enables the check-in/reconcile bookends + down-gaze leniency; it
+    # REQUIRES phone_camera (the desk camera) — enforced in create_exam.
+    rough_work_allowed: bool = False
 
 
 class UploadQuestionImageIn(BaseModel):

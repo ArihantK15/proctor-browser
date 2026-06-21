@@ -65,6 +65,7 @@ _TRUNCATE_SQL = (
     "student_groups, student_group_members, student_invites, exam_batch_assignments, "
     "exam_group_assignments, exam_templates, exam_time_extensions, appeals, "
     "grading_audit, google_classroom_links, auth_events, "
+    "coding_submissions, coding_test_cases, "
     "subscriptions, teachers, organizations "
     "RESTART IDENTITY CASCADE"
 )

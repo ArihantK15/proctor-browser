@@ -842,11 +842,14 @@ EVIDENCE_UPLOAD_URL = f"{SERVER_BASE}/api/v1/analyze-frame"
 HEADLESS          = platform.system() == "Windows" or \
                     os.environ.get("PROCTOR_HEADLESS","0") == "1"
 SKIP_ENROLLMENT   = os.environ.get("PROCTOR_SKIP_ENROLLMENT","0") == "1"
-# SAHI tiled detection: OFF by default, its own flag. It was previously coupled
-# to `not SKIP_ENROLLMENT`, which (a) silently disabled it in ALL of production
-# — the launcher always sets SKIP_ENROLLMENT=1 — and (b) wrongly tied object
-# detection to face enrollment. Decoupled so it's controllable on its own.
-SAHI_ENABLED      = os.environ.get("PROCTOR_ENABLE_SAHI","0") == "1"
+# SAHI tiled detection: PERMANENTLY DISABLED. Tiling a 640x480 laptop webcam
+# into overlapping crops and running YOLO on each is pure CPU cost with no
+# accuracy payoff at that resolution — it was the single most expensive optional
+# path and exactly the kind of work that starves detection on weak student
+# hardware. Hard-off here (env flag intentionally ignored) so it can never be
+# switched on by accident; the gated SAHI code below is now dead and can be
+# removed in a follow-up cleanup.
+SAHI_ENABLED      = False
 CALIBRATION_MODE  = os.environ.get("PROCTOR_CALIBRATION_MODE","0") == "1"
 
 # Pre-set biases from renderer dot-calibration (skip self-calibration if present).

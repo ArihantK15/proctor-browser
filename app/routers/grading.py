@@ -268,78 +268,88 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
 
-    # Idempotency check
+    # Idempotency: atomically RESERVE the key so concurrent double-submits can't
+    # both process (the old check-then-mark was a TOCTOU race — both saw "unseen"
+    # and both ran). On success we mark the response; on ANY failure the finally
+    # releases the reservation so a legitimate retry isn't blocked for the TTL.
+    _idem_k = None
     if body.idempotency_key:
-        from ..services.idempotency import check_idempotency, mark_idempotent, idempotency_key as _idk
-        k = _idk("grade-confirm", tid, body.idempotency_key)
-        cached = await check_idempotency(k)
-        if cached:
-            return cached
+        from ..services.idempotency import (reserve_idempotency, mark_idempotent,
+                                            release_idempotency, idempotency_key as _idk)
+        _idem_k = _idk("grade-confirm", tid, body.idempotency_key)
+        _acquired, _cached = await reserve_idempotency(_idem_k)
+        if _cached is not None:
+            return _cached
+        if not _acquired:
+            raise HTTPException(status_code=409,
+                                detail="A duplicate request is already being processed.")
 
-    answer_id = body.answer_id
-    score = body.score
-    if not answer_id or score is None:
-        raise HTTPException(status_code=400, detail="answer_id and score required")
+    _committed = False
     try:
-        score = float(score)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="score must be a number")
-
-    own = (await _atable("answers").select("id,question_id,session_key,ai_score,ai_confidence")
-        .eq("id", answer_id).eq("teacher_id", tid).limit(1).execute()).data
-    if not own:
-        raise HTTPException(status_code=404, detail="Answer not found")
-
-    qrow = (await _atable("questions").select("max_score,exam_id,question_id")
-        .eq("teacher_id", tid).eq("question_id", own[0]["question_id"])
-        .limit(1).execute()).data
-    max_score = float((qrow[0] or {}).get("max_score") or 1.0) if qrow else 1.0
-    exam_id = (qrow[0] or {}).get("exam_id") if qrow else None
-    if score < 0 or score > max_score:
-        raise HTTPException(status_code=400,
-            detail=f"score must be between 0 and {max_score}")
-
-    await _atable("answers").update({
-        "teacher_score": score,
-        "graded_at": now_ist().isoformat(),
-    }).eq("id", answer_id).eq("teacher_id", tid).execute()
-
-    # Record audit trail
-    a = own[0]
-    ai_s = a.get("ai_score")
-    action = "overridden" if (ai_s is not None and float(ai_s) != score) else "confirmed"
-    try:
-        tname = teacher.get("full_name") or teacher.get("email") or tid
-        await _atable("grading_audit").insert({
-            "teacher_id": tid, "teacher_name": tname,
-            "exam_id": exam_id, "session_key": a.get("session_key"),
-            "answer_id": answer_id, "question_id": a.get("question_id"),
-            "ai_score": ai_s, "ai_confidence": a.get("ai_confidence"),
-            "teacher_score": score, "max_score": max_score,
-            "action": action,
-        }).execute()
-    except Exception as e:
-        _grading_log.warning("[grade-confirm] audit insert failed: %s", e)
-
-    session_key = (own[0] or {}).get("session_key")
-    new_totals = None
-    if session_key:
+        answer_id = body.answer_id
+        score = body.score
+        if not answer_id or score is None:
+            raise HTTPException(status_code=400, detail="answer_id and score required")
         try:
-            new_totals = await _apply_short_answer_to_session(session_key, tid)
-        except Exception as e:
-            _grading_log.warning("[grade-confirm] rollup failed for %s: %s", session_key, e)
+            score = float(score)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="score must be a number")
 
-    resp = {"ok": True, "answer_id": answer_id,
+        own = (await _atable("answers").select("id,question_id,session_key,ai_score,ai_confidence")
+            .eq("id", answer_id).eq("teacher_id", tid).limit(1).execute()).data
+        if not own:
+            raise HTTPException(status_code=404, detail="Answer not found")
+
+        qrow = (await _atable("questions").select("max_score,exam_id,question_id")
+            .eq("teacher_id", tid).eq("question_id", own[0]["question_id"])
+            .limit(1).execute()).data
+        max_score = float((qrow[0] or {}).get("max_score") or 1.0) if qrow else 1.0
+        exam_id = (qrow[0] or {}).get("exam_id") if qrow else None
+        if score < 0 or score > max_score:
+            raise HTTPException(status_code=400,
+                detail=f"score must be between 0 and {max_score}")
+
+        await _atable("answers").update({
             "teacher_score": score,
-            "session_totals": new_totals}
+            "graded_at": now_ist().isoformat(),
+        }).eq("id", answer_id).eq("teacher_id", tid).execute()
 
-    if body.idempotency_key and tid:
+        # Record audit trail
+        a = own[0]
+        ai_s = a.get("ai_score")
+        action = "overridden" if (ai_s is not None and float(ai_s) != score) else "confirmed"
         try:
-            await mark_idempotent(k, resp)
-        except Exception:
-            _grading_log.debug("grading: idempotency mark failed", exc_info=True)
+            tname = teacher.get("full_name") or teacher.get("email") or tid
+            await _atable("grading_audit").insert({
+                "teacher_id": tid, "teacher_name": tname,
+                "exam_id": exam_id, "session_key": a.get("session_key"),
+                "answer_id": answer_id, "question_id": a.get("question_id"),
+                "ai_score": ai_s, "ai_confidence": a.get("ai_confidence"),
+                "teacher_score": score, "max_score": max_score,
+                "action": action,
+            }).execute()
+        except Exception as e:
+            _grading_log.warning("[grade-confirm] audit insert failed: %s", e)
 
-    return resp
+        session_key = (own[0] or {}).get("session_key")
+        new_totals = None
+        if session_key:
+            try:
+                new_totals = await _apply_short_answer_to_session(session_key, tid)
+            except Exception as e:
+                _grading_log.warning("[grade-confirm] rollup failed for %s: %s", session_key, e)
+
+        resp = {"ok": True, "answer_id": answer_id,
+                "teacher_score": score,
+                "session_totals": new_totals}
+
+        if _idem_k:
+            await mark_idempotent(_idem_k, resp)
+        _committed = True
+        return resp
+    finally:
+        if _idem_k and not _committed:
+            await release_idempotency(_idem_k)
 
 
 @router.post("/api/v1/admin/grade-confirm-bulk")
@@ -358,14 +368,24 @@ async def grade_confirm_bulk(body: dict, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
 
-    # Idempotency check
+    # Idempotency: atomically RESERVE (TOCTOU-safe) instead of check-then-mark,
+    # so concurrent double-submits can't both run. A short reservation TTL covers
+    # the processing window; mark_idempotent then stores the response with the
+    # full TTL on success. The body's heavy ops (batch upsert, audit, rollup)
+    # each swallow their own failures (warn + continue) rather than raising, so
+    # an explicit release isn't needed — the short lock simply expires.
     idem_key_raw = (body.get("idempotency_key") or "").strip()
+    _bulk_k = None
     if idem_key_raw:
-        from ..services.idempotency import check_idempotency, mark_idempotent, idempotency_key as _idk
+        from ..services.idempotency import (reserve_idempotency, mark_idempotent,
+                                            idempotency_key as _idk)
         _bulk_k = _idk("grade-confirm-bulk", tid, idem_key_raw)
-        cached = await check_idempotency(_bulk_k)
-        if cached:
-            return cached
+        _acquired, _cached = await reserve_idempotency(_bulk_k, ttl=120)
+        if _cached is not None:
+            return _cached
+        if not _acquired:
+            raise HTTPException(status_code=409,
+                                detail="A duplicate bulk request is already being processed.")
 
     exam_id = (body.get("exam_id") or "").strip()
     action = (body.get("action") or "").strip().lower()

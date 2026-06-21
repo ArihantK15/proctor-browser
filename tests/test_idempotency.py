@@ -22,6 +22,9 @@ def _reset_cache():
     mock_cache.get.return_value = None
     mock_cache.get.side_effect = None
     mock_cache.set.side_effect = None
+    mock_cache.set_if_absent.return_value = True
+    mock_cache.set_if_absent.side_effect = None
+    mock_cache.delete.reset_mock()
     yield
 
 
@@ -70,3 +73,41 @@ async def test_mark_swallows_cache_error():
     mock_cache.set.side_effect = RuntimeError("redis down")
     # Must not raise.
     await idem.mark_idempotent("idem:x", {"ok": True})
+
+
+# ── Atomic reserve (the TOCTOU fix) ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_reserve_acquires_when_unseen():
+    """First caller wins the atomic SET NX → (True, None) → it processes."""
+    mock_cache.set_if_absent.return_value = True
+    assert await idem.reserve_idempotency("idem:x") == (True, None)
+
+
+@pytest.mark.asyncio
+async def test_reserve_returns_cached_when_already_completed():
+    """Loser whose key already holds the completed response → (False, dict)."""
+    mock_cache.set_if_absent.return_value = False
+    mock_cache.get.return_value = {"ok": True, "answer_id": "a1"}
+    assert await idem.reserve_idempotency("idem:x") == (False, {"ok": True, "answer_id": "a1"})
+
+
+@pytest.mark.asyncio
+async def test_reserve_in_flight_returns_false_none():
+    """Concurrent duplicate: key holds the in-flight marker (non-dict) → 409 path."""
+    mock_cache.set_if_absent.return_value = False
+    mock_cache.get.return_value = 1  # the "1" reservation marker, not a dict
+    assert await idem.reserve_idempotency("idem:x") == (False, None)
+
+
+@pytest.mark.asyncio
+async def test_reserve_fails_open_on_cache_error():
+    """A cache outage must never wedge a billing endpoint → fail open (acquire)."""
+    mock_cache.set_if_absent.side_effect = RuntimeError("redis down")
+    assert await idem.reserve_idempotency("idem:x") == (True, None)
+
+
+@pytest.mark.asyncio
+async def test_release_deletes_key():
+    await idem.release_idempotency("idem:x")
+    mock_cache.delete.assert_called_once_with("idem:x")

@@ -173,13 +173,23 @@ async def send_invites(body: SendInvitesBody, request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
 
-    # Idempotency check
+    # Idempotency: atomically RESERVE (TOCTOU-safe) instead of check-then-mark.
+    # The old check-then-mark let two concurrent submits both pass and BOTH send
+    # invites / consume seats. A single atomic SET NX means only one runs; the
+    # other gets the cached result (if done) or 409 (in flight). Short lock TTL
+    # covers the send loop (which only ENQUEUES jobs, so it's fast); mark stores
+    # the full response on success. Per-student failures return a status dict
+    # (don't raise), so no explicit release is needed.
     if body.idempotency_key:
-        from ..services.idempotency import check_idempotency, mark_idempotent, idempotency_key as _idk
+        from ..services.idempotency import (reserve_idempotency, mark_idempotent,
+                                            idempotency_key as _idk)
         _k = _idk("invite-send", tid, body.idempotency_key)
-        cached = await check_idempotency(_k)
-        if cached:
-            return cached
+        _acquired, _cached = await reserve_idempotency(_k, ttl=120)
+        if _cached is not None:
+            return _cached
+        if not _acquired:
+            raise HTTPException(status_code=409,
+                                detail="A duplicate invite-send is already being processed.")
 
     base_url = _get_invite_base_url()
 

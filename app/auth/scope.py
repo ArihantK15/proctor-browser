@@ -245,18 +245,23 @@ async def assert_session_accessible(session_id: str, scope: dict) -> dict:
         # admin — must be in their org
         if sess_tid and await _verify_teacher_in_org(sess_tid, scope["org_id"]):
             return sess
-        # Orphan row with no teacher_id — only allow if no other teacher's
-        # violations claim it.
+        # Orphan row (no teacher_id). Fail CLOSED, symmetric with the no-row
+        # path below: grant access ONLY if a violation provably ties the session
+        # to the admin's org. The old code fetched a single unordered violation
+        # and returned the session UNLESS that one row disproved ownership — so a
+        # missing/empty teacher_id, zero violations, or another org's tie sitting
+        # beyond the first-fetched row all leaked the orphan's metadata
+        # cross-tenant. (superadmin already returned above; this is the admin case.)
         if not sess_tid:
-            v_other = (await _atable("violations")
-                       .select("teacher_id")
-                       .eq("session_key", session_id)
-                       .limit(1).execute()).data
-            if v_other:
-                v_tid = str(v_other[0].get("teacher_id") or "")
-                if v_tid and not await _verify_teacher_in_org(v_tid, scope["org_id"]):
-                    raise HTTPException(status_code=404, detail="Session not found")
-            return sess
+            v_rows = (await _atable("violations")
+                      .select("teacher_id")
+                      .eq("session_key", session_id)
+                      .limit(5).execute()).data or []
+            for v in v_rows:
+                v_tid = str(v.get("teacher_id") or "")
+                if v_tid and await _verify_teacher_in_org(v_tid, scope["org_id"]):
+                    return sess
+            raise HTTPException(status_code=404, detail="Session not found")
         raise HTTPException(status_code=404, detail="Session not found")
 
     # No row — synthesise from violations only if at least one violation's

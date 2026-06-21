@@ -39,62 +39,74 @@ async def issue(user_kind: str, user_id: str, purpose: str) -> str:
     unused codes, so an attacker could brute-force against N codes at
     once, widening the keyspace hit rate.
     """
-    now = datetime.now(timezone.utc)
-    one_hour_ago = now - timedelta(hours=1)
-    recent = await _atable("email_otps").select("id")\
-        .eq("user_kind", user_kind).eq("user_id", user_id)\
-        .eq("purpose", purpose)\
-        .gte("created_at", one_hour_ago.isoformat())\
-        .execute()
-    if len(recent.data or []) >= MAX_CODES_PER_HOUR:
-        logger.warning(
-            "[email_otp] rate limit exceeded user_kind=%s user_id=%s purpose=%s count=%d",
-            user_kind, user_id, purpose, len(recent.data or []),
-        )
-        raise OtpRateLimitError(
-            f"Too many codes requested for {purpose}. Please wait before trying again."
-        )
+    # email_otps is a SYSTEM-managed, pre-auth table — issue()/verify() run
+    # before the user has any session identity, so there is no app.teacher_id() /
+    # app.account_id() to scope to. Run under system_context so the
+    # app.is_privileged() RLS policy grants access under the restricted
+    # procta_app role; without it every email_otps query denies-all once RLS is
+    # live (it was the one table missed by every policy phase).
+    from ..db_context import system_context
+    with system_context():
+        now = datetime.now(timezone.utc)
+        one_hour_ago = now - timedelta(hours=1)
+        recent = await _atable("email_otps").select("id")\
+            .eq("user_kind", user_kind).eq("user_id", user_id)\
+            .eq("purpose", purpose)\
+            .gte("created_at", one_hour_ago.isoformat())\
+            .execute()
+        if len(recent.data or []) >= MAX_CODES_PER_HOUR:
+            logger.warning(
+                "[email_otp] rate limit exceeded user_kind=%s user_id=%s purpose=%s count=%d",
+                user_kind, user_id, purpose, len(recent.data or []),
+            )
+            raise OtpRateLimitError(
+                f"Too many codes requested for {purpose}. Please wait before trying again."
+            )
 
-    # Invalidate any still-valid unused codes so only the newest one can
-    # verify. Race-tolerant: a concurrent verify() may complete against
-    # an in-flight code; in that case the UPDATE no-ops and the user
-    # got their answer either way.
-    await _atable("email_otps").update({"used_at": now.isoformat()})\
-        .eq("user_kind", user_kind).eq("user_id", user_id)\
-        .eq("purpose", purpose).is_("used_at", "null").execute()
+        # Invalidate any still-valid unused codes so only the newest one can
+        # verify. Race-tolerant: a concurrent verify() may complete against
+        # an in-flight code; in that case the UPDATE no-ops and the user
+        # got their answer either way.
+        await _atable("email_otps").update({"used_at": now.isoformat()})\
+            .eq("user_kind", user_kind).eq("user_id", user_id)\
+            .eq("purpose", purpose).is_("used_at", "null").execute()
 
-    code = "".join(secrets.choice("0123456789") for _ in range(6))
-    code_hash = bcrypt.hashpw(code.encode(), bcrypt.gensalt()).decode()
-    expires_at = now + timedelta(minutes=OTP_TTL_MINUTES)
-    await _atable("email_otps").insert({
-        "user_kind": user_kind,
-        "user_id": user_id,
-        "purpose": purpose,
-        "code_hash": code_hash,
-        "expires_at": expires_at.isoformat(),
-    }).execute()
-    return code
+        code = "".join(secrets.choice("0123456789") for _ in range(6))
+        code_hash = bcrypt.hashpw(code.encode(), bcrypt.gensalt()).decode()
+        expires_at = now + timedelta(minutes=OTP_TTL_MINUTES)
+        await _atable("email_otps").insert({
+            "user_kind": user_kind,
+            "user_id": user_id,
+            "purpose": purpose,
+            "code_hash": code_hash,
+            "expires_at": expires_at.isoformat(),
+        }).execute()
+        return code
 
 
 async def verify(user_kind: str, user_id: str, purpose: str, code: str) -> bool:
     """Verify a 6-digit OTP. Returns True on success, False on failure.
     Invalidates used OTPs. Tracks attempts and expires old codes."""
-    rows = await _atable("email_otps").select("*")\
-        .eq("user_kind", user_kind).eq("user_id", user_id)\
-        .eq("purpose", purpose).is_("used_at", "null")\
-        .order("created_at", desc=True).limit(5).execute()
-    for row in (rows.data or []):
-        if row["attempts"] >= MAX_ATTEMPTS:
-            continue
-        expires = row.get("expires_at")
-        if expires and datetime.fromisoformat(str(expires).replace("Z", "+00:00")) < datetime.now(timezone.utc):
-            continue
-        if bcrypt.checkpw(code.encode(), row["code_hash"].encode()):
+    # Pre-auth / system-managed — see issue(). Run under system_context so the
+    # app.is_privileged() policy grants email_otps access under procta_app.
+    from ..db_context import system_context
+    with system_context():
+        rows = await _atable("email_otps").select("*")\
+            .eq("user_kind", user_kind).eq("user_id", user_id)\
+            .eq("purpose", purpose).is_("used_at", "null")\
+            .order("created_at", desc=True).limit(5).execute()
+        for row in (rows.data or []):
+            if row["attempts"] >= MAX_ATTEMPTS:
+                continue
+            expires = row.get("expires_at")
+            if expires and datetime.fromisoformat(str(expires).replace("Z", "+00:00")) < datetime.now(timezone.utc):
+                continue
+            if bcrypt.checkpw(code.encode(), row["code_hash"].encode()):
+                await _atable("email_otps").update({
+                    "used_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", row["id"]).execute()
+                return True
             await _atable("email_otps").update({
-                "used_at": datetime.now(timezone.utc).isoformat(),
+                "attempts": row["attempts"] + 1,
             }).eq("id", row["id"]).execute()
-            return True
-        await _atable("email_otps").update({
-            "attempts": row["attempts"] + 1,
-        }).eq("id", row["id"]).execute()
-    return False
+        return False

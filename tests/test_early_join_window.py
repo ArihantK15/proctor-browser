@@ -86,3 +86,26 @@ class TestExamStarted:
         # Start-only by design: a session running up to/after ends_at can still
         # refetch questions on reconnect (ends_at is enforced at entry/submit).
         assert _check_exam_started({"starts_at": _iso(-60), "ends_at": _iso(-5)}) is None
+
+
+class TestValidateResponseExposesRoomCamFlag:
+    """Regression: phone_camera_enabled must ride the (ungated) validate
+    response. It used to live ONLY on the start-gated GET /api/v1/questions,
+    so the renderer's pre-start prefetch 403'd and the room camera was silently
+    skipped even when the teacher had enabled it."""
+
+    def _student(self):
+        return {"full_name": "A", "email": "a@b.com", "roll_number": "R1",
+                "account_id": "acc1"}
+
+    def test_flag_present_when_enabled(self):
+        from app.routers.exam import _build_validate_response
+        resp = _build_validate_response(self._student(), "tid1", "exam1",
+                                        config={"phone_camera_enabled": True})
+        assert resp["phone_camera_enabled"] is True
+
+    def test_flag_defaults_false(self):
+        from app.routers.exam import _build_validate_response
+        resp = _build_validate_response(self._student(), "tid1", "exam1",
+                                        config={})
+        assert resp["phone_camera_enabled"] is False

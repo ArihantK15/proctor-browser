@@ -650,6 +650,13 @@ def _build_validate_response(student: dict, student_tid: str, exam_id: str, exis
         resp["starts_at"] = config.get("starts_at")
         resp["ends_at"] = config.get("ends_at")
         resp["early_join_minutes"] = _early_join_minutes(config)
+        # Surface the room/phone-camera flag here too. It was ONLY exposed via
+        # GET /api/v1/questions, which is hard start-gated (_check_exam_started),
+        # so the renderer's pre-exam prefetch to learn it would 403 before the
+        # scheduled start — leaving _examData null and the room camera silently
+        # skipped. validate is ungated and the client already has it, so this is
+        # the reliable source for the room-cam decision.
+        resp["phone_camera_enabled"] = config.get("phone_camera_enabled", False)
     resp["server_now"] = datetime.now(timezone.utc).isoformat()
     return resp
 

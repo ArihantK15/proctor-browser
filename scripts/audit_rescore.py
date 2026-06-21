@@ -33,9 +33,16 @@ Run it where the app env is configured (prod app container / venv):
 """
 import argparse
 import asyncio
+import os
+import sys
+
+# Make `import app` resolve no matter where this is launched from (running
+# `python scripts/audit_rescore.py` otherwise only puts scripts/ on the path).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import async_table as _atable
 from app.db_context import system_context
+from app.repositories.questions import load_questions
 from app.services.scoring import recalculate_score
 
 
@@ -56,11 +63,30 @@ async def run(apply: bool, limit: int | None):
         print(f"[audit] checking {total_n} completed/force_submitted sessions...")
 
         under, over, errors, checked = [], [], [], 0
+        # Why a session can't be recomputed — distinguishes "load-test / synthetic
+        # session with no real data" (expected, ignorable) from a real load_questions
+        # blind spot that could hide genuinely-affected students.
+        skips = {"no_exam_id": 0, "questions_absent": 0, "no_auto_questions": 0}
         for i, s in enumerate(sessions, 1):
             sid = s["session_key"]
             tid = s.get("teacher_id")
             eid = s.get("exam_id")
             stored = s.get("score")
+            try:
+                qs = await load_questions(tid, exam_id=eid)  # cached; reused by recalc
+            except Exception as e:
+                errors.append((sid, type(e).__name__))
+                continue
+            auto = [q for q in (qs or [])
+                    if str(q.get("question_type") or "mcq_single").lower() != "short_answer"]
+            if not auto:
+                if not eid:
+                    skips["no_exam_id"] += 1
+                elif not qs:
+                    skips["questions_absent"] += 1
+                else:
+                    skips["no_auto_questions"] += 1
+                continue
             try:
                 new_score, new_total = await recalculate_score(
                     sid, {}, teacher_id=tid, exam_id=eid)
@@ -68,7 +94,6 @@ async def run(apply: bool, limit: int | None):
                 errors.append((sid, type(e).__name__))
                 continue
             if new_total == 0:
-                # No auto-gradable questions to validate against — skip.
                 continue
             checked += 1
             if stored is None or int(stored) == int(new_score):
@@ -81,6 +106,9 @@ async def run(apply: bool, limit: int | None):
                 print(f"[audit] {i}/{total_n}...")
 
         print("\n================ AUDIT RESULT ================")
+        print(f"skipped — no exam_id:               {skips['no_exam_id']}")
+        print(f"skipped — questions absent:         {skips['questions_absent']}")
+        print(f"skipped — only short-answer qs:     {skips['no_auto_questions']}")
         print(f"sessions checked (had gradable questions): {checked}")
         print(f"UNDERGRADED (bug signature):               {len(under)}")
         print(f"overgraded (manual review, NOT auto-fixed): {len(over)}")

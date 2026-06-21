@@ -116,15 +116,6 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
     title = body.exam_title.strip() or "New Exam"
     duration = body.duration_minutes
     exam_id = str(_uuid.uuid4())
-    # Rough-sheet proctoring requires the desk (phone) camera — down-gaze
-    # leniency is only safe when the desk/lap is monitored (a lap-phone reads
-    # identically to honest rough work on the webcam). Couple them at the config
-    # layer, not by convention. See docs/ROUGH_SHEET_PROCTORING_SPEC.md §0.1.
-    if body.rough_work_allowed and not body.phone_camera:
-        raise HTTPException(
-            status_code=400,
-            detail="Rough work requires the room (phone) camera. Enable the room "
-                   "camera for this exam, then turn on rough work.")
     try:
         result = await _atable("exam_config").insert({
             "exam_id":          exam_id,
@@ -132,7 +123,6 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
             "exam_title":       title,
             "duration_minutes": duration,
             "phone_camera_enabled": body.phone_camera,
-            "rough_work_allowed":   body.rough_work_allowed,
             "proctoring_sensitivity": "balanced",
         }).execute()
     except Exception as e:

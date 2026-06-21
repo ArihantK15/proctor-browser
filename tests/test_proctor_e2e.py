@@ -210,7 +210,24 @@ class TestContinuousIdentityVerification:
         assert diff_score < threshold  # should fail
 
     def test_lazy_enrollment_window_is_reasonable(self):
-        """LAZY_ENROLL_WINDOW should be defined (inside run_proctoring)."""
+        """TARGET_FPS should be a sane proctoring cadence (env-tunable).
+
+        Lowered from 15 to 7 to cut steady-state CPU on weak student laptops
+        (proctoring detects second-scale behaviours, so 15Hz was wasted work).
+        Assert a reasonable band rather than a magic constant so field tuning
+        via PROCTOR_TARGET_FPS doesn't break the test.
+        """
         from proctor import TARGET_FPS
-        # TARGET_FPS should be 15
-        assert TARGET_FPS == 15
+        assert 3 <= TARGET_FPS <= 15
+
+    def test_governor_tier_ladder(self):
+        """The hardware governor degrades gracefully through fps rungs instead
+        of the old binary 15<->0.5 cliff that oscillated under sustained load."""
+        from proctor import _HardwareGovernor, TARGET_FPS, THROTTLE_LOW_FPS
+        g = _HardwareGovernor()
+        assert g._tiers[0] == float(TARGET_FPS)            # top rung = target
+        assert g._tiers[-1] == float(THROTTLE_LOW_FPS)     # floor rung
+        assert g._tiers == sorted(g._tiers, reverse=True)  # strictly descending
+        assert len(g._tiers) == len(set(g._tiers))         # no duplicate rungs
+        assert g.effective_fps == float(TARGET_FPS)        # starts at full speed
+        assert THROTTLE_LOW_FPS >= 3                        # floor still useful

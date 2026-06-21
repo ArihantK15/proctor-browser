@@ -142,6 +142,7 @@
     "archived_at",
     "audio_keywords",
     "audio_keywords_language",
+    "coding_max_submit_attempts",
     "created_at",
     "duration_minutes",
     "early_join_minutes",

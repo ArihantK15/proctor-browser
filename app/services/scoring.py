@@ -165,12 +165,17 @@ async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: 
             coding_score = 0
             coding_total = 0
             if coding_qs:
+                # ORDER BY submitted_at so the "last wins" loop below truly keeps
+                # the CHRONOLOGICALLY LATEST submission per question. Without the
+                # order, row order is undefined and a re-submission could score a
+                # stale/worse attempt nondeterministically.
                 subs_rows = (await _atable("coding_submissions")
-                             .select("question_id,test_cases_passed,test_cases_total")
-                             .eq("session_id", session_id).execute()).data or []
+                             .select("question_id,test_cases_passed,test_cases_total,submitted_at")
+                             .eq("session_id", session_id)
+                             .order("submitted_at").execute()).data or []
                 sub_map: dict[str, dict] = {}
                 for s in subs_rows:
-                    sub_map[str(s["question_id"])] = s  # last wins (latest submission)
+                    sub_map[str(s["question_id"])] = s  # last wins = latest by submitted_at
                 for q in coding_qs:
                     opts = q.get("options") or {}
                     marks = int(opts.get("marks") or 1)

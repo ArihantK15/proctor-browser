@@ -428,3 +428,57 @@ class TestCreateExamIdempotency:
         assert r2.status_code == 200
         # Without idempotency key, each call creates a new exam (different IDs)
         assert r1.json()["exam_id"] != r2.json()["exam_id"]
+
+
+class TestRoughWorkRequiresRoomCamera:
+    """Rough-sheet proctoring (docs/ROUGH_SHEET_PROCTORING_SPEC.md §0.1):
+    rough_work_allowed cannot be enabled without the room (phone) camera —
+    down-gaze leniency is unsafe when the desk/lap isn't monitored."""
+
+    def test_rough_work_without_room_camera_rejected(self, client):
+        from unittest.mock import patch as _mpatch
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._cache"):
+            resp = client.post(
+                "/api/v1/admin/exams",
+                headers=_admin_headers(),
+                json={"exam_title": "T", "duration_minutes": 60,
+                      "phone_camera": False, "rough_work_allowed": True})
+        assert resp.status_code == 400
+        assert "room" in resp.json().get("detail", "").lower()
+
+    def test_rough_work_with_room_camera_ok(self, client):
+        from unittest.mock import patch as _mpatch
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._cache"), \
+             _mpatch("app.routers.admin_exams._atable",
+                     side_effect=_table_side_effect(
+                         {"exam_config": [{"exam_id": "new-1", "exam_title": "T",
+                                           "duration_minutes": 60}]})):
+            resp = client.post(
+                "/api/v1/admin/exams",
+                headers=_admin_headers(),
+                json={"exam_title": "T", "duration_minutes": 60,
+                      "phone_camera": True, "rough_work_allowed": True})
+        assert resp.status_code == 200
+
+    def test_rough_work_off_no_camera_required(self, client):
+        from unittest.mock import patch as _mpatch
+        async def _fake_admin(req):
+            return {"id": "teacher-1"}
+        with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
+             _mpatch("app.routers.admin_exams._cache"), \
+             _mpatch("app.routers.admin_exams._atable",
+                     side_effect=_table_side_effect(
+                         {"exam_config": [{"exam_id": "new-2", "exam_title": "T",
+                                           "duration_minutes": 60}]})):
+            resp = client.post(
+                "/api/v1/admin/exams",
+                headers=_admin_headers(),
+                json={"exam_title": "T", "duration_minutes": 60,
+                      "phone_camera": False, "rough_work_allowed": False})
+        assert resp.status_code == 200

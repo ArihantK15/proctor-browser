@@ -249,6 +249,27 @@ def _yolo_providers():
     return chosen
 
 
+def _ort_session_options():
+    """Tuned ONNX Runtime options for weak / contended CPUs.
+
+    ORT defaults spawn one intra-op thread PER CORE; on a student laptop already
+    running the browser + camera that thrashes and is frequently SLOWER than a
+    small fixed pool. Capping intra-op to 2 (env-tunable), serialising inter-op,
+    and enabling all graph optimisations is commonly a 20-40% win. Returns None
+    on any failure so callers fall back to ORT defaults.
+    """
+    if not ORT_AVAILABLE:
+        return None
+    try:
+        so = ort.SessionOptions()
+        so.intra_op_num_threads = int(os.getenv("PROCTOR_ORT_THREADS", "2"))
+        so.inter_op_num_threads = 1
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        return so
+    except Exception:
+        return None
+
+
 def _load_yolo():
     """Load the YOLOv8n ONNX session on demand. Thread-safe; returns the
     ort.InferenceSession (or None if unavailable). Callers treat the
@@ -271,7 +292,8 @@ def _load_yolo():
         try:
             providers = _yolo_providers()
             print(f"[YOLO] Loading {model_path} (providers={providers})...")
-            sess = ort.InferenceSession(model_path, providers=providers)
+            sess = ort.InferenceSession(model_path, sess_options=_ort_session_options(),
+                                        providers=providers)
             _yolo_input_name = sess.get_inputs()[0].name
             _yolo_session = sess
             YOLO_AVAILABLE = True
@@ -688,7 +710,8 @@ if ORT_AVAILABLE:
             if _model_path:
                 try:
                     self.session = ort.InferenceSession(
-                        _model_path, providers=["CPUExecutionProvider"])
+                        _model_path, sess_options=_ort_session_options(),
+                        providers=["CPUExecutionProvider"])
                     self.input_name = self.session.get_inputs()[0].name
                     input_shape = self.session.get_inputs()[0].shape
                     self.model_size = tuple(input_shape[2:][::-1])
@@ -1018,7 +1041,11 @@ CONVERSATION_WINDOW  = 45.0   # seconds window to observe conversation pattern
 CONVERSATION_GAP_MAX = 3.0    # max silence between bursts for "turn-taking"
 WRONG_PERSON_THRESHOLD = float(os.getenv("PROCTOR_WRONG_PERSON_THRESHOLD", "0.25"))
 WRONG_PERSON_CHECK_FREQ = 10    # verify identity every N frames (was 30)
-TARGET_FPS          = 15
+# Proctoring detects behaviours that play out over SECONDS (looking away,
+# holding a phone, talking) — 15fps doubled the CPU for zero detection gain and
+# was a primary cause of throttling on weak student laptops. 7fps is ample and
+# halves steady-state load. Env-tunable for benches / strong hardware.
+TARGET_FPS          = int(os.getenv("PROCTOR_TARGET_FPS", "7"))
 FACE_MIN_SIZE       = 50  # min face height/width px (student too far)
 EAR_EVERY_N         = 5
 EAR_THRESHOLD       = 0.6
@@ -1040,7 +1067,7 @@ EAR_THRESHOLD       = 0.6
 # the governor entirely (THROTTLE_ENGAGE_PCT=101) without recompiling.
 THROTTLE_ENGAGE_PCT     = float(os.getenv("PROCTOR_THROTTLE_ENGAGE_PCT", "85"))
 THROTTLE_RELEASE_PCT    = float(os.getenv("PROCTOR_THROTTLE_RELEASE_PCT", "60"))
-THROTTLE_LOW_FPS        = float(os.getenv("PROCTOR_THROTTLE_LOW_FPS", "0.5"))   # ≈1 frame / 2 s
+THROTTLE_LOW_FPS        = float(os.getenv("PROCTOR_THROTTLE_LOW_FPS", "3"))   # floor tier — still catches a phone held 2-3s (was 0.5 = blind)
 THROTTLE_SAMPLE_SECS    = float(os.getenv("PROCTOR_THROTTLE_SAMPLE_SECS", "5"))
 
 
@@ -1065,10 +1092,25 @@ class _HardwareGovernor:
     __slots__ = ("effective_fps", "_hi_streak", "_lo_streak",
                  "_last_sample_at", "_last_thermal_check",
                  "_throttled", "_on_transition", "_thermal_pressure",
-                 "_thermal_executor", "_thermal_future")
+                 "_thermal_executor", "_thermal_future",
+                 "_tiers", "_tier_idx")
 
     def __init__(self, on_transition=None):
-        self.effective_fps = float(TARGET_FPS)
+        # Graceful-degradation ladder: descending fps rungs from TARGET_FPS down
+        # to the THROTTLE_LOW_FPS floor. The governor steps ONE rung at a time
+        # instead of slamming between full speed and a blind floor — the old
+        # binary 15<->0.5 toggle oscillated (throttle -> CPU drops -> recover ->
+        # CPU spikes -> throttle). e.g. TARGET 7, floor 3 -> [7, 5, 4, 3].
+        _raw = [TARGET_FPS, round(TARGET_FPS * 0.7),
+                round(TARGET_FPS * 0.5), THROTTLE_LOW_FPS]
+        tiers = []
+        for _t in _raw:
+            _t = float(max(THROTTLE_LOW_FPS, min(TARGET_FPS, _t)))
+            if _t not in tiers:
+                tiers.append(_t)
+        self._tiers = tiers          # descending; index 0 = TARGET_FPS
+        self._tier_idx = 0
+        self.effective_fps = float(self._tiers[0])
         self._hi_streak = 0
         self._lo_streak = 0
         self._last_sample_at = 0.0
@@ -1218,13 +1260,22 @@ class _HardwareGovernor:
             # Hysteresis band — neither escalate nor relax.
             return
 
-        if not self._throttled and self._hi_streak >= 2:
-            self._throttled = True
-            self.effective_fps = float(THROTTLE_LOW_FPS)
-            self._notify(cpu)
-        elif self._throttled and self._lo_streak >= 2:
-            self._throttled = False
-            self.effective_fps = float(TARGET_FPS)
+        # Step DOWN one rung on sustained high load, UP on sustained low. The
+        # streak naturally resets when the opposite signal appears (above), so a
+        # genuinely pegged machine keeps stepping toward the floor each sample
+        # window, while one that recovers climbs back — no cliff, no flapping.
+        # Stability comes from the engage/release hysteresis band: between
+        # RELEASE_PCT and ENGAGE_PCT neither signal fires, so it parks on a rung.
+        moved = False
+        if self._hi_streak >= 2 and self._tier_idx < len(self._tiers) - 1:
+            self._tier_idx += 1
+            moved = True
+        elif self._lo_streak >= 2 and self._tier_idx > 0:
+            self._tier_idx -= 1
+            moved = True
+        if moved:
+            self.effective_fps = float(self._tiers[self._tier_idx])
+            self._throttled = self._tier_idx > 0
             self._notify(cpu)
 
     def _notify(self, cpu):
@@ -1790,7 +1841,8 @@ def _cleanup_evidence_dir(max_age_days: int = 7):
 class GazeEstimator:
     def __init__(self, model_path: str):
         self.session = ort.InferenceSession(
-            model_path, providers=["CPUExecutionProvider"])
+            model_path, sess_options=_ort_session_options(),
+            providers=["CPUExecutionProvider"])
         self._bins         = 90
         self._binwidth     = 4
         self._angle_offset = 180

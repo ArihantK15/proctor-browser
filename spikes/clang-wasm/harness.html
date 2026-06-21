@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>P0-T1 — Clang-WASM concurrent-proctoring spike</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, monospace; max-width: 880px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 18px; } table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; } .pass { color: #137333; } .fail { color: #c5221f; }
+  button { font: inherit; padding: 6px 14px; } #log { white-space: pre-wrap; background: #f6f8fa; padding: 10px; border-radius: 6px; }
+  label { margin-right: 12px; }
+</style>
+<h1>P0-T1 — Clang-WASM under concurrent proctoring</h1>
+<p>Run with the real proctor live (or <code>node cpu-load.js</code> as the fallback load).
+See <code>RUNBOOK.md</code>. Fill the Results table there from this output.</p>
+<p>
+  <label><input type="radio" name="adapter" value="wasm-clang" checked> wasm-clang (real)</label>
+  <label><input type="radio" name="adapter" value="stub"> stub (harness self-test)</label>
+  <label>per-run watchdog ms <input id="limit" type="number" value="8000" style="width:80px"></label>
+</p>
+<button id="run">Run spike</button>
+<div id="out"></div>
+<pre id="log"></pre>
+<script>
+const $ = (s) => document.querySelector(s);
+const log = (m) => { $('#log').textContent += m + '\n'; };
+
+// One worker request with a MAIN-THREAD wall-clock watchdog: on overrun we
+// terminate+respawn the worker (production design) and report a timeout.
+function ask(worker, msg, limitMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return; done = true;
+      worker.terminate();
+      resolve({ ev: msg.cmd, ok: false, err: 'timeout', timeout: true });
+    }, limitMs);
+    worker.onmessage = (e) => { if (done) return; done = true; clearTimeout(timer); resolve(e.data); };
+    worker.postMessage(msg);
+  });
+}
+const newWorker = () => new Worker('./runtime-worker.js');
+
+async function loadText(p) { return (await fetch(p)).text(); }
+
+async function main() {
+  $('#out').innerHTML = ''; $('#log').textContent = '';
+  const adapter = document.querySelector('input[name=adapter]:checked').value;
+  const limit = +$('#limit').value || 8000;
+  const source = await loadText('./workload.cpp');
+  const stdin = (await loadText('./workload.stdin')).split('\n').filter((l) => l.trim());
+  const expected = JSON.parse(await loadText('./workload.expected.json'));
+
+  let worker = newWorker();
+  log(`adapter=${adapter}  cases=${stdin.length}  watchdog=${limit}ms`);
+
+  const loaded = await ask(worker, { cmd: 'load', adapter }, 120000); // toolchain load can be slow
+  if (!loaded.ok && loaded.err) { log('LOAD FAILED: ' + loaded.err); return; }
+  log(`load: ${loaded.loadMs?.toFixed(0)} ms   payload: ${(loaded.payloadBytes/1e6).toFixed(1)} MB`);
+
+  const compiled = await ask(worker, { cmd: 'compile', source }, limit);
+  if (!compiled.ok) { log('COMPILE FAILED: ' + (compiled.err || 'timeout')); return; }
+  log(`compile: ${compiled.compileMs?.toFixed(0)} ms`);
+
+  const rows = []; let totalRun = 0; let allPass = true;
+  for (let i = 0; i < stdin.length; i++) {
+    let r = await ask(worker, { cmd: 'run', stdin: stdin[i] }, limit);
+    if (r.timeout) { worker = newWorker(); await ask(worker, { cmd: 'load', adapter }, 120000); await ask(worker, { cmd: 'compile', source }, limit); }
+    const got = (r.stdout || '').replace(/\s+$/g, '');
+    const exp = (expected[i] || '').replace(/\s+$/g, '');
+    const ok = r.ok && got === exp; allPass = allPass && ok;
+    totalRun += r.runMs || 0;
+    rows.push({ i, runMs: r.runMs, ok, timeout: !!r.timeout, got });
+  }
+
+  const peakHeapMB = (performance.memory ? performance.memory.usedJSHeapSize / 1e6 : null);
+  const tbl = ['<table><tr><th>case</th><th>run ms</th><th>result</th></tr>'];
+  rows.forEach((r) => tbl.push(`<tr><td>${r.i}</td><td>${r.runMs?.toFixed(1) ?? '—'}</td>` +
+    `<td class="${r.ok ? 'pass' : 'fail'}">${r.timeout ? 'TIMEOUT' : (r.ok ? 'PASS' : 'FAIL')}</td></tr>`));
+  tbl.push('</table>');
+  $('#out').innerHTML = tbl.join('');
+
+  const totalWall = (loaded.loadMs + compiled.compileMs + totalRun) / 1000;
+  log(`\nSUMMARY`);
+  log(`  compile+run wall (excl. load): ${((compiled.compileMs + totalRun)/1000).toFixed(2)} s   [G2 budget < 8 s]`);
+  log(`  total incl. load:              ${totalWall.toFixed(2)} s`);
+  log(`  peak JS heap:                  ${peakHeapMB ? peakHeapMB.toFixed(0)+' MB' : 'n/a (Chrome only)'}   [G3 — also watch OS RSS]`);
+  log(`  correctness:                   ${allPass ? 'all PASS' : 'MISMATCH — check outputs'}`);
+  log(`\nNow record the MIN proctor fps observed during this window (G1) into RUNBOOK Results.`);
+}
+$('#run').onclick = () => main().catch((e) => log('ERROR: ' + e.message));
+</script>

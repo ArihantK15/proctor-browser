@@ -67,12 +67,9 @@ MODELS = [
         "dir":  "vosk-model-small-en-in-0.4",
         "sha":  "",
     },
-    {
-        "name": "vosk-hi",
-        "url":  "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip",
-        "dir":  "vosk-model-small-hi-0.22",
-        "sha":  "",
-    },
+    # Hindi (vosk-hi) intentionally NOT bundled — ~40 MB and not required for
+    # now. audio_processor.py degrades gracefully when the dir is absent (the
+    # Path(...).is_dir() guard), so English keyword detection is unaffected.
     {
         "name": "silero-vad",
         # PINNED to a release tag (was raw/master — a moving branch that could

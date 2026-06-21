@@ -47,7 +47,8 @@ mkdir -p "$WEIGHTS"
 
 MODELS=(
   "vosk-en|https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip|vosk-model-small-en-in-0.4|TODO_PIN_SHA"
-  "vosk-hi|https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip|vosk-model-small-hi-0.22|TODO_PIN_SHA"
+  # vosk-hi intentionally dropped (~40 MB, not required for now) — audio_processor
+  # degrades gracefully when the Hindi dir is absent.
   "silero-vad|https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx|silero_vad.onnx|TODO_PIN_SHA"
 )
 

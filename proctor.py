@@ -540,146 +540,6 @@ class YoloWorker:
 # the proctoring loop begins.
 yolo_worker = YoloWorker()
 
-# ─── SAHI TILING for YOLO (small object detection) ───────────────────────────
-# Slicing Aided Hyper Inference: splits the frame into overlapping tiles,
-# runs YOLO on each tile at full resolution, then merges detections.
-# It improves recall for SMALL/DISTANT instances of the COCO classes YOLO
-# already knows (phone, laptop, book, keyboard, TV). It does NOT add classes,
-# so it cannot detect earbuds/headphones — those aren't COCO classes (the
-# ear-crop classifier handles earbuds). OFF by default (PROCTOR_ENABLE_SAHI);
-# see _sahi_available. Runs on a separate background thread.
-# SAHI_EVERY_N is defined after YOLO_EVERY_N (line ~634) to avoid
-# forward-reference errors at module load time.
-
-class SahiYoloWorker:
-    """Background thread that runs SAHI-tiled YOLO inference.
-
-    Splits the frame into overlapping tiles (default 320x320, 20% overlap),
-    runs YOLO on each tile, and merges results with simple NMS.
-    """
-
-    TILE_SIZE = 320
-    OVERLAP = 0.2
-
-    def __init__(self):
-        self.frame_q = Queue(maxsize=1)
-        self.result_q = Queue(maxsize=1)
-        self._thread: Optional[threading.Thread] = None
-        self._stop = threading.Event()
-
-    def start(self):
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True, name="sahi-worker")
-        self._thread.start()
-
-    def stop(self):
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=3)
-            self._thread = None
-
-    def submit(self, frame: np.ndarray, frame_count: int):
-        try:
-            self.frame_q.put_nowait((frame.copy(), frame_count))
-        except Full:
-            pass  # worker busy — drop this frame (expected backpressure)
-        except Exception as _se:
-            print(f"[SAHI] submit error: {type(_se).__name__}: {_se}")
-
-    def get_result(self, frame_count: int):
-        # Same async-lag fix as YoloWorker.get_result: never require an exact
-        # frame_count match or every SAHI result is discarded. Return the most
-        # recent completed inference (maxsize=1 queue, drained each frame).
-        try:
-            return self.result_q.get_nowait()
-        except Empty:
-            return None
-
-    @staticmethod
-    def _generate_tiles(frame: np.ndarray):
-        h, w = frame.shape[:2]
-        step = int(SahiYoloWorker.TILE_SIZE * (1 - SahiYoloWorker.OVERLAP))
-        for y in range(0, max(h - SahiYoloWorker.TILE_SIZE + 1, 1), step):
-            for x in range(0, max(w - SahiYoloWorker.TILE_SIZE + 1, 1), step):
-                y_end = min(y + SahiYoloWorker.TILE_SIZE, h)
-                x_end = min(x + SahiYoloWorker.TILE_SIZE, w)
-                if y_end - y < 50 or x_end - x < 50:
-                    continue
-                yield frame[y:y_end, x:x_end], x, y
-
-    @staticmethod
-    def _nms_merge(detections: list, iou_thresh: float = 0.5):
-        if not detections:
-            return []
-        by_name = {}
-        for name, conf, x1, y1, x2, y2 in detections:
-            by_name.setdefault(name, []).append((conf, x1, y1, x2, y2))
-        merged = []
-        for name, boxes in by_name.items():
-            boxes.sort(reverse=True)
-            kept = []
-            for conf, x1, y1, x2, y2 in boxes:
-                overlap = False
-                for kc, kx1, ky1, kx2, ky2 in kept:
-                    ix1 = max(x1, kx1); iy1 = max(y1, ky1)
-                    ix2 = min(x2, kx2); iy2 = min(y2, ky2)
-                    if ix1 < ix2 and iy1 < iy2:
-                        inter = (ix2 - ix1) * (iy2 - iy1)
-                        union = (x2-x1)*(y2-y1) + (kx2-kx1)*(ky2-ky1) - inter
-                        if union > 0 and inter / union > iou_thresh:
-                            overlap = True
-                            break
-                if not overlap:
-                    kept.append((conf, x1, y1, x2, y2))
-            merged.extend([(name, conf, x1, y1, x2, y2) for conf, x1, y1, x2, y2 in kept])
-        return merged
-
-    def _run(self):
-        session = _load_yolo()
-        if session is None:
-            return
-
-        while not self._stop.is_set():
-            try:
-                frame, frame_count = self.frame_q.get(timeout=0.5)
-            except Empty:
-                continue
-
-            all_dets = []
-            try:
-                for tile, ox, oy in self._generate_tiles(frame):
-                    for cls_id, conf, x1, y1, x2, y2 in _yolo_infer(session, tile):
-                        if _cheat_detection_kept(cls_id, conf):
-                            all_dets.append((CHEAT_IDS[cls_id], conf,
-                                             x1 + ox, y1 + oy,
-                                             x2 + ox, y2 + oy))
-                merged = self._nms_merge(all_dets)
-                self.result_q.put_nowait({
-                    "frame_count": frame_count,
-                    "detections": merged,
-                    "error": None,
-                })
-            except Exception as e:
-                try:
-                    self.result_q.put_nowait({
-                        "frame_count": frame_count,
-                        "detections": [],
-                        "error": str(e),
-                    })
-                except Exception:
-                    pass
-
-sahi_worker = SahiYoloWorker()
-def _sahi_available() -> bool:
-    """SAHI is usable only when YOLO is loaded AND it's explicitly enabled
-    (PROCTOR_ENABLE_SAHI). Default off: on a 640x480 laptop webcam its
-    small-object benefit is marginal and tiled inference adds CPU. (The room
-    camera is where it would pay off, but that's a separate, privacy-gated
-    design — not the laptop.)"""
-    return YOLO_AVAILABLE and SAHI_ENABLED
-
 # ─── EAR-CROP CLASSIFIER (earphone/earbud detection) ──────────────────────────
 # Uses face landmarks from RetinaFace to crop the ear regions, then runs
 # a lightweight classifier to detect earbuds. Runs every 5th frame to
@@ -875,14 +735,6 @@ EVIDENCE_UPLOAD_URL = f"{SERVER_BASE}/api/v1/analyze-frame"
 HEADLESS          = platform.system() == "Windows" or \
                     os.environ.get("PROCTOR_HEADLESS","0") == "1"
 SKIP_ENROLLMENT   = os.environ.get("PROCTOR_SKIP_ENROLLMENT","0") == "1"
-# SAHI tiled detection: PERMANENTLY DISABLED. Tiling a 640x480 laptop webcam
-# into overlapping crops and running YOLO on each is pure CPU cost with no
-# accuracy payoff at that resolution — it was the single most expensive optional
-# path and exactly the kind of work that starves detection on weak student
-# hardware. Hard-off here (env flag intentionally ignored) so it can never be
-# switched on by accident; the gated SAHI code below is now dead and can be
-# removed in a follow-up cleanup.
-SAHI_ENABLED      = False
 CALIBRATION_MODE  = os.environ.get("PROCTOR_CALIBRATION_MODE","0") == "1"
 
 # Pre-set biases from renderer dot-calibration (skip self-calibration if present).
@@ -1042,7 +894,6 @@ YOLO_PHONE_CONFIDENCE = float(os.getenv("PROCTOR_YOLO_PHONE_CONFIDENCE", "0.20")
 YOLO_DECODE_FLOOR     = min(YOLO_CONFIDENCE, YOLO_PHONE_CONFIDENCE)
 YOLO_MIN_FRAMES     = 2
 YOLO_EVERY_N        = 5
-SAHI_EVERY_N        = YOLO_EVERY_N * 3  # run SAHI every 3rd YOLO cycle (15 frames)
 VOICE_THRESHOLD     = float(os.getenv("PROCTOR_VOICE_THRESHOLD", "0.035"))
 VOICE_SUSTAINED_SECS = 5.0
 SUSTAINED_VOICE_SECS = 20.0   # flag if voice continues for 20s+
@@ -1378,7 +1229,7 @@ _PROCTOR_PHONE_OCCLUSION = os.environ.get("PROCTOR_PHONE_OCCLUSION", "0") == "1"
 def _cheat_detection_kept(cls_id: int, conf: float) -> bool:
     """Final per-class confidence gate, applied after CHEAT_IDS filtering.
     Handheld/phone classes pass at YOLO_PHONE_CONFIDENCE; the rest at the
-    stricter YOLO_CONFIDENCE. Shared by the YOLO and SAHI workers."""
+    stricter YOLO_CONFIDENCE. Shared by the YOLO worker."""
     if cls_id not in CHEAT_IDS:
         return False
     # Gate books behind the PROCTOR_FLAG_BOOKS setting.
@@ -2723,59 +2574,6 @@ def _process_yolo_results(
     return seen_names
 
 
-def _process_sahi_results(
-    state: dict,
-    frame, frame_count: int, W: int, H: int,
-    can_log, log_if_allowed,
-):
-    """Submit frame to SAHI worker and process returned detections."""
-    if _sahi_available() and frame_count % SAHI_EVERY_N == 0:
-        sahi_worker.submit(frame, frame_count)
-    if not _sahi_available():
-        return
-    sahi_result = sahi_worker.get_result(frame_count)
-    if sahi_result is None:
-        return
-    state["_last_sahi_result"] = sahi_result
-    state["_last_sahi_frame"] = frame_count
-    if sahi_result.get("error"):
-        print(f"[SAHI Error] {sahi_result['error']}")
-        return
-    sahi_detections = sahi_result["detections"]
-    sahi_seen = {det[0] for det in sahi_detections}
-    # SAHI keeps its OWN accumulation history. It used to share
-    # state["object_history"] with YOLO, but YOLO's decay loop drops any name
-    # not in YOLO's seen-set — including SAHI-only objects (earbuds) — so a
-    # YOLO pass on an overlapping frame kept knocking SAHI's count back below
-    # threshold, suppressing it. Separate dicts; cross-detector duplicate events
-    # are already prevented by the shared can_log() cooldown.
-    _history = state.setdefault("sahi_object_history", {})
-    for name in sahi_seen:
-        _history[name] = _history.get(name, 0) + 1
-    for name in list(_history):
-        if name not in sahi_seen:
-            _history[name] = max(0, _history[name] - 1)
-            if _history[name] == 0:
-                del _history[name]
-    for det in sahi_detections:
-        name, conf = det[0], det[1]
-        if _history.get(name, 0) >= YOLO_MIN_FRAMES:
-            if name == "Phone" and len(det) >= 6:
-                phone_box = (det[2], det[3], det[4], det[5])
-                phone_type = classify_phone_position(phone_box, state.get("_last_face_bbox"), H)
-                event_name = f"cheat_{phone_type}"
-                severity = "critical" if phone_type == "phone_in_hand" else "high"
-                details = f"{phone_type} via SAHI (conf:{conf:.0%})"
-            else:
-                event_name = "cheat_object_detected"
-                severity = "high"
-                details = f"{name} via SAHI (conf:{conf:.0%})"
-            if can_log(event_name):
-                log_if_allowed(event_name, severity, details)
-                save_evidence(frame, event_name)
-                _history[name] = 0
-
-
 def _process_ear_detection(
     state: dict,
     frame, num_faces: int, lm_2d, frame_count: int, W: int, H: int,
@@ -2785,8 +2583,8 @@ def _process_ear_detection(
     if not (EAR_CLASSIFIER_AVAILABLE and _ear_classifier is not None
             and num_faces == 1 and frame_count % EAR_EVERY_N == 0):
         return
-    # Own history dict — same reason as SAHI: sharing state["object_history"]
-    # let YOLO's decay loop (which drops any name not in YOLO's seen-set) knock
+    # Own history dict: sharing state["object_history"] would let YOLO's decay
+    # loop (which drops any name not in YOLO's seen-set) knock
     # the left_earbud/right_earbud counts back down before they reach threshold.
     _history = state.setdefault("ear_object_history", {})
     try:
@@ -2911,7 +2709,7 @@ def _process_behavioral(
         state["_gaze_down_start"] = None
         gaze_down_secs = 0
 
-    # Phone in hand — use cached YOLO/SAHI
+    # Phone in hand — use cached YOLO
     STALE = 30
     phone_in_hand = False
     yolo_res = state.get("_last_yolo_result")
@@ -2925,18 +2723,6 @@ def _process_behavioral(
                 phone_type = classify_phone_position(phone_box, state.get("_last_face_bbox"), H)
                 phone_in_hand = (phone_type == "phone_in_hand")
                 break
-    if not phone_in_hand:
-        sahi_res = state.get("_last_sahi_result")
-        sahi_frm = state.get("_last_sahi_frame", 0)
-        if _sahi_available() and sahi_res and sahi_res.get("detections") \
-           and fcount - sahi_frm < STALE:
-            for det in sahi_res["detections"]:
-                if det[0] == "Phone" and len(det) >= 6:
-                    phone_box = (det[2], det[3], det[4], det[5])
-                    phone_type = classify_phone_position(phone_box, state.get("_last_face_bbox"), H)
-                    phone_in_hand = (phone_type == "phone_in_hand")
-                    break
-
     _behavioral.push({
         "gaze_away":      is_gaze_away,
         "gaze_down":      is_gaze_down,
@@ -3035,8 +2821,6 @@ def _proctor_frame_init_state() -> dict:
         "_gaze_down_start": None,
         "_last_yolo_result": None,
         "_last_yolo_frame": 0,
-        "_last_sahi_result": None,
-        "_last_sahi_frame": 0,
     }
 
 
@@ -3060,8 +2844,6 @@ def run_proctoring(cap, W, H):
             log_event("object_detection_unavailable", "info", f"reason={_yolo_reason}")
     except Exception:
         pass
-    if _sahi_available():
-        sahi_worker.start()
 
     # We mutate _LAST_LIVE_FRAME_TS from inside the capture loop to
     # pace live-view uploads. Declared global because the variable
@@ -3552,10 +3334,6 @@ def run_proctoring(cap, W, H):
             state["_yolo_every_n"] = 1 if governor.effective_fps < 5 else YOLO_EVERY_N
             yolo_seen = _process_yolo_results(state, frame, frame_count, W, H,
                                               can_log, log_if_allowed)
-
-            # ── SAHI TILED DETECTION (small objects) ─────────────────────────────
-            _process_sahi_results(state, frame, frame_count, W, H,
-                                  can_log, log_if_allowed)
 
             # ── EAR-CROP CLASSIFIER (earbud detection) ───────────────────────────
             _process_ear_detection(state, frame, num_faces, lm_2d, frame_count, W, H,
@@ -4117,10 +3895,6 @@ def main():
             print("\n[PROCTOR] Stopped by SIGTERM")
     finally:
         try: yolo_worker.stop()
-        except Exception: pass
-        try:
-            if _sahi_available():
-                sahi_worker.stop()
         except Exception: pass
         try: cap.release()
         except Exception: pass

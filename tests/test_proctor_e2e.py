@@ -102,39 +102,6 @@ class TestPhoneClassificationIntegration:
         assert result == "phone_detected"
 
 
-class TestSAHIWorkerTileCoordinates:
-    """Verify SAHI tile offset addition is correct."""
-
-    def test_tile_offset_addition(self):
-        """Detections in a tile should have the tile offset added back."""
-        from proctor import SahiYoloWorker
-
-        worker = SahiYoloWorker()
-
-        # Create a test frame
-        frame = np.zeros((480, 640, 3), dtype=np.uint8)
-
-        # Generate tiles and verify offsets
-        tiles = list(worker._generate_tiles(frame))
-        assert len(tiles) > 0
-
-        # First tile should start at (0, 0)
-        first_tile, ox, oy = tiles[0]
-        assert ox == 0
-        assert oy == 0
-
-        # Verify tile dimensions
-        tile_h, tile_w = first_tile.shape[:2]
-        assert tile_w <= SahiYoloWorker.TILE_SIZE
-        assert tile_h <= SahiYoloWorker.TILE_SIZE
-
-        # Verify overlap
-        if len(tiles) >= 2:
-            _, ox2, _ = tiles[1]
-            step = int(SahiYoloWorker.TILE_SIZE * (1 - SahiYoloWorker.OVERLAP))
-            assert ox2 == step  # second tile starts at step offset
-
-
 class TestDetectionResultFormat:
     """Verify that detection results have the expected format."""
 
@@ -147,28 +114,6 @@ class TestDetectionResultFormat:
         for cls_id, name in CHEAT_IDS.items():
             assert isinstance(cls_id, int)
             assert isinstance(name, str)
-
-    def test_sahi_result_format(self):
-        """SAHI results after NMS merge should be (name, conf, x1, y1, x2, y2)."""
-        from proctor import SahiYoloWorker
-
-        worker = SahiYoloWorker()
-
-        # Test NMS merge with known inputs
-        detections = [
-            ("Phone", 0.9, 100, 100, 200, 200),
-            ("Phone", 0.8, 110, 110, 210, 210),  # overlaps with first
-            ("Book", 0.7, 300, 300, 400, 400),
-        ]
-        merged = worker._nms_merge(detections)
-
-        # Should have at least 2 results (Phone merged, Book separate)
-        assert len(merged) >= 2
-        for det in merged:
-            assert len(det) == 6
-            assert isinstance(det[0], str)
-            assert isinstance(det[1], float)
-            assert all(isinstance(x, int) for x in det[2:])
 
 
 class TestContinuousIdentityVerification:

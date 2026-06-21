@@ -137,3 +137,84 @@ async def test_superadmin_unrestricted(patched_db):
     scope = await scope_mod.resolve_scope(teacher, _Req())
     tids = await scope_mod.scope_to_teacher_ids(scope)
     assert tids is None  # None == "no filter"
+
+
+# ── assert_session_accessible orphan-row hardening (fail-closed) ──────────────
+from fastapi import HTTPException as _HTTPException
+
+
+class _FakeQ:
+    def __init__(self, data): self._data = data
+    def select(self, *a, **k): return self
+    def eq(self, *a, **k): return self
+    def limit(self, *a, **k): return self
+    async def execute(self):
+        return type("R", (), {"data": self._data})()
+
+
+def _atable_factory(sessions, violations):
+    def _at(table):
+        if table == "exam_sessions":
+            return _FakeQ(sessions)
+        if table == "violations":
+            return _FakeQ(violations)
+        return _FakeQ([])
+    return _at
+
+
+_ORGA_TIDS = {"a1", "a2"}
+_ADMIN_A = {"role": "admin", "org_id": "orgA", "teacher_id": "a1"}
+_ORPHAN = [{"session_key": "S1", "teacher_id": "", "roll_number": "R1", "score": 9}]
+
+
+@pytest.fixture
+def _orphan_db(monkeypatch):
+    async def _verify(tid, org_id):
+        return tid in _ORGA_TIDS and org_id == "orgA"
+    monkeypatch.setattr(scope_mod, "_verify_teacher_in_org", _verify)
+    return monkeypatch
+
+
+@pytest.mark.asyncio
+async def test_orphan_violation_other_org_denied(_orphan_db):
+    """Orphan row whose violation belongs to ANOTHER org → 404 (was a leak)."""
+    _orphan_db.setattr(scope_mod, "_atable", _atable_factory(_ORPHAN, [{"teacher_id": "b1"}]))
+    with pytest.raises(_HTTPException) as ei:
+        await scope_mod.assert_session_accessible("S1", _ADMIN_A)
+    assert ei.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_orphan_no_violations_denied(_orphan_db):
+    """No violation can prove org membership → 404 (old code returned it)."""
+    _orphan_db.setattr(scope_mod, "_atable", _atable_factory(_ORPHAN, []))
+    with pytest.raises(_HTTPException) as ei:
+        await scope_mod.assert_session_accessible("S1", _ADMIN_A)
+    assert ei.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_orphan_in_org_violation_allowed(_orphan_db):
+    """A violation provably in the admin's org → session returned."""
+    _orphan_db.setattr(scope_mod, "_atable", _atable_factory(_ORPHAN, [{"teacher_id": "a2"}]))
+    sess = await scope_mod.assert_session_accessible("S1", _ADMIN_A)
+    assert sess["session_key"] == "S1"
+
+
+@pytest.mark.asyncio
+async def test_orphan_in_org_proof_beyond_first_row(_orphan_db):
+    """limit(1) bug: first violation empty, a later one is in-org → still granted."""
+    _orphan_db.setattr(scope_mod, "_atable",
+                       _atable_factory(_ORPHAN, [{"teacher_id": ""}, {"teacher_id": "a1"}]))
+    sess = await scope_mod.assert_session_accessible("S1", _ADMIN_A)
+    assert sess["session_key"] == "S1"
+
+
+@pytest.mark.asyncio
+async def test_orphan_other_org_proof_beyond_first_row_denied(_orphan_db):
+    """limit(1) leak: first violation empty, a LATER one ties to another org → 404."""
+    _orphan_db.setattr(scope_mod, "_atable",
+                       _atable_factory(_ORPHAN, [{"teacher_id": ""}, {"teacher_id": "b1"}]))
+    with pytest.raises(_HTTPException) as ei:
+        await scope_mod.assert_session_accessible("S1", _ADMIN_A)
+    assert ei.value.status_code == 404

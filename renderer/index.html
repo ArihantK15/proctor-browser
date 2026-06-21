@@ -1887,16 +1887,23 @@ async function retryCam() {
 // The room/phone camera is set up and APPROVED BY THE TEACHER here — after
 // ID verification, before calibration — so the teacher vets the room view
 // while proctor.py isn't holding the camera yet (no contention, no false
-// look-aways). We prefetch the exam payload once to learn phone_camera_enabled
-// without a second round-trip in startExam.
+// look-aways). The room-cam flag now comes from the (ungated) validate
+// response; we still prefetch the exam payload opportunistically, but the
+// room-cam decision no longer DEPENDS on it. The prefetch hits
+// /api/v1/questions which is hard start-gated, so before the scheduled start it
+// 403s — which used to leave _examData null and SILENTLY skip the room camera.
 async function proceedFromIdToCalibration() {
   try {
     _examData = await window.proctor.getQuestions(sessionId);
   } catch (e) {
-    console.warn('[Flow] prefetch exam data failed:', e);
+    console.warn('[Flow] prefetch exam data failed (room-cam flag falls back to validate):', e);
     _examData = null;
   }
-  if (_examData && _examData.phone_camera_enabled) {
+  // Prefer the validate flag (reliable, ungated); fall back to the prefetch.
+  const _phoneCamOn =
+    (typeof student !== 'undefined' && student && student.phone_camera_enabled) ||
+    (_examData && _examData.phone_camera_enabled);
+  if (_phoneCamOn) {
     try {
       await showPhoneCamScreen();   // blocks until the teacher approves
     } catch (e) {

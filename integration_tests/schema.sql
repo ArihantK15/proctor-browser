@@ -477,7 +477,8 @@ CREATE TABLE IF NOT EXISTS coding_submissions (
     language                  TEXT,
     test_cases_total          INTEGER,
     test_cases_passed         INTEGER,
-    is_fully_solved           BOOLEAN,
+    is_fully_solved           BOOLEAN GENERATED ALWAYS AS
+                                (test_cases_total > 0 AND test_cases_passed = test_cases_total) STORED,
     average_execution_ms      INTEGER,
     memory_consumed_kb        INTEGER,
     source_code               TEXT,

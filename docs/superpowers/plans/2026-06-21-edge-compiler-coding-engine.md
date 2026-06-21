@@ -6,7 +6,7 @@
 
 **Architecture:** Approach A (client executes, server judges). Phase 1 proves the whole spine in **JavaScript only** (zero runtime-download friction); later phases add Python/C++/Java adapters onto the proven spine. Server never executes student code — it normalizes + compares outputs it holds the secret answers for.
 
-**Tech Stack:** FastAPI + asyncpg + Postgres (phase-numbered migrations, phase124 `app.*` RLS), Electron renderer (`renderer/index.html`) + Monaco + Web Workers, WASM runtimes (Pyodide / Clang-WASM / DoppioJVM — later phases).
+**Tech Stack:** FastAPI + asyncpg + Postgres (phase-numbered migrations, phase124 `app.*` RLS), Electron renderer (`renderer/index.html`) + **CodeMirror 6** (lighter than Monaco — chosen for the low-end-laptop concurrency budget + assessment-integrity; see "Editor decision") + Web Workers (**same-origin flat files**, not Blob — CSP, see P1-T6), WASM runtimes (Pyodide / Clang-WASM / DoppioJVM — later phases, same worker-file pattern).
 
 **Spec:** `docs/superpowers/specs/2026-06-21-edge-compiler-coding-engine-design.md` (read it first — this plan implements it).
 
@@ -44,7 +44,8 @@ session, tracked in P1-T1 as a follow-up note, not edited here.
 - `migrations/phase141_coding_tables.sql` — `coding_test_cases` + `coding_submissions` + RLS.
 - `app/services/coding_judge.py` — pure `judge_outputs()` comparison (normalization, float tolerance, counts).
 - `app/routers/coding.py` — `POST /api/v1/coding/judge`, `GET /api/v1/coding/testcases`.
-- `app/static/coding-runtime.js` — `runTestCases()` + JS adapter + Web Worker sandbox (loaded by the kiosk renderer).
+- `renderer/coding-runtime.js` — `runTestCases()` API (imported by the kiosk renderer).
+- `renderer/coding-worker.js` — the worker body, a flat **same-origin** file (CSP-clean; not a Blob). All assets that workers load stay flat in `renderer/` (no `vendor/` subdir — the kiosk protocol clamps to one path component).
 - `tests/test_coding_judge.py`, `tests/test_coding_router.py`, `tests/test_coding_scoring.py`.
 - `integration_tests/test_coding_e2e.py` — submit→judge→score→RLS (real PG).
 - `scripts/seed_coding_question.py` — minimal authoring (seed one question + cases).
@@ -290,12 +291,25 @@ def judge_outputs(actual: list[str], expected: list[str], tolerances: list) -> d
 
 ### Task P1-T6: `coding-runtime.js` + JS adapter + sandbox — owner: other-Claude
 
-**Files:** Create `app/static/coding-runtime.js`.
+**Files:** Create `renderer/coding-runtime.js` (the `runTestCases` API the renderer
+imports) **and** `renderer/coding-worker.js` (the worker body, a flat same-origin file).
 
-- [ ] **Step 1:** Define the contract `runTestCases(language, source, stdins[]) → Promise<{outputs[], metrics[]}>`. The function spawns a **Web Worker** from a Blob, posts `{source, stdins, limits}`, awaits results.
-- [ ] **Step 2: Worker sandbox** — first lines: `self.fetch=null; self.WebSocket=null; self.XMLHttpRequest=null; self.importScripts=...guard`. JS adapter: wrap `source` so `console.log`/`print` capture to a string buffer; feed `stdin` via a readline shim over the test's input. **Per-test wall-clock watchdog:** main thread `setTimeout(limit)` → if no result, `worker.terminate()`, mark that test `timeout`, respawn worker for the next test.
-- [ ] **Step 3: Test (manual + headless)** — a known JS program (`read N ints, print sum`) against known I/O; an infinite loop → terminates and reports `timeout`; verify no network egress (fetch is null). Capture screenshots/console per the verify skill.
-- [ ] **Step 4: Commit** `feat(coding): coding-runtime.js JS adapter + worker sandbox`.
+> **DECISION (2026-06-22, locked by Arihant) — same-origin worker FILE, not a Blob.**
+> The kiosk CSP (`renderer/index.html:5`) is `default-src 'self'` with no `worker-src`,
+> so `new Worker(blob:…)` is BLOCKED. We do **not** relax the CSP (never widen the
+> proctored-exam page; `blob:` is an exfil vector). Instead the worker is a flat
+> same-origin file loaded as `new Worker('coding-worker.js')` — runs under the existing
+> CSP with zero relaxation. The "Blob" in the original instruction was about the
+> *sandbox*, which a same-origin file preserves identically (still nullified). **This is
+> the pattern ALL Phase 2–4 runtime workers (Pyodide/Clang/Doppio) must follow** — flat
+> same-origin worker files + flat same-origin assets (the kiosk protocol handler clamps
+> to a single path component, so NO `vendor/` subdir; keep any build/`node_modules` dir
+> OUT of `renderer/` so `renderer/**/*` packaging doesn't pull it in).
+
+- [ ] **Step 1:** Define the contract `runTestCases(language, source, stdins[]) → Promise<{outputs[], metrics[]}>` in `renderer/coding-runtime.js`. It does `new Worker('coding-worker.js')` (same-origin file — NOT a Blob), posts `{source, stdins, limits}`, awaits results.
+- [ ] **Step 2: Worker sandbox** (`renderer/coding-worker.js`) — first lines: `self.fetch=null; self.WebSocket=null; self.XMLHttpRequest=null; self.importScripts=…guard`. JS adapter: wrap `source` so `console.log`/`print` capture to a string buffer; feed `stdin` via a readline shim. **Per-test wall-clock watchdog:** main thread `setTimeout(limit)` → if no result, `worker.terminate()`, mark that test `timeout`, respawn for the next test.
+- [ ] **Step 3: Test UNDER THE REAL KIOSK CSP** — this is the verification gap that hid the Blob problem: the first pass ran in a plain page with no CSP. Verify in the actual Electron renderer (or a page serving the same CSP meta): a known JS program against known I/O; infinite loop → `timeout`; no network egress; **and the worker actually spawns under the CSP**. Capture console/screenshots per the verify skill.
+- [ ] **Step 4: Commit** `feat(coding): coding-runtime.js + same-origin coding-worker.js (CSP-clean)`.
 
 ### Task P1-T7: Monaco mount + Run/Submit — owner: other-Claude
 

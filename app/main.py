@@ -37,6 +37,7 @@ from .routers.admin_guardian import router as admin_guardian_router
 from .routers.issues import router as issues_router
 from .domains.exams import question_bank_router
 from .routers.grading import router as grading_router
+from .routers.admin_coding import router as admin_coding_router
 from .routers.coding import router as coding_router
 from .domains.ops import public_router
 from .domains.sessions import sse_router
@@ -930,6 +931,7 @@ app.include_router(admin_router)
 app.include_router(issues_router)
 app.include_router(question_bank_router)
 app.include_router(grading_router)
+app.include_router(admin_coding_router)
 app.include_router(public_router)
 app.include_router(sse_router)
 app.include_router(chat_router)

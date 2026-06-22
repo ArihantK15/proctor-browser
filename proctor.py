@@ -2989,6 +2989,11 @@ def run_proctoring(cap, W, H):
 
     governor = _HardwareGovernor(on_transition=_on_throttle_transition)
 
+    # Feed the live effective FPS into the behavioral matchers so their off-task
+    # DURATION math uses the real (throttled) capture rate, not a constant 15.
+    # Mirrors the audio worker's get_effective_fps hook above.
+    _behavioral.set_fps_source(lambda: float(getattr(governor, "effective_fps", 15.0)))
+
     # ── Severity escalation tracking ─────────────────────────────────────
     # Tracks (timestamp, original_severity) per violation type. Escalates
     # when the same type fires repeatedly within ESCALATION_WINDOW_SECS.

@@ -299,13 +299,23 @@ PATTERN_CONFIDENCE = {
 class BehavioralEngine:
     """High-level interface: push signals, detect patterns, return matches."""
 
-    def __init__(self, check_interval: int = 15, fps: float = 15.0):
+    def __init__(self, check_interval: int = 15, fps: float = 15.0, get_fps=None):
         self.buffer = SignalBuffer()
         self.check_interval = check_interval
         self._fps = fps
+        # Optional callable() -> float returning the CURRENT effective capture
+        # FPS (e.g. the proctor's HardwareGovernor.effective_fps). When wired it
+        # overrides the static `fps` so duration math tracks real throttling.
+        self._get_fps = get_fps
         self._frame_count = 0
         self._last_match = {}
         self._cooldown = 30.0
+
+    def set_fps_source(self, get_fps):
+        """Wire a callable returning the live effective capture FPS (mirrors the
+        audio worker's get_effective_fps hook). Until set, the matchers use the
+        static default FPS passed at construction."""
+        self._get_fps = get_fps
 
     def push(self, signal: dict):
         """Record a frame's signals."""
@@ -317,10 +327,24 @@ class BehavioralEngine:
         if self._frame_count % self.check_interval != 0:
             return None
 
+        # Use the LIVE governor FPS when wired so off-task DURATIONS (the matchers
+        # divide a frame count by fps) track the real capture rate. On throttled
+        # hardware effective_fps falls below the 15.0 default; using 15.0 there
+        # made every duration ~2x too short — weakening detection on exactly the
+        # weak machines that throttle. Falls back to the static default on error.
+        fps = self._fps
+        if self._get_fps is not None:
+            try:
+                v = self._get_fps()
+                if v and v > 0:
+                    fps = float(v)
+            except Exception:
+                pass
+
         now = time.time()
         matches = []
         for matcher in PATTERN_MATCHERS:
-            result = matcher(self.buffer, fps=self._fps)
+            result = matcher(self.buffer, fps=fps)
             if result:
                 pattern = result["pattern"]
                 last_time = self._last_match.get(pattern, 0)

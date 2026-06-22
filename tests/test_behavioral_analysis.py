@@ -362,6 +362,23 @@ class TestBehavioralEngine:
         result = engine.check()
         assert result is None
 
+    def test_fps_source_overrides_static_fps(self, monkeypatch):
+        # When a live fps source is wired (the governor's effective_fps), the
+        # matchers must receive THAT rate, not the static 15.0 default — so
+        # off-task durations are correct on throttled hardware. Errors / invalid
+        # values fall back to the static default.
+        import behavioral_analysis as ba
+        seen = []
+        monkeypatch.setattr(ba, "PATTERN_MATCHERS",
+                            [lambda buf, fps=15.0: seen.append(fps) or None])
+        engine = BehavioralEngine(check_interval=1)
+        engine.check()                       # unwired -> static default
+        engine.set_fps_source(lambda: 7.0)   # throttled
+        engine.check()
+        engine.set_fps_source(lambda: 0)     # invalid -> fallback
+        engine.check()
+        assert seen == [15.0, 7.0, 15.0]
+
     def test_returns_highest_confidence_match(self):
         engine = BehavioralEngine(check_interval=1)
         engine._cooldown = 0

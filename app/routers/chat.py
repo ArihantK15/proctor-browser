@@ -13,6 +13,7 @@ from ..limiter import _ws_client_ip, ws_rate_limiter
 from ..models import SessionStatus, RESULT_STATUSES
 from ..utils import now_ist
 from ..services.chat import ChatHub
+from ..db_context import system_context
 
 logger = logging.getLogger(__name__)
 
@@ -66,17 +67,26 @@ async def ws_chat_student(ws: WebSocket):
         if not roll or not tid:
             await ws.close(code=4401); return
 
-        sess_row = await _chat_verify_session_owned(session_id, tid, roll)
+        # WebSocket handlers run OUTSIDE the HTTP middleware that sets the RLS
+        # session context (db_context ContextVar), so under the live procta_app
+        # cutover these reads have NO app.* context and every student-scoped policy
+        # denies → exam_sessions read empties → 4403 → student stuck "reconnecting",
+        # teacher sees "no online students". The token was already verified and the
+        # ownership is re-checked inside _chat_verify_session_owned, so a system_context
+        # read here is safe (it's the email_otps pattern for non-HTTP entry points).
+        with system_context():
+            sess_row = await _chat_verify_session_owned(session_id, tid, roll)
         if not sess_row:
             await ws.close(code=4403); return
 
         await ws.accept(subprotocol=token or None)
 
-        student_result = await _atable("students") \
-            .select("full_name") \
-            .eq("roll_number", roll) \
-            .eq("teacher_id", str(tid)) \
-            .execute()
+        with system_context():
+            student_result = await _atable("students") \
+                .select("full_name") \
+                .eq("roll_number", roll) \
+                .eq("teacher_id", str(tid)) \
+                .execute()
         name = (student_result.data[0]["full_name"]
                 if student_result.data else roll)
 

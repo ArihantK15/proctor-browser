@@ -426,7 +426,7 @@ unblock procurement.
 - React dashboard rewrite
 - Mobile PWA (camera-only proctoring, low-stakes)
 - AI exam generator from syllabus PDF
-- Inbuilt coding questions (Pyodide for Python, LLM-judged for C++/Java)
+- Inbuilt coding questions (server-side sandboxed execution — Firecracker + isolate)
 - Adaptive testing (IRT-based difficulty)
 - 2FA for teacher login (TOTP)
 - **First 3 paying schools signed** — case studies for the round

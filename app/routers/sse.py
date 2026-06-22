@@ -25,6 +25,7 @@ from ..limiter import _ws_client_ip, ws_rate_limiter
 from ..auth.tokens import _decode_token
 from ..utils import now_ist, fmt_ist
 from ..models import SessionStatus
+from ..db_context import system_context
 from ..services.risk import VIOLATION_WEIGHTS
 
 logger = logging.getLogger(__name__)
@@ -182,10 +183,15 @@ async def _assert_exam_ws_session_access(claims: dict, session_id: str) -> None:
     if claims.get("roll", "").upper() != session_roll:
         raise HTTPException(status_code=403, detail="Access denied")
     try:
-        executed = _atable("exam_sessions").select(
-            "session_key,roll_number,teacher_id,exam_id,student_id"
-        ).eq("session_key", session_id).limit(1).execute()
-        row = await executed if inspect.isawaitable(executed) else executed
+        # WS handlers run outside the HTTP middleware that sets the RLS context, so
+        # this read needs system_context — otherwise it returns 0 rows under the
+        # live cutover and the tid/eid/sid ownership check below is silently skipped
+        # (the roll-prefix check above would be the only gate). See chat.py.
+        with system_context():
+            executed = _atable("exam_sessions").select(
+                "session_key,roll_number,teacher_id,exam_id,student_id"
+            ).eq("session_key", session_id).limit(1).execute()
+            row = await executed if inspect.isawaitable(executed) else executed
     except Exception:
         return
     if isinstance(getattr(row, "data", None), list) and row.data:
@@ -646,16 +652,21 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
     sess_teacher_id = ""
     try:
         from ..database import async_table as _atable
-        sess_row = (await _atable("exam_sessions")
-                    .select("teacher_id")
-                    .eq("session_key", session_id)
-                    .limit(1).execute()).data or []
-        sess_teacher_id = str(sess_row[0].get("teacher_id") or "") if sess_row else ""
-        upd = _atable("exam_sessions").update({"room_cam_status": "pending"})\
-            .eq("session_key", session_id)
-        if sess_teacher_id:
-            upd = upd.eq("teacher_id", sess_teacher_id)
-        await upd.execute()
+        # system_context: this WS is authed by the room-cam JWT but runs outside the
+        # HTTP RLS-context middleware. Without it the read returns 0 rows and the
+        # room_cam_status='pending' UPDATE matches 0 rows under the live cutover —
+        # so the teacher never gets the approve button and room cam never works.
+        with system_context():
+            sess_row = (await _atable("exam_sessions")
+                        .select("teacher_id")
+                        .eq("session_key", session_id)
+                        .limit(1).execute()).data or []
+            sess_teacher_id = str(sess_row[0].get("teacher_id") or "") if sess_row else ""
+            upd = _atable("exam_sessions").update({"room_cam_status": "pending"})\
+                .eq("session_key", session_id)
+            if sess_teacher_id:
+                upd = upd.eq("teacher_id", sess_teacher_id)
+            await upd.execute()
     except Exception:
         logger.warning("sse: room_cam_status='pending' update failed", exc_info=True)
 
@@ -681,8 +692,9 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
                         _frame_since_check = 0
                         try:
                             from ..database import async_table as _atbl
-                            srow = (await _atbl("exam_sessions").select("status")
-                                    .eq("session_key", session_id).limit(1).execute()).data or []
+                            with system_context():
+                                srow = (await _atbl("exam_sessions").select("status")
+                                        .eq("session_key", session_id).limit(1).execute()).data or []
                             if srow and srow[0].get("status") in _ROOM_TERMINAL:
                                 await websocket.close(code=4004, reason="session_ended")
                                 break
@@ -710,11 +722,12 @@ async def ws_room_frame(websocket: WebSocket, session_id: str):
         # falls back to session_key alone.
         try:
             from ..database import async_table as _atable
-            upd = _atable("exam_sessions").update({"room_cam_status": "offline"})\
-                .eq("session_key", session_id)
-            if sess_teacher_id:
-                upd = upd.eq("teacher_id", sess_teacher_id)
-            await upd.execute()
+            with system_context():
+                upd = _atable("exam_sessions").update({"room_cam_status": "offline"})\
+                    .eq("session_key", session_id)
+                if sess_teacher_id:
+                    upd = upd.eq("teacher_id", sess_teacher_id)
+                await upd.execute()
         except Exception:
             logger.warning("sse: room_cam_status='offline' update failed", exc_info=True)
 

@@ -14,6 +14,9 @@
        the kiosk CSP with no relaxation. They define window.CMEditor and
        window.runTestCases; harmless no-ops for exams without coding questions. -->
   <script src="codemirror.bundle.js"></script>
+  <!-- Sucrase: pure-JS TypeScript->JS transpiler (no WASM), used by
+       coding-runtime to run TS through the JS worker path. -->
+  <script src="sucrase.bundle.js"></script>
   <script src="coding-runtime.js"></script>
   <script src="coding-ui.js"></script>
   <style>

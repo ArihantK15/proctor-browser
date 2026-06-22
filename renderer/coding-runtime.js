@@ -1,5 +1,7 @@
 /*
- * coding-runtime.js — Edge Compiler client runtime API. Phase 1: JavaScript ONLY.
+ * coding-runtime.js — Edge Compiler client runtime API.
+ * Languages: JavaScript, and TypeScript (transpiled to JS via sucrase on the
+ * main thread, then run through the JS path — the worker stays JS-only).
  *
  * Runs UNTRUSTED student code in a nullified SAME-ORIGIN Web Worker
  * (coding-worker.js), one test at a time, with a MAIN-THREAD wall-clock
@@ -22,7 +24,9 @@
   'use strict';
 
   var DEFAULT_LIMIT_MS = 2000;
-  var SUPPORTED = { javascript: true, js: true };
+  // TypeScript is supported by transpiling to JS on the main thread (sucrase)
+  // and running the result through the same JS worker path — see runTestCases.
+  var SUPPORTED = { javascript: true, js: true, typescript: true, ts: true };
   // Same-origin flat file (the procta-lobby protocol serves renderer/<name>).
   // Resolved relative to the page, so procta-lobby://exam/coding-worker.js.
   var WORKER_URL = 'coding-worker.js';
@@ -95,6 +99,29 @@
     }
     if (!Array.isArray(stdins)) stdins = [];
     source = source == null ? '' : String(source);
+
+    // TypeScript: transpile to JS once, on the main thread, via the bundled
+    // sucrase (window.transformTS from sucrase.bundle.js). The worker only ever
+    // sees JS, so coding-worker.js needs no TS awareness. A compile error fails
+    // every test with the compiler message (matches how runtime errors surface).
+    if (lang === 'typescript' || lang === 'ts') {
+      var transformTS = global.transformTS;
+      if (typeof transformTS !== 'function') {
+        return Promise.reject(new Error(
+          'coding-runtime: TypeScript transpiler not loaded (sucrase.bundle.js)'));
+      }
+      try {
+        source = String(transformTS(source));
+      } catch (e) {
+        var msg = 'TypeScript compile error: ' + (e && e.message ? e.message : e);
+        var failOutputs = [], failMetrics = [];
+        stdins.forEach(function () {
+          failOutputs.push('');
+          failMetrics.push({ time_ms: 0, mem_kb: null, timed_out: false, error: msg });
+        });
+        return Promise.resolve({ outputs: failOutputs, metrics: failMetrics });
+      }
+    }
 
     var outputs = [];
     var metrics = [];

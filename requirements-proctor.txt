@@ -42,7 +42,7 @@ numpy>=1.24.0,<3
 insightface>=0.7.3,<0.8
 sounddevice>=0.5.5
 requests>=2.34.2
-websocket-client>=1.6.0
+websocket-client>=1.9.0
 # psutil — used by proctor.py's adaptive _HardwareGovernor to read
 # CPU% every 5 s and back off the per-frame cadence when the student's
 # laptop is heat-throttling. Soft-imported; if it's missing the

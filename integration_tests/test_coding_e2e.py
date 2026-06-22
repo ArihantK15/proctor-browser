@@ -41,10 +41,14 @@ async def _teacher(tid: str, org_id: str = None) -> None:
     }).execute()
 
 
-async def _org(oid: str) -> None:
+async def _org(oid_label: str) -> str:
+    """organizations.id is a UUID; derive a stable one from the human label so
+    callers can pass readable names. Returns the UUID for FK use by _teacher."""
+    oid = str(uuid.uuid5(uuid.NAMESPACE_DNS, oid_label))
     await async_table("organizations").insert({
-        "id": oid, "name": f"Org {oid[:8]}", "slug": oid[:8],
+        "id": oid, "name": f"Org {oid_label}", "slug": oid_label[:20],
     }).execute()
+    return oid
 
 
 async def _exam(teacher_id: str, exam_id: str) -> None:
@@ -60,15 +64,15 @@ async def _exam(teacher_id: str, exam_id: str) -> None:
 async def _question(teacher_id: str, exam_id: str, qid: str,
                     qtype: str = "coding", options: dict = None,
                     correct: str = "") -> str:
-    """Insert a question with an EXPLICIT UUID PK and return it. The whole coding
-    chain keys on questions.id (scoring matches q['id'], the judge stores
-    coding_submissions.question_id from the renderer's q.id, testcases are queried
-    by q.id) — so callers that score MUST key coding_test_cases / coding_submissions
-    on this returned PK, not on the human `qid` label."""
+    """Insert a question and return the key the whole coding chain agrees on: the
+    `question_id` LABEL. load_questions REMAPS each row to id = str(question_id),
+    so the renderer's q.id, the judge-stored coding_submissions.question_id, and
+    scoring's q['id'] are ALL the label — NOT the UUID PK. So coding_test_cases /
+    coding_submissions MUST be keyed on `qid` (the label), which is what this
+    returns. (Earlier this set an explicit UUID PK and returned it — that
+    mismatched load_questions and made coding score 0; reverted.)"""
     opts = options or {}
-    pk = str(uuid.uuid4())
     await async_table("questions").insert({
-        "id": pk,
         "teacher_id": teacher_id,
         "exam_id": exam_id,
         "question_id": qid,
@@ -77,7 +81,7 @@ async def _question(teacher_id: str, exam_id: str, qid: str,
         "options": json.dumps(opts),
         "correct": correct,
     }).execute()
-    return pk
+    return qid
 
 
 async def _tc(teacher_id: str, question_id: str, idx: int,
@@ -253,9 +257,9 @@ class TestCodingE2E:
         session_a = "S_coding_rls_a"
         session_b = "S_coding_rls_b"
 
-        await _org("org-e2e-2")
-        await _teacher(TID_A, "org-e2e-2")
-        await _teacher(TID_B, "org-e2e-2")
+        org = await _org("org-e2e-2")
+        await _teacher(TID_A, org)
+        await _teacher(TID_B, org)
         await _exam(TID_A, exam_a)
         await _exam(TID_B, exam_b)
         await _question(TID_A, exam_a, qid, "coding", {"marks": 1})

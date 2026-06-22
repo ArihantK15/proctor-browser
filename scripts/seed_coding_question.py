@@ -84,15 +84,14 @@ async def main():
         except Exception as e:
             print(f"[seed] exam_config insert (may already exist): {e}")
 
+    # The whole coding chain keys on the questions.question_id LABEL — load_questions
+    # REMAPS each row to id = str(question_id), so the renderer's q.id, the judge-
+    # stored coding_submissions.question_id, and scoring's q['id'] are ALL this label
+    # (NOT the UUID PK). So coding_test_cases.question_id MUST be this label. The
+    # uuid suffix keeps the label unique. (Earlier this keyed on an explicit UUID PK
+    # — that mismatched load_questions and made testcase lookup + scoring fail.)
     qid = f"coding-sum-{uuid.uuid4().hex[:8]}"
-    # The whole coding chain keys on the questions PK `id` (UUID): scoring matches
-    # q["id"], the judge stores coding_submissions.question_id from the renderer's
-    # q.id, and the renderer queries /coding/testcases by q.id. So set the PK
-    # explicitly here and key coding_test_cases.question_id on it (NOT on the
-    # human `question_id` field) — otherwise testcase lookup and scoring disagree.
-    q_pk = str(uuid.uuid4())
     question_row = {
-        "id": q_pk,
         "teacher_id": tid,
         "exam_id": eid,
         "question_id": qid,
@@ -121,7 +120,7 @@ async def main():
                   f"Node.js may not be installed. Using placeholder '0'.")
             expected = "0"
         tc_row = {
-            "question_id": q_pk,   # key on the questions PK (see q_pk note above)
+            "question_id": qid,   # key on the question_id LABEL (see note above)
             "teacher_id": tid,
             "idx": tc["idx"],
             "input": tc["input"],
@@ -134,14 +133,13 @@ async def main():
     print(f"\n[seed] DONE!")
     print(f"  Teacher ID  : {tid}")
     print(f"  Exam ID     : {eid}")
-    print(f"  Question PK  : {q_pk}   (the id the renderer/judge/scoring all use)")
-    print(f"  question_id  : {qid}   (human label field)")
+    print(f"  question_id  : {qid}   (the key renderer/judge/scoring all use)")
     print(f"  Type        : coding (Sum of Two Numbers)")
     print(f"  Test cases  : {len(TEST_CASES)} ({sum(1 for t in TEST_CASES if t['visibility']=='sample')} sample, "
           f"{sum(1 for t in TEST_CASES if t['visibility']=='hidden')} hidden)")
     print(f"\nTo test with curl:")
     print(f"  curl -H 'Authorization: Bearer <student-token>' \\")
-    print(f"    'http://localhost:8000/api/v1/coding/testcases?session_id=TEST&question_id={q_pk}'")
+    print(f"    'http://localhost:8000/api/v1/coding/testcases?session_id=TEST&question_id={qid}'")
     print()
 
 

@@ -5137,7 +5137,8 @@ async function savePhoneCamConfig(){
 }
 
 // ── QUESTIONS EDITOR ────────────────────────────────────────────
-let qData = [];       // array of question objects (with correct answers)
+let qData = [];       // array of question objects (with correct answers) — excludes coding
+let _codingQuestions = []; // array of coding question summaries {id,question,options,...}
 let qPreviewMode = false;
 let qDirty = false;   // unsaved changes flag
 
@@ -5161,7 +5162,16 @@ async function loadQuestions(){
     const r = await authFetch(`${BASE}/api/v1/admin/questions${_examQuery('?')}`);
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    qData = d.questions || [];
+    const allQuestions = d.questions || [];
+    qData = [];
+    _codingQuestions = [];
+    for(const q of allQuestions){
+      if((q.question_type||'').toLowerCase()==='coding'){
+        _codingQuestions.push(q);
+      }else{
+        qData.push(q);
+      }
+    }
     document.getElementById('q-title').value = d.exam_title || '';
     document.getElementById('q-duration').value = d.duration_minutes || 60;
     qDirty = false;
@@ -5234,6 +5244,334 @@ function qBuildImageUrl(u){
   // blob fetched via authFetch so we never leak the token into the DOM.
   return u;
 }
+
+// ── CODING QUESTION AUTHORING FORM ───────────────────────────────
+let _editingCodingId = null;   // question_id string when editing existing
+
+function showCodingForm(questionId){
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
+  _editingCodingId = questionId ? String(questionId) : null;
+  _codingResetForm();
+  document.getElementById('coding-ai-banner-area').innerHTML = '';
+  document.getElementById('coding-gen-panel-area').innerHTML = '';
+  document.getElementById('coding-ref-solution-area').style.display = 'none';
+  document.getElementById('coding-form-title').textContent = questionId ? 'Edit Coding Question' : 'New Coding Question';
+  document.getElementById('coding-save-msg').textContent = '';
+  if(questionId){
+    _loadCodingForEdit(questionId);
+  }else{
+    codingAddTestCase();
+  }
+  document.getElementById('coding-form-overlay').style.display = 'flex';
+}
+
+function hideCodingForm(){
+  document.getElementById('coding-form-overlay').style.display = 'none';
+  _editingCodingId = null;
+}
+
+function _codingResetForm(){
+  document.getElementById('coding-statement').value = '';
+  _codingSetLangs(['javascript']);
+  document.getElementById('coding-marks').value = 10;
+  document.getElementById('coding-marks-policy').value = 'partial';
+  document.getElementById('coding-time-limit').value = 5000;
+  document.getElementById('coding-starter-code').value = '';
+  const tbody = document.getElementById('coding-tc-tbody');
+  if(tbody) tbody.innerHTML = '';
+  document.getElementById('coding-ref-solution-code').textContent = '';
+  document.getElementById('coding-ref-solution-area').style.display = 'none';
+  _updateTcHint();
+}
+
+function _codingSetLangs(arr){
+  const hidden = document.getElementById('coding-langs');
+  hidden.value = JSON.stringify(arr);
+  document.querySelectorAll('#coding-lang-chips .lang-chip').forEach(el => {
+    el.classList.toggle('selected', arr.includes(el.dataset.lang));
+  });
+}
+
+function codingToggleLang(lang){
+  const hidden = document.getElementById('coding-langs');
+  const current = JSON.parse(hidden.value || '[]');
+  const idx = current.indexOf(lang);
+  if(idx >= 0) current.splice(idx, 1);
+  else current.push(lang);
+  _codingSetLangs(current);
+}
+
+function codingAddTestCase(){
+  const tbody = document.getElementById('coding-tc-tbody');
+  const idx = tbody.children.length;
+  const tr = document.createElement('tr');
+  tr.dataset.tcidx = idx;
+  tr.innerHTML = `<td style="text-align:center;color:var(--text-muted);font-size:10px">${idx+1}</td>
+    <td><textarea rows="2" class="tc-input" placeholder="stdin input"></textarea></td>
+    <td><textarea rows="2" class="tc-expected" placeholder="expected stdout"></textarea></td>
+    <td><select class="tc-visibility" data-change-action="_updateTcHint">
+      <option value="sample">Sample</option>
+      <option value="hidden" selected>Hidden</option>
+    </select></td>
+    <td><input type="text" class="tc-float-tol" placeholder="±" style="width:60px;font-size:11px"></td>
+    <td><button class="tc-row-remove" data-action="codingRemoveTestCase" data-args='${_jsonArgsForAttr(idx)}' title="Remove">×</button></td>`;
+  tbody.appendChild(tr);
+  _updateTcHint();
+}
+
+function codingRemoveTestCase(idx){
+  const tbody = document.getElementById('coding-tc-tbody');
+  const row = tbody.querySelector(`tr[data-tcidx="${idx}"]`);
+  if(row) row.remove();
+  _renumberTcRows();
+  _updateTcHint();
+}
+
+function _renumberTcRows(){
+  const tbody = document.getElementById('coding-tc-tbody');
+  Array.from(tbody.children).forEach((tr, i) => {
+    tr.dataset.tcidx = i;
+    const td = tr.querySelector('td:first-child');
+    if(td) td.textContent = i + 1;
+    const btn = tr.querySelector('.tc-row-remove');
+    if(btn) btn.setAttribute('data-args', _jsonArgsForAttr(i));
+  });
+}
+
+function _updateTcHint(){
+  const tbody = document.getElementById('coding-tc-tbody');
+  const hidden = Array.from(tbody.querySelectorAll('.tc-visibility'))
+    .filter(sel => sel.value === 'hidden').length;
+  const hint = document.getElementById('coding-tc-hint');
+  if(hint){
+    hint.textContent = hidden === 0 ? 'needs ≥1 hidden case' : `${hidden} hidden, ${(tbody.children.length||0)-hidden} sample`;
+    hint.style.color = hidden === 0 ? 'var(--sev-error-fg)' : 'var(--text-muted)';
+  }
+}
+
+async function _loadCodingForEdit(questionId){
+  const saveMsg = document.getElementById('coding-save-msg');
+  saveMsg.textContent = 'Loading...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/coding-question?question_id=${encodeURIComponent(questionId)}`);
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      saveMsg.textContent = _detailText(d, 'Failed to load coding question');
+      return;
+    }
+    const data = await r.json();
+    _codingPopulateForm(data);
+    saveMsg.textContent = '';
+  }catch(e){
+    saveMsg.textContent = 'Load failed';
+  }
+}
+
+function _codingPopulateForm(data){
+  document.getElementById('coding-statement').value = data.question || '';
+  const opts = data.options || {};
+  _codingSetLangs(opts.allowed_languages || ['javascript']);
+  document.getElementById('coding-marks').value = opts.marks || 10;
+  document.getElementById('coding-marks-policy').value = (opts.marks_policy || 'partial');
+  document.getElementById('coding-time-limit').value = opts.time_limit_ms || 5000;
+  document.getElementById('coding-starter-code').value = opts.starter_code || '';
+  codingRenderTestCases(data.test_cases || []);
+  if(data.reference_solution){
+    document.getElementById('coding-ref-solution-code').textContent = data.reference_solution;
+    document.getElementById('coding-ref-solution-area').style.display = '';
+  }
+}
+
+function codingRenderTestCases(cases){
+  const tbody = document.getElementById('coding-tc-tbody');
+  tbody.innerHTML = '';
+  cases.forEach((c, i) => {
+    const tr = document.createElement('tr');
+    tr.dataset.tcidx = i;
+    tr.innerHTML = `<td style="text-align:center;color:var(--text-muted);font-size:10px">${i+1}</td>
+      <td><textarea rows="2" class="tc-input">${_escHtml(c.input||'')}</textarea></td>
+      <td><textarea rows="2" class="tc-expected">${_escHtml(c.expected_output||'')}</textarea></td>
+      <td><select class="tc-visibility">
+        <option value="sample" ${c.visibility==='sample'?'selected':''}>Sample</option>
+        <option value="hidden" ${c.visibility==='hidden'?'selected':''}>Hidden</option>
+      </select></td>
+      <td><input type="text" class="tc-float-tol" placeholder="±" style="width:60px;font-size:11px"
+        value="${c.float_tolerance!=null ? _escAttr(String(c.float_tolerance)) : ''}"></td>
+      <td><button class="tc-row-remove" data-action="codingRemoveTestCase" data-args='${_jsonArgsForAttr(i)}' title="Remove">×</button></td>`;
+    tbody.appendChild(tr);
+  });
+  _updateTcHint();
+}
+
+function _codingCollectForm(){
+  const statement = document.getElementById('coding-statement').value.trim();
+  const langs = JSON.parse(document.getElementById('coding-langs').value || '[]');
+  const marks = parseInt(document.getElementById('coding-marks').value, 10) || 1;
+  const marksPolicy = document.getElementById('coding-marks-policy').value;
+  const timeLimitMs = parseInt(document.getElementById('coding-time-limit').value, 10) || 5000;
+  const starterCode = document.getElementById('coding-starter-code').value;
+  const tbody = document.getElementById('coding-tc-tbody');
+  const testCases = [];
+  Array.from(tbody.children).forEach((tr, i) => {
+    const input = tr.querySelector('.tc-input').value;
+    const expected = tr.querySelector('.tc-expected').value;
+    const visibility = tr.querySelector('.tc-visibility').value;
+    const ftRaw = tr.querySelector('.tc-float-tol').value.trim();
+    const floatTolerance = ftRaw ? parseFloat(ftRaw) : undefined;
+    testCases.push({idx: i, input, expected_output: expected, visibility, ...(floatTolerance !== undefined ? {float_tolerance: floatTolerance} : {})});
+  });
+  const errors = [];
+  if(!statement) errors.push('Problem statement is required.');
+  if(!langs.length) errors.push('At least one language must be selected.');
+  if(marks < 1 || marks > 100) errors.push('Marks must be between 1 and 100.');
+  if(!['partial','all_or_nothing'].includes(marksPolicy)) errors.push('Invalid marks policy.');
+  if(timeLimitMs < 500 || timeLimitMs > 15000) errors.push('Time limit must be 500-15000 ms.');
+  if(!testCases.length) errors.push('At least one test case is required.');
+  const hidden = testCases.filter(c => c.visibility === 'hidden').length;
+  if(!hidden) errors.push('At least one hidden test case is required.');
+  if(testCases.length > 50) errors.push('Maximum 50 test cases.');
+  for(let i=0;i<testCases.length;i++){
+    if(!testCases[i].expected_output) errors.push(`Test case ${i+1}: expected_output is required.`);
+  }
+  return {statement, langs, marks, marksPolicy, timeLimitMs, starterCode, testCases, errors};
+}
+
+async function codingSave(){
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
+  const saveMsg = document.getElementById('coding-save-msg');
+  const {statement, langs, marks, marksPolicy, timeLimitMs, starterCode, testCases, errors} = _codingCollectForm();
+  if(errors.length){
+    saveMsg.innerHTML = `<span style="color:var(--red)">${_escHtml(errors.join('; '))}</span>`;
+    return;
+  }
+  const payload = {
+    exam_id: currentExamId,
+    question: statement,
+    options: {
+      allowed_languages: langs,
+      marks,
+      marks_policy: marksPolicy,
+      time_limit_ms: timeLimitMs,
+      starter_code: starterCode,
+    },
+    test_cases: testCases.map(({idx, input, expected_output, visibility, float_tolerance}) => ({
+      input, expected_output, visibility, ...(float_tolerance !== undefined ? {float_tolerance} : {}),
+    })),
+  };
+  if(_editingCodingId) payload.question_id = _editingCodingId;
+  saveMsg.innerHTML = '<span class="spinner"></span> Saving...';
+  try{
+    const method = _editingCodingId ? 'PUT' : 'POST';
+    const r = await authFetch(`${BASE}/api/v1/admin/coding-question`, {method, body: JSON.stringify(payload)});
+    const d = await r.json();
+    if(!r.ok){
+      saveMsg.innerHTML = `<span style="color:var(--red)">${_escHtml(_detailText(d, 'Save failed'))}</span>`;
+      return;
+    }
+    saveMsg.innerHTML = `<span style="color:var(--emerald)">Saved! Question ID: ${_escHtml(d.question_id)} (${d.test_cases} cases, ${d.sample} sample / ${d.hidden} hidden)</span>`;
+    hideCodingForm();
+    loadQuestions();
+  }catch(e){
+    saveMsg.innerHTML = `<span style="color:var(--red)">Save failed: ${_escHtml(e.message)}</span>`;
+  }
+}
+
+function editCodingQuestion(questionId){
+  showCodingForm(questionId);
+}
+
+// ── Coding AI Generation ─────────────────────────────────────────
+function codingShowGenPrompt(){
+  const area = document.getElementById('coding-gen-panel-area');
+  if(area.innerHTML){
+    area.innerHTML = '';
+    return;
+  }
+  area.innerHTML = `<div class="coding-gen-panel">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div>
+        <label for="coding-gen-topic">Topic *</label>
+        <input type="text" id="coding-gen-topic" placeholder="e.g. binary search, array sorting">
+      </div>
+      <div>
+        <label for="coding-gen-difficulty">Difficulty</label>
+        <select id="coding-gen-difficulty">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div>
+        <label for="coding-gen-language">Language</label>
+        <select id="coding-gen-language">
+          <option value="javascript">JavaScript</option>
+          <option value="typescript">TypeScript</option>
+          <option value="python">Python</option>
+        </select>
+      </div>
+      <div>
+        <label for="coding-gen-grade">Grade Level (optional)</label>
+        <input type="text" id="coding-gen-grade" placeholder="e.g. grade 10, university">
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <button class="modal-btn" id="coding-gen-btn" data-action="codingGenerateWithAI">Generate</button>
+      <span id="coding-gen-status" style="font-size:12px;color:var(--text-muted)"></span>
+    </div>
+  </div>`;
+}
+
+function codingHideGenPrompt(){
+  document.getElementById('coding-gen-panel-area').innerHTML = '';
+}
+
+async function codingGenerateWithAI(){
+  const topic = document.getElementById('coding-gen-topic').value.trim();
+  const difficulty = document.getElementById('coding-gen-difficulty').value;
+  const language = document.getElementById('coding-gen-language').value;
+  const grade = document.getElementById('coding-gen-grade').value.trim();
+  const status = document.getElementById('coding-gen-status');
+  const btn = document.getElementById('coding-gen-btn');
+  if(!topic){ status.style.color='var(--red)'; status.textContent='Topic required.'; return; }
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  status.style.color = 'var(--text-muted)';
+  status.textContent = 'Calling AI...';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/coding-question/generate`, {
+      method:'POST',
+      body: JSON.stringify({topic, difficulty, language, grade_level: grade || undefined}),
+    });
+    const data = await r.json();
+    if(!r.ok){
+      if(r.status === 503){
+        status.style.color='var(--red)';
+        status.textContent = 'AI generation is not configured.';
+        return;
+      }
+      status.style.color='var(--red)';
+      status.textContent = _detailText(data, 'Generation failed.');
+      return;
+    }
+    _codingPopulateForm(data);
+    document.getElementById('coding-ai-banner-area').innerHTML = `<div class="coding-ai-banner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01"/><circle cx="12" cy="12" r="10"/></svg>
+      <span><strong>AI-drafted</strong> — verify expected outputs before saving. Review each test case carefully.</span>
+    </div>`;
+    status.style.color = 'var(--emerald)';
+    status.textContent = 'Form prefilled from AI draft.';
+  }catch(e){
+    status.style.color='var(--red)';
+    status.textContent = 'Network error.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Generate';
+  }
+}
+
+// ── End coding question authoring ───────────────────────────────
 
 // Fetch authenticated image bytes and convert to a blob URL for <img>.
 const _qImgBlobCache = new Map();
@@ -6955,27 +7293,39 @@ function renderQSidebar(){
   const wrap = document.getElementById('q-list-wrap');
   const countEl = document.getElementById('q-list-count');
   if(!wrap) return;
-  if(countEl) countEl.textContent = qData.length;
-  if(!qData.length){
+  const total = qData.length + _codingQuestions.length;
+  if(countEl) countEl.textContent = total;
+  if(!total){
     wrap.innerHTML = '<div class="q-list-empty">No questions yet — click "Add" in the toolbar.</div>';
     return;
   }
   const searchEl = document.getElementById('q-list-search');
   const term = searchEl ? (searchEl.value||'').trim().toLowerCase() : '';
-  const filtered = qData.map((q,i) => ({...q, _idx:i})).filter(q => {
+  const filtered = qData.map((q,i) => ({...q, _idx:i, _isCoding:false})).filter(q => {
     if(_qListFilter === 'img'){ if(!q.image_url) return false; }
     else if(_qListFilter !== 'all'){
       if((q.question_type||'mcq_single') !== _qListFilter) return false;
     }
     if(term && !(q.question||'').toLowerCase().includes(term)) return false;
     return true;
-  });
+  }).concat(_codingQuestions.map((q,i) => ({...q, _idx:qData.length+i, _isCoding:true})).filter(q => {
+    if(_qListFilter !== 'all' && _qListFilter !== 'coding') return false;
+    if(term && !(q.question||'').toLowerCase().includes(term)) return false;
+    return true;
+  }));
   if(!filtered.length){
     wrap.innerHTML = '<div class="q-list-empty">No matching questions.</div>';
     return;
   }
   wrap.innerHTML = filtered.map(q => {
     const preview = (q.question||'(empty)').slice(0,80);
+    if(q._isCoding){
+      return `<div class="q-list-item" data-action="editCodingQuestion" data-args='${_jsonArgsForAttr(String(q.id))}'>
+        <span class="q-list-num">${q._idx+1}</span>
+        <span class="q-list-preview">${esc(preview)}</span>
+        <span class="coding-badge">code</span>
+      </div>`;
+    }
     return `<div class="q-list-item" data-action="qFocusCard" data-args='${_jsonArgsForAttr(q._idx)}' data-qidx="${q._idx}">
       <span class="q-list-num">${q._idx+1}</span>
       <span class="q-list-preview">${esc(preview)}</span>

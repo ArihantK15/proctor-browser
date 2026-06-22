@@ -241,6 +241,7 @@ CREATE TABLE IF NOT EXISTS exam_config (
   audio_keywords_language TEXT DEFAULT 'en',
   archived_at             TIMESTAMPTZ,
   pass_mark               SMALLINT NOT NULL DEFAULT 40,
+  coding_max_submit_attempts INTEGER NOT NULL DEFAULT 10,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (teacher_id, exam_id)
 );
@@ -451,4 +452,39 @@ CREATE TABLE IF NOT EXISTS google_classroom_links (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     teacher_id    UUID,
     classroom_id  TEXT
+);
+
+-- Edge Compiler (phase141). Plain fixture — no RLS here; is_fully_solved is a
+-- plain BOOLEAN (the migration computes it GENERATED, the fixture doesn't need to).
+CREATE TABLE IF NOT EXISTS coding_test_cases (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    question_id     TEXT NOT NULL,
+    teacher_id      UUID,
+    idx             INTEGER NOT NULL,
+    input           TEXT NOT NULL,
+    expected_output TEXT NOT NULL,
+    visibility      TEXT NOT NULL DEFAULT 'hidden',
+    float_tolerance DOUBLE PRECISION,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS coding_submissions (
+    id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    exam_id                   TEXT,
+    teacher_id                UUID,
+    session_id                TEXT,
+    student_id                UUID,
+    question_id               TEXT,
+    language                  TEXT,
+    test_cases_total          INTEGER,
+    test_cases_passed         INTEGER,
+    is_fully_solved           BOOLEAN GENERATED ALWAYS AS
+                                (test_cases_total > 0 AND test_cases_passed = test_cases_total) STORED,
+    average_execution_ms      INTEGER,
+    memory_consumed_kb        INTEGER,
+    source_code               TEXT,
+    keystroke_rhythm_variance DOUBLE PRECISION,
+    paste_attempts            INTEGER DEFAULT 0,
+    focus_loss_count          INTEGER DEFAULT 0,
+    submitted_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );

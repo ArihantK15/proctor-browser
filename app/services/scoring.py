@@ -139,13 +139,60 @@ async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: 
     for attempt in range(2):
         try:
             questions = await load_questions(teacher_id, exam_id=exam_id)
-            auto_qs = [q for q in questions if str(q.get("question_type") or "mcq_single").lower() != "short_answer"]
-            total = len(auto_qs)
+
+            # Split auto-graded questions into MCQ (answers_match path) and
+            # coding (coding_submissions path). The MCQ path below is kept
+            # byte-for-byte unchanged — only the question list is filtered.
+            mcq_qs = [
+                q for q in questions
+                if str(q.get("question_type") or "mcq_single").lower()
+                   not in ("short_answer", "coding")
+            ]
+            coding_qs = [
+                q for q in questions
+                if str(q.get("question_type") or "").lower() == "coding"
+            ]
+
+            # ── MCQ scoring (unchanged) ────────────────────────────────
+            mcq_total = len(mcq_qs)
             saved = await _atable("answers").select("question_id,answer").eq("session_key", session_id).execute()
             ans_map = {str(r["question_id"]): str(r["answer"]) for r in (saved.data or [])}
             for qid, ans in (payload_answers or {}).items():
                 ans_map[str(qid)] = await canonicalise_student_answer(session_id, str(teacher_id or ""), str(qid), str(ans), exam_id=exam_id)
-            score = sum(1 for q in auto_qs if answers_match(ans_map.get(str(q["id"]), ""), str(q["correct"])))
+            mcq_score = sum(1 for q in mcq_qs if answers_match(ans_map.get(str(q["id"]), ""), str(q["correct"])))
+
+            # ── Coding scoring ─────────────────────────────────────────
+            coding_score = 0
+            coding_total = 0
+            if coding_qs:
+                # ORDER BY submitted_at so the "last wins" loop below truly keeps
+                # the CHRONOLOGICALLY LATEST submission per question. Without the
+                # order, row order is undefined and a re-submission could score a
+                # stale/worse attempt nondeterministically.
+                subs_rows = (await _atable("coding_submissions")
+                             .select("question_id,test_cases_passed,test_cases_total,submitted_at")
+                             .eq("session_id", session_id)
+                             .order("submitted_at").execute()).data or []
+                sub_map: dict[str, dict] = {}
+                for s in subs_rows:
+                    sub_map[str(s["question_id"])] = s  # last wins = latest by submitted_at
+                for q in coding_qs:
+                    opts = q.get("options") or {}
+                    marks = int(opts.get("marks") or 1)
+                    marks_policy = str(opts.get("marks_policy") or "partial").lower()
+                    coding_total += marks
+                    sub = sub_map.get(str(q["id"]))
+                    if sub is None:
+                        continue  # no submission → 0 marks
+                    passed = int(sub.get("test_cases_passed") or 0)
+                    total_tcs = int(sub.get("test_cases_total") or 1)
+                    if marks_policy == "all_or_nothing":
+                        coding_score += marks if passed >= total_tcs else 0
+                    else:
+                        coding_score += round((passed / max(total_tcs, 1)) * marks, 2)
+
+            score = mcq_score + int(round(coding_score))
+            total = mcq_total + coding_total
             return score, total
         except Exception as e:
             last_err = e

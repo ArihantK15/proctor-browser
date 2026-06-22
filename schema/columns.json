@@ -142,6 +142,7 @@
     "archived_at",
     "audio_keywords",
     "audio_keywords_language",
+    "coding_max_submit_attempts",
     "created_at",
     "duration_minutes",
     "early_join_minutes",
@@ -547,5 +548,35 @@
     "razorpay_addon_id",
     "status",
     "students_used"
+  ],
+  "coding_test_cases": [
+    "created_at",
+    "expected_output",
+    "float_tolerance",
+    "id",
+    "idx",
+    "input",
+    "question_id",
+    "teacher_id",
+    "visibility"
+  ],
+  "coding_submissions": [
+    "average_execution_ms",
+    "exam_id",
+    "focus_loss_count",
+    "id",
+    "is_fully_solved",
+    "keystroke_rhythm_variance",
+    "language",
+    "memory_consumed_kb",
+    "paste_attempts",
+    "question_id",
+    "session_id",
+    "source_code",
+    "student_id",
+    "submitted_at",
+    "teacher_id",
+    "test_cases_passed",
+    "test_cases_total"
   ]
 }

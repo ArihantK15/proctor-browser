@@ -15,7 +15,7 @@ _EXAM_CONFIG_COLUMNS = (
     "starts_at,ends_at,shuffle_questions,shuffle_options,"
     "phone_camera_enabled,proctoring_sensitivity,"
     "audio_keywords,audio_keywords_language,archived_at,"
-    "created_at,pass_mark,early_join_minutes"
+    "created_at,pass_mark,early_join_minutes,coding_max_submit_attempts"
 )
 
 try:
@@ -58,7 +58,7 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
         # optionless MCQ the student can't answer — and (b) defeats the
         # scoring filter that excludes short_answer from auto-grading.
         qtype = (q.get("question_type") or "mcq_single").strip().lower()
-        if qtype not in ("mcq_single", "mcq_multi", "true_false", "short_answer", "numeric"):
+        if qtype not in ("mcq_single", "mcq_multi", "true_false", "short_answer", "numeric", "coding"):
             qtype = "mcq_single"
         # `options` lands as a dict on Supabase REST (PostgREST decodes
         # jsonb → object) but as a JSON-encoded string on the plain

@@ -8,6 +8,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
+  <!-- Edge Compiler (coding questions): bundled CodeMirror 6 editor + the
+       sandboxed JS runtime. Both are flat same-origin files under renderer/
+       (the procta-lobby protocol serves renderer/<name>), so they load under
+       the kiosk CSP with no relaxation. They define window.CMEditor and
+       window.runTestCases; harmless no-ops for exams without coding questions. -->
+  <script src="codemirror.bundle.js"></script>
+  <script src="coding-runtime.js"></script>
+  <script src="coding-ui.js"></script>
   <style>
     /* ── Renderer design tokens (Phase 2.14) ──────────────────────
        The Electron renderer can't load tokens.css over the network
@@ -2282,7 +2290,7 @@ function buildGrid(){
 // the same save/submit pipeline as the server already expects.
 function qNormType(q){
   const t=(q&&q.question_type||'mcq_single').toString().toLowerCase();
-  return ['mcq_single','mcq_multi','true_false','short_answer','numeric'].includes(t)?t:'mcq_single';
+  return ['mcq_single','mcq_multi','true_false','short_answer','numeric','coding'].includes(t)?t:'mcq_single';
 }
 function ansSet(qid){
   const v = answers[qid];
@@ -2415,6 +2423,15 @@ function renderQ(){
       if(d) d.className=dotClass(curQ);
     });
     o.appendChild(ni);
+    document.getElementById('btn-prev').disabled=curQ===0;
+    const last=curQ===questions.length-1;
+    document.getElementById('btn-next').style.display=last?'none':'inline-block';
+    document.getElementById('btn-sub').style.display=last?'inline-block':'none';
+    refreshDots();
+    return;
+  }
+  if(qtype==='coding'){
+    _renderCodingQuestion(o, q);
     document.getElementById('btn-prev').disabled=curQ===0;
     const last=curQ===questions.length-1;
     document.getElementById('btn-next').style.display=last?'none':'inline-block';

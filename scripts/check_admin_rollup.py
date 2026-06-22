@@ -104,6 +104,9 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("question_bank.py", "export_bank_questions"): "exports own bank library",
     ("question_bank.py", "list_question_versions"): "own-scoped version history",
     ("question_bank.py", "restore_question_version"): "own-scoped version restore",
+    # ── coding-question authoring (own content, same as the question bank) ──
+    ("admin_coding.py", "get_coding_question"):    "loads own coding question for the authoring form — private library",
+    ("admin_coding.py", "upsert_coding_question"): "creates/edits own coding question — owner-only mutation",
 }
 
 

@@ -15,7 +15,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@sentry/react": "^10.58.0",
+    "@sentry/react": "^10.59.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

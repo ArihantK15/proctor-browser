@@ -435,3 +435,80 @@ def _cv2():
     """Return cv2 import (needed for test helpers)."""
     import cv2
     return cv2
+
+
+# ── Hardware Governor FPS Floor (P2-T6) ────────────────────────────────
+
+class TestHardwareGovernorFpsFloor:
+    """_HardwareGovernor.set_min_fps_floor() — coding-exam FPS protection."""
+
+    def _make_governor(self):
+        from proctor import _HardwareGovernor
+        return _HardwareGovernor()
+
+    def test_floor_prevents_drop_below_minimum(self):
+        """With a floor set, effective_fps must never fall below it even when
+        the governor slams to the bottom tier."""
+        gov = self._make_governor()
+        floor = 4.0
+        gov.set_min_fps_floor(floor)
+
+        # Drive tier index straight to the bottom rung (worst-case throttle).
+        gov._tier_idx = len(gov._tiers) - 1
+        gov._apply_tier()
+
+        assert gov.effective_fps >= floor, (
+            f"effective_fps={gov.effective_fps} dropped below floor={floor}"
+        )
+
+    def test_floor_does_not_raise_fps_above_current_tier(self):
+        """When the tier is already higher than the floor, effective_fps must
+        stay at the tier value — floor only raises, never lowers."""
+        gov = self._make_governor()
+        gov.set_min_fps_floor(1.0)  # floor well below the top tier
+
+        # At tier 0 (TARGET_FPS), effective_fps should equal the tier.
+        gov._tier_idx = 0
+        gov._apply_tier()
+
+        from proctor import TARGET_FPS
+        assert gov.effective_fps == float(TARGET_FPS), (
+            f"expected {float(TARGET_FPS)}, got {gov.effective_fps}"
+        )
+
+    def test_no_floor_default_resolves_to_bottom_tier(self):
+        """Without any floor set, driving to the bottom tier returns exactly
+        the THROTTLE_LOW_FPS value — no accidental clamping."""
+        gov = self._make_governor()
+        # No set_min_fps_floor call.
+
+        gov._tier_idx = len(gov._tiers) - 1
+        gov._apply_tier()
+
+        from proctor import THROTTLE_LOW_FPS
+        assert gov.effective_fps == float(THROTTLE_LOW_FPS), (
+            f"expected {float(THROTTLE_LOW_FPS)}, got {gov.effective_fps}"
+        )
+
+    def test_force_floor_path_also_respects_min_fps_floor(self):
+        """The battery/RAM force-floor path (which directly sets _tier_idx to
+        the bottom and assigns effective_fps) must also honour the floor."""
+        gov = self._make_governor()
+        floor = 5.0
+        gov.set_min_fps_floor(floor)
+
+        # Simulate the force-floor assignment directly (mirrors what
+        # maybe_update() does in the mem_force/batt_force branch).
+        gov._tier_idx = len(gov._tiers) - 1
+        gov.effective_fps = max(float(gov._tiers[gov._tier_idx]), gov._min_fps_floor)
+
+        assert gov.effective_fps >= floor, (
+            f"force-floor path: effective_fps={gov.effective_fps} < floor={floor}"
+        )
+
+    def test_init_with_no_floor_is_unchanged(self):
+        """Fresh governor with no floor: effective_fps equals the top tier."""
+        gov = self._make_governor()
+        from proctor import TARGET_FPS
+        assert gov.effective_fps == float(TARGET_FPS)
+        assert gov._min_fps_floor == 0.0

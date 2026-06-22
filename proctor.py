@@ -985,7 +985,8 @@ class _HardwareGovernor:
                  "_throttled", "_on_transition", "_thermal_pressure",
                  "_thermal_executor", "_thermal_future",
                  "_tiers", "_tier_idx",
-                 "_on_battery", "_battery_pct", "_rss_mb")
+                 "_on_battery", "_battery_pct", "_rss_mb",
+                 "_min_fps_floor")
 
     def __init__(self, on_transition=None):
         # Graceful-degradation ladder: descending fps rungs from TARGET_FPS down
@@ -1002,6 +1003,7 @@ class _HardwareGovernor:
                 tiers.append(_t)
         self._tiers = tiers          # descending; index 0 = TARGET_FPS
         self._tier_idx = 0
+        self._min_fps_floor = 0.0   # default: no floor (coding exam sets via set_min_fps_floor)
         self.effective_fps = float(self._tiers[0])
         self._hi_streak = 0
         self._lo_streak = 0
@@ -1117,6 +1119,30 @@ class _HardwareGovernor:
         except Exception:
             return None
 
+    # ── FPS floor (coding exam protection) ──────────────────────────────
+
+    def set_min_fps_floor(self, fps: float) -> None:
+        """Set a minimum effective-fps floor.
+
+        Coding exams call this after governor construction so that a WASM
+        Run/Submit burst can never throttle proctoring below ``fps``.  The
+        floor only *raises* effective_fps — it will never lower a tier that
+        is already higher.  Default (0.0) is a no-op, so non-coding exams
+        are completely unaffected.
+        """
+        self._min_fps_floor = float(fps)
+        # Re-apply in case the governor is already at a throttled tier.
+        self._apply_tier()
+
+    def _apply_tier(self) -> None:
+        """Set effective_fps from the current tier index, clamped up to any
+        configured minimum floor.  All tier-index mutations must go through
+        here so the floor is always honoured."""
+        self.effective_fps = max(
+            float(self._tiers[self._tier_idx]),
+            self._min_fps_floor,
+        )
+
     def maybe_update(self):
         if not _PSUTIL_OK or THROTTLE_ENGAGE_PCT >= 100:
             return
@@ -1173,7 +1199,7 @@ class _HardwareGovernor:
         if mem_force or batt_force:
             if self._tier_idx < len(self._tiers) - 1:
                 self._tier_idx = len(self._tiers) - 1
-                self.effective_fps = float(self._tiers[self._tier_idx])
+                self._apply_tier()
                 self._throttled = True
                 self._notify(cpu)
             return
@@ -1218,7 +1244,7 @@ class _HardwareGovernor:
             self._tier_idx -= 1
             moved = True
         if moved:
-            self.effective_fps = float(self._tiers[self._tier_idx])
+            self._apply_tier()
             self._throttled = self._tier_idx > 0
             self._notify(cpu)
 
@@ -3075,6 +3101,14 @@ def run_proctoring(cap, W, H):
             pass
 
     governor = _HardwareGovernor(on_transition=_on_throttle_transition)
+
+    # Coding-exam FPS floor: prevent WASM Run/Submit bursts from throttling
+    # proctoring below the configured minimum.  Set PROCTOR_CODING_FPS_FLOOR
+    # (float) in the Electron env for coding exams; 0 / unset = no floor
+    # (non-coding exams are completely unaffected).
+    _coding_fps_floor = float(os.getenv("PROCTOR_CODING_FPS_FLOOR", "0") or "0")
+    if _coding_fps_floor > 0:
+        governor.set_min_fps_floor(_coding_fps_floor)
 
     # Feed the live effective FPS into the behavioral matchers so their off-task
     # DURATION math uses the real (throttled) capture rate, not a constant 15.

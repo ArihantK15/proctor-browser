@@ -2660,7 +2660,11 @@ def _process_yolo_results(
     for det in detections:
         name, conf = det[0], det[1]
         if _history.get(name, 0) >= YOLO_MIN_FRAMES:
-            if name == "Phone" and len(det) >= 6:
+            # BUG FIX: the CHEAT_IDS label for handheld classes is "Phone/handheld",
+            # not "Phone", so this branch never matched and phone-position
+            # (in-hand vs desk → critical vs high) never ran. startswith keeps it
+            # correct for the "Phone/handheld" label and any future "Phone*".
+            if name.startswith("Phone") and len(det) >= 6:
                 phone_box = (det[2], det[3], det[4], det[5])
                 phone_type = classify_phone_position(phone_box, state.get("_last_face_bbox"), H)
                 event_name = f"cheat_{phone_type}"
@@ -2821,7 +2825,10 @@ def _process_behavioral(
     if YOLO_AVAILABLE and yolo_res and yolo_res.get("detections") \
        and fcount - yolo_frm < STALE:
         for det in yolo_res["detections"]:
-            if det[0] == "Phone" and len(det) >= 6:
+            # Same label fix as _process_object_detections: the handheld label is
+            # "Phone/handheld", so == "Phone" never matched and the behavioral
+            # phone_in_hand signal was always False.
+            if det[0].startswith("Phone") and len(det) >= 6:
                 phone_box = (det[2], det[3], det[4], det[5])
                 phone_type = classify_phone_position(phone_box, state.get("_last_face_bbox"), H)
                 phone_in_hand = (phone_type == "phone_in_hand")

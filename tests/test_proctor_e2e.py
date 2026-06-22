@@ -129,6 +129,18 @@ class TestDetectionResultFormat:
             assert isinstance(cls_id, int)
             assert isinstance(name, str)
 
+    def test_handheld_labels_match_phone_consumers(self):
+        """Regression: the phone-position and behavioral phone_in_hand consumers
+        gate on name.startswith("Phone"). The handheld CHEAT_IDS label was
+        "Phone/handheld" while those consumers tested == "Phone", so phone-in-hand
+        escalation never fired. Guard that every handheld label starts with
+        "Phone" so the branches actually run."""
+        from proctor import CHEAT_IDS, HANDHELD_CHEAT_IDS
+        assert HANDHELD_CHEAT_IDS, "expected at least one handheld class"
+        for cid in HANDHELD_CHEAT_IDS:
+            assert cid in CHEAT_IDS, f"handheld id {cid} not in CHEAT_IDS"
+            assert CHEAT_IDS[cid].startswith("Phone"), (cid, CHEAT_IDS[cid])
+
 
 class TestContinuousIdentityVerification:
     """Verify the continuous identity verification constants and logic."""

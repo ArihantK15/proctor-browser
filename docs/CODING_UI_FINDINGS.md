@@ -46,7 +46,8 @@ CodeMirror build, and the `renderQ` integration. The engine works; the UX reads 
 Rendered problem statement → a taller editor with language switching + reset → a
 results console with per-case cards (status chip + raw input/expected/actual) for
 Run, and an Accepted/Wrong-Answer verdict banner (+ counts, runtime) for Submit;
-client grading that exactly matches the server; attempts-left + limits visible.
+grading is authoritative server-side (Run/Submit POST source; the server runs +
+judges — see the 2026-06-23 server-side-execution spec); attempts-left + limits visible.
 
 ## Implementation order
 P0 (1–6) + the P1 items that ride along (7–12) in one coding-ui.js rewrite + injected

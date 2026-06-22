@@ -379,10 +379,6 @@ require('electron').protocol.registerSchemesAsPrivileged([
     standard: true, secure: true, supportFetchAPI: true,
     corsEnabled: true, allowServiceWorkers: false, bypassCSP: false,
   }},
-  { scheme: 'procta-pyodide', privileges: {
-    standard: true, secure: true, supportFetchAPI: true,
-    corsEnabled: true, allowServiceWorkers: false, bypassCSP: false,
-  }},
 ]);
 
 const _MIME = {
@@ -443,28 +439,9 @@ function _registerLobbyProtocol() {
   });
 }
 
-function _registerPyodideProtocol() {
-  const { cacheRoot, resolvePyodideRequest } = require('./lib/pyodide-manager.js');
-  require('electron').protocol.handle('procta-pyodide', async (request) => {
-    let filepath;
-    try { filepath = resolvePyodideRequest(cacheRoot(), request.url); }
-    catch { return new Response('forbidden', { status: 403 }); }
-    try {
-      const data = await _fsp.readFile(filepath);
-      const ext = _path.extname(filepath).toLowerCase();
-      const mime = ext === '.wasm' ? 'application/wasm'
-                 : ext === '.js'   ? 'application/javascript; charset=utf-8'
-                 : ext === '.json' ? 'application/json; charset=utf-8'
-                 : 'application/octet-stream';
-      return new Response(data, { headers: { 'Content-Type': mime, 'Cache-Control': 'no-cache' } });
-    } catch { return new Response('not found', { status: 404 }); }
-  });
-}
-
 // ── APP START ─────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   _registerLobbyProtocol();
-  _registerPyodideProtocol();
 
   // Tier 1.5 — real-time multi-display detection
   screen.on('display-added', () => { _reportMultiDisplay(); });

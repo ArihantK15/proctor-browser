@@ -468,8 +468,8 @@ def build():
          "Camera-based proctoring still works; tab-switch prevention "
          "doesn't. Position as low-stakes-quiz tool."),
         ("Inbuilt coding questions",
-         "Pyodide for Python in browser, LLM-judged for C++/Java. "
-         "Phase 13a designed; build deferred per founder."),
+         "Server-side sandboxed execution (Firecracker + isolate) judges "
+         "JS/TS/Python/C/C++/Java against hidden tests. Design approved; build pending."),
         ("Per-criterion rubric grading",
          "Extend short-answer to (clarity / correctness / depth) × "
          "marks. Universities specifically asked."),
@@ -500,11 +500,11 @@ def build():
          "auto-escaping (kills the entire XSS class), and a real "
          "design language for sales screenshots."),
         ("Inbuilt coding questions",
-         "Pyodide for Python (browser-side WASM, zero server load). "
-         "LLM-judged for C++/Java/Go where running untrusted code "
-         "isn't worth the infra. Monaco editor with syntax highlight "
-         "+ autocomplete. Tests run on Run, hidden tests run on Submit. "
-         "Phase-13a designed in Plan; deferred per founder."),
+         "Server-side sandboxed execution (Firecracker microVM + isolate, "
+         "network-isolated) runs JS/TS/Python/C/C++/Java against hidden tests "
+         "and grades authoritatively. CodeMirror editor; Run = sample tests, "
+         "Submit = hidden graded tests. Ships as a self-hostable on-prem "
+         "appliance. Design approved; build pending."),
         ("AI exam generator from syllabus",
          "Upload a PDF syllabus or paste a topic list; LLM produces a "
          "balanced 40-question exam tagged by Bloom's level + "

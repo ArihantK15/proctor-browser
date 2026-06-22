@@ -271,6 +271,97 @@ Return JSON in exactly this shape (no extra keys, no commentary):
     return cleaned
 
 
+# ── Coding-question generation (Edge Compiler, Phase 5) ──────────────
+_CODING_GEN_SYSTEM = """You are an expert competitive-programming problem setter. You \
+write self-contained stdin/stdout coding problems for exams: a clear statement, a \
+correct reference solution, and deterministic test cases. Output STRICT JSON only \
+(no commentary, no markdown fences around the JSON)."""
+
+
+async def generate_coding_question(
+    topic: str,
+    *,
+    difficulty: str = "medium",
+    language: str = "javascript",
+    grade_level: Optional[str] = None,
+) -> dict:
+    """Draft ONE coding question (statement + reference solution + test cases) for the
+    teacher to REVIEW before publishing. stdin/stdout model. Returns the shape the
+    authoring endpoint (POST /api/v1/admin/coding-question) accepts, plus
+    ``reference_solution`` + ``needs_verification``.
+
+    IMPORTANT: the LLM DRAFTS expected_output here, and an LLM can mis-compute program
+    output — so this is never auto-published. The teacher reviews (ideally re-running
+    the returned reference_solution to confirm expected) before saving. We surface
+    ``needs_verification: True`` so the UI can flag it.
+    """
+    difficulty = difficulty if difficulty in ("easy", "medium", "hard") else "medium"
+    language = str(language or "javascript").lower()
+    if language not in ("javascript", "typescript", "python"):
+        language = "javascript"
+    grade_hint = f" Target level: {grade_level}." if grade_level else ""
+
+    user = f"""Create ONE {difficulty} coding problem on: {topic}.{grade_hint}
+
+Rules:
+- stdin/stdout only: the program reads input from stdin and prints the answer to stdout.
+- Provide a CORRECT reference solution in {language} that reads stdin and prints exactly the expected output.
+- Provide 4-6 test cases: 2 marked "sample" (shown to students), the rest "hidden".
+- expected_output must be EXACTLY what the reference prints for that input (trailing newline trimmed). Deterministic only: no randomness, no time, no network.
+
+Return JSON in exactly this shape (no extra keys, no commentary):
+{{
+  "question": "<statement in markdown: title, description, input/output format, constraints, one worked example>",
+  "starter_code": "<minimal {language} starter stub>",
+  "reference_solution": "<full correct {language} solution>",
+  "test_cases": [
+    {{"input": "<stdin>", "expected_output": "<exact stdout>", "visibility": "sample"}},
+    {{"input": "...", "expected_output": "...", "visibility": "hidden"}}
+  ]
+}}"""
+
+    parsed = await _chat_json(_CODING_GEN_SYSTEM, user, max_tokens=2500, temperature=0.5)
+    statement = str(parsed.get("question") or "").strip()
+    if not statement:
+        raise RuntimeError("LLM returned no 'question' statement")
+    raw_cases = parsed.get("test_cases") or []
+    if not isinstance(raw_cases, list) or not raw_cases:
+        raise RuntimeError("LLM returned no test_cases")
+
+    cases: list[dict] = []
+    for c in raw_cases:
+        if not isinstance(c, dict) or "expected_output" not in c:
+            continue
+        vis = str(c.get("visibility") or "hidden").lower()
+        if vis not in ("sample", "hidden"):
+            vis = "hidden"
+        cases.append({
+            "input": str(c.get("input") or ""),
+            "expected_output": str(c.get("expected_output")),
+            "visibility": vis,
+        })
+    if not cases:
+        raise RuntimeError("LLM returned no usable test_cases")
+    # The authoring endpoint requires >=1 hidden case.
+    if not any(c["visibility"] == "hidden" for c in cases):
+        cases[-1]["visibility"] = "hidden"
+
+    return {
+        "question": statement,
+        "options": {
+            "allowed_languages": [language],
+            "marks": 10,
+            "marks_policy": "partial",
+            "time_limit_ms": 5000,
+            "starter_code": str(parsed.get("starter_code") or ""),
+        },
+        "reference_solution": str(parsed.get("reference_solution") or ""),
+        "test_cases": cases,
+        "ai_generated": True,
+        "needs_verification": True,
+    }
+
+
 # ── Scorecard insights ──────────────────────────────────────────────
 
 _INSIGHT_SYSTEM = """You are a supportive teacher writing a brief personalised note \

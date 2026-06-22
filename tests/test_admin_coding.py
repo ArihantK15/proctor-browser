@@ -6,7 +6,7 @@ question + its test cases (replacing the SQL-only seeding).
 import json
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -132,3 +132,55 @@ class TestGetCodingQuestion:
         b = r.json()
         assert b["question_id"] == "coding-a" and b["options"]["marks"] == 5
         assert len(b["test_cases"]) == 1
+
+
+_AI_DRAFT = {
+    "question": "# Sum\nRead a b, print a+b",
+    "starter_code": "// read & print\n",
+    "reference_solution": "const [a,b]=readline().split(' ').map(Number);print(a+b);",
+    "test_cases": [
+        {"input": "2 3", "expected_output": "5", "visibility": "sample"},
+        {"input": "10 20", "expected_output": "30", "visibility": "hidden"},
+    ],
+}
+
+
+class TestGenerateCoding:
+    def test_generate_endpoint_returns_reviewable_draft(self, client):
+        async def _admin(req):
+            return {"id": "teacher-1"}
+        with patch("app.routers.admin_coding.require_admin", side_effect=_admin), \
+             patch("app.routers.admin_coding.assert_can_author"), \
+             patch("app.llm.is_configured", return_value=True), \
+             patch("app.llm._chat_json", new=AsyncMock(return_value=_AI_DRAFT)):
+            r = client.post("/api/v1/admin/coding-question/generate",
+                            json={"topic": "sum two ints", "language": "javascript"}, headers=_hdr())
+        assert r.status_code == 200, r.text
+        b = r.json()
+        # AI drafts are never auto-published — flagged for review, reference returned.
+        assert b["needs_verification"] is True and b["ai_generated"] is True
+        assert b["reference_solution"]
+        assert b["options"]["allowed_languages"] == ["javascript"]
+        assert any(c["visibility"] == "hidden" for c in b["test_cases"])
+        # draft is the exact shape the authoring endpoint accepts
+        assert "question" in b and "options" in b and "test_cases" in b
+
+    def test_generate_requires_topic(self, client):
+        async def _admin(req):
+            return {"id": "teacher-1"}
+        with patch("app.routers.admin_coding.require_admin", side_effect=_admin), \
+             patch("app.routers.admin_coding.assert_can_author"), \
+             patch("app.llm.is_configured", return_value=True):
+            r = client.post("/api/v1/admin/coding-question/generate",
+                            json={"topic": ""}, headers=_hdr())
+        assert r.status_code == 400
+
+    def test_generate_503_when_llm_not_configured(self, client):
+        async def _admin(req):
+            return {"id": "teacher-1"}
+        with patch("app.routers.admin_coding.require_admin", side_effect=_admin), \
+             patch("app.routers.admin_coding.assert_can_author"), \
+             patch("app.llm.is_configured", return_value=False):
+            r = client.post("/api/v1/admin/coding-question/generate",
+                            json={"topic": "x"}, headers=_hdr())
+        assert r.status_code == 503

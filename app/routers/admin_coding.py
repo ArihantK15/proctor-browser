@@ -197,3 +197,30 @@ async def get_coding_question(request: Request):
         "question": qrow[0].get("question") or "", "options": opts or {},
         "test_cases": cases,
     }
+
+
+@router.post("/api/v1/admin/coding-question/generate")
+async def generate_coding_question_draft(body: dict, request: Request):
+    """AI-draft a coding question for the authoring form. Returns a DRAFT (statement +
+    reference solution + test cases with AI-drafted expected) for the teacher to
+    review/verify, NOT auto-saved — the teacher edits then POSTs to
+    /api/v1/admin/coding-question. The expected outputs are AI-drafted and flagged
+    needs_verification (an LLM can mis-compute output)."""
+    teacher = await require_admin(request)
+    assert_can_author(teacher)
+    from ..llm import is_configured, generate_coding_question
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="AI generation is not configured")
+    topic = (body.get("topic") or "").strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="topic is required")
+    difficulty = str(body.get("difficulty") or "medium")
+    language = str(body.get("language") or "javascript")
+    try:
+        draft = await generate_coding_question(
+            topic, difficulty=difficulty, language=language,
+            grade_level=body.get("grade_level"))
+    except Exception as e:
+        logger.error("[coding-gen] generation failed: %s", e)
+        raise HTTPException(status_code=502, detail="AI generation failed — please try again")
+    return draft

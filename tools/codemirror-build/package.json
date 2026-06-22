@@ -1,0 +1,17 @@
+{
+  "name": "procta-codemirror-build",
+  "private": true,
+  "type": "module",
+  "description": "Self-contained build of the bundled CodeMirror 6 editor for the kiosk coding question. Emits ../../renderer/codemirror.bundle.js (committed). node_modules here is gitignored — run `npm install && npm run build` to regenerate.",
+  "scripts": {
+    "build": "esbuild entry.mjs --bundle --format=iife --minify --legal-comments=none --outfile=../../renderer/codemirror.bundle.js"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "^6.6.0",
+    "@codemirror/lang-javascript": "^6.2.2",
+    "@codemirror/language": "^6.10.0",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.26.0",
+    "esbuild": "^0.21.0"
+  }
+}

@@ -275,6 +275,17 @@ def _ort_session_options():
         so.intra_op_num_threads = int(os.getenv("PROCTOR_ORT_THREADS", "2"))
         so.inter_op_num_threads = 1
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # On low-end CPUs ORT's spin-wait between ops burns cores the machine
+        # can't spare (it busy-loops waiting for the next op instead of yielding).
+        # Disable spinning so threads hand the cores back to the other models and
+        # the exam UI promptly. Opt-in via PROCTOR_LOW_END so throughput on
+        # capable machines is unchanged.
+        if os.getenv("PROCTOR_LOW_END"):
+            try:
+                so.add_session_config_entry("session.intra_op.allow_spinning", "0")
+                so.add_session_config_entry("session.inter_op.allow_spinning", "0")
+            except Exception:
+                pass
         return so
     except Exception:
         return None
@@ -937,6 +948,19 @@ THROTTLE_RELEASE_PCT    = float(os.getenv("PROCTOR_THROTTLE_RELEASE_PCT", "60"))
 THROTTLE_LOW_FPS        = float(os.getenv("PROCTOR_THROTTLE_LOW_FPS", "3"))   # floor tier — still catches a phone held 2-3s (was 0.5 = blind)
 THROTTLE_SAMPLE_SECS    = float(os.getenv("PROCTOR_THROTTLE_SAMPLE_SECS", "5"))
 
+# Battery-aware throttling: an unplugged laptop should yield headroom sooner so
+# it doesn't crawl/overheat on battery. On battery we lower the CPU engage
+# threshold by BATTERY_ENGAGE_DROP; below BATTERY_FORCE_FLOOR_PCT we slam to the
+# floor tier outright. Both no-op when psutil can't read a battery (desktops).
+BATTERY_ENGAGE_DROP     = float(os.getenv("PROCTOR_BATTERY_ENGAGE_DROP", "15"))
+BATTERY_FORCE_FLOOR_PCT = float(os.getenv("PROCTOR_BATTERY_FORCE_FLOOR_PCT", "20"))
+# RAM watchdog: on a 4GB machine the model working set (onnx + opencv + vosk)
+# can approach the OOM-killer. When RSS crosses PROCTOR_MAX_RSS_MB we force the
+# governor to its floor tier (cutting per-frame allocation + model cadence) and
+# log it — deliberately NOT unloading models, which would blind detection and
+# pay a reload cost. 0 (default) disables the watchdog.
+MAX_RSS_MB              = float(os.getenv("PROCTOR_MAX_RSS_MB", "0"))
+
 
 class _HardwareGovernor:
     """Adaptive frame-rate governor based on CPU load + thermal stress.
@@ -960,7 +984,8 @@ class _HardwareGovernor:
                  "_last_sample_at", "_last_thermal_check",
                  "_throttled", "_on_transition", "_thermal_pressure",
                  "_thermal_executor", "_thermal_future",
-                 "_tiers", "_tier_idx")
+                 "_tiers", "_tier_idx",
+                 "_on_battery", "_battery_pct", "_rss_mb")
 
     def __init__(self, on_transition=None):
         # Graceful-degradation ladder: descending fps rungs from TARGET_FPS down
@@ -984,8 +1009,12 @@ class _HardwareGovernor:
         self._last_thermal_check = 0.0
         self._throttled = False
         self._thermal_pressure = None  # float 0.0-1.0 or None
+        self._on_battery = False       # bool — None-source treated as plugged
+        self._battery_pct = None       # float 0-100 or None
+        self._rss_mb = None            # float MB or None
         # Optional callback fired exactly once per transition. Receives
-        # a dict {"throttled": bool, "cpu_pct": float, "thermal": float|None}.
+        # a dict {"throttled": bool, "cpu_pct": float, "thermal": float|None,
+        # "on_battery": bool, "battery_pct": float|None, "rss_mb": float|None}.
         # Used by the main loop to POST a `client_throttled` event back
         # to the server.
         self._on_transition = on_transition
@@ -1064,6 +1093,30 @@ class _HardwareGovernor:
             pass
         return None
 
+    @staticmethod
+    def _read_battery():
+        """Return (on_battery: bool, percent: float|None). (False, None) when
+        psutil is absent or the host has no battery (desktop)."""
+        if not _PSUTIL_OK:
+            return (False, None)
+        try:
+            bat = _psutil.sensors_battery()
+        except Exception:
+            return (False, None)
+        if bat is None:
+            return (False, None)
+        return (not bool(bat.power_plugged), float(bat.percent))
+
+    @staticmethod
+    def _read_rss_mb():
+        """Resident set size of this process in MB, or None on failure."""
+        if not _PSUTIL_OK:
+            return None
+        try:
+            return _psutil.Process().memory_info().rss / (1024.0 * 1024.0)
+        except Exception:
+            return None
+
     def maybe_update(self):
         if not _PSUTIL_OK or THROTTLE_ENGAGE_PCT >= 100:
             return
@@ -1105,7 +1158,31 @@ class _HardwareGovernor:
             and self._thermal_pressure < 0.5
         )
 
-        hi_signal = (cpu is not None and cpu >= THROTTLE_ENGAGE_PCT)
+        # Battery + RAM inputs — sampled in this same window (both cheap).
+        self._on_battery, self._battery_pct = self._read_battery()
+        self._rss_mb = self._read_rss_mb()
+
+        # Hard floor: critically low battery or RSS over the watchdog ceiling
+        # slams straight to the floor tier (bypassing the step-by-step streak)
+        # so we yield immediately instead of over several sample windows. We
+        # force fps to the floor — NOT unload models — so detection survives.
+        mem_force = (MAX_RSS_MB > 0 and self._rss_mb is not None
+                     and self._rss_mb >= MAX_RSS_MB)
+        batt_force = (self._on_battery and self._battery_pct is not None
+                      and self._battery_pct <= BATTERY_FORCE_FLOOR_PCT)
+        if mem_force or batt_force:
+            if self._tier_idx < len(self._tiers) - 1:
+                self._tier_idx = len(self._tiers) - 1
+                self.effective_fps = float(self._tiers[self._tier_idx])
+                self._throttled = True
+                self._notify(cpu)
+            return
+
+        # On battery, engage throttling sooner so an unplugged laptop yields
+        # headroom before it overheats / crawls.
+        engage_pct = THROTTLE_ENGAGE_PCT - (BATTERY_ENGAGE_DROP if self._on_battery else 0.0)
+
+        hi_signal = (cpu is not None and cpu >= engage_pct)
         if thermal_stressed:
             hi_signal = True
 
@@ -1152,6 +1229,9 @@ class _HardwareGovernor:
                     "throttled": self._throttled,
                     "cpu_pct": cpu,
                     "thermal": self._thermal_pressure,
+                    "on_battery": self._on_battery,
+                    "battery_pct": self._battery_pct,
+                    "rss_mb": self._rss_mb,
                 })
         except Exception:
             # Never let a logging hiccup take down the main loop.
@@ -2977,11 +3057,18 @@ def run_proctoring(cap, W, H):
         thermal_txt = (f"thermal={thermal_val:.2f}"
                        if isinstance(thermal_val, (int, float))
                        else "thermal=n/a")
+        # Surface battery / RAM cause so a force-floor reads differently from a
+        # plain CPU throttle (teachers correlate "exam felt slow" with hardware).
+        batt_pct = info.get("battery_pct")
+        batt_txt = (f", batt={batt_pct:.0f}%{'(unplugged)' if info.get('on_battery') else ''}"
+                    if isinstance(batt_pct, (int, float)) else "")
+        rss_val = info.get("rss_mb")
+        rss_txt = f", rss={rss_val:.0f}MB" if isinstance(rss_val, (int, float)) else ""
         print(f"[PROCTOR] hardware governor {thr_state}: cpu={cpu_txt} "
-              f"{thermal_txt} -> {governor.effective_fps:.1f} fps")
+              f"{thermal_txt}{batt_txt}{rss_txt} -> {governor.effective_fps:.1f} fps")
         try:
             log_event("client_throttled", "info",
-                      f"CPU {cpu_txt}, {thermal_txt}, "
+                      f"CPU {cpu_txt}, {thermal_txt}{batt_txt}{rss_txt}, "
                       f"effective {governor.effective_fps:.1f} fps "
                       f"(state={thr_state})")
         except Exception:

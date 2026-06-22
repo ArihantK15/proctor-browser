@@ -893,13 +893,13 @@ EYES_CLOSED_FRAMES    = 20     # ~1.3s — natural blinks won't trip this
 MULTI_FACE_FRAMES     = 5
 WARMUP_GRACE_FRAMES   = 30     # ~1s — faster perceived camera startup
 YOLO_CONFIDENCE     = 0.35
-# A dark, close, or angled phone reads to a COCO-trained model with low
-# confidence and often as class 65 ("remote") rather than 67 ("cell phone")
-# — measured 0.10–0.59 on real exam frames where the old 0.35/class-67 gate
-# caught nothing. Watch the handheld classes (HANDHELD_CHEAT_IDS) at this
-# lower bar; every other cheat object keeps the stricter YOLO_CONFIDENCE so
-# we don't invite false positives. Override via env for field tuning.
-YOLO_PHONE_CONFIDENCE = float(os.getenv("PROCTOR_YOLO_PHONE_CONFIDENCE", "0.20"))
+# The old 0.20 floor existed only because the COCO model read phones weakly
+# (0.10–0.59, often as "remote"). The CUSTOM detector has a real, clean phone
+# class (P≈0.87), so 0.20 would now invite false positives — raised to 0.40 as a
+# sane default. This is a STARTING point: retune against live webcam footage
+# (the 5-class precisions are earphone 0.82 / headphone 0.86 / phone 0.87 /
+# watch 0.90). Override via PROCTOR_YOLO_PHONE_CONFIDENCE for field tuning.
+YOLO_PHONE_CONFIDENCE = float(os.getenv("PROCTOR_YOLO_PHONE_CONFIDENCE", "0.40"))
 # Decode must keep anything either gate might want; _yolo_infer thresholds at
 # the lower of the two and _cheat_detection_kept() makes the final per-class call.
 YOLO_DECODE_FLOOR     = min(YOLO_CONFIDENCE, YOLO_PHONE_CONFIDENCE)
@@ -1298,25 +1298,27 @@ def _dominant_direction(yaw: float, pitch: float,
 
 
 # ─── CHEAT OBJECTS ────────────────────────────────────────────────────────────
-# COCO class IDs for items that shouldn't be on the desk during an exam.
+# Class IDs from the CUSTOM-trained proctoring detector (weights/yolo26n.onnx,
+# 4-class). This replaces the old COCO model, which had no earbud/watch/calculator
+# class at all and mislabelled phones as "remote" (65) — so phone detection
+# "caught nothing" and earbuds rode a separate, absent ear-crop classifier. These
+# are now first-class trained objects. The phone is labelled plain "Phone" so the
+# phone-position consumers (which test `name == "Phone"`) actually fire.
+#
+# Adding the 5th class is a ONE-LINE change here once the 5-class model trains —
+# the decode ([1,N,6], class-count-agnostic) and the confidence gate need no edit.
 CHEAT_IDS = {
-    # Labelled "Phone/handheld" (not "Phone") on purpose: a dark/angled/close
-    # phone — or a phone in an opaque case — frequently scores higher as COCO
-    # "remote" (65) than "cell phone" (67) (measured up to 0.59 vs 0.17 on real
-    # frames). We want both caught, but the evidence label must stay honest: an
-    # appeal frame showing a handheld device is defensible as "phone/handheld",
-    # whereas calling a clear TV remote a "Phone" is not.
-    67: "Phone/handheld",
-    65: "Phone/handheld",
-    63: "Laptop",
-    73: "Book",
-    66: "Keyboard",
-    62: "TV",
+    0: "Earphone",
+    1: "Headphone",
+    2: "Phone",
+    3: "Smartwatch",
+    # 4: "Calculator",   # ← uncomment when the 5-class model ships
 }
 
-# Phone-like handheld classes are gated at the lower YOLO_PHONE_CONFIDENCE;
-# every other cheat object keeps the stricter YOLO_CONFIDENCE.
-HANDHELD_CHEAT_IDS = {65, 67}
+# Phone (2) is the handheld class gated at the lower YOLO_PHONE_CONFIDENCE; the
+# rest keep the stricter YOLO_CONFIDENCE. Confidence floors were tuned for COCO's
+# quirks — expect to retune against the trained model during live validation.
+HANDHELD_CHEAT_IDS = {2}
 
 # Book (COCO 73) is gated behind a config flag: it false-positives on
 # legitimate paper and breaks open-book exams. Default OFF.
@@ -1334,9 +1336,6 @@ def _cheat_detection_kept(cls_id: int, conf: float) -> bool:
     Handheld/phone classes pass at YOLO_PHONE_CONFIDENCE; the rest at the
     stricter YOLO_CONFIDENCE. Shared by the YOLO worker."""
     if cls_id not in CHEAT_IDS:
-        return False
-    # Gate books behind the PROCTOR_FLAG_BOOKS setting.
-    if cls_id == 73 and not _PROCTOR_FLAG_BOOKS:
         return False
     thr = YOLO_PHONE_CONFIDENCE if cls_id in HANDHELD_CHEAT_IDS else YOLO_CONFIDENCE
     return conf >= thr
@@ -2647,7 +2646,7 @@ def _process_yolo_results(
     # later can be attributed to phone occlusion (the phone pressed to the lens
     # is no longer classifiable, but we caught it on the way up). See the
     # face_missing branch in the main loop.
-    if "Phone/handheld" in seen_names:
+    if "Phone" in seen_names:
         state["_last_phone_seen_t"] = time.time()
     _history = state.setdefault("object_history", {})
     for name in seen_names:
@@ -3498,9 +3497,11 @@ def run_proctoring(cap, W, H):
             yolo_seen = _process_yolo_results(state, frame, frame_count, W, H,
                                               can_log, log_if_allowed)
 
-            # ── EAR-CROP CLASSIFIER (earbud detection) ───────────────────────────
-            _process_ear_detection(state, frame, num_faces, lm_2d, frame_count, W, H,
-                                   can_log, log_if_allowed)
+            # ── EARBUDS ──────────────────────────────────────────────────────────
+            # Retired the separate ear-crop classifier: the custom detector now
+            # reports Earphone/Headphone as first-class objects through the YOLO
+            # path above (CHEAT_IDS 0/1). _process_ear_detection / EarClassifier
+            # are left dormant (unused) and can be deleted in a follow-up.
 
             # ── VOICE DETECTION ──────────────────────────────────────────────────
             _process_voice_detection(state, frame, can_log, log_if_allowed)
@@ -3722,8 +3723,6 @@ def run_profile(iters: int = 30) -> int:
     costs["head_pose"] = _time("head_pose", lambda: get_head_pose(lm_2d, W, H))
     if YOLO_AVAILABLE and _yolo_session is not None:
         costs["yolo"] = _time("yolo", lambda: _yolo_infer(_yolo_session, frame))
-    if EAR_CLASSIFIER_AVAILABLE and _ear_classifier is not None:
-        costs["ear"] = _time("ear", lambda: _ear_classifier.classify(frame, lm_2d, W, H))
     if _insight_app is not None:
         costs["identity"] = _time("identity", lambda: _insight_app.get(frame))
 

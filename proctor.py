@@ -1176,6 +1176,29 @@ GAZE_SMOOTH_WINDOW = 5
 CALIBRATION_FRAMES = 45      # ~3s at 15fps — long enough to be stable
 CALIBRATION_MAX_WAIT = 240   # give up after this many frames if face missing
 
+# A calibration baseline is only worth subtracting if it's physically plausible
+# for someone LOOKING AT THE SCREEN. A baseline outside these bounds means the
+# calibration captured an off-screen glance, a model offset, or (for head pose)
+# a degenerate solvePnP — and trusting it manufactures CONSTANT false EXTREME
+# flags (the v2.3.50 Windows misfire: head baseline +53°, gaze +0.51rad → every
+# forward glance read as "off-screen left EXTREME"). When a baseline fails these,
+# we DON'T trust it: gaze falls back to self-calibration (or a capped bias) and
+# head-pose violations are DISABLED for the session (gaze still covers look-away).
+HEAD_BIAS_MAX_YAW   = 20.0   # degrees
+HEAD_BIAS_MAX_PITCH = 25.0
+GAZE_BIAS_MAX       = 0.35   # radians (~20°) — a screen-looker can't be further off
+
+def _head_bias_plausible(head_yaw_bias: float, head_pitch_bias: float) -> bool:
+    """True if a head-pose calibration baseline is trustworthy. solvePnP on 5
+    RetinaFace points is fragile; beyond these bounds head-pose is garbage on this
+    camera and head_turned must be disabled rather than calibrated."""
+    return abs(head_yaw_bias) <= HEAD_BIAS_MAX_YAW and abs(head_pitch_bias) <= HEAD_BIAS_MAX_PITCH
+
+def _gaze_bias_plausible(gaze_yaw_bias: float, gaze_pitch_bias: float) -> bool:
+    """True if a gaze calibration baseline is trustworthy. A student looking at the
+    screen during calibration can't be more than ~GAZE_BIAS_MAX off-centre."""
+    return abs(gaze_yaw_bias) <= GAZE_BIAS_MAX and abs(gaze_pitch_bias) <= GAZE_BIAS_MAX
+
 # ─── DIRECTION HELPER ────────────────────────────────────────────────────────
 # The old cascade checked yaw first, then pitch as a fallback — so if yaw was
 # *barely* over threshold while pitch was way past, the label said "right"
@@ -2877,6 +2900,11 @@ def run_proctoring(cap, W, H):
     cal_head_yaw    = []
     cal_head_pitch  = []
     calibrated      = False
+    # Whether head-pose is trustworthy on this camera. solvePnP can produce
+    # garbage yaw (the v2.3.50 misfire: stuck at the ±70° clamp); when the
+    # calibration baseline is implausible we DISABLE head_turned for the session
+    # (gaze still covers look-away) rather than fire constant false EXTREMEs.
+    head_pose_trusted = True
 
     if _INITIAL_GAZE_YAW_BIAS is not None:
         try:
@@ -2884,21 +2912,33 @@ def run_proctoring(cap, W, H):
             gaze_pitch_bias = float(_INITIAL_GAZE_PITCH_BIAS or 0)
             head_yaw_bias   = float(_INITIAL_HEAD_YAW_BIAS or 0)
             head_pitch_bias = float(_INITIAL_HEAD_PITCH_BIAS or 0)
-            # Reject head-pose biases that are physically implausible.
-            # A -35 deg yaw bias (vs -10 deg gaze) means the dot calibration
-            # produced garbage -- using it would amplify turns into EXTREME.
-            if abs(head_yaw_bias) > 20 or abs(head_pitch_bias) > 25:
+            # Head and gaze biases are INDEPENDENT — a garbage head bias must not
+            # discard a good gaze bias (the v2.3.50 bug: rejecting head=-38° also
+            # zeroed gaze=-0.10, then self-cal froze gaze=+0.51 → constant gaze
+            # EXTREME). So evaluate each axis separately.
+            head_ok = _head_bias_plausible(head_yaw_bias, head_pitch_bias)
+            gaze_ok = _gaze_bias_plausible(gaze_yaw_bias, gaze_pitch_bias)
+            if not head_ok:
                 print(f"[CAL] preset head bias rejected "
                       f"(yaw={head_yaw_bias:+.0f}{chr(176)} "
                       f"pitch={head_pitch_bias:+.0f}{chr(176)}) "
-                      f"-- self-calibrating")
-                gaze_yaw_bias = gaze_pitch_bias = head_yaw_bias = head_pitch_bias = 0.0
-                calibrated = False
-            else:
+                      f"-- head_turned DISABLED for this session")
+                head_yaw_bias = head_pitch_bias = 0.0
+                head_pose_trusted = False
+            if gaze_ok:
+                # Trust the dot-calibration gaze bias; no self-calibration needed.
                 calibrated = True
-                print(f"[CALIBRATION] Using pre-set biases from dot calibration -- "
-                      f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) "
-                      f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})")
+                print(f"[CALIBRATION] Using pre-set gaze bias "
+                      f"({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f})"
+                      + (f" + head ({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})"
+                         if head_pose_trusted else " (head disabled)"))
+            else:
+                # Gaze preset itself is implausible — fall back to self-calibration
+                # for gaze (head trust already decided above).
+                print(f"[CAL] preset gaze bias implausible "
+                      f"({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) -- self-calibrating gaze")
+                gaze_yaw_bias = gaze_pitch_bias = 0.0
+                calibrated = False
         except (ValueError, TypeError):
             # Reset partial assignments so we self-calibrate from scratch
             # rather than running with one good axis and three garbage ones.
@@ -2997,17 +3037,35 @@ def run_proctoring(cap, W, H):
 
     def _freeze_calibration_bias(reason: str):
         nonlocal calibrated, head_yaw_bias, head_pitch_bias, gaze_yaw_bias, gaze_pitch_bias
+        nonlocal head_pose_trusted
         if cal_head_yaw:
             head_yaw_bias   = sum(cal_head_yaw)   / len(cal_head_yaw)
             head_pitch_bias = sum(cal_head_pitch) / len(cal_head_pitch)
         if cal_gaze_yaw:
             gaze_yaw_bias   = sum(cal_gaze_yaw)   / len(cal_gaze_yaw)
             gaze_pitch_bias = sum(cal_gaze_pitch) / len(cal_gaze_pitch)
+        # Guard the self-calibrated baseline (the warmup window can capture an
+        # off-screen glance or garbage solvePnP — see the plausibility helpers).
+        if head_pose_trusted and not _head_bias_plausible(head_yaw_bias, head_pitch_bias):
+            print(f"[CAL] self-cal head baseline implausible "
+                  f"(yaw={head_yaw_bias:+.0f}°) -- head_turned DISABLED")
+            head_yaw_bias = head_pitch_bias = 0.0
+            head_pose_trusted = False
+        if not _gaze_bias_plausible(gaze_yaw_bias, gaze_pitch_bias):
+            # Don't trust a wild gaze baseline as "centre" — cap the correction so
+            # it can't manufacture constant EXTREME flags (better a missed glance
+            # than every forward look flagged).
+            _cap = GAZE_BIAS_MAX
+            print(f"[CAL] self-cal gaze baseline implausible "
+                  f"({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f}) -- capping to ±{_cap}")
+            gaze_yaw_bias   = max(-_cap, min(_cap, gaze_yaw_bias))
+            gaze_pitch_bias = max(-_cap, min(_cap, gaze_pitch_bias))
         calibrated = True
         print(f"[CALIBRATION] {reason} "
               f"({len(cal_head_yaw)} samples) — "
               f"gaze:({gaze_yaw_bias:+.2f},{gaze_pitch_bias:+.2f})rad "
-              f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})°")
+              f"head:({head_yaw_bias:+.0f},{head_pitch_bias:+.0f})° "
+              f"head_trusted={head_pose_trusted}")
 
     _rb_last_encode = 0.0   # wall-clock of the last context-buffer push
 
@@ -3274,6 +3332,12 @@ def run_proctoring(cap, W, H):
                     head_is_extreme = False
                     head_is_away    = False
 
+                # Head-pose disabled for this session (untrustworthy calibration /
+                # garbage solvePnP on this camera) — gaze still covers look-away.
+                if not head_pose_trusted:
+                    head_is_extreme = head_is_away = False
+                    head_away_count = head_extreme_count = 0
+
                 if head_is_extreme:
                     head_extreme_count += 2
                     head_away_count    += 1
@@ -3284,7 +3348,7 @@ def run_proctoring(cap, W, H):
                     head_away_count    = max(0, head_away_count - 1)
                     head_extreme_count = max(0, head_extreme_count - 2)
 
-                if head_extreme_count >= HEAD_EXTREME_FRAMES:
+                if head_pose_trusted and head_extreme_count >= HEAD_EXTREME_FRAMES:
                     direction = _dominant_direction(
                         head_yaw, head_pitch, HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD)
                     if log_if_allowed("head_turned", "high",

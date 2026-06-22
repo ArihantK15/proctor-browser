@@ -18,6 +18,7 @@ That file is another session's WIP — we stub/skip that assertion here and flag
 it for sequencing.
 """
 import json
+import uuid
 
 import pytest
 
@@ -58,9 +59,16 @@ async def _exam(teacher_id: str, exam_id: str) -> None:
 
 async def _question(teacher_id: str, exam_id: str, qid: str,
                     qtype: str = "coding", options: dict = None,
-                    correct: str = "") -> None:
+                    correct: str = "") -> str:
+    """Insert a question with an EXPLICIT UUID PK and return it. The whole coding
+    chain keys on questions.id (scoring matches q['id'], the judge stores
+    coding_submissions.question_id from the renderer's q.id, testcases are queried
+    by q.id) — so callers that score MUST key coding_test_cases / coding_submissions
+    on this returned PK, not on the human `qid` label."""
     opts = options or {}
+    pk = str(uuid.uuid4())
     await async_table("questions").insert({
+        "id": pk,
         "teacher_id": teacher_id,
         "exam_id": exam_id,
         "question_id": qid,
@@ -69,6 +77,7 @@ async def _question(teacher_id: str, exam_id: str, qid: str,
         "options": json.dumps(opts),
         "correct": correct,
     }).execute()
+    return pk
 
 
 async def _tc(teacher_id: str, question_id: str, idx: int,
@@ -103,20 +112,21 @@ class TestCodingE2E:
         await _exam(TID_A, exam_id)
 
         # Coding question: sum of 3 numbers (partial marks, worth 10)
-        await _question(TID_A, exam_id, qid_coding, "coding", {
+        q_coding = await _question(TID_A, exam_id, qid_coding, "coding", {
             "marks": 10, "marks_policy": "partial",
             "allowed_languages": ["javascript"],
         })
-        # 1 sample + 2 hidden
-        await _tc(TID_A, qid_coding, 0, "1 2 3\n", "6", "sample")
-        await _tc(TID_A, qid_coding, 1, "10 20 30\n", "60", "hidden")
-        await _tc(TID_A, qid_coding, 2, "0 0 0\n", "0", "hidden")
+        # 1 sample + 2 hidden — keyed on the question PK
+        await _tc(TID_A, q_coding, 0, "1 2 3\n", "6", "sample")
+        await _tc(TID_A, q_coding, 1, "10 20 30\n", "60", "hidden")
+        await _tc(TID_A, q_coding, 2, "0 0 0\n", "0", "hidden")
 
-        # MCQ question (simple, worth 1)
-        await _question(TID_A, exam_id, qid_mcq, "mcq_single",
-                        {"A": "alpha", "B": "beta"}, "B")
+        # MCQ question (simple, worth 1). The MCQ path also keys on q['id'], so the
+        # answer row's question_id must be the PK too.
+        q_mcq = await _question(TID_A, exam_id, qid_mcq, "mcq_single",
+                                {"A": "alpha", "B": "beta"}, "B")
         await async_table("answers").insert({
-            "session_key": session, "question_id": qid_mcq,
+            "session_key": session, "question_id": q_mcq,
             "teacher_id": TID_A, "answer": "B",
         }).execute()
 
@@ -134,7 +144,7 @@ class TestCodingE2E:
             "teacher_id": TID_A,
             "session_id": session,
             "student_id": STUDENT_ID,
-            "question_id": qid_coding,
+            "question_id": q_coding,
             "language": "javascript",
             "test_cases_total": result["total"],
             "test_cases_passed": result["passed"],
@@ -155,7 +165,7 @@ class TestCodingE2E:
         sub = rows[0]
         assert sub["exam_id"] == exam_id
         assert sub["teacher_id"] == TID_A
-        assert sub["question_id"] == qid_coding
+        assert sub["question_id"] == q_coding
         assert sub["test_cases_passed"] == 3
         assert sub["test_cases_total"] == 3
         # is_fully_solved is GENERATED
@@ -177,12 +187,12 @@ class TestCodingE2E:
 
         await _teacher(TID_A)
         await _exam(TID_A, exam_id)
-        await _question(TID_A, exam_id, qid, "coding", {
+        q_pk = await _question(TID_A, exam_id, qid, "coding", {
             "marks": 10, "marks_policy": "partial",
         })
-        await _tc(TID_A, qid, 0, "1\n", "1", "hidden")
-        await _tc(TID_A, qid, 1, "2\n", "2", "hidden")
-        await _tc(TID_A, qid, 2, "3\n", "3", "hidden")
+        await _tc(TID_A, q_pk, 0, "1\n", "1", "hidden")
+        await _tc(TID_A, q_pk, 1, "2\n", "2", "hidden")
+        await _tc(TID_A, q_pk, 2, "3\n", "3", "hidden")
 
         result = judge_outputs(["1", "WRONG", "3"], ["1", "2", "3"],
                                [None, None, None])
@@ -193,7 +203,7 @@ class TestCodingE2E:
             "exam_id": exam_id,
             "teacher_id": TID_A,
             "session_id": session,
-            "question_id": qid,
+            "question_id": q_pk,
             "language": "javascript",
             "test_cases_total": result["total"],
             "test_cases_passed": result["passed"],
@@ -212,11 +222,11 @@ class TestCodingE2E:
 
         await _teacher(TID_A)
         await _exam(TID_A, exam_id)
-        await _question(TID_A, exam_id, qid, "coding", {
+        q_pk = await _question(TID_A, exam_id, qid, "coding", {
             "marks": 5, "marks_policy": "all_or_nothing",
         })
-        await _tc(TID_A, qid, 0, "a\n", "a", "hidden")
-        await _tc(TID_A, qid, 1, "b\n", "b", "hidden")
+        await _tc(TID_A, q_pk, 0, "a\n", "a", "hidden")
+        await _tc(TID_A, q_pk, 1, "b\n", "b", "hidden")
 
         # Only 1/2 correct
         result = judge_outputs(["a", "WRONG"], ["a", "b"], [None, None])
@@ -224,7 +234,7 @@ class TestCodingE2E:
             "exam_id": exam_id,
             "teacher_id": TID_A,
             "session_id": session,
-            "question_id": qid,
+            "question_id": q_pk,
             "language": "javascript",
             "test_cases_total": result["total"],
             "test_cases_passed": result["passed"],

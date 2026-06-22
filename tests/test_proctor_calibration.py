@@ -7,16 +7,20 @@ gaze bias, disable garbage head-pose, and cap a wild gaze baseline.
 """
 import os
 import sys
+from unittest.mock import MagicMock
 
 import pytest
 
-_deps = ["cv2", "numpy", "uniface", "onnxruntime"]
-_missing = [d for d in _deps if __import__("importlib").util.find_spec(d) is None]
-pytestmark = pytest.mark.skipif(bool(_missing),
-                                reason=f"proctor deps missing: {', '.join(_missing)}")
+# Skip the WHOLE module at COLLECTION when proctor's native deps are absent (the
+# lightweight CI pytest job has no cv2). importorskip raises Skipped during
+# collection — unlike skipif, which does NOT stop the module-level `import proctor`
+# below from erroring (that was the red CI: ModuleNotFoundError cv2).
+# uniface/insightface/sounddevice are mocked below, so only cv2/numpy are the hard
+# requirements for importing proctor here.
+pytest.importorskip("cv2")
+pytest.importorskip("numpy")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from unittest.mock import MagicMock  # noqa: E402
 for _m in ["sounddevice", "uniface", "insightface"]:
     sys.modules.setdefault(_m, MagicMock())
 os.environ.setdefault("HEADLESS", "True")

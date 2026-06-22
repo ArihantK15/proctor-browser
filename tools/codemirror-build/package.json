@@ -13,5 +13,8 @@
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.26.0",
     "esbuild": "^0.21.0"
+  },
+  "dependencies": {
+    "@codemirror/lang-python": "^6.2.1"
   }
 }

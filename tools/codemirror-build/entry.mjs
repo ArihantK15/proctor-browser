@@ -18,11 +18,13 @@ import {
   syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput
 } from "@codemirror/language";
 import { javascript } from "@codemirror/lang-javascript";
+import { python } from "@codemirror/lang-python";
 
 function langExt(language) {
   const l = String(language || "").toLowerCase();
   if (l === "javascript" || l === "js") return javascript();
   if (l === "typescript" || l === "ts") return javascript({ typescript: true });
+  if (l === "python" || l === "py") return python();
   return []; // unknown language (Phase 2+ modes) → plain text, still usable
 }
 

@@ -31,7 +31,10 @@ function _variance(a){
 }
 function _langsFor(q){
   const opt=q.options||{};
-  let langs=opt.languages||opt.language||['javascript'];
+  // Accept every key the authoring/seed layer has used for the language list:
+  // `allowed_languages` (current seed shape) plus the older `languages`/`language`.
+  // Without `allowed_languages` here the dropdown silently fell back to JS only.
+  let langs=opt.allowed_languages||opt.languages||opt.language||['javascript'];
   if(typeof langs==='string') langs=[langs];
   return langs.length?langs:['javascript'];
 }
@@ -98,7 +101,10 @@ function _renderCodingQuestion(container, q){
   wrap.appendChild(bar);
 
   const edHolder=document.createElement('div'); edHolder.className='coding-editor';
-  edHolder.style.cssText='height:260px;border:1px solid var(--border,#2a2f3a);border-radius:8px;overflow:hidden';
+  // Responsive height (was a fixed 260px) so the editor + Run/Submit + results
+  // can't push the exam-finish nav (.enav / "Submit Exam") off-screen on a
+  // laptop/kiosk display. The .enav is also made sticky in index.html as a backstop.
+  edHolder.style.cssText='height:clamp(150px,30vh,260px);border:1px solid var(--border,#2a2f3a);border-radius:8px;overflow:hidden';
   wrap.appendChild(edHolder);
   const editor=_mountCodeEditor(edHolder, initial, sel.value, (val)=>{
     if(val && val.trim()) answers[qid]=val; else delete answers[qid];

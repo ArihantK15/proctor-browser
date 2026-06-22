@@ -233,8 +233,15 @@
     .opt.sel .oltr{background:var(--accent);color:#fff;border-color:var(--accent)}
     /* Nav footer — Prev secondary, Next primary, Submit success. */
     .enav{display:flex;gap:var(--space-3);justify-content:space-between;
-          margin-top:var(--space-4);padding-top:var(--space-4);
-          border-top:1px solid var(--border-subtle)}
+          margin-top:var(--space-4);padding-top:var(--space-4);padding-bottom:var(--space-2);
+          border-top:1px solid var(--border-subtle);
+          /* Stick the exam-finish nav to the bottom of the scrollable .emain so
+             "Submit Exam" is always reachable — a tall coding editor previously
+             pushed it below the fold and students couldn't submit the exam.
+             No z-index on purpose: as a positioned element it already paints over
+             the (non-positioned) scrolling question content, while the fixed
+             .camini self-view — later in the DOM — stays on top of it. */
+          position:sticky;bottom:0;background:var(--bg-base)}
     .bnav{padding:10px 22px;border-radius:var(--radius-md);border:1px solid transparent;
           font-size:var(--text-sm);font-weight:500;cursor:pointer;font-family:inherit;
           transition:background .12s ease, border-color .12s ease, filter .12s ease}

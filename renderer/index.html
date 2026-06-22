@@ -724,6 +724,9 @@
 <div class="panic-link" id="panic-link" onclick="panicUnlock()" role="button" tabindex="0"
      aria-label="Emergency unlock — release kiosk mode">Emergency unlock</div>
 
+<!-- Edge Compiler runtime — same-origin (CSP-clean). Defines window.CodingRuntime
+     used by the coding-question branch in renderQ(). -->
+<script src="coding-runtime.js"></script>
 <script>
 // ── Global safety net ─────────────────────────────────────────────
 // The exam flow is a long-lived single page with many fire-and-forget
@@ -2282,7 +2285,112 @@ function buildGrid(){
 // the same save/submit pipeline as the server already expects.
 function qNormType(q){
   const t=(q&&q.question_type||'mcq_single').toString().toLowerCase();
-  return ['mcq_single','mcq_multi','true_false','short_answer','numeric'].includes(t)?t:'mcq_single';
+  return ['mcq_single','mcq_multi','true_false','short_answer','numeric','coding'].includes(t)?t:'mcq_single';
+}
+
+// ── CODING QUESTION UI (Edge Compiler P1-T7) ───────────────────────────────
+// Source autosaves into answers[q.id] (recovery only — the server judge is the
+// authority). The editor lives behind _mountCodeEditor(): a <textarea> today;
+// CodeMirror 6 drops in there once renderer/codemirror.bundle.js is vendored
+// (same getValue/onChange contract, flat same-origin file per the plan).
+const _codingTC = {};         // q.id -> {sample, hidden_inputs}  (per-question cache)
+const _codingTelemetry = {};  // q.id -> {paste_attempts, focus_loss_count}
+
+function _codingOpts(q){
+  let o = q.options;
+  if (typeof o === 'string') { try { o = JSON.parse(o); } catch(e){ o = {}; } }
+  return o || {};
+}
+
+function _mountCodeEditor(container, opts){
+  // SEAM: swap this textarea for CodeMirror 6 (keep getValue/focus + onChange/onPaste).
+  const ta = document.createElement('textarea');
+  ta.className = 'code-editor'; ta.spellcheck = false; ta.value = opts.value || '';
+  ta.setAttribute('aria-label', 'Code editor');
+  ta.style.cssText = 'width:100%;min-height:260px;padding:12px;border-radius:10px;border:1px solid var(--border,#2a2f3a);background:#0d1117;color:#e6edf3;font:13px/1.5 ui-monospace,Menlo,monospace;resize:vertical;tab-size:2';
+  if (opts.onChange) ta.addEventListener('input', ()=>opts.onChange(ta.value));
+  if (opts.onPaste)  ta.addEventListener('paste', opts.onPaste);
+  container.appendChild(ta);
+  return { getValue: ()=>ta.value, focus: ()=>ta.focus() };
+}
+
+async function _codingFetchTC(q){
+  if (_codingTC[q.id]) return _codingTC[q.id];
+  const r = await fetch(`${SERVER}/api/v1/coding/testcases?session_id=${encodeURIComponent(sessionId)}&question_id=${encodeURIComponent(q.id)}`, { headers: authHdr() });
+  if (!r.ok) throw new Error(`testcases HTTP ${r.status}`);
+  _codingTC[q.id] = await r.json();
+  return _codingTC[q.id];
+}
+
+function _renderCodingQuestion(q, container){
+  const opts = _codingOpts(q);
+  const langs = (opts.allowed_languages && opts.allowed_languages.length) ? opts.allowed_languages : ['javascript'];
+  const tele = _codingTelemetry[q.id] || (_codingTelemetry[q.id] = {paste_attempts:0, focus_loss_count:0});
+
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:10px;align-items:center;margin-bottom:8px';
+  const sel = document.createElement('select');
+  sel.className = 'code-lang';
+  sel.style.cssText = 'padding:6px;border-radius:6px;border:1px solid var(--border,#2a2f3a);background:#0d1117;color:inherit';
+  langs.forEach(l=>{ const op=document.createElement('option'); op.value=l; op.textContent=l; sel.appendChild(op); });
+  bar.appendChild(document.createTextNode('Language: ')); bar.appendChild(sel);
+  container.appendChild(bar);
+
+  const saved = (answers[q.id]!=null && answers[q.id]!=='') ? String(answers[q.id]) : (opts.starter || '');
+  const editor = _mountCodeEditor(container, {
+    value: saved,
+    onChange: (v)=>{ if(v && v.trim()) answers[q.id]=v; else delete answers[q.id]; _persistAnswers(); const d=document.getElementById(`qd-${curQ}`); if(d) d.className=dotClass(curQ); },
+    onPaste: ()=>{ tele.paste_attempts++; },   // focus_loss_count enriched in Phase 6
+  });
+
+  const btns = document.createElement('div');
+  btns.style.cssText='display:flex;gap:10px;margin-top:10px';
+  const runBtn=document.createElement('button'); runBtn.className='btn'; runBtn.textContent='Run (samples)'; runBtn.style.cssText='width:auto;padding:10px 20px';
+  const subBtn=document.createElement('button'); subBtn.className='btn'; subBtn.textContent='Submit'; subBtn.style.cssText='width:auto;padding:10px 20px;background:#238636';
+  btns.appendChild(runBtn); btns.appendChild(subBtn); container.appendChild(btns);
+  const outp=document.createElement('pre'); outp.className='code-output'; outp.style.cssText='margin-top:12px;white-space:pre-wrap;background:#0d1117;border:1px solid var(--border,#2a2f3a);border-radius:8px;padding:12px;min-height:48px;font:12px/1.5 ui-monospace,monospace'; container.appendChild(outp);
+
+  const limitMs = opts.time_limit_ms || 5000;
+
+  runBtn.onclick = async ()=>{
+    outp.textContent='Running sample cases…'; runBtn.disabled=true;
+    try{
+      const tc = await _codingFetchTC(q);
+      const res = await CodingRuntime.runTestCases(sel.value, editor.getValue(), (tc.sample||[]).map(c=>c.input), {limitMs});
+      if (res.error){ outp.textContent='⚠ '+res.error; return; }
+      const lines=(tc.sample||[]).map((c,i)=>{
+        const got=(res.outputs[i]==null)?'(no output / timeout)':res.outputs[i];
+        const exp=(c.expected_output||'').replace(/\s+$/,'');
+        const ok=String(got).replace(/\s+$/,'')===exp;
+        return `Case ${i+1}: ${ok?'✓ PASS':'✗ FAIL'}\n  input:    ${JSON.stringify(c.input)}\n  expected: ${JSON.stringify(exp)}\n  got:      ${JSON.stringify(got)}`;
+      });
+      outp.textContent = lines.join('\n\n') || 'No sample cases for this problem.';
+    }catch(e){ outp.textContent='Run failed: '+(e.message||e); }
+    finally{ runBtn.disabled=false; }
+  };
+
+  subBtn.onclick = async ()=>{
+    outp.textContent='Submitting…'; subBtn.disabled=true;
+    try{
+      const tc = await _codingFetchTC(q);
+      const hidden = tc.hidden_inputs||[];
+      const res = await CodingRuntime.runTestCases(sel.value, editor.getValue(), hidden.map(h=>h.input), {limitMs});
+      if (res.error){ outp.textContent='⚠ '+res.error; return; }
+      const ms = res.metrics||[];
+      const body = {
+        session_id: sessionId, question_id: q.id, language: sel.value,
+        source: editor.getValue(), outputs: res.outputs,
+        metrics: { average_execution_ms: Math.round(ms.reduce((a,m)=>a+(m.ms||0),0)/Math.max(ms.length,1)), memory_consumed_kb: null },
+        telemetry: { keystroke_rhythm_variance: null, paste_attempts: tele.paste_attempts, focus_loss_count: tele.focus_loss_count },
+      };
+      const r = await fetch(`${SERVER}/api/v1/coding/judge`, { method:'POST', headers: authHdr(), body: JSON.stringify(body) });
+      if (r.status===429){ outp.textContent='Submission limit reached for this problem.'; return; }
+      if (!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||`HTTP ${r.status}`); }
+      const j = await r.json();
+      outp.textContent = `Result: ${j.passed} / ${j.total} hidden tests passed.`;
+    }catch(e){ outp.textContent='Submit failed: '+(e.message||e); }
+    finally{ subBtn.disabled=false; }
+  };
 }
 function ansSet(qid){
   const v = answers[qid];
@@ -2415,6 +2523,18 @@ function renderQ(){
       if(d) d.className=dotClass(curQ);
     });
     o.appendChild(ni);
+    document.getElementById('btn-prev').disabled=curQ===0;
+    const last=curQ===questions.length-1;
+    document.getElementById('btn-next').style.display=last?'none':'inline-block';
+    document.getElementById('btn-sub').style.display=last?'inline-block':'none';
+    refreshDots();
+    return;
+  }
+  if(qtype==='coding'){
+    // Edge Compiler (P1-T7). Editor + Run(samples)/Submit(hidden→server judge).
+    // The grade is server-authoritative; answers[q.id] holds the source only for
+    // autosave/recovery (NOT for scoring).
+    _renderCodingQuestion(q, o);
     document.getElementById('btn-prev').disabled=curQ===0;
     const last=curQ===questions.length-1;
     document.getElementById('btn-next').style.display=last?'none':'inline-block';

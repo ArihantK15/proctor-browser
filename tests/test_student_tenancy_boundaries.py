@@ -283,6 +283,7 @@ def test_public_registration_records_per_exam_invite(client):
             "roll_number": "A1",
             "full_name": "Alice",
             "email": "alice@test.com",
+            "date_of_birth": "2000-01-15",
         })
 
     assert resp.status_code == 200, resp.text
@@ -323,6 +324,7 @@ def test_public_registration_per_exam_invite_is_idempotent(client):
             "roll_number": "A1",
             "full_name": "Alice",
             "email": "alice@test.com",
+            "date_of_birth": "2000-01-15",
         })
 
     assert resp.status_code == 200, resp.text
@@ -349,6 +351,7 @@ def test_returning_student_registers_for_another_exam(client):
         resp = client.post("/api/v1/register-student", json={
             "teacher_id": "teacher-1", "exam_id": "exam-2",
             "roll_number": "A1", "full_name": "Alice", "email": "alice@test.com",
+            "date_of_birth": "2000-01-15",
         })
     assert resp.status_code == 200, resp.text
     invs = db.tables["student_invites"]

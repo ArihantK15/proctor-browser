@@ -42,6 +42,20 @@ def test_register_rejects_oversized_guardian_email():
 
 # ── real email-format validation (was just "@" in email) ──────────────
 
+def test_register_rejects_missing_dob():
+    from unittest.mock import patch
+    from tests.conftest import _AsyncTableMock
+    fake_teacher = {"id": "t-1", "org_role": "teacher"}
+    with patch("app.routers.public._get_teacher_by_id", return_value=fake_teacher), \
+         patch("app.routers.public._atable", return_value=_AsyncTableMock(data=[])):
+        r = _register(date_of_birth="")
+        assert r.status_code == 400, f"empty DOB -> {r.status_code}"
+    with patch("app.routers.public._get_teacher_by_id", return_value=fake_teacher), \
+         patch("app.routers.public._atable", return_value=_AsyncTableMock(data=[])):
+        r = _register(date_of_birth=None)
+        assert r.status_code == 400, f"null DOB -> {r.status_code}"
+
+
 def test_register_rejects_malformed_email():
     for bad in ("not-an-email", "a@", "@b.com", "a@b", "a b@c.com"):
         r = _register(email=bad)

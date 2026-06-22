@@ -224,6 +224,11 @@ async function doRegister(){
     document.getElementById('reg-err').textContent='A valid email is required';
     return;
   }
+  if(!dob){
+    document.getElementById('inp-dob').classList.add('err-border');
+    document.getElementById('reg-err').textContent='Date of birth is required';
+    return;
+  }
   const btn = document.getElementById('reg-btn');
   btn.disabled = true;
   document.getElementById('reg-ldr').textContent = 'Checking...';

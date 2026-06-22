@@ -410,6 +410,11 @@ async def register_student(request: Request, body: RegisterIn):
     # ── Minor consent gate ───────────────────────────────────────
     # Server re-computes age from date_of_birth.
     date_of_birth_str = (body.date_of_birth or "").strip()
+    if not date_of_birth_str:
+        raise HTTPException(
+            status_code=400,
+            detail="Date of birth is required. DOB feeds the under-18 guardian-consent flow.",
+        )
     dob = None
     is_minor = False
     if date_of_birth_str:

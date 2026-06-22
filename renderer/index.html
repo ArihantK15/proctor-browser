@@ -3169,6 +3169,15 @@ function chatDisconnect(){
   chatIntentionalClose = true;
   if(chatReconnectTimer){ clearTimeout(chatReconnectTimer); chatReconnectTimer=null; }
   if(chatWs){ try{ chatWs.close(); }catch(_){} chatWs=null; }
+  // Remove FAB + panel DOM so the next chatInit() creates fresh ones
+  // for a new session. Without this, the guard in chatInit() returns
+  // early — the old elements still exist in the DOM — and the chat
+  // socket is never reconnected (student can't type, teacher never
+  // sees them).
+  var _fab = document.getElementById('chat-fab');
+  if(_fab) _fab.remove();
+  var _panel = document.getElementById('chat-panel');
+  if(_panel) _panel.remove();
 }
 
 function chatHandleIncoming(data){

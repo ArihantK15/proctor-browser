@@ -172,6 +172,62 @@ class TestChatHubService:
         call_args = teacher_ws.send_json.call_args[0][0]
         assert call_args["text"] == "Hello teacher"
 
+    def test_presence_and_message_pipeline_teacher_sees_student(self):
+        """End-to-end: student registers, teacher receives presence + roster,
+        student sends message, teacher receives it."""
+        from app.routers.chat import chat_hub
+        import asyncio
+        teacher_ws = AsyncMock()
+        teacher_ws.send_json = AsyncMock()
+        # Teacher connects first
+        asyncio.run(chat_hub.register_teacher("t1", teacher_ws))
+        # Clear the roster sent during register_teacher
+        teacher_ws.send_json.reset_mock()
+        # Student registers — teacher should get presence
+        s_ws = AsyncMock()
+        s_ws.send_json = AsyncMock()
+        asyncio.run(chat_hub.register_student(
+            session_id="sess-1", teacher_id="t1",
+            roll="ALICE", name="Alice", ws=s_ws,
+        ))
+        presence_calls = [c for c in teacher_ws.send_json.call_args_list
+                          if c[0][0].get("type") == "presence"]
+        assert presence_calls, "teacher must receive presence on student register"
+        assert presence_calls[0][0][0]["online"] is True
+        assert presence_calls[0][0][0]["session_id"] == "sess-1"
+        # Student sends a message — teacher should receive it
+        teacher_ws.send_json.reset_mock()
+        s_ws.send_json.reset_mock()
+        asyncio.run(chat_hub.student_send("sess-1", "Hello from student"))
+        teacher_msg_calls = [c for c in teacher_ws.send_json.call_args_list
+                             if c[0][0].get("type") == "msg"]
+        assert teacher_msg_calls, "teacher must receive student message"
+        assert teacher_msg_calls[0][0][0]["text"] == "Hello from student"
+        assert teacher_msg_calls[0][0][0]["sender"] == "student"
+        assert teacher_msg_calls[0][0][0]["roll"] == "ALICE"
+        assert teacher_msg_calls[0][0][0]["name"] == "Alice"
+        # Student's own socket gets the echo
+        s_student_msgs = [c for c in s_ws.send_json.call_args_list
+                          if c[0][0].get("type") == "msg"]
+        assert s_student_msgs, "student must receive echo of own message"
+        # Teacher reconnecting later gets the student in the roster
+        teacher_ws2 = AsyncMock()
+        teacher_ws2.send_json = AsyncMock()
+        asyncio.run(chat_hub.register_teacher("t1", teacher_ws2))
+        roster_calls = [c for c in teacher_ws2.send_json.call_args_list
+                        if c[0][0].get("type") == "roster"]
+        assert roster_calls, "reconnecting teacher must receive roster"
+        roster_sids = [s["session_id"] for s in roster_calls[0][0][0].get("sessions", [])]
+        assert "sess-1" in roster_sids, "student must be in roster for same teacher"
+        # Different teacher must NOT see this student
+        teacher_ws3 = AsyncMock()
+        teacher_ws3.send_json = AsyncMock()
+        asyncio.run(chat_hub.register_teacher("t2", teacher_ws3))
+        roster_calls_t2 = [c for c in teacher_ws3.send_json.call_args_list
+                           if c[0][0].get("type") == "roster"]
+        t2_sids = [s["session_id"] for s in (roster_calls_t2[0][0][0].get("sessions", []) if roster_calls_t2 else [])]
+        assert "sess-1" not in t2_sids, "student must NOT appear in another teacher's roster"
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  Heartbeat / liveness  (regression for the chat-reaped-after-30s bug)

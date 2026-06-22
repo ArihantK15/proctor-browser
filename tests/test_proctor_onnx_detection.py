@@ -119,34 +119,23 @@ class TestYoloInferDecode:
         from proctor import (_cheat_detection_kept, YOLO_PHONE_CONFIDENCE,
                              YOLO_CONFIDENCE)
 
-        mid = (YOLO_PHONE_CONFIDENCE + YOLO_CONFIDENCE) / 2.0  # between the two
-        # Handheld classes (cell phone 67, remote 65) pass at the lower bar.
-        assert _cheat_detection_kept(67, mid)
-        assert _cheat_detection_kept(65, mid)
-        assert not _cheat_detection_kept(67, YOLO_PHONE_CONFIDENCE - 0.01)
-        # Non-handheld cheat objects (Laptop 63, Keyboard 66, TV/monitor 62)
-        # still need the stricter bar.
-        assert not _cheat_detection_kept(63, mid)
-        assert _cheat_detection_kept(63, YOLO_CONFIDENCE + 0.01)
-        assert not _cheat_detection_kept(66, mid)
-        assert _cheat_detection_kept(66, YOLO_CONFIDENCE + 0.01)
-        assert not _cheat_detection_kept(62, mid)
-        assert _cheat_detection_kept(62, YOLO_CONFIDENCE + 0.01)
-        # Book (73) is gated behind PROCTOR_FLAG_BOOKS (default OFF).
-        assert not _cheat_detection_kept(73, YOLO_CONFIDENCE + 0.01)
-        # Non-cheat classes (person 0) are never kept.
-        assert not _cheat_detection_kept(0, 0.99)
-
-    def test_cheat_detection_book_flag_enabled(self):
-        """Book (COCO 73) passes when _PROCTOR_FLAG_BOOKS is toggled ON."""
-        import proctor as _p
-        saved = _p._PROCTOR_FLAG_BOOKS
-        try:
-            _p._PROCTOR_FLAG_BOOKS = True
-            assert _p._cheat_detection_kept(73, _p.YOLO_CONFIDENCE + 0.01)
-            assert not _p._cheat_detection_kept(73, _p.YOLO_CONFIDENCE - 0.01)
-        finally:
-            _p._PROCTOR_FLAG_BOOKS = saved
+        # Custom 4-class model: Phone (2) is gated at YOLO_PHONE_CONFIDENCE; the
+        # others at YOLO_CONFIDENCE. Note the phone bar is now the STRICTER of the
+        # two (0.40 vs 0.35) — the trained phone class reads cleanly, so the old
+        # low COCO floor would false-positive. Assert against each class's own
+        # threshold so the test holds regardless of which bar is higher.
+        assert _cheat_detection_kept(2, YOLO_PHONE_CONFIDENCE)
+        assert _cheat_detection_kept(2, YOLO_PHONE_CONFIDENCE + 0.01)
+        assert not _cheat_detection_kept(2, YOLO_PHONE_CONFIDENCE - 0.01)
+        # Non-handheld cheat objects (Earphone 0, Headphone 1, Smartwatch 3).
+        for cid in (0, 1, 3):
+            assert _cheat_detection_kept(cid, YOLO_CONFIDENCE)
+            assert _cheat_detection_kept(cid, YOLO_CONFIDENCE + 0.01)
+            assert not _cheat_detection_kept(cid, YOLO_CONFIDENCE - 0.01)
+        # Classes outside CHEAT_IDS (e.g. the not-yet-trained Calculator 4, or
+        # any stray id) are never kept, even at max confidence.
+        assert not _cheat_detection_kept(4, 0.99)
+        assert not _cheat_detection_kept(9, 0.99)
 
     def test_per_class_nms_dedups_overlapping_same_class(self):
         from proctor import _yolo_infer

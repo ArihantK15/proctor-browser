@@ -131,15 +131,14 @@ class TestDetectionResultFormat:
 
     def test_handheld_labels_match_phone_consumers(self):
         """Regression: the phone-position and behavioral phone_in_hand consumers
-        gate on name.startswith("Phone"). The handheld CHEAT_IDS label was
-        "Phone/handheld" while those consumers tested == "Phone", so phone-in-hand
-        escalation never fired. Guard that every handheld label starts with
-        "Phone" so the branches actually run."""
+        gate on name == "Phone". With the custom detector the handheld class (2)
+        is labelled plain "Phone", so those branches fire. Guard that every
+        handheld label is exactly "Phone" so the consumer contract holds."""
         from proctor import CHEAT_IDS, HANDHELD_CHEAT_IDS
         assert HANDHELD_CHEAT_IDS, "expected at least one handheld class"
         for cid in HANDHELD_CHEAT_IDS:
             assert cid in CHEAT_IDS, f"handheld id {cid} not in CHEAT_IDS"
-            assert CHEAT_IDS[cid].startswith("Phone"), (cid, CHEAT_IDS[cid])
+            assert CHEAT_IDS[cid] == "Phone", (cid, CHEAT_IDS[cid])
 
 
 class TestContinuousIdentityVerification:

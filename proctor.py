@@ -1320,10 +1320,6 @@ CHEAT_IDS = {
 # quirks — expect to retune against the trained model during live validation.
 HANDHELD_CHEAT_IDS = {2}
 
-# Book (COCO 73) is gated behind a config flag: it false-positives on
-# legitimate paper and breaks open-book exams. Default OFF.
-_PROCTOR_FLAG_BOOKS = os.environ.get("PROCTOR_FLAG_BOOKS", "0") == "1"
-
 # Phone-occlusion escalation (face vanishing seconds after a phone sighting →
 # "critical") couples two uncertain signals and can chain a low-confidence phone
 # into a critical false accusation. Kept in the code for on-device validation
@@ -2659,11 +2655,10 @@ def _process_yolo_results(
     for det in detections:
         name, conf = det[0], det[1]
         if _history.get(name, 0) >= YOLO_MIN_FRAMES:
-            # BUG FIX: the CHEAT_IDS label for handheld classes is "Phone/handheld",
-            # not "Phone", so this branch never matched and phone-position
-            # (in-hand vs desk → critical vs high) never ran. startswith keeps it
-            # correct for the "Phone/handheld" label and any future "Phone*".
-            if name.startswith("Phone") and len(det) >= 6:
+            # The custom detector labels the phone class plain "Phone" (CHEAT_IDS 2),
+            # so this branch matches and phone-position (in-hand vs desk →
+            # critical vs high) fires.
+            if name == "Phone" and len(det) >= 6:
                 phone_box = (det[2], det[3], det[4], det[5])
                 phone_type = classify_phone_position(phone_box, state.get("_last_face_bbox"), H)
                 event_name = f"cheat_{phone_type}"
@@ -2824,10 +2819,9 @@ def _process_behavioral(
     if YOLO_AVAILABLE and yolo_res and yolo_res.get("detections") \
        and fcount - yolo_frm < STALE:
         for det in yolo_res["detections"]:
-            # Same label fix as _process_object_detections: the handheld label is
-            # "Phone/handheld", so == "Phone" never matched and the behavioral
-            # phone_in_hand signal was always False.
-            if det[0].startswith("Phone") and len(det) >= 6:
+            # Same plain-"Phone" label as _process_object_detections (CHEAT_IDS 2)
+            # — drives the behavioral phone_in_hand signal.
+            if det[0] == "Phone" and len(det) >= 6:
                 phone_box = (det[2], det[3], det[4], det[5])
                 phone_type = classify_phone_position(phone_box, state.get("_last_face_bbox"), H)
                 phone_in_hand = (phone_type == "phone_in_hand")

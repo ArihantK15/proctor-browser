@@ -131,20 +131,33 @@ configurable (limits, language set, pool size) without code changes.
   idempotency + RLS logic in `app/routers/coding.py`, the dashboard authoring
   form, the scoring fold-in (`app/services/scoring.py`).
 
-## 9. Open items (explicitly unresolved)
+## 9. Decisions + open items
+
+**Decided:**
+
+- **Language set (v1):** **JavaScript, TypeScript, Python, C, C++, Java.** C is
+  included — it is core to Indian higher-education CS curricula. The rootfs bakes
+  `node`, `tsc`/esbuild, CPython, `gcc` (C), `g++` (C++), and a JDK (`javac`/
+  `java`).
+- **Failure/degradation policy = "make them wait" (LeetCode-style).** A Submit is
+  never silently dropped and never auto-fails on congestion. On submit the student
+  sees a **"running on the server — please wait"** state (spinner) while the job
+  queues + executes; the kiosk already shows this (`coding-ui.js`). The server
+  queues with backpressure; if the service is briefly down the client retry-queue
+  resubmits automatically. A submission only resolves to Accepted/Wrong-Answer
+  after the server has actually run + graded it — exactly like LeetCode "Judging…".
+
+**Open (explicitly unresolved):**
 
 1. **Exam-burst scaling numbers.** Worker-pool size + queue backpressure must be
    sized against *real* exam concurrency (class sizes, simultaneous exams). No
    hardware commitment until we have those numbers. ("Server size: let's see.")
-2. **Rootfs language set + sizes.** Confirm the v1 language list (JS, Python, TS,
-   C++, Java?) and the resulting rootfs image size / build pipeline.
+2. **Rootfs sizes / build pipeline.** The language set is fixed (above); confirm
+   the resulting rootfs image size and the build/update pipeline.
 3. **`coding_submissions` schema additions.** Columns for compile output and
    execution metrics; migration phase number TBD.
-4. **Failure/degradation policy.** Behaviour when the execution service is down or
-   saturated: queue + retry, or fail the Submit with a clear message + allow a
-   no-penalty re-attempt. (Lean: queue with a bounded wait, surface "grading
-   queued" to the student, never silently drop.)
-5. **Run vs Submit rate/limits.** Per-student Run throttle to bound pool load.
+4. **Queue bounds.** Max wait before the student is told "still judging, hang on"
+   vs. a hard ceiling; per-student Run throttle to bound pool load.
 
 ## 10. Testing strategy
 
@@ -162,7 +175,9 @@ configurable (limits, language set, pool size) without code changes.
    (Python), network-isolated host, + the escape-attempt suite **first**.
 2. App orchestrator: rewire `/coding/judge` to call `/run` + compare; schema
    additions.
-3. Add languages (JS, TS, C++, Java) to the rootfs; per-language tests.
-4. Remove the client execution layer; simplify the kiosk to editor + POST.
+3. Add languages (JS, TS, C, C++, Java) to the rootfs; per-language tests.
+4. ~~Remove the client execution layer; simplify the kiosk to editor + POST.~~
+   **DONE** ahead of the plan (commit `09ba4839`): client execution stack
+   deleted, `coding-ui.js` rewired to POST source to `/run` + `/judge`.
 5. Package the service as the portable self-host artifact.
 6. Scaling pass against real exam-size numbers.

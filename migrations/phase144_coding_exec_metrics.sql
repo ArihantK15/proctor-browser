@@ -1,0 +1,12 @@
+-- phase144: server-side execution metrics for coding_submissions.
+--
+-- Server-side coding execution (Phase 5 of the
+-- 2026-06-23-server-side-coding-execution plan) runs student code through the
+-- execution service per hidden test case and stores the compiler's own output
+-- (compile errors are diagnostic, not secret — surfacing them to the student
+-- is what every real judge does) alongside the existing per-case metrics.
+--
+-- Idempotent ADD COLUMN IF NOT EXISTS, matching the phase141 style — safe to
+-- re-run, and safe on a DB that already has the column from a prior partial
+-- apply.
+ALTER TABLE coding_submissions ADD COLUMN IF NOT EXISTS compile_output TEXT;

@@ -11,3 +11,12 @@ def test_limits_map_to_flags():
     assert "--processes" in s and "--no-default-dirs" not in s
     assert s.endswith("python3 main.py")
     assert "--share-net" not in s                      # NO network, ever
+
+
+def test_validated_host_flags_present():
+    # Locked in from the live-server validation (2026-06-23): cgroup mode + a PATH
+    # (so compilers find ld) + HOME (javac). Without these, compiled langs break.
+    s = " ".join(run_args(0, Limits(1000, 2000, 128, 64), ["gcc", "main.c"]))
+    assert "--cg" in s
+    assert "--env=PATH=/usr/bin:/usr/local/bin:/bin" in s
+    assert "--env=HOME=/box" in s

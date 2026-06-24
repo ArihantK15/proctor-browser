@@ -119,6 +119,7 @@ async def log_admin_action(
                       Optional — pass when the call site has one.
     """
     from ..database import async_table as _atable
+    from .. import db_context as _dbctx
 
     ip: str | None = None
     user_agent: str | None = None
@@ -145,7 +146,13 @@ async def log_admin_action(
     }
 
     try:
-        await _atable("admin_audit_log").insert(row).execute()
+        # Append-only forensic logging is a privileged system operation: the
+        # admin_audit_log INSERT policy (phase133) is `is_privileged() OR
+        # teacher_id = app.teacher_id()`, and superadmin / cross-teacher actions
+        # don't satisfy the own-id branch — under RLS_SESSION_CONTEXT they were
+        # denied and the trail went silently empty. Elevate just this insert.
+        with _dbctx.system_context():
+            await _atable("admin_audit_log").insert(row).execute()
     except Exception as e:
         # Don't propagate — audit failure must not break the action.
         # Log loudly so an ops dashboard or Sentry picks it up.

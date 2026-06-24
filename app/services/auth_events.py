@@ -21,7 +21,10 @@ async def record(
         ua = request.headers.get("user-agent", "") if request else ""
         await _atable("auth_events").insert({
             "user_kind": user_kind,
-            "user_id": user_id,
+            # Callers pass teacher["id"]/account["id"] straight through, which is
+            # a native UUID off asyncpg — coerce so neither the text column nor a
+            # downstream serializer chokes ("UUID is not JSON serializable").
+            "user_id": str(user_id) if user_id else "",
             "email": email,
             "event_type": event_type,
             "ip": ip,

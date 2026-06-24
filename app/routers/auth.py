@@ -548,7 +548,9 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     if org_exists.data:
         raise HTTPException(
             status_code=409,
-            detail=f"'{org_name}' is already registered. Ask your admin for an invite."
+            detail=f"'{org_name}' is already registered. If it's your organization, "
+                   f"sign in instead (or reset your password); otherwise ask your "
+                   f"admin for an invite."
         )
 
     auth_resp = None
@@ -607,16 +609,30 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.warning("[TeacherSignup] demo seed failed (non-fatal): %s", demo_err)
 
         _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", safe(name), mask_email(email), safe(org_name))
-        await record_auth_event("signup", request, "teacher", teacher["id"], email)
-        enqueue_job(send_new_account_notification_job,
-                    account_type="teacher", name=name, email=email)
 
-        # Issue email verification
-        from ..emailer import send_email_verification
+        # `base` is needed by both the verification and trial-started emails;
+        # resolve it up front so a failure in one side effect can't NameError the
+        # other.
         from ..invites import _get_invite_base_url
-        vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
-        base = _get_invite_base_url()
-        send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
+        try:
+            base = _get_invite_base_url()
+        except Exception:
+            base = ""
+
+        # Post-commit side effects are BEST-EFFORT: the org/teacher row is already
+        # durably committed, so a failure here (Redis down, SMTP hiccup, token
+        # signer error) must NOT raise — otherwise a fully-created account returns
+        # a 500, the user thinks signup failed, and their retry hits the
+        # duplicate-email 409. Log loudly; the verification email can be re-sent.
+        try:
+            await record_auth_event("signup", request, "teacher", teacher["id"], email)
+            enqueue_job(send_new_account_notification_job,
+                        account_type="teacher", name=name, email=email)
+            from ..emailer import send_email_verification
+            vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
+            send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
+        except Exception as _post_err:
+            _auth_log.warning("[TeacherSignup] post-commit side effect failed (non-fatal): %s", _post_err)
 
         # Welcome the billing owner with their 14-day trial details.
         try:
@@ -629,7 +645,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.warning("[TeacherSignup] trial-started email enqueue failed: %s", _e)
 
         return {
-            "teacher_id":    teacher["id"],
+            "teacher_id":    str(teacher["id"]),
             "email":         email,
             "full_name":     name,
             "org_id":        str(org_id),
@@ -856,8 +872,12 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
                 status_code=403,
                 content={
                     "error": "EMAIL_UNVERIFIED",
-                    "message": "Please verify your email before logging in.",
+                    "message": "Please verify your email before logging in. "
+                               "Didn't get it? Request a new link.",
                     "email": email,
+                    # Advertise the resend path so the client can offer a button
+                    # instead of leaving the user at a dead end (#14).
+                    "resend_endpoint": "/api/v1/auth/resend-verification",
                 },
             )
         await _atable("teachers").update({
@@ -1476,7 +1496,16 @@ async def student_signup(body: StudentSignupIn, request: Request):
                 "auth_provider": auth_provider,
                 "password_changed_at": now_ist().isoformat(),
             })
-        result = await _atable("student_accounts").insert(account_row).execute()
+        # Pre-auth account creation is a privileged system write: the student is
+        # not yet authenticated, so there is no own-id context, and the
+        # student_accounts INSERT policy (phase132 sa_ins) requires
+        # app.is_privileged(). Under RLS_SESSION_CONTEXT the request's ambient
+        # (non-system) context made this match zero rows → every student signup
+        # 500'd. Elevate just this insert; the confused-deputy-prone auto-link
+        # of pre-existing rows stays deferred to post-OTP (see note below).
+        from .. import db_context as _dbctx
+        with _dbctx.system_context():
+            result = await _atable("student_accounts").insert(account_row).execute()
         account = result.data[0]
     except Exception as e:
         _auth_log.error("[StudentSignup] DB insert error: %s", e)

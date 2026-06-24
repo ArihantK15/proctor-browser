@@ -54,6 +54,12 @@ _PHASE96 = _MIGRATIONS / "phase96_billing_enterprise.sql"
 _PHASE90 = _MIGRATIONS / "phase90_org_student_quota_trigger.sql"
 _PHASE91 = _MIGRATIONS / "phase91_quota_trigger_race_fix.sql"
 _PHASE104 = _MIGRATIONS / "phase104_sweep_billing_7yr.sql"
+# phase144 consolidates the two conflicting subscriptions status CHECK
+# constraints (the 4-day signup outage) into one 13-status constraint. Applied
+# on top of phase96's `_chk` so the fixture DB enforces the SAME status set as
+# fixed-prod — without it the fixture cannot reject an invalid status and the
+# suite stays blind to constraint/code drift (which is exactly what shipped).
+_PHASE144 = _MIGRATIONS / "phase144_subscriptions_status_fix.sql"
 
 # Every table the suite writes, truncated between tests so state never leaks.
 # Written as a single STATIC string literal (no runtime concatenation / no
@@ -108,6 +114,7 @@ def _build_schema():
             await conn.execute(_PHASE90.read_text())
             await conn.execute(_PHASE91.read_text())
             await conn.execute(_PHASE104.read_text())  # validates the real migration
+            await conn.execute(_PHASE144.read_text())  # validates the real migration; enforces prod status set
         finally:
             await conn.close()
 

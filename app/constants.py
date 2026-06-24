@@ -276,7 +276,12 @@ _CRITICAL_TYPES = frozenset({
 # the higher default is the real safety net: no real teacher sends
 # 5000 invites/day in normal use; abuse cases still need to be
 # rate-limited by the @limiter.limit("5/minute") on the route.
-INVITE_DAILY_CAP = int(os.environ.get("INVITE_DAILY_CAP", "5000"))
+# Guard against a misconfigured 0 / negative: with cap <= 0 the claim check
+# (count + batch <= cap) denies EVERY invite for 24h. Someone setting 0 thinking
+# it means "unlimited" would silently brick all invite sends — clamp to the
+# default instead so a typo can't take the feature down.
+_invite_cap_raw = int(os.environ.get("INVITE_DAILY_CAP", "5000"))
+INVITE_DAILY_CAP = _invite_cap_raw if _invite_cap_raw > 0 else 5000
 INVITE_URL_TTL = 600  # 10 minutes
 
 # ─── Reminders ────────────────────────────────────────────────────

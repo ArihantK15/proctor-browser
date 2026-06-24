@@ -153,6 +153,26 @@ async def _check_subscription_active(org_id: str) -> None:
             status_code=403,
             detail="Your subscription has expired. Please upgrade your plan to continue.",
         )
+    # halted (dunning retries exhausted), paused, and completed (subscription
+    # reached its term) all drop the org to FREE_CAP in reconcile_org_entitlement.
+    # Without an explicit gate here they fell through to "allow", so the org saw a
+    # confusing "student limit reached" instead of a clear billing message (#9).
+    if status == "halted":
+        raise HTTPException(
+            status_code=403,
+            detail="Your last payment failed and the subscription was halted. "
+                   "Please update your payment method to restore access.",
+        )
+    if status == "paused":
+        raise HTTPException(
+            status_code=403,
+            detail="Your subscription is paused. Resume it to continue.",
+        )
+    if status == "completed":
+        raise HTTPException(
+            status_code=403,
+            detail="Your subscription has ended. Please subscribe again to continue.",
+        )
     if status == "trialing":
         trial_end_raw = sub.get("trial_end") or ""
         if trial_end_raw:

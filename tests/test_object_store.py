@@ -9,7 +9,44 @@ from app.services.object_store import (
     fetch_screenshot,
     delete_prefix,
     reset_client,
+    _encryption_args,
+    _kms_key_id_is_valid,
 )
+
+
+class TestKmsKeyValidation:
+    """Guards the prod incident: a 32-byte hex value pasted into S3_KMS_KEY_ID
+    made S3 reject EVERY put_object (KMS.NotFoundException), silently breaking
+    all evidence uploads. A bad key must fall back to SSE-S3, never fail-open."""
+
+    # the exact value from the production incident
+    _BAD = "667b56b0d48872360fa4eac215eee12e551f3b74692b1e7c05e4e08cfca159d1"
+
+    @pytest.mark.parametrize("key,valid", [
+        ("667b56b0d48872360fa4eac215eee12e551f3b74692b1e7c05e4e08cfca159d1", False),
+        ("1234abcd-12ab-34cd-56ef-1234567890ab", True),
+        ("alias/procta-evidence", True),
+        ("arn:aws:kms:ap-south-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab", True),
+        ("arn:aws:kms:ap-south-1:123456789012:alias/procta", True),
+        ("", False),
+        ("garbage", False),
+    ])
+    def test_validator(self, key, valid):
+        assert _kms_key_id_is_valid(key) is valid
+
+    def test_invalid_key_falls_back_to_aes256(self, monkeypatch):
+        monkeypatch.setenv("S3_KMS_KEY_ID", self._BAD)
+        assert _encryption_args() == {"ServerSideEncryption": "AES256"}
+
+    def test_valid_key_uses_kms(self, monkeypatch):
+        monkeypatch.setenv("S3_KMS_KEY_ID", "1234abcd-12ab-34cd-56ef-1234567890ab")
+        args = _encryption_args()
+        assert args["ServerSideEncryption"] == "aws:kms"
+        assert args["SSEKMSKeyId"] == "1234abcd-12ab-34cd-56ef-1234567890ab"
+
+    def test_unset_uses_aes256(self, monkeypatch):
+        monkeypatch.delenv("S3_KMS_KEY_ID", raising=False)
+        assert _encryption_args() == {"ServerSideEncryption": "AES256"}
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

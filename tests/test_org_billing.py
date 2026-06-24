@@ -510,6 +510,17 @@ class TestRazorpayWebhook:
         }}
     }
 
+    @pytest.fixture(autouse=True)
+    def _unseen_events(self):
+        # These tests post fresh events and assert PROCESSING behaviour, not
+        # dedup. billing_event_seen() runs against the MagicMock'd app.database,
+        # whose truthy .data would otherwise report every event as "already
+        # seen" (now that real events carry a synthesized id when event.id is
+        # absent). Pin it to "unseen" so processing is exercised.
+        with patch("app.routers.billing.billing_event_seen",
+                   AsyncMock(return_value=False)):
+            yield
+
     def _post(self, client, event_type, payload=None, sig="test-sig", **kw):
         body = json.dumps({
             "event": event_type,

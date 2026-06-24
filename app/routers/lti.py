@@ -274,7 +274,14 @@ async def lti_deeplink(request: Request):
     # Get teacher's exams as content items
     try:
         teacher_id = user.get("id", "")
-        content_items = await get_teacher_exams_as_content_items(teacher_id)
+        if not teacher_id:
+            # No resolved local user (e.g. provisioning failed upstream) — don't
+            # query with an empty string, which asyncpg rejects as an invalid
+            # UUID. Degrade to an empty picker rather than log a noisy error.
+            logger.warning("lti: deeplink with no resolved teacher_id; empty content list")
+            content_items = []
+        else:
+            content_items = await get_teacher_exams_as_content_items(teacher_id)
     except Exception as e:
         logger.error("Failed to fetch content items: %s", e)
         content_items = []

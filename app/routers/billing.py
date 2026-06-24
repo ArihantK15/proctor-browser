@@ -400,14 +400,28 @@ async def razorpay_webhook(request: Request):
     payload = event.get("payload", {})
     event_id = str(event.get("id") or "").strip()
 
+    if not event_id:
+        # Razorpay almost always sends event.id; on a rare delivery without one,
+        # synthesize a STABLE dedup key from the event's own identifying fields so
+        # a redelivery is still caught. This matters because subscription.charged
+        # triggers real overage billing — reprocessing a retry would double-charge.
+        # A genuinely distinct charge carries a distinct payment id, so distinct
+        # events are NOT collapsed together.
+        _sub = (payload.get("subscription", {}).get("entity", {}) or {}).get("id")
+        _pay = (payload.get("payment", {}).get("entity", {}) or {}).get("id")
+        if _sub or _pay:
+            event_id = f"synth:{event_type}:{_sub or ''}:{_pay or ''}"
+            logger.warning("Razorpay webhook missing event.id — synthesized dedup key (type=%s)",
+                           safe(event_type))
+        else:
+            logger.warning("Razorpay webhook missing event.id and no stable id — idempotency weakened (type=%s)",
+                           safe(event_type))
+
     # DB-durable idempotency: a retry of an already-recorded event is a no-op.
     if event_id and await billing_event_seen(event_id):
         logger.info("Razorpay webhook %s already processed (event=%s) — 200",
                     safe(event_type), safe(event_id))
         return {"status": "duplicate", "event_id": event_id}
-    if not event_id:
-        logger.warning("Razorpay webhook missing event.id — idempotency weakened (type=%s)",
-                       safe(event_type))
 
     sub_data = payload.get("subscription", {}).get("entity", {}) or {}
     sub_id = sub_data.get("id")

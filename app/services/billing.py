@@ -355,28 +355,40 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
                 "amount_inr": res["amount_inr"]}
 
     # Gap #13: apply billing credit before creating the add-on.
+    # ATOMIC debit: lock the org row (SELECT … FOR UPDATE) and read+write the
+    # credit inside one transaction, so two concurrent overage charges for the
+    # same org can't both read the same balance and double-consume it (the
+    # read-then-write TOCTOU race). On ANY failure we charge the full amount —
+    # never grant credit we didn't actually debit. Runs as system: this is a
+    # background/webhook path with no request context, and organizations is
+    # RLS-protected.
+    amount = res["amount_inr"]
     org_credit = 0
     credit_consumed = 0
+    net = amount
     try:
-        org_rows = (await _atable("organizations").select("billing_credit_inr")
-                    .eq("id", oid).limit(1).execute()).data or []
-        if org_rows:
-            org_credit = int(org_rows[0].get("billing_credit_inr") or 0)
-    except Exception:
-        logger.warning("bill_cycle_overage: failed to read credit for org=%s", oid)
-    if org_credit > 0:
-        amount = res["amount_inr"]
-        credit_consumed = min(org_credit, amount)
-        net = amount - credit_consumed
-        new_balance = org_credit - credit_consumed
-        try:
-            await _atable("organizations").update({"billing_credit_inr": new_balance}).eq("id", oid).execute()
-        except Exception as exc:
-            logger.warning("bill_cycle_overage: debit credit failed for org=%s: %s", oid, exc)
-            credit_consumed = 0
-            net = amount
-    else:
-        net = res["amount_inr"]
+        from ..postgres_table import get_pool
+        from .. import db_context as _dbctx
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await _dbctx.apply_request_context(conn, force_system=True)
+                # nosemgrep: asyncpg-sqli
+                org_credit = int(await conn.fetchval(
+                    "SELECT billing_credit_inr FROM organizations WHERE id = $1 FOR UPDATE",
+                    oid) or 0)
+                if org_credit > 0:
+                    credit_consumed = min(org_credit, amount)
+                    net = amount - credit_consumed
+                    # nosemgrep: asyncpg-sqli
+                    await conn.execute(
+                        "UPDATE organizations SET billing_credit_inr = $1 WHERE id = $2",
+                        org_credit - credit_consumed, oid)
+    except Exception as exc:
+        logger.warning("bill_cycle_overage: credit debit failed for org=%s: %s — charging full amount",
+                       oid, exc)
+        credit_consumed = 0
+        net = amount
 
     # We hold the claim — now create the add-on. A failure here is recorded
     # ('failed', visible in the usage endpoint) but NEVER raised: the base
@@ -447,6 +459,15 @@ _PLAN_CAPS = {p: int(v.get("students", FREE_CAP)) for p, v in PLANS.items()}
 ENTITLING_STATUSES = frozenset({
     "trialing", "authenticated", "active", "past_due", "cancelling",
 })
+# Every status the app + Razorpay can legitimately write (keep in sync with the
+# subscriptions_status_check constraint, phase144). A status OUTSIDE this set
+# reaching reconcile means Razorpay introduced a lifecycle state we don't map —
+# reconcile would silently drop the org to FREE_CAP (students locked out). We
+# warn loudly instead of failing silently (same enum-drift class as the outage).
+_KNOWN_STATUSES = ENTITLING_STATUSES | frozenset({
+    "created", "pending", "grace", "halted", "paused",
+    "cancelled", "completed", "expired", "none",
+})
 
 
 async def reconcile_org_entitlement(org_id: str) -> int:
@@ -466,6 +487,12 @@ async def reconcile_org_entitlement(org_id: str) -> int:
         status = (rows[0].get("status") or "").strip().lower()
     else:
         plan, status = "starter", "none"
+    if status not in _KNOWN_STATUSES:
+        logger.warning(
+            "reconcile_org_entitlement: UNKNOWN subscription status %r for org=%s — "
+            "treating as un-entitled (FREE_CAP). If Razorpay added a status, map it in "
+            "ENTITLING_STATUSES and the subscriptions_status_check constraint.",
+            status, oid)
     entitled = status in ENTITLING_STATUSES
     plan_cap = _PLAN_CAPS.get(plan, FREE_CAP) if entitled else FREE_CAP
     # Gap #13: max_students_override takes precedence over the

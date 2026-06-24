@@ -594,6 +594,16 @@ class AudioProcessor:
         recent = [t for ts, t in self._transcript if ts >= cutoff]
         return " ".join(recent)[-200:]  # cap so details stays bounded
 
+    def recent_transcript(self) -> str:
+        """Recent (~TRANSCRIPT_SNIPPET_SECS) transcript snippet, bounded. PUBLIC so
+        the proctor can attach it to a COLLABORATION flag — so a teacher sees WHAT
+        was said *for that flag*, never a continuous stream (DPIA-minimised). '' if
+        nothing recent / Vosk unavailable."""
+        try:
+            return self._recent_snippet()
+        except Exception:
+            return ""
+
     def _check_voice_count(self) -> None:
         if len(self._mfcc_buf) < 2 * VOICE_COUNT_MIN_CLUSTER_SIZE:
             return
@@ -605,8 +615,11 @@ class AudioProcessor:
             self._last_voice_count_at = now
             details = (f"2 distinct voices in last {int(MFCC_BUFFER_SECS)}s "
                        f"(separation: {score:.2f})")
+            snippet = self._recent_snippet()      # transcript-on-flag (collaboration)
+            if snippet:
+                details += f" — heard: '{snippet}'"
             try:
-                self._log_event("multiple_voices_detected", "high", details)
+                self._log_event("multiple_voices_detected", "high", details[:500])
                 self._save_evidence("multiple_voices_detected")
             except Exception as e:
                 logger.warning("[audio_processor] log/evidence for voice count failed: %s", e)

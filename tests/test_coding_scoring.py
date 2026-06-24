@@ -4,6 +4,7 @@ Verifies that coding questions score via coding_submissions (passed/total ×
 marks) while MCQ questions continue to score via answers_match — and that the
 existing MCQ path is byte-for-byte unchanged.
 """
+import base64
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -13,6 +14,19 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.services.scoring import recalculate_score  # noqa: E402
+from app.services import secrets_crypto  # noqa: E402
+from app.repositories.questions import load_questions  # noqa: E402
+
+_TEST_SECRETS_KEY = base64.b64encode(b"\x09" * 32).decode()
+
+
+@pytest.fixture(autouse=True)
+def _reset_secrets_key_cache():
+    """secrets_crypto caches the parsed CODING_SECRETS_KEY for process
+    lifetime; reset around every test so monkeypatch.setenv takes effect."""
+    secrets_crypto.reset_key_cache()
+    yield
+    secrets_crypto.reset_key_cache()
 
 
 def _mcq(qid="mcq-1", correct="B", marks=1):
@@ -48,9 +62,10 @@ def _patch_questions(questions):
     return patch("app.services.scoring.load_questions", return_value=questions)
 
 
-def _setup_db_mock(answers_rows, submissions_rows):
-    """Configure the shared supabase mock to return given rows for answers
-    and coding_submissions queries."""
+def _setup_db_mock(answers_rows, submissions_rows, questions_rows=None):
+    """Configure the shared supabase mock to return given rows for answers,
+    coding_submissions, and (optionally, for tests exercising the real
+    load_questions->decrypt path) questions queries."""
     from tests.conftest import _mock_supabase, _install_default_supabase_chain
     _install_default_supabase_chain()
 
@@ -64,6 +79,8 @@ def _setup_db_mock(answers_rows, submissions_rows):
             chain.execute.return_value = MagicMock(data=answers_rows)
         elif name == "coding_submissions":
             chain.execute.return_value = MagicMock(data=submissions_rows)
+        elif name == "questions" and questions_rows is not None:
+            chain.execute.return_value = MagicMock(data=questions_rows)
         else:
             chain.execute.return_value = MagicMock(data=[])
         return chain
@@ -206,6 +223,63 @@ class TestCodingScoring:
         with _patch_questions([q]):
             score, total = asyncio_run(recalculate_score("sess_1", {}, "tid", "eid"))
         assert score == 1 and total == 1
+
+
+class TestEncryptedCorrectAnswerScoring:
+    """The MCQ `correct` answer key may now be stored as an enc:v1: token
+    (app/services/secrets_crypto.py). recalculate_score's MCQ path reads
+    `correct` via load_questions (app/repositories/questions.py), which
+    decrypts transparently — these tests exercise the REAL load_questions
+    function (not the patched-in dict) against an encrypted DB row to prove
+    the grading read path actually decrypts."""
+
+    def test_mcq_scores_correctly_with_encrypted_correct(self, monkeypatch):
+        monkeypatch.setenv("CODING_SECRETS_KEY", _TEST_SECRETS_KEY)
+        secrets_crypto.reset_key_cache()
+        encrypted_correct = secrets_crypto.encrypt("B")
+        assert secrets_crypto.is_encrypted(encrypted_correct)
+
+        questions_rows = [{
+            "question_id": "mcq-1", "question": "q", "options": '{"A":"a","B":"b"}',
+            "correct": encrypted_correct, "question_type": "mcq_single",
+        }]
+        _setup_db_mock(
+            answers_rows=[{"question_id": "mcq-1", "answer": "B"}],
+            submissions_rows=[],
+            questions_rows=questions_rows,
+        )
+        # Use the REAL load_questions (no patch) so the DB row's enc:v1:
+        # token actually flows through the decrypt path under test.
+        score, total = asyncio_run(recalculate_score("sess_1", {}, "tid", "eid"))
+        assert score == 1 and total == 1
+
+    def test_mcq_wrong_answer_still_wrong_with_encrypted_correct(self, monkeypatch):
+        monkeypatch.setenv("CODING_SECRETS_KEY", _TEST_SECRETS_KEY)
+        secrets_crypto.reset_key_cache()
+        encrypted_correct = secrets_crypto.encrypt("B")
+
+        questions_rows = [{
+            "question_id": "mcq-1", "question": "q", "options": '{"A":"a","B":"b"}',
+            "correct": encrypted_correct, "question_type": "mcq_single",
+        }]
+        _setup_db_mock(
+            answers_rows=[{"question_id": "mcq-1", "answer": "A"}],
+            submissions_rows=[],
+            questions_rows=questions_rows,
+        )
+        score, total = asyncio_run(recalculate_score("sess_1", {}, "tid", "eid"))
+        assert score == 0 and total == 1
+
+    def test_load_questions_decrypts_legacy_plaintext_correct_unchanged(self):
+        """Legacy rows (no enc:v1: prefix, written before this feature existed)
+        keep working with no key configured — backward compatibility."""
+        questions_rows = [{
+            "question_id": "mcq-1", "question": "q", "options": '{"A":"a","B":"b"}',
+            "correct": "B", "question_type": "mcq_single",
+        }]
+        _setup_db_mock(answers_rows=[], submissions_rows=[], questions_rows=questions_rows)
+        result = asyncio_run(load_questions("tid", exam_id="eid"))
+        assert result[0]["correct"] == "B"
 
 
 def asyncio_run(coro):

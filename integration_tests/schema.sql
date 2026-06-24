@@ -483,6 +483,7 @@ CREATE TABLE IF NOT EXISTS coding_submissions (
     average_execution_ms      INTEGER,
     memory_consumed_kb        INTEGER,
     source_code               TEXT,
+    compile_output            TEXT,
     keystroke_rhythm_variance DOUBLE PRECISION,
     paste_attempts            INTEGER DEFAULT 0,
     focus_loss_count          INTEGER DEFAULT 0,

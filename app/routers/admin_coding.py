@@ -20,15 +20,24 @@ from ..auth import require_admin
 from ..auth.scope import assert_can_author
 from ..database import async_table as _atable
 from .. import cache as _cache
+from ..services import secrets_crypto
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="")
 
-# Phase 1 ships JavaScript; Phase 2 adds Python + TypeScript. Reject anything else
-# at authoring so a teacher can't create a question students can't run.
-SUPPORTED_LANGUAGES = {"javascript", "typescript", "python"}
+# v1 language set — the full six the execution sandbox (execsvc/languages.py)
+# can compile + run. Authoring rejects anything else so a teacher can't create a
+# question students can't run. Host must have the toolchains installed
+# (node/npm/typescript, gcc, g++, default-jdk).
+SUPPORTED_LANGUAGES = {"javascript", "typescript", "python", "c", "cpp", "java"}
+# Aliases the dashboard / LLM may send → the canonical key the runner and the
+# student client both key on (mirrors execsvc/languages.py's alias table).
+_LANG_ALIASES = {"js": "javascript", "ts": "typescript", "c++": "cpp"}
 _VISIBILITY = {"sample", "hidden"}
 MAX_TEST_CASES = 50
+# Per-field cap on a test case's input / expected_output. 50 cases * megabytes
+# each is a storage/DoS vector; 64 KB is far above any realistic I/O case.
+MAX_FIELD_LEN = 64 * 1024
 
 
 def _clean_options(raw: dict) -> dict:
@@ -38,6 +47,7 @@ def _clean_options(raw: dict) -> dict:
     if isinstance(langs, str):
         langs = [langs]
     langs = [str(l).strip().lower() for l in langs if str(l).strip()]
+    langs = [_LANG_ALIASES.get(l, l) for l in langs]
     bad = [l for l in langs if l not in SUPPORTED_LANGUAGES]
     if not langs or bad:
         raise HTTPException(status_code=400,
@@ -85,13 +95,28 @@ def _clean_cases(raw_cases) -> list[dict]:
             raise HTTPException(status_code=400, detail=f"test_cases[{i}] missing expected_output")
         if vis == "hidden":
             hidden += 1
+        inp = str(c.get("input") or "")
+        exp = str(c.get("expected_output"))
+        if len(inp) > MAX_FIELD_LEN or len(exp) > MAX_FIELD_LEN:
+            raise HTTPException(
+                status_code=400,
+                detail=f"test_cases[{i}] input/expected_output exceeds {MAX_FIELD_LEN} bytes")
         ft = c.get("float_tolerance")
+        if ft in (None, ""):
+            ftol = None
+        else:
+            try:
+                ftol = float(ft)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"test_cases[{i}].float_tolerance must be a number")
         out.append({
             "idx": i,
-            "input": str(c.get("input") or ""),
-            "expected_output": str(c.get("expected_output")),
+            "input": inp,
+            "expected_output": exp,
             "visibility": vis,
-            "float_tolerance": float(ft) if ft not in (None, "") else None,
+            "float_tolerance": ftol,
         })
     if hidden == 0:
         raise HTTPException(status_code=400,
@@ -150,7 +175,11 @@ async def upsert_coding_question(body: dict, request: Request):
         for c in cases:
             await _atable("coding_test_cases").insert({
                 "question_id": qid, "teacher_id": tid, "idx": c["idx"],
-                "input": c["input"], "expected_output": c["expected_output"],
+                "input": c["input"],
+                # Envelope-encrypt the secret answer key before it hits Postgres
+                # (app/services/secrets_crypto.py) — a no-op if CODING_SECRETS_KEY
+                # isn't configured (dev/CI), idempotent if already encrypted.
+                "expected_output": secrets_crypto.encrypt(c["expected_output"]),
                 "visibility": c["visibility"], "float_tolerance": c["float_tolerance"],
             }).execute()
     except HTTPException:
@@ -186,6 +215,10 @@ async def get_coding_question(request: Request):
     cases = (await _atable("coding_test_cases")
              .select("idx,input,expected_output,visibility,float_tolerance")
              .eq("teacher_id", tid).eq("question_id", qid).order("idx").execute()).data or []
+    # Teacher-authoring view: decrypt so the editor shows the real answer key,
+    # not the enc:v1: ciphertext (handles both encrypted and legacy rows).
+    cases = [{**c, "expected_output": secrets_crypto.decrypt(c.get("expected_output"))}
+             for c in cases]
     opts = qrow[0].get("options")
     if isinstance(opts, str):
         try:

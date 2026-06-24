@@ -22,6 +22,7 @@ import uuid
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import async_table as _atable
+from app.services import secrets_crypto
 
 
 # ── Language-specific definitions ───────────────────────────────────────────
@@ -215,7 +216,9 @@ async def main(language: str):
             "teacher_id": tid,
             "idx": tc["idx"],
             "input": tc["input"],
-            "expected_output": expected,
+            # Envelope-encrypt the answer key before it hits Postgres (no-op
+            # if CODING_SECRETS_KEY isn't set — dev/CI without a key).
+            "expected_output": secrets_crypto.encrypt(expected),
             "visibility": tc["visibility"],
             "float_tolerance": tc["float_tolerance"],
         }

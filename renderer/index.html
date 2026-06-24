@@ -8,16 +8,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
-  <!-- Edge Compiler (coding questions): bundled CodeMirror 6 editor + the
-       sandboxed JS runtime. Both are flat same-origin files under renderer/
-       (the procta-lobby protocol serves renderer/<name>), so they load under
-       the kiosk CSP with no relaxation. They define window.CMEditor and
-       window.runTestCases; harmless no-ops for exams without coding questions. -->
+  <!-- Coding questions: bundled CodeMirror 6 editor only. Code now executes
+       SERVER-SIDE (see docs/superpowers/specs/2026-06-23-server-side-coding-execution-design.md);
+       the kiosk just edits and POSTs source. codemirror.bundle.js is a flat
+       same-origin file under renderer/ (served by the procta-lobby protocol),
+       loading under the kiosk CSP with no relaxation. Defines window.CMEditor;
+       a harmless no-op for exams without coding questions. -->
   <script src="codemirror.bundle.js"></script>
-  <!-- Sucrase: pure-JS TypeScript->JS transpiler (no WASM), used by
-       coding-runtime to run TS through the JS worker path. -->
-  <script src="sucrase.bundle.js"></script>
-  <script src="coding-runtime.js"></script>
   <script src="coding-ui.js"></script>
   <style>
     /* ── Renderer design tokens (Phase 2.14) ──────────────────────

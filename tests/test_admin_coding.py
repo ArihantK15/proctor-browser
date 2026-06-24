@@ -3,14 +3,29 @@
 POST/PUT /api/v1/admin/coding-question — the teacher/LLM path that creates a coding
 question + its test cases (replacing the SQL-only seeding).
 """
+import base64
 import json
 import os
 import sys
 from unittest.mock import MagicMock, AsyncMock, patch
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.conftest import make_admin_token  # noqa: E402
+from app.services import secrets_crypto  # noqa: E402
+
+_TEST_SECRETS_KEY = base64.b64encode(b"\x0a" * 32).decode()
+
+
+@pytest.fixture(autouse=True)
+def _reset_secrets_key_cache():
+    """secrets_crypto caches the parsed CODING_SECRETS_KEY for process
+    lifetime; reset around every test so monkeypatch.setenv takes effect."""
+    secrets_crypto.reset_key_cache()
+    yield
+    secrets_crypto.reset_key_cache()
 
 
 def _hdr():
@@ -115,6 +130,37 @@ class TestCreateCodingQuestion:
             r = client.post("/api/v1/admin/coding-question", json=body, headers=_hdr())
         assert r.status_code == 404
 
+    def test_expected_output_is_encrypted_at_rest_when_key_configured(self, client, monkeypatch):
+        """With CODING_SECRETS_KEY set, the persisted coding_test_cases row's
+        expected_output must be an enc:v1: token, not the raw plaintext —
+        proves the write path actually encrypts."""
+        monkeypatch.setenv("CODING_SECRETS_KEY", _TEST_SECRETS_KEY)
+        secrets_crypto.reset_key_cache()
+        rec = {}
+        ps = _patches({}, rec)
+        with ps[0], ps[1], ps[2], ps[3]:
+            r = client.post("/api/v1/admin/coding-question", json=_GOOD, headers=_hdr())
+        assert r.status_code == 200, r.text
+        stored_cases = rec["coding_test_cases"]
+        assert len(stored_cases) == 2
+        for stored, original in zip(stored_cases, _GOOD["test_cases"]):
+            assert secrets_crypto.is_encrypted(stored["expected_output"]) is True
+            assert stored["expected_output"] != original["expected_output"]
+            assert secrets_crypto.decrypt(stored["expected_output"]) == original["expected_output"]
+
+    def test_expected_output_not_encrypted_without_key(self, client):
+        """No CODING_SECRETS_KEY configured (dev/CI posture) — write path is a
+        no-op and stores plaintext, matching legacy behaviour."""
+        rec = {}
+        ps = _patches({}, rec)
+        with ps[0], ps[1], ps[2], ps[3]:
+            r = client.post("/api/v1/admin/coding-question", json=_GOOD, headers=_hdr())
+        assert r.status_code == 200, r.text
+        stored_cases = rec["coding_test_cases"]
+        for stored, original in zip(stored_cases, _GOOD["test_cases"]):
+            assert secrets_crypto.is_encrypted(stored["expected_output"]) is False
+            assert stored["expected_output"] == original["expected_output"]
+
 
 class TestGetCodingQuestion:
     def test_get_returns_question_and_cases(self, client):
@@ -132,6 +178,27 @@ class TestGetCodingQuestion:
         b = r.json()
         assert b["question_id"] == "coding-a" and b["options"]["marks"] == 5
         assert len(b["test_cases"]) == 1
+
+    def test_get_decrypts_encrypted_expected_output_for_teacher_view(self, client, monkeypatch):
+        """The authoring editor must show the teacher the real plaintext
+        answer key, not the enc:v1: ciphertext stored at rest."""
+        monkeypatch.setenv("CODING_SECRETS_KEY", _TEST_SECRETS_KEY)
+        secrets_crypto.reset_key_cache()
+        encrypted = secrets_crypto.encrypt("42")
+        assert secrets_crypto.is_encrypted(encrypted)
+        rec = {}
+        rows = {
+            "questions": [{"question_id": "coding-a", "exam_id": "exam-1",
+                           "question": "# Q", "options": json.dumps({"marks": 5})}],
+            "coding_test_cases": [{"idx": 0, "input": "1", "expected_output": encrypted,
+                                   "visibility": "hidden", "float_tolerance": None}],
+        }
+        ps = _patches(rows, rec)
+        with ps[0], ps[1], ps[2], ps[3]:
+            r = client.get("/api/v1/admin/coding-question?question_id=coding-a", headers=_hdr())
+        assert r.status_code == 200, r.text
+        b = r.json()
+        assert b["test_cases"][0]["expected_output"] == "42"
 
 
 _AI_DRAFT = {

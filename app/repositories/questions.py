@@ -23,6 +23,8 @@ try:
 except Exception:
     _cache = None
 
+from ..services import secrets_crypto
+
 
 async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
     cache_key = f"questions:{teacher_id or '_'}:{exam_id or '_'}"
@@ -72,11 +74,24 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
                 raw_options = _json.loads(raw_options)
             except (ValueError, TypeError):
                 raw_options = {}
+        # `correct` is the secret MCQ answer key — may be a legacy plaintext
+        # value or an enc:v1: token (envelope-encrypted at authoring time).
+        # decrypt() transparently handles both, so callers (scoring's
+        # answers_match, etc.) always see plaintext. `correct` is stripped
+        # before any student-facing response (see exam.py safe_questions) —
+        # decrypting it here does not create a new leak path.
+        raw_correct = str(q.get("correct") or "")
+        try:
+            decrypted_correct = secrets_crypto.decrypt(raw_correct)
+        except Exception:
+            logger.warning("[Questions] failed to decrypt 'correct' for question_id=%s",
+                            q.get("question_id"))
+            decrypted_correct = raw_correct
         out.append({
             "id": str(q["question_id"]),
             "question": q.get("question", "") or "",
             "options": raw_options,
-            "correct": str(q.get("correct") or ""),
+            "correct": decrypted_correct,
             "question_type": qtype,
             "image_url": q.get("image_url") or "",
         })

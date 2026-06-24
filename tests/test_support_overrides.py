@@ -45,6 +45,29 @@ def _atable_patches(data_map, *modules):
     return [patch(m + "._atable", side_effect=se) for m in modules]
 
 
+def _credit_pool_patch(data_map):
+    """Patch get_pool so #4's atomic credit debit (SELECT … FOR UPDATE + UPDATE
+    on a raw asyncpg conn) reads and writes the SAME organizations row the
+    data_map holds — keeping the mock as the single source of truth."""
+    org = data_map["organizations"][0]
+
+    async def _fetchval(q, *a):
+        return org.get("billing_credit_inr", 0)
+
+    async def _execute(q, *a):
+        if "UPDATE organizations" in q:          # ignore RLS set_config etc.
+            org["billing_credit_inr"] = a[0]
+
+    conn = MagicMock()
+    conn.fetchval = _fetchval
+    conn.execute = _execute
+    txn = MagicMock(); txn.__aenter__ = AsyncMock(return_value=None); txn.__aexit__ = AsyncMock(return_value=None)
+    conn.transaction = MagicMock(return_value=txn)
+    acq = MagicMock(); acq.__aenter__ = AsyncMock(return_value=conn); acq.__aexit__ = AsyncMock(return_value=None)
+    pool = MagicMock(); pool.acquire = MagicMock(return_value=acq)
+    return patch("app.postgres_table.get_pool", new=AsyncMock(return_value=pool))
+
+
 # ─── Fixtures ──────────────────────────────────────────────────
 
 ORG_ID = "org-1"
@@ -147,6 +170,7 @@ class TestCreditConsumption:
             es.enter_context(patch("app.services.billing._is_live", return_value=True))
             es.enter_context(patch("app.services.billing._get_client", return_value=mock_client))
             es.enter_context(patch("app.services.billing._atable", side_effect=_table_side_effect(dm)))
+            es.enter_context(_credit_pool_patch(dm))
             es.enter_context(patch("app.services.billing.compute_overage",
                                    return_value={**self.OVERAGE, "amount_inr": 300}))
             result = await bill_cycle_overage(ORG_ID, self.SUB_BEFORE)
@@ -166,6 +190,7 @@ class TestCreditConsumption:
             es.enter_context(patch("app.services.billing._is_live", return_value=True))
             es.enter_context(patch("app.services.billing._get_client", return_value=mock_client))
             es.enter_context(patch("app.services.billing._atable", side_effect=_table_side_effect(dm)))
+            es.enter_context(_credit_pool_patch(dm))
             es.enter_context(patch("app.services.billing.compute_overage",
                                    return_value=self.OVERAGE))
             result = await bill_cycle_overage(ORG_ID, self.SUB_BEFORE)

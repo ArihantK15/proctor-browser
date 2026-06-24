@@ -115,15 +115,20 @@ async def run(req: RunRequest, authorization: Optional[str] = Header(default=Non
         output_kb=_clamp(req.output_kb, MAX_OUTPUT_KB),
     )
 
-    # Acquire a unique sandbox box for the duration of this run; release it on
-    # every path so a failed run never leaks a box id out of the pool.
+    # Acquire a unique sandbox box for this run. Release it only when the
+    # sandbox thread TRULY finishes — tied to the task's completion, not a
+    # try/finally. A finally would return the box on coroutine cancellation
+    # (orchestrator timeout / client disconnect) while the un-cancellable
+    # to_thread is STILL running isolate on box_id; a later run would then grab
+    # the same box and collide (the silent-wrong-score class this pool prevents).
+    # shield() lets the in-flight run keep going (and clean up its own box) even
+    # when this request is cancelled.
     box_id = await _box_ids.get()
-    try:
-        result = await asyncio.to_thread(
-            run_in_isolate, req.language, req.source, req.stdin, limits, box_id
-        )
-    finally:
-        _box_ids.put_nowait(box_id)
+    task = asyncio.ensure_future(
+        asyncio.to_thread(run_in_isolate, req.language, req.source, req.stdin, limits, box_id)
+    )
+    task.add_done_callback(lambda _t: _box_ids.put_nowait(box_id))
+    result = await asyncio.shield(task)
 
     return RunResponse(
         stdout=result.stdout,

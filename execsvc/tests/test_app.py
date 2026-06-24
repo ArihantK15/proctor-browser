@@ -79,3 +79,53 @@ def test_concurrent_runs_use_distinct_boxes():
 
     assert len(seen) == 4
     assert len(set(seen)) == 4  # every concurrent run got its own box
+
+
+def test_box_not_returned_until_sandbox_thread_finishes_on_cancel():
+    """If the orchestrator times out / disconnects mid-run, the endpoint
+    coroutine is cancelled — but the un-cancellable to_thread keeps running
+    isolate on its box. The box must NOT go back to the pool until that thread
+    truly finishes, or a new run grabs the same box and collides (the silent-
+    wrong-score class the pool exists to prevent)."""
+    import asyncio
+    from execsvc import app as A
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking(language, source, stdin, limits, box_id):
+        started.set()
+        release.wait(2)
+        return ExecResult("ok\n", "", 0, 1, False, False, None)
+
+    async def scenario():
+        free0 = A._box_ids.qsize()
+        with patch("execsvc.app.run_in_isolate", side_effect=blocking):
+            task = asyncio.ensure_future(
+                A.run(A.RunRequest(**_VALID), authorization=None))
+            for _ in range(200):           # wait until the box is checked out
+                if started.is_set():
+                    break
+                await asyncio.sleep(0.01)
+            assert started.is_set()
+            assert A._box_ids.qsize() == free0 - 1
+
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+            await asyncio.sleep(0.05)
+            # The sandbox thread is still blocked → the box must still be OUT.
+            assert A._box_ids.qsize() == free0 - 1, \
+                "box returned to pool while the sandbox thread is still running"
+
+            release.set()
+            for _ in range(200):           # box returns once the thread ends
+                if A._box_ids.qsize() == free0:
+                    break
+                await asyncio.sleep(0.01)
+            assert A._box_ids.qsize() == free0
+
+    asyncio.run(scenario())

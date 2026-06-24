@@ -24,8 +24,19 @@ LANGUAGES: dict[str, LangSpec] = {
                            ["./main"]),
     "cpp":        LangSpec("main.cpp",  ["g++", "main.cpp", "-O2", "-std=c++17", "-o", "main"],
                            ["./main"]),
-    "java":       LangSpec("Main.java", ["javac", "Main.java"],
-                           ["java", "Main"]),
+    # Java needs explicit memory flags or the JVM's default ~240MB code-cache
+    # reservation won't fit the sandbox cgroup (mem cap) and it dies at VM init
+    # with "Could not reserve enough space for code cache". SerialGC + small code
+    # cache + capped heap/metaspace + no perf-data (no /tmp hsperfdata write) keep
+    # both javac and java comfortably inside a 256MB box. javac forwards JVM flags
+    # via -J.
+    "java":       LangSpec("Main.java",
+                           ["javac", "-J-XX:+UseSerialGC", "-J-XX:ReservedCodeCacheSize=32m",
+                            "-J-XX:MaxMetaspaceSize=96m", "-J-XX:-UsePerfData", "-J-Xmx128m",
+                            "Main.java"],
+                           ["java", "-XX:+UseSerialGC", "-XX:ReservedCodeCacheSize=32m",
+                            "-XX:MaxMetaspaceSize=96m", "-XX:-UsePerfData", "-Xss8m", "-Xmx128m",
+                            "Main"]),
 }
 # Common aliases the kiosk/authoring layer may send.
 LANGUAGES["js"] = LANGUAGES["javascript"]

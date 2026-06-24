@@ -9,7 +9,8 @@ class Limits:
     output_kb: int
 
 
-def run_args(box_id: int, limits: Limits, cmd: list, meta: str | None = None) -> list:
+def run_args(box_id: int, limits: Limits, cmd: list, meta: str | None = None,
+             extra_dirs: list | None = None) -> list:
     # Validated on the Hostinger box 2026-06-23 (see
     # docs/runbooks/2026-06-23-isolate-sandbox-hostinger.md):
     #   --cg              cgroup-v2 mode — isolate 2.6 needs it for mem/pid caps.
@@ -33,6 +34,11 @@ def run_args(box_id: int, limits: Limits, cmd: list, meta: str | None = None) ->
         "--env=PATH=/usr/bin:/usr/local/bin:/bin",
         "--env=HOME=/box",
     ]
+    # Extra read-only binds for runtimes whose config lives outside the box's
+    # default-bound dirs (e.g. the JDK's conf/ is a symlink to /etc/java-*-openjdk
+    # on Debian, which /usr binding doesn't cover → "Error loading java.security").
+    for d in (extra_dirs or []):
+        args.append(f"--dir={d}")
     # --meta is an ISOLATE flag and MUST come before the `--` separator. Appended
     # after `--` it would be handed to the program (gcc rejects it; the meta file
     # is never written, so timeout/oom/exit detection silently fails for every

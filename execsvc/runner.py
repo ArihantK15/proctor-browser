@@ -58,6 +58,24 @@ def _safe_float(val, default: float) -> float:
         return default
 
 
+def _extra_dirs(language: str) -> list:
+    """Read-only binds a language's runtime needs beyond the box's default dirs.
+
+    Java: OpenJDK's conf/ (java.security, java.policy, logging.properties …) is a
+    symlink to /etc/java-NN-openjdk on Debian/Ubuntu. The box binds /usr but not
+    that /etc target, so the JVM fails with "Error loading java.security file".
+    Resolve the real conf dir off the `java` binary and bind it.
+    """
+    if language.lower() == "java":
+        jbin = shutil.which("java")
+        if jbin:
+            home = os.path.dirname(os.path.dirname(os.path.realpath(jbin)))
+            conf = os.path.realpath(os.path.join(home, "conf"))
+            if os.path.isdir(conf):
+                return [conf]
+    return []
+
+
 def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_id: int = 0) -> ExecResult:
     """Run `source` for `language` inside a single `isolate` sandbox box.
 
@@ -73,6 +91,7 @@ def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_i
     # allows). Applies to both compile and run below.
     if spec.min_mem_mb and limits.mem_mb < spec.min_mem_mb:
         limits = replace(limits, mem_mb=spec.min_mem_mb)
+    extra_dirs = _extra_dirs(language)
     # --cg is required on init/cleanup too (cgroup-v2 mode is set up at init);
     # validated on the Hostinger host. Without it, --cg --run mismatches the box.
     subprocess.run(["isolate", "--cg", f"--box-id={box_id}", "--init"], check=True, capture_output=True)
@@ -93,12 +112,12 @@ def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_i
             f.write(source)
         compile_error = None
         if spec.compile_cmd:
-            cp = subprocess.run(run_args(box_id, limits, _abs(spec.compile_cmd), _new_meta()),
+            cp = subprocess.run(run_args(box_id, limits, _abs(spec.compile_cmd), _new_meta(), extra_dirs),
                                  input="", capture_output=True, text=True)
             if cp.returncode != 0:
                 return ExecResult("", "", cp.returncode, 0, False, False, cp.stdout + cp.stderr)
         meta = _new_meta()
-        rp = subprocess.run(run_args(box_id, limits, _abs(spec.run_cmd), meta),
+        rp = subprocess.run(run_args(box_id, limits, _abs(spec.run_cmd), meta, extra_dirs),
                              input=stdin, capture_output=True, text=True)
         m = _parse_meta(meta)
         return ExecResult(

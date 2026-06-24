@@ -18,6 +18,11 @@ def run_args(box_id: int, limits: Limits, cmd: list) -> list:
     #                     collect2 without PATH (gcc failed "cannot find 'ld'"
     #                     until set). /usr/local/bin covers npm-global tools (tsc).
     #   --env=HOME=/box   javac and friends need a writable HOME.
+    # NOTE: do NOT pass --stderr-to-stdout. In isolate 2.6 it is a BOOLEAN flag
+    # (no argument) whose mere presence MERGES the program's stderr into stdout;
+    # `--stderr-to-stdout=0` is rejected outright ("doesn't allow an argument"),
+    # making isolate print usage and run nothing. We capture stdout/stderr
+    # separately via subprocess, so we simply omit it (the default = separate).
     return [
         "isolate", f"--box-id={box_id}", "--cg", "--run",
         f"--time={limits.cpu_ms / 1000:g}",
@@ -27,6 +32,5 @@ def run_args(box_id: int, limits: Limits, cmd: list) -> list:
         "--processes=64",
         "--env=PATH=/usr/bin:/usr/local/bin:/bin",
         "--env=HOME=/box",
-        "--stderr-to-stdout=0",
         "--", *cmd,
     ]

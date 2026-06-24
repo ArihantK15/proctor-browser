@@ -37,3 +37,7 @@ def test_resource_caps_are_bounded():
     assert "--time=2" in a and "--wall-time=5" in a, "cpu + wall clock must be capped"
     # Network must never be reachable — assert on the exact token too.
     assert "--share-net" not in a
+    # isolate 2.6's --stderr-to-stdout takes NO argument; `=0` makes it print
+    # usage + run nothing. We capture the streams separately, so it must be
+    # absent entirely (regression guard for the box failure 2026-06-24).
+    assert not any(tok.startswith("--stderr-to-stdout") for tok in a)

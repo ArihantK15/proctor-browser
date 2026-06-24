@@ -35,11 +35,17 @@ LANGUAGES: dict[str, LangSpec] = {
     # cache + capped heap/metaspace + no perf-data (no /tmp hsperfdata write) keep
     # both javac and java comfortably inside a 256MB box. javac forwards JVM flags
     # via -J.
+    # -Xint (interpreter-only, the JVM analog of node --jitless): the sandbox
+    # blocks the JIT code-cache's VIRTUAL reservation ("Could not reserve enough
+    # space for code cache") even at 32MB, the same address-space limit that hit
+    # node. -Xint needs no code cache. Plus SerialGC + capped heap/metaspace/stack
+    # + no perf-data to keep the JVM's footprint inside the box. javac forwards
+    # via -J.
     "java":       LangSpec("Main.java",
-                           ["javac", "-J-XX:+UseSerialGC", "-J-XX:ReservedCodeCacheSize=32m",
+                           ["javac", "-J-Xint", "-J-XX:+UseSerialGC",
                             "-J-XX:MaxMetaspaceSize=96m", "-J-XX:-UsePerfData", "-J-Xmx128m",
                             "Main.java"],
-                           ["java", "-XX:+UseSerialGC", "-XX:ReservedCodeCacheSize=32m",
+                           ["java", "-Xint", "-XX:+UseSerialGC",
                             "-XX:MaxMetaspaceSize=96m", "-XX:-UsePerfData", "-Xss8m", "-Xmx128m",
                             "Main"]),
 }

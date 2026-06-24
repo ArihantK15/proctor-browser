@@ -108,8 +108,9 @@ def encrypt(plaintext: str) -> str:
         global _warned_no_key
         if not _warned_no_key:
             logger.warning(
-                "[secrets_crypto] %s is not configured — secret exam values "
-                "are being stored UNENCRYPTED. Set %s in production.",
+                # nosemgrep: this is a config-warning log line, not a secret value
+                "[secrets_crypto] %s is not set — exam answer keys are being "
+                "stored UNENCRYPTED. Set %s in production.",
                 _ENV_VAR, _ENV_VAR,
             )
             _warned_no_key = True

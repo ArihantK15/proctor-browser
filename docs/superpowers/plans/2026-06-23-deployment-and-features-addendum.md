@@ -56,7 +56,7 @@ before insert; read paths (`app/routers/coding.py`'s `/coding/run` and
 remain readable as legacy plaintext via `decrypt()`'s passthrough — no
 migration is required for correctness. Once `CODING_SECRETS_KEY` is set in
 prod, run the one-off backfill script described in
-`migrations/phase145_encrypt_existing_testcases.sql` to encrypt existing rows
+`docs/coding-secrets-backfill.md` to encrypt existing rows
 at rest — not required for grading to keep working, but required for the
 actual security benefit ("a stolen pg_dump can't read answer keys") to apply
 to data written before the key existed.

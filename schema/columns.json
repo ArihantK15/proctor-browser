@@ -88,6 +88,62 @@
     "razorpay_subscription_id",
     "status"
   ],
+  "breach_incidents": [
+    "affected_scope",
+    "authority_notified_at",
+    "controllers_notified_at",
+    "created_at",
+    "created_by",
+    "data_categories",
+    "description",
+    "discovered_at",
+    "id",
+    "risk_level",
+    "role",
+    "status",
+    "subjects_notified_at"
+  ],
+  "coding_submissions": [
+    "average_execution_ms",
+    "compile_output",
+    "exam_id",
+    "focus_loss_count",
+    "id",
+    "is_fully_solved",
+    "keystroke_rhythm_variance",
+    "language",
+    "memory_consumed_kb",
+    "paste_attempts",
+    "question_id",
+    "session_id",
+    "source_code",
+    "student_id",
+    "submitted_at",
+    "teacher_id",
+    "test_cases_passed",
+    "test_cases_total"
+  ],
+  "coding_test_cases": [
+    "created_at",
+    "expected_output",
+    "float_tolerance",
+    "id",
+    "idx",
+    "input",
+    "question_id",
+    "teacher_id",
+    "visibility"
+  ],
+  "consent_records": [
+    "consent_type",
+    "created_at",
+    "id",
+    "ip_address",
+    "user_id",
+    "user_type",
+    "withdrawn_at",
+    "withdrawn_ip"
+  ],
   "coupons": [
     "active",
     "code",
@@ -99,16 +155,6 @@
     "max_redemptions",
     "razorpay_offer_id",
     "times_redeemed"
-  ],
-  "consent_records": [
-    "consent_type",
-    "created_at",
-    "id",
-    "ip_address",
-    "user_id",
-    "user_type",
-    "withdrawn_at",
-    "withdrawn_ip"
   ],
   "demo_requests": [
     "created_at",
@@ -215,6 +261,15 @@
     "teacher_id",
     "template_name"
   ],
+  "exam_time_extensions": [
+    "created_at",
+    "created_by",
+    "exam_id",
+    "extra_minutes",
+    "id",
+    "roll_number",
+    "teacher_id"
+  ],
   "google_auth_tokens": [
     "created_at",
     "display_name",
@@ -314,6 +369,20 @@
     "require_2fa",
     "slug"
   ],
+  "overage_charges": [
+    "amount_inr",
+    "created_at",
+    "credit_applied_inr",
+    "id",
+    "org_id",
+    "overage_count",
+    "period_end",
+    "period_start",
+    "plan_limit",
+    "razorpay_addon_id",
+    "status",
+    "students_used"
+  ],
   "question_bank": [
     "correct",
     "created_at",
@@ -325,6 +394,16 @@
     "tags",
     "teacher_id",
     "updated_at"
+  ],
+  "question_versions": [
+    "change_type",
+    "changed_at",
+    "changed_by",
+    "id",
+    "question_id",
+    "snapshot",
+    "teacher_id",
+    "version_number"
   ],
   "questions": [
     "correct",
@@ -342,16 +421,6 @@
     "tags",
     "teacher_id",
     "updated_at"
-  ],
-  "question_versions": [
-    "change_type",
-    "changed_at",
-    "changed_by",
-    "id",
-    "question_id",
-    "snapshot",
-    "teacher_id",
-    "version_number"
   ],
   "refresh_tokens": [
     "expires_at",
@@ -499,21 +568,6 @@
     "students_used",
     "updated_at"
   ],
-  "breach_incidents": [
-    "affected_scope",
-    "authority_notified_at",
-    "controllers_notified_at",
-    "created_at",
-    "created_by",
-    "data_categories",
-    "description",
-    "discovered_at",
-    "id",
-    "risk_level",
-    "role",
-    "status",
-    "subjects_notified_at"
-  ],
   "violations": [
     "created_at",
     "details",
@@ -525,58 +579,5 @@
     "severity",
     "teacher_id",
     "violation_type"
-  ],
-  "exam_time_extensions": [
-    "created_at",
-    "created_by",
-    "exam_id",
-    "extra_minutes",
-    "id",
-    "roll_number",
-    "teacher_id"
-  ],
-  "overage_charges": [
-    "amount_inr",
-    "created_at",
-    "credit_applied_inr",
-    "id",
-    "org_id",
-    "overage_count",
-    "period_end",
-    "period_start",
-    "plan_limit",
-    "razorpay_addon_id",
-    "status",
-    "students_used"
-  ],
-  "coding_test_cases": [
-    "created_at",
-    "expected_output",
-    "float_tolerance",
-    "id",
-    "idx",
-    "input",
-    "question_id",
-    "teacher_id",
-    "visibility"
-  ],
-  "coding_submissions": [
-    "average_execution_ms",
-    "exam_id",
-    "focus_loss_count",
-    "id",
-    "is_fully_solved",
-    "keystroke_rhythm_variance",
-    "language",
-    "memory_consumed_kb",
-    "paste_attempts",
-    "question_id",
-    "session_id",
-    "source_code",
-    "student_id",
-    "submitted_at",
-    "teacher_id",
-    "test_cases_passed",
-    "test_cases_total"
   ]
 }

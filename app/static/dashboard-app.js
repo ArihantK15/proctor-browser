@@ -5509,6 +5509,9 @@ function codingShowGenPrompt(){
           <option value="javascript">JavaScript</option>
           <option value="typescript">TypeScript</option>
           <option value="python">Python</option>
+          <option value="c">C</option>
+          <option value="cpp">C++</option>
+          <option value="java">Java</option>
         </select>
       </div>
       <div>

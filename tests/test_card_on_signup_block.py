@@ -45,3 +45,20 @@ def test_no_sub_row_does_not_block():
     with patch.object(sessions, "get_org_subscription", AsyncMock(return_value=None)), \
          patch.object(app.constants, "CARD_ON_SIGNUP_ENFORCED", True):
         _run(sessions._check_subscription_active("org1"))
+
+
+@pytest.mark.parametrize("status,needle", [
+    ("halted", "payment"),
+    ("paused", "paused"),
+    ("completed", "ended"),
+])
+def test_dead_statuses_block_with_clear_message(status, needle):
+    """#9: halted/paused/completed drop the org to FREE_CAP in reconcile, so the
+    status gate must block with a clear billing message rather than fall through
+    to a confusing 'student limit reached'."""
+    with patch.object(sessions, "get_org_subscription",
+                      AsyncMock(return_value={"status": status})):
+        with pytest.raises(HTTPException) as ei:
+            _run(sessions._check_subscription_active("org1"))
+        assert ei.value.status_code == 403
+        assert needle in ei.value.detail.lower()

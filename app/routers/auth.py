@@ -548,7 +548,9 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     if org_exists.data:
         raise HTTPException(
             status_code=409,
-            detail=f"'{org_name}' is already registered. Ask your admin for an invite."
+            detail=f"'{org_name}' is already registered. If it's your organization, "
+                   f"sign in instead (or reset your password); otherwise ask your "
+                   f"admin for an invite."
         )
 
     auth_resp = None
@@ -870,8 +872,12 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
                 status_code=403,
                 content={
                     "error": "EMAIL_UNVERIFIED",
-                    "message": "Please verify your email before logging in.",
+                    "message": "Please verify your email before logging in. "
+                               "Didn't get it? Request a new link.",
                     "email": email,
+                    # Advertise the resend path so the client can offer a button
+                    # instead of leaving the user at a dead end (#14).
+                    "resend_endpoint": "/api/v1/auth/resend-verification",
                 },
             )
         await _atable("teachers").update({

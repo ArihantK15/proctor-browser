@@ -133,6 +133,25 @@ async def list_plans(request: Request):
     }
 
 
+def _best_effort_cancel_razorpay(sub_id: str, *, reason: str) -> None:
+    """Cancel a Razorpay subscription IMMEDIATELY, best-effort. Used on error/
+    cleanup paths to avoid an orphaned or duplicate provider subscription that
+    would keep charging the customer — a DB write that failed after the sub was
+    created (#6), or a stale 'created' sub left by an abandoned checkout that a
+    retry has now superseded (#17). Never raises."""
+    sub_id = (sub_id or "").strip()
+    if not sub_id or sub_id.startswith("mock_"):
+        return
+    client = _get_client()
+    if not client:
+        return
+    try:
+        client.subscription.cancel(sub_id, {"cancel_at_cycle_end": 0})
+        logger.info("Best-effort cancelled Razorpay sub %s (%s)", sub_id, reason)
+    except Exception as e:
+        logger.error("Best-effort Razorpay cancel failed for sub=%s (%s): %s", sub_id, reason, e)
+
+
 @router.post("/api/v1/billing/create-subscription")
 @limiter.limit("5/minute")
 async def create_subscription(body: dict, request: Request):
@@ -185,6 +204,14 @@ async def create_subscription(body: dict, request: Request):
     from ..constants import CARD_ON_SIGNUP_ENFORCED, TRIAL_DAYS
     _first_setup = not ((existing_sub[0].get("razorpay_subscription_id") or "").strip() if existing_sub else False)
     trial_days = TRIAL_DAYS if (CARD_ON_SIGNUP_ENFORCED and _first_setup) else 0
+
+    # A previous abandoned checkout can leave a non-entitling 'created' Razorpay
+    # sub on file (an entitling sub would have 409'd above). Capture its id so we
+    # can cancel it after the replacement is created — otherwise that old mandate
+    # keeps charging the customer alongside the new one (#17, double-charge).
+    _stale_rzp_sub_id = ""
+    if existing_sub and (existing_sub[0].get("status") or "").strip().lower() == "created":
+        _stale_rzp_sub_id = (existing_sub[0].get("razorpay_subscription_id") or "").strip()
 
     # Optional GSTIN for GST-compliant Razorpay invoices (Indian B2B).
     gstin = (body.get("gstin") or "").strip().upper()
@@ -245,8 +272,16 @@ async def create_subscription(body: dict, request: Request):
         if gstin:
             await _atable("organizations").update({"gstin": gstin}).eq("id", str(org_id)).execute()
         _invalidate_billing_cache(str(org_id))
+        # The replacement is now recorded — stop the superseded abandoned-checkout
+        # sub from charging the customer (#17).
+        if _stale_rzp_sub_id and _stale_rzp_sub_id != result.get("subscription_id"):
+            _best_effort_cancel_razorpay(_stale_rzp_sub_id, reason="superseded_by_retry")
     except Exception as e:
         logger.error("Failed to update subscription in DB after provider subscription creation: %s", e)
+        # Compensating cancel: the Razorpay sub was created but we couldn't record
+        # it. Cancel it so the customer isn't left with an orphan paid subscription
+        # that charges them for a plan we never provisioned (#6).
+        _best_effort_cancel_razorpay(result.get("subscription_id", ""), reason="db_write_failed")
         raise HTTPException(
             status_code=500,
             detail="Subscription was created by the payment provider, but could not be recorded. Please contact support.",

@@ -42,6 +42,7 @@ from ..services.exec_client import run_one, ExecLimits, ExecUnavailable
 from ..services.idempotency import (
     reserve_idempotency, release_idempotency, mark_idempotent,
 )
+from ..services import secrets_crypto
 from .exam import _assert_student_session_access
 
 logger = logging.getLogger(__name__)
@@ -108,8 +109,11 @@ async def coding_testcases(request: Request):
                        .eq("question_id", question_id).eq("visibility", "hidden")
                        .order("idx").execute()).data or []
     return {
+        # Sample expected_output IS shown to the student (worked example, not
+        # secret) — decrypt() handles both legacy plaintext and enc:v1: rows.
         "sample": [{"idx": r["idx"], "input": r["input"],
-                    "expected_output": r["expected_output"]} for r in sample_rows],
+                    "expected_output": secrets_crypto.decrypt(r["expected_output"])}
+                   for r in sample_rows],
         "hidden_inputs": [{"idx": r["idx"], "input": r["input"]} for r in hidden_rows],
     }
 
@@ -143,7 +147,7 @@ async def coding_run(body: dict, request: Request):
     cases = []
     passed = 0
     for row in sample:
-        expected = row.get("expected_output") or ""
+        expected = secrets_crypto.decrypt(row.get("expected_output") or "")
         try:
             result = run_one(language, source, row.get("input") or "", limits)
         except ExecUnavailable:
@@ -240,7 +244,7 @@ async def coding_judge(body: dict, request: Request):
                     continue  # a compile error fails every remaining case too
                 exec_times.append(result.time_ms)
                 tol = row.get("float_tolerance")
-                expected = row.get("expected_output") or ""
+                expected = secrets_crypto.decrypt(row.get("expected_output") or "")
                 if result.timed_out:
                     ok = False
                 elif tol is not None:

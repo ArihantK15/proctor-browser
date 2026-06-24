@@ -5,6 +5,7 @@ Covers POST /api/v1/coding/run (sample, server-run), POST /api/v1/coding/judge
 service is mocked via app.routers.coding.run_one — these tests never touch a
 real sandbox.
 """
+import base64
 import json
 import os
 import sys
@@ -17,6 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.conftest import make_student_token
 from app.services.exec_client import ExecResult, ExecUnavailable
+from app.services import secrets_crypto
+
+_TEST_SECRETS_KEY = base64.b64encode(b"\x07" * 32).decode()
 
 
 def _exec_result(stdout="", stderr="", exit_code=0, time_ms=10, timed_out=False,
@@ -119,6 +123,15 @@ def _run_body(**overrides):
 _NO_QUESTION_OPTIONS = {"questions": []}
 
 
+@pytest.fixture(autouse=True)
+def _reset_secrets_key_cache():
+    """secrets_crypto caches the parsed CODING_SECRETS_KEY for process
+    lifetime; reset around every test so monkeypatch.setenv takes effect."""
+    secrets_crypto.reset_key_cache()
+    yield
+    secrets_crypto.reset_key_cache()
+
+
 class TestRun:
     """POST /api/v1/coding/run — server executes the SAMPLE cases."""
 
@@ -159,6 +172,34 @@ class TestRun:
             client.post("/api/v1/coding/run", json=_run_body(), headers=_hdr())
         for call in mock_run.call_args_list:
             assert "SECRET-EXPECTED-5" not in str(call)
+
+    def test_run_decrypts_encrypted_expected_output(self, client, monkeypatch):
+        """When the stored expected_output is an enc:v1: token (row written
+        after CODING_SECRETS_KEY was configured), /coding/run must decrypt it
+        before comparing — proving the read path actually decrypts."""
+        monkeypatch.setenv("CODING_SECRETS_KEY", _TEST_SECRETS_KEY)
+        secrets_crypto.reset_key_cache()
+        encrypted_expected = secrets_crypto.encrypt("Hello, World!")
+        assert secrets_crypto.is_encrypted(encrypted_expected)
+        rec = {}
+        table_data = {
+            **_NO_QUESTION_OPTIONS,
+            "coding_test_cases": [
+                {"idx": 0, "input": "", "expected_output": encrypted_expected},
+            ],
+        }
+        mock_run = MagicMock(return_value=_exec_result(stdout="Hello, World!\n", time_ms=5))
+        patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            resp = client.post("/api/v1/coding/run",
+                               json=_run_body(source="print('Hello, World!')", language="python"),
+                               headers=_hdr())
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["total"] == 1 and body["passed"] == 1
+        assert body["cases"][0]["status"] == "passed"
+        # Sample expected_output is returned to the client decrypted (plaintext).
+        assert body["cases"][0]["expected_output"] == "Hello, World!"
 
     def test_run_failing_case_reports_failed_status(self, client):
         rec = {}
@@ -222,6 +263,37 @@ class TestJudge:
         body = resp.json()
         assert body["passed"] == 2 and body["total"] == 2
         assert body["average_execution_ms"] == 4
+
+    def test_judge_decrypts_encrypted_hidden_expected_output(self, client, monkeypatch):
+        """When the stored hidden expected_output is an enc:v1: token,
+        /coding/judge must decrypt it before grading — proving the grading
+        read path actually decrypts (and never leaks the decrypted value)."""
+        monkeypatch.setenv("CODING_SECRETS_KEY", _TEST_SECRETS_KEY)
+        secrets_crypto.reset_key_cache()
+        enc_5 = secrets_crypto.encrypt("5")
+        enc_10 = secrets_crypto.encrypt("10")
+        assert secrets_crypto.is_encrypted(enc_5) and secrets_crypto.is_encrypted(enc_10)
+        rec = {}
+        table_data = {
+            **_NO_QUESTION_OPTIONS,
+            "coding_submissions": [],
+            "coding_test_cases": [
+                {"idx": 0, "input": "", "expected_output": enc_5, "float_tolerance": None},
+                {"idx": 1, "input": "", "expected_output": enc_10, "float_tolerance": None},
+            ],
+        }
+        mock_run = MagicMock(side_effect=[
+            _exec_result(stdout="5", time_ms=3),
+            _exec_result(stdout="10", time_ms=5),
+        ])
+        patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["passed"] == 2 and body["total"] == 2
+        # Never leaked: response only has the aggregate counts.
+        assert set(body.keys()) == {"passed", "total", "average_execution_ms"}
 
     def test_judge_runs_hidden_and_never_sends_expected(self, client):
         """CRITICAL INVARIANT: the executor is never sent the secret expected

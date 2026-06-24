@@ -6,8 +6,9 @@
 //   - NO autocomplete / IntelliSense (a crutch in a knowledge assessment, and
 //     the heavy part of a rich editor). Only highlighting, line numbers,
 //     bracket matching, history, sane editing.
-//   - One language mode for Phase 1 (JavaScript). Other modes are added to the
-//     bundle when those languages land (Phase 2+), tree-shaken per enabled lang.
+//   - Highlighting for the full v1 language set: JS/TS (lang-javascript),
+//     Python (lang-python), C/C++ (lang-cpp), Java (lang-java). Unknown langs
+//     fall back to plain text (still editable).
 import { EditorState } from "@codemirror/state";
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine,
@@ -19,13 +20,17 @@ import {
 } from "@codemirror/language";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
+import { cpp } from "@codemirror/lang-cpp";
+import { java } from "@codemirror/lang-java";
 
 function langExt(language) {
   const l = String(language || "").toLowerCase();
   if (l === "javascript" || l === "js") return javascript();
   if (l === "typescript" || l === "ts") return javascript({ typescript: true });
   if (l === "python" || l === "py") return python();
-  return []; // unknown language (Phase 2+ modes) → plain text, still usable
+  if (l === "c" || l === "cpp" || l === "c++") return cpp();   // lang-cpp covers C + C++
+  if (l === "java") return java();
+  return []; // any other language → plain text, still usable
 }
 
 window.CMEditor = {

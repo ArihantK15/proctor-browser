@@ -20,6 +20,7 @@ from ..auth import require_admin
 from ..auth.scope import assert_can_author
 from ..database import async_table as _atable
 from .. import cache as _cache
+from ..services import secrets_crypto
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="")
@@ -150,7 +151,11 @@ async def upsert_coding_question(body: dict, request: Request):
         for c in cases:
             await _atable("coding_test_cases").insert({
                 "question_id": qid, "teacher_id": tid, "idx": c["idx"],
-                "input": c["input"], "expected_output": c["expected_output"],
+                "input": c["input"],
+                # Envelope-encrypt the secret answer key before it hits Postgres
+                # (app/services/secrets_crypto.py) — a no-op if CODING_SECRETS_KEY
+                # isn't configured (dev/CI), idempotent if already encrypted.
+                "expected_output": secrets_crypto.encrypt(c["expected_output"]),
                 "visibility": c["visibility"], "float_tolerance": c["float_tolerance"],
             }).execute()
     except HTTPException:
@@ -186,6 +191,10 @@ async def get_coding_question(request: Request):
     cases = (await _atable("coding_test_cases")
              .select("idx,input,expected_output,visibility,float_tolerance")
              .eq("teacher_id", tid).eq("question_id", qid).order("idx").execute()).data or []
+    # Teacher-authoring view: decrypt so the editor shows the real answer key,
+    # not the enc:v1: ciphertext (handles both encrypted and legacy rows).
+    cases = [{**c, "expected_output": secrets_crypto.decrypt(c.get("expected_output"))}
+             for c in cases]
     opts = qrow[0].get("options")
     if isinstance(opts, str):
         try:

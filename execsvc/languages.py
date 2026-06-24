@@ -7,6 +7,11 @@ class LangSpec:
     source_filename: str
     compile_cmd: Optional[list]   # run in the box before run_cmd; None = interpreted
     run_cmd: list
+    # Minimum sandbox memory (MB). isolate caps VIRTUAL address space to --mem,
+    # and the JVM reserves huge virtual regions (1GB class space, GC structures)
+    # even when it uses only ~50MB physical. The other languages are happy in the
+    # default cap; Java needs a floor or it dies at VM init.
+    min_mem_mb: int = 0
 
 
 # v1 language set: JS, TS, Python, C, C++, Java (C added for Indian curricula).
@@ -41,13 +46,21 @@ LANGUAGES: dict[str, LangSpec] = {
     # node. -Xint needs no code cache. Plus SerialGC + capped heap/metaspace/stack
     # + no perf-data to keep the JVM's footprint inside the box. javac forwards
     # via -J.
+    # Every default JVM reservation must be capped or it overflows the sandbox's
+    # virtual-address ceiling: -Xint (no JIT code cache), SerialGC (no G1 overflow
+    # mark stack), MaxMetaspaceSize + CompressedClassSpaceSize (default 1GB!),
+    # ReservedCodeCacheSize, -Xmx, -Xss, no perf-data. Even capped, the JVM needs
+    # ~512MB+ of virtual space → min_mem_mb floor. javac forwards flags via -J.
     "java":       LangSpec("Main.java",
                            ["javac", "-J-Xint", "-J-XX:+UseSerialGC",
-                            "-J-XX:MaxMetaspaceSize=96m", "-J-XX:-UsePerfData", "-J-Xmx128m",
+                            "-J-XX:MaxMetaspaceSize=128m", "-J-XX:CompressedClassSpaceSize=64m",
+                            "-J-XX:ReservedCodeCacheSize=24m", "-J-XX:-UsePerfData", "-J-Xmx128m",
                             "Main.java"],
                            ["java", "-Xint", "-XX:+UseSerialGC",
-                            "-XX:MaxMetaspaceSize=96m", "-XX:-UsePerfData", "-Xss8m", "-Xmx128m",
-                            "Main"]),
+                            "-XX:MaxMetaspaceSize=128m", "-XX:CompressedClassSpaceSize=64m",
+                            "-XX:ReservedCodeCacheSize=24m", "-XX:-UsePerfData", "-Xss4m",
+                            "-Xmx128m", "Main"],
+                           min_mem_mb=768),
 }
 # Common aliases the kiosk/authoring layer may send.
 LANGUAGES["js"] = LANGUAGES["javascript"]

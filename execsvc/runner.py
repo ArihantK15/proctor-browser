@@ -2,7 +2,7 @@ import shutil
 import subprocess
 import tempfile
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 from .languages import lang_spec
 from .isolate_cmd import run_args, Limits
@@ -68,6 +68,11 @@ def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_i
     plan for the real Linux/KVM execution host.
     """
     spec = lang_spec(language)
+    # Raise the memory cap to the language's floor if it needs one (the JVM
+    # reserves far more virtual address space than the sandbox's default cap
+    # allows). Applies to both compile and run below.
+    if spec.min_mem_mb and limits.mem_mb < spec.min_mem_mb:
+        limits = replace(limits, mem_mb=spec.min_mem_mb)
     # --cg is required on init/cleanup too (cgroup-v2 mode is set up at init);
     # validated on the Hostinger host. Without it, --cg --run mismatches the box.
     subprocess.run(["isolate", "--cg", f"--box-id={box_id}", "--init"], check=True, capture_output=True)

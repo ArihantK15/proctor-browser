@@ -594,20 +594,27 @@ async def _resolve_org_for_launch(
     # first-launches is caught below and resolved to the single winner.
     short = uuid.uuid5(_LTI_ORG_NAMESPACE, tenant_key).hex[:10]
     from ..constants import TRIAL_DAYS, PLANS
+    from .. import db_context as _dbctx
     try:
-        await _atable("organizations").insert({
-            "id": org_id,
-            "name": f"{platform_name or iss} (LTI)",
-            "slug": f"lti-{short}",
-            "max_students": PLANS["starter"]["students"],
-        }).execute()
-        trial_end = (datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)).isoformat()
-        await _atable("subscriptions").upsert({
-            "org_id": org_id,
-            "plan": "starter",
-            "status": "trialing",
-            "trial_end": trial_end,
-        }, on_conflict="org_id").execute()
+        # LTI launch is pre-auth (the LMS, not a Procta user) so there is no
+        # owning context: the organizations/subscriptions INSERT policies
+        # (phase128 orgs_ins) require app.is_privileged(). Under
+        # RLS_SESSION_CONTEXT the ambient context matched zero rows and
+        # auto-provisioning was denied. Elevate the provisioning writes.
+        with _dbctx.system_context():
+            await _atable("organizations").insert({
+                "id": org_id,
+                "name": f"{platform_name or iss} (LTI)",
+                "slug": f"lti-{short}",
+                "max_students": PLANS["starter"]["students"],
+            }).execute()
+            trial_end = (datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)).isoformat()
+            await _atable("subscriptions").upsert({
+                "org_id": org_id,
+                "plan": "starter",
+                "status": "trialing",
+                "trial_end": trial_end,
+            }, on_conflict="org_id").execute()
         logger.info("lti: auto-provisioned org %s for tenant %s", org_id, safe(tenant_key))
         return org_id, False
     except Exception as e:

@@ -11,9 +11,27 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Optional
 
 _log = logging.getLogger("object_store")
+
+# A KMS key id is a UUID, a key ARN, or an alias ("alias/…"). Anything else
+# (e.g. a 32-byte hex secret pasted into the wrong env var) makes S3 reject
+# EVERY put_object with KMS.NotFoundException — silently breaking all evidence
+# uploads. We validate the shape and fall back to SSE-S3 rather than fail open.
+_KMS_KEY_RE = re.compile(
+    r"^(?:"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"  # key UUID
+    r"|arn:aws[\w-]*:kms:[^:]+:\d{12}:(?:key|alias)/.+"  # key/alias ARN
+    r"|alias/.+"  # bare alias
+    r")$"
+)
+
+
+def _kms_key_id_is_valid(key: str) -> bool:
+    """True only for a plausibly-valid KMS key id (UUID / ARN / alias)."""
+    return bool(_KMS_KEY_RE.match(key))
 
 
 # ── Lazy client ──────────────────────────────────────────────────────────────
@@ -78,8 +96,17 @@ def _encryption_args() -> dict:
     kms:GenerateDataKey (writes) + kms:Decrypt (reads) on the key.
     """
     kms_key = os.environ.get("S3_KMS_KEY_ID", "").strip()
-    if kms_key:
+    if kms_key and _kms_key_id_is_valid(kms_key):
         return {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": kms_key}
+    if kms_key:
+        # Misconfigured key — don't fail every upload. Fall back to SSE-S3
+        # (still encrypted at rest) and warn LOUDLY. Log only a short prefix so
+        # we never echo a (possibly secret) value into logs/Sentry in full.
+        _log.error(
+            "S3_KMS_KEY_ID is not a valid KMS key id (prefix=%r…) — falling back "
+            "to SSE-S3 (AES256). Set a real key UUID/ARN/alias or unset the var.",
+            kms_key[:6],
+        )
     return {"ServerSideEncryption": "AES256"}
 
 

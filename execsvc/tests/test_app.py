@@ -1,6 +1,7 @@
 import threading
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
 from execsvc.app import app
@@ -10,6 +11,15 @@ client = TestClient(app)
 
 _VALID = {"language": "python", "source": "x", "stdin": "",
           "cpu_ms": 2000, "wall_ms": 4000, "mem_mb": 256, "output_kb": 64}
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_auth(monkeypatch):
+    """Make these tests independent of the host's EXEC_SERVICE_AUTH env. The
+    deploy box sets it, which would 401 every un-tokened request here. The
+    auth-specific test re-patches it to a real value inside its own `with`."""
+    monkeypatch.setattr("execsvc.app.EXEC_SERVICE_AUTH", "")
+    yield
 
 
 def test_run_returns_envelope():

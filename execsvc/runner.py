@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import tempfile
 import os
@@ -5,6 +6,22 @@ from dataclasses import dataclass
 from typing import Optional
 from .languages import lang_spec
 from .isolate_cmd import run_args, Limits
+
+
+def _abs(cmd: list) -> list:
+    """Resolve the program (cmd[0]) to an absolute path.
+
+    isolate execve()s the command directly and does NOT do a PATH lookup —
+    `--env=PATH=...` only affects the environment *inside* the program, not how
+    isolate finds it. So a bare `python3`/`node`/`gcc`/`java` fails with
+    `execve("python3"): No such file or directory` (status 127) even though it's
+    on PATH. The host and the box share /usr/bin, so resolving on the host yields
+    a path valid inside the box. Box-local programs (`./main` for C/C++) are not
+    on the host PATH → `which` returns None → left unchanged, which is correct.
+    """
+    if not cmd:
+        return cmd
+    return [shutil.which(cmd[0]) or cmd[0], *cmd[1:]]
 
 
 @dataclass
@@ -64,12 +81,12 @@ def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_i
             f.write(source)
         compile_error = None
         if spec.compile_cmd:
-            cp = subprocess.run(run_args(box_id, limits, spec.compile_cmd) + [f"--meta={_new_meta()}"],
+            cp = subprocess.run(run_args(box_id, limits, _abs(spec.compile_cmd)) + [f"--meta={_new_meta()}"],
                                  input="", capture_output=True, text=True)
             if cp.returncode != 0:
                 return ExecResult("", "", cp.returncode, 0, False, False, cp.stdout + cp.stderr)
         meta = _new_meta()
-        rp = subprocess.run(run_args(box_id, limits, spec.run_cmd) + [f"--meta={meta}"],
+        rp = subprocess.run(run_args(box_id, limits, _abs(spec.run_cmd)) + [f"--meta={meta}"],
                              input=stdin, capture_output=True, text=True)
         m = _parse_meta(meta)
         return ExecResult(

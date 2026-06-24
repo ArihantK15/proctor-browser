@@ -1190,6 +1190,28 @@ html,body{overflow-x:hidden;max-width:100vw}
 #id-reviews-list::-webkit-scrollbar{height:8px}
 #id-reviews-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 #id-reviews-list::-webkit-scrollbar-track{background:transparent}
+/* ── Secondary-camera review grid (aggregate phone-cam approval popup) ── */
+.roomcam-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+  gap:14px;max-height:70vh;overflow-y:auto;padding:2px}
+.roomcam-tile{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card)}
+.roomcam-tile .rc-feed{position:relative;background:#000;aspect-ratio:4/3;
+  display:flex;align-items:center;justify-content:center}
+.roomcam-tile .rc-feed img{width:100%;height:100%;object-fit:cover}
+.roomcam-tile .rc-ph{color:var(--muted);font-size:11px;text-align:center;padding:10px}
+.roomcam-tile .rc-info{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px}
+.roomcam-tile .rc-name{font-size:13px;font-weight:600;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.roomcam-tile .rc-status{font-size:10px;color:var(--muted);flex-shrink:0}
+.roomcam-tile .rc-actions{display:flex;gap:6px;padding:0 10px 10px}
+.roomcam-tile .rc-actions button{flex:1;padding:6px 8px;border-radius:6px;border:none;
+  font-size:12px;font-weight:600;cursor:pointer}
+.roomcam-tile .rc-approve{background:var(--emerald,#238636);color:#fff}
+.roomcam-tile .rc-reject{background:rgba(239,68,68,.14);color:#ff7b72}
+.roomcam-tile .rc-actions button:hover{opacity:.88}
+/* actionable stat tile (e.g. "Phone cams waiting") */
+.stat-tile-action{cursor:pointer;font:inherit;text-align:left;appearance:none;
+  border:1px solid var(--amber,#f59e0b);background:var(--card)}
+.stat-tile-action:hover{background:rgba(245,158,11,.08)}
 
 /* ── ID review focus modal ───────────────────────────────────────── */
 .ir-modal{position:fixed;inset:0;z-index:9990;display:flex;align-items:center;

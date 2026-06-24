@@ -2267,6 +2267,108 @@ async function roomCamReject(){
   }catch(e){ resultEl.textContent = 'Failed'; resultEl.style.color = 'var(--red)'; }
 }
 
+// ── Secondary (phone) camera review — aggregate grid popup ──────────
+// One popup showing EVERY student currently pending room-cam approval, each with
+// its live phone feed + Approve/Reject, so the teacher reviews them all in one
+// place instead of clicking each student's row. Reuses the per-session room-cam
+// endpoints (start / frame / keepalive / approve / reject / stop).
+let _scTimers = {};   // sid -> {frame, keepalive}
+let _scOpen = false;
+
+function _pendingRoomCamSessions(){
+  return (typeof liveData !== 'undefined' && Array.isArray(liveData) ? liveData : [])
+    .filter(s => String(s.room_cam_status || '') === 'pending');
+}
+function _scSidOf(s){ return s.session_key || s.session_id || s.sid || ''; }
+function _scTile(sid){
+  const b = document.getElementById('roomcam-grid-body');
+  return b ? b.querySelector(`.roomcam-tile[data-sid="${(window.CSS && CSS.escape) ? CSS.escape(sid) : sid}"]`) : null;
+}
+
+async function openSecondaryCamGrid(){
+  _scOpen = true;
+  const body = document.getElementById('roomcam-grid-body');
+  const empty = document.getElementById('roomcam-grid-empty');
+  const pending = _pendingRoomCamSessions();
+  body.innerHTML = '';
+  empty.style.display = pending.length ? 'none' : '';
+  document.getElementById('roomcam-grid-modal').classList.remove('hidden');
+  for(const s of pending){
+    const sid = _scSidOf(s);
+    if(!sid) continue;
+    const name = s.full_name || s.roll_number || sid;
+    const tile = document.createElement('div');
+    tile.className = 'roomcam-tile';
+    tile.dataset.sid = sid;
+    tile.innerHTML =
+      `<div class="rc-feed"><div class="rc-ph">Connecting…</div>`
+      + `<img alt="${escAttr(name)} phone camera" style="display:none"></div>`
+      + `<div class="rc-info"><span class="rc-name">${_escHtml(name)}</span>`
+      + `<span class="rc-status">●&nbsp;…</span></div>`
+      + `<div class="rc-actions">`
+      + `<button class="rc-approve" data-action="scApprove" data-args='${_jsonArgsForAttr(sid)}'>Approve</button>`
+      + `<button class="rc-reject" data-action="scReject" data-args='${_jsonArgsForAttr(sid)}'>Reject</button></div>`;
+    body.appendChild(tile);
+    try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/room-cam/start`, {method:'POST'}); }catch(_){}
+    _scTimers[sid] = {
+      frame: setInterval(() => _scPollFrame(sid), 1500),
+      keepalive: setInterval(() => _scKeepalive(sid), 30000),
+    };
+    _scPollFrame(sid);
+  }
+}
+
+function _scPollFrame(sid){
+  if(!_scOpen) return;
+  const tile = _scTile(sid); if(!tile) return;
+  const headers = {}; if(authToken) headers.Authorization = `Bearer ${authToken}`;
+  fetchWithTimeout(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/room-cam/frame?t=${Date.now()}`,
+                   {credentials:'include', headers})
+    .then(r => { if(!r.ok) throw new Error(); return r.blob(); })
+    .then(blob => {
+      const img = tile.querySelector('img'), ph = tile.querySelector('.rc-ph'), st = tile.querySelector('.rc-status');
+      const old = img.src;
+      img.src = URL.createObjectURL(blob); img.style.display = ''; if(ph) ph.style.display = 'none';
+      if(old && old.startsWith('blob:')) URL.revokeObjectURL(old);
+      if(st){ st.innerHTML = '●&nbsp;Live'; st.style.color = 'var(--emerald)'; }
+    })
+    .catch(() => { const st = tile.querySelector('.rc-status'); if(st){ st.innerHTML = '●&nbsp;Offline'; st.style.color = 'var(--muted)'; } });
+}
+
+async function _scKeepalive(sid){
+  try{ await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/room-cam/keepalive`, {method:'POST'}); }catch(_){}
+}
+
+function _scStopOne(sid){
+  const t = _scTimers[sid];
+  if(t){ clearInterval(t.frame); clearInterval(t.keepalive); delete _scTimers[sid]; }
+  const tile = _scTile(sid);
+  if(tile){ const img = tile.querySelector('img'); if(img && img.src && img.src.startsWith('blob:')) URL.revokeObjectURL(img.src); }
+  authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/room-cam/stop`, {method:'POST'}).catch(()=>{});
+}
+
+async function _scDecide(sid, action){
+  const tile = _scTile(sid), st = tile && tile.querySelector('.rc-status');
+  if(st){ st.innerHTML = action === 'approve' ? 'Approving…' : 'Rejecting…'; st.style.color = 'var(--muted)'; }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions/${encodeURIComponent(sid)}/room-cam/${action}`, {method:'POST'});
+    if(!r.ok) throw new Error();
+    _scStopOne(sid);
+    if(tile) tile.remove();
+    const body = document.getElementById('roomcam-grid-body');
+    if(body && body.children.length === 0) document.getElementById('roomcam-grid-empty').style.display = '';
+  }catch(e){ if(st){ st.innerHTML = '●&nbsp;Failed'; st.style.color = 'var(--red)'; } }
+}
+function scApprove(sid){ return _scDecide(sid, 'approve'); }
+function scReject(sid){ return _scDecide(sid, 'reject'); }
+
+function closeSecondaryCamGrid(){
+  _scOpen = false;
+  Object.keys(_scTimers).forEach(_scStopOne);
+  _scTimers = {};
+  const body = document.getElementById('roomcam-grid-body'); if(body) body.innerHTML = '';
+  const m = document.getElementById('roomcam-grid-modal'); if(m) m.classList.add('hidden');
+}
 
 
 
@@ -2464,12 +2566,19 @@ function renderLiveStats(activeRows=[], allRows=[]){
   const submitted = all.filter(s => s.submitted || s.live_state === 'submitted' || s.live_state === 'force_submitted').length;
   const stale = all.filter(s => s.live_state === 'stale').length;
   const highRisk = all.filter(s => Number(s.risk_score || 0) > 40).length;
+  const pendingCam = all.filter(s => String(s.room_cam_status || '') === 'pending').length;
+  // Students waiting for phone-camera approval get one actionable tile that
+  // opens the review grid — no per-row hunting. Only shown when any are waiting.
+  const camTile = pendingCam > 0
+    ? `<button class="stat-tile stat-tile-action" data-action="openSecondaryCamGrid" title="Review phone cameras waiting for approval"><div class="stat-tile-label">Phone cams waiting</div><div class="stat-tile-value" style="color:var(--amber)">${pendingCam}</div></button>`
+    : '';
   el.innerHTML = `
     <div class="stat-tile"><div class="stat-tile-label">Live Now</div><div class="stat-tile-value accent">${active.length}</div></div>
     <div class="stat-tile"><div class="stat-tile-label">All Sessions</div><div class="stat-tile-value">${all.length}</div></div>
     <div class="stat-tile"><div class="stat-tile-label">High Risk</div><div class="stat-tile-value" style="color:var(--red)">${highRisk}</div></div>
     <div class="stat-tile"><div class="stat-tile-label">Submitted</div><div class="stat-tile-value success">${submitted}</div></div>
     <div class="stat-tile"><div class="stat-tile-label">Stale</div><div class="stat-tile-value">${stale}</div></div>
+    ${camTile}
   `;
 }
 

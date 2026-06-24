@@ -1716,6 +1716,20 @@
   </div>
 </div>
 
+<!-- ── Secondary-camera review grid — one popup for ALL students currently
+     pending phone-camera approval, each tile with its live feed + Approve/
+     Reject. Opened from the "Phone cams waiting" tile in Live. Reuses the
+     per-session room-cam endpoints; openSecondaryCamGrid in dashboard-app.js. -->
+<div class="modal-bg hidden" id="roomcam-grid-modal" data-action="closeSecondaryCamGrid" data-guard-self>
+  <div class="modal" style="max-width:960px;width:92vw">
+    <button class="close" data-action="closeSecondaryCamGrid">&times;</button>
+    <h3 style="margin-bottom:4px">Secondary cameras</h3>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Students waiting for phone-camera approval — approve or reject each below.</div>
+    <div id="roomcam-grid-body" class="roomcam-grid"></div>
+    <div id="roomcam-grid-empty" style="display:none;color:var(--muted);font-size:13px;text-align:center;padding:30px 0">No phone cameras waiting for approval.</div>
+  </div>
+</div>
+
 <!-- ── Live webcam modal — streams the student's primary camera while a
      teacher watches. Frames come from GET …/live-frame (short-TTL Redis
      cache, never persisted). open/closeLiveView in dashboard-app.js drive

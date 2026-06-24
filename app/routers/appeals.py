@@ -71,8 +71,11 @@ async def submit_appeal(body: AppealIn, request: Request):
     if not (_sid_ok or _email_ok):
         raise HTTPException(status_code=403, detail="Session does not belong to you")
 
-    teacher_id = s.get("teacher_id", "")
-    exam_id = s.get("exam_id", "")
+    # Coerce empty → None: a session row with a NULL teacher_id/exam_id yields
+    # "" here, and inserting "" into the appeals UUID columns raises asyncpg
+    # DataError ("invalid UUID ''"). NULL is the correct representation.
+    teacher_id = s.get("teacher_id") or None
+    exam_id = s.get("exam_id") or None
 
     # If the student is disputing a specific flag, verify that flag exists
     # AND belongs to this same session. Without this check a student could

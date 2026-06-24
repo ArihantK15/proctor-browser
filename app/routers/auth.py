@@ -1476,7 +1476,16 @@ async def student_signup(body: StudentSignupIn, request: Request):
                 "auth_provider": auth_provider,
                 "password_changed_at": now_ist().isoformat(),
             })
-        result = await _atable("student_accounts").insert(account_row).execute()
+        # Pre-auth account creation is a privileged system write: the student is
+        # not yet authenticated, so there is no own-id context, and the
+        # student_accounts INSERT policy (phase132 sa_ins) requires
+        # app.is_privileged(). Under RLS_SESSION_CONTEXT the request's ambient
+        # (non-system) context made this match zero rows → every student signup
+        # 500'd. Elevate just this insert; the confused-deputy-prone auto-link
+        # of pre-existing rows stays deferred to post-OTP (see note below).
+        from .. import db_context as _dbctx
+        with _dbctx.system_context():
+            result = await _atable("student_accounts").insert(account_row).execute()
         account = result.data[0]
     except Exception as e:
         _auth_log.error("[StudentSignup] DB insert error: %s", e)

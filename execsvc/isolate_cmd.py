@@ -9,7 +9,7 @@ class Limits:
     output_kb: int
 
 
-def run_args(box_id: int, limits: Limits, cmd: list) -> list:
+def run_args(box_id: int, limits: Limits, cmd: list, meta: str | None = None) -> list:
     # Validated on the Hostinger box 2026-06-23 (see
     # docs/runbooks/2026-06-23-isolate-sandbox-hostinger.md):
     #   --cg              cgroup-v2 mode — isolate 2.6 needs it for mem/pid caps.
@@ -23,7 +23,7 @@ def run_args(box_id: int, limits: Limits, cmd: list) -> list:
     # `--stderr-to-stdout=0` is rejected outright ("doesn't allow an argument"),
     # making isolate print usage and run nothing. We capture stdout/stderr
     # separately via subprocess, so we simply omit it (the default = separate).
-    return [
+    args = [
         "isolate", f"--box-id={box_id}", "--cg", "--run",
         f"--time={limits.cpu_ms / 1000:g}",
         f"--wall-time={limits.wall_ms / 1000:g}",
@@ -32,5 +32,12 @@ def run_args(box_id: int, limits: Limits, cmd: list) -> list:
         "--processes=64",
         "--env=PATH=/usr/bin:/usr/local/bin:/bin",
         "--env=HOME=/box",
-        "--", *cmd,
     ]
+    # --meta is an ISOLATE flag and MUST come before the `--` separator. Appended
+    # after `--` it would be handed to the program (gcc rejects it; the meta file
+    # is never written, so timeout/oom/exit detection silently fails for every
+    # language). Belongs here.
+    if meta:
+        args.append(f"--meta={meta}")
+    args += ["--", *cmd]
+    return args

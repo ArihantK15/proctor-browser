@@ -21,7 +21,14 @@ def _abs(cmd: list) -> list:
     """
     if not cmd:
         return cmd
-    return [shutil.which(cmd[0]) or cmd[0], *cmd[1:]]
+    resolved = shutil.which(cmd[0])
+    if resolved:
+        # Dereference symlinks: javac/java are /usr/bin → /etc/alternatives → JDK
+        # symlink chains, and isolate can't follow a chain that crosses dirs the
+        # box doesn't bind → execve("/usr/bin/javac"): No such file. The real
+        # binary lives under /usr (bound by default), so realpath resolves it.
+        resolved = os.path.realpath(resolved)
+    return [resolved or cmd[0], *cmd[1:]]
 
 
 @dataclass
@@ -81,12 +88,12 @@ def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_i
             f.write(source)
         compile_error = None
         if spec.compile_cmd:
-            cp = subprocess.run(run_args(box_id, limits, _abs(spec.compile_cmd)) + [f"--meta={_new_meta()}"],
+            cp = subprocess.run(run_args(box_id, limits, _abs(spec.compile_cmd), _new_meta()),
                                  input="", capture_output=True, text=True)
             if cp.returncode != 0:
                 return ExecResult("", "", cp.returncode, 0, False, False, cp.stdout + cp.stderr)
         meta = _new_meta()
-        rp = subprocess.run(run_args(box_id, limits, _abs(spec.run_cmd)) + [f"--meta={meta}"],
+        rp = subprocess.run(run_args(box_id, limits, _abs(spec.run_cmd), meta),
                              input=stdin, capture_output=True, text=True)
         m = _parse_meta(meta)
         return ExecResult(

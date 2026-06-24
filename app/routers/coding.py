@@ -240,8 +240,13 @@ async def coding_judge(body: dict, request: Request):
                 # passed to run_one().
                 result = run_one(language, source, row.get("input") or "", limits)
                 if result.compile_error:
+                    # The source is identical across all cases, so a compile
+                    # error on the first run fails every case — stop here instead
+                    # of burning a sandboxed run per remaining case (the executor
+                    # is a shared, capacity-bound host). passed stays 0; total is
+                    # already len(hidden), so the result is unchanged.
                     compile_output = result.compile_error
-                    continue  # a compile error fails every remaining case too
+                    break
                 exec_times.append(result.time_ms)
                 tol = row.get("float_tolerance")
                 expected = secrets_crypto.decrypt(row.get("expected_output") or "")

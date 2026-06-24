@@ -13,6 +13,7 @@ import os
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .languages import LANGUAGES
@@ -59,6 +60,19 @@ for _i in range(POOL_SIZE):
     _box_ids.put_nowait(_i)
 
 app = FastAPI(title="execsvc")
+
+
+@app.middleware("http")
+async def _require_auth(request, call_next):
+    """Enforce the bearer token BEFORE body parsing so an unauthenticated caller
+    can't even reach validation (auth-first). /health is exempt — it carries no
+    data and runs nothing. The in-handler _check_auth stays as defense in depth.
+    Reads EXEC_SERVICE_AUTH dynamically so it's a no-op when unset (dev/test)."""
+    if request.url.path == "/run" and EXEC_SERVICE_AUTH:
+        if not hmac.compare_digest(request.headers.get("authorization", ""),
+                                   f"Bearer {EXEC_SERVICE_AUTH}"):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
 
 
 class RunRequest(BaseModel):

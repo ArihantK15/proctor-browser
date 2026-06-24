@@ -59,6 +59,15 @@ def test_auth_enforced_when_configured():
                            headers={"Authorization": "Bearer s3cret"}).status_code == 200
 
 
+def test_auth_runs_before_body_validation():
+    """Auth-first: an un-tokened request is 401'd by the middleware before the
+    body is even validated — a garbage body returns 401, not 422."""
+    with patch("execsvc.app.EXEC_SERVICE_AUTH", "s3cret"):
+        assert client.post("/run", json={}).status_code == 401          # no token
+        assert client.post("/run", json={},
+                           headers={"Authorization": "Bearer s3cret"}).status_code == 422  # token ok → body checked
+
+
 def test_oversized_source_rejected():
     """A source above the cap is rejected before any execution (422)."""
     big = {**_VALID, "source": "a" * (256 * 1024 + 1)}

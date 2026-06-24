@@ -33,6 +33,28 @@ def test_oversized_input_rejected():
     assert ei.value.status_code == 400
 
 
+def test_c_cpp_java_supported_for_authoring():
+    """v1 language set is the full six the runner supports — a teacher must be
+    able to author C / C++ / Java questions, not only JS/TS/Python."""
+    for lang in ("c", "cpp", "java", "python", "javascript", "typescript"):
+        out = _clean_options({"allowed_languages": [lang]})
+        assert out["allowed_languages"] == [lang]
+
+
+def test_language_aliases_normalized_to_canonical():
+    """Authoring layer may send aliases; store the canonical key the runner +
+    student client agree on (execsvc keys on cpp/javascript/typescript)."""
+    assert _clean_options({"allowed_languages": ["c++"]})["allowed_languages"] == ["cpp"]
+    assert _clean_options({"allowed_languages": ["js"]})["allowed_languages"] == ["javascript"]
+    assert _clean_options({"allowed_languages": ["ts"]})["allowed_languages"] == ["typescript"]
+
+
+def test_unknown_language_still_rejected():
+    with pytest.raises(HTTPException) as ei:
+        _clean_options({"allowed_languages": ["cobol"]})
+    assert ei.value.status_code == 400
+
+
 def test_valid_cases_pass_through():
     out = _clean_cases([
         {"visibility": "hidden", "expected_output": "42", "input": "1 2"},

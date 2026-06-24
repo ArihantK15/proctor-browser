@@ -25,9 +25,14 @@ from ..services import secrets_crypto
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="")
 
-# Phase 1 ships JavaScript; Phase 2 adds Python + TypeScript. Reject anything else
-# at authoring so a teacher can't create a question students can't run.
-SUPPORTED_LANGUAGES = {"javascript", "typescript", "python"}
+# v1 language set — the full six the execution sandbox (execsvc/languages.py)
+# can compile + run. Authoring rejects anything else so a teacher can't create a
+# question students can't run. Host must have the toolchains installed
+# (node/npm/typescript, gcc, g++, default-jdk).
+SUPPORTED_LANGUAGES = {"javascript", "typescript", "python", "c", "cpp", "java"}
+# Aliases the dashboard / LLM may send → the canonical key the runner and the
+# student client both key on (mirrors execsvc/languages.py's alias table).
+_LANG_ALIASES = {"js": "javascript", "ts": "typescript", "c++": "cpp"}
 _VISIBILITY = {"sample", "hidden"}
 MAX_TEST_CASES = 50
 # Per-field cap on a test case's input / expected_output. 50 cases * megabytes
@@ -42,6 +47,7 @@ def _clean_options(raw: dict) -> dict:
     if isinstance(langs, str):
         langs = [langs]
     langs = [str(l).strip().lower() for l in langs if str(l).strip()]
+    langs = [_LANG_ALIASES.get(l, l) for l in langs]
     bad = [l for l in langs if l not in SUPPORTED_LANGUAGES]
     if not langs or bad:
         raise HTTPException(status_code=400,

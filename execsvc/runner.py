@@ -61,18 +61,21 @@ def _safe_float(val, default: float) -> float:
 def _extra_dirs(language: str) -> list:
     """Read-only binds a language's runtime needs beyond the box's default dirs.
 
-    Java: OpenJDK's conf/ (java.security, java.policy, logging.properties …) is a
-    symlink to /etc/java-NN-openjdk on Debian/Ubuntu. The box binds /usr but not
-    that /etc target, so the JVM fails with "Error loading java.security file".
-    Resolve the real conf dir off the `java` binary and bind it.
+    Java: OpenJDK's conf/ dir is real (under /usr, already bound) but its FILES
+    (java.security, logging.properties, …) are SYMLINKS to /etc/java-NN-openjdk on
+    Debian/Ubuntu. The box binds /usr but not that /etc target, so the JVM fails
+    with "Error loading java.security file". Resolve a known config file off the
+    `java` binary and bind its /etc/java-NN-openjdk root read-only.
     """
     if language.lower() == "java":
         jbin = shutil.which("java")
         if jbin:
             home = os.path.dirname(os.path.dirname(os.path.realpath(jbin)))
-            conf = os.path.realpath(os.path.join(home, "conf"))
-            if os.path.isdir(conf):
-                return [conf]
+            sec = os.path.realpath(os.path.join(home, "conf", "security", "java.security"))
+            if os.path.isfile(sec):
+                etc_dir = os.path.dirname(os.path.dirname(sec))   # /etc/java-NN-openjdk
+                if os.path.isdir(etc_dir):
+                    return [etc_dir]
     return []
 
 

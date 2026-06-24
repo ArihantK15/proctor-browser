@@ -1,3 +1,4 @@
+-- migration:contract drop the two conflicting subscriptions status CHECK constraints (old `subscriptions_status_check` rejected 'created'; `subscriptions_status_chk` was NOT VALID + missing states) and replace with one comprehensive constraint; reverse in migrations/down/phase144_subscriptions_status_fix.sql
 -- phase144 — fix the subscriptions status CHECK constraint(s).
 --
 -- The card-on-signup rework added `subscriptions_status_chk` (NOT VALID) but left

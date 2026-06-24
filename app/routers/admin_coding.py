@@ -30,6 +30,9 @@ router = APIRouter(prefix="")
 SUPPORTED_LANGUAGES = {"javascript", "typescript", "python"}
 _VISIBILITY = {"sample", "hidden"}
 MAX_TEST_CASES = 50
+# Per-field cap on a test case's input / expected_output. 50 cases * megabytes
+# each is a storage/DoS vector; 64 KB is far above any realistic I/O case.
+MAX_FIELD_LEN = 64 * 1024
 
 
 def _clean_options(raw: dict) -> dict:
@@ -86,13 +89,28 @@ def _clean_cases(raw_cases) -> list[dict]:
             raise HTTPException(status_code=400, detail=f"test_cases[{i}] missing expected_output")
         if vis == "hidden":
             hidden += 1
+        inp = str(c.get("input") or "")
+        exp = str(c.get("expected_output"))
+        if len(inp) > MAX_FIELD_LEN or len(exp) > MAX_FIELD_LEN:
+            raise HTTPException(
+                status_code=400,
+                detail=f"test_cases[{i}] input/expected_output exceeds {MAX_FIELD_LEN} bytes")
         ft = c.get("float_tolerance")
+        if ft in (None, ""):
+            ftol = None
+        else:
+            try:
+                ftol = float(ft)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"test_cases[{i}].float_tolerance must be a number")
         out.append({
             "idx": i,
-            "input": str(c.get("input") or ""),
-            "expected_output": str(c.get("expected_output")),
+            "input": inp,
+            "expected_output": exp,
             "visibility": vis,
-            "float_tolerance": float(ft) if ft not in (None, "") else None,
+            "float_tolerance": ftol,
         })
     if hidden == 0:
         raise HTTPException(status_code=400,

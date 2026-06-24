@@ -18,6 +18,22 @@ class ExecResult:
     compile_error: Optional[str]
 
 
+def _safe_int(val, default: int) -> int:
+    """Coerce an isolate-meta value to int; a corrupt/missing value degrades to
+    `default` instead of raising (one bad meta must not 500 the grade)."""
+    try:
+        return int(str(val).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(val, default: float) -> float:
+    try:
+        return float(str(val).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_id: int = 0) -> ExecResult:
     """Run `source` for `language` inside a single `isolate` sandbox box.
 
@@ -32,28 +48,44 @@ def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_i
     # validated on the Hostinger host. Without it, --cg --run mismatches the box.
     subprocess.run(["isolate", "--cg", f"--box-id={box_id}", "--init"], check=True, capture_output=True)
     box_dir = f"/var/local/lib/isolate/{box_id}/box"
+    meta_files: list[str] = []
+
+    def _new_meta() -> str:
+        # mkstemp (not mktemp): no predictable-path race, and we track every
+        # file so the finally-block deletes it — otherwise each run leaks a
+        # /tmp meta file forever.
+        fd, path = tempfile.mkstemp(prefix="isolate-meta-")
+        os.close(fd)
+        meta_files.append(path)
+        return path
+
     try:
         with open(os.path.join(box_dir, spec.source_filename), "w") as f:
             f.write(source)
         compile_error = None
         if spec.compile_cmd:
-            meta = tempfile.mktemp()
-            cp = subprocess.run(run_args(box_id, limits, spec.compile_cmd) + [f"--meta={meta}"],
+            cp = subprocess.run(run_args(box_id, limits, spec.compile_cmd) + [f"--meta={_new_meta()}"],
                                  input="", capture_output=True, text=True)
             if cp.returncode != 0:
                 return ExecResult("", "", cp.returncode, 0, False, False, cp.stdout + cp.stderr)
-        meta = tempfile.mktemp()
+        meta = _new_meta()
         rp = subprocess.run(run_args(box_id, limits, spec.run_cmd) + [f"--meta={meta}"],
                              input=stdin, capture_output=True, text=True)
         m = _parse_meta(meta)
         return ExecResult(
-            rp.stdout, rp.stderr, int(m.get("exitcode", rp.returncode)),
-            int(float(m.get("time", 0)) * 1000),
+            rp.stdout, rp.stderr,
+            _safe_int(m.get("exitcode", rp.returncode), rp.returncode),
+            int(_safe_float(m.get("time", 0), 0.0) * 1000),
             m.get("status") == "TO",
             m.get("status") == "SG" and "memory" in m.get("message", ""),
             compile_error,
         )
     finally:
+        for p in meta_files:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
         subprocess.run(["isolate", "--cg", f"--box-id={box_id}", "--cleanup"], capture_output=True)
 
 

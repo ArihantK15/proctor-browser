@@ -28,7 +28,9 @@ def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_i
     plan for the real Linux/KVM execution host.
     """
     spec = lang_spec(language)
-    subprocess.run(["isolate", f"--box-id={box_id}", "--init"], check=True, capture_output=True)
+    # --cg is required on init/cleanup too (cgroup-v2 mode is set up at init);
+    # validated on the Hostinger host. Without it, --cg --run mismatches the box.
+    subprocess.run(["isolate", "--cg", f"--box-id={box_id}", "--init"], check=True, capture_output=True)
     box_dir = f"/var/local/lib/isolate/{box_id}/box"
     try:
         with open(os.path.join(box_dir, spec.source_filename), "w") as f:
@@ -52,7 +54,7 @@ def run_in_isolate(language: str, source: str, stdin: str, limits: Limits, box_i
             compile_error,
         )
     finally:
-        subprocess.run(["isolate", f"--box-id={box_id}", "--cleanup"], capture_output=True)
+        subprocess.run(["isolate", "--cg", f"--box-id={box_id}", "--cleanup"], capture_output=True)
 
 
 def _parse_meta(path: str) -> dict:

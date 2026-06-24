@@ -2867,8 +2867,16 @@ def _process_voice_detection(
         window_elapsed = now - _conv_start
         if window_elapsed <= CONVERSATION_WINDOW:
             if can_log("conversation_detected"):
-                log_if_allowed("conversation_detected", "high",
-                          f"{_burst_count} voice bursts in {window_elapsed:.0f}s (turn-taking pattern)")
+                _conv_details = f"{_burst_count} voice bursts in {window_elapsed:.0f}s (turn-taking pattern)"
+                # transcript-on-flag (collaboration): attach WHAT was heard, only
+                # on this flag — never a continuous stream. Best-effort + bounded.
+                try:
+                    _snip = _audio_processor.recent_transcript() if _audio_processor else ""
+                    if _snip:
+                        _conv_details += f" — heard: '{_snip}'"
+                except Exception:
+                    pass
+                log_if_allowed("conversation_detected", "high", _conv_details[:500])
                 save_evidence(frame, "conversation")
             state["_voice_burst_count"] = 0
             state["_conversation_window_start"] = None

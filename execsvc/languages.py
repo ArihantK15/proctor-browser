@@ -16,10 +16,15 @@ class LangSpec:
 LANGUAGES: dict[str, LangSpec] = {
     "python":     LangSpec("main.py",   None,
                            ["python3", "main.py"]),
+    # --jitless: V8 otherwise reserves a large contiguous VIRTUAL region for its
+    # JIT CodeRange, which the sandbox blocks ("Failed to reserve virtual memory
+    # for CodeRange", SIGTRAP) even though actual memory use is tiny (~4MB).
+    # Interpreter-only mode needs no CodeRange — correct results, fine for the
+    # short programs an exam runs.
     "javascript": LangSpec("main.js",   None,
-                           ["node", "main.js"]),
+                           ["node", "--jitless", "main.js"]),
     "typescript": LangSpec("main.ts",   ["tsc", "main.ts", "--outFile", "main.js"],
-                           ["node", "main.js"]),
+                           ["node", "--jitless", "main.js"]),
     "c":          LangSpec("main.c",    ["gcc", "main.c", "-O2", "-o", "main"],
                            ["./main"]),
     "cpp":        LangSpec("main.cpp",  ["g++", "main.cpp", "-O2", "-std=c++17", "-o", "main"],

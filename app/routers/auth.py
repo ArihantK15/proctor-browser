@@ -607,16 +607,30 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.warning("[TeacherSignup] demo seed failed (non-fatal): %s", demo_err)
 
         _auth_log.info("[TeacherSignup] %s <%s> created (org=%s)", safe(name), mask_email(email), safe(org_name))
-        await record_auth_event("signup", request, "teacher", teacher["id"], email)
-        enqueue_job(send_new_account_notification_job,
-                    account_type="teacher", name=name, email=email)
 
-        # Issue email verification
-        from ..emailer import send_email_verification
+        # `base` is needed by both the verification and trial-started emails;
+        # resolve it up front so a failure in one side effect can't NameError the
+        # other.
         from ..invites import _get_invite_base_url
-        vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
-        base = _get_invite_base_url()
-        send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
+        try:
+            base = _get_invite_base_url()
+        except Exception:
+            base = ""
+
+        # Post-commit side effects are BEST-EFFORT: the org/teacher row is already
+        # durably committed, so a failure here (Redis down, SMTP hiccup, token
+        # signer error) must NOT raise — otherwise a fully-created account returns
+        # a 500, the user thinks signup failed, and their retry hits the
+        # duplicate-email 409. Log loudly; the verification email can be re-sent.
+        try:
+            await record_auth_event("signup", request, "teacher", teacher["id"], email)
+            enqueue_job(send_new_account_notification_job,
+                        account_type="teacher", name=name, email=email)
+            from ..emailer import send_email_verification
+            vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
+            send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
+        except Exception as _post_err:
+            _auth_log.warning("[TeacherSignup] post-commit side effect failed (non-fatal): %s", _post_err)
 
         # Welcome the billing owner with their 14-day trial details.
         try:
@@ -629,7 +643,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             _auth_log.warning("[TeacherSignup] trial-started email enqueue failed: %s", _e)
 
         return {
-            "teacher_id":    teacher["id"],
+            "teacher_id":    str(teacher["id"]),
             "email":         email,
             "full_name":     name,
             "org_id":        str(org_id),

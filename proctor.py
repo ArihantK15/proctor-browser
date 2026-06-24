@@ -747,6 +747,10 @@ HEADLESS          = platform.system() == "Windows" or \
                     os.environ.get("PROCTOR_HEADLESS","0") == "1"
 SKIP_ENROLLMENT   = os.environ.get("PROCTOR_SKIP_ENROLLMENT","0") == "1"
 CALIBRATION_MODE  = os.environ.get("PROCTOR_CALIBRATION_MODE","0") == "1"
+# Handoff/Universal Clipboard kill-switch — on by default on macOS so a student
+# can't Cmd+V an answer copied on a hidden iPhone into the exam editor. Opt out
+# with PROCTOR_DISABLE_HANDOFF=0 (e.g. for proctor devs on their own Mac).
+DISABLE_HANDOFF   = os.environ.get("PROCTOR_DISABLE_HANDOFF","1") == "1"
 
 # Pre-set biases from renderer dot-calibration (skip self-calibration if present).
 # Only read at module level — use local copies inside run_proctoring().
@@ -2282,6 +2286,74 @@ def _detect_vm() -> Optional[str]:
 
 # Deferred to main() so subprocess calls don't block module import
 _vm_name = None
+
+# ─── HANDOFF / UNIVERSAL CLIPBOARD KILL-SWITCH ──────────────────────────────
+# macOS Handoff/Universal Clipboard lets a Cmd+C on one Apple device land as
+# a Cmd+V on another signed-into-the-same-Apple-ID device nearby. A student
+# could copy an answer on a hidden iPhone and paste it straight into the exam
+# editor — no camera-visible action at all. Disabled for the exam, restored
+# on clean exit so the student's Mac is never left altered. macOS only;
+# no-op everywhere else. Defensive by design: must never crash proctoring.
+
+def _disable_handoff() -> None:
+    """Best-effort disable of Handoff/Universal Clipboard for the exam.
+
+    Darwin only. Gated by PROCTOR_DISABLE_HANDOFF (default enabled; set to
+    "0" to opt out). Every step is wrapped so a failure here can never take
+    down proctoring.
+    """
+    if platform.system() != "Darwin":
+        return
+    if not DISABLE_HANDOFF:
+        return
+    try:
+        import subprocess
+        for key in ("ActivityAdvertisingAllowed", "ActivityReceivingAllowed"):
+            try:
+                subprocess.run(
+                    ["defaults", "write", "com.apple.coreservices.useractivityd",
+                     key, "-bool", "false"],
+                    capture_output=True, text=True, timeout=5)
+            except Exception as _exc:
+                print(f"[HANDOFF] Could not disable {key}: {_exc}")
+        try:
+            subprocess.run(["killall", "useractivityd"],
+                            capture_output=True, text=True, timeout=5)
+        except Exception as _exc:
+            print(f"[HANDOFF] Could not restart useractivityd: {_exc}")
+        print("[HANDOFF] Handoff/Universal Clipboard disabled for exam")
+    except Exception as _exc:
+        print(f"[HANDOFF] Disable skipped (non-fatal): {_exc}")
+
+
+def _restore_handoff() -> None:
+    """Best-effort restore of Handoff/Universal Clipboard after the exam.
+
+    Darwin only. Always attempted on clean exit (even if disabling never
+    ran, or PROCTOR_DISABLE_HANDOFF was off) so a machine is never left in
+    an inconsistent state by accident. Every step is wrapped — must never
+    raise during shutdown.
+    """
+    if platform.system() != "Darwin":
+        return
+    try:
+        import subprocess
+        for key in ("ActivityAdvertisingAllowed", "ActivityReceivingAllowed"):
+            try:
+                subprocess.run(
+                    ["defaults", "write", "com.apple.coreservices.useractivityd",
+                     key, "-bool", "true"],
+                    capture_output=True, text=True, timeout=5)
+            except Exception as _exc:
+                print(f"[HANDOFF] Could not restore {key}: {_exc}")
+        try:
+            subprocess.run(["killall", "useractivityd"],
+                            capture_output=True, text=True, timeout=5)
+        except Exception as _exc:
+            print(f"[HANDOFF] Could not restart useractivityd: {_exc}")
+        print("[HANDOFF] Handoff/Universal Clipboard restored")
+    except Exception as _exc:
+        print(f"[HANDOFF] Restore skipped (non-fatal): {_exc}")
 
 # ─── PRE-EXAM SYSTEM CHECK ───────────────────────────────────────────────────
 # Runs before the proctoring loop to verify all subsystems are functional.
@@ -3960,6 +4032,10 @@ def main():
     # detector loads fine the moment the real exam proctor starts. Calibration
     # reports its own readings via CAL:, so it needs no proctor_boot.
     if not CALIBRATION_MODE:
+        # Exam-only: disable Handoff/Universal Clipboard so a student can't
+        # paste in an answer copied on a hidden, signed-in Apple device.
+        # Restored unconditionally in the outer finally below.
+        _disable_handoff()
         try:
             _load_yolo()
         except Exception as _ye:
@@ -4000,6 +4076,11 @@ def main():
                 "detail": "OpenCV could not open a webcam. Close other camera apps and retry."
             }), flush=True)
         print("[PROCTOR] ❌ Cannot open camera!")
+        # Handoff was already disabled above (exam mode) — restore it now
+        # since we're exiting before the main try/finally that would
+        # otherwise handle this. The student's Mac must not be left altered.
+        try: _restore_handoff()
+        except Exception: pass
         sys.exit(1)
 
     # Everything past this point HOLDS the camera. Wrap the whole body in
@@ -4084,6 +4165,12 @@ def main():
         except SystemExit:
             print("\n[PROCTOR] Stopped by SIGTERM")
     finally:
+        # Always attempt to restore Handoff/Universal Clipboard, even if the
+        # exam ended abnormally (SIGINT/SIGTERM/exception) — the student's
+        # Mac must never be left with it disabled. No-op if it was never
+        # disabled (calibration mode, non-Darwin, or opted out).
+        try: _restore_handoff()
+        except Exception: pass
         try: yolo_worker.stop()
         except Exception: pass
         try: cap.release()

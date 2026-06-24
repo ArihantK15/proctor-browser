@@ -45,6 +45,22 @@ defends the exact secret our server-side judge holds. Complements RLS.
 write in the authoring + seed paths; decrypt under `system_context` only at
 compare time in `/coding/judge`. Migration to widen the columns to bytea/text-b64.
 
+**Status: implemented.** `app/services/secrets_crypto.py` provides AES-256-GCM
+envelope encryption (token format `enc:v1:<base64(nonce||ciphertext+tag)>`),
+keyed by the process-only env var `CODING_SECRETS_KEY` (base64, 32 bytes).
+Write paths (`app/routers/admin_coding.py`'s coding-question upsert,
+`scripts/seed_coding_question.py`) encrypt `coding_test_cases.expected_output`
+before insert; read paths (`app/routers/coding.py`'s `/coding/run` and
+`/coding/judge`, `app/repositories/questions.py:load_questions` for MCQ
+`correct`) decrypt transparently. Existing rows written before this feature
+remain readable as legacy plaintext via `decrypt()`'s passthrough — no
+migration is required for correctness. Once `CODING_SECRETS_KEY` is set in
+prod, run the one-off backfill script described in
+`migrations/phase145_encrypt_existing_testcases.sql` to encrypt existing rows
+at rest — not required for grading to keep working, but required for the
+actual security benefit ("a stolen pg_dump can't read answer keys") to apply
+to data written before the key existed.
+
 ### B2. Gated audio + live Vosk transcription telemetry  ⭐ HIGH
 **What:** dashboard audio that is **muted by default**; Silero VAD (already in
 `proctor.py`) flashes a mic indicator on a student's card; Vosk (already present)

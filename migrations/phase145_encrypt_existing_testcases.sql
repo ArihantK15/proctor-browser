@@ -1,0 +1,60 @@
+-- phase145: backfill plan — encrypt existing coding_test_cases.expected_output
+-- (and, if/when extended, questions.correct) at rest.
+--
+-- THIS IS A DOCUMENTATION/TEMPLATE ARTIFACT, NOT A SCHEMA CHANGE. There is no
+-- DDL to run here — every statement below is a SQL comment, so this file is a
+-- harmless no-op if the migration runner (scripts/run_postgres_migrations.py)
+-- ever applies it. Application-level envelope encryption (AES-256-GCM, see
+-- app/services/secrets_crypto.py) cannot be expressed as plain SQL: the key
+-- lives only in the app process env (CODING_SECRETS_KEY), never in Postgres,
+-- so only Python code that has that env var can produce the ciphertext.
+--
+-- Correctness does NOT depend on ever running this backfill: decrypt() in
+-- app/services/secrets_crypto.py transparently passes through legacy
+-- plaintext rows (no "enc:v1:" prefix) unchanged, so the app keeps grading
+-- correctly with a database that is a mix of legacy-plaintext and
+-- newly-encrypted rows for as long as the transition period lasts.
+--
+-- Running the backfill IS recommended for the actual security payoff of this
+-- feature ("a stolen pg_dump or compromised DB role can't read answer keys")
+-- — encrypting existing rows is what makes that true for data written BEFORE
+-- CODING_SECRETS_KEY was configured, not just new rows going forward.
+--
+-- ── One-off backfill script (run manually, AFTER CODING_SECRETS_KEY is set
+--    in production; NOT run by the migration runner) ──────────────────────
+--
+-- Suggested shape (Python, using this app's own DB session helpers and
+-- secrets_crypto so the encryption logic is never duplicated):
+--
+--   import asyncio
+--   from app.database import async_table as _atable
+--   from app.db_context import system_context
+--   from app.services import secrets_crypto
+--
+--   async def backfill_coding_test_cases():
+--       with system_context():
+--           rows = (await _atable("coding_test_cases")
+--                   .select("id,expected_output").execute()).data or []
+--           for row in rows:
+--               current = row.get("expected_output")
+--               if secrets_crypto.is_encrypted(current):
+--                   continue  # already encrypted — idempotent, safe to re-run
+--               encrypted = secrets_crypto.encrypt(current)
+--               await _atable("coding_test_cases").update(
+--                   {"expected_output": encrypted}
+--               ).eq("id", row["id"]).execute()
+--
+--   if __name__ == "__main__":
+--       asyncio.run(backfill_coding_test_cases())
+--
+-- Notes for whoever runs this:
+--   - Idempotent: is_encrypted() skips rows that are already "enc:v1:" tokens,
+--     so re-running the script after a partial failure is safe.
+--   - Run AFTER CODING_SECRETS_KEY is set in the prod environment — encrypt()
+--     is a no-op (passthrough) without a configured key, which would silently
+--     do nothing useful.
+--   - Apply the same pattern to questions.correct (MCQ answer key) if/when
+--     that field is brought into the same backfill — app/repositories/
+--     questions.py:load_questions already decrypts it transparently on read.
+--   - No schema change is required: both columns are already TEXT and an
+--     enc:v1: token is well within existing column widths.

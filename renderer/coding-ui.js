@@ -46,6 +46,14 @@ function _langsFor(q){
   if(typeof langs==='string') langs=[langs];
   return langs.length?langs:['javascript'];
 }
+// starter_code is a {lang: code} map (per-language templates); older questions
+// stored a single string. Resolve the template for one language, handling both.
+function _starterFor(opt, lang){
+  const sc=opt&&opt.starter_code;
+  const key=String(lang||'').toLowerCase();
+  if(sc&&typeof sc==='object') return String(sc[key]||sc[lang]||'');
+  return String(sc||opt.starter||'');
+}
 // ── minimal, safe markdown (escape first, then a few block/inline rules) ──────
 function _mdEscape(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -187,9 +195,10 @@ function _caseCard(n, input, expected, actual, metric, ok){
 function _renderCodingQuestion(container, q){
   _wireCodingBlur(); _injectCodingStyles();
   const qid=q.id, tele=_teleFor(qid), langs=_langsFor(q), opt=q.options||{};
-  const starter=(opt.starter_code||opt.starter||'');
-  const initial = answers[qid]!=null ? String(answers[qid]) : String(starter);
-  if(answers[qid]==null && starter){ answers[qid]=String(starter); }
+  const _firstLang=String(langs[0]||'javascript').toLowerCase();
+  const starter=_starterFor(opt, _firstLang);
+  const initial = answers[qid]!=null ? String(answers[qid]) : starter;
+  if(answers[qid]==null && starter){ answers[qid]=starter; }
 
   // Rendered problem statement (was raw markdown in #qtxt).
   const qtxt=document.getElementById('qtxt');
@@ -201,7 +210,7 @@ function _renderCodingQuestion(container, q){
   const pill=(t)=>{ const s=document.createElement('span'); s.className='cpill'; s.textContent=t; meta.appendChild(s); };
   if(opt.marks!=null) pill(`${opt.marks} mark${opt.marks==1?'':'s'}`);
   if(opt.marks_policy) pill(opt.marks_policy==='all_or_nothing'?'All-or-nothing':'Partial credit');
-  if(opt.time_limit_ms) pill(`${opt.time_limit_ms} ms/test`);
+  if(opt.time_limit_ms) pill(`${+(opt.time_limit_ms/1000).toFixed(1)}s / test`);
   pill(langs.length===1?String(langs[0]):`${langs.length} languages`);
   wrap.appendChild(meta);
 
@@ -237,8 +246,18 @@ function _renderCodingQuestion(container, q){
   btns.appendChild(runBtn); btns.appendChild(subBtn); btns.appendChild(hint); wrap.appendChild(btns);
 
   buildEditor(initial);
-  sel.addEventListener('change',()=>{ buildEditor(editor.getValue()); });
-  resetBtn.addEventListener('click',()=>{ buildEditor(String(starter)); onChange(String(starter)); });
+  sel.dataset.prevLang=_firstLang;
+  sel.addEventListener('change',()=>{
+    const cur=editor.getValue();
+    const prevStarter=_starterFor(opt, sel.dataset.prevLang);
+    // Load the new language's starter only if the student hasn't typed over the
+    // previous one — never clobber their code.
+    const next=(cur.trim()===''||cur===prevStarter)?_starterFor(opt, sel.value):cur;
+    sel.dataset.prevLang=sel.value;
+    buildEditor(next);
+    if(next!==cur) onChange(next);
+  });
+  resetBtn.addEventListener('click',()=>{ const s=_starterFor(opt, sel.value); buildEditor(s); onChange(s); });
 
   const cons=document.createElement('div'); cons.className='cconsole'; cons.style.display='none';
   const consHd=document.createElement('div'); consHd.className='cconsole-hd'; consHd.textContent='Results';

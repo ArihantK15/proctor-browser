@@ -137,7 +137,7 @@ async def coding_run(body: dict, request: Request):
 
     with system_context():
         sample = (await _atable("coding_test_cases")
-                  .select("idx,input,expected_output")
+                  .select("idx,input,expected_output,float_tolerance")
                   .eq("question_id", question_id).eq("visibility", "sample")
                   .order("idx").execute()).data or []
 
@@ -162,7 +162,14 @@ async def coding_run(body: dict, request: Request):
             ok = False
             err = None
         else:
-            ok = normalize_output(result.stdout) == normalize_output(expected)
+            # Honor float_tolerance on sample cases too, so Run grades a float
+            # answer the same way /judge will (otherwise Run shows a false
+            # "Wrong Answer" the hidden judge would Accept).
+            tol = row.get("float_tolerance")
+            if tol is not None:
+                ok = _float_match(result.stdout, expected, float(tol))
+            else:
+                ok = normalize_output(result.stdout) == normalize_output(expected)
             status = "passed" if ok else "failed"
             err = result.stderr or None
         if ok:

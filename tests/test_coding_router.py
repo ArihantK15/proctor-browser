@@ -217,6 +217,26 @@ class TestRun:
         assert body["passed"] == 0 and body["total"] == 1
         assert body["cases"][0]["status"] == "failed"
 
+    def test_run_float_tolerance_used_for_comparison(self, client):
+        """A SAMPLE case with float_tolerance must be graded with tolerance on
+        Run too (matching /judge) — otherwise a float answer shows a false
+        "Wrong Answer" on Run that Submit would Accept."""
+        rec = {}
+        table_data = {
+            **_NO_QUESTION_OPTIONS,
+            "coding_test_cases": [
+                {"idx": 0, "input": "", "expected_output": "0.30000000004", "float_tolerance": 1e-6},
+            ],
+        }
+        mock_run = MagicMock(return_value=_exec_result(stdout="0.3"))
+        patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            resp = client.post("/api/v1/coding/run", json=_run_body(), headers=_hdr())
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["passed"] == 1 and body["total"] == 1
+        assert body["cases"][0]["status"] == "passed"
+
     def test_run_no_sample_cases_returns_zero_total(self, client):
         rec = {}
         table_data = {**_NO_QUESTION_OPTIONS, "coding_test_cases": []}

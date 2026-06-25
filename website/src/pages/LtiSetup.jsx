@@ -114,7 +114,7 @@ export default function LtiSetup() {
       {/* Hero */}
       <section className="pt-36 pb-16 md:pt-44 md:pb-20">
         <motion.div className="mx-auto max-w-3xl px-6 text-center" variants={childVar} {...inViewProps}>
-          <span className="label-mono text-accent">LMS Integration</span>
+          <span className="label-mono text-accent">LMS Integration · <span className="text-amber-400">Beta</span></span>
           <h1 className="mt-3 font-display text-4xl font-bold text-white md:text-5xl">
             Connect Procta with your LMS
           </h1>

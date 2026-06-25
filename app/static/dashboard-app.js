@@ -5357,8 +5357,28 @@ function qBuildImageUrl(u){
 // ── CODING QUESTION AUTHORING FORM ───────────────────────────────
 let _editingCodingId = null;   // question_id string when editing existing
 
+// Auto-grow: textareas in the coding modal track their content height instead of
+// a manual resize handle. A delegated input listener handles typing; explicit
+// calls size programmatically-set content (edit-load, starter swap, new cards).
+function _autoGrow(ta){
+  if(!ta) return;
+  ta.style.height = 'auto';
+  ta.style.height = Math.max(ta.scrollHeight, 32) + 'px';
+}
+function _codingSizeTextareas(){
+  document.querySelectorAll('#coding-form-overlay textarea').forEach(_autoGrow);
+}
+let _codingAutogrowWired = false;
+function _wireCodingAutogrow(){
+  if(_codingAutogrowWired) return; _codingAutogrowWired = true;
+  document.getElementById('coding-form-overlay').addEventListener('input', (e)=>{
+    if(e.target && e.target.tagName === 'TEXTAREA') _autoGrow(e.target);
+  });
+}
+
 function showCodingForm(questionId){
   if(!currentExamId){ showModal('Select an exam first.'); return; }
+  _wireCodingAutogrow();
   _editingCodingId = questionId ? String(questionId) : null;
   _codingResetForm();
   document.getElementById('coding-ai-banner-area').innerHTML = '';
@@ -5372,6 +5392,7 @@ function showCodingForm(questionId){
     codingAddTestCase();
   }
   document.getElementById('coding-form-overlay').style.display = 'flex';
+  requestAnimationFrame(_codingSizeTextareas);   // size once visible (scrollHeight needs layout)
 }
 
 function hideCodingForm(){
@@ -5456,6 +5477,7 @@ function _loadStarterForActive(){
     _codingStarter[_codingStarterLang] = _STARTER_DEFAULTS[_codingStarterLang] || '';
   }
   ta.value = _codingStarter[_codingStarterLang];
+  _autoGrow(ta);
 }
 
 function codingStarterTab(lang){
@@ -5567,6 +5589,7 @@ function _codingPopulateForm(data){
     document.getElementById('coding-ref-solution-code').textContent = data.reference_solution;
     document.getElementById('coding-ref-solution-area').style.display = '';
   }
+  requestAnimationFrame(_codingSizeTextareas);   // size loaded content to fit
 }
 
 function codingRenderTestCases(cases){

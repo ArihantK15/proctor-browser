@@ -183,7 +183,9 @@
     font-size:13px;font-family:inherit;box-sizing:border-box}
   .coding-form textarea:focus,.coding-form input:focus,.coding-form select:focus{
     outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--input-focus-ring)}
-  .coding-form textarea{resize:vertical;min-height:60px}
+  /* Auto-growing textareas: no manual resize handle; height tracks content (JS
+     _autoGrow). overflow:hidden hides the scrollbar while growing. */
+  .coding-form textarea{resize:none;overflow:hidden;min-height:60px}
   .coding-form .field-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
   .coding-form .field-row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .lang-chips{display:flex;gap:8px;flex-wrap:wrap}
@@ -204,7 +206,7 @@
                   letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:3px}
   .tc-card textarea{width:100%;background:var(--bg-base);border:1px solid var(--border-subtle);
     border-radius:4px;padding:6px 8px;color:var(--text-high);font-size:12px;
-    font-family:var(--font-mono);box-sizing:border-box;resize:vertical;min-height:32px}
+    font-family:var(--font-mono);box-sizing:border-box;resize:none;overflow:hidden;min-height:32px}
   .tc-card textarea:focus,.tc-card select:focus,.tc-card input:focus{outline:none;border-color:var(--accent)}
   .tc-card select,.tc-card .tc-float-tol{background:var(--bg-base);border:1px solid var(--border-subtle);
     border-radius:4px;padding:4px 8px;color:var(--text-high);font-size:11px;font-family:inherit;cursor:pointer}
@@ -2451,7 +2453,7 @@
       <div>
         <label for="coding-starter-code">Starter Code <span class="coding-hint">per language — what the student sees pre-filled in the editor</span></label>
         <div class="starter-lang-tabs" id="coding-starter-tabs"></div>
-        <textarea id="coding-starter-code" rows="6" placeholder="Pick a language tab above. Leave blank for an empty editor." style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
+        <textarea id="coding-starter-code" rows="6" placeholder="Pick a language tab above. Leave blank for an empty editor." style="font-family:var(--font-mono);font-size:12px;resize:none;overflow:hidden"></textarea>
       </div>
 
       <div>

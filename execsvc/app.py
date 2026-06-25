@@ -59,6 +59,38 @@ _box_ids: "asyncio.Queue[int]" = asyncio.Queue()
 for _i in range(POOL_SIZE):
     _box_ids.put_nowait(_i)
 
+# ── Sentry (optional, ops-only — gated on EXEC_SENTRY_DSN / SENTRY_DSN) ──
+# execsvc runs on a separate host and was the one service with no error
+# tracking: isolate failures, box-pool exhaustion, and subprocess crashes
+# were invisible. Capture those — but execsvc receives the student's source
+# + stdin in every /run body, so we must NEVER ship request bodies or
+# stack-frame locals (they'd leak submissions to a third party). A dedicated
+# EXEC_SENTRY_DSN keeps these ops events out of the app's PII-bearing project.
+_EXEC_SENTRY_DSN = os.environ.get("EXEC_SENTRY_DSN") or os.environ.get("SENTRY_DSN", "")
+if _EXEC_SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
+
+        sentry_sdk.init(
+            dsn=_EXEC_SENTRY_DSN,
+            send_default_pii=False,
+            # `source`/`stdin` live both in handler locals and the request
+            # body — each carries the student's submission. Capture neither.
+            include_local_variables=False,
+            max_request_body_size="never",
+            traces_sample_rate=float(os.environ.get("EXEC_SENTRY_TRACES_SAMPLE_RATE", "0.0")),
+            environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+            release=os.environ.get("GIT_SHA") or os.environ.get("EXEC_VERSION") or None,
+            integrations=[StarletteIntegration(), FastApiIntegration()],
+        )
+        _log.info("[sentry] execsvc error tracking initialized (body + locals OFF)")
+    except ImportError:
+        _log.warning("[sentry] sentry-sdk not installed — execsvc errors not tracked")
+    except Exception as e:  # never let observability setup break the service
+        _log.warning("[sentry] execsvc init failed: %s", e)
+
 app = FastAPI(title="execsvc")
 
 

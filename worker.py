@@ -19,18 +19,26 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# ── optional Sentry init (mirrors app/main.py pattern) ──────────────
+# ── optional Sentry init — SAME PII scrubber as the API ─────────────
+# The worker processes scoring/autosave/email jobs whose ARGUMENTS carry
+# student answers, roll numbers and recipient emails/names. A bare init (no
+# scrubber, frame locals ON) would ship all of that to Sentry on any job
+# failure — so we reuse app.observability, exactly as app/main.py does.
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:
     try:
         import sentry_sdk
+        from app.observability import scrub_sentry_event, SAFE_SENTRY_KWARGS
         sentry_sdk.init(
             dsn=SENTRY_DSN,
+            **SAFE_SENTRY_KWARGS,   # PII off, frame locals off, small body window
             traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.environ.get("SENTRY_PROFILES_SAMPLE_RATE", "0.0")),
             environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+            release=(os.environ.get("GIT_SHA") or os.environ.get("APP_VERSION") or None),
+            before_send=scrub_sentry_event,
         )
-        print("[worker] Sentry initialized", flush=True)
+        print("[worker] Sentry initialized (PII scrubber active)", flush=True)
     except Exception as e:
         print(f"[worker] Sentry init failed: {e}", flush=True)
 
@@ -98,7 +106,13 @@ def _job_failure(job: Job, *exc_info):
             import sentry_sdk
             with sentry_sdk.push_scope() as scope:
                 scope.set_tag("job", job.func_name)
-                scope.set_extra("job_args", job.args)
+                # NEVER ship raw job.args — they are positional values that for
+                # email/scorecard/guardian jobs are recipient emails + names and
+                # for scoring/autosave are student answers. The func name (tag)
+                # + job id are enough to triage which job failed; the redacting
+                # before_send can't help positional bare strings.
+                scope.set_extra("job_id", getattr(job, "id", None))
+                scope.set_extra("job_arg_count", len(job.args or ()))
                 sentry_sdk.capture_exception(value)
         except Exception:
             pass

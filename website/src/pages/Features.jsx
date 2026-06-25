@@ -28,6 +28,7 @@ const featureGroups = [
       'Generate questions from a topic, or straight from your notes (PDF, Word, or PowerPoint) — every question is reviewed before it is saved',
       'Numeric and integer answers with a tolerance range for numerical-value questions, plus MCQ, multi-select, true/false, and AI-graded short answer',
       'AI question lint, auto-generated rubrics, and tag suggestions to speed up authoring',
+      'Coding/programming questions auto-graded in 6 languages (Python, JS, TS, C, C++, Java) — students write code in a HackerRank-style editor and submissions run server-side in a sandbox against sample and hidden test cases',
     ]
   },
   {

@@ -24,6 +24,7 @@ const plans = [
     features: [
       'Up to 30 students',
       'AI proctoring (face, gaze, object detection)',
+      'MCQ, numeric, short-answer & auto-graded coding questions',
       'Real-time risk scoring (0-100)',
       'Auto-save & offline resilience',
       'PDF scorecards per student',

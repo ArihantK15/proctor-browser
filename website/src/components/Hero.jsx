@@ -156,7 +156,7 @@ export default function Hero() {
                   { label: 'Load-Tested Concurrent', value: '1.5k', color: 'text-emerald' },
                   { label: 'Live Cache Cap', value: '6.5k', color: 'text-accent-light' },
                   { label: 'AI Grades', value: '~3s', color: 'text-amber' },
-                  { label: 'Tests Passing', value: '890+', color: 'text-slate-300' },
+                  { label: 'Tests Passing', value: '1,800+', color: 'text-slate-300' },
                 ].map(s => (
                   <div key={s.label} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 card-topline">
                     <div className={`font-display text-2xl font-bold ${s.color}`}><CountUp value={s.value} /></div>

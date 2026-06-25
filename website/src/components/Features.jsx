@@ -1,5 +1,5 @@
 import {
-  Lock, MonitorOff, Save, Eye, ScanFace, Box, Volume2,
+  Lock, MonitorOff, Save, Eye, ScanFace, Box, Code2, Volume2,
   BarChart3, FileText, Activity, Sliders, Download, Users,
   Smartphone, MessageSquare, GraduationCap, ReceiptIndianRupee,
   BadgeCheck, ServerCog, UploadCloud, Layers3,
@@ -36,6 +36,7 @@ const groups = [
       { icon: Sparkles, name: 'AI Question Generation', desc: 'Generate questions from a topic, or straight from your notes (PDF, Word, PowerPoint). Every question is reviewed before it is saved — nothing auto-publishes' },
       { icon: Calculator, name: 'Numeric & Integer Answers', desc: 'JEE-style numeric questions with a tolerance range, alongside MCQ, multi-select, true/false, and AI-graded short answer' },
       { icon: ListChecks, name: 'AI Lint & Rubrics', desc: 'One-click question quality checks, auto-generated grading rubrics, and tag suggestions' },
+      { icon: Code2, name: 'Coding Exams', desc: 'Auto-graded programming questions in 6 languages (Python, JS, TS, C, C++, Java) — students code in a HackerRank-style editor; submissions run server-side in a sandbox against sample and hidden tests' },
     ]
   },
   {

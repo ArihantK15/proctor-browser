@@ -61,50 +61,6 @@ def _patches(rows, rec):
     )
 
 
-# ── Atomic write path (F): fake asyncpg pool that records executed SQL ───────
-# The write path now persists via a single asyncpg transaction
-# (_persist_coding_question_atomic), not _atable inserts, so these fakes capture
-# the SQL + bound args for assertion. Validation/ownership tests 400/404 before
-# the pool is touched, so they keep using the _atable mocks unchanged.
-class _ACtx:
-    def __init__(self, val): self._val = val
-    async def __aenter__(self): return self._val
-    async def __aexit__(self, *a): return False
-
-
-class _RecConn:
-    def __init__(self, sink): self._sink = sink
-    async def execute(self, sql, *args): self._sink.append((sql, args))
-    def transaction(self): return _ACtx(None)
-
-
-class _RecPool:
-    def __init__(self, sink): self._sink = sink
-    def acquire(self): return _ACtx(_RecConn(self._sink))
-
-
-def _pool_patches(sink):
-    async def _get_pool(): return _RecPool(sink)
-    async def _apply(conn): return None
-    return (
-        patch("app.routers.admin_coding.get_pool", side_effect=_get_pool),
-        patch("app.routers.admin_coding.apply_request_context", side_effect=_apply),
-    )
-
-
-def _sql_with(sink, needle):
-    return [(s, a) for (s, a) in sink if needle in s]
-
-
-class _BoomConn:
-    async def execute(self, *a): raise RuntimeError("db down")
-    def transaction(self): return _ACtx(None)
-
-
-class _BoomPool:
-    def acquire(self): return _ACtx(_BoomConn())
-
-
 _GOOD = {
     "exam_id": "exam-1",
     "question": "# Sum\nPrint a+b",
@@ -120,27 +76,23 @@ _GOOD = {
 
 class TestCreateCodingQuestion:
     def test_happy_path_creates_question_and_cases(self, client):
-        rec = {}; sink = []
-        ps = _patches({}, rec); pp = _pool_patches(sink)
-        with ps[0], ps[1], ps[2], ps[3], pp[0], pp[1]:
+        rec = {}
+        ps = _patches({}, rec)
+        with ps[0], ps[1], ps[2], ps[3]:
             r = client.post("/api/v1/admin/coding-question", json=_GOOD, headers=_hdr())
         assert r.status_code == 200, r.text
         b = r.json()
         assert b["question_id"].startswith("coding-")
         assert b["test_cases"] == 2 and b["hidden"] == 1 and b["sample"] == 1
         assert b["replaced"] is False
-        # questions row keyed on the minted label; options stored as a JSON string.
-        # INSERT args: (tid, exam_id, question_id, statement, options_json)
-        qins = _sql_with(sink, "INSERT INTO questions")
-        assert len(qins) == 1
-        qargs = qins[0][1]
-        assert qargs[2] == b["question_id"]
-        opts = json.loads(qargs[4])
+        # questions row keyed on the minted label; options stored as JSON string
+        qrow = rec["questions"][0]
+        assert qrow["question_type"] == "coding"
+        assert qrow["question_id"] == b["question_id"]
+        opts = json.loads(qrow["options"])
         assert opts["marks"] == 10 and opts["allowed_languages"] == ["javascript", "python"]
-        # coding_test_cases keyed on the SAME label (insert arg 0 = question_id)
-        tcins = _sql_with(sink, "INSERT INTO coding_test_cases")
-        assert len(tcins) == 2
-        assert all(a[0] == b["question_id"] for (_s, a) in tcins)
+        # coding_test_cases keyed on the SAME label
+        assert all(c["question_id"] == b["question_id"] for c in rec["coding_test_cases"])
 
     def test_missing_exam_id(self, client):
         rec = {}; ps = _patches({}, rec)
@@ -184,49 +136,30 @@ class TestCreateCodingQuestion:
         proves the write path actually encrypts."""
         monkeypatch.setenv("CODING_SECRETS_KEY", _TEST_SECRETS_KEY)
         secrets_crypto.reset_key_cache()
-        rec = {}; sink = []
-        ps = _patches({}, rec); pp = _pool_patches(sink)
-        with ps[0], ps[1], ps[2], ps[3], pp[0], pp[1]:
+        rec = {}
+        ps = _patches({}, rec)
+        with ps[0], ps[1], ps[2], ps[3]:
             r = client.post("/api/v1/admin/coding-question", json=_GOOD, headers=_hdr())
         assert r.status_code == 200, r.text
-        # coding_test_cases INSERT args: (qid, tid, idx, input, expected_output, vis, ftol)
-        tcins = _sql_with(sink, "INSERT INTO coding_test_cases")
-        assert len(tcins) == 2
-        for (_s, a), original in zip(tcins, _GOOD["test_cases"]):
-            stored = a[4]
-            assert secrets_crypto.is_encrypted(stored) is True
-            assert stored != original["expected_output"]
-            assert secrets_crypto.decrypt(stored) == original["expected_output"]
+        stored_cases = rec["coding_test_cases"]
+        assert len(stored_cases) == 2
+        for stored, original in zip(stored_cases, _GOOD["test_cases"]):
+            assert secrets_crypto.is_encrypted(stored["expected_output"]) is True
+            assert stored["expected_output"] != original["expected_output"]
+            assert secrets_crypto.decrypt(stored["expected_output"]) == original["expected_output"]
 
     def test_expected_output_not_encrypted_without_key(self, client):
         """No CODING_SECRETS_KEY configured (dev/CI posture) — write path is a
         no-op and stores plaintext, matching legacy behaviour."""
-        rec = {}; sink = []
-        ps = _patches({}, rec); pp = _pool_patches(sink)
-        with ps[0], ps[1], ps[2], ps[3], pp[0], pp[1]:
-            r = client.post("/api/v1/admin/coding-question", json=_GOOD, headers=_hdr())
-        assert r.status_code == 200, r.text
-        tcins = _sql_with(sink, "INSERT INTO coding_test_cases")
-        for (_s, a), original in zip(tcins, _GOOD["test_cases"]):
-            stored = a[4]
-            assert secrets_crypto.is_encrypted(stored) is False
-            assert stored == original["expected_output"]
-
-    def test_write_failure_returns_500(self, client):
-        """A DB error during the atomic write surfaces as 500. (True rollback —
-        no partial test cases left behind — is the atomicity guarantee of the
-        single transaction; it's verified against a real Postgres in the
-        integration suite, not this mocked unit.)"""
         rec = {}
         ps = _patches({}, rec)
-        async def _get_pool(): return _BoomPool()
-        async def _apply(conn): return None
-        with ps[0], ps[1], ps[2], ps[3], \
-             patch("app.routers.admin_coding.get_pool", side_effect=_get_pool), \
-             patch("app.routers.admin_coding.apply_request_context", side_effect=_apply):
+        with ps[0], ps[1], ps[2], ps[3]:
             r = client.post("/api/v1/admin/coding-question", json=_GOOD, headers=_hdr())
-        assert r.status_code == 500
-        assert "save coding question" in r.json()["detail"].lower()
+        assert r.status_code == 200, r.text
+        stored_cases = rec["coding_test_cases"]
+        for stored, original in zip(stored_cases, _GOOD["test_cases"]):
+            assert secrets_crypto.is_encrypted(stored["expected_output"]) is False
+            assert stored["expected_output"] == original["expected_output"]
 
 
 class TestGetCodingQuestion:

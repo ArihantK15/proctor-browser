@@ -5695,12 +5695,13 @@ function editCodingQuestion(questionId){
 // ════════════════════════════════════════════════════════════════════
 const _CWIZ_TITLES = ['Problem','Languages','Examples','Hidden tests','Review'];
 const _CWIZ_LANGS = [['javascript','JavaScript'],['typescript','TypeScript'],['python','Python'],['c','C'],['cpp','C++'],['java','Java']];
-let _cwiz = null, _cwizAutogrowWired = false;
+let _cwiz = null, _cwizAutogrowWired = false, _cwizBusy = false;
 
 function _cwizReset(){
   _cwiz = { step:0, statement:'', langs:['python'],
             samples:[{input:'',expected:''}], hidden:[{input:'',expected:''}],
             marks:10, timeSec:5, policy:'partial' };
+  _cwizBusy = false;
 }
 function showCodingWizard(){
   if(!currentExamId){ showModal('Select an exam first.'); return; }
@@ -5764,6 +5765,9 @@ function _cwizRender(){
   document.getElementById('cwiz-body').innerHTML = _cwizStepHtml(_cwiz.step);
   document.getElementById('cwiz-back').style.visibility = _cwiz.step===0 ? 'hidden' : 'visible';
   document.getElementById('cwiz-next').textContent = _cwiz.step===_CWIZ_TITLES.length-1 ? 'Create question' : 'Next →';
+  // Re-enable nav on every render (clears any disabled state left by a prior create).
+  document.getElementById('cwiz-next').disabled = false;
+  document.getElementById('cwiz-back').disabled = false;
   document.getElementById('cwiz-msg').textContent = '';
   requestAnimationFrame(()=>document.querySelectorAll('#coding-wizard-overlay textarea').forEach(_autoGrow));
 }
@@ -5798,6 +5802,7 @@ function cwizAddCase(kind){ _cwizSaveStep(); (kind==='sample'?_cwiz.samples:_cwi
 function cwizRemoveCase(kind, i){ _cwizSaveStep(); const arr=(kind==='sample'?_cwiz.samples:_cwiz.hidden); arr.splice(i,1); if(!arr.length) arr.push({input:'',expected:''}); _cwizRender(); }
 
 async function _cwizFinish(){
+  if(_cwizBusy) return;                 // guard: a create is already in flight
   _cwizSaveStep();
   const mk=(arr,vis)=>arr.filter(c=>c.expected.trim()).map(c=>({input:c.input, expected_output:c.expected, visibility:vis}));
   const test_cases=[...mk(_cwiz.samples,'sample'), ...mk(_cwiz.hidden,'hidden')];
@@ -5814,14 +5819,21 @@ async function _cwizFinish(){
     options:{ allowed_languages:_cwiz.langs, marks:_cwiz.marks, marks_policy:_cwiz.policy,
               time_limit_ms: Math.round(_cwiz.timeSec*1000), starter_code },
     test_cases };
+  // Lock the wizard while the POST is in flight so a double-click (or a click during
+  // the 800ms success delay) can't create a duplicate question.
+  _cwizBusy=true;
+  const nextBtn=document.getElementById('cwiz-next'), backBtn=document.getElementById('cwiz-back');
+  if(nextBtn) nextBtn.disabled=true;
+  if(backBtn) backBtn.disabled=true;
+  const _unlock=()=>{ _cwizBusy=false; if(nextBtn) nextBtn.disabled=false; if(backBtn) backBtn.disabled=false; };
   msg.innerHTML='<span class="spinner"></span> Creating…';
   try{
     const r=await authFetch(`${BASE}/api/v1/admin/coding-question`, {method:'POST', body:JSON.stringify(payload)});
     const d=await r.json();
-    if(!r.ok){ msg.innerHTML=`<span style="color:var(--red)">${_escHtml(_detailText(d,'Create failed'))}</span>`; return; }
+    if(!r.ok){ msg.innerHTML=`<span style="color:var(--red)">${_escHtml(_detailText(d,'Create failed'))}</span>`; _unlock(); return; }
     msg.innerHTML=`<span style="color:var(--emerald)">Created! ${d.hidden} hidden / ${d.sample} sample.</span>`;
-    setTimeout(()=>{ hideCodingWizard(); loadQuestions(); }, 800);
-  }catch(e){ msg.innerHTML=`<span style="color:var(--red)">Create failed: ${_escHtml(e.message)}</span>`; }
+    setTimeout(()=>{ hideCodingWizard(); loadQuestions(); }, 800);  // stays locked; wizard closes
+  }catch(e){ msg.innerHTML=`<span style="color:var(--red)">Create failed: ${_escHtml(e.message)}</span>`; _unlock(); }
 }
 
 // ── Coding AI Generation ─────────────────────────────────────────

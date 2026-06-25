@@ -230,11 +230,6 @@ function _renderCodingQuestion(container, q){
     if(editor && editor.destroy) editor.destroy();
     edHolder.innerHTML='';
     editor=_mountCodeEditor(edHolder, doc, sel.value, onChange);
-    edHolder.addEventListener('keydown',(e)=>{
-      const now=performance.now(); if(tele.lastKey) tele.kIntervals.push(now-tele.lastKey); tele.lastKey=now;
-      if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); runBtn.click(); }
-    });
-    edHolder.addEventListener('paste',()=>{ tele.paste++; });
   }
 
   const btns=document.createElement('div'); btns.className='cbtns';
@@ -246,6 +241,15 @@ function _renderCodingQuestion(container, q){
   btns.appendChild(runBtn); btns.appendChild(subBtn); btns.appendChild(hint); wrap.appendChild(btns);
 
   buildEditor(initial);
+  // Telemetry + Ctrl/Cmd+Enter-to-Run: attach ONCE to the persistent holder. The
+  // editor children rebuild on each language switch / Reset, but edHolder itself
+  // does not — attaching inside buildEditor would stack a fresh listener per
+  // rebuild, inflating paste counts and multi-firing Run.
+  edHolder.addEventListener('keydown',(e)=>{
+    const now=performance.now(); if(tele.lastKey) tele.kIntervals.push(now-tele.lastKey); tele.lastKey=now;
+    if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); runBtn.click(); }
+  });
+  edHolder.addEventListener('paste',()=>{ tele.paste++; });
   sel.dataset.prevLang=_firstLang;
   sel.addEventListener('change',()=>{
     const cur=editor.getValue();

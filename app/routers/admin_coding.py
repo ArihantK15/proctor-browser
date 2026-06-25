@@ -74,7 +74,11 @@ def _clean_options(raw: dict) -> dict:
     if raw_starter is None:
         raw_starter = opts.get("starter") or ""
     if isinstance(raw_starter, dict):
-        starter = {l: str(raw_starter[l])[:20000] for l in langs if raw_starter.get(l)}
+        # Keep a language's template when it's PRESENT, even if it's "" — a teacher
+        # may intentionally clear a starter. `.get(l) is not None` keeps "" but drops
+        # missing/None entries (truthiness would wrongly drop the empty string).
+        starter = {l: str(raw_starter[l])[:20000] for l in langs
+                   if raw_starter.get(l) is not None}
     elif isinstance(raw_starter, str):
         starter = raw_starter[:20000]
     else:

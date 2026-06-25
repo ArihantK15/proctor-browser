@@ -55,6 +55,24 @@ def test_unknown_language_still_rejected():
     assert ei.value.status_code == 400
 
 
+def test_blank_starter_template_is_preserved():
+    """A teacher may intentionally clear a language's starter to "" — keep it.
+    (Truthiness on the value would wrongly drop the empty string.)"""
+    out = _clean_options({
+        "allowed_languages": ["python", "javascript"],
+        "starter_code": {"python": "", "javascript": "console.log(1)"},
+    })
+    assert out["starter_code"] == {"python": "", "javascript": "console.log(1)"}
+
+
+def test_missing_starter_language_is_dropped():
+    out = _clean_options({
+        "allowed_languages": ["python", "javascript"],
+        "starter_code": {"python": "print(1)"},   # javascript intentionally absent
+    })
+    assert out["starter_code"] == {"python": "print(1)"}
+
+
 def test_valid_cases_pass_through():
     out = _clean_cases([
         {"visibility": "hidden", "expected_output": "42", "input": "1 2"},

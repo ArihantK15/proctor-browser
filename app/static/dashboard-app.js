@@ -5493,7 +5493,7 @@ function _tcCardHtml(idx, c){
   c = c || {};
   const hiddenSel = (c.visibility === 'hidden' || !c.visibility) ? ' selected' : '';
   const sampleSel = c.visibility === 'sample' ? ' selected' : '';
-  const ft = c.float_tolerance != null ? _escAttr(String(c.float_tolerance)) : '';
+  const ft = c.float_tolerance != null ? escAttr(String(c.float_tolerance)) : '';
   return `<div class="tc-card-head">
       <span class="tc-num">Test ${idx+1}</span>
       <select class="tc-visibility" data-change-action="_updateTcHint">

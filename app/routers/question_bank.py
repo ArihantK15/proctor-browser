@@ -821,7 +821,12 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
             raise HTTPException(status_code=404, detail="No matching bank questions found")
 
         existing = await _load_questions(teacher_id=tid, exam_id=exam_id)
-        max_id = max((int(q.get("question_id", q.get("id", 0))) for q in existing), default=0)
+        # question_id is TEXT (phase146); existing rows may include
+        # non-numeric coding labels (coding-<uuid>) that int() would choke
+        # on — count only numeric MCQ ordinals when picking the next id.
+        numeric_ids = [int(s) for q in existing
+                       if (s := str(q.get("question_id", q.get("id", 0)) or "")).isdigit()]
+        max_id = max(numeric_ids, default=0)
 
         new_rows = []
         bad = []
@@ -848,7 +853,7 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
             new_rows.append({
                 "teacher_id": tid,
                 "exam_id": exam_id,
-                "question_id": i,
+                "question_id": str(i),   # TEXT column (phase146)
                 "question": q_text,
                 "question_type": bq.get("question_type", "mcq_single"),
                 "options": opts_for_insert,
@@ -1025,7 +1030,10 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
                     detail=f"Question {i+1}: max_score must be greater than 0"
                 )
             normalised.append({
-                "question_id":      q["id"],
+                # str(): questions.question_id is TEXT (phase146). The client
+                # sends id as a JSON number → asyncpg rejects an int bind for
+                # a text column (was int↔int pre-phase146).
+                "question_id":      str(q["id"]),
                 "question":         q["question"],
                 # `questions.options` is a TEXT column on the legacy
                 # schema; asyncpg won't bind a Python dict there. Serialize
@@ -1059,7 +1067,7 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
             if lo > hi:                    # tolerate bounds entered in reverse
                 lo_s, hi_s = hi_s, lo_s
             normalised.append({
-                "question_id":   q["id"],
+                "question_id":   str(q["id"]),   # TEXT column (phase146)
                 "question":      q["question"],
                 "options":       "{}",
                 "correct":       f"range:{lo_s}:{hi_s}",
@@ -1110,7 +1118,7 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
             )
 
         normalised.append({
-            "question_id":   q["id"],
+            "question_id":   str(q["id"]),   # TEXT column (phase146)
             "question":      q["question"],
             # `questions.options` is TEXT on the legacy schema (jsonb only
             # for question_bank). asyncpg rejects a dict for a text param
@@ -1175,10 +1183,20 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
         # the new set — addressed by primary key from the backup snapshot.
         # The previous filter (teacher_id + exam_id alone) matched the rows
         # just written too and would have wiped the exam.
+        #
+        # Coding questions are authored through a SEPARATE endpoint
+        # (admin_coding) and the dashboard keeps them out of this MCQ payload
+        # (loaded into _codingQuestions, not qData). They are therefore never
+        # in `normalised`, so without this guard every coding question in the
+        # exam would look "stale" and get deleted on the next MCQ save. Never
+        # let this endpoint touch coding rows.
+        def _is_coding(r) -> bool:
+            return (r.get("question_type") or "").lower() == "coding"
         if exam_id:
             new_qids = {str(r["question_id"]) for r in normalised}
             stale_ids = [r["id"] for r in backup_rows
                          if r.get("id") is not None
+                         and not _is_coding(r)
                          and str(r.get("question_id")) not in new_qids]
         else:
             # Legacy single-exam mode: rows have NULL exam_id, which never
@@ -1186,7 +1204,8 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
             # target (NULLs are distinct), so the upsert inserted fresh
             # rows rather than updating in place — every backup row is
             # stale and must go, or the exam doubles its questions.
-            stale_ids = [r["id"] for r in backup_rows if r.get("id") is not None]
+            stale_ids = [r["id"] for r in backup_rows
+                         if r.get("id") is not None and not _is_coding(r)]
         if stale_ids:
             del_q = _atable("questions").delete().in_("id", stale_ids)
             if tid:

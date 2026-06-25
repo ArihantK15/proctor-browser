@@ -1,0 +1,23 @@
+-- migration:contract widen questions.question_id from integer to text so coding questions can use string labels (coding-<uuid>) that do not collide with the MCQ integer ordinal space; aligns with answers.question_id and coding_test_cases.question_id (already text); reverse in migrations/down/phase146_questions_question_id_text.sql
+-- =====================================================================
+-- phase146: questions.question_id  integer → text
+-- =====================================================================
+-- WHY: coding-question authoring mints a unique string label
+-- (`coding-<uuid12>`) and the whole coding chain keys on it, but
+-- public.questions.question_id was `integer NOT NULL`. The prod asyncpg
+-- backend will not coerce str→int, so EVERY coding-question write (and the
+-- authoring editor's GET) 500'd — Sentry PYTHON-1J / 1K / 1M / 1N / 1P.
+-- (Tests passed because the mock/REST test backend coerces types; this is
+-- the same class as the June signup outage.)
+--
+-- MCQ ordinals (1..N) convert cleanly to their text form. Question order is
+-- preserved at the application layer: load_questions natural-sorts
+-- question_id numerically (coding labels last), so this is order-neutral
+-- for every existing exam.
+--
+-- SAFE: `USING question_id::text` is a lossless widening; the
+-- (teacher_id, exam_id, question_id) UNIQUE index is rebuilt automatically
+-- by ALTER COLUMN … TYPE; no FK references this column (the answers/coding
+-- tables couple loosely via the app and both already store text).
+ALTER TABLE public.questions
+    ALTER COLUMN question_id TYPE text USING question_id::text;

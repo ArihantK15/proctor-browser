@@ -5357,8 +5357,28 @@ function qBuildImageUrl(u){
 // ── CODING QUESTION AUTHORING FORM ───────────────────────────────
 let _editingCodingId = null;   // question_id string when editing existing
 
+// Auto-grow: textareas in the coding modal track their content height instead of
+// a manual resize handle. A delegated input listener handles typing; explicit
+// calls size programmatically-set content (edit-load, starter swap, new cards).
+function _autoGrow(ta){
+  if(!ta) return;
+  ta.style.height = 'auto';
+  ta.style.height = Math.max(ta.scrollHeight, 32) + 'px';
+}
+function _codingSizeTextareas(){
+  document.querySelectorAll('#coding-form-overlay textarea').forEach(_autoGrow);
+}
+let _codingAutogrowWired = false;
+function _wireCodingAutogrow(){
+  if(_codingAutogrowWired) return; _codingAutogrowWired = true;
+  document.getElementById('coding-form-overlay').addEventListener('input', (e)=>{
+    if(e.target && e.target.tagName === 'TEXTAREA') _autoGrow(e.target);
+  });
+}
+
 function showCodingForm(questionId){
   if(!currentExamId){ showModal('Select an exam first.'); return; }
+  _wireCodingAutogrow();
   _editingCodingId = questionId ? String(questionId) : null;
   _codingResetForm();
   document.getElementById('coding-ai-banner-area').innerHTML = '';
@@ -5372,6 +5392,7 @@ function showCodingForm(questionId){
     codingAddTestCase();
   }
   document.getElementById('coding-form-overlay').style.display = 'flex';
+  requestAnimationFrame(_codingSizeTextareas);   // size once visible (scrollHeight needs layout)
 }
 
 function hideCodingForm(){
@@ -5381,11 +5402,12 @@ function hideCodingForm(){
 
 function _codingResetForm(){
   document.getElementById('coding-statement').value = '';
-  _codingSetLangs(['javascript']);
+  _codingStarter = {};
+  _codingStarterLang = null;
+  _codingSetLangs(['javascript']);   // also renders starter tabs + default
   document.getElementById('coding-marks').value = 10;
   document.getElementById('coding-marks-policy').value = 'partial';
-  document.getElementById('coding-time-limit').value = 5000;
-  document.getElementById('coding-starter-code').value = '';
+  document.getElementById('coding-time-limit').value = 5;   // seconds
   const tbody = document.getElementById('coding-tc-tbody');
   if(tbody) tbody.innerHTML = '';
   document.getElementById('coding-ref-solution-code').textContent = '';
@@ -5399,6 +5421,7 @@ function _codingSetLangs(arr){
   document.querySelectorAll('#coding-lang-chips .lang-chip').forEach(el => {
     el.classList.toggle('selected', arr.includes(el.dataset.lang));
   });
+  _renderStarterTabs();
 }
 
 function codingToggleLang(lang){
@@ -5410,39 +5433,106 @@ function codingToggleLang(lang){
   _codingSetLangs(current);
 }
 
+// ── Per-language starter code ───────────────────────────────────────────────
+// Each allowed language keeps its own starter template (the editor scaffolding
+// the student opens with). Stored as a {lang: code} map; a tab switches which
+// language's code the textarea is bound to.
+const _STARTER_LANG_LABELS = {javascript:'JavaScript', typescript:'TypeScript',
+  python:'Python', c:'C', cpp:'C++', java:'Java'};
+const _STARTER_DEFAULTS = {
+  javascript: '// Read stdin, write your answer to stdout.\nconst data = require("fs").readFileSync(0, "utf8").trim();\n',
+  typescript: '// Read stdin, write your answer to stdout.\nconst data: string = require("fs").readFileSync(0, "utf8").trim();\n',
+  python: '# Read stdin, print your answer.\nimport sys\ndata = sys.stdin.read().split()\n',
+  c: '#include <stdio.h>\n\nint main(void) {\n    // read from stdin, print to stdout\n    return 0;\n}\n',
+  cpp: '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // read from stdin, print to stdout\n    return 0;\n}\n',
+  java: 'import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        // print your answer to stdout\n    }\n}\n',
+};
+let _codingStarter = {};          // lang -> code (undefined = never visited)
+let _codingStarterLang = null;    // currently-open tab
+
+function _codingFlushStarter(){
+  if(_codingStarterLang != null){
+    _codingStarter[_codingStarterLang] = document.getElementById('coding-starter-code').value;
+  }
+}
+
+function _renderStarterTabs(){
+  const tabs = document.getElementById('coding-starter-tabs');
+  if(!tabs) return;
+  _codingFlushStarter();   // preserve the open tab's edits before re-rendering
+  const langs = JSON.parse(document.getElementById('coding-langs').value || '[]');
+  // Keep the active tab valid; if its language was removed, fall back to the first.
+  if(!langs.includes(_codingStarterLang)) { _codingStarterLang = langs[0] || null; }
+  tabs.innerHTML = langs.map(l =>
+    `<span class="starter-lang-tab${l===_codingStarterLang?' active':''}" data-action="codingStarterTab" data-args='${_jsonArgsForAttr(l)}'>${_escHtml(_STARTER_LANG_LABELS[l]||l)}</span>`
+  ).join('');
+  _loadStarterForActive();
+}
+
+function _loadStarterForActive(){
+  const ta = document.getElementById('coding-starter-code');
+  if(_codingStarterLang == null){ ta.value = ''; ta.disabled = true; return; }
+  ta.disabled = false;
+  if(_codingStarter[_codingStarterLang] === undefined){
+    _codingStarter[_codingStarterLang] = _STARTER_DEFAULTS[_codingStarterLang] || '';
+  }
+  ta.value = _codingStarter[_codingStarterLang];
+  _autoGrow(ta);
+}
+
+function codingStarterTab(lang){
+  _codingFlushStarter();        // save what's in the box before switching
+  _codingStarterLang = lang;
+  document.querySelectorAll('#coding-starter-tabs .starter-lang-tab').forEach(el => {
+    el.classList.toggle('active', el.textContent === (_STARTER_LANG_LABELS[lang]||lang));
+  });
+  _loadStarterForActive();
+}
+
+function _tcCardHtml(idx, c){
+  c = c || {};
+  const hiddenSel = (c.visibility === 'hidden' || !c.visibility) ? ' selected' : '';
+  const sampleSel = c.visibility === 'sample' ? ' selected' : '';
+  const ft = c.float_tolerance != null ? _escAttr(String(c.float_tolerance)) : '';
+  return `<div class="tc-card-head">
+      <span class="tc-num">Test ${idx+1}</span>
+      <select class="tc-visibility" data-change-action="_updateTcHint">
+        <option value="sample"${sampleSel}>Sample (visible to student)</option>
+        <option value="hidden"${hiddenSel}>Hidden (graded)</option>
+      </select>
+      <input type="text" class="tc-float-tol" placeholder="float ± (optional)" value="${ft}">
+      <button class="tc-row-remove" data-action="codingRemoveTestCase" data-args='${_jsonArgsForAttr(idx)}' title="Remove test case">×</button>
+    </div>
+    <div><span class="tc-field-label">Input (stdin)</span><textarea rows="2" class="tc-input" placeholder="passed to the program's standard input">${_escHtml(c.input||'')}</textarea></div>
+    <div><span class="tc-field-label">Expected output (stdout)</span><textarea rows="2" class="tc-expected" placeholder="exact text the program must print">${_escHtml(c.expected_output||'')}</textarea></div>`;
+}
+
 function codingAddTestCase(){
-  const tbody = document.getElementById('coding-tc-tbody');
-  const idx = tbody.children.length;
-  const tr = document.createElement('tr');
-  tr.dataset.tcidx = idx;
-  tr.innerHTML = `<td style="text-align:center;color:var(--text-muted);font-size:10px">${idx+1}</td>
-    <td><textarea rows="2" class="tc-input" placeholder="stdin input"></textarea></td>
-    <td><textarea rows="2" class="tc-expected" placeholder="expected stdout"></textarea></td>
-    <td><select class="tc-visibility" data-change-action="_updateTcHint">
-      <option value="sample">Sample</option>
-      <option value="hidden" selected>Hidden</option>
-    </select></td>
-    <td><input type="text" class="tc-float-tol" placeholder="±" style="width:60px;font-size:11px"></td>
-    <td><button class="tc-row-remove" data-action="codingRemoveTestCase" data-args='${_jsonArgsForAttr(idx)}' title="Remove">×</button></td>`;
-  tbody.appendChild(tr);
+  const wrap = document.getElementById('coding-tc-tbody');
+  const idx = wrap.children.length;
+  const card = document.createElement('div');
+  card.className = 'tc-card';
+  card.dataset.tcidx = idx;
+  card.innerHTML = _tcCardHtml(idx, {});
+  wrap.appendChild(card);
   _updateTcHint();
 }
 
 function codingRemoveTestCase(idx){
-  const tbody = document.getElementById('coding-tc-tbody');
-  const row = tbody.querySelector(`tr[data-tcidx="${idx}"]`);
-  if(row) row.remove();
+  const wrap = document.getElementById('coding-tc-tbody');
+  const card = wrap.querySelector(`[data-tcidx="${idx}"]`);
+  if(card) card.remove();
   _renumberTcRows();
   _updateTcHint();
 }
 
 function _renumberTcRows(){
-  const tbody = document.getElementById('coding-tc-tbody');
-  Array.from(tbody.children).forEach((tr, i) => {
-    tr.dataset.tcidx = i;
-    const td = tr.querySelector('td:first-child');
-    if(td) td.textContent = i + 1;
-    const btn = tr.querySelector('.tc-row-remove');
+  const wrap = document.getElementById('coding-tc-tbody');
+  Array.from(wrap.children).forEach((card, i) => {
+    card.dataset.tcidx = i;
+    const num = card.querySelector('.tc-num');
+    if(num) num.textContent = `Test ${i + 1}`;
+    const btn = card.querySelector('.tc-row-remove');
     if(btn) btn.setAttribute('data-args', _jsonArgsForAttr(i));
   });
 }
@@ -5479,35 +5569,38 @@ async function _loadCodingForEdit(questionId){
 function _codingPopulateForm(data){
   document.getElementById('coding-statement').value = data.question || '';
   const opts = data.options || {};
-  _codingSetLangs(opts.allowed_languages || ['javascript']);
+  const langs = opts.allowed_languages || ['javascript'];
+  // starter_code: a {lang:code} map (new) or a single string (legacy → seed it
+  // for every allowed language so nothing is lost; teacher can then edit per-lang).
+  const sc = opts.starter_code;
+  _codingStarter = {};
+  _codingStarterLang = null;
+  if(sc && typeof sc === 'object'){
+    _codingStarter = Object.assign({}, sc);
+  }else if(typeof sc === 'string' && sc){
+    langs.forEach(l => { _codingStarter[l] = sc; });
+  }
+  _codingSetLangs(langs);   // renders starter tabs + loads the active language's code
   document.getElementById('coding-marks').value = opts.marks || 10;
   document.getElementById('coding-marks-policy').value = (opts.marks_policy || 'partial');
-  document.getElementById('coding-time-limit').value = opts.time_limit_ms || 5000;
-  document.getElementById('coding-starter-code').value = opts.starter_code || '';
+  document.getElementById('coding-time-limit').value = (opts.time_limit_ms || 5000) / 1000;
   codingRenderTestCases(data.test_cases || []);
   if(data.reference_solution){
     document.getElementById('coding-ref-solution-code').textContent = data.reference_solution;
     document.getElementById('coding-ref-solution-area').style.display = '';
   }
+  requestAnimationFrame(_codingSizeTextareas);   // size loaded content to fit
 }
 
 function codingRenderTestCases(cases){
-  const tbody = document.getElementById('coding-tc-tbody');
-  tbody.innerHTML = '';
+  const wrap = document.getElementById('coding-tc-tbody');
+  wrap.innerHTML = '';
   cases.forEach((c, i) => {
-    const tr = document.createElement('tr');
-    tr.dataset.tcidx = i;
-    tr.innerHTML = `<td style="text-align:center;color:var(--text-muted);font-size:10px">${i+1}</td>
-      <td><textarea rows="2" class="tc-input">${_escHtml(c.input||'')}</textarea></td>
-      <td><textarea rows="2" class="tc-expected">${_escHtml(c.expected_output||'')}</textarea></td>
-      <td><select class="tc-visibility">
-        <option value="sample" ${c.visibility==='sample'?'selected':''}>Sample</option>
-        <option value="hidden" ${c.visibility==='hidden'?'selected':''}>Hidden</option>
-      </select></td>
-      <td><input type="text" class="tc-float-tol" placeholder="±" style="width:60px;font-size:11px"
-        value="${c.float_tolerance!=null ? _escAttr(String(c.float_tolerance)) : ''}"></td>
-      <td><button class="tc-row-remove" data-action="codingRemoveTestCase" data-args='${_jsonArgsForAttr(i)}' title="Remove">×</button></td>`;
-    tbody.appendChild(tr);
+    const card = document.createElement('div');
+    card.className = 'tc-card';
+    card.dataset.tcidx = i;
+    card.innerHTML = _tcCardHtml(i, c);
+    wrap.appendChild(card);
   });
   _updateTcHint();
 }
@@ -5517,8 +5610,14 @@ function _codingCollectForm(){
   const langs = JSON.parse(document.getElementById('coding-langs').value || '[]');
   const marks = parseInt(document.getElementById('coding-marks').value, 10) || 1;
   const marksPolicy = document.getElementById('coding-marks-policy').value;
-  const timeLimitMs = parseInt(document.getElementById('coding-time-limit').value, 10) || 5000;
-  const starterCode = document.getElementById('coding-starter-code').value;
+  // UI is in seconds; the API contract stays in ms.
+  const timeLimitSec = parseFloat(document.getElementById('coding-time-limit').value) || 5;
+  const timeLimitMs = Math.round(timeLimitSec * 1000);
+  // Per-language starter map: flush the open tab, then keep only allowed langs.
+  _codingFlushStarter();
+  const langsSel = JSON.parse(document.getElementById('coding-langs').value || '[]');
+  const starterCode = {};
+  langsSel.forEach(l => { if(_codingStarter[l] != null) starterCode[l] = _codingStarter[l]; });
   const tbody = document.getElementById('coding-tc-tbody');
   const testCases = [];
   Array.from(tbody.children).forEach((tr, i) => {
@@ -5534,7 +5633,7 @@ function _codingCollectForm(){
   if(!langs.length) errors.push('At least one language must be selected.');
   if(marks < 1 || marks > 100) errors.push('Marks must be between 1 and 100.');
   if(!['partial','all_or_nothing'].includes(marksPolicy)) errors.push('Invalid marks policy.');
-  if(timeLimitMs < 500 || timeLimitMs > 15000) errors.push('Time limit must be 500-15000 ms.');
+  if(timeLimitSec < 1 || timeLimitSec > 15) errors.push('Run time must be between 1 and 15 seconds.');
   if(!testCases.length) errors.push('At least one test case is required.');
   const hidden = testCases.filter(c => c.visibility === 'hidden').length;
   if(!hidden) errors.push('At least one hidden test case is required.');
@@ -5587,6 +5686,142 @@ async function codingSave(){
 
 function editCodingQuestion(questionId){
   showCodingForm(questionId);
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  Guided coding-question wizard — a friendlier path to the SAME payload
+//  codingSave builds. Self-contained: collects into _cwiz, validates per step,
+//  POSTs to the coding-question endpoint. "Advanced editor" escapes to the modal.
+// ════════════════════════════════════════════════════════════════════
+const _CWIZ_TITLES = ['Problem','Languages','Examples','Hidden tests','Review'];
+const _CWIZ_LANGS = [['javascript','JavaScript'],['typescript','TypeScript'],['python','Python'],['c','C'],['cpp','C++'],['java','Java']];
+let _cwiz = null, _cwizAutogrowWired = false;
+
+function _cwizReset(){
+  _cwiz = { step:0, statement:'', langs:['python'],
+            samples:[{input:'',expected:''}], hidden:[{input:'',expected:''}],
+            marks:10, timeSec:5, policy:'partial' };
+}
+function showCodingWizard(){
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
+  _cwizReset();
+  if(!_cwizAutogrowWired){ _cwizAutogrowWired = true;
+    document.getElementById('coding-wizard-overlay').addEventListener('input', (e)=>{
+      if(e.target && e.target.tagName === 'TEXTAREA') _autoGrow(e.target); });
+  }
+  document.getElementById('coding-wizard-overlay').style.display = 'flex';
+  _cwizRender();
+}
+function hideCodingWizard(){ document.getElementById('coding-wizard-overlay').style.display = 'none'; }
+function cwizUseAdvanced(){ hideCodingWizard(); showCodingForm(null); }
+
+function _cwizCasesHtml(list, key, label){
+  return list.map((c,i)=>`
+    <div class="tc-card">
+      <div class="tc-card-head"><span class="tc-num">${label} ${i+1}</span>
+        <button class="tc-row-remove" data-action="cwizRemoveCase" data-args='${_jsonArgsForAttr(key,i)}' title="Remove">×</button></div>
+      <div><span class="tc-field-label">Input (stdin)</span><textarea rows="2" class="cwc-input">${_escHtml(c.input||'')}</textarea></div>
+      <div><span class="tc-field-label">Expected output</span><textarea rows="2" class="cwc-expected">${_escHtml(c.expected||'')}</textarea></div>
+    </div>`).join('');
+}
+function _cwizStepHtml(step){
+  if(step===0) return `<div class="cwiz-h">What problem will students solve?</div>
+    <div class="cwiz-tip"><span>💡</span><div>Write it like a short story: what the program <b>reads</b>, what it must <b>print</b>, and a tiny example. Students read this exactly as you write it.</div></div>
+    <textarea id="cwiz-statement" rows="6" placeholder="e.g. Read two whole numbers on one line and print their sum.&#10;&#10;Example: input &quot;3 5&quot; → output &quot;8&quot;.">${_escHtml(_cwiz.statement)}</textarea>`;
+  if(step===1){
+    const chips=_CWIZ_LANGS.map(([k,l])=>`<span class="lang-chip${_cwiz.langs.includes(k)?' selected':''}" data-action="cwizToggleLang" data-args='${_jsonArgsForAttr(k)}'>${l}</span>`).join('');
+    return `<div class="cwiz-h">Which languages can students use?</div>
+      <div class="cwiz-sub">Pick one or more — students choose from these in the exam. We'll pre-fill a starter template for each.</div>
+      <div class="lang-chips">${chips}</div>`;
+  }
+  if(step===2) return `<div class="cwiz-h">Add a worked example or two</div>
+    <div class="cwiz-tip"><span>🔎</span><div>A <b>test case</b> is an <b>input</b> we feed the program (its stdin) and the <b>exact output</b> it must print (stdout). These <b>sample</b> cases are shown to students as worked examples.</div></div>
+    <div class="cwiz-eg">Example — "add two numbers":\nInput:           3 5\nExpected output: 8</div>
+    <div class="test-case-cards" id="cwiz-samples">${_cwizCasesHtml(_cwiz.samples,'sample','Example')}</div>
+    <button class="tc-add-btn" data-action="cwizAddCase" data-args='["sample"]'>+ Add example</button>`;
+  if(step===3) return `<div class="cwiz-h">Add the hidden tests that grade the answer</div>
+    <div class="cwiz-tip"><span>🔒</span><div><b>Hidden</b> tests grade the answer — students never see them. Cover the tricky inputs (big numbers, edge cases, empty input). You need at least one.</div></div>
+    <div class="test-case-cards" id="cwiz-hidden">${_cwizCasesHtml(_cwiz.hidden,'hidden','Hidden')}</div>
+    <button class="tc-add-btn" data-action="cwizAddCase" data-args='["hidden"]'>+ Add hidden test</button>`;
+  const langNames=_cwiz.langs.map(k=>(_CWIZ_LANGS.find(x=>x[0]===k)||[k,k])[1]).join(', ')||'—';
+  return `<div class="cwiz-h">Almost done — set the basics</div>
+    <div class="field-row">
+      <div><label for="cwiz-marks">Marks</label><input type="number" id="cwiz-marks" min="1" max="100" value="${_cwiz.marks}"></div>
+      <div><label for="cwiz-time">Run time / test (sec)</label><input type="number" id="cwiz-time" min="1" max="15" step="0.5" value="${_cwiz.timeSec}"></div>
+      <div><label for="cwiz-policy">Scoring</label><select id="cwiz-policy">
+        <option value="partial"${_cwiz.policy==='partial'?' selected':''}>Partial credit</option>
+        <option value="all_or_nothing"${_cwiz.policy==='all_or_nothing'?' selected':''}>All or nothing</option></select></div>
+    </div>
+    <div class="cwiz-review" style="margin-top:12px">
+      <div class="r"><b>Languages</b><span>${_escHtml(langNames)}</span></div>
+      <div class="r"><b>Sample tests</b><span>${_cwiz.samples.filter(c=>c.expected.trim()).length} shown to students</span></div>
+      <div class="r"><b>Hidden tests</b><span>${_cwiz.hidden.filter(c=>c.expected.trim()).length} graded</span></div>
+    </div>`;
+}
+function _cwizRender(){
+  document.getElementById('cwiz-steps').innerHTML = _CWIZ_TITLES.map((t,i)=>
+    `<span class="cwiz-dot${i===_cwiz.step?' active':''}${i<_cwiz.step?' done':''}">${i+1}. ${_escHtml(t)}</span>`).join('');
+  document.getElementById('cwiz-body').innerHTML = _cwizStepHtml(_cwiz.step);
+  document.getElementById('cwiz-back').style.visibility = _cwiz.step===0 ? 'hidden' : 'visible';
+  document.getElementById('cwiz-next').textContent = _cwiz.step===_CWIZ_TITLES.length-1 ? 'Create question' : 'Next →';
+  document.getElementById('cwiz-msg').textContent = '';
+  requestAnimationFrame(()=>document.querySelectorAll('#coding-wizard-overlay textarea').forEach(_autoGrow));
+}
+function _cwizReadCases(id){
+  const wrap=document.getElementById(id); if(!wrap) return [];
+  return Array.from(wrap.children).map(card=>({
+    input: card.querySelector('.cwc-input').value, expected: card.querySelector('.cwc-expected').value }));
+}
+function _cwizSaveStep(){
+  const s=_cwiz.step;
+  if(s===0){ const t=document.getElementById('cwiz-statement'); if(t) _cwiz.statement=t.value; }
+  else if(s===2){ _cwiz.samples=_cwizReadCases('cwiz-samples'); }
+  else if(s===3){ _cwiz.hidden=_cwizReadCases('cwiz-hidden'); }
+  else if(s===4){
+    _cwiz.marks=parseInt(document.getElementById('cwiz-marks').value,10)||1;
+    _cwiz.timeSec=parseFloat(document.getElementById('cwiz-time').value)||5;
+    _cwiz.policy=document.getElementById('cwiz-policy').value;
+  }
+}
+function cwizNext(){
+  _cwizSaveStep();
+  let err=null;
+  if(_cwiz.step===0 && !_cwiz.statement.trim()) err='Add a problem statement to continue.';
+  else if(_cwiz.step===1 && !_cwiz.langs.length) err='Pick at least one language.';
+  else if(_cwiz.step===3 && !_cwiz.hidden.some(c=>c.expected.trim())) err='Add at least one hidden test with an expected output.';
+  if(err){ document.getElementById('cwiz-msg').innerHTML=`<span style="color:var(--red)">${_escHtml(err)}</span>`; return; }
+  if(_cwiz.step < _CWIZ_TITLES.length-1){ _cwiz.step++; _cwizRender(); } else { _cwizFinish(); }
+}
+function cwizBack(){ _cwizSaveStep(); if(_cwiz.step>0){ _cwiz.step--; _cwizRender(); } }
+function cwizToggleLang(k){ _cwizSaveStep(); const i=_cwiz.langs.indexOf(k); if(i>=0) _cwiz.langs.splice(i,1); else _cwiz.langs.push(k); _cwizRender(); }
+function cwizAddCase(kind){ _cwizSaveStep(); (kind==='sample'?_cwiz.samples:_cwiz.hidden).push({input:'',expected:''}); _cwizRender(); }
+function cwizRemoveCase(kind, i){ _cwizSaveStep(); const arr=(kind==='sample'?_cwiz.samples:_cwiz.hidden); arr.splice(i,1); if(!arr.length) arr.push({input:'',expected:''}); _cwizRender(); }
+
+async function _cwizFinish(){
+  _cwizSaveStep();
+  const mk=(arr,vis)=>arr.filter(c=>c.expected.trim()).map(c=>({input:c.input, expected_output:c.expected, visibility:vis}));
+  const test_cases=[...mk(_cwiz.samples,'sample'), ...mk(_cwiz.hidden,'hidden')];
+  const need=[];
+  if(!_cwiz.statement.trim()) need.push('a problem statement');
+  if(!_cwiz.langs.length) need.push('a language');
+  if(!_cwiz.hidden.some(c=>c.expected.trim())) need.push('a hidden test');
+  const msg=document.getElementById('cwiz-msg');
+  if(need.length){ msg.innerHTML=`<span style="color:var(--red)">Still need: ${_escHtml(need.join(', '))}.</span>`; return; }
+  // Seed each chosen language with its default template so students never open a
+  // blank editor; the teacher can refine later via Advanced editor.
+  const starter_code={}; _cwiz.langs.forEach(l=>{ starter_code[l]=_STARTER_DEFAULTS[l]||''; });
+  const payload={ exam_id: currentExamId, question: _cwiz.statement.trim(),
+    options:{ allowed_languages:_cwiz.langs, marks:_cwiz.marks, marks_policy:_cwiz.policy,
+              time_limit_ms: Math.round(_cwiz.timeSec*1000), starter_code },
+    test_cases };
+  msg.innerHTML='<span class="spinner"></span> Creating…';
+  try{
+    const r=await authFetch(`${BASE}/api/v1/admin/coding-question`, {method:'POST', body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(!r.ok){ msg.innerHTML=`<span style="color:var(--red)">${_escHtml(_detailText(d,'Create failed'))}</span>`; return; }
+    msg.innerHTML=`<span style="color:var(--emerald)">Created! ${d.hidden} hidden / ${d.sample} sample.</span>`;
+    setTimeout(()=>{ hideCodingWizard(); loadQuestions(); }, 800);
+  }catch(e){ msg.innerHTML=`<span style="color:var(--red)">Create failed: ${_escHtml(e.message)}</span>`; }
 }
 
 // ── Coding AI Generation ─────────────────────────────────────────

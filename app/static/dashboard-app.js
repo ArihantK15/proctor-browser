@@ -5823,8 +5823,10 @@ function _cwizSaveStep(){
   else if(s===2){ _cwiz.samples=_cwizReadCases('cwiz-samples'); }
   else if(s===3){ _cwiz.hidden=_cwizReadCases('cwiz-hidden'); }
   else if(s===4){
-    _cwiz.marks=parseInt(document.getElementById('cwiz-marks').value,10)||1;
-    _cwiz.timeSec=parseFloat(document.getElementById('cwiz-time').value)||5;
+    // Clamp to the server's accepted ranges (marks 1..100, run time 1..15s) so an
+    // out-of-range entry is corrected here instead of bouncing off a backend 400.
+    _cwiz.marks=Math.min(100, Math.max(1, parseInt(document.getElementById('cwiz-marks').value,10)||1));
+    _cwiz.timeSec=Math.min(15, Math.max(1, parseFloat(document.getElementById('cwiz-time').value)||5));
     _cwiz.policy=document.getElementById('cwiz-policy').value;
   }
 }

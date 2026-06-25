@@ -5620,15 +5620,25 @@ function _codingCollectForm(){
   langsSel.forEach(l => { if(_codingStarter[l] != null) starterCode[l] = _codingStarter[l]; });
   const tbody = document.getElementById('coding-tc-tbody');
   const testCases = [];
+  const errors = [];
   Array.from(tbody.children).forEach((tr, i) => {
     const input = tr.querySelector('.tc-input').value;
     const expected = tr.querySelector('.tc-expected').value;
     const visibility = tr.querySelector('.tc-visibility').value;
     const ftRaw = tr.querySelector('.tc-float-tol').value.trim();
-    const floatTolerance = ftRaw ? parseFloat(ftRaw) : undefined;
+    let floatTolerance;
+    if(ftRaw){
+      floatTolerance = Number(ftRaw);
+      // A non-numeric ± serializes to JSON null and the server treats null as "no
+      // tolerance" — silently grading a float question by exact match. Surface it
+      // instead of dropping it. (Number() is stricter than parseFloat: "1.2x"->NaN.)
+      if(!Number.isFinite(floatTolerance) || floatTolerance < 0){
+        errors.push(`Test case ${i+1}: float tolerance must be a non-negative number.`);
+        floatTolerance = undefined;
+      }
+    }
     testCases.push({idx: i, input, expected_output: expected, visibility, ...(floatTolerance !== undefined ? {float_tolerance: floatTolerance} : {})});
   });
-  const errors = [];
   if(!statement) errors.push('Problem statement is required.');
   if(!langs.length) errors.push('At least one language must be selected.');
   if(marks < 1 || marks > 100) errors.push('Marks must be between 1 and 100.');

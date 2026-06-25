@@ -19,6 +19,8 @@ from fastapi import APIRouter, HTTPException, Request, Body
 from ..auth import require_admin
 from ..auth.scope import assert_can_author
 from ..database import async_table as _atable
+from ..postgres_table import get_pool
+from ..db_context import apply_request_context
 from .. import cache as _cache
 from ..services import secrets_crypto
 
@@ -140,6 +142,51 @@ def _clean_cases(raw_cases) -> list[dict]:
     return out
 
 
+async def _persist_coding_question_atomic(tid, exam_id, qid, statement,
+                                          options_json, cases, replacing):
+    """Persist the question row + rewrite its test cases in ONE transaction.
+
+    The old path deleted the existing cases and then inserted the new ones as
+    separate statements — a mid-write failure (or a failing insert) left the
+    question with partial/empty test cases, i.e. a corrupt answer key. Wrapping
+    the question upsert + delete-then-insert in a single asyncpg transaction makes
+    it all-or-nothing. Mirrors app/invites.py: raw asyncpg with
+    apply_request_context() so the writes are RLS-scoped to this teacher (a no-op
+    while the cutover flag is off; required once it's on, or the writes match no
+    row under procta_app)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await apply_request_context(conn)
+            if replacing:
+                await conn.execute(
+                    "UPDATE questions SET question=$4, question_type='coding', "
+                    "options=$5, correct='' "
+                    "WHERE teacher_id=$1::uuid AND exam_id=$2 AND question_id=$3",
+                    str(tid), exam_id, qid, statement, options_json)
+            else:
+                await conn.execute(
+                    "INSERT INTO questions (teacher_id, exam_id, question_id, "
+                    "question, question_type, options, correct) "
+                    "VALUES ($1::uuid, $2, $3, $4, 'coding', $5, '')",
+                    str(tid), exam_id, qid, statement, options_json)
+            await conn.execute(
+                "DELETE FROM coding_test_cases "
+                "WHERE teacher_id=$1::uuid AND question_id=$2",
+                str(tid), qid)
+            for c in cases:
+                await conn.execute(
+                    "INSERT INTO coding_test_cases (question_id, teacher_id, idx, "
+                    "input, expected_output, visibility, float_tolerance) "
+                    "VALUES ($1, $2::uuid, $3, $4, $5, $6, $7)",
+                    qid, str(tid), c["idx"], c["input"],
+                    # Envelope-encrypt the secret answer key before it hits Postgres
+                    # (a no-op if CODING_SECRETS_KEY isn't configured; idempotent if
+                    # already encrypted).
+                    secrets_crypto.encrypt(c["expected_output"]),
+                    c["visibility"], c["float_tolerance"])
+
+
 @router.post("/api/v1/admin/coding-question")
 @router.put("/api/v1/admin/coding-question")
 async def upsert_coding_question(body: dict, request: Request):
@@ -172,32 +219,14 @@ async def upsert_coding_question(body: dict, request: Request):
                  .eq("question_id", qid).limit(1).execute()).data
         if not owned:
             raise HTTPException(status_code=404, detail="question not found for this teacher/exam")
-        # Drop old test cases; rewrite below.
-        await _atable("coding_test_cases").delete().eq("teacher_id", tid).eq("question_id", qid).execute()
     else:
         qid = f"coding-{_uuid.uuid4().hex[:12]}"   # unique label (the coding chain's key)
 
-    q_row = {
-        "teacher_id": tid, "exam_id": exam_id, "question_id": qid,
-        "question": statement, "question_type": "coding",
-        "options": json.dumps(options), "correct": "",
-    }
     try:
-        if replacing:
-            await _atable("questions").update(q_row).eq("teacher_id", tid)\
-                .eq("exam_id", exam_id).eq("question_id", qid).execute()
-        else:
-            await _atable("questions").insert(q_row).execute()
-        for c in cases:
-            await _atable("coding_test_cases").insert({
-                "question_id": qid, "teacher_id": tid, "idx": c["idx"],
-                "input": c["input"],
-                # Envelope-encrypt the secret answer key before it hits Postgres
-                # (app/services/secrets_crypto.py) — a no-op if CODING_SECRETS_KEY
-                # isn't configured (dev/CI), idempotent if already encrypted.
-                "expected_output": secrets_crypto.encrypt(c["expected_output"]),
-                "visibility": c["visibility"], "float_tolerance": c["float_tolerance"],
-            }).execute()
+        # Atomic: question upsert + test-case rewrite in one transaction so a
+        # partial failure can never leave a corrupt (empty/partial) answer key.
+        await _persist_coding_question_atomic(
+            tid, exam_id, qid, statement, json.dumps(options), cases, replacing)
     except HTTPException:
         raise
     except Exception as e:

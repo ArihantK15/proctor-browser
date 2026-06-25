@@ -44,3 +44,18 @@ def test_preserves_numeric_and_short_answer_and_others():
 def test_unknown_type_still_falls_back():
     rows = [{"question_id": 9, "question": "x", "options": "{}", "correct": "A", "question_type": "essay"}]
     assert _run(rows)[0]["question_type"] == "mcq_single"
+
+
+def test_orders_numeric_ordinals_by_value_then_coding_labels_last():
+    """phase146 made question_id TEXT. Numeric MCQ ordinals must still sort by
+    VALUE (1, 2, …, 10 — not lexically 1, 10, 2), and non-numeric coding labels
+    append after all numerics. Rows are supplied OUT of order on purpose, since
+    ordering is now done in Python (_qid_sort_key), not by a DB ORDER BY."""
+    rows = [
+        {"question_id": "10", "question": "j", "options": "{}", "correct": "A", "question_type": "mcq_single"},
+        {"question_id": "coding-abc123", "question": "c", "options": "{}", "correct": "", "question_type": "coding"},
+        {"question_id": "2", "question": "b", "options": "{}", "correct": "A", "question_type": "mcq_single"},
+        {"question_id": "1", "question": "a", "options": "{}", "correct": "A", "question_type": "mcq_single"},
+    ]
+    order = [o["id"] for o in _run(rows)]
+    assert order == ["1", "2", "10", "coding-abc123"]

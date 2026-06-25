@@ -84,3 +84,24 @@ async def test_resave_updates_existing_row_content():
     assert len(rows) == 1                 # no duplicate row
     assert rows[0]["id"] == before["id"]  # same row, upserted in place
     assert rows[0]["correct"] == "B"      # content updated
+
+
+async def test_mcq_resave_preserves_coding_questions():
+    """Regression guard (phase146 exposed this): coding questions are authored
+    via a SEPARATE endpoint (admin_coding) and the dashboard keeps them out of
+    the MCQ payload. They are never in `normalised`, so the stale-delete must
+    skip coding-type rows — otherwise the first MCQ save after a coding question
+    is created would silently wipe it. Pre-phase146 coding writes 500'd, so no
+    coding rows ever existed and this never surfaced."""
+    await _save(["1", "2"])
+    # A coding question authored out-of-band, exactly as admin_coding writes it.
+    await async_table("questions").insert({
+        "teacher_id": TID, "exam_id": EXAM, "question_id": "coding-deadbeef1234",
+        "question": "Write a function", "question_type": "coding",
+        "options": "{}", "correct": "",
+    }).execute()
+    assert await _qids() == {"1", "2", "coding-deadbeef1234"}
+
+    # Re-save the MCQ set (drop "2", add "3"). The coding question must survive.
+    await _save(["1", "3"])
+    assert await _qids() == {"1", "3", "coding-deadbeef1234"}

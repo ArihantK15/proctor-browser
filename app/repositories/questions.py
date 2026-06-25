@@ -26,6 +26,20 @@ except Exception:
 from ..services import secrets_crypto
 
 
+def _qid_sort_key(q: dict):
+    """Order questions the way the integer question_id column used to.
+
+    phase146 widened questions.question_id integer → text (coding questions
+    need string labels). Numeric MCQ ordinals must still sort by VALUE
+    (1, 2, …, 10, 11), not lexically (1, 10, 11, 2). Non-numeric coding
+    labels sort after all numerics, then lexically, so they append in a
+    stable, deterministic order. Replaces the old DB-level
+    `.order("question_id")`, which would now collate lexically.
+    """
+    qid = str(q.get("id", ""))
+    return (0, int(qid)) if qid.isdigit() else (1, qid)
+
+
 async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
     cache_key = f"questions:{teacher_id or '_'}:{exam_id or '_'}"
     if _cache:
@@ -38,7 +52,10 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
             query = query.eq("teacher_id", teacher_id)
         if exam_id:
             query = query.eq("exam_id", exam_id)
-        result = await query.order("question_id").execute()
+        # Ordering is applied in Python (_qid_sort_key) after build — a
+        # DB-level ORDER BY question_id now collates the text column
+        # lexically (1, 10, 2…), scrambling exams with ≥10 questions.
+        result = await query.execute()
         rows = result.data or []
     except Exception as e:
         logger.warning("[Questions] select(*) failed, falling back: %s", e)
@@ -48,7 +65,7 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
                 query = query.eq("teacher_id", teacher_id)
             if exam_id:
                 query = query.eq("exam_id", exam_id)
-            rows = (await query.order("question_id").execute()).data or []
+            rows = (await query.execute()).data or []
         except Exception as e2:
             logger.warning("[Questions] fallback also failed: %s", e2)
             rows = []
@@ -95,6 +112,8 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
             "question_type": qtype,
             "image_url": q.get("image_url") or "",
         })
+    # Numeric-faithful ordering (replaces the removed DB-level ORDER BY).
+    out.sort(key=_qid_sort_key)
     if _cache and out:
         _cache.set(cache_key, out, ttl=300)
     return out

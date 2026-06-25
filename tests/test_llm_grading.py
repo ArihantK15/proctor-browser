@@ -132,3 +132,37 @@ async def test_cache_write_failure_does_not_crash(configured, monkeypatch):
     _stub_chat(monkeypatch, {"score": 1, "feedback": "ok", "confidence": "high"})
     r = await llm.grade_short_answer("q", "ref", "", "ans", 2.0)
     assert r["score"] == 1.0
+
+
+# ── Privacy guard: identifier-free payload (DPDP data-minimization) ──────────
+# The grader sends anonymous prose to an external LLM. These two tests lock that
+# contract so a future change can't silently start leaking student identifiers.
+
+@pytest.mark.asyncio
+async def test_grade_prompt_is_built_only_from_its_inputs(configured, monkeypatch):
+    """The prompt is a pure function of the grader's (identifier-free) inputs — it must
+    not pull in any ambient student context. Unique sentinels for each input must all
+    appear, proving the prompt is composed solely from the passed arguments."""
+    captured = {}
+
+    async def _capture(system, user, **kw):
+        captured["user"] = user
+        return {"score": 1, "feedback": "ok", "confidence": "high"}
+
+    monkeypatch.setattr(llm, "_chat_json", _capture)
+    await llm.grade_short_answer(
+        question="Q_SENTINEL", reference="REF_SENTINEL", rubric="RUBRIC_SENTINEL",
+        student_answer="ANS_SENTINEL", max_score=2.0)
+    for token in ("Q_SENTINEL", "REF_SENTINEL", "RUBRIC_SENTINEL", "ANS_SENTINEL"):
+        assert token in captured["user"]
+
+
+def test_grade_inputs_frozen_to_anonymous_set():
+    """Privacy tripwire (DPDP data-minimization): the ONLY student data reaching the
+    external LLM is the answer prose. The grader's parameters are frozen to the
+    identifier-free set; adding one (e.g. student_name / roll_number / email /
+    session_id) trips this on purpose — update it only after confirming the new field
+    is NOT an identifier (and never folds an identifier into the prompt)."""
+    import inspect
+    assert set(inspect.signature(llm.grade_short_answer).parameters) == {
+        "question", "reference", "rubric", "student_answer", "max_score"}

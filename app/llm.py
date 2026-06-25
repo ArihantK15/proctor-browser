@@ -760,6 +760,11 @@ async def grade_short_answer(question: str, reference: str, rubric: str,
         # trip on the most common case (student skipped the question).
         return {"score": 0.0, "feedback": "Blank answer.", "confidence": "high"}
 
+    # PRIVACY CONTRACT (DPDP data-minimization): the ONLY student data sent to the
+    # external LLM is the answer PROSE — never a name / roll / email / session id. The
+    # parameters above are the identifier-free contract; do NOT add identifying params or
+    # interpolate identifiers into this prompt. Locked by tests/test_llm_grading.py
+    # (test_grade_inputs_frozen_to_anonymous_set).
     user = f"""Question: {question}
 
 Reference answer (model answer the teacher wrote):

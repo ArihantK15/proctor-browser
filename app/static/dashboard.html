@@ -194,7 +194,7 @@
   .lang-chip.selected{background:var(--accent-subtle);border-color:var(--accent-border);color:var(--accent)}
   .test-case-grid{border:1px solid var(--border-subtle);border-radius:var(--radius-md);
                   overflow:hidden;background:var(--surface-1)}
-  .test-case-grid table{width:100%;border-collapse:collapse;font-size:12px}
+  .test-case-grid table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
   .test-case-grid th{padding:6px 8px;text-align:left;font-size:10px;font-weight:600;
                      color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;
                      background:var(--bg-subtle);border-bottom:1px solid var(--border-subtle)}
@@ -1716,6 +1716,20 @@
   </div>
 </div>
 
+<!-- ── Secondary-camera review grid — one popup for ALL students currently
+     pending phone-camera approval, each tile with its live feed + Approve/
+     Reject. Opened from the "Phone cams waiting" tile in Live. Reuses the
+     per-session room-cam endpoints; openSecondaryCamGrid in dashboard-app.js. -->
+<div class="modal-bg hidden" id="roomcam-grid-modal" data-action="closeSecondaryCamGrid" data-guard-self>
+  <div class="modal" style="max-width:960px;width:92vw">
+    <button class="close" data-action="closeSecondaryCamGrid">&times;</button>
+    <h3 style="margin-bottom:4px">Secondary cameras</h3>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Students waiting for phone-camera approval — approve or reject each below.</div>
+    <div id="roomcam-grid-body" class="roomcam-grid"></div>
+    <div id="roomcam-grid-empty" style="display:none;color:var(--muted);font-size:13px;text-align:center;padding:30px 0">No phone cameras waiting for approval.</div>
+  </div>
+</div>
+
 <!-- ── Live webcam modal — streams the student's primary camera while a
      teacher watches. Frames come from GET …/live-frame (short-TTL Redis
      cache, never persisted). open/closeLiveView in dashboard-app.js drive
@@ -2392,8 +2406,8 @@
     <div id="coding-ai-banner-area"></div>
     <div id="coding-form-body" class="coding-form">
       <div>
-        <label for="coding-statement">Problem Statement (markdown)</label>
-        <textarea id="coding-statement" rows="4" placeholder="Write the problem description in markdown..."></textarea>
+        <label for="coding-statement">Problem statement</label>
+        <textarea id="coding-statement" rows="4" placeholder="Describe the problem students will solve. Plain text works — markdown (**bold**, lists, `code`) is optional."></textarea>
       </div>
 
       <div>
@@ -2402,6 +2416,9 @@
           <span class="lang-chip" data-lang="javascript" data-action="codingToggleLang" data-args='["javascript"]'>JavaScript</span>
           <span class="lang-chip" data-lang="typescript" data-action="codingToggleLang" data-args='["typescript"]'>TypeScript</span>
           <span class="lang-chip" data-lang="python" data-action="codingToggleLang" data-args='["python"]'>Python</span>
+          <span class="lang-chip" data-lang="c" data-action="codingToggleLang" data-args='["c"]'>C</span>
+          <span class="lang-chip" data-lang="cpp" data-action="codingToggleLang" data-args='["cpp"]'>C++</span>
+          <span class="lang-chip" data-lang="java" data-action="codingToggleLang" data-args='["java"]'>Java</span>
         </div>
         <input type="hidden" id="coding-langs" value='["javascript"]'>
       </div>

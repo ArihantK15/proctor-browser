@@ -187,11 +187,16 @@ function sendFrame(){
   const w = Math.max(1, Math.round(vw * scale));
   const h = Math.max(1, Math.round(vh * scale));
 
+  // `angle` = how many degrees the viewport is rotated CLOCKWISE from natural
+  // (the screen.orientation convention). Legacy iOS `window.orientation` uses
+  // the OPPOSITE sign (90 there == 270 here), so normalize it before use.
   let angle = 0;
   try {
-    angle = (screen.orientation && typeof screen.orientation.angle === 'number')
-      ? screen.orientation.angle
-      : (typeof window.orientation === 'number' ? window.orientation : 0);
+    if(screen.orientation && typeof screen.orientation.angle === 'number'){
+      angle = screen.orientation.angle;
+    } else if(typeof window.orientation === 'number'){
+      angle = 360 - window.orientation;   // → screen.orientation convention
+    }
   } catch(_) {}
   angle = ((angle % 360) + 360) % 360;
 
@@ -201,7 +206,11 @@ function sendFrame(){
   else { canvas.width = w; canvas.height = h; }
   const ctx = canvas.getContext('2d');
   ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate(angle * Math.PI / 180);
+  // COUNTER-rotate by the viewport angle: the drawn frame is in the device's
+  // current orientation, so -angle brings it back to world-upright. Rotating by
+  // +angle (the old code) is correct at 0° but 180° off in BOTH landscape
+  // orientations — the "upright in portrait, upside-down in landscape" bug.
+  ctx.rotate(-angle * Math.PI / 180);
   ctx.drawImage(video, -w / 2, -h / 2, w, h);
 
   canvas.toBlob(blob => {

@@ -217,6 +217,22 @@
     border:1px solid var(--border-subtle);background:var(--surface-1);color:var(--text-mid);transition:all .12s ease}
   .starter-lang-tab:hover{border-color:var(--accent-border)}
   .starter-lang-tab.active{background:var(--accent-subtle);border-color:var(--accent-border);color:var(--accent)}
+  /* Guided coding-question wizard */
+  .cwiz-steps{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 14px}
+  .cwiz-dot{font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid var(--border-subtle);
+            color:var(--text-muted);background:var(--surface-1);white-space:nowrap}
+  .cwiz-dot.active{background:var(--accent-subtle);border-color:var(--accent-border);color:var(--accent);font-weight:600}
+  .cwiz-dot.done{color:var(--text-mid);border-color:var(--accent-border)}
+  .cwiz-tip{display:flex;gap:9px;background:var(--accent-subtle);border:1px solid var(--accent-border);
+            border-radius:var(--radius-md);padding:10px 12px;font-size:12px;color:var(--text-mid);line-height:1.5;margin-bottom:12px}
+  .cwiz-tip b{color:var(--text-high)}
+  .cwiz-eg{background:var(--bg-inset);border:1px dashed var(--border-subtle);border-radius:var(--radius-md);
+           padding:8px 10px;font-family:var(--font-mono);font-size:11px;color:var(--text-mid);margin:8px 0;white-space:pre-wrap}
+  .cwiz-h{font-size:14px;font-weight:600;color:var(--text-high);margin-bottom:4px}
+  .cwiz-sub{font-size:12px;color:var(--text-muted);margin-bottom:12px}
+  .cwiz-review{display:flex;flex-direction:column;gap:6px;font-size:12px;background:var(--surface-1);
+               border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:12px}
+  .cwiz-review .r{display:flex;gap:10px} .cwiz-review .r b{min-width:120px;color:var(--text-muted);font-weight:500}
   .tc-row-remove{background:none;border:none;color:var(--sev-error-fg);cursor:pointer;
                  font-size:16px;padding:2px 6px;border-radius:4px}
   .tc-row-remove:hover{background:var(--sev-error-subtle)}
@@ -788,7 +804,7 @@
         </div>
         <div style="padding:var(--space-2) var(--space-4);border-top:1px solid var(--border-subtle);flex-shrink:0">
           <button class="btn btn-secondary btn-sm" data-action="addQuestion" style="width:100%;justify-content:center;margin-bottom:4px">+ Add Question</button>
-          <button class="btn btn-secondary btn-sm" data-action="showCodingForm" data-args='[null]' style="width:100%;justify-content:center">+ Coding question</button>
+          <button class="btn btn-secondary btn-sm" data-action="showCodingWizard" style="width:100%;justify-content:center">+ Coding question</button>
         </div>
       </aside>
 
@@ -796,7 +812,7 @@
       <div class="q-content">
         <div class="q-content-toolbar">
           <button class="qct-btn" data-action="addQuestion">+ Add</button>
-          <button class="qct-btn" data-action="showCodingForm" data-args='[null]'>+ Coding question</button>
+          <button class="qct-btn" data-action="showCodingWizard">+ Coding question</button>
           <button class="qct-btn" data-action="toggleBankShowImport">Import CSV</button>
           <div class="toolbar-spacer"></div>
           <button class="qct-btn ghost" data-action="qExpandAll" title="Expand all question cards">Expand all</button>
@@ -2475,6 +2491,21 @@
       <button class="modal-btn modal-btn-secondary" data-action="hideCodingForm">Cancel</button>
       <button class="modal-btn" data-action="codingSave">Save Coding Question</button>
       <span id="coding-save-msg" style="font-size:12px;color:var(--text-muted);margin-left:8px;align-self:center"></span>
+    </div>
+  </div>
+</div>
+
+<div id="coding-wizard-overlay" class="modal-overlay coding-modal" style="display:none" data-action="hideCodingWizard" data-guard-self role="dialog" aria-modal="true" aria-labelledby="cwiz-title">
+  <div class="modal-box">
+    <div class="modal-title" id="cwiz-title">New Coding Question</div>
+    <div class="cwiz-steps" id="cwiz-steps"></div>
+    <div id="cwiz-body" class="coding-form"></div>
+    <div class="coding-form-actions" style="margin-top:16px;align-items:center">
+      <button class="modal-btn modal-btn-secondary" data-action="cwizUseAdvanced" title="Skip the wizard and use the full editor">Advanced editor</button>
+      <span style="flex:1"></span>
+      <span id="cwiz-msg" style="font-size:12px;margin-right:6px"></span>
+      <button class="modal-btn modal-btn-secondary" id="cwiz-back" data-action="cwizBack">Back</button>
+      <button class="modal-btn" id="cwiz-next" data-action="cwizNext">Next</button>
     </div>
   </div>
 </div>

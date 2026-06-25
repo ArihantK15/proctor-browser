@@ -5688,6 +5688,142 @@ function editCodingQuestion(questionId){
   showCodingForm(questionId);
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  Guided coding-question wizard — a friendlier path to the SAME payload
+//  codingSave builds. Self-contained: collects into _cwiz, validates per step,
+//  POSTs to the coding-question endpoint. "Advanced editor" escapes to the modal.
+// ════════════════════════════════════════════════════════════════════
+const _CWIZ_TITLES = ['Problem','Languages','Examples','Hidden tests','Review'];
+const _CWIZ_LANGS = [['javascript','JavaScript'],['typescript','TypeScript'],['python','Python'],['c','C'],['cpp','C++'],['java','Java']];
+let _cwiz = null, _cwizAutogrowWired = false;
+
+function _cwizReset(){
+  _cwiz = { step:0, statement:'', langs:['python'],
+            samples:[{input:'',expected:''}], hidden:[{input:'',expected:''}],
+            marks:10, timeSec:5, policy:'partial' };
+}
+function showCodingWizard(){
+  if(!currentExamId){ showModal('Select an exam first.'); return; }
+  _cwizReset();
+  if(!_cwizAutogrowWired){ _cwizAutogrowWired = true;
+    document.getElementById('coding-wizard-overlay').addEventListener('input', (e)=>{
+      if(e.target && e.target.tagName === 'TEXTAREA') _autoGrow(e.target); });
+  }
+  document.getElementById('coding-wizard-overlay').style.display = 'flex';
+  _cwizRender();
+}
+function hideCodingWizard(){ document.getElementById('coding-wizard-overlay').style.display = 'none'; }
+function cwizUseAdvanced(){ hideCodingWizard(); showCodingForm(null); }
+
+function _cwizCasesHtml(list, key, label){
+  return list.map((c,i)=>`
+    <div class="tc-card">
+      <div class="tc-card-head"><span class="tc-num">${label} ${i+1}</span>
+        <button class="tc-row-remove" data-action="cwizRemoveCase" data-args='${_jsonArgsForAttr(key,i)}' title="Remove">×</button></div>
+      <div><span class="tc-field-label">Input (stdin)</span><textarea rows="2" class="cwc-input">${_escHtml(c.input||'')}</textarea></div>
+      <div><span class="tc-field-label">Expected output</span><textarea rows="2" class="cwc-expected">${_escHtml(c.expected||'')}</textarea></div>
+    </div>`).join('');
+}
+function _cwizStepHtml(step){
+  if(step===0) return `<div class="cwiz-h">What problem will students solve?</div>
+    <div class="cwiz-tip"><span>💡</span><div>Write it like a short story: what the program <b>reads</b>, what it must <b>print</b>, and a tiny example. Students read this exactly as you write it.</div></div>
+    <textarea id="cwiz-statement" rows="6" placeholder="e.g. Read two whole numbers on one line and print their sum.&#10;&#10;Example: input &quot;3 5&quot; → output &quot;8&quot;.">${_escHtml(_cwiz.statement)}</textarea>`;
+  if(step===1){
+    const chips=_CWIZ_LANGS.map(([k,l])=>`<span class="lang-chip${_cwiz.langs.includes(k)?' selected':''}" data-action="cwizToggleLang" data-args='${_jsonArgsForAttr(k)}'>${l}</span>`).join('');
+    return `<div class="cwiz-h">Which languages can students use?</div>
+      <div class="cwiz-sub">Pick one or more — students choose from these in the exam. We'll pre-fill a starter template for each.</div>
+      <div class="lang-chips">${chips}</div>`;
+  }
+  if(step===2) return `<div class="cwiz-h">Add a worked example or two</div>
+    <div class="cwiz-tip"><span>🔎</span><div>A <b>test case</b> is an <b>input</b> we feed the program (its stdin) and the <b>exact output</b> it must print (stdout). These <b>sample</b> cases are shown to students as worked examples.</div></div>
+    <div class="cwiz-eg">Example — "add two numbers":\nInput:           3 5\nExpected output: 8</div>
+    <div class="test-case-cards" id="cwiz-samples">${_cwizCasesHtml(_cwiz.samples,'sample','Example')}</div>
+    <button class="tc-add-btn" data-action="cwizAddCase" data-args='["sample"]'>+ Add example</button>`;
+  if(step===3) return `<div class="cwiz-h">Add the hidden tests that grade the answer</div>
+    <div class="cwiz-tip"><span>🔒</span><div><b>Hidden</b> tests grade the answer — students never see them. Cover the tricky inputs (big numbers, edge cases, empty input). You need at least one.</div></div>
+    <div class="test-case-cards" id="cwiz-hidden">${_cwizCasesHtml(_cwiz.hidden,'hidden','Hidden')}</div>
+    <button class="tc-add-btn" data-action="cwizAddCase" data-args='["hidden"]'>+ Add hidden test</button>`;
+  const langNames=_cwiz.langs.map(k=>(_CWIZ_LANGS.find(x=>x[0]===k)||[k,k])[1]).join(', ')||'—';
+  return `<div class="cwiz-h">Almost done — set the basics</div>
+    <div class="field-row">
+      <div><label for="cwiz-marks">Marks</label><input type="number" id="cwiz-marks" min="1" max="100" value="${_cwiz.marks}"></div>
+      <div><label for="cwiz-time">Run time / test (sec)</label><input type="number" id="cwiz-time" min="1" max="15" step="0.5" value="${_cwiz.timeSec}"></div>
+      <div><label for="cwiz-policy">Scoring</label><select id="cwiz-policy">
+        <option value="partial"${_cwiz.policy==='partial'?' selected':''}>Partial credit</option>
+        <option value="all_or_nothing"${_cwiz.policy==='all_or_nothing'?' selected':''}>All or nothing</option></select></div>
+    </div>
+    <div class="cwiz-review" style="margin-top:12px">
+      <div class="r"><b>Languages</b><span>${_escHtml(langNames)}</span></div>
+      <div class="r"><b>Sample tests</b><span>${_cwiz.samples.filter(c=>c.expected.trim()).length} shown to students</span></div>
+      <div class="r"><b>Hidden tests</b><span>${_cwiz.hidden.filter(c=>c.expected.trim()).length} graded</span></div>
+    </div>`;
+}
+function _cwizRender(){
+  document.getElementById('cwiz-steps').innerHTML = _CWIZ_TITLES.map((t,i)=>
+    `<span class="cwiz-dot${i===_cwiz.step?' active':''}${i<_cwiz.step?' done':''}">${i+1}. ${_escHtml(t)}</span>`).join('');
+  document.getElementById('cwiz-body').innerHTML = _cwizStepHtml(_cwiz.step);
+  document.getElementById('cwiz-back').style.visibility = _cwiz.step===0 ? 'hidden' : 'visible';
+  document.getElementById('cwiz-next').textContent = _cwiz.step===_CWIZ_TITLES.length-1 ? 'Create question' : 'Next →';
+  document.getElementById('cwiz-msg').textContent = '';
+  requestAnimationFrame(()=>document.querySelectorAll('#coding-wizard-overlay textarea').forEach(_autoGrow));
+}
+function _cwizReadCases(id){
+  const wrap=document.getElementById(id); if(!wrap) return [];
+  return Array.from(wrap.children).map(card=>({
+    input: card.querySelector('.cwc-input').value, expected: card.querySelector('.cwc-expected').value }));
+}
+function _cwizSaveStep(){
+  const s=_cwiz.step;
+  if(s===0){ const t=document.getElementById('cwiz-statement'); if(t) _cwiz.statement=t.value; }
+  else if(s===2){ _cwiz.samples=_cwizReadCases('cwiz-samples'); }
+  else if(s===3){ _cwiz.hidden=_cwizReadCases('cwiz-hidden'); }
+  else if(s===4){
+    _cwiz.marks=parseInt(document.getElementById('cwiz-marks').value,10)||1;
+    _cwiz.timeSec=parseFloat(document.getElementById('cwiz-time').value)||5;
+    _cwiz.policy=document.getElementById('cwiz-policy').value;
+  }
+}
+function cwizNext(){
+  _cwizSaveStep();
+  let err=null;
+  if(_cwiz.step===0 && !_cwiz.statement.trim()) err='Add a problem statement to continue.';
+  else if(_cwiz.step===1 && !_cwiz.langs.length) err='Pick at least one language.';
+  else if(_cwiz.step===3 && !_cwiz.hidden.some(c=>c.expected.trim())) err='Add at least one hidden test with an expected output.';
+  if(err){ document.getElementById('cwiz-msg').innerHTML=`<span style="color:var(--red)">${_escHtml(err)}</span>`; return; }
+  if(_cwiz.step < _CWIZ_TITLES.length-1){ _cwiz.step++; _cwizRender(); } else { _cwizFinish(); }
+}
+function cwizBack(){ _cwizSaveStep(); if(_cwiz.step>0){ _cwiz.step--; _cwizRender(); } }
+function cwizToggleLang(k){ _cwizSaveStep(); const i=_cwiz.langs.indexOf(k); if(i>=0) _cwiz.langs.splice(i,1); else _cwiz.langs.push(k); _cwizRender(); }
+function cwizAddCase(kind){ _cwizSaveStep(); (kind==='sample'?_cwiz.samples:_cwiz.hidden).push({input:'',expected:''}); _cwizRender(); }
+function cwizRemoveCase(kind, i){ _cwizSaveStep(); const arr=(kind==='sample'?_cwiz.samples:_cwiz.hidden); arr.splice(i,1); if(!arr.length) arr.push({input:'',expected:''}); _cwizRender(); }
+
+async function _cwizFinish(){
+  _cwizSaveStep();
+  const mk=(arr,vis)=>arr.filter(c=>c.expected.trim()).map(c=>({input:c.input, expected_output:c.expected, visibility:vis}));
+  const test_cases=[...mk(_cwiz.samples,'sample'), ...mk(_cwiz.hidden,'hidden')];
+  const need=[];
+  if(!_cwiz.statement.trim()) need.push('a problem statement');
+  if(!_cwiz.langs.length) need.push('a language');
+  if(!_cwiz.hidden.some(c=>c.expected.trim())) need.push('a hidden test');
+  const msg=document.getElementById('cwiz-msg');
+  if(need.length){ msg.innerHTML=`<span style="color:var(--red)">Still need: ${_escHtml(need.join(', '))}.</span>`; return; }
+  // Seed each chosen language with its default template so students never open a
+  // blank editor; the teacher can refine later via Advanced editor.
+  const starter_code={}; _cwiz.langs.forEach(l=>{ starter_code[l]=_STARTER_DEFAULTS[l]||''; });
+  const payload={ exam_id: currentExamId, question: _cwiz.statement.trim(),
+    options:{ allowed_languages:_cwiz.langs, marks:_cwiz.marks, marks_policy:_cwiz.policy,
+              time_limit_ms: Math.round(_cwiz.timeSec*1000), starter_code },
+    test_cases };
+  msg.innerHTML='<span class="spinner"></span> Creating…';
+  try{
+    const r=await authFetch(`${BASE}/api/v1/admin/coding-question`, {method:'POST', body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(!r.ok){ msg.innerHTML=`<span style="color:var(--red)">${_escHtml(_detailText(d,'Create failed'))}</span>`; return; }
+    msg.innerHTML=`<span style="color:var(--emerald)">Created! ${d.hidden} hidden / ${d.sample} sample.</span>`;
+    setTimeout(()=>{ hideCodingWizard(); loadQuestions(); }, 800);
+  }catch(e){ msg.innerHTML=`<span style="color:var(--red)">Create failed: ${_escHtml(e.message)}</span>`; }
+}
+
 // ── Coding AI Generation ─────────────────────────────────────────
 function codingShowGenPrompt(){
   const area = document.getElementById('coding-gen-panel-area');

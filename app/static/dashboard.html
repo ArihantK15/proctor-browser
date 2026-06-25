@@ -412,6 +412,7 @@
          that landed top-left because it queried a non-existent .topbar-right. -->
     <button class="btn btn-secondary btn-sm topbar-help" data-action="onboardOpen" title="Getting-started guide" aria-label="Help">?</button>
     <button class="btn btn-secondary btn-sm" data-action="refreshAll">Refresh</button>
+    <a class="btn btn-ghost btn-sm" href="/privacy" target="_blank" rel="noopener" title="Export or delete your data — Privacy Center">Privacy</a>
     <button class="btn btn-ghost topbar-logout btn-sm" data-action="doLogout">Logout</button>
   </div>
 </div>
@@ -1373,6 +1374,21 @@
           <button class="btn btn-secondary btn-sm" data-action="removeStudentFromRoster" style="color:var(--red)">Remove from roster</button>
         </div>
         <div class="tool-card-result" id="roster-remove-status" style="font-size:12px"></div>
+      </div>
+
+      <!-- DPDP/GDPR self-service: the Privacy Center (/privacy) lets the logged-in
+           user export their data (right of access/portability) or delete their
+           account (right of erasure). Cookie auth is shared with the dashboard, so
+           the user lands already authenticated. This is the discoverable in-app
+           door to a capability that previously only had a public /trust-center link. -->
+      <div class="tool-card" data-section="danger">
+        <div class="tool-card-body">
+          <h3>Privacy &amp; Your Data</h3>
+          <p>Export a copy of your personal data, manage consent, or permanently delete your account — your rights under the DPDP Act / GDPR. Opens the Privacy Center.</p>
+        </div>
+        <div class="tool-card-actions">
+          <a class="btn btn-secondary btn-sm" href="/privacy" target="_blank" rel="noopener">Open Privacy Center</a>
+        </div>
       </div>
 
       <div class="tool-card" data-section="exam">

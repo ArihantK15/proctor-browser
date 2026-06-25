@@ -14,7 +14,7 @@ const faqs = [
   },
   {
     q: 'Can students cheat using their phone?',
-    a: 'Procta uses YOLO26 object detection to identify phones, tablets, and other unauthorized devices in the camera frame. Any detected device triggers a real-time violation log entry.'
+    a: 'Procta uses YOLO26 object detection to identify phones, earphones, headphones, and smartwatches in the camera frame. Any detected device triggers a real-time violation log entry.'
   },
   {
     q: 'Do I have to re-type all my questions?',

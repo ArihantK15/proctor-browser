@@ -55,7 +55,7 @@ export default function CompareTalview() {
                 <ComparisonRow label="On-device ML (no frames leaving student PC)" talview={<X className="text-rose-400" size={18} />} procta={<Check className="text-emerald-400" size={18} />} />
                 <ComparisonRow label="AI face / gaze / object detection" talview={<Check className="text-emerald-400" size={18} />} procta={<Check className="text-emerald-400" size={18} />} />
                 <ComparisonRow label="Agentic AI proctoring agent" talview="Alvy AI Agent" procta="Behavioural pattern engine" />
-                <ComparisonRow label="LTI 1.3 integration (Canvas / Moodle)" talview={<Check className="text-emerald-400" size={18} />} procta={<Check className="text-emerald-400" size={18} />} />
+                <ComparisonRow label="LTI 1.3 integration (Canvas / Moodle)" talview={<Check className="text-emerald-400" size={18} />} procta={<span className="text-amber-400 text-sm font-semibold">Beta</span>} />
                 <ComparisonRow label="LLM-graded short answers" talview="Not publicly disclosed" procta="Included on Growth and above" />
                 <ComparisonRow label="Live teacher webcam view" talview={<Check className="text-emerald-400" size={18} />} procta={<Check className="text-emerald-400" size={18} />} />
                 <ComparisonRow label="Real-time chat with student during exam" talview="Not publicly disclosed" procta={<Check className="text-emerald-400" size={18} />} />

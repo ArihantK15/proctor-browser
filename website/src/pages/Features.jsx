@@ -36,7 +36,7 @@ const featureGroups = [
     features: [
       'Gaze tracking detects prolonged off-screen looks that indicate external references',
       'Face detection (uniface / RetinaFace ONNX) ensures the registered candidate stays present',
-      'Object detection (YOLO26, NMS-free and CPU-optimized) identifies phones, books, earphones, and other unauthorized items',
+      'Object detection (YOLO26, NMS-free and CPU-optimized) identifies phones, earphones, headphones, and smartwatches',
       'On-device speech-to-text keyword detection (Vosk en-IN + hi-IN) flags spoken cheat phrases like "the answer is" or per-exam custom keywords — raw audio never leaves the device',
       'Multi-voice detection via Silero VAD + MFCC clustering catches a second person helping in the room without storing any audio',
       'RMS audio anomaly detection covers sustained voice, conversation patterns, and dictation-style speech',

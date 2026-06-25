@@ -103,7 +103,7 @@ export default function Hero() {
           <motion.p variants={childVar} className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400 md:text-xl">
             Procta is the full exam workflow: Procta Secure Browser (PSB), on-device
             AI proctoring, phone-camera room scan, live teacher dashboard,
-            AI grading suggestions, scorecards, LTI, and Razorpay billing.
+            AI grading suggestions, scorecards, LTI (beta), and Razorpay billing.
           </motion.p>
 
           <motion.div variants={childVar} className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
@@ -153,7 +153,7 @@ export default function Hero() {
             <div className="p-6 md:p-8">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 {[
-                  { label: 'Active Students', value: '1.5k', color: 'text-emerald' },
+                  { label: 'Load-Tested Concurrent', value: '1.5k', color: 'text-emerald' },
                   { label: 'Live Cache Cap', value: '6.5k', color: 'text-accent-light' },
                   { label: 'AI Grades', value: '~3s', color: 'text-amber' },
                   { label: 'Tests Passing', value: '890+', color: 'text-slate-300' },

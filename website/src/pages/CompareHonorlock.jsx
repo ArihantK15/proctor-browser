@@ -57,7 +57,7 @@ export default function CompareHonorlock() {
                 <ComparisonRow label="On-device ML (no frames leaving student PC)" honorlock={<X className="text-rose-400" size={18} />} procta={<Check className="text-emerald-400" size={18} />} />
                 <ComparisonRow label="AI face / gaze / object detection" honorlock="AI monitoring (no face recognition)" procta={<Check className="text-emerald-400" size={18} />} />
                 <ComparisonRow label="Live proctor pop-in" honorlock="AI + Live Pop-In tier" procta="Teacher alerts and chat" />
-                <ComparisonRow label="LTI 1.3 integration (Canvas / Moodle)" honorlock={<Check className="text-emerald-400" size={18} />} procta={<Check className="text-emerald-400" size={18} />} />
+                <ComparisonRow label="LTI 1.3 integration (Canvas / Moodle)" honorlock={<Check className="text-emerald-400" size={18} />} procta={<span className="text-amber-400 text-sm font-semibold">Beta</span>} />
                 <ComparisonRow label="LLM-graded short answers" honorlock="Not publicly disclosed" procta="Included on Growth and above" />
                 <ComparisonRow label="Live teacher webcam view" honorlock="Not publicly disclosed" procta={<Check className="text-emerald-400" size={18} />} />
                 <ComparisonRow label="Real-time chat with student during exam" honorlock={<Check className="text-emerald-400" size={18} />} procta={<Check className="text-emerald-400" size={18} />} />

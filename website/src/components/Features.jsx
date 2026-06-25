@@ -23,7 +23,7 @@ const groups = [
     items: [
       { icon: ScanFace, name: 'Face Detection', desc: 'MediaPipe-powered face presence monitoring with absence tracking' },
       { icon: Eye, name: 'Gaze Tracking', desc: 'Detects prolonged off-screen gaze patterns indicating external reference' },
-      { icon: Box, name: 'Object Detection', desc: 'YOLO26 identifies phones, books, laptops, and unauthorized items in real-time — NMS-free and CPU-optimized for student laptops' },
+      { icon: Box, name: 'Object Detection', desc: 'YOLO26 identifies phones, earphones, headphones, and smartwatches in real-time — NMS-free and CPU-optimized for student laptops' },
       { icon: Volume2, name: 'Audio Analysis', desc: 'RMS-based voice detection flags conversations and dictation' },
       { icon: Smartphone, name: 'Phone Room Camera', desc: 'QR pairing turns a student phone into a second room-scan camera' },
     ]
@@ -60,7 +60,7 @@ const groups = [
   {
     label: 'Institution Readiness',
     items: [
-      { icon: Layers3, name: 'LTI 1.3 + Classroom', desc: 'Canvas/Moodle launch support and Google Classroom sync paths' },
+      { icon: Layers3, name: 'LTI 1.3 (beta) + Classroom', desc: 'Canvas/Moodle deep-link launch (LTI 1.3, in beta) and Google Classroom sync' },
       { icon: ReceiptIndianRupee, name: 'Razorpay Billing', desc: 'INR plans, UPI Autopay subscription path, quotas, and overage logic' },
       { icon: BadgeCheck, name: 'Issues & Appeals', desc: 'Teacher issue reports and human-in-the-loop review for fairness' },
       { icon: Building2, name: 'Organizations & Roles', desc: 'Many teachers under one institution, with admin oversight — a roll-up across every teacher’s exams, results, and evidence, and strict per-teacher isolation' },

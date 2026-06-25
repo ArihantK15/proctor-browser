@@ -132,7 +132,7 @@ const capabilities = [
   { icon: Smartphone, title: 'Phone-camera room scan', body: 'QR pairing turns a student phone into a second room camera for desk and side-device context.' },
   { icon: Zap, title: 'Parallel AI grading', body: 'Short-answer grading suggestions run in parallel and stay human-reviewed.' },
   { icon: MessageSquare, title: 'Mid-exam student chat', body: 'Broadcast or reply without breaking the proctored session.' },
-  { icon: Landmark, title: 'LMS integrations', body: 'LTI 1.3 deep-link launch for Canvas and Moodle, plus Google Classroom sync paths.' },
+  { icon: Landmark, title: 'LMS integrations', body: 'LTI 1.3 deep-link launch for Canvas and Moodle (beta), plus Google Classroom sync.' },
   { icon: ReceiptIndianRupee, title: 'India-ready billing', body: 'Razorpay Checkout, UPI Autopay, INR/GST plans, quotas, and overage logic.' },
   { icon: BadgeCheck, title: 'Fairness and appeals', body: 'Explainable evidence, confidence, screenshots, issue reports, and teacher decisions.' },
   { icon: ServerCog, title: 'Production operations', body: 'Docker, Caddy TLS, Redis/RQ workers, health checks, request IDs, backups, and scans.' },

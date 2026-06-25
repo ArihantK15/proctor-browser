@@ -192,23 +192,29 @@
              font-size:12px;font-family:var(--font-mono);transition:all var(--duration-fast) var(--ease-standard);
              user-select:none}
   .lang-chip.selected{background:var(--accent-subtle);border-color:var(--accent-border);color:var(--accent)}
-  .test-case-grid{border:1px solid var(--border-subtle);border-radius:var(--radius-md);
-                  overflow:hidden;background:var(--surface-1)}
-  .test-case-grid table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
-  .test-case-grid th{padding:6px 8px;text-align:left;font-size:10px;font-weight:600;
-                     color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;
-                     background:var(--bg-subtle);border-bottom:1px solid var(--border-subtle)}
-  .test-case-grid td{padding:4px 6px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
-  .test-case-grid tr:last-child td{border-bottom:none}
-  .test-case-grid textarea,.test-case-grid input[type=text]{
-    width:100%;background:var(--bg-base);border:1px solid var(--border-subtle);
-    border-radius:4px;padding:5px 6px;color:var(--text-high);font-size:12px;
-    font-family:var(--font-mono);box-sizing:border-box;resize:vertical;min-height:28px}
-  .test-case-grid textarea:focus,.test-case-grid input:focus{
-    outline:none;border-color:var(--accent)}
-  .test-case-grid select{background:var(--bg-base);border:1px solid var(--border-subtle);
-                         border-radius:4px;padding:4px 6px;color:var(--text-high);
-                         font-size:11px;font-family:inherit;cursor:pointer}
+  /* Test cases as stacked cards — full-width fields that can never overflow the
+     modal (the old 6-col table fought the 800px box). */
+  .test-case-cards{display:flex;flex-direction:column;gap:10px}
+  .tc-card{border:1px solid var(--border-subtle);border-radius:var(--radius-md);
+           background:var(--surface-1);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+  .tc-card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .tc-card-head .tc-num{font-size:11px;font-weight:600;color:var(--text-muted);
+                        letter-spacing:.04em;text-transform:uppercase;margin-right:auto}
+  .tc-field-label{font-size:10px;font-weight:600;color:var(--text-muted);
+                  letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:3px}
+  .tc-card textarea{width:100%;background:var(--bg-base);border:1px solid var(--border-subtle);
+    border-radius:4px;padding:6px 8px;color:var(--text-high);font-size:12px;
+    font-family:var(--font-mono);box-sizing:border-box;resize:vertical;min-height:32px}
+  .tc-card textarea:focus,.tc-card select:focus,.tc-card input:focus{outline:none;border-color:var(--accent)}
+  .tc-card select,.tc-card .tc-float-tol{background:var(--bg-base);border:1px solid var(--border-subtle);
+    border-radius:4px;padding:4px 8px;color:var(--text-high);font-size:11px;font-family:inherit;cursor:pointer}
+  .tc-card .tc-float-tol{width:120px;cursor:text;font-family:var(--font-mono)}
+  /* Per-language starter-code tabs */
+  .starter-lang-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px}
+  .starter-lang-tab{font-size:11px;padding:4px 11px;border-radius:999px;cursor:pointer;user-select:none;
+    border:1px solid var(--border-subtle);background:var(--surface-1);color:var(--text-mid);transition:all .12s ease}
+  .starter-lang-tab:hover{border-color:var(--accent-border)}
+  .starter-lang-tab.active{background:var(--accent-subtle);border-color:var(--accent-border);color:var(--accent)}
   .tc-row-remove{background:none;border:none;color:var(--sev-error-fg);cursor:pointer;
                  font-size:16px;padding:2px 6px;border-radius:4px}
   .tc-row-remove:hover{background:var(--sev-error-subtle)}
@@ -2436,31 +2442,21 @@
           </select>
         </div>
         <div>
-          <label for="coding-time-limit">Time Limit (ms)</label>
-          <input type="number" id="coding-time-limit" min="500" max="15000" step="100" value="5000">
+          <label for="coding-time-limit">Run time / test (sec)</label>
+          <input type="number" id="coding-time-limit" min="1" max="15" step="0.5" value="5">
+          <div class="coding-hint">Max seconds a student's code may run per test case before it's marked timed-out.</div>
         </div>
       </div>
 
       <div>
-        <label for="coding-starter-code">Starter Code</label>
-        <textarea id="coding-starter-code" rows="5" placeholder="function solution() { /* students fill this in */ }" style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
+        <label for="coding-starter-code">Starter Code <span class="coding-hint">per language — what the student sees pre-filled in the editor</span></label>
+        <div class="starter-lang-tabs" id="coding-starter-tabs"></div>
+        <textarea id="coding-starter-code" rows="6" placeholder="Pick a language tab above. Leave blank for an empty editor." style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
       </div>
 
       <div>
         <label>Test Cases <span class="coding-hint" id="coding-tc-hint">needs ≥1 hidden case</span></label>
-        <div class="test-case-grid" id="coding-tc-grid">
-          <table>
-            <thead><tr>
-              <th style="width:4%">#</th>
-              <th style="width:30%">Input</th>
-              <th style="width:34%">Expected Output</th>
-              <th style="width:14%">Visibility</th>
-              <th style="width:8%">Float Tol.</th>
-              <th style="width:10%"></th>
-            </tr></thead>
-            <tbody id="coding-tc-tbody"></tbody>
-          </table>
-        </div>
+        <div class="test-case-cards" id="coding-tc-tbody"></div>
         <button class="tc-add-btn" data-action="codingAddTestCase">+ Add test case</button>
       </div>
 

@@ -67,12 +67,24 @@ def _clean_options(raw: dict) -> dict:
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="time_limit_ms must be an integer")
     tlimit = max(500, min(tlimit, 15000))
+    # starter_code is a per-language {lang: code} map (the dashboard sends one
+    # template per allowed language). A legacy single string is still accepted.
+    # Keep only allowed languages and cap each template.
+    raw_starter = opts.get("starter_code")
+    if raw_starter is None:
+        raw_starter = opts.get("starter") or ""
+    if isinstance(raw_starter, dict):
+        starter = {l: str(raw_starter[l])[:20000] for l in langs if raw_starter.get(l)}
+    elif isinstance(raw_starter, str):
+        starter = raw_starter[:20000]
+    else:
+        starter = ""
     return {
         "allowed_languages": langs,
         "marks": marks,
         "marks_policy": policy,
         "time_limit_ms": tlimit,
-        "starter_code": str(opts.get("starter_code") or opts.get("starter") or ""),
+        "starter_code": starter,
     }
 
 

@@ -5381,11 +5381,12 @@ function hideCodingForm(){
 
 function _codingResetForm(){
   document.getElementById('coding-statement').value = '';
-  _codingSetLangs(['javascript']);
+  _codingStarter = {};
+  _codingStarterLang = null;
+  _codingSetLangs(['javascript']);   // also renders starter tabs + default
   document.getElementById('coding-marks').value = 10;
   document.getElementById('coding-marks-policy').value = 'partial';
-  document.getElementById('coding-time-limit').value = 5000;
-  document.getElementById('coding-starter-code').value = '';
+  document.getElementById('coding-time-limit').value = 5;   // seconds
   const tbody = document.getElementById('coding-tc-tbody');
   if(tbody) tbody.innerHTML = '';
   document.getElementById('coding-ref-solution-code').textContent = '';
@@ -5399,6 +5400,7 @@ function _codingSetLangs(arr){
   document.querySelectorAll('#coding-lang-chips .lang-chip').forEach(el => {
     el.classList.toggle('selected', arr.includes(el.dataset.lang));
   });
+  _renderStarterTabs();
 }
 
 function codingToggleLang(lang){
@@ -5410,39 +5412,105 @@ function codingToggleLang(lang){
   _codingSetLangs(current);
 }
 
+// ── Per-language starter code ───────────────────────────────────────────────
+// Each allowed language keeps its own starter template (the editor scaffolding
+// the student opens with). Stored as a {lang: code} map; a tab switches which
+// language's code the textarea is bound to.
+const _STARTER_LANG_LABELS = {javascript:'JavaScript', typescript:'TypeScript',
+  python:'Python', c:'C', cpp:'C++', java:'Java'};
+const _STARTER_DEFAULTS = {
+  javascript: '// Read stdin, write your answer to stdout.\nconst data = require("fs").readFileSync(0, "utf8").trim();\n',
+  typescript: '// Read stdin, write your answer to stdout.\nconst data: string = require("fs").readFileSync(0, "utf8").trim();\n',
+  python: '# Read stdin, print your answer.\nimport sys\ndata = sys.stdin.read().split()\n',
+  c: '#include <stdio.h>\n\nint main(void) {\n    // read from stdin, print to stdout\n    return 0;\n}\n',
+  cpp: '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // read from stdin, print to stdout\n    return 0;\n}\n',
+  java: 'import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        // print your answer to stdout\n    }\n}\n',
+};
+let _codingStarter = {};          // lang -> code (undefined = never visited)
+let _codingStarterLang = null;    // currently-open tab
+
+function _codingFlushStarter(){
+  if(_codingStarterLang != null){
+    _codingStarter[_codingStarterLang] = document.getElementById('coding-starter-code').value;
+  }
+}
+
+function _renderStarterTabs(){
+  const tabs = document.getElementById('coding-starter-tabs');
+  if(!tabs) return;
+  _codingFlushStarter();   // preserve the open tab's edits before re-rendering
+  const langs = JSON.parse(document.getElementById('coding-langs').value || '[]');
+  // Keep the active tab valid; if its language was removed, fall back to the first.
+  if(!langs.includes(_codingStarterLang)) { _codingStarterLang = langs[0] || null; }
+  tabs.innerHTML = langs.map(l =>
+    `<span class="starter-lang-tab${l===_codingStarterLang?' active':''}" data-action="codingStarterTab" data-args='${_jsonArgsForAttr(l)}'>${_escHtml(_STARTER_LANG_LABELS[l]||l)}</span>`
+  ).join('');
+  _loadStarterForActive();
+}
+
+function _loadStarterForActive(){
+  const ta = document.getElementById('coding-starter-code');
+  if(_codingStarterLang == null){ ta.value = ''; ta.disabled = true; return; }
+  ta.disabled = false;
+  if(_codingStarter[_codingStarterLang] === undefined){
+    _codingStarter[_codingStarterLang] = _STARTER_DEFAULTS[_codingStarterLang] || '';
+  }
+  ta.value = _codingStarter[_codingStarterLang];
+}
+
+function codingStarterTab(lang){
+  _codingFlushStarter();        // save what's in the box before switching
+  _codingStarterLang = lang;
+  document.querySelectorAll('#coding-starter-tabs .starter-lang-tab').forEach(el => {
+    el.classList.toggle('active', el.textContent === (_STARTER_LANG_LABELS[lang]||lang));
+  });
+  _loadStarterForActive();
+}
+
+function _tcCardHtml(idx, c){
+  c = c || {};
+  const hiddenSel = (c.visibility === 'hidden' || !c.visibility) ? ' selected' : '';
+  const sampleSel = c.visibility === 'sample' ? ' selected' : '';
+  const ft = c.float_tolerance != null ? _escAttr(String(c.float_tolerance)) : '';
+  return `<div class="tc-card-head">
+      <span class="tc-num">Test ${idx+1}</span>
+      <select class="tc-visibility" data-change-action="_updateTcHint">
+        <option value="sample"${sampleSel}>Sample (visible to student)</option>
+        <option value="hidden"${hiddenSel}>Hidden (graded)</option>
+      </select>
+      <input type="text" class="tc-float-tol" placeholder="float ± (optional)" value="${ft}">
+      <button class="tc-row-remove" data-action="codingRemoveTestCase" data-args='${_jsonArgsForAttr(idx)}' title="Remove test case">×</button>
+    </div>
+    <div><span class="tc-field-label">Input (stdin)</span><textarea rows="2" class="tc-input" placeholder="passed to the program's standard input">${_escHtml(c.input||'')}</textarea></div>
+    <div><span class="tc-field-label">Expected output (stdout)</span><textarea rows="2" class="tc-expected" placeholder="exact text the program must print">${_escHtml(c.expected_output||'')}</textarea></div>`;
+}
+
 function codingAddTestCase(){
-  const tbody = document.getElementById('coding-tc-tbody');
-  const idx = tbody.children.length;
-  const tr = document.createElement('tr');
-  tr.dataset.tcidx = idx;
-  tr.innerHTML = `<td style="text-align:center;color:var(--text-muted);font-size:10px">${idx+1}</td>
-    <td><textarea rows="2" class="tc-input" placeholder="stdin input"></textarea></td>
-    <td><textarea rows="2" class="tc-expected" placeholder="expected stdout"></textarea></td>
-    <td><select class="tc-visibility" data-change-action="_updateTcHint">
-      <option value="sample">Sample</option>
-      <option value="hidden" selected>Hidden</option>
-    </select></td>
-    <td><input type="text" class="tc-float-tol" placeholder="±" style="width:60px;font-size:11px"></td>
-    <td><button class="tc-row-remove" data-action="codingRemoveTestCase" data-args='${_jsonArgsForAttr(idx)}' title="Remove">×</button></td>`;
-  tbody.appendChild(tr);
+  const wrap = document.getElementById('coding-tc-tbody');
+  const idx = wrap.children.length;
+  const card = document.createElement('div');
+  card.className = 'tc-card';
+  card.dataset.tcidx = idx;
+  card.innerHTML = _tcCardHtml(idx, {});
+  wrap.appendChild(card);
   _updateTcHint();
 }
 
 function codingRemoveTestCase(idx){
-  const tbody = document.getElementById('coding-tc-tbody');
-  const row = tbody.querySelector(`tr[data-tcidx="${idx}"]`);
-  if(row) row.remove();
+  const wrap = document.getElementById('coding-tc-tbody');
+  const card = wrap.querySelector(`[data-tcidx="${idx}"]`);
+  if(card) card.remove();
   _renumberTcRows();
   _updateTcHint();
 }
 
 function _renumberTcRows(){
-  const tbody = document.getElementById('coding-tc-tbody');
-  Array.from(tbody.children).forEach((tr, i) => {
-    tr.dataset.tcidx = i;
-    const td = tr.querySelector('td:first-child');
-    if(td) td.textContent = i + 1;
-    const btn = tr.querySelector('.tc-row-remove');
+  const wrap = document.getElementById('coding-tc-tbody');
+  Array.from(wrap.children).forEach((card, i) => {
+    card.dataset.tcidx = i;
+    const num = card.querySelector('.tc-num');
+    if(num) num.textContent = `Test ${i + 1}`;
+    const btn = card.querySelector('.tc-row-remove');
     if(btn) btn.setAttribute('data-args', _jsonArgsForAttr(i));
   });
 }
@@ -5479,11 +5547,21 @@ async function _loadCodingForEdit(questionId){
 function _codingPopulateForm(data){
   document.getElementById('coding-statement').value = data.question || '';
   const opts = data.options || {};
-  _codingSetLangs(opts.allowed_languages || ['javascript']);
+  const langs = opts.allowed_languages || ['javascript'];
+  // starter_code: a {lang:code} map (new) or a single string (legacy → seed it
+  // for every allowed language so nothing is lost; teacher can then edit per-lang).
+  const sc = opts.starter_code;
+  _codingStarter = {};
+  _codingStarterLang = null;
+  if(sc && typeof sc === 'object'){
+    _codingStarter = Object.assign({}, sc);
+  }else if(typeof sc === 'string' && sc){
+    langs.forEach(l => { _codingStarter[l] = sc; });
+  }
+  _codingSetLangs(langs);   // renders starter tabs + loads the active language's code
   document.getElementById('coding-marks').value = opts.marks || 10;
   document.getElementById('coding-marks-policy').value = (opts.marks_policy || 'partial');
-  document.getElementById('coding-time-limit').value = opts.time_limit_ms || 5000;
-  document.getElementById('coding-starter-code').value = opts.starter_code || '';
+  document.getElementById('coding-time-limit').value = (opts.time_limit_ms || 5000) / 1000;
   codingRenderTestCases(data.test_cases || []);
   if(data.reference_solution){
     document.getElementById('coding-ref-solution-code').textContent = data.reference_solution;
@@ -5492,22 +5570,14 @@ function _codingPopulateForm(data){
 }
 
 function codingRenderTestCases(cases){
-  const tbody = document.getElementById('coding-tc-tbody');
-  tbody.innerHTML = '';
+  const wrap = document.getElementById('coding-tc-tbody');
+  wrap.innerHTML = '';
   cases.forEach((c, i) => {
-    const tr = document.createElement('tr');
-    tr.dataset.tcidx = i;
-    tr.innerHTML = `<td style="text-align:center;color:var(--text-muted);font-size:10px">${i+1}</td>
-      <td><textarea rows="2" class="tc-input">${_escHtml(c.input||'')}</textarea></td>
-      <td><textarea rows="2" class="tc-expected">${_escHtml(c.expected_output||'')}</textarea></td>
-      <td><select class="tc-visibility">
-        <option value="sample" ${c.visibility==='sample'?'selected':''}>Sample</option>
-        <option value="hidden" ${c.visibility==='hidden'?'selected':''}>Hidden</option>
-      </select></td>
-      <td><input type="text" class="tc-float-tol" placeholder="±" style="width:60px;font-size:11px"
-        value="${c.float_tolerance!=null ? _escAttr(String(c.float_tolerance)) : ''}"></td>
-      <td><button class="tc-row-remove" data-action="codingRemoveTestCase" data-args='${_jsonArgsForAttr(i)}' title="Remove">×</button></td>`;
-    tbody.appendChild(tr);
+    const card = document.createElement('div');
+    card.className = 'tc-card';
+    card.dataset.tcidx = i;
+    card.innerHTML = _tcCardHtml(i, c);
+    wrap.appendChild(card);
   });
   _updateTcHint();
 }
@@ -5517,8 +5587,14 @@ function _codingCollectForm(){
   const langs = JSON.parse(document.getElementById('coding-langs').value || '[]');
   const marks = parseInt(document.getElementById('coding-marks').value, 10) || 1;
   const marksPolicy = document.getElementById('coding-marks-policy').value;
-  const timeLimitMs = parseInt(document.getElementById('coding-time-limit').value, 10) || 5000;
-  const starterCode = document.getElementById('coding-starter-code').value;
+  // UI is in seconds; the API contract stays in ms.
+  const timeLimitSec = parseFloat(document.getElementById('coding-time-limit').value) || 5;
+  const timeLimitMs = Math.round(timeLimitSec * 1000);
+  // Per-language starter map: flush the open tab, then keep only allowed langs.
+  _codingFlushStarter();
+  const langsSel = JSON.parse(document.getElementById('coding-langs').value || '[]');
+  const starterCode = {};
+  langsSel.forEach(l => { if(_codingStarter[l] != null) starterCode[l] = _codingStarter[l]; });
   const tbody = document.getElementById('coding-tc-tbody');
   const testCases = [];
   Array.from(tbody.children).forEach((tr, i) => {
@@ -5534,7 +5610,7 @@ function _codingCollectForm(){
   if(!langs.length) errors.push('At least one language must be selected.');
   if(marks < 1 || marks > 100) errors.push('Marks must be between 1 and 100.');
   if(!['partial','all_or_nothing'].includes(marksPolicy)) errors.push('Invalid marks policy.');
-  if(timeLimitMs < 500 || timeLimitMs > 15000) errors.push('Time limit must be 500-15000 ms.');
+  if(timeLimitSec < 1 || timeLimitSec > 15) errors.push('Run time must be between 1 and 15 seconds.');
   if(!testCases.length) errors.push('At least one test case is required.');
   const hidden = testCases.filter(c => c.visibility === 'hidden').length;
   if(!hidden) errors.push('At least one hidden test case is required.');

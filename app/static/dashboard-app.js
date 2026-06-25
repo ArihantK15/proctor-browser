@@ -5376,7 +5376,7 @@ function _wireCodingAutogrow(){
   });
 }
 
-function showCodingForm(questionId){
+function showCodingForm(questionId, seed){
   if(!currentExamId){ showModal('Select an exam first.'); return; }
   _wireCodingAutogrow();
   _editingCodingId = questionId ? String(questionId) : null;
@@ -5388,6 +5388,9 @@ function showCodingForm(questionId){
   document.getElementById('coding-save-msg').textContent = '';
   if(questionId){
     _loadCodingForEdit(questionId);
+  }else if(seed){
+    _codingPopulateForm(seed);   // carried-over wizard draft (same shape as edit-load)
+    if(!document.getElementById('coding-tc-tbody').children.length) codingAddTestCase();
   }else{
     codingAddTestCase();
   }
@@ -5724,7 +5727,35 @@ function showCodingWizard(){
   _cwizRender();
 }
 function hideCodingWizard(){ document.getElementById('coding-wizard-overlay').style.display = 'none'; }
-function cwizUseAdvanced(){ hideCodingWizard(); showCodingForm(null); }
+
+// Build the {question, options, test_cases} seed (the exact shape the GET edit-load
+// returns, so the advanced form's _codingPopulateForm consumes it unchanged) from
+// the current wizard draft — used when the teacher escapes to the full editor.
+function _cwizToFormSeed(){
+  const starter_code = {}; _cwiz.langs.forEach(l => { starter_code[l] = _STARTER_DEFAULTS[l] || ''; });
+  // Carry any case with content (even half-filled) so the teacher keeps their work;
+  // the advanced form validates on save.
+  const mk = (arr, vis) => arr
+    .filter(c => (c.input || '').trim() || (c.expected || '').trim())
+    .map(c => ({input: c.input, expected_output: c.expected, visibility: vis}));
+  return {
+    question: _cwiz.statement,
+    options: {
+      allowed_languages: _cwiz.langs.slice(),
+      marks: _cwiz.marks,
+      marks_policy: _cwiz.policy,
+      time_limit_ms: Math.round(_cwiz.timeSec * 1000),
+      starter_code,
+    },
+    test_cases: [...mk(_cwiz.samples, 'sample'), ...mk(_cwiz.hidden, 'hidden')],
+  };
+}
+function cwizUseAdvanced(){
+  _cwizSaveStep();                 // capture the open step's edits first
+  const seed = _cwizToFormSeed();
+  hideCodingWizard();
+  showCodingForm(null, seed);      // carry the draft over instead of discarding it
+}
 
 function _cwizCasesHtml(list, key, label){
   return list.map((c,i)=>`

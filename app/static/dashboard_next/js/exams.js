@@ -121,7 +121,60 @@
   // navigation stubs until those sections route in
   onAction("openMonitor", () => { window.location.href = "/dashboard-next"; });
   onAction("openResults", () => { /* TODO: route to Results detail */ });
-  onAction("editExam", () => { /* TODO: open exam editor */ });
+  // ---- exam settings editor (schedule / pass-mark / access-code / sensitivity) ----
+  const eLabel = "block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1";
+  const eField = "w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 text-body-base focus:border-primary";
+  const EE_HTML =
+    '<div id="examEditModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/70 backdrop-blur-sm p-md">' +
+    '<div class="bg-surface-container border border-outline-variant w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl p-xl shadow-2xl">' +
+    '<div class="flex items-center justify-between mb-lg"><h2 id="ee-title" class="font-bold text-lg">Exam Settings</h2>' +
+    '<button data-action="eeClose" class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">close</span></button></div>' +
+    '<div class="space-y-md">' +
+    '<div class="grid grid-cols-2 gap-md"><div><label class="' + eLabel + '">Opens</label><input id="ee-start" type="datetime-local" class="' + eField + ' text-body-sm [color-scheme:dark]"/></div>' +
+    '<div><label class="' + eLabel + '">Closes</label><input id="ee-end" type="datetime-local" class="' + eField + ' text-body-sm [color-scheme:dark]"/></div></div>' +
+    '<div class="grid grid-cols-2 gap-md"><div><label class="' + eLabel + '">Early join (min)</label><input id="ee-early" type="number" min="0" max="240" class="' + eField + ' font-data-mono"/></div>' +
+    '<div><label class="' + eLabel + '">Pass mark (%)</label><input id="ee-pass" type="number" min="0" max="100" class="' + eField + ' font-data-mono text-primary"/></div></div>' +
+    '<div class="grid grid-cols-2 gap-md"><div><label class="' + eLabel + '">Access code</label><input id="ee-code" type="text" placeholder="(none)" class="' + eField + ' font-data-mono uppercase"/></div>' +
+    '<div><label class="' + eLabel + '">Proctoring</label><select id="ee-sens" class="' + eField + ' font-semibold [&>option]:bg-surface-container"><option value="lenient">Lenient</option><option value="balanced">Balanced</option><option value="strict">Strict</option></select></div></div>' +
+    '<p id="ee-err" class="text-error text-body-sm hidden"></p></div>' +
+    '<div class="flex justify-end gap-md mt-xl"><button data-action="eeClose" class="px-lg py-md border border-outline-variant rounded-lg font-bold text-body-sm hover:bg-surface-container-high">Cancel</button>' +
+    '<button id="ee-save" data-action="eeSave" class="px-lg py-md bg-primary text-on-primary rounded-lg font-bold text-body-sm hover:opacity-90">Save Settings</button></div></div></div>';
+  const toLocal = (iso) => { if (!iso) return ""; try { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); } catch (_) { return ""; } };
+  const toIso = (v) => { try { return v ? new Date(v).toISOString() : null; } catch (_) { return null; } };
+  let _eeExam = null;
+  function eeEnsure() { if (!$("examEditModal")) { const h = document.createElement("div"); h.innerHTML = EE_HTML; document.body.appendChild(h.firstChild); } }
+  onAction("editExam", (el) => {
+    eeEnsure();
+    const eid = eidOf(el); _eeExam = all.find((x) => String(x.exam_id) === String(eid)); if (!_eeExam) return;
+    $("ee-title").textContent = `Settings — ${_eeExam.exam_title || "Exam"}`;
+    $("ee-start").value = toLocal(_eeExam.starts_at); $("ee-end").value = toLocal(_eeExam.ends_at);
+    $("ee-early").value = _eeExam.early_join_minutes != null ? _eeExam.early_join_minutes : 15;
+    $("ee-pass").value = _eeExam.pass_mark != null ? _eeExam.pass_mark : 40;
+    $("ee-code").value = _eeExam.access_code || "";
+    $("ee-sens").value = (_eeExam.proctoring_sensitivity || "balanced");
+    $("ee-err").classList.add("hidden");
+    const m = $("examEditModal"); m.classList.remove("hidden"); m.classList.add("flex");
+  });
+  onAction("eeClose", () => { const m = $("examEditModal"); if (m) { m.classList.add("hidden"); m.classList.remove("flex"); } });
+  onAction("eeSave", async (btn) => {
+    if (!_eeExam) return;
+    const eid = _eeExam.exam_id;
+    const pm = parseInt($("ee-pass").value, 10);
+    if (isNaN(pm) || pm < 0 || pm > 100) { $("ee-err").textContent = "Pass mark must be 0–100."; $("ee-err").classList.remove("hidden"); return; }
+    btn.disabled = true; btn.textContent = "Saving…";
+    const calls = [
+      authFetch("/api/v1/admin/exam-schedule", { method: "POST", body: JSON.stringify({ exam_id: eid, starts_at: toIso($("ee-start").value), ends_at: toIso($("ee-end").value), early_join_minutes: parseInt($("ee-early").value, 10) || 0 }) }),
+      authFetch("/api/v1/admin/exams/pass-mark", { method: "POST", body: JSON.stringify({ exam_id: eid, pass_mark: pm }) }),
+      authFetch("/api/v1/admin/access-code", { method: "POST", body: JSON.stringify({ exam_id: eid, access_code: $("ee-code").value.trim() }) }),
+      authFetch("/api/v1/admin/proctoring-sensitivity", { method: "POST", body: JSON.stringify({ exam_id: eid, proctoring_sensitivity: $("ee-sens").value }) }),
+    ];
+    try {
+      const rs = await Promise.all(calls);
+      if (rs.every((r) => r.ok)) { const m = $("examEditModal"); m.classList.add("hidden"); m.classList.remove("flex"); load(); }
+      else { $("ee-err").textContent = "Some settings failed to save."; $("ee-err").classList.remove("hidden"); }
+    } catch (_) { $("ee-err").textContent = "Save failed."; $("ee-err").classList.remove("hidden"); }
+    finally { btn.disabled = false; btn.textContent = "Save Settings"; }
+  });
 
   load();
 })();

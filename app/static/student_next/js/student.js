@@ -11,6 +11,10 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const fmtDay = (v) => { if (!v) return "—"; try { return new Date(v).toLocaleDateString([], { month: "short", day: "2-digit", year: "numeric" }); } catch (_) { return String(v); } };
+  // History's submitted_at is ALREADY server-formatted ("22 Jun 2026, 11:31:03 AM
+  // IST" via fmt_ist) — NOT ISO — so never feed it to new Date() (that yields
+  // "Invalid Date"). Show the date portion of the pre-formatted string as-is.
+  const istDay = (v) => { if (!v) return "—"; return String(v).split(",")[0].trim() || "—"; };
   const fmtWin = (a, b) => { const f = (v) => { try { return new Date(v).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } }; return a ? (b ? `${f(a)} – ${new Date(b).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : f(a)) : "Not scheduled"; };
   async function getJSON(u) { try { const r = await authFetch(u); return r.ok ? await r.json().catch(() => null) : null; } catch (_) { return null; } }
 
@@ -101,7 +105,7 @@
         const pct = Math.round(Number(h.percentage || 0));
         return `<tr class="hover:bg-surface-variant/30 transition-colors group">
           <td class="py-md px-md font-medium text-on-surface">${esc(h.exam_title || "Exam")}</td>
-          <td class="py-md px-md font-data-mono text-data-mono text-on-surface-variant">${esc(fmtDay(h.submitted_at))}</td>
+          <td class="py-md px-md font-data-mono text-data-mono text-on-surface-variant">${esc(istDay(h.submitted_at))}</td>
           <td class="py-md px-md"><div class="flex items-baseline gap-2"><span class="font-data-mono text-data-mono font-bold text-on-surface">${esc(h.score)}/${esc(h.total)}</span><span class="font-data-mono text-data-mono text-sm text-primary">${pct}%</span></div></td>
           <td class="py-md px-md"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${passed ? "bg-secondary/10 text-secondary border-secondary/20" : "bg-error/10 text-error border-error/20"} border font-label-caps text-label-caps uppercase">${passed ? "PASS" : "FAIL"}</span></td>
           <td class="py-md px-md text-right"><button data-action="stScorecard" data-sid="${esc(h.session_key || "")}" title="Download scorecard" class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-variant transition-colors group-hover:opacity-100 opacity-60"><span class="material-symbols-outlined">download</span></button></td></tr>`;

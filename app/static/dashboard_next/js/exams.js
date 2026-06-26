@@ -14,13 +14,19 @@
   let all = [], filter = "all", query = "";
 
   function status(ex) {
+    if (ex.archived_at) return "archived";
     const now = Date.now();
     const s = ex.starts_at ? new Date(ex.starts_at).getTime() : null;
     const e = ex.ends_at ? new Date(ex.ends_at).getTime() : null;
-    if (s == null) return "draft";
-    if (now < s) return "scheduled";
-    if (e != null && now > e) return "completed";
-    return "live";
+    const sessions = Number(ex.session_count || 0);
+    if (s != null) {
+      if (now < s) return "scheduled";
+      if (e != null && now > e) return "completed";
+      return "live"; // schedule window is currently open
+    }
+    // No schedule set: infer from usage so a taken exam isn't mislabeled "Draft".
+    if (sessions > 0) return "completed";
+    return "draft";
   }
   const fmtDay = (v) => { if (!v) return null; try { return new Date(v).toLocaleDateString([], { month: "short", day: "2-digit", year: "numeric" }).toUpperCase(); } catch (_) { return null; } };
   const fmtWin = (a, b) => { const f = (v) => { try { return new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } }; return a && b ? `${f(a)} - ${f(b)}` : (a ? f(a) : ""); };
@@ -29,6 +35,7 @@
     live: ['bg-secondary/10 border border-secondary text-secondary', '<span class="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse"></span> Live'],
     scheduled: ['bg-primary/10 border border-primary text-primary', '<span class="material-symbols-outlined text-[12px]">schedule</span> Scheduled'],
     completed: ['bg-outline-variant/20 border border-outline-variant text-outline', 'Completed'],
+    archived: ['bg-surface-container-highest border border-outline-variant text-on-surface-variant', '<span class="material-symbols-outlined text-[12px]">inventory_2</span> Archived'],
     draft: ['bg-surface-container-highest border border-outline-variant text-on-surface-variant', 'Draft'],
   };
 
@@ -41,7 +48,9 @@
     const btn = (action, icon, color, title) => `<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors ${color}" title="${title}" data-action="${action}" data-eid="${eid}"><span class="material-symbols-outlined">${icon}</span></button>`;
     const out = [];
     if (st === "live") out.push(btn("openMonitor", "monitoring", "text-primary", "Live monitor"));
-    else if (st === "completed") out.push(btn("openResults", "analytics", "text-secondary", "View results"));
+    // Completed/archived exams are read-only — view results, never edit (editing a
+    // finished exam would desync it from already-submitted attempts).
+    else if (st === "completed" || st === "archived") out.push(btn("openResults", "analytics", "text-secondary", "View results"));
     else out.push(btn("editExam", "edit", "text-on-surface-variant", "Edit"));
     out.push(btn("cloneExam", "content_copy", "text-on-surface-variant", "Clone"));
     out.push(btn(ex.archived_at ? "unarchiveExam" : "archiveExam", ex.archived_at ? "unarchive" : "archive", "text-on-surface-variant", ex.archived_at ? "Unarchive" : "Archive"));

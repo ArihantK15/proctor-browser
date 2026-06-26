@@ -111,6 +111,12 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
             "correct": decrypted_correct,
             "question_type": qtype,
             "image_url": q.get("image_url") or "",
+            # Authoring/grading-only fields (short_answer needs these to round-trip
+            # through the bulk save without data loss). NEVER student-facing — the
+            # exam client goes through the _STUDENT_Q_KEYS allowlist (exam.py).
+            "reference_answer": q.get("reference_answer") or "",
+            "max_score": q.get("max_score"),
+            "rubric": q.get("rubric") or "",
         })
     # Numeric-faithful ordering (replaces the removed DB-level ORDER BY).
     out.sort(key=_qid_sort_key)

@@ -171,6 +171,45 @@
     }
   }
 
+  // ---- Reauth (shared) — destructive actions (hard-delete exam / account) need a
+  // short-lived token from POST /api/v1/auth/reauth {password}. reauth(label) opens a
+  // password modal and resolves the token (or null if cancelled/failed). ----
+  var RA_HTML =
+    '<div id="reauthModal" class="fixed inset-0 z-[110] hidden items-center justify-center bg-black/70 backdrop-blur-sm p-md">' +
+    '<div class="bg-surface-container border border-error/30 w-full max-w-sm rounded-2xl p-xl shadow-2xl">' +
+    '<div class="flex items-center gap-md mb-md text-error"><span class="material-symbols-outlined">lock</span><h2 class="font-bold text-lg text-on-surface">Confirm it\'s you</h2></div>' +
+    '<p class="text-on-surface-variant text-body-sm mb-md">Re-enter your password to <span id="reauth-action" class="text-on-surface font-semibold">continue</span>.</p>' +
+    '<input id="reauth-pwd" type="password" placeholder="Password" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 text-body-base focus:border-primary"/>' +
+    '<p id="reauth-err" class="text-error text-body-sm mt-2 hidden"></p>' +
+    '<div class="flex justify-end gap-md mt-lg"><button data-action="reauthCancel" class="px-lg py-md border border-outline-variant rounded-lg font-bold text-body-sm hover:bg-surface-container-high">Cancel</button>' +
+    '<button data-action="reauthSubmit" id="reauth-go" class="px-lg py-md bg-error text-on-error rounded-lg font-bold text-body-sm hover:opacity-90">Confirm</button></div></div></div>';
+  var _reauthResolve = null;
+  function raEnsure() { if (!document.getElementById("reauthModal")) { var h = document.createElement("div"); h.innerHTML = RA_HTML; document.body.appendChild(h.firstChild); } }
+  function raClose(tok) { var m = document.getElementById("reauthModal"); if (m) { m.classList.add("hidden"); m.classList.remove("flex"); } var r = _reauthResolve; _reauthResolve = null; if (r) r(tok); }
+  function reauth(label) {
+    return new Promise(function (resolve) {
+      raEnsure(); _reauthResolve = resolve;
+      var a = document.getElementById("reauth-action"); if (a) a.textContent = label || "continue";
+      var p = document.getElementById("reauth-pwd"); if (p) p.value = "";
+      var e = document.getElementById("reauth-err"); if (e) e.classList.add("hidden");
+      var m = document.getElementById("reauthModal"); m.classList.remove("hidden"); m.classList.add("flex"); if (p) p.focus();
+    });
+  }
+  onAction("reauthCancel", function () { raClose(null); });
+  onAction("reauthSubmit", async function (btn) {
+    var pwd = (document.getElementById("reauth-pwd") || {}).value || "";
+    var err = document.getElementById("reauth-err");
+    if (!pwd) { if (err) { err.textContent = "Enter your password."; err.classList.remove("hidden"); } return; }
+    btn.disabled = true; btn.textContent = "Verifying…";
+    try {
+      var r = await authFetch("/api/v1/auth/reauth", { method: "POST", body: JSON.stringify({ password: pwd }) });
+      if (r.ok) { var d = await r.json().catch(function () { return {}; }); raClose(d.reauth_token || null); }
+      else { if (err) { err.textContent = "Invalid password."; err.classList.remove("hidden"); } }
+    } catch (_) { if (err) { err.textContent = "Verification failed."; err.classList.remove("hidden"); } }
+    finally { btn.disabled = false; btn.textContent = "Confirm"; }
+  });
+  window.ProctaAPI.reauth = reauth;
+
   function initShared() { wireNav(); wireExamSelect(); wireCreateExam(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initShared);
   else initShared();

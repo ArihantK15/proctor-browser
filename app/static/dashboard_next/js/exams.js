@@ -45,8 +45,7 @@
     else out.push(btn("editExam", "edit", "text-on-surface-variant", "Edit"));
     out.push(btn("cloneExam", "content_copy", "text-on-surface-variant", "Clone"));
     out.push(btn(ex.archived_at ? "unarchiveExam" : "archiveExam", ex.archived_at ? "unarchive" : "archive", "text-on-surface-variant", ex.archived_at ? "Unarchive" : "Archive"));
-    // NOTE: hard-delete (DELETE /admin/exams/{id}) requires an X-Reauth-Token; until the
-    // reauth modal is ported, Archive is the safe/reversible path and we omit delete here.
+    out.push(btn("deleteExam", "delete", "text-error", "Delete"));
     return `<div class="flex justify-end gap-sm">${out.join("")}</div>`;
   }
 
@@ -118,6 +117,16 @@
   onAction("cloneExam", (el) => mutate(eidOf(el), "/duplicate", "POST"));
   onAction("archiveExam", (el) => mutate(eidOf(el), "/archive", "POST", "Archive this exam? Students can no longer join."));
   onAction("unarchiveExam", (el) => mutate(eidOf(el), "/unarchive", "POST"));
+  onAction("deleteExam", async (el) => {
+    const eid = eidOf(el);
+    if (!window.confirm("Permanently delete this exam and all its data? This cannot be undone.")) return;
+    const token = api.reauth ? await api.reauth("delete this exam") : null;
+    if (!token) return;
+    try {
+      const r = await authFetch(`/api/v1/admin/exams/${encodeURIComponent(eid)}`, { method: "DELETE", headers: { "X-Reauth-Token": token } });
+      if (r.ok) load(); else { const d = await r.json().catch(() => ({})); alert("Delete failed: " + (d.detail || ("HTTP " + r.status))); }
+    } catch (_) { alert("Delete failed."); }
+  });
   // navigation stubs until those sections route in
   onAction("openMonitor", () => { window.location.href = "/dashboard-next"; });
   onAction("openResults", () => { /* TODO: route to Results detail */ });

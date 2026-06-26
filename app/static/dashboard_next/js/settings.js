@@ -63,15 +63,13 @@
   // ---- DPDP delete (server requires reauth; surface that honestly) ----
   onAction("deleteAllRecords", async () => {
     if (!window.confirm("Permanently delete your account and anonymise all associated exam history? This cannot be undone.")) return;
+    const token = api.reauth ? await api.reauth("delete your account") : null;
+    if (!token) return;
     try {
-      const r = await authFetch("/api/v1/privacy/delete", { method: "POST", body: JSON.stringify({}) });
+      const r = await authFetch("/api/v1/privacy/delete", { method: "POST", body: JSON.stringify({ reauth_token: token }) });
       if (r.ok) { alert("Account deletion processed. You will be signed out."); window.location.href = "/"; return; }
       const d = await r.json().catch(() => ({}));
-      if (r.status === 401 || r.status === 403) {
-        alert("For your security, deleting all records requires re-verifying your identity (password re-entry). " + (d.detail || "Please re-authenticate and try again."));
-      } else {
-        alert("Deletion failed: " + (d.detail || ("HTTP " + r.status)));
-      }
+      alert("Deletion failed: " + (d.detail || ("HTTP " + r.status)));
     } catch (_) { alert("Deletion failed."); }
   });
 })();

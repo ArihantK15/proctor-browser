@@ -339,11 +339,15 @@
     var me = await _getMe();
     var name = me.full_name || me.email || "Account";
     var sub = me.email || "";
-    document.querySelectorAll('img[src*="googleusercontent"]').forEach(function (img) {
-      if (img.dataset.avatarFixed) return; img.dataset.avatarFixed = "1";
+    // Scope STRICTLY to the top header bar(s). Other googleusercontent images on
+    // the page (evidence/webcam/forensic thumbnails) are NOT profile avatars and
+    // must not be touched — wiring them was the bug that broke the profile.
+    document.querySelectorAll("header").forEach(function (header) {
+      var img = header.querySelector('img[src*="googleusercontent"]');
+      if (!img || img.dataset.avatarFixed) return; img.dataset.avatarFixed = "1";
       var box = img.parentElement;
       if (box) box.innerHTML = '<div class="w-full h-full flex items-center justify-center bg-primary text-on-primary font-bold text-body-sm">' + _initials(name, sub) + '</div>';
-      var wrap = box && box.parentElement;
+      var wrap = box && box.parentElement; // the profile group (name + avatar)
       if (wrap) {
         var ps = wrap.querySelectorAll("p");
         if (ps[0]) ps[0].textContent = name;

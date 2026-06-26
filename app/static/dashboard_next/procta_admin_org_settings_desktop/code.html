@@ -80,11 +80,11 @@
 <div class="flex flex-col gap-md">
 <div class="flex flex-col gap-xs">
 <label class="font-label-caps text-label-caps text-on-surface-variant">Organization Name</label>
-<input class="bg-surface-container border border-outline-variant rounded-DEFAULT px-sm py-xs text-on-surface focus:border-inverse-primary focus:ring-1 focus:ring-inverse-primary outline-none transition-colors w-full font-body-base text-body-base" type="text" value="Acme University"/>
+<input id="org-name" class="bg-surface-container border border-outline-variant rounded-DEFAULT px-sm py-xs text-on-surface focus:border-inverse-primary focus:ring-1 focus:ring-inverse-primary outline-none transition-colors w-full font-body-base text-body-base" type="text" value=""/>
 </div>
 <div class="flex flex-col gap-xs">
 <label class="font-label-caps text-label-caps text-on-surface-variant">Primary Domain</label>
-<input class="bg-surface-container border border-outline-variant rounded-DEFAULT px-sm py-xs text-on-surface focus:border-inverse-primary focus:ring-1 focus:ring-inverse-primary outline-none transition-colors w-full font-body-base text-body-base" type="text" value="acme.edu"/>
+<input id="org-slug" disabled class="bg-surface-container border border-outline-variant rounded-DEFAULT px-sm py-xs text-on-surface-variant outline-none w-full font-body-base text-body-base opacity-70" type="text" value=""/>
 </div>
 <div class="flex flex-col gap-xs mt-sm">
 <label class="font-label-caps text-label-caps text-on-surface-variant mb-xs">Organization Logo</label>
@@ -160,8 +160,9 @@
 </div>
 <div class="mt-lg flex justify-end gap-md">
 <button class="px-lg py-sm rounded-DEFAULT border border-outline-variant text-on-surface font-body-base text-body-base hover:bg-surface-container-highest transition-colors">Discard Changes</button>
-<button class="px-lg py-sm rounded-DEFAULT bg-inverse-primary text-white font-body-base text-body-base hover:bg-primary-container transition-colors shadow-[0_4px_12px_rgba(73,75,214,0.3)]">Save Configuration</button>
+<button class="px-lg py-sm rounded-DEFAULT bg-inverse-primary text-white font-body-base text-body-base hover:bg-primary-container transition-colors shadow-[0_4px_12px_rgba(73,75,214,0.3)]" data-action="saveOrg" id="org-save">Save Configuration</button>
 </div>
 </main>
 <script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/org-settings.js" defer></script>
 </body></html>

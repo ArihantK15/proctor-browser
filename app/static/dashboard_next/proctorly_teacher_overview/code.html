@@ -4,101 +4,10 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Proctorly Admin | Overview</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
-<script id="tailwind-config">
-        tailwind.config = {
-          darkMode: "class",
-          theme: {
-            extend: {
-              "colors": {
-                      "tertiary-container": "#bd8708",
-                      "on-tertiary": "#422c00",
-                      "surface-container-high": "#292932",
-                      "primary-container": "#8083ff",
-                      "surface-container-highest": "#34343d",
-                      "on-error-container": "#ffdad6",
-                      "surface-container": "#1f1f27",
-                      "on-secondary-fixed": "#002105",
-                      "inverse-surface": "#e4e1ed",
-                      "on-surface-variant": "#c7c4d7",
-                      "on-tertiary-container": "#392600",
-                      "error": "#ffb4ab",
-                      "background": "#13131b",
-                      "on-primary": "#1000a9",
-                      "on-secondary-fixed-variant": "#005317",
-                      "tertiary-fixed-dim": "#fabc45",
-                      "outline": "#908fa0",
-                      "secondary-fixed-dim": "#67df70",
-                      "surface-variant": "#34343d",
-                      "tertiary": "#fabc45",
-                      "surface-bright": "#393841",
-                      "primary-fixed-dim": "#c0c1ff",
-                      "on-secondary": "#00390d",
-                      "on-primary-container": "#0d0096",
-                      "on-tertiary-fixed-variant": "#5f4100",
-                      "on-secondary-container": "#00320a",
-                      "surface-container-low": "#1b1b23",
-                      "secondary": "#67df70",
-                      "on-surface": "#e4e1ed",
-                      "surface": "#13131b",
-                      "on-background": "#e4e1ed",
-                      "inverse-primary": "#494bd6",
-                      "on-error": "#690005",
-                      "on-tertiary-fixed": "#271900",
-                      "surface-tint": "#c0c1ff",
-                      "surface-dim": "#13131b",
-                      "secondary-fixed": "#83fc89",
-                      "on-primary-fixed": "#07006c",
-                      "primary": "#c0c1ff",
-                      "outline-variant": "#464554",
-                      "secondary-container": "#27a640",
-                      "inverse-on-surface": "#303038",
-                      "tertiary-fixed": "#ffdeaa",
-                      "primary-fixed": "#e1e0ff",
-                      "surface-container-lowest": "#0d0d15",
-                      "on-primary-fixed-variant": "#2f2ebe",
-                      "error-container": "#93000a"
-              },
-              "borderRadius": {
-                      "DEFAULT": "0.25rem",
-                      "lg": "0.5rem",
-                      "xl": "0.75rem",
-                      "full": "9999px"
-              },
-              "spacing": {
-                      "xs": "8px",
-                      "lg": "24px",
-                      "sm": "12px",
-                      "margin-desktop": "32px",
-                      "xl": "32px",
-                      "margin-mobile": "16px",
-                      "md": "16px",
-                      "gutter": "20px",
-                      "base": "4px"
-              },
-              "fontFamily": {
-                      "label-caps": ["Inter"],
-                      "display-lg": ["Inter"],
-                      "headline-md": ["Inter"],
-                      "data-mono": ["JetBrains Mono"],
-                      "body-base": ["Inter"],
-                      "body-sm": ["Inter"]
-              },
-              "fontSize": {
-                      "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
-                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                      "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                      "data-mono": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                      "body-base": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
-                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
-              }
-            },
-          },
-        }
-    </script>
 <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -131,7 +40,7 @@
 <!-- SideNavBar -->
 <aside class="fixed left-0 top-0 h-full w-[260px] bg-surface-container border-r border-outline-variant flex flex-col py-lg z-50">
 <div class="px-lg mb-xl flex items-center gap-sm">
-<img alt="Proctorly Logo" class="w-10 h-10 object-contain rounded-lg" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDD6XYQtZ7OnSG_k3s2kk3bs9huvgI9uyt3b0CmIPbnNwSL_5hx1NmswTBHGqaJ4M23yEsRsxN15fVBOUs6uo4BFRMNJS0VzNIrxLWELw9shREeiGbGIZDRVdsGsxusaJ-ZbpJ3hjquEHORT5s6A20F2OqZ3YZGP6XpHOitGOzkef5dciE7L5MDL7X7w5YHUMWm_1liW9H6TZ7rw9ERSx9sQNQ0AqCYnvuJP0_kYCrkhVWEgNlwvPAqv2e2W3XX_ElNzLXGKnKqZuzm"/>
+<span class="material-symbols-outlined text-primary text-[28px]">shield_person</span>
 <div>
 <h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
 <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Mission Control</p>
@@ -206,7 +115,7 @@
 <p class="text-[10px] text-on-surface-variant leading-none">Senior Proctor</p>
 </div>
 <div class="w-10 h-10 rounded-full border-2 border-primary overflow-hidden">
-<img class="w-full h-full object-cover" data-alt="A professional headshot of a middle-aged female professor with short dark hair and modern glasses, wearing a dark navy blazer, smiling warmly but authoritatively against a soft-focus office background. High-quality corporate photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDEV92iJKlnWIkrV7KirjJVJpD9iEJdBd6o8mKg-v3cJSk-K67DRJdwIGrjfZWHpmOrzikwtICgtvDukSYo1_GeijWpgcQh6RCdHxF_-Ie4fBnLuR8p6l8T0VP9m6WTN_lorK5nUL6WCP0Sj8wsk8XSRNAjOXUrsK8ZqrIGWtiopPkV4O6pSPtMsicmkaDj--teU3u2QmHiNpImhEtYzJOdMyiTz8lNBVsYoWM-9L5N1eZXJxfIKzlC54p8C1eZEIwFeKNy-3Gd9CQa"/>
+<span class="material-symbols-outlined text-outline text-[14px]">person</span>
 </div>
 </div>
 </div>
@@ -216,7 +125,7 @@
 <!-- Greeting & Primary Actions -->
 <section class="flex flex-col md:flex-row md:items-end justify-between gap-lg">
 <div>
-<h2 class="font-display-lg text-display-lg text-on-surface tracking-tight">Good morning, Dr. Sarah</h2>
+<h2 id="greet-name" class="font-display-lg text-display-lg text-on-surface tracking-tight">Welcome back</h2>
 <p class="text-on-surface-variant mt-xs">Here's what's happening across your proctored exams today.</p>
 </div>
 <div class="flex gap-md">
@@ -242,7 +151,7 @@
 </div>
 <div class="mt-lg">
 <p class="text-on-surface-variant font-label-caps text-label-caps">Total Students</p>
-<h3 class="font-headline-md text-headline-md font-bold mt-xs">1,240</h3>
+<h3 id="kpi-students" class="font-headline-md text-headline-md font-bold mt-xs">—</h3>
 </div>
 <div class="h-8 mt-md flex items-end gap-1">
 <div class="flex-1 bg-primary/20 h-2 rounded-t-sm group-hover:bg-primary/40 transition-all"></div>
@@ -263,7 +172,7 @@
 </div>
 <div class="mt-lg">
 <p class="text-on-surface-variant font-label-caps text-label-caps">Exams this Month</p>
-<h3 class="font-headline-md text-headline-md font-bold mt-xs">12</h3>
+<h3 id="kpi-exams" class="font-headline-md text-headline-md font-bold mt-xs">—</h3>
 </div>
 <div class="h-8 mt-md flex items-end gap-1">
 <div class="flex-1 bg-tertiary/20 h-6 rounded-t-sm group-hover:bg-tertiary/40 transition-all"></div>
@@ -284,7 +193,7 @@
 </div>
 <div class="mt-lg">
 <p class="text-on-surface-variant font-label-caps text-label-caps">Avg Class Score</p>
-<h3 class="font-headline-md text-headline-md font-bold mt-xs">74%</h3>
+<h3 id="kpi-avgscore" class="font-headline-md text-headline-md font-bold mt-xs">—</h3>
 </div>
 <div class="h-8 mt-md flex items-end gap-1">
 <div class="flex-1 bg-secondary/20 h-2 rounded-t-sm group-hover:bg-secondary/40 transition-all"></div>
@@ -305,7 +214,7 @@
 </div>
 <div class="mt-lg">
 <p class="text-on-surface-variant font-label-caps text-label-caps">Open Flags</p>
-<h3 class="font-headline-md text-headline-md font-bold mt-xs text-error">18</h3>
+<h3 id="kpi-flags" class="font-headline-md text-headline-md font-bold mt-xs text-error">—</h3>
 </div>
 <div class="h-8 mt-md flex items-end gap-1">
 <div class="flex-1 bg-error/20 h-8 rounded-t-sm"></div>
@@ -324,7 +233,7 @@
 <h3 class="font-headline-md text-[18px] font-bold text-on-surface">Live Now</h3>
 <div class="flex-1 border-b border-outline-variant ml-sm opacity-20"></div>
 </div>
-<div class="flex gap-lg overflow-x-auto pb-md custom-scrollbar">
+<div id="live-now-strip" class="flex gap-lg overflow-x-auto pb-md custom-scrollbar">
 <!-- Live Card 1 -->
 <div class="min-w-[280px] glass-card p-md rounded-xl flex flex-col gap-sm relative group cursor-pointer hover:bg-surface-container-high transition-all">
 <div class="absolute top-3 right-3 flex items-center gap-xs">
@@ -338,7 +247,7 @@
 <div class="flex items-center justify-between mt-sm">
 <div class="flex -space-x-2">
 <div class="w-6 h-6 rounded-full border-2 border-surface bg-surface-container-high flex items-center justify-center overflow-hidden">
-<img class="w-full h-full object-cover" data-alt="Close-up of a student focused on a laptop screen." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDYoPiczjV3H4wXkZMkAbZ-q38PkPqW1qtiQcjzXjGbQ_DEKoFH19MPHBTYHeaiZcriloNP7xuphT7FLZBgpq7eNAOS384PXFtsbVVcPjI6Bj22Bl4QneveBJq3FnfR3uwmqlh19lNNBNuEyjQ5DUTOIpZRKa-31QAwzwRDYnt3RQtD_YWdNSRS5tUyawNJScAIx4-ROej7KltSFw_2SJ-Uspm7sBQu5FIosJgVV3B7RY0tfdIwGXhpbcZHEf31kOONorg_i-3ks_Dt"/>
+<span class="material-symbols-outlined text-outline text-[14px]">person</span>
 </div>
 <div class="w-6 h-6 rounded-full border-2 border-surface bg-surface-container-high flex items-center justify-center text-[8px]">142+</div>
 </div>
@@ -358,7 +267,7 @@
 <div class="flex items-center justify-between mt-sm">
 <div class="flex -space-x-2">
 <div class="w-6 h-6 rounded-full border-2 border-surface bg-surface-container-high overflow-hidden">
-<img class="w-full h-full object-cover" data-alt="Student avatar." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAXyJrh1BU7p6spOqgtZ5hvo17MWPE_fOeltXArNPbEiNprCzPFj9Ae_KdH8qJyL-VVTDf9oFpPQQ_2NfXarR44SYEibR_M_yFLVUDjQNvJzI873gbcq9cuF8z5xYjA6Xb7DDhFtUeFywK7yLNDQnLrU3YzZz9N6951esTaWJddkJuNSrigrC94YiQOUndt3g5ZzfnjIM11b9RuOw3CjVuHeZ5BE4rlmVjNs7VJSbiQXH8VvOPmZu64Q74_EI6X-UkbIBO4vF5_Y36w"/>
+<span class="material-symbols-outlined text-outline text-[14px]">person</span>
 </div>
 <div class="w-6 h-6 rounded-full border-2 border-surface bg-surface-container-high flex items-center justify-center text-[8px]">88+</div>
 </div>
@@ -386,7 +295,7 @@
 <th class="px-lg py-md text-right">ACTION</th>
 </tr>
 </thead>
-<tbody class="divide-y divide-outline-variant/20">
+<tbody id="exams-tbody" class="divide-y divide-outline-variant/20">
 <tr class="hover:bg-surface-container-high/50 transition-colors group">
 <td class="px-lg py-md font-bold text-on-surface">Calculus I: Final</td>
 <td class="px-lg py-md font-data-mono text-on-surface-variant">Nov 24, 09:00</td>
@@ -440,7 +349,7 @@
 <div class="p-lg border-b border-outline-variant">
 <h3 class="font-headline-md text-[20px] font-bold">Recent Activity</h3>
 </div>
-<div class="flex-1 p-lg overflow-y-auto custom-scrollbar space-y-lg relative">
+<div id="activity-feed" class="flex-1 p-lg overflow-y-auto custom-scrollbar space-y-lg relative">
 <div class="absolute left-[39px] top-lg bottom-lg w-px bg-outline-variant opacity-30"></div>
 <!-- Log 1 -->
 <div class="flex gap-lg relative">
@@ -498,27 +407,6 @@
 <div class="w-64 h-64 bg-primary/10 blur-[100px] rounded-full"></div>
 </div>
 </main>
-<script>
-        // Micro-interaction for primary button scaling
-        document.querySelectorAll('button').forEach(btn => {
-            btn.addEventListener('mousedown', () => {
-                btn.style.transform = 'scale(0.96)';
-            });
-            btn.addEventListener('mouseup', () => {
-                btn.style.transform = '';
-            });
-            btn.addEventListener('mouseleave', () => {
-                btn.style.transform = '';
-            });
-        });
-
-        // Simulating some dynamic data changes
-        setInterval(() => {
-            const flags = document.querySelector('.text-error.font-headline-md');
-            if (flags && Math.random() > 0.8) {
-                const current = parseInt(flags.innerText);
-                flags.innerText = Math.random() > 0.5 ? current + 1 : current - 1;
-            }
-        }, 5000);
-    </script>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/overview.js" defer></script>
 </body></html>

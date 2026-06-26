@@ -48,13 +48,16 @@ module.exports = {
       },
       fontFamily: {
         "data-mono": ["JetBrains Mono"], "headline-md": ["Inter"],
-        "body-base": ["Inter"], "body-sm": ["Inter"]
+        "body-base": ["Inter"], "body-sm": ["Inter"],
+        "display-lg": ["Inter"], "label-caps": ["Inter"]
       },
       fontSize: {
         "data-mono": ["13px", { lineHeight: "18px", letterSpacing: "0.02em", fontWeight: "500" }],
         "headline-md": ["24px", { lineHeight: "32px", letterSpacing: "-0.01em", fontWeight: "600" }],
         "body-base": ["16px", { lineHeight: "24px", fontWeight: "400" }],
-        "body-sm": ["14px", { lineHeight: "20px", fontWeight: "400" }]
+        "body-sm": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+        "display-lg": ["48px", { lineHeight: "56px", letterSpacing: "-0.02em", fontWeight: "700" }],
+        "label-caps": ["12px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "700" }]
       }
     }
   },

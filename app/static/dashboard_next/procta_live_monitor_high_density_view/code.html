@@ -153,7 +153,7 @@
 <div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-primary/50 transition-all">
 <p class="text-on-surface-variant text-body-sm mb-1">Active Students</p>
 <div class="flex items-end gap-3">
-<h2 class="text-headline-md font-bold">42</h2>
+<h2 class="text-headline-md font-bold" id="stat-active">42</h2>
 <div class="flex items-center gap-1 mb-1.5 text-secondary">
 <span class="w-2 h-2 rounded-full bg-secondary pulse-dot"></span>
 <span class="text-[12px] font-bold">LIVE</span>
@@ -172,7 +172,7 @@
 <div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-secondary/50 transition-all">
 <p class="text-on-surface-variant text-body-sm mb-1">Avg Risk Score</p>
 <div class="flex items-end gap-3">
-<h2 class="text-headline-md font-bold text-secondary">18/100</h2>
+<h2 class="text-headline-md font-bold text-secondary" id="stat-avgrisk">18/100</h2>
 </div>
 <div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
 <div class="w-full h-full flex items-end gap-1">
@@ -187,7 +187,7 @@
 <div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-tertiary/50 transition-all">
 <p class="text-on-surface-variant text-body-sm mb-1">Flagged Actions</p>
 <div class="flex items-end gap-3">
-<h2 class="text-headline-md font-bold text-tertiary">6</h2>
+<h2 class="text-headline-md font-bold text-tertiary" id="stat-flagged">6</h2>
 </div>
 <div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
 <div class="w-full h-full flex items-end gap-1">
@@ -202,7 +202,7 @@
 <div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-outline/50 transition-all">
 <p class="text-on-surface-variant text-body-sm mb-1">Completed</p>
 <div class="flex items-end gap-3">
-<h2 class="text-headline-md font-bold text-outline">128</h2>
+<h2 class="text-headline-md font-bold text-outline" id="stat-completed">128</h2>
 </div>
 <div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
 <div class="w-full h-full flex items-end gap-1">
@@ -221,10 +221,10 @@
 <!-- Filter Bar -->
 <div class="flex items-center justify-between mb-md">
 <div class="flex bg-surface-container border border-[#30363d] p-1 rounded-lg">
-<button class="px-6 py-1.5 text-body-sm font-bold bg-surface-container-highest text-on-surface rounded-md">All</button>
-<button class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Live</button>
-<button class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Flagged</button>
-<button class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Completed</button>
+<button data-action="filterLive" data-filter="all" class="px-6 py-1.5 text-body-sm font-bold bg-surface-container-highest text-on-surface rounded-md">All</button>
+<button data-action="filterLive" data-filter="live" class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Live</button>
+<button data-action="filterLive" data-filter="flagged" class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Flagged</button>
+<button data-action="filterLive" data-filter="completed" class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Completed</button>
 </div>
 <button class="flex items-center gap-2 px-4 py-2 bg-surface-container border border-[#30363d] rounded-lg text-body-sm font-medium hover:bg-surface-container-high">
 <span class="material-symbols-outlined text-[18px]" data-icon="sort">sort</span>
@@ -316,7 +316,7 @@
                     </h3>
 <span class="bg-surface-container-high px-2 py-0.5 rounded text-[10px] font-bold text-outline">LATEST</span>
 </div>
-<div class="flex-1 overflow-y-auto p-2 space-y-2">
+<div class="flex-1 overflow-y-auto p-2 space-y-2" id="violations-feed">
 <!-- Violation Items -->
 <div class="p-3 bg-surface-container-high/50 border border-error/30 rounded-lg cursor-pointer hover:bg-surface-container-high transition-all" data-action="peekDrawer">
 <div class="flex justify-between items-start mb-1">
@@ -342,7 +342,7 @@
 </div>
 </div>
 <div class="p-md bg-surface border-t border-[#30363d]">
-<button class="w-full py-2 border border-outline/30 rounded-lg text-body-sm font-bold hover:bg-surface-container-high transition-colors">
+<button class="w-full py-2 border border-outline/30 rounded-lg text-body-sm font-bold hover:bg-surface-container-high transition-colors"data-action="historicalLog">
                         View Historical Log
                     </button>
 </div>

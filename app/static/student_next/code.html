@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Procta Student Dashboard - Desktop</title>
+<link rel="stylesheet" href="/static/student_next/css/tailwind.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+</head>
+<body class="bg-background text-on-surface font-body-base antialiased min-h-screen flex flex-col md:flex-row">
+<!-- TopNavBar (JSON implementation for mobile, but also serves as the main nav context as per JSON rules) -->
+<!-- We adapt the top bar concept from prompt into the JSON TopNavBar structure where applicable, but hiding it on md+ as per standard desktop layout -->
+<header class="md:hidden fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl border-b border-outline-variant shadow-sm flex justify-between items-center px-margin-mobile h-16 transition-transform active:scale-95">
+<div class="font-headline-md text-headline-md font-bold text-primary">Procta</div>
+<div class="flex items-center gap-xs">
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer p-xs">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer p-xs">settings</span>
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-label-caps text-label-caps ml-xs border border-outline-variant overflow-hidden">
+<span id="st-avatar" class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+</div>
+</div>
+</header>
+<!-- Sidebar (Desktop) -->
+<aside class="hidden md:flex flex-col w-[260px] fixed h-screen bg-surface-container border-r border-outline-variant py-margin-desktop px-gutter z-40">
+<div class="font-headline-md text-headline-md font-bold text-primary mb-xl px-xs">Procta</div>
+<nav class="flex-1 flex flex-col gap-xs">
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg bg-primary/10 text-primary font-headline-md text-headline-md font-bold border-l-[4px] border-primary relative overflow-hidden group" href="#">
+<span class="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity"></span>
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">home</span>
+<span class="text-body-base font-body-base">Home</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-variant transition-colors border-l-[4px] border-transparent" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="text-body-base font-body-base">Results</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-on-surface-variant font-medium hover:text-primary hover:bg-surface-variant transition-colors border-l-[4px] border-transparent" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="text-body-base font-body-base">Profile</span>
+</a>
+</nav>
+<div class="mt-auto border-t border-outline-variant pt-md">
+<div class="flex items-center gap-sm px-xs py-sm">
+<div class="w-10 h-10 rounded-full bg-surface-variant flex items-center justify-center text-on-surface-variant font-label-caps text-label-caps border border-outline-variant overflow-hidden shrink-0">
+<span id="st-avatar" class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+</div>
+<div class="flex flex-col overflow-hidden">
+<span id="st-name" class="text-body-base font-body-base font-bold text-on-surface truncate">Student</span>
+<span id="st-inst" class="text-body-sm font-body-sm text-on-surface-variant truncate">&nbsp;</span>
+</div>
+<button data-action="stLogout" class="ml-auto material-symbols-outlined text-on-surface-variant hover:text-error transition-colors p-xs" title="Sign out">logout</button>
+</div>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 md:ml-[260px] pt-20 md:pt-margin-desktop px-margin-mobile md:px-margin-desktop pb-32 md:pb-margin-desktop overflow-x-hidden">
+<!-- Desktop Header Area (complementing the sidebar) -->
+<div class="hidden md:flex justify-between items-end mb-xl border-b border-outline-variant pb-md">
+<div>
+<h1 id="st-greet" class="font-display-lg text-display-lg text-on-surface">Welcome back</h1>
+<p id="st-sub" class="font-body-base text-body-base text-on-surface-variant mt-xs">&nbsp;</p>
+</div>
+<div class="flex items-center gap-sm">
+<button class="p-sm rounded-lg border border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary transition-colors flex items-center justify-center bg-surface-container-low shadow-[0px_10px_30px_rgba(0,0,0,0.4)]">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-sm rounded-lg border border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary transition-colors flex items-center justify-center bg-surface-container-low shadow-[0px_10px_30px_rgba(0,0,0,0.4)]">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</div>
+<!-- Stats Strip -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-md mb-xl">
+<!-- Stat Card 1: Countdown -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl p-md flex flex-col justify-between relative overflow-hidden group shadow-[0px_10px_30px_rgba(0,0,0,0.4)]">
+<div class="absolute inset-0 bg-tertiary/5 opacity-50"></div>
+<div class="absolute -top-10 -right-10 w-32 h-32 bg-tertiary/20 blur-3xl rounded-full"></div>
+<div class="relative z-10 flex items-center gap-xs text-tertiary mb-sm">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">timer</span>
+<span class="font-label-caps text-label-caps uppercase tracking-wider">Next Exam In</span>
+</div>
+<div class="relative z-10 font-data-mono text-data-mono text-3xl font-bold text-tertiary-fixed-dim drop-shadow-[0_0_8px_rgba(250,188,69,0.3)]">
+<span id="st-countdown">—</span></div>
+</div>
+<!-- Stat Card 2: Taken -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-md flex flex-col justify-between shadow-[0px_10px_30px_rgba(0,0,0,0.4)]">
+<div class="flex items-center gap-xs text-on-surface-variant mb-sm">
+<span class="material-symbols-outlined">assignment</span>
+<span class="font-label-caps text-label-caps uppercase tracking-wider">Exams Taken</span>
+</div>
+<div id="st-taken" class="font-headline-md text-headline-md font-bold text-on-surface">—</div>
+</div>
+<!-- Stat Card 3: Avg Score -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-md flex flex-col justify-between shadow-[0px_10px_30px_rgba(0,0,0,0.4)]">
+<div class="flex items-center gap-xs text-on-surface-variant mb-sm">
+<span class="material-symbols-outlined">grade</span>
+<span class="font-label-caps text-label-caps uppercase tracking-wider">Average Score</span>
+</div>
+<div id="st-avg" class="font-headline-md text-headline-md font-bold text-primary">—</div>
+</div>
+</div>
+<!-- Section 1: Upcoming & Active -->
+<section class="mb-xl">
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface mb-md">Upcoming &amp; Active</h2>
+<div id="st-upcoming" class="grid grid-cols-1 md:grid-cols-2 gap-lg">
+<!-- Card 1: Active Exam (Bento/Glassmorphism style) -->
+<div class="bg-surface-container border border-primary rounded-xl p-lg flex flex-col relative overflow-hidden shadow-[0px_10px_30px_rgba(0,0,0,0.4)] ring-1 ring-inset ring-primary/20">
+<div class="absolute top-0 right-0 p-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-secondary-container/20 text-secondary border border-secondary-container font-label-caps text-label-caps uppercase">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+                            LIVE NOW
+                        </span>
+</div>
+<div class="mb-6 z-10 pr-24">
+<h3 class="font-headline-md text-headline-md font-bold text-on-surface mb-1">Physics Midterm</h3>
+<p class="font-body-base text-body-base text-on-surface-variant">Science - Section B</p>
+</div>
+<div class="flex items-center gap-2 mb-8 text-on-surface-variant z-10 bg-surface-container-high w-max px-3 py-2 rounded-lg border border-outline-variant">
+<span class="material-symbols-outlined text-sm">calendar_month</span>
+<span class="font-data-mono text-data-mono">May 12, 10:00 - 12:00</span>
+</div>
+<div class="mt-auto pt-4 border-t border-outline-variant z-10 flex flex-col sm:flex-row items-center justify-between gap-4">
+<span class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">info</span>
+                            Opens in the Procta desktop app
+                        </span>
+<button class="w-full sm:w-auto px-6 py-3 bg-inverse-primary text-white font-body-base text-body-base font-bold rounded-lg hover:bg-primary transition-colors hover:text-on-primary shadow-[0px_0px_15px_rgba(99,102,241,0.3)]">
+                            Join Exam
+                        </button>
+</div>
+</div>
+<!-- Card 2: Scheduled Exam -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-lg flex flex-col relative shadow-[0px_10px_30px_rgba(0,0,0,0.4)] opacity-90 hover:opacity-100 transition-opacity">
+<div class="absolute top-0 right-0 p-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-variant text-on-surface-variant border border-outline-variant font-label-caps text-label-caps uppercase">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+                            SCHEDULED
+                        </span>
+</div>
+<div class="mb-6 pr-32">
+<h3 class="font-headline-md text-headline-md font-bold text-on-surface mb-1">Applied Calculus</h3>
+<p class="font-body-base text-body-base text-on-surface-variant">Mathematics - Section A</p>
+</div>
+<div class="flex items-center gap-2 mb-8 text-on-surface-variant bg-surface-container-high w-max px-3 py-2 rounded-lg border border-outline-variant">
+<span class="material-symbols-outlined text-sm">calendar_month</span>
+<span class="font-data-mono text-data-mono">May 15, 09:00</span>
+</div>
+<div class="mt-auto pt-4 border-t border-outline-variant flex items-center justify-between">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Prerequisites verified</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Section 2: Past Results Table -->
+<section>
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface mb-md">Past Results</h2>
+<div class="w-full overflow-x-auto rounded-xl border border-outline-variant bg-surface-container shadow-[0px_10px_30px_rgba(0,0,0,0.4)]">
+<table class="w-full text-left border-collapse min-w-[700px]">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-container-high/50">
+<th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant font-bold uppercase tracking-wider">Exam</th>
+<th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant font-bold uppercase tracking-wider">Date</th>
+<th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant font-bold uppercase tracking-wider">Score</th>
+<th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant font-bold uppercase tracking-wider">Status</th>
+<th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant font-bold uppercase tracking-wider text-right">Action</th>
+</tr>
+</thead>
+<tbody id="st-results" class="font-body-base text-body-base divide-y divide-outline-variant">
+<tr class="hover:bg-surface-variant/30 transition-colors group">
+<td class="py-md px-md font-medium text-on-surface">Data Structures Final</td>
+<td class="py-md px-md font-data-mono text-data-mono text-on-surface-variant">Apr 28, 2024</td>
+<td class="py-md px-md">
+<div class="flex items-baseline gap-2">
+<span class="font-data-mono text-data-mono font-bold text-on-surface">38/40</span>
+<span class="font-data-mono text-data-mono text-sm text-primary">95%</span>
+</div>
+</td>
+<td class="py-md px-md">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-secondary/10 text-secondary border border-secondary/20 font-label-caps text-label-caps uppercase">
+                                    PASS
+                                </span>
+</td>
+<td class="py-md px-md text-right">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-variant transition-colors group-hover:opacity-100 opacity-60">
+<span class="material-symbols-outlined">download</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-surface-variant/30 transition-colors group">
+<td class="py-md px-md font-medium text-on-surface">Linear Algebra Midterm</td>
+<td class="py-md px-md font-data-mono text-data-mono text-on-surface-variant">Mar 15, 2024</td>
+<td class="py-md px-md">
+<div class="flex items-baseline gap-2">
+<span class="font-data-mono text-data-mono font-bold text-on-surface">88/100</span>
+<span class="font-data-mono text-data-mono text-sm text-primary">88%</span>
+</div>
+</td>
+<td class="py-md px-md">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-secondary/10 text-secondary border border-secondary/20 font-label-caps text-label-caps uppercase">
+                                    PASS
+                                </span>
+</td>
+<td class="py-md px-md text-right">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-variant transition-colors group-hover:opacity-100 opacity-60">
+<span class="material-symbols-outlined">download</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</main>
+<!-- BottomNavBar (Mobile Only) - Generated from JSON strictly -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 rounded-t-xl bg-surface-container/80 backdrop-blur-xl border-t border-outline-variant shadow-lg flex justify-around items-center h-20 pb-safe pb-4">
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 hover:bg-surface-container-high transition-colors active:scale-90 transition-all font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">home</span>
+<span class="mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors active:scale-90 transition-all font-label-caps text-label-caps p-2 rounded-xl" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="mt-1">Results</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors active:scale-90 transition-all font-label-caps text-label-caps p-2 rounded-xl" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="mt-1">Profile</span>
+</a>
+</nav>
+<script src="/static/student_next/js/student-api.js" defer></script>
+<script src="/static/student_next/js/student.js" defer></script>
+</body></html>

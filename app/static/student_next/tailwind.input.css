@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles lifted from the Stitch export's inline <style> (CSP: external). */
+body { background-color: #13131b; color: #e4e1ed; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+.material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+.risk-red-glow { box-shadow: 0 0 15px -2px rgba(239, 68, 68, 0.4); border-color: #ef4444 !important; }
+.risk-amber-glow { box-shadow: 0 0 10px -2px rgba(245, 158, 11, 0.2); border-color: #f59e0b !important; }
+.risk-emerald-glow { border-color: #10b981 !important; }
+.glass-blur { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+@keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.pulse-dot { animation: pulse-soft 2s infinite ease-in-out; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #13131b; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }

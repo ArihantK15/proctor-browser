@@ -812,6 +812,14 @@ def admin_dashboard_next_evidence():
         "Dashboard (next) evidence not found")
 
 
+@router.get("/student-next")
+def student_dashboard_next():
+    # Responsive student hub (schedule + results + scorecards). Student session;
+    # the proctored exam itself still runs in the desktop client. WIP → replaces /student.
+    return _static_html_response(
+        "student_next/code.html", "Student dashboard (next) not found")
+
+
 @router.get("/dashboard-legacy")
 def admin_dashboard_legacy():
     # Back-compat alias for the legacy dashboard, now identical to /dashboard.

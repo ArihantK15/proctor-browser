@@ -2190,6 +2190,36 @@ async def student_history(request: Request):
     return {"history": history}
 
 
+@router.get("/api/v1/student/scorecard/{session_key:path}")
+@limiter.limit("20/minute")
+async def student_scorecard(session_key: str, request: Request):
+    """Let a student download the official scorecard PDF for ONE of their OWN sessions.
+
+    Ownership is enforced the same way student_history scopes data: the session must
+    belong to a (roll_number, teacher_id) the caller is actually enrolled under. Any
+    session that isn't theirs 404s — a student can never pull another student's PDF.
+    The PDF is built by the same builder the teacher/email path uses.
+    """
+    from fastapi import Response as _Response
+    from ..services.scorecard import _build_scorecard_pdf
+    account = await require_student_account(request)
+    email = account["email"].strip().lower()
+    enrollments = await _student_enrollments_for_account(account, email, "roll_number,teacher_id")
+    for enr in enrollments:
+        teacher_id = str(enr["teacher_id"])
+        owned = (await _atable("exam_sessions").select("session_key")
+                 .eq("session_key", session_key)
+                 .eq("roll_number", enr["roll_number"])
+                 .eq("teacher_id", teacher_id)
+                 .in_("status", list(RESULT_STATUSES))
+                 .limit(1).execute()).data or []
+        if owned:
+            pdf_bytes, filename, _ = await _build_scorecard_pdf(session_key, teacher_id)
+            return _Response(content=pdf_bytes, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    raise HTTPException(status_code=404, detail="Scorecard not found")
+
+
 def _exam_window_status(starts_at, ends_at, now, duration):
     """Determine exam status from time window."""
     if starts_at:

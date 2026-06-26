@@ -50,8 +50,11 @@
     '<div class="flex items-center justify-between mb-lg"><h2 class="font-bold text-lg">Invite Member</h2><button data-action="invClose" class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">close</span></button></div>' +
     '<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Email</label>' +
     '<input id="inv-email" type="email" placeholder="teacher@university.edu" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 mb-md focus:border-primary"/>' +
-    '<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Role</label>' +
-    '<select id="inv-role" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 font-semibold [&>option]:bg-surface-container"><option value="teacher">Teacher</option><option value="admin">Admin</option></select>' +
+    // Invites always join as a teacher (the backend org_invites flow has no role
+    // field). To make someone an admin, promote them from the members list after
+    // they join (the role toggle = PATCH /org/members/{id}/role). A role picker
+    // here would be silently dropped by the API, so we don't show one.
+    '<p class="text-body-sm text-on-surface-variant mb-md">They\'ll join as a <strong>teacher</strong>. You can promote them to admin from the members list once they accept.</p>' +
     '<p id="inv-err" class="text-error text-body-sm mt-2 hidden"></p>' +
     '<div class="flex justify-end gap-md mt-xl"><button data-action="invClose" class="px-lg py-md border border-outline-variant rounded-lg font-bold text-body-sm hover:bg-surface-container-high">Cancel</button>' +
     '<button id="inv-go" data-action="invSend" class="px-lg py-md bg-primary text-on-primary rounded-lg font-bold text-body-sm hover:opacity-90">Send Invite</button></div></div></div>';
@@ -59,11 +62,11 @@
   onAction("inviteMember", () => { invEnsure(); const m = $("invModal"); m.classList.remove("hidden"); m.classList.add("flex"); const e = $("inv-email"); if (e) { e.value = ""; e.focus(); } $("inv-err").classList.add("hidden"); });
   onAction("invClose", () => { const m = $("invModal"); if (m) { m.classList.add("hidden"); m.classList.remove("flex"); } });
   onAction("invSend", async (btn) => {
-    const email = ($("inv-email") || {}).value || ""; const role = ($("inv-role") || {}).value || "teacher";
+    const email = ($("inv-email") || {}).value || "";
     if (!email.includes("@")) { $("inv-err").textContent = "Enter a valid email."; $("inv-err").classList.remove("hidden"); return; }
     btn.disabled = true; btn.textContent = "Sending…";
     try {
-      const r = await authFetch("/api/v1/org/invite", { method: "POST", body: JSON.stringify({ email: email.trim(), role }) });
+      const r = await authFetch("/api/v1/org/invite", { method: "POST", body: JSON.stringify({ email: email.trim() }) });
       if (r.ok) { const m = $("invModal"); m.classList.add("hidden"); m.classList.remove("flex"); load(); }
       else { const d = await r.json().catch(() => ({})); $("inv-err").textContent = d.detail || ("Failed (HTTP " + r.status + ")"); $("inv-err").classList.remove("hidden"); }
     } catch (_) { $("inv-err").textContent = "Invite failed."; $("inv-err").classList.remove("hidden"); }

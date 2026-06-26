@@ -69,8 +69,11 @@
 
   // ---- Role toggle -------------------------------------------------------
   function safeNext(raw) {
-    // Only same-origin relative paths; never "//host" or absolute URLs.
-    if (!raw || raw.charAt(0) !== "/" || raw.charAt(1) === "/") return "";
+    // Only same-origin relative paths. Reject "//host" AND "/\host": some
+    // browsers normalise a backslash to "/", turning "/\evil.com" into the
+    // protocol-relative "//evil.com" → open redirect.
+    if (!raw || raw.charAt(0) !== "/") return "";
+    if (raw.charAt(1) === "/" || raw.charAt(1) === "\\") return "";
     return raw;
   }
   var qs = new URLSearchParams(location.search);

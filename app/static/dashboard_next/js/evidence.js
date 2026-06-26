@@ -52,7 +52,10 @@
 
     const primary = a.evidence_primary || null;
     const context = Array.isArray(a.evidence_context) ? a.evidence_context : [];
-    if (prim) prim.style.backgroundImage = primary ? `url('${primary}')` : "";
+    // Escape quotes/parens/backslash so a signed URL can't break out of the
+    // CSS url() and inject a property (defensive — signed URLs are normally
+    // percent-encoded, but don't rely on that).
+    if (prim) prim.style.backgroundImage = primary ? `url("${String(primary).replace(/["()\\]/g, encodeURIComponent)}")` : "";
     if (ctx) {
       if (!primary && !context.length) {
         ctx.innerHTML = '<div class="col-span-3 p-md text-center text-on-surface-variant text-body-sm border border-dashed border-outline-variant rounded-xl">No frame evidence attached to this appeal (session-level appeal). Use the Audit Report PDF for the full log.</div>';

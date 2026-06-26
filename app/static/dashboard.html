@@ -1213,6 +1213,14 @@
                 <input type="text" id="share-register-link" readonly
                   style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
                 <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-register-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
+                <button class="btn btn-secondary btn-sm" data-action="toggleRegQR" style="white-space:nowrap;padding:10px 16px">QR</button>
+              </div>
+              <!-- Registration QR — students scan to open the self-registration link.
+                   PNG served by /api/v1/admin/qr (self-hosted; CSP img-src 'self'). -->
+              <div id="reg-qr-box" style="display:none;margin-top:12px;text-align:center">
+                <img id="reg-qr-img" alt="Registration QR code" width="180" height="180"
+                     style="background:#fff;border-radius:8px;padding:8px;border:1px solid var(--border)">
+                <p style="font-size:11px;color:var(--muted);margin-top:6px">Students can scan this to open the registration page.</p>
               </div>
             </div>
             <div>

@@ -1998,6 +1998,19 @@ async function profileChangePassword(){
   if(res) res.textContent = '✅ Check your email for a secure reset link.';
 }
 
+// Registration QR — show/hide a scannable QR of the self-registration link.
+// The PNG is served by /api/v1/admin/qr (same-origin, cookie-auth, CSP-safe).
+function toggleRegQR(){
+  const box = document.getElementById('reg-qr-box');
+  if(!box) return;
+  if(box.style.display === 'none' || !box.style.display){
+    const link = (document.getElementById('share-register-link')||{}).value || '';
+    const img = document.getElementById('reg-qr-img');
+    if(link && img) img.src = `${BASE}/api/v1/admin/qr?data=${encodeURIComponent(link)}`;
+    box.style.display = '';
+  } else { box.style.display = 'none'; }
+}
+
 async function revokeSession(jti){
   if(!(await appConfirm('Revoke this session? The device will be signed out immediately.', 'Revoke session', {okText:'Revoke'}))) return;
   try{

@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Proctorly - Questions</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -35,90 +35,7 @@
             box-shadow: 0 0 15px rgba(99, 102, 241, 0.1);
         }
     </style>
-<script id="tailwind-config">
-        tailwind.config = {
-          darkMode: "class",
-          theme: {
-            extend: {
-              "colors": {
-                "on-secondary": "#00390d",
-                "tertiary": "#fabc45",
-                "on-background": "#e4e1ed",
-                "surface-tint": "#c0c1ff",
-                "surface-dim": "#13131b",
-                "outline-variant": "#464554",
-                "primary-fixed-dim": "#c0c1ff",
-                "on-surface-variant": "#c7c4d7",
-                "on-primary-fixed-variant": "#2f2ebe",
-                "inverse-primary": "#494bd6",
-                "on-tertiary-fixed-variant": "#5f4100",
-                "secondary-fixed-dim": "#67df70",
-                "surface-container-low": "#1b1b23",
-                "primary": "#c0c1ff",
-                "on-primary": "#1000a9",
-                "on-primary-fixed": "#07006c",
-                "inverse-surface": "#e4e1ed",
-                "error": "#ffb4ab",
-                "surface": "#13131b",
-                "secondary-fixed": "#83fc89",
-                "on-tertiary": "#422c00",
-                "background": "#13131b",
-                "outline": "#908fa0",
-                "surface-container-lowest": "#0d0d15",
-                "primary-fixed": "#e1e0ff",
-                "on-surface": "#e4e1ed",
-                "on-tertiary-fixed": "#271900",
-                "on-error-container": "#ffdad6",
-                "on-primary-container": "#0d0096",
-                "tertiary-container": "#bd8708",
-                "inverse-on-surface": "#303038",
-                "on-secondary-fixed-variant": "#005317",
-                "tertiary-fixed": "#ffdeaa",
-                "surface-container": "#1f1f27",
-                "on-secondary-container": "#00320a",
-                "surface-container-high": "#292932",
-                "surface-bright": "#393841",
-                "secondary-container": "#27a640",
-                "secondary": "#67df70",
-                "error-container": "#93000a",
-                "primary-container": "#8083ff",
-                "surface-container-highest": "#34343d",
-                "on-tertiary-container": "#392600",
-                "on-error": "#690005",
-                "tertiary-fixed-dim": "#fabc45",
-                "on-secondary-fixed": "#002105",
-                "surface-variant": "#34343d"
-              },
-              "borderRadius": {
-                "DEFAULT": "0.25rem",
-                "lg": "0.5rem",
-                "xl": "0.75rem",
-                "full": "9999px"
-              },
-              "spacing": {
-                "xs": "8px",
-                "base": "4px",
-                "margin-mobile": "16px",
-                "gutter": "20px",
-                "xl": "32px",
-                "margin-desktop": "32px",
-                "md": "16px",
-                "lg": "24px",
-                "sm": "12px"
-              },
-              "fontFamily": {
-                "body-base": ["Inter"],
-                "headline-md": ["Inter"],
-                "data-mono": ["JetBrains Mono"],
-                "label-caps": ["Inter"],
-                "display-lg": ["Inter"],
-                "headline-md-mobile": ["Inter"],
-                "body-sm": ["Inter"]
-              }
-            }
-          }
-        }
-    </script>
+
 </head>
 <body class="dark bg-background text-on-surface">
 <!-- Sidebar (Shared Component) -->
@@ -219,7 +136,7 @@
 <div class="flex flex-wrap items-center gap-3">
 <!-- Split Button -->
 <div class="flex shadow-lg rounded-lg overflow-hidden border border-white/10">
-<button class="bg-[#6366f1] text-white px-4 py-2.5 font-bold flex items-center gap-2 hover:bg-opacity-90 active:scale-95 transition-all" onclick="document.getElementById('codingModal').classList.remove('hidden')">
+<button class="bg-[#6366f1] text-white px-4 py-2.5 font-bold flex items-center gap-2 hover:bg-opacity-90 active:scale-95 transition-all" data-action="openCoding">
 <span class="material-symbols-outlined text-sm" data-icon="add">add</span> Add Question
                         </button>
 <button class="bg-[#6366f1] border-l border-indigo-400 text-white px-2 py-2.5 hover:bg-opacity-90 active:scale-95 transition-all">
@@ -244,7 +161,7 @@
 </div>
 </div>
 <!-- Question List -->
-<div class="space-y-4">
+<div class="space-y-4" id="question-list">
 <!-- MCQ Card -->
 <div class="group relative bg-surface-container border border-[#30363d] rounded-xl p-md card-glow transition-all duration-300">
 <div class="absolute left-[-16px] top-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity drag-handle text-[#30363d] hover:text-primary">
@@ -433,7 +350,7 @@
 </main>
 <!-- Coding Question Editor Wizard Modal -->
 <div class="fixed inset-0 z-50 flex items-center justify-center hidden" id="codingModal">
-<div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="document.getElementById('codingModal').classList.add('hidden')"></div>
+<div class="absolute inset-0 bg-black/60 backdrop-blur-sm" data-action="closeCoding"></div>
 <div class="relative bg-surface border border-[#30363d] w-full max-w-4xl h-full md:h-[921px] md:max-h-[800px] md:rounded-2xl overflow-hidden flex flex-col shadow-2xl">
 <!-- Modal Header -->
 <div class="px-lg py-4 border-b border-[#30363d] flex items-center justify-between bg-surface-container-low">
@@ -448,7 +365,7 @@
 </div>
 <div class="flex items-center gap-4">
 <a class="text-primary text-xs font-semibold hover:underline hidden md:block" href="#">Use advanced editor</a>
-<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors" onclick="document.getElementById('codingModal').classList.add('hidden')">
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors" data-action="closeCoding">
 <span class="material-symbols-outlined" data-icon="close">close</span>
 </button>
 </div>
@@ -532,7 +449,7 @@
 <div class="px-lg py-4 border-t border-[#30363d] bg-surface-container-low flex justify-between items-center">
 <button class="text-on-surface-variant font-bold text-sm hover:text-on-surface px-4 py-2 transition-all">Save as Draft</button>
 <div class="flex items-center gap-3">
-<button class="px-6 py-2.5 rounded-lg border border-[#30363d] font-bold text-sm hover:bg-surface-container-high transition-all" onclick="document.getElementById('codingModal').classList.add('hidden')">Cancel</button>
+<button class="px-6 py-2.5 rounded-lg border border-[#30363d] font-bold text-sm hover:bg-surface-container-high transition-all" data-action="closeCoding">Cancel</button>
 <button class="px-8 py-2.5 rounded-lg bg-[#6366f1] text-white font-bold text-sm hover:bg-opacity-90 shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Next: Languages</button>
 </div>
 </div>
@@ -561,22 +478,7 @@
 <button class="md:hidden fixed right-4 bottom-20 w-14 h-14 rounded-full bg-[#6366f1] text-white flex items-center justify-center shadow-2xl z-40 active:scale-90 transition-transform">
 <span class="material-symbols-outlined text-3xl" data-icon="add">add</span>
 </button>
-<script>
-        // Simple micro-interactions
-        document.addEventListener('DOMContentLoaded', () => {
-            // Drag handles visualization
-            const cards = document.querySelectorAll('.group.relative');
-            cards.forEach(card => {
-                card.addEventListener('mouseenter', () => {
-                    card.style.transform = 'translateX(4px)';
-                });
-                card.addEventListener('mouseleave', () => {
-                    card.style.transform = 'translateX(0)';
-                });
-            });
 
-            // Tab bar toggle logic would go here
-            // Currently using inline onclick for modal and bank visibility
-        });
-    </script>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/questions.js" defer></script>
 </body></html>

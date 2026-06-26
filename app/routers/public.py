@@ -755,6 +755,13 @@ def admin_dashboard_next():
         "Dashboard (next) not found")
 
 
+@router.get("/dashboard-next/questions")
+def admin_dashboard_next_questions():
+    return _static_html_response(
+        "dashboard_next/procta_question_authoring_coding_wizard/code.html",
+        "Dashboard (next) questions not found")
+
+
 @router.get("/dashboard-legacy")
 def admin_dashboard_legacy():
     # Back-compat alias for the legacy dashboard, now identical to /dashboard.

@@ -69,12 +69,20 @@
 
   // ---- Role toggle -------------------------------------------------------
   function safeNext(raw) {
-    // Only same-origin relative paths. Reject "//host" AND "/\host": some
-    // browsers normalise a backslash to "/", turning "/\evil.com" into the
-    // protocol-relative "//evil.com" → open redirect.
-    if (!raw || raw.charAt(0) !== "/") return "";
-    if (raw.charAt(1) === "/" || raw.charAt(1) === "\\") return "";
-    return raw;
+    // Same-origin internal paths only. Resolve against our own origin and reject
+    // anything that escapes it — this kills absolute URLs, "//host", "/\host"
+    // (browsers fold "\"→"/"), and scheme tricks like "javascript:" in one check
+    // (and, unlike a charAt allowlist, CodeQL recognises the origin compare as a
+    // sanitizer). Returns only the path+query+hash so the redirect can never be a
+    // full URL or a non-http(s) scheme.
+    if (!raw) return "";
+    try {
+      var u = new URL(raw, location.origin);
+      if (u.origin !== location.origin) return "";
+      var path = u.pathname + u.search + u.hash;
+      if (path.charAt(0) !== "/" || path.charAt(1) === "/") return "";
+      return path;
+    } catch (_) { return ""; }
   }
   var qs = new URLSearchParams(location.search);
   var nextDest = safeNext(qs.get("next"));

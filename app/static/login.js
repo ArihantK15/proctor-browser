@@ -149,7 +149,12 @@
 
     if (r.ok) {
       showOk("Signed in. Redirecting…");
-      location.href = nextDest || cfg.dest;
+      // nextDest is safeNext()-sanitised: resolved against location.origin and
+      // rejected unless it's a same-origin path (kills //host, /\host, absolute
+      // URLs and javascript: — see safeNext + the 8-vector test). CodeQL accepts
+      // it; Semgrep's community open-redirect rule is purely syntactic (flags any
+      // location.href = <var>), so we suppress that one rule on this verified line.
+      location.href = nextDest || cfg.dest; // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
       return;
     }
 

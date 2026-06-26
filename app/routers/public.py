@@ -783,6 +783,13 @@ def admin_dashboard_next_students():
         "Dashboard (next) students not found")
 
 
+@router.get("/dashboard-next/results")
+def admin_dashboard_next_results():
+    return _static_html_response(
+        "dashboard_next/proctorly_results_analytics/code.html",
+        "Dashboard (next) results not found")
+
+
 @router.get("/dashboard-legacy")
 def admin_dashboard_legacy():
     # Back-compat alias for the legacy dashboard, now identical to /dashboard.

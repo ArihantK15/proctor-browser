@@ -6,7 +6,9 @@
  * replaces the CDN <script> the export used). */
 module.exports = {
   darkMode: "class",
-  content: ["./**/*.html", "./js/*.js"],
+  // Also scan the student dashboard (same design tokens, shares this one build so we
+  // don't run a second Tailwind pipeline / node_modules just for it).
+  content: ["./**/*.html", "./js/*.js", "../student_next/**/*.html", "../student_next/js/*.js"],
   // live.js builds risk-tone classes via template literals (bg-${t}/10) that the
   // content scan can't see — safelist them so the purge keeps them.
   safelist: [

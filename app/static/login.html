@@ -65,6 +65,15 @@
       font-family:var(--font); outline:none; transition:.15s; margin-bottom:16px}
     input:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(128,131,255,.18)}
     input::placeholder{color:var(--faint)}
+    /* Password field + show/hide toggle */
+    .pw-wrap{position:relative; margin-bottom:16px}
+    .pw-wrap input{margin-bottom:0; padding-right:46px}
+    .pw-toggle{position:absolute; top:50%; right:8px; transform:translateY(-50%);
+      display:flex; align-items:center; justify-content:center; width:32px; height:32px;
+      padding:0; border:0; background:transparent; color:var(--faint); cursor:pointer;
+      border-radius:8px; transition:.15s}
+    .pw-toggle:hover{color:var(--text)}
+    .pw-toggle:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
     #otp{font-family:var(--mono); letter-spacing:.32em; text-align:center; font-size:18px}
     .hint{font-size:12px; color:var(--muted); margin:-8px 0 14px}
     .cf{min-height:0; margin:2px 0 16px}
@@ -107,8 +116,15 @@
              placeholder="you@example.com" required>
 
       <label for="password">Password</label>
-      <input id="password" name="password" type="password"
-             autocomplete="current-password" placeholder="Your password" required>
+      <div class="pw-wrap">
+        <input id="password" name="password" type="password"
+               autocomplete="current-password" placeholder="Your password" required>
+        <button type="button" id="pw-toggle" class="pw-toggle" aria-label="Show password" aria-pressed="false">
+          <svg id="pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
 
       <!-- Teacher email-2FA step: revealed when /auth/login returns EMAIL_2FA_REQUIRED -->
       <div id="otp-wrap" hidden>

@@ -36,6 +36,7 @@
 
   var role = "student";
   var siteKey = "";
+  var turnstileEnabled = false;
   var widgetId = null;
   var captchaToken = "";
 
@@ -59,13 +60,24 @@
       try { window.turnstile.reset(widgetId); } catch (_) {}
     }
   }
-  // Turnstile's async script may land before or after us; poll briefly.
-  (function waitForTurnstile() {
-    if (window.turnstile) { renderTurnstile(); return; }
-    var n = 0, iv = setInterval(function () {
-      if (window.turnstile || n++ > 40) { clearInterval(iv); renderTurnstile(); }
-    }, 150);
-  })();
+  // Fetch the public Turnstile site key. Empty key => Turnstile is DISABLED
+  // (backend runs in sandbox mode and verify_or_403 passes through), so we hide
+  // the widget slot and must NOT gate sign-in on a token — otherwise login is
+  // impossible (no widget => no token ever). When a key is present, render the
+  // widget once the async Turnstile script lands.
+  function disableTurnstile() { turnstileEnabled = false; var box = $("cf-turnstile"); if (box) box.style.display = "none"; }
+  fetch("/api/v1/public-config", { credentials: "include" })
+    .then(function (r) { return r.ok ? r.json() : {}; })
+    .then(function (d) {
+      siteKey = (d && d.turnstile_site_key) || "";
+      if (!siteKey) { disableTurnstile(); return; }
+      turnstileEnabled = true;
+      if (window.turnstile) { renderTurnstile(); return; }
+      var n = 0, iv = setInterval(function () {
+        if (window.turnstile || n++ > 40) { clearInterval(iv); renderTurnstile(); }
+      }, 150);
+    })
+    .catch(function () { disableTurnstile(); });
 
   // ---- Role toggle -------------------------------------------------------
   function safeNext(raw) {
@@ -120,7 +132,7 @@
     var password = $("password").value;
     if (!email || email.indexOf("@") < 0) { showErr("Enter a valid email address."); return; }
     if (!password) { showErr("Enter your password."); return; }
-    if (!captchaToken) { showErr("Please complete the verification challenge."); return; }
+    if (turnstileEnabled && !captchaToken) { showErr("Please complete the verification challenge."); return; }
 
     var cfg = ROLES[role];
     var body = { email: email, password: password, captcha_token: captchaToken };
@@ -194,7 +206,7 @@
     clearMsg();
     var email = $("email").value.trim();
     if (!email || email.indexOf("@") < 0) { showErr("Enter your email above first, then click “Forgot password?”"); $("email").focus(); return; }
-    if (!captchaToken) { showErr("Complete the verification challenge first, then click “Forgot password?”"); return; }
+    if (turnstileEnabled && !captchaToken) { showErr("Complete the verification challenge first, then click “Forgot password?”"); return; }
     var cfg = ROLES[role];
     setBusy(true, "Sign in");
     try {
@@ -213,11 +225,25 @@
     showOk("If an account exists for that email, we’ve sent password-reset instructions — check your inbox. To sign in here, complete the verification again.");
   }
 
+  // ---- Password show/hide ------------------------------------------------
+  var EYE = '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>';
+  var EYE_OFF = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+  function togglePw() {
+    var inp = $("password"), btn = $("pw-toggle"), eye = $("pw-eye");
+    if (!inp) return;
+    var show = inp.type === "password";
+    inp.type = show ? "text" : "password";
+    if (eye) eye.innerHTML = show ? EYE_OFF : EYE;
+    if (btn) { btn.setAttribute("aria-label", show ? "Hide password" : "Show password"); btn.setAttribute("aria-pressed", show ? "true" : "false"); }
+    inp.focus();
+  }
+
   // ---- Wire up -----------------------------------------------------------
   $("seg-student").addEventListener("click", function () { setRole("student"); });
   $("seg-teacher").addEventListener("click", function () { setRole("teacher"); });
   $("login-form").addEventListener("submit", submit);
   $("forgot").addEventListener("click", forgot);
+  if ($("pw-toggle")) $("pw-toggle").addEventListener("click", togglePw);
 
   // Initial role: ?role= param > last-used > student.
   var initial = qs.get("role");

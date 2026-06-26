@@ -804,6 +804,14 @@ def admin_dashboard_next_settings():
         "Dashboard (next) settings not found")
 
 
+@router.get("/dashboard-next/evidence")
+def admin_dashboard_next_evidence():
+    # Appeals review queue (privacy-correct: frames only from appeal-attached evidence).
+    return _static_html_response(
+        "dashboard_next/proctorly_evidence_review/code.html",
+        "Dashboard (next) evidence not found")
+
+
 @router.get("/dashboard-legacy")
 def admin_dashboard_legacy():
     # Back-compat alias for the legacy dashboard, now identical to /dashboard.

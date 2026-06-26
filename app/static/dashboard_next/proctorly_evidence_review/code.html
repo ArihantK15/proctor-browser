@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Proctorly | Single-student Evidence Review</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -29,104 +29,13 @@
             mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
         }
     </style>
-<script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "tertiary-container": "#bd8708",
-                        "on-tertiary": "#422c00",
-                        "surface-container-high": "#292932",
-                        "primary-container": "#8083ff",
-                        "surface-container-highest": "#34343d",
-                        "on-error-container": "#ffdad6",
-                        "surface-container": "#1f1f27",
-                        "on-secondary-fixed": "#002105",
-                        "inverse-surface": "#e4e1ed",
-                        "on-surface-variant": "#c7c4d7",
-                        "on-tertiary-container": "#392600",
-                        "error": "#ffb4ab",
-                        "background": "#13131b",
-                        "on-primary": "#1000a9",
-                        "on-secondary-fixed-variant": "#005317",
-                        "tertiary-fixed-dim": "#fabc45",
-                        "outline": "#908fa0",
-                        "secondary-fixed-dim": "#67df70",
-                        "surface-variant": "#34343d",
-                        "tertiary": "#fabc45",
-                        "surface-bright": "#393841",
-                        "primary-fixed-dim": "#c0c1ff",
-                        "on-secondary": "#00390d",
-                        "on-primary-container": "#0d0096",
-                        "on-tertiary-fixed-variant": "#5f4100",
-                        "on-secondary-container": "#00320a",
-                        "surface-container-low": "#1b1b23",
-                        "secondary": "#67df70",
-                        "on-surface": "#e4e1ed",
-                        "surface": "#13131b",
-                        "on-background": "#e4e1ed",
-                        "inverse-primary": "#494bd6",
-                        "on-error": "#690005",
-                        "on-tertiary-fixed": "#271900",
-                        "surface-tint": "#c0c1ff",
-                        "surface-dim": "#13131b",
-                        "secondary-fixed": "#83fc89",
-                        "on-primary-fixed": "#07006c",
-                        "primary": "#c0c1ff",
-                        "outline-variant": "#464554",
-                        "secondary-container": "#27a640",
-                        "inverse-on-surface": "#303038",
-                        "tertiary-fixed": "#ffdeaa",
-                        "primary-fixed": "#e1e0ff",
-                        "surface-container-lowest": "#0d0d15",
-                        "on-primary-fixed-variant": "#2f2ebe",
-                        "error-container": "#93000a"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "0.25rem",
-                        "lg": "0.5rem",
-                        "xl": "0.75rem",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "xs": "8px",
-                        "lg": "24px",
-                        "sm": "12px",
-                        "margin-desktop": "32px",
-                        "xl": "32px",
-                        "margin-mobile": "16px",
-                        "md": "16px",
-                        "gutter": "20px",
-                        "base": "4px"
-                    },
-                    "fontFamily": {
-                        "label-caps": ["Inter"],
-                        "display-lg": ["Inter"],
-                        "headline-md": ["Inter"],
-                        "data-mono": ["JetBrains Mono"],
-                        "body-base": ["Inter"],
-                        "body-sm": ["Inter"]
-                    },
-                    "fontSize": {
-                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
-                        "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                        "data-mono": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                        "body-base": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
-                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
-                    }
-                }
-            }
-        }
-    </script>
 </head>
 <body class="bg-background text-on-surface font-body-base overflow-hidden">
 <!-- Top Navigation Bar -->
 <header class="fixed top-0 left-0 w-full z-50 bg-surface/80 backdrop-blur-md border-b border-outline-variant px-margin-desktop h-16 flex items-center justify-between">
 <div class="flex items-center gap-lg">
 <div class="flex items-center gap-xs">
-<img alt="Proctorly Logo" class="w-8 h-8 rounded-full" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDD6XYQtZ7OnSG_k3s2kk3bs9huvgI9uyt3b0CmIPbnNwSL_5hx1NmswTBHGqaJ4M23yEsRsxN15fVBOUs6uo4BFRMNJS0VzNIrxLWELw9shREeiGbGIZDRVdsGsxusaJ-ZbpJ3hjquEHORT5s6A20F2OqZ3YZGP6XpHOitGOzkef5dciE7L5MDL7X7w5YHUMWm_1liW9H6TZ7rw9ERSx9sQNQ0AqCYnvuJP0_kYCrkhVWEgNlwvPAqv2e2W3XX_ElNzLXGKnKqZuzm"/>
+<span class="material-symbols-outlined text-primary text-[28px]">shield_person</span>
 <span class="font-headline-md text-primary font-bold">Proctorly</span>
 </div>
 <div class="h-6 w-px bg-outline-variant"></div>
@@ -157,10 +66,10 @@
 <!-- Left Panel: Event Timeline -->
 <aside class="w-[320px] h-full bg-surface-container-low border-r border-outline-variant flex flex-col shrink-0">
 <div class="p-md border-b border-outline-variant flex justify-between items-center bg-surface-container">
-<h2 class="font-label-caps text-on-surface-variant">EVENT TIMELINE</h2>
-<span class="font-data-mono text-tertiary">14 Flags</span>
+<h2 class="font-label-caps text-on-surface-variant">APPEALS QUEUE</h2>
+<span id="appeals-count" class="font-data-mono text-tertiary">—</span>
 </div>
-<div class="flex-1 overflow-y-auto evidence-mask">
+<div id="appeals-list" class="flex-1 overflow-y-auto evidence-mask">
 <!-- Timeline Event: Selected -->
 <div class="p-md bg-primary-container/10 border-l-4 border-primary cursor-pointer hover:bg-primary-container/20 transition-all">
 <div class="flex justify-between mb-xs">
@@ -238,11 +147,11 @@
 <div class="p-lg flex justify-between items-start">
 <div class="flex gap-md">
 <div class="w-16 h-16 rounded-xl overflow-hidden border-2 border-primary/20">
-<div class="w-full h-full bg-cover bg-center" data-alt="A professional ID-style portrait of a young male student, Aarav, wearing a simple navy blue t-shirt. The background is a neutral grey. The image is clear, crisp, and high resolution, styled for an official institutional database." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuD0RnZisQ2-MZUIYdRy7GWg09x-CF8C7cO59e4vWttMms-sd83t5Yi_aN7YS1H_lvKYTU1z4vasnBug8v8RWZi7xEZjRi6gD5NxkdCXwSMQp2r0mySxiBJrrAkBKA4X-JU3UDCJrE9zSdu0XYANZU4MKFdoArY67-nSk0Jjr1eXbws91_-kwyzg9a2POYTVkoVLIpNBN82aA5BHx-tOdV7Vlfl62Z4PZj5-3aBYpa-oF3gsbNvjPr4EJI5YQmpLQ6E-HAPg16hRRC49')"></div>
+<div id="ev-avatar" class="w-full h-full bg-surface-container-high flex items-center justify-center"><span class="material-symbols-outlined text-outline">person</span></div>
 </div>
 <div>
-<h1 class="font-headline-md text-on-surface">Aarav S. <span class="text-on-surface-variant font-medium">(R012)</span></h1>
-<p class="text-body-sm text-on-surface-variant mb-xs">Physics Midterm • Section B-14</p>
+<h1 id="ev-student" class="font-headline-md text-on-surface">Select an appeal</h1>
+<p id="ev-exam" class="text-body-sm text-on-surface-variant mb-xs">—</p>
 <div class="flex items-center gap-sm">
 <span class="px-xs py-[2px] bg-error-container text-on-error-container rounded-full text-[10px] font-bold uppercase tracking-wider">Flagged</span>
 <span class="font-data-mono text-on-surface-variant text-[12px]">Last updated: 2 mins ago</span>
@@ -253,7 +162,7 @@
 <div class="flex flex-col items-end">
 <span class="font-label-caps text-on-surface-variant text-[10px]">RISK SCORE</span>
 <div class="flex items-baseline gap-xs">
-<span class="text-[40px] font-bold text-error leading-none">82</span>
+<span id="ev-risk" class="text-[40px] font-bold text-error leading-none">—</span>
 <span class="text-on-surface-variant font-data-mono">/100</span>
 </div>
 </div>
@@ -293,7 +202,7 @@
 <div class="flex-1 px-lg pb-lg flex flex-col gap-md">
 <div class="flex-1 relative rounded-2xl overflow-hidden border border-outline-variant bg-surface-container-lowest flex items-center justify-center group shadow-2xl">
 <!-- Main Frame -->
-<div class="absolute inset-0 bg-cover bg-center" data-alt="A large, clear high-definition frame of a student's desktop and face. A semi-transparent red rectangle highlights a smartphone on the desk. Geometric AI nodes and connection lines highlight the student's eyes and the object. Systematic, technical interface styling with mission-control aesthetic." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCnW-6arsXVJ1AbGHc18Hkx8Hjoxpp68dveqJi3pQgI3RagjOy_bvqomAgfDmwbXdQYvnsqSWIgdEwJp9IqDffh9QrRH83e-Tou84J2jvYFKYiHJVYABoaXZkDAgwbbfXnGxkSNdfLMRARqlOlpHjYkCAnlSISLcx1nR-kPLqkDFDywthpfpqdAgVdIbHYnb2CnRtMypmvNN8-Y2sOnTZc0fYEIoymtPeySNYZnDSAaa33H_9GHtgoOte3P5BHh8dLaJQtTU0P05ED4')"></div>
+<div id="ev-primary" class="absolute inset-0 bg-cover bg-center"></div>
 <!-- Overlay Controls -->
 <div class="absolute top-md right-md flex flex-col gap-xs">
 <button class="bg-surface/60 backdrop-blur-md p-xs rounded-lg border border-white/10 text-on-surface hover:bg-surface transition-colors">
@@ -308,14 +217,11 @@
 <button class="text-white hover:text-primary"><span class="material-symbols-outlined" style="font-size: 32px;">play_circle</span></button>
 <button class="text-white hover:text-primary"><span class="material-symbols-outlined">skip_next</span></button>
 <div class="h-4 w-px bg-white/20 mx-xs"></div>
-<button class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-full font-bold text-body-sm transition-transform active:scale-95">
-<span class="material-symbols-outlined" style="font-size: 18px;">videocam</span>
-                            On-demand Camera
-                        </button>
+<button data-action="auditPdf" class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-full font-bold text-body-sm transition-transform active:scale-95"><span class="material-symbols-outlined" style="font-size: 18px;">picture_as_pdf</span> Audit Report PDF</button>
 </div>
 </div>
 <!-- Context Frames -->
-<div class="grid grid-cols-3 gap-md">
+<div id="ev-context" class="grid grid-cols-3 gap-md">
 <div class="relative group cursor-pointer aspect-video rounded-xl border border-outline-variant overflow-hidden">
 <div class="w-full h-full bg-cover bg-center" data-alt="Webcam frame 2 seconds before the flag, showing the student looking at the keyboard. Neutral lighting, dark study environment. Digital timestamp in corner." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDr_c-0pszyNTL7gI6BwOA5f7wEmptLVEwzxhg04kXvgij-KNhb1j4RnNBOrJGXgFjORVUSyemsk56jyrW0-OApYzNZ8n3S_0M1MH6vjGXyNeQnKJQ3m1lDDPMtZAljqsyy3Qyqga0c8Tmh1SCB8N8BmdWgKMNVGtzgXjBM-sbZFZPkX-I-a0BzbPHCHFKandFYSTO2qYBZ3vcP3DtrFjnY98Yj6_juztR4Jrm7-Br6g1S9iPd0furkvAC6PzGrO3kZIlgmWez5lINQ')"></div>
 <div class="absolute top-2 left-2 bg-black/40 px-xs rounded text-[10px] font-data-mono">-2.0s</div>
@@ -337,14 +243,8 @@
 <div class="p-lg border-b border-outline-variant bg-surface-container-high">
 <h3 class="font-label-caps text-on-surface-variant mb-md">ADJUDICATION</h3>
 <div class="grid grid-cols-2 gap-sm mb-md">
-<button class="flex items-center justify-center gap-xs px-md py-sm bg-secondary text-on-secondary rounded-lg font-bold text-body-sm hover:opacity-90 transition-all">
-<span class="material-symbols-outlined" style="font-size: 18px;">check_circle</span>
-                        Approve
-                    </button>
-<button class="flex items-center justify-center gap-xs px-md py-sm bg-error-container text-on-error-container rounded-lg font-bold text-body-sm hover:opacity-90 transition-all">
-<span class="material-symbols-outlined" style="font-size: 18px;">flag</span>
-                        Escalate
-                    </button>
+<button data-action="acceptAppeal" class="flex items-center justify-center gap-xs px-md py-sm bg-secondary text-on-secondary rounded-lg font-bold text-body-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined" style="font-size: 18px;">check_circle</span> Accept</button>
+<button data-action="rejectAppeal" class="flex items-center justify-center gap-xs px-md py-sm bg-error-container text-on-error-container rounded-lg font-bold text-body-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined" style="font-size: 18px;">flag</span> Reject</button>
 </div>
 <button class="w-full flex items-center justify-center gap-xs px-md py-sm border border-outline-variant text-on-surface rounded-lg font-medium text-body-sm hover:bg-surface transition-all mb-lg">
 <span class="material-symbols-outlined" style="font-size: 18px;">note_add</span>
@@ -367,7 +267,7 @@
 <!-- Message from Student -->
 <div class="flex flex-col items-start gap-xs max-w-[85%]">
 <div class="bg-surface-container-highest p-sm rounded-xl rounded-tl-none border border-outline-variant">
-<p class="text-body-sm text-on-surface">Hello, I noticed I was flagged during the exam. I was just reaching for a calculator that fell off my desk. I don't have my phone with me.</p>
+<p id="ev-appeal-msg" class="text-body-sm text-on-surface">Select an appeal to view the student's message.</p>
 </div>
 <span class="font-data-mono text-[10px] text-on-surface-variant">Today, 14:25</span>
 </div>
@@ -386,7 +286,7 @@
 <!-- Input Field -->
 <div class="p-md border-t border-outline-variant bg-surface-container-high">
 <div class="relative">
-<textarea class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg p-sm text-body-sm focus:ring-1 focus:ring-primary focus:border-primary resize-none h-20 text-on-surface" placeholder="Type a message to student..."></textarea>
+<textarea id="ev-note" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg p-sm text-body-sm focus:ring-1 focus:ring-primary focus:border-primary resize-none h-20 text-on-surface" placeholder="Optional note recorded with your decision…"></textarea>
 <button class="absolute bottom-sm right-sm text-primary p-xs hover:bg-primary/10 rounded-full transition-all active:scale-90">
 <span class="material-symbols-outlined">send</span>
 </button>
@@ -395,25 +295,6 @@
 </div>
 </aside>
 </main>
-<script>
-        // Micro-interaction for timeline hover
-        const timelineItems = document.querySelectorAll('aside div[class*="cursor-pointer"]');
-        timelineItems.forEach(item => {
-            item.addEventListener('mouseenter', () => {
-                item.style.transform = 'translateX(4px)';
-            });
-            item.addEventListener('mouseleave', () => {
-                item.style.transform = 'translateX(0px)';
-            });
-        });
-
-        // Toggle focus state for textarea
-        const textarea = document.querySelector('textarea');
-        textarea.addEventListener('focus', () => {
-            textarea.parentElement.classList.add('ring-1', 'ring-primary');
-        });
-        textarea.addEventListener('blur', () => {
-            textarea.parentElement.classList.remove('ring-1', 'ring-primary');
-        });
-    </script>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/evidence.js" defer></script>
 </body></html>

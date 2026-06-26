@@ -19,7 +19,8 @@
     if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
       const c = await _getCsrf();
       if (c) headers["X-CSRF-Token"] = c;
-      if (opts.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+      // Don't force JSON on FormData — the browser must set the multipart boundary itself.
+      if (opts.body && !headers["Content-Type"] && !(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
     }
     return fetch(BASE + url, Object.assign({}, opts, { credentials: "include", headers }));
   }

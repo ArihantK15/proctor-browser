@@ -769,6 +769,13 @@ def admin_dashboard_next_overview():
         "Dashboard (next) overview not found")
 
 
+@router.get("/dashboard-next/exams")
+def admin_dashboard_next_exams():
+    return _static_html_response(
+        "dashboard_next/proctorly_all_exams/code.html",
+        "Dashboard (next) exams not found")
+
+
 @router.get("/dashboard-legacy")
 def admin_dashboard_legacy():
     # Back-compat alias for the legacy dashboard, now identical to /dashboard.

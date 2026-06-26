@@ -72,8 +72,8 @@
     } catch (_) {}
   }
 
-  onAction("editQuestion", () => { /* TODO: MCQ/numeric inline editor (next increment) */ });
-  onAction("deleteQuestion", () => { /* TODO: confirm + DELETE (next increment) */ });
+  // editQuestion / deleteQuestion / addQuestion are owned by qedit.js (MCQ/numeric/etc.);
+  // openCoding is owned by wizard.js. questions.js just renders the list.
   if (api.onExamChange) api.onExamChange(() => load());
   window.addEventListener("procta:reload-questions", load); // wizard saved a coding question
 
